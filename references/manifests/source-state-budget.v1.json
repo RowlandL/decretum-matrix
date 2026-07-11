@@ -9,7 +9,6 @@
     ],
     "generated_dir_names": [
       "__pycache__",
-      ".git",
       ".mypy_cache",
       ".pytest_cache",
       ".ruff_cache",

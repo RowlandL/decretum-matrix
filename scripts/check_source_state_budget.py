@@ -155,6 +155,10 @@ def path_starts(relative: str, prefix: str) -> bool:
     return relative == clean or relative.startswith(clean + "/")
 
 
+def is_vcs_metadata(relative: Path) -> bool:
+    return ".git" in relative.parts or relative.as_posix() == ".git"
+
+
 def classify(relative: Path, config: dict[str, object]) -> str:
     text = relative.as_posix()
     parts = relative.parts
@@ -223,16 +227,18 @@ def evaluate(root: Path, manifest: dict[str, object]) -> dict[str, object]:
         }
 
     for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if is_vcs_metadata(relative):
+            continue
         if path.is_symlink():
             try:
                 resolved = path.resolve(strict=True)
                 resolved.relative_to(root)
             except (OSError, ValueError):
-                hard_fail.append({"code": "external_or_broken_symlink", "path": path.relative_to(root).as_posix()})
+                hard_fail.append({"code": "external_or_broken_symlink", "path": relative.as_posix()})
             continue
         if not path.is_file():
             continue
-        relative = path.relative_to(root)
         if "__pycache__" in relative.parts or relative.suffix.lower() == ".pyc":
             bytecode_artifacts.append(relative.as_posix())
         try:
@@ -356,6 +362,19 @@ def run_fixture_tests(manifest: dict[str, object]) -> dict[str, bool]:
     }
     baseline = evaluate(root, fixture_manifest)
 
+    git_directory = root / ".git"
+    git_directory.mkdir()
+    git_config = git_directory / "config"
+    git_config.write_text("[core]\n\tbare = false\n", encoding="utf-8")
+    git_directory_result = evaluate(root, fixture_manifest)
+    git_config.unlink()
+    git_directory.rmdir()
+
+    worktree_git_file = root / ".git"
+    worktree_git_file.write_text("gitdir: ../fixture.git/worktrees/source\n", encoding="utf-8")
+    worktree_git_result = evaluate(root, fixture_manifest)
+    worktree_git_file.unlink()
+
     pending = root / "references" / "shiguan-imports" / "pending"
     pending.mkdir(parents=True)
     pending_body = pending / "opaque-body.json"
@@ -385,6 +404,14 @@ def run_fixture_tests(manifest: dict[str, object]) -> dict[str, bool]:
     bytecode_result = evaluate(root, fixture_manifest)
     return {
         "baseline_passes": bool(baseline["ok"]),
+        "git_directory_metadata_ignored": (
+            git_directory_result["categories"] == baseline["categories"]
+            and git_directory_result["categories"]["generated_runtime"]["files"] == 0  # type: ignore[index]
+        ),
+        "git_worktree_file_metadata_ignored": (
+            worktree_git_result["categories"] == baseline["categories"]
+            and worktree_git_result["categories"]["generated_runtime"]["files"] == 0  # type: ignore[index]
+        ),
         "pending_body_is_stat_only": generated_runtime["inspection_contract"]["pending_body_reads"] == 0,  # type: ignore[index]
         "generated_runtime_zero_budget_is_hard_fail": has_failure(
             generated_runtime,
