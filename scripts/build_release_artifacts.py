@@ -23,6 +23,11 @@ ROOT = Path(__file__).resolve().parents[1]
 NAME = "court-capability-router"
 ATTESTATION_SCHEMA = "court.release_attestation.v1"
 RELEASE_RE = re.compile(r"^beta(?P<core>0\.[0-9]+\.[0-9]+)$")
+TAG_SIGNATURE_MARKERS = (
+    "-----BEGIN PGP SIGNATURE-----",
+    "-----BEGIN SSH SIGNATURE-----",
+    "-----BEGIN SIGNED MESSAGE-----",
+)
 
 
 class ArtifactBuildError(RuntimeError):
@@ -72,6 +77,10 @@ def git_text(*args: str, root: Path = ROOT, allowed_returncodes: tuple[int, ...]
     return completed.stdout.strip()
 
 
+def tag_has_signature(tag_body: str) -> bool:
+    return any(marker in tag_body for marker in TAG_SIGNATURE_MARKERS)
+
+
 def collect_source_identity(release_label: str, root: Path = ROOT) -> dict[str, str]:
     if git_text("status", "--porcelain", root=root):
         raise ArtifactBuildError("release source worktree is not clean")
@@ -86,7 +95,7 @@ def collect_source_identity(release_label: str, root: Path = ROOT) -> dict[str, 
     if tag_commit != head_commit:
         raise ArtifactBuildError(f"release tag does not point to HEAD: {tag_commit} != {head_commit}")
     tag_body = git_text("cat-file", "-p", tag_ref, root=root)
-    if "\ngpgsig " in f"\n{tag_body}":
+    if tag_has_signature(tag_body):
         git_text("verify-tag", release_label, root=root)
         tag_signature = "PASSED"
     else:
@@ -289,7 +298,12 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
     manifest = load_payload_manifest(root)
     source = synthetic_source_identity(root)
     release_label = str(manifest["release_label"])
-    tests: dict[str, bool] = {}
+    tests: dict[str, bool] = {
+        "annotated_tag_signature_markers_detected": all(
+            tag_has_signature(f"tag body\n{marker}\nfixture") for marker in TAG_SIGNATURE_MARKERS
+        )
+        and not tag_has_signature("unsigned annotated tag body")
+    }
     with tempfile.TemporaryDirectory(prefix="court-release-builder-self-test-") as tmp_text:
         temp_root = Path(tmp_text)
         first = temp_root / "candidate-a.zip"
