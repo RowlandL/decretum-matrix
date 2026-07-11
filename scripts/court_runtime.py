@@ -118,6 +118,7 @@ AGENT_MESSAGE_BUDGET_FIELDS = (
     "message_required_chars",
     "message_optional_chars",
     "message_component_status",
+    "message_component_reason",
     "message_budget_remaining_chars",
     "message_overage_chars",
     "required_reduction_chars",
@@ -339,7 +340,9 @@ def agent_dispatch_message_budget(
         "message_budget_quantum_chars": AGENT_MESSAGE_BUDGET_QUANTUM_CHARS,
         "message_budget_ceiling_chars": AGENT_MESSAGE_BUDGET_CEILING_CHARS,
     }
-    components_supplied = raw_required_chars is not None or raw_optional_chars is not None
+    required_supplied = raw_required_chars is not None
+    optional_supplied = raw_optional_chars is not None
+    components_supplied = required_supplied or optional_supplied
     message_value = (
         raw_message_chars
         if isinstance(raw_message_chars, int) and not isinstance(raw_message_chars, bool)
@@ -363,6 +366,7 @@ def agent_dispatch_message_budget(
         "message_required_chars": required_value,
         "message_optional_chars": optional_value,
         "message_component_status": "unspecified",
+        "message_component_reason": "not_supplied",
         "optional_compression_target_chars": None,
         "required_message_overage_chars": None,
         "compression_possible_without_required_loss": None,
@@ -382,17 +386,41 @@ def agent_dispatch_message_budget(
             "compression_guidance": "measure the exact final dispatch message before new integrations",
         }
     total_valid = message_value is not None and message_value >= 0
-    components_valid = (
-        not components_supplied
-        or (
-            required_value is not None
-            and optional_value is not None
-            and total_valid
-            and required_value + optional_value == message_value
-        )
-    )
+    component_reason = "not_supplied"
+    if components_supplied:
+        if not required_supplied or not optional_supplied:
+            component_reason = "component_missing"
+        elif any(
+            isinstance(value, int) and not isinstance(value, bool) and value < 0
+            for value in (raw_required_chars, raw_optional_chars)
+        ):
+            component_reason = "component_negative"
+        elif required_value is None or optional_value is None:
+            component_reason = "component_invalid"
+        elif total_valid and required_value + optional_value != message_value:
+            component_reason = "component_sum_mismatch"
+        else:
+            component_reason = "measured"
+    components_valid = not components_supplied or component_reason == "measured"
+    component_fields["message_component_reason"] = component_reason
     if not total_valid or not components_valid:
         component_fields["message_component_status"] = "invalid" if components_supplied else "unspecified"
+        if not total_valid:
+            guidance = "report a non-negative Unicode code-point count, then re-admit with a new wave_id"
+        elif component_reason == "component_missing":
+            guidance = (
+                "provide both message_required_chars and message_optional_chars, "
+                "then re-admit with a new wave_id"
+            )
+        elif component_reason == "component_negative":
+            guidance = "report non-negative component counts, then re-admit with a new wave_id"
+        elif component_reason == "component_sum_mismatch":
+            guidance = (
+                "make message_required_chars + message_optional_chars equal message_chars, "
+                "then re-admit with a new wave_id"
+            )
+        else:
+            guidance = "report integer component counts, then re-admit with a new wave_id"
         return {
             **common,
             **component_fields,
@@ -403,8 +431,8 @@ def agent_dispatch_message_budget(
             "message_budget_remaining_chars": None,
             "message_overage_chars": None,
             "required_reduction_chars": None,
-            "message_budget_retryable": False,
-            "compression_guidance": "report a non-negative Unicode code-point count",
+            "message_budget_retryable": True,
+            "compression_guidance": guidance,
         }
     if components_supplied:
         component_fields["message_component_status"] = "measured"

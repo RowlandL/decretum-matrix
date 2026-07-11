@@ -547,6 +547,30 @@ max_threads = 6
             assert invalid_components["allowed"] is False
             assert invalid_components["decision"] == "invalid_dispatch_message_size"
             assert invalid_components["message_component_status"] == "invalid"
+            assert invalid_components["message_component_reason"] == "component_sum_mismatch"
+            assert "equal message_chars" in invalid_components["compression_guidance"]
+            assert invalid_components["message_budget_retryable"] is True
+
+            missing_component = sized_admission(
+                9000,
+                "message-components-missing",
+                required_chars=9000,
+            )
+            assert missing_component["allowed"] is False
+            assert missing_component["message_component_reason"] == "component_missing"
+            assert "provide both" in missing_component["compression_guidance"]
+            assert missing_component["message_budget_retryable"] is True
+
+            negative_component = sized_admission(
+                9000,
+                "message-components-negative",
+                required_chars=-1,
+                optional_chars=9001,
+            )
+            assert negative_component["allowed"] is False
+            assert negative_component["message_component_reason"] == "component_negative"
+            assert "non-negative" in negative_component["compression_guidance"]
+            assert negative_component["message_budget_retryable"] is True
             six_role_admission = court_runtime.evaluate_agent_admission(
                 {"task_id": "dynamic-six", "agents": {}},
                 Namespace(
