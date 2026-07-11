@@ -328,6 +328,7 @@ REQUIRED_COURT_SCRIPTS = [
     "refresh_capability_registry.py",
     "check_capability_index_gate.py",
     "check_release_legal.py",
+    "release_payload_manifest.py",
     "check_response_fewshot_format.py",
     "check_response_draft_fixtures.py",
     "check_context_compression_survival.py",
@@ -1023,6 +1024,7 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
     forbidden: list[str] = []
     required = {
         f"{ROOT_NAME}/SKILL.md",
+        f"{ROOT_NAME}/release-manifest.json",
         f"{ROOT_NAME}/development-manual/README.md",
         f"{ROOT_NAME}/development-manual/court-capability-router-development-manual-zh.md",
         f"{ROOT_NAME}/web/shiguan-tree/app.js",
@@ -1208,6 +1210,12 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
             schema = graph.get("schema") if isinstance(graph, dict) else {}
             if not isinstance(schema, dict) or schema.get("portable_seed") is not True:
                 forbidden.append(f"{graph_name}:not-portable-seed")
+    try:
+        from release_payload_manifest import validate_zip_payload
+
+        forbidden.extend(validate_zip_payload(path))
+    except (ImportError, RuntimeError, ValueError) as exc:
+        forbidden.append(f"release-manifest:validator-failed:{type(exc).__name__}")
     return entry_count, missing + sorted(set(forbidden))
 
 

@@ -1,1 +1,1325 @@
-{"schema":"court.release_manifest.v1","name":"court-capability-router","version_core":"0.5.8","channel":"beta","release_label":"beta0.5.8","artifact_name":"court-capability-router-beta0.5.8.zip","archive_root":"court-capability-router/","sidecar_name":"court-capability-router-beta0.5.8.zip.sha256","source_ref":"refs/tags/beta0.5.8","integrity":{"algorithm":"sha256","manifest_path":"release-manifest.json","manifest_in_file_inventory":false,"payload_file_count":203,"payload_bytes":2934358,"payload_index_format":"mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes","payload_index_sha256":"a2efdc7d9f6ac0c351f304ae6e8e11f1b4ce30119e8eaa7db09d00670eb6b564"},"files":[{"path":".gitignore","mode":"100644","size":478,"sha256":"85f8889686a206fb798db7410bd116648a38067f33ce814166fd7d675db1c5d4"},{"path":"CHANGELOG.md","mode":"100644","size":1361,"sha256":"5c4d7e72b52cb84a600dd84d676efc5135ed96224ef5c0ccbd15ea518768a425"},{"path":"README.md","mode":"100644","size":48128,"sha256":"567be3a80375bee42fb0fff76c848f9a37e58f975398ed9946960f2f4a5f25d6"},{"path":"RELEASE-LOG.md","mode":"100644","size":4246,"sha256":"b670607e4b7b2c35bf8c70d6c8525501fa4bcf27f86e346878b3c4e32bfe03ae"},{"path":"SKILL.md","mode":"100644","size":61479,"sha256":"b5b5e4b0620a44bb0e7994661745817dcdf2563c26ec6170e68095d36b7d6f6b"},{"path":"VERSION","mode":"100644","size":10,"sha256":"177da1d41640e882ae2984609867a1ce507226893892d30d828f53c461d21b18"},{"path":"agents/openai.yaml","mode":"100644","size":256,"sha256":"b6589500d747bfdb58392d5122f9f11ddb8655987f882d7dd969b2d36b371f33"},{"path":"agents/standing-officials/bingbu.toml","mode":"100644","size":5594,"sha256":"814f6566bd7c8534e730c17c19bbd02459d5114c89aafbc8850f9cff32c93269"},{"path":"agents/standing-officials/gongbu.toml","mode":"100644","size":5649,"sha256":"70765d4a7e9dbbfab43365bb2280b258c7a676957f4ab251db385eaa64f4cb6c"},{"path":"agents/standing-officials/hubu.toml","mode":"100644","size":5741,"sha256":"cc8bcaaa4750498922ea29bea08b631b9919295a5673a5f766099f2b030820a6"},{"path":"agents/standing-officials/libu-hr.toml","mode":"100644","size":5991,"sha256":"1db3c74e3fe59028d1f01fa6d345a165051c37bb647e03a2576cf739ffafee61"},{"path":"agents/standing-officials/libu.toml","mode":"100644","size":5542,"sha256":"b6b31520b5301e9250d7bba7d76b329e223b33f490b2e8276618979921512ab1"},{"path":"agents/standing-officials/menxia.toml","mode":"100644","size":5894,"sha256":"79c4222219992fc29eec1a8e53e63b3d6bc6301a6941ec56142c44b9d9249e31"},{"path":"agents/standing-officials/patrol-inspector.toml","mode":"100644","size":8553,"sha256":"fe0569d2bd059c029ddbbc95072863686ef8ad2f3b8b14e19ee03e48f310b35a"},{"path":"agents/standing-officials/shangshu.toml","mode":"100644","size":5827,"sha256":"2ce41609fec6e4ffd2a2141bc90df9c05c738c7234d15b7d33640b05a1304941"},{"path":"agents/standing-officials/shiguan-hermes.toml","mode":"100644","size":6077,"sha256":"b937f28564ab6e1e691837f5a33f9aac84c95d771c12c899b0ed0f53a39d84c0"},{"path":"agents/standing-officials/shiguan.toml","mode":"100644","size":5944,"sha256":"629a8fd34139b5b1c4ff0f29dc1afe6268ab04b2f2b455000e57cfaa05a73df1"},{"path":"agents/standing-officials/taizi.toml","mode":"100644","size":6271,"sha256":"28c65cc57c532ba401be53c538b3e54011461d988d60315bd739918037884823"},{"path":"agents/standing-officials/xingbu.toml","mode":"100644","size":5650,"sha256":"51d839bff1236c1d2dd5d89929e85c80baf6125b3fc26fda1c97f8669780098d"},{"path":"agents/standing-officials/zaochao.toml","mode":"100644","size":5450,"sha256":"2032e05b67c79613b60a09edb66628257779dffe969fd3963eaf72c4a591d85e"},{"path":"agents/standing-officials/zhongshu.toml","mode":"100644","size":5623,"sha256":"f75215a7ad2d9d6e89d05069b1a45d8cb0500cbc13b11d299dd371d3f482402c"},{"path":"agents/supercc-dossiers/bingbu/AGENTS.md","mode":"100644","size":9822,"sha256":"0b3cfe35d36aafcaebc1d969797b202fb7085182705d9053425007f8c2f588a5"},{"path":"agents/supercc-dossiers/gongbu/AGENTS.md","mode":"100644","size":9824,"sha256":"b083472a152f54255acd1773cc43e12468d6d44832228c8f63b6b84719377c74"},{"path":"agents/supercc-dossiers/hubu/AGENTS.md","mode":"100644","size":9817,"sha256":"d0f7cc74d88f3db43a74e38423e8bd96433b8acfca498deeb4c4f3f55c5fe916"},{"path":"agents/supercc-dossiers/libu-hr/AGENTS.md","mode":"100644","size":9838,"sha256":"9191ee32e8963dccd60b869261d5f978088bb33944e7961cc8705b2f019f9b77"},{"path":"agents/supercc-dossiers/libu/AGENTS.md","mode":"100644","size":9802,"sha256":"20ac41bca1d5738709bd6222ef6dd777f4663e268871d836d63f191efd553d61"},{"path":"agents/supercc-dossiers/menxia/AGENTS.md","mode":"100644","size":9856,"sha256":"cacc33e62d89cbb9181e4e27320772f6a79f1f6f778b6681141ac7db750cfc74"},{"path":"agents/supercc-dossiers/patrol-inspector/AGENTS.md","mode":"100644","size":10436,"sha256":"03db9a9fa663ce9f074e9412c409756caf426b33c6945447044698906f663301"},{"path":"agents/supercc-dossiers/shangshu/AGENTS.md","mode":"100644","size":9943,"sha256":"975ae54ddf67c962f77240b78d2f27aa868a89fc5f113e1db73c3887a32fb32b"},{"path":"agents/supercc-dossiers/shiguan-hermes/AGENTS.md","mode":"100644","size":9663,"sha256":"be860df310c638e577968bcd0c1985b6c404bd83fe36e8dbae21e16b9656a699"},{"path":"agents/supercc-dossiers/shiguan/AGENTS.md","mode":"100644","size":9553,"sha256":"e6b16d8f5f8f2e72a3af175a1038f0ebef868412d7be0dee7a6d85161ea1df1e"},{"path":"agents/supercc-dossiers/taizi/AGENTS.md","mode":"100644","size":9834,"sha256":"1f028c97ddcd16f26cb87bbd68e88332038011e1f0cbe475529b251f75ae33f3"},{"path":"agents/supercc-dossiers/xingbu/AGENTS.md","mode":"100644","size":9848,"sha256":"14687c9eabda1f252f3c2918e42cfdcd9aaf5cdf1c405fe223f40cf4174af565"},{"path":"agents/supercc-dossiers/zaochao/AGENTS.md","mode":"100644","size":9370,"sha256":"eabe3a98091c8e755c0df3babc98b6a2aa2060e65ed38decb07492aa8024e889"},{"path":"agents/supercc-dossiers/zhongshu/AGENTS.md","mode":"100644","size":9888,"sha256":"e869db26dad0d3ddcd4f3797c79d4bfad61eed21bebc2d518ddc8de68adc8f79"},{"path":"development-manual/README.md","mode":"100644","size":464,"sha256":"28af49314ded8fad40dd8af700cb503e82fe9d46c9f1be9498350cdde753269e"},{"path":"development-manual/court-capability-router-development-manual-zh.md","mode":"100644","size":20023,"sha256":"78630a08757bc76c756cceca582d15077df85f9491c89a5aaa2e6d9fd06351f4"},{"path":"references/README.md","mode":"100644","size":5890,"sha256":"cbcc58fe96da6b9f48fe72fa5a16902a843b1f6ef60150745197c8c626679b66"},{"path":"references/benchmarks/cft0808-edict.yaml","mode":"100644","size":1191,"sha256":"2ea83f8a428921d4de3b55e3b74f8fa3f0caf443d4eec4754c06e343415b2fd0"},{"path":"references/complexity-budget.md","mode":"100644","size":2292,"sha256":"c2a66ac67e580129c04b721b81880bad58685b5768b1117eb7d0692a1bced103"},{"path":"references/court-capability-registry.md","mode":"100644","size":11845,"sha256":"bd1f6ec0ffd52b9586247a1cfed5178faf701ecc4e789e5b959b0e58b8ddf890"},{"path":"references/court-closeout-validation.md","mode":"100644","size":41210,"sha256":"bb58ab1724c284734e3d2374712a5602b706a4546a35ebca1a2f59a8066abf6d"},{"path":"references/court-core-contract.md","mode":"100644","size":25587,"sha256":"de8a2da372ce367a08432187ae7da69cbac1b04d726ea31411f0831ab497dc41"},{"path":"references/court-host-platform-pitfalls.md","mode":"100644","size":6340,"sha256":"46c02ab6b962c750ea7d5683f4254dd6221774b504f8b674227aa8c094570296"},{"path":"references/court-office-model-routing.md","mode":"100644","size":7654,"sha256":"61b0188af6c623a950e0bfce236d0ee912f4fc586d628b3285adee32f2dfd14e"},{"path":"references/court-offices-dispatch.md","mode":"100644","size":58373,"sha256":"7c69239eefa01cc78f637a8b59eeb6833287461e613ac5a979f74e2d94ca1f56"},{"path":"references/court-policy.yaml","mode":"100644","size":1280,"sha256":"36c147fac883744f2dcd1aab677c26b0a7b04dacdfab3415d97755e2d8218ed8"},{"path":"references/court-roles.yaml","mode":"100644","size":1379,"sha256":"829c0919b12b5ff37e825a0d678b7df05cff3424ce64cf91720eb5127a902538"},{"path":"references/court-shiguan-memory.md","mode":"100644","size":32251,"sha256":"3c75a8ede3a27bb6e355b100f9ac46fdad6af317f9455539f9b137bacb79fecc"},{"path":"references/court-startup-authority.md","mode":"100644","size":28530,"sha256":"45745b2d80cc50b8325d1e6e976249b6fecf5a7c921b3406618d9fffcb8bce41"},{"path":"references/court-state-runtime-agents.md","mode":"100644","size":63437,"sha256":"d35cf73f47216ecc51aad24a1a18c96e643e3c55f7ec1b2689819395bfa3f784"},{"path":"references/court-supercc-runtime-selection.md","mode":"100644","size":21093,"sha256":"b917fed3c015b36fe1ed0097853f96c861fc7ba5d93edc1b3f966e49eb6b2f62"},{"path":"references/department-map.md","mode":"100644","size":5335,"sha256":"fa28df3661a9f533ece7d33428852e9dc35125c14a8bf6f3bcff7b0756e5c8ad"},{"path":"references/edict-registry-import.md","mode":"100644","size":747,"sha256":"7784396442891395cb572b7ed7cdf77168f36f7af79410681ff0880e1d59c3fe"},{"path":"references/fixtures/context-compression-survival.json","mode":"100644","size":17875,"sha256":"50855adc3981e8ce48f041c7c6deb909f90c31e9fc0a95c0df06898a8c15cfe9"},{"path":"references/fixtures/response-draft-families.json","mode":"100644","size":4571,"sha256":"1127b8910e611fc0df6e6c48f606c462dd5befa6d550b137cc5d432022261914"},{"path":"references/hermes-delegation-feasibility.md","mode":"100644","size":3574,"sha256":"82f575c71ed893c9b51d261e004eedd85759b26fdce93ac246624ab0db5dc30f"},{"path":"references/hermes-desktop-gateway-troubleshooting.md","mode":"100644","size":807,"sha256":"eb7a0e1ba6c912d24ed2be3234f201079aa2b991a26c7324adc31bfe45aa13e7"},{"path":"references/hermes-studio-group-chat.md","mode":"100644","size":4249,"sha256":"b43fd9d2781c3e43941d22ef0036c265ef60f0b65af66bd4a8e0feb813f0e0c8"},{"path":"references/hermes-studio-super-gl.md","mode":"100644","size":5522,"sha256":"87a52e52580929b2d283ead7075390f1f60a27e2e1e8b4242617ee62259d53f4"},{"path":"references/install.md","mode":"100644","size":19764,"sha256":"617cd1600c9b7ad32205d49f1fa093ef8d56438ebd6c843ab1765f55369416e3"},{"path":"references/installed-capabilities-catalog.example.md","mode":"100644","size":306,"sha256":"62d1a3ddaebdbd7d252db0ee96ebc40c4a6fb52f3eb1348abab977c192761b7d"},{"path":"references/manifests/release-gates.v1.json","mode":"100644","size":8791,"sha256":"f5905170349b021046e2fc0f2eb185df277073a37e69fa2e12e87b97003f3da1"},{"path":"references/manifests/source-state-budget.v1.json","mode":"100644","size":3518,"sha256":"671062ab72c8e288f2ecb184f2536372e2f654f39f16747a6ac64265090382bb"},{"path":"references/obsidian-autosync-rest.md","mode":"100644","size":12523,"sha256":"b5dbc329cba5b647b95f84ab089c4dce97c60c801cc61b809dfab45b8baac4c8"},{"path":"references/reference-section-index.md","mode":"100644","size":6736,"sha256":"1ee07098d9e5def61071710dbce42e88da4afcb61853ef486608cd2462b89a3c"},{"path":"references/sections/court-capability-verification-index.md","mode":"100644","size":3608,"sha256":"291e3154309ad52a76a9439999a08723a4479198516e94bc34a2b109fa4c2128"},{"path":"references/sections/court-closeout-installation-validation.md","mode":"100644","size":4922,"sha256":"704db7eb0e48d61b93a935bc32db517a8efbfda8ab138e6c641a3118a78f55df"},{"path":"references/sections/court-closeout-memorial-format.md","mode":"100644","size":7804,"sha256":"710e8a8181319aaa7394cf59dd3b1956d55b338a87e9e4fbd298dd5326552703"},{"path":"references/sections/court-context-compression-survival.md","mode":"100644","size":6204,"sha256":"4431a5b1a40af1e2eb59f4e1f2485d9901072d84c07bb5708d29abb828fb089c"},{"path":"references/sections/court-office-voice-fewshot.md","mode":"100644","size":3621,"sha256":"04a8fa61bfd45c7b2603cdd0a77d9e442936c82e2ef80d69e250466f10496bc1"},{"path":"references/sections/court-response-fewshot-format.md","mode":"100644","size":8301,"sha256":"e984f6546e6ffd27f3a91df3a7c5e08cc4f5c7325bb20287457ebc239b48eceb"},{"path":"references/sections/court-startup-approval-policy-details.md","mode":"100644","size":6877,"sha256":"62d22034cebaea7aff93af309f2ea453d1471536d088d49441ab1245e4bf869b"},{"path":"references/shiguan-index.jsonl","mode":"100644","size":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},{"path":"references/shiguan-knowledge-graph.json","mode":"100644","size":338,"sha256":"2f0454eec5355fb502624fb3658c477386da668920836fd0e33ff9ad47ec4922"},{"path":"references/shiguan-ledger-policy.md","mode":"100644","size":939,"sha256":"eac08ee1923ab2d8f4fbc57f9ee91856ebe71c6c29502fa00c0783f1388d5dc7"},{"path":"references/shiguan-tree/README.md","mode":"100644","size":601,"sha256":"6006fdd189d3dd100f9d41947292269047baf2fa39fa7952d43c9245309a25c5"},{"path":"references/shiguan-tree/_index.md","mode":"100644","size":268,"sha256":"ce5671b2da87093f9b0d6a17d030be39c5a0632db98cff6d3a0671a671fb4169"},{"path":"references/shiguan-tree/branches/README.md","mode":"100644","size":93,"sha256":"2e913fd44d2ec2e5838a1aa0692154799d798cda36ef7a272b87a251c9e0dc13"},{"path":"references/shiguan-tree/capability-index/README.md","mode":"100644","size":171,"sha256":"c2fff662d4c5147635204a123b21995bcdfde42c8cfb79034d07ba67b62e296f"},{"path":"references/shiguan-tree/capability-index/_index.md","mode":"100644","size":517,"sha256":"01bc65df443e52103fc08b86de8f5250b8630e13dde4b3b6c5b5dc7ed09aef7a"},{"path":"references/shiguan-tree/leaves/README.md","mode":"100644","size":114,"sha256":"52da30cdbb5f948108eb835415df4b30860aa882a7f6024e08ff9262b445b25b"},{"path":"references/shiguan-tree/manual/README.md","mode":"100644","size":73,"sha256":"6c24574ca30c2d967fc4703a481fb1031ab7e195a564565d87e08d3fb774e856"},{"path":"references/shiguan-tree/sources/README.md","mode":"100644","size":125,"sha256":"9e91508bd2d8345b555ca29751f4f5c1eb7b6956a0481a65dbe9952a2d298b7e"},{"path":"references/startup-tasks/README.md","mode":"100644","size":254,"sha256":"ccb3b6c24dc496ef44a2ae5af2555c9e63ff4688bbd04b767e85a6481e3623d2"},{"path":"references/supercc-phase-cycling-model.md","mode":"100644","size":4530,"sha256":"1a142e8a852132042530da5582ef6963132d1709bf399019a79dd54f170f4a25"},{"path":"references/user-manual-zh.md","mode":"100644","size":13255,"sha256":"7e5c96c40558a45331148192fd574d09102c7b26c3769bc795eaaba72cdf0799"},{"path":"scripts/agent_runtime_probe.py","mode":"100644","size":48289,"sha256":"c1d51a082f5eccec00878dc01a24b311582492056d9808bf396d1d6e6d95f89c"},{"path":"scripts/agente_terminal.py","mode":"100644","size":14560,"sha256":"ba1766ba6b7767697332cffb53b93e6d2d29001af10e1e884f5c97634adbadd6"},{"path":"scripts/archive_checkpoint.py","mode":"100644","size":20298,"sha256":"1a9e8ef42ec29cfbe85ed31f7944e43e4bf85d644f2ffc00a189d1965b107a95"},{"path":"scripts/archive_runtime_task.py","mode":"100644","size":3285,"sha256":"0d942bc630a85506d6225f73b6c6e949519285d46effb342d58067a7dede2d0c"},{"path":"scripts/build_shiguan_knowledge_graph.py","mode":"100644","size":6690,"sha256":"b1fe94baf87646ce3c7ba9893c4ec53d7f8a4b417773c0c8177a91157d487d93"},{"path":"scripts/check_active_copy_hashes.py","mode":"100644","size":6985,"sha256":"dbee58a158c3fed66dae25b9450c1595f10ac9b44045259080dd2dffe8ad496e"},{"path":"scripts/check_agente_terminal.py","mode":"100644","size":7063,"sha256":"362e8a878fb8886a1cd386874c43fa71d7d67787312f220c539514e2821b3e43"},{"path":"scripts/check_capability_index_gate.py","mode":"100644","size":5218,"sha256":"88235af086a08dabc212f1dcc7afea11a730aa7a7172ac5be8a39c216881967a"},{"path":"scripts/check_catalog.py","mode":"100644","size":19294,"sha256":"12d051d784de2418a72262ca013708af4638829d40e2cd50cb9eb8264c65329d"},{"path":"scripts/check_codex_agent_roles.py","mode":"100644","size":11804,"sha256":"4555cf27d69367a3d97b7dd5f9b760ca1536f37af5b9e2654ac43b1b4367ebf3"},{"path":"scripts/check_context_compression_survival.py","mode":"100644","size":12207,"sha256":"bc76acf205633cfe23ae080cbfac31349f8c15ded9238c387168df3b4f102c23"},{"path":"scripts/check_court_agent_config.py","mode":"100644","size":27185,"sha256":"7ae1d3af9bf33027f65599d285e2722a5cd1a8010378b49d46a2e5ab941d0ba0"},{"path":"scripts/check_court_agent_lifecycle.py","mode":"100644","size":17758,"sha256":"442a1affaa245860f4f842630b44f003e0809aff5dbf0c55375b9bb7463b905f"},{"path":"scripts/check_court_codex_host_resolution.py","mode":"100644","size":2620,"sha256":"3d8c24694421e6da4e9f99260ca91df940eb94bc8427f5067ceb1b114b788e65"},{"path":"scripts/check_court_codex_office_worker.py","mode":"100644","size":5891,"sha256":"17098ab03f59465ed6d370f091f6f1b908c39cc3d4258a0cbb8b73ab672f4097"},{"path":"scripts/check_court_dispatch_policy.py","mode":"100644","size":9015,"sha256":"02fd8c3107b30557c25e7387b2957aeb4443aceca54655ed68c42a0cbc513a89"},{"path":"scripts/check_court_intervention_matrix.py","mode":"100644","size":20499,"sha256":"a4136a6b192294bcaaa7ecd437e5256e5a264effc88d74a328936e22cddb4b1a"},{"path":"scripts/check_court_model_router.py","mode":"100644","size":8790,"sha256":"33e23246726399f0874ba12b4e4225102d3d39f2b1bbba3aad12260934175282"},{"path":"scripts/check_court_office_bootstrap.py","mode":"100644","size":3781,"sha256":"e442145a7055928bdaddddf78bd70eac64147b93bd5bc877449128d768b6b4ce"},{"path":"scripts/check_court_runtime.py","mode":"100644","size":31734,"sha256":"bd097f75322ec5ce5819099c1ac94df5588d7ba24989af56440e2febe21cff2a"},{"path":"scripts/check_court_runtime_concurrency.py","mode":"100644","size":2600,"sha256":"a20082a47d23908279f673e49a5ad6cfa65802cb312cd6e4ad9743b2175fa470"},{"path":"scripts/check_court_usage_ledger.py","mode":"100644","size":7126,"sha256":"0414373ce70264860c5c2148cee667fc5f655e6033b1700a59ece955dfaae1c6"},{"path":"scripts/check_obsidian_sync_transaction.py","mode":"100644","size":20360,"sha256":"55e404d34e4d951bc1e84f7a826f924f9bab2d377c07590afd20bb0682768270"},{"path":"scripts/check_package_privacy.py","mode":"100644","size":15091,"sha256":"56f27c66eea89d11f54b127a6356254dda0c1201fd9057167004c72954e7d887"},{"path":"scripts/check_portability.py","mode":"100644","size":8493,"sha256":"09bf5f08121c031e785d82c37fe29ad5f2abb694234f21248d2e28b28a9ccc0f"},{"path":"scripts/check_read_only_contract.py","mode":"100644","size":10813,"sha256":"38859a91225518e60e07de21a02ea6474aa5e38ef6b7bd127e2a07024f97276e"},{"path":"scripts/check_release_gate.py","mode":"100644","size":7686,"sha256":"b9971b55822e3ecbfefa7ad13f01587238cb98b8db7a6df8e774393f7399d681"},{"path":"scripts/check_release_manifest.py","mode":"100644","size":5202,"sha256":"5febbfde8040edb2833e2a515d1445523bf394bd5c984003bfbbc3effaaeba97"},{"path":"scripts/check_response_draft_fixtures.py","mode":"100644","size":11090,"sha256":"8f1510403726e96ead64e9fcc7d6374bbe98dd84b23191047153839e4e8c8c60"},{"path":"scripts/check_response_fewshot_format.py","mode":"100644","size":6894,"sha256":"829a25d15be53216f0ab99830ea35589d8cafeb8de262b96215efc90f303ee16"},{"path":"scripts/check_shiguan_concurrency.py","mode":"100644","size":8632,"sha256":"492a84591eb2a181ee9aa436f1053373d511ee464bb2b87bc8fdebb173881644"},{"path":"scripts/check_shiguan_http.py","mode":"100644","size":48801,"sha256":"f3a71b51037ef95cfbfabe35ec51480d60ecb98460cf558ddcda1cc26d787537"},{"path":"scripts/check_shiguan_import_queue.py","mode":"100644","size":12291,"sha256":"875b285a8fa0d3ff8ddf9e8810862f55587bda91f577af0fd3ec12065f007e4d"},{"path":"scripts/check_shiguan_peer_state_transaction.py","mode":"100644","size":36808,"sha256":"3063a82579dfb4c97e8b674afc9fc92d8ae30ab0edfbf39dda20d62c5b597a6a"},{"path":"scripts/check_shiguan_pending_quarantine_plan.py","mode":"100644","size":31440,"sha256":"a54386454ee5c29118cfec76177741e003eacd4636c63c93117126215f41ca7a"},{"path":"scripts/check_shiguan_queue_and_autosync_safety.py","mode":"100644","size":12949,"sha256":"f14918cbfa942e8f5973c6d0b99bfa486d92a2647051c41fd3d42abb4efdb4bd"},{"path":"scripts/check_source_state_budget.py","mode":"100644","size":18883,"sha256":"74ddf3d1f1d47df801e73a985f0fc102c25322fabcffac9bde446b4b6daca836"},{"path":"scripts/check_supercc_claude_hard_gates.py","mode":"100644","size":8437,"sha256":"437043de4dd72df72b557130368a5e5624922ecf1b23059bddf6a609da7e52dd"},{"path":"scripts/check_supercc_client_selection.py","mode":"100644","size":3000,"sha256":"c86e86b2008b9ecc2ef204db7327e7e1fd6235000007d8a96e5a9d7fd226d18c"},{"path":"scripts/check_supercc_functional.py","mode":"100644","size":15268,"sha256":"82ea72705867ac57947c839aee5c17facda19bd2d3a34b6d4b490aee4ae67b98"},{"path":"scripts/check_supercc_ministry_dispatch.py","mode":"100644","size":24440,"sha256":"621b576205d47f7c799653fb70482799ba93ea71d603104a30f402bf10c19b32"},{"path":"scripts/check_supercc_no_silence_429_patrol.py","mode":"100644","size":8318,"sha256":"95cb37bcf68b60873c16b06aa47591990be88d8c21e4c87b9f07c64824091f3a"},{"path":"scripts/check_supercc_profiles.py","mode":"100644","size":9430,"sha256":"79081b2c7988438748d7465110008ecb8ed90db8ecea648049621e25ced06741"},{"path":"scripts/check_supercc_squad_wrapper.py","mode":"100644","size":5805,"sha256":"8e9e25f8c47039f0f180ccb39abe474db4e83048f0e23a658b736939bcbca5ba"},{"path":"scripts/check_supercc_state_concurrency.py","mode":"100644","size":22674,"sha256":"90f66cd26786e5142e9a62ec296dbe5eddfc8310f4d30f238e18213a73e466a3"},{"path":"scripts/check_supercc_super_entry.py","mode":"100644","size":6105,"sha256":"ec3c2a4600acd90b0c0793afd914101532b453923f33616b3f9ae9da6c8c1416"},{"path":"scripts/check_supercc_truth_gates.py","mode":"100644","size":3710,"sha256":"f55fb786f6183ae3b19528ad0764ac67359f188e1bb49be9ee64b79a615b74b8"},{"path":"scripts/codex_runtime_probe_support.py","mode":"100644","size":10034,"sha256":"ff30a55daf84b45c8440be4a04168c81be16768ab169ee097c1247524ad595f0"},{"path":"scripts/court_cli.py","mode":"100644","size":221,"sha256":"e7256b43d42822fb311d899774ab0f4b47b7f6b983794d213e1a524f65b66870"},{"path":"scripts/court_codex_host_resolution.py","mode":"100644","size":7671,"sha256":"9b31153426bde15787ba68c34221ab431cadc0b05b3c6bf7214fda35af80d9cd"},{"path":"scripts/court_codex_office_worker.py","mode":"100644","size":15261,"sha256":"05d761361b2bc0dde30703d841e274e2abbbe800e8e83eaf3ef8eac2efa2d40e"},{"path":"scripts/court_codex_protocol_launcher.py","mode":"100644","size":17186,"sha256":"3c9a476a4a2b9d98471b85306c8367e3d28d7dad5537843e5543a2827b94767c"},{"path":"scripts/court_dispatch_policy.py","mode":"100644","size":9952,"sha256":"5b2cb95f716d76817535e3016f385d37773ebf9288503387d713464a7022d973"},{"path":"scripts/court_file_lock.py","mode":"100644","size":6955,"sha256":"d48704babf0fd14d910346a1995dc3e82dfe50092a83f5ac9f4201f182347479"},{"path":"scripts/court_heartbeat_watch.py","mode":"100644","size":6351,"sha256":"13c648a151def49665e1d7e721e59f14c4b39fd9468e7f725f3339e005cc4259"},{"path":"scripts/court_model_router.py","mode":"100644","size":9242,"sha256":"8887280b8277940981678086adf013320727a6a7010a5f2fc43ee85658031d11"},{"path":"scripts/court_multi_agent_protocol.py","mode":"100644","size":21967,"sha256":"e6ca04e403324577c54f006e8993c243bbb65bdf3a87642a21e71781fd9dd358"},{"path":"scripts/court_office_bootstrap.py","mode":"100644","size":6228,"sha256":"daf0cdba6b25a0cdce5d99cebdd184bb5a22006b0e44f91d8591f3ea916ab41c"},{"path":"scripts/court_platform.py","mode":"100644","size":3636,"sha256":"ac36e405e1ff52b505324356f5fe25b57c1192fd93955eb1f4226cab2b39cf15"},{"path":"scripts/court_runtime.py","mode":"100644","size":85714,"sha256":"3e13491d613f89a25acd2c09d35da36a96da3479b4b3cc46aed38e60040f8985"},{"path":"scripts/court_usage_ledger.py","mode":"100644","size":17886,"sha256":"9091218bf97e554be99920409a292072cc23335769a99a7fe23c664bc498818d"},{"path":"scripts/ensure_codex_yolo_startup_task.py","mode":"100644","size":9978,"sha256":"fa431ba2ab7c52a94751a521ed5a1b591542e94823f9a3ca49035a0f10076f4e"},{"path":"scripts/ensure_court_agent_config.py","mode":"100644","size":15187,"sha256":"868063f0ae7ae261c7c5ec1300a4796a70c1867e261e9d27dbbcedf40d947f88"},{"path":"scripts/ensure_hermes_supercc.py","mode":"100644","size":16988,"sha256":"9be636dfa15c10036200704c9aefb06db270694d1b8912353d469c602080f8e4"},{"path":"scripts/ensure_obsidian_shared_vault.py","mode":"100644","size":14140,"sha256":"d4b4d159764694128439b5e76b663142b087801f33164d742f29902b586192f2"},{"path":"scripts/ensure_portable_court_bootstrap.py","mode":"100644","size":28384,"sha256":"6136277d00e11d253c809e4d1869ccf3255fb4098e1e10e7257edc28187635ca"},{"path":"scripts/ensure_shiguan_autosync.py","mode":"100644","size":18200,"sha256":"688db28143ce777f068315bb102b03f95e15aab5ed129efa7bfb9569643ace5d"},{"path":"scripts/ensure_shiguan_service_daemon.py","mode":"100644","size":14394,"sha256":"ab79e0005a994956fac98451d7b80ad24314114466bb0d6e69941443e5508eef"},{"path":"scripts/ensure_shiguan_web.py","mode":"100644","size":10158,"sha256":"3d89278887f968c0ee6f61f79552265b754a2b016189184111823e3ef189890b"},{"path":"scripts/ensure_supercc_court.py","mode":"100644","size":232967,"sha256":"8dbc58459b3c71fd953ea0e2faa392845a39206d90010c00441b2224f89d7cc6"},{"path":"scripts/export_shiguan_obsidian.py","mode":"100644","size":13091,"sha256":"15cd28712f8360ab430d1b624b4b7f4922c3f6ac93813966c44fba980641cbea"},{"path":"scripts/grow_shiguan_tree.py","mode":"100644","size":14606,"sha256":"c73868ec7feea7a0a5456025dbc34c378bb85248c349116d8a04e7ad70c2193f"},{"path":"scripts/internal_memory_shiguan_bridge.py","mode":"100644","size":29887,"sha256":"4a2d57cc527c0c7d49b51fe367b06d04aa2bb46c4a17abc73e9d9b4711c3e806"},{"path":"scripts/memory_decision.py","mode":"100644","size":6552,"sha256":"e9cc7a7a102367e4b3299988a03b7eb45f083dbeda72a400dd520a6c0f8dbe4b"},{"path":"scripts/migrate_shared_shiguan.py","mode":"100644","size":6701,"sha256":"5c7f49468e2d66931ec974389390031c11a416467bd1741c26fc74a5324f5c16"},{"path":"scripts/obsidian_config_state.py","mode":"100644","size":6939,"sha256":"6d76bfae3a487cfe41f01935f03b5ebe881201c9858cac2a75775c2a2eadbaca"},{"path":"scripts/package_skill.py","mode":"100644","size":43297,"sha256":"62bae93812a6e4f95f719dba811ebe0919d03e904fe5758ba7e3a9a32dbebe34"},{"path":"scripts/plan_shiguan_pending_quarantine.py","mode":"100644","size":23833,"sha256":"a251aacee2cf0c0603fafdc8080a601af9823bfa664b5e97d96eeeb7427bd782"},{"path":"scripts/query_shiguan_index.py","mode":"100644","size":7921,"sha256":"be590984e0bb09222b79c015dd0cdccb7df68ae6b69db248834fbb35b64fbef4"},{"path":"scripts/quick_validate.py","mode":"100644","size":6800,"sha256":"2cc93efb3afc42064bc9b6360e15025918b19d4b0d259cba9ad618f83f876080"},{"path":"scripts/rebuild_shiguan_index.py","mode":"100644","size":12093,"sha256":"082370abbb59938070689d67f239a0a2ea1f6e4b5e1a326748d6a0dfc4ab6add"},{"path":"scripts/reevaluate_memory_decisions.py","mode":"100644","size":7606,"sha256":"aee6157191bb2e4244a41b30755a7c3aab9b279c26c38a232bb7db9590f3f0eb"},{"path":"scripts/refresh_capability_registry.py","mode":"100644","size":30879,"sha256":"a82c84697001a6599bbbe05f0612c5f15073cff4d93008c5b4dd8c77ee8301db"},{"path":"scripts/register_agent_presence.py","mode":"100644","size":806,"sha256":"7e08f879fa137fe37fdd61fc72bb19852b08fc41dfd45b2c3a37ac420b2e5484"},{"path":"scripts/release_gate_manifest.py","mode":"100644","size":13995,"sha256":"80f72ff9d8ad5f196be9fcf0f6bc5a1e641227d7d1f34dff9dba68d91466243a"},{"path":"scripts/repair_archive_placeholders.py","mode":"100644","size":2788,"sha256":"366ab1c5151500d28237875c39573e8b4a8d8f7ecca0a2bafabfbaff0bf435b4"},{"path":"scripts/report_office_startup_latency.py","mode":"100644","size":7371,"sha256":"660d84a598ac66d5b51ef1094b6309042cd8d7154a543a9f9180165ed839ac5a"},{"path":"scripts/serve_shiguan_tree.py","mode":"100644","size":103147,"sha256":"9c1a90e914df5e7ed8e60eacfd76ab268d053bbc3c53a6831caf56beece53c7e"},{"path":"scripts/shiguan_autosync_daemon.py","mode":"100644","size":20979,"sha256":"e56bcbd1c1695d9be53c6197b628bd29ffefe98e5481e3ee900a5a07d17c44f8"},{"path":"scripts/shiguan_entry_utils.py","mode":"100644","size":48420,"sha256":"a9f87be33d3d79b3a8b323fdb8c73f7af3ddae0a9318062902c3b8e784d12266"},{"path":"scripts/shiguan_paths.py","mode":"100644","size":14641,"sha256":"42d58f65df4fb2a1076e124b59177e67ef837d0bfa4fbb594a6cf69adbae9c87"},{"path":"scripts/shiguan_peer_downloads.py","mode":"100644","size":14603,"sha256":"aac821239ce36080ba517605ee096148ada63cd6f47470de8aaef47109ad64b4"},{"path":"scripts/shiguan_peer_state.py","mode":"100644","size":11786,"sha256":"7e41de12b418094ed0ce5995ae40437513427d600a8d112f7321e012319de3b8"},{"path":"scripts/shiguan_pending_governance.py","mode":"100644","size":26725,"sha256":"ec236724268b762f8f62431165c4c3c34a184352cf7467ab52bb9f4a72d6de30"},{"path":"scripts/shiguan_pending_governance_cli.py","mode":"100644","size":5393,"sha256":"c067471f10d9e953b9b5e6a72255b9f9b068917329dd034021b8390f2d4d72e5"},{"path":"scripts/shiguan_pending_trust.py","mode":"100644","size":21367,"sha256":"f7ff6f74ebeaa9b800f9978908abd25fd05141b6259f992955e470f37d124c02"},{"path":"scripts/shiguan_security.py","mode":"100644","size":557,"sha256":"b370423eb55eb934db08725368dec171fddf3293d884e871dfce5e641dabdf53"},{"path":"scripts/shiguan_service_daemon.py","mode":"100644","size":3064,"sha256":"0f0b391392b30bf23152aaf7d43aba4a3d8e4725287582a929cfcaff1e7ba4db"},{"path":"scripts/shiguan_web_pending.py","mode":"100644","size":9659,"sha256":"b5b7e23aa975245b561a37b723baef7100b5d855b4c1ce0676f0f05da13dd8af"},{"path":"scripts/stress_supercc_rate_limit.py","mode":"100644","size":10586,"sha256":"5ea931641b65bd05a917e75be15b6814c19172fca41eec94ad19f411c75cb520"},{"path":"scripts/supercc-squad.cmd","mode":"100644","size":482,"sha256":"968234386e68337aca9c53ee21f677292becb9e8c62f7aa5dff74ff5cf9e1e80"},{"path":"scripts/supercc-squad.ps1","mode":"100644","size":678,"sha256":"46bc2e9c9e8091983ad9615c0aefc0aca0b9f3890c2292e74bd429c33f63b75c"},{"path":"scripts/supercc-squad.sh","mode":"100644","size":990,"sha256":"fe9a63e849c937dac76bb7af95c310a8ce1edcb122521af105e1375919aa9ba9"},{"path":"scripts/supercc_client_selection.py","mode":"100644","size":15132,"sha256":"eccc1c7efe1b601b02842b4688aaa1dd4aef7a4b0e7d54d0052f4d4624083fab"},{"path":"scripts/supercc_office_state.py","mode":"100644","size":12590,"sha256":"bcab3d94f45f35d96f22bfd42ad155f24d8815267d4faf97c797e2eb55a3b01c"},{"path":"scripts/supercc_squad.py","mode":"100644","size":8693,"sha256":"78c2bb13b2494b2205ff414181502933031e3b15ee0c409b67ca04946ffc60f2"},{"path":"scripts/supercc_watchdog.py","mode":"100644","size":21390,"sha256":"8cd0bf974d1d793ccd1988a6aadea715c827451822069eeb7ff963a00bb8e858"},{"path":"scripts/sync_active_copies.py","mode":"100644","size":3935,"sha256":"96ed29ba39c3f1675e673a90dfef988e6cbe351ac424686613241859438d2232"},{"path":"scripts/sync_codex_agents_from_profiles.py","mode":"100644","size":13748,"sha256":"1c0fe49ecf0f7174dfab4c6b230daaab6dd91c75161808666f15a750eb3bee2d"},{"path":"scripts/sync_shiguan_obsidian_vault.py","mode":"100644","size":26810,"sha256":"890ab825bb2894a35d153f485c07067b9f69c244cc05766c1c69ee2673832b01"},{"path":"scripts/tidy_shiguan_records.py","mode":"100644","size":19433,"sha256":"cd27356287ae2462dd63473006850043b389bd4005da909dc1387f4dab16d34a"},{"path":"scripts/watch_session_completion.py","mode":"100644","size":1362,"sha256":"b05b0e8b409561b1f233c430c0f114f6c5a80b7ad5bedfaa9457e074d035ed1e"},{"path":"web/shiguan-tree/api.js","mode":"100644","size":1693,"sha256":"c9045bf74e58c70a4b40a22a824f79b3856489d1008210a06b4353e37f0362b6"},{"path":"web/shiguan-tree/app.js","mode":"100644","size":172683,"sha256":"b385f20873b594ddfc532ec27aeb8939f8457ef2d1d96a43dcf35575aa10d538"},{"path":"web/shiguan-tree/index.html","mode":"100644","size":15321,"sha256":"60bb7b2c3d4e5135f241a899e96941a61988fe15f31226b9640ccb5e144c99bc"},{"path":"web/shiguan-tree/styles.css","mode":"100644","size":36284,"sha256":"436c3f219f7499171076a23dd12b7bff62341ab62798f9f52c7060105c6f554d"}]}
+{
+  "archive_root": "court-capability-router/",
+  "artifact_name": "court-capability-router-beta0.5.9.zip",
+  "attestation_name": "court-capability-router-beta0.5.9.release-attestation.json",
+  "build": {
+    "atomic_publish": "same_directory_hard_link_no_replace",
+    "deterministic_zip": true,
+    "no_clobber": true,
+    "zip_compression": "stored",
+    "zip_file_mode": "100644",
+    "zip_timestamp": "1980-01-01T00:00:00Z"
+  },
+  "channel": "beta",
+  "files": [
+    {
+      "mode": "100644",
+      "path": ".gitignore",
+      "sha256": "85f8889686a206fb798db7410bd116648a38067f33ce814166fd7d675db1c5d4",
+      "size": 478
+    },
+    {
+      "mode": "100644",
+      "path": "CHANGELOG.md",
+      "sha256": "5c4d7e72b52cb84a600dd84d676efc5135ed96224ef5c0ccbd15ea518768a425",
+      "size": 1361
+    },
+    {
+      "mode": "100644",
+      "path": "CONTRIBUTING.md",
+      "sha256": "bba82a6a57713d4507853f190601232863c79fc4b9e2b5c1df29203715f6bbd2",
+      "size": 1042
+    },
+    {
+      "mode": "100644",
+      "path": "LICENSE",
+      "sha256": "b87a529a13d5294f97bb847936a82f39e4f8adae2425a3a5fb5f1a7b75d43e6a",
+      "size": 10775
+    },
+    {
+      "mode": "100644",
+      "path": "NOTICE",
+      "sha256": "d3cd2b016b630b5ea2361096d8b0b0015eff582a3bae0dc60352bde78d7a69b6",
+      "size": 290
+    },
+    {
+      "mode": "100644",
+      "path": "PRIVACY.md",
+      "sha256": "1415630e25561fcd6c14efedd865733fbdf05522e3b1efb1113c6079c3973ac1",
+      "size": 1337
+    },
+    {
+      "mode": "100644",
+      "path": "README.md",
+      "sha256": "7fe45b21bc5428b1db12a707f027482f427cf94b551086f8af673bbee0537099",
+      "size": 49354
+    },
+    {
+      "mode": "100644",
+      "path": "RELEASE-LOG.md",
+      "sha256": "b670607e4b7b2c35bf8c70d6c8525501fa4bcf27f86e346878b3c4e32bfe03ae",
+      "size": 4246
+    },
+    {
+      "mode": "100644",
+      "path": "SBOM.spdx.json",
+      "sha256": "32bf147eba3c6e8d13710f0f465a26f2a415beaa342a9fb5a1ce5a565d542151",
+      "size": 913
+    },
+    {
+      "mode": "100644",
+      "path": "SECURITY.md",
+      "sha256": "074d69ba6bdfa7d3bba922967fa2de179c4b2871753d1498df628f7d195ad7e0",
+      "size": 1290
+    },
+    {
+      "mode": "100644",
+      "path": "SKILL.md",
+      "sha256": "b5b5e4b0620a44bb0e7994661745817dcdf2563c26ec6170e68095d36b7d6f6b",
+      "size": 61479
+    },
+    {
+      "mode": "100644",
+      "path": "THIRD_PARTY_NOTICES.md",
+      "sha256": "68dc950cc288617e6ea6fa9f8f4680bf733118a999eae94a5cfdc9e7b1634dc6",
+      "size": 1922
+    },
+    {
+      "mode": "100644",
+      "path": "VERSION",
+      "sha256": "6e20ff2803855acff6e91fd8fe5bd1c4341f51d976bb01c0351ef4350f9ffb74",
+      "size": 10
+    },
+    {
+      "mode": "100644",
+      "path": "agents/openai.yaml",
+      "sha256": "b6589500d747bfdb58392d5122f9f11ddb8655987f882d7dd969b2d36b371f33",
+      "size": 256
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/bingbu.toml",
+      "sha256": "814f6566bd7c8534e730c17c19bbd02459d5114c89aafbc8850f9cff32c93269",
+      "size": 5594
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/gongbu.toml",
+      "sha256": "70765d4a7e9dbbfab43365bb2280b258c7a676957f4ab251db385eaa64f4cb6c",
+      "size": 5649
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/hubu.toml",
+      "sha256": "cc8bcaaa4750498922ea29bea08b631b9919295a5673a5f766099f2b030820a6",
+      "size": 5741
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/libu-hr.toml",
+      "sha256": "1db3c74e3fe59028d1f01fa6d345a165051c37bb647e03a2576cf739ffafee61",
+      "size": 5991
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/libu.toml",
+      "sha256": "b6b31520b5301e9250d7bba7d76b329e223b33f490b2e8276618979921512ab1",
+      "size": 5542
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/menxia.toml",
+      "sha256": "79c4222219992fc29eec1a8e53e63b3d6bc6301a6941ec56142c44b9d9249e31",
+      "size": 5894
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/patrol-inspector.toml",
+      "sha256": "fe0569d2bd059c029ddbbc95072863686ef8ad2f3b8b14e19ee03e48f310b35a",
+      "size": 8553
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/shangshu.toml",
+      "sha256": "2ce41609fec6e4ffd2a2141bc90df9c05c738c7234d15b7d33640b05a1304941",
+      "size": 5827
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/shiguan-hermes.toml",
+      "sha256": "b937f28564ab6e1e691837f5a33f9aac84c95d771c12c899b0ed0f53a39d84c0",
+      "size": 6077
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/shiguan.toml",
+      "sha256": "629a8fd34139b5b1c4ff0f29dc1afe6268ab04b2f2b455000e57cfaa05a73df1",
+      "size": 5944
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/taizi.toml",
+      "sha256": "28c65cc57c532ba401be53c538b3e54011461d988d60315bd739918037884823",
+      "size": 6271
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/xingbu.toml",
+      "sha256": "51d839bff1236c1d2dd5d89929e85c80baf6125b3fc26fda1c97f8669780098d",
+      "size": 5650
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/zaochao.toml",
+      "sha256": "2032e05b67c79613b60a09edb66628257779dffe969fd3963eaf72c4a591d85e",
+      "size": 5450
+    },
+    {
+      "mode": "100644",
+      "path": "agents/standing-officials/zhongshu.toml",
+      "sha256": "f75215a7ad2d9d6e89d05069b1a45d8cb0500cbc13b11d299dd371d3f482402c",
+      "size": 5623
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/bingbu/AGENTS.md",
+      "sha256": "0b3cfe35d36aafcaebc1d969797b202fb7085182705d9053425007f8c2f588a5",
+      "size": 9822
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/gongbu/AGENTS.md",
+      "sha256": "b083472a152f54255acd1773cc43e12468d6d44832228c8f63b6b84719377c74",
+      "size": 9824
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/hubu/AGENTS.md",
+      "sha256": "d0f7cc74d88f3db43a74e38423e8bd96433b8acfca498deeb4c4f3f55c5fe916",
+      "size": 9817
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/libu-hr/AGENTS.md",
+      "sha256": "9191ee32e8963dccd60b869261d5f978088bb33944e7961cc8705b2f019f9b77",
+      "size": 9838
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/libu/AGENTS.md",
+      "sha256": "20ac41bca1d5738709bd6222ef6dd777f4663e268871d836d63f191efd553d61",
+      "size": 9802
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/menxia/AGENTS.md",
+      "sha256": "cacc33e62d89cbb9181e4e27320772f6a79f1f6f778b6681141ac7db750cfc74",
+      "size": 9856
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/patrol-inspector/AGENTS.md",
+      "sha256": "03db9a9fa663ce9f074e9412c409756caf426b33c6945447044698906f663301",
+      "size": 10436
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/shangshu/AGENTS.md",
+      "sha256": "975ae54ddf67c962f77240b78d2f27aa868a89fc5f113e1db73c3887a32fb32b",
+      "size": 9943
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/shiguan-hermes/AGENTS.md",
+      "sha256": "be860df310c638e577968bcd0c1985b6c404bd83fe36e8dbae21e16b9656a699",
+      "size": 9663
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/shiguan/AGENTS.md",
+      "sha256": "e6b16d8f5f8f2e72a3af175a1038f0ebef868412d7be0dee7a6d85161ea1df1e",
+      "size": 9553
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/taizi/AGENTS.md",
+      "sha256": "1f028c97ddcd16f26cb87bbd68e88332038011e1f0cbe475529b251f75ae33f3",
+      "size": 9834
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/xingbu/AGENTS.md",
+      "sha256": "14687c9eabda1f252f3c2918e42cfdcd9aaf5cdf1c405fe223f40cf4174af565",
+      "size": 9848
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/zaochao/AGENTS.md",
+      "sha256": "eabe3a98091c8e755c0df3babc98b6a2aa2060e65ed38decb07492aa8024e889",
+      "size": 9370
+    },
+    {
+      "mode": "100644",
+      "path": "agents/supercc-dossiers/zhongshu/AGENTS.md",
+      "sha256": "e869db26dad0d3ddcd4f3797c79d4bfad61eed21bebc2d518ddc8de68adc8f79",
+      "size": 9888
+    },
+    {
+      "mode": "100644",
+      "path": "development-manual/README.md",
+      "sha256": "28af49314ded8fad40dd8af700cb503e82fe9d46c9f1be9498350cdde753269e",
+      "size": 464
+    },
+    {
+      "mode": "100644",
+      "path": "development-manual/court-capability-router-development-manual-zh.md",
+      "sha256": "78630a08757bc76c756cceca582d15077df85f9491c89a5aaa2e6d9fd06351f4",
+      "size": 20023
+    },
+    {
+      "mode": "100644",
+      "path": "references/README.md",
+      "sha256": "cbcc58fe96da6b9f48fe72fa5a16902a843b1f6ef60150745197c8c626679b66",
+      "size": 5890
+    },
+    {
+      "mode": "100644",
+      "path": "references/benchmarks/cft0808-edict.yaml",
+      "sha256": "a9a7632cc242d4b1f822039852ae60b63a28ee5f21fcc6936392384d49ecfb2a",
+      "size": 1437
+    },
+    {
+      "mode": "100644",
+      "path": "references/complexity-budget.md",
+      "sha256": "c2a66ac67e580129c04b721b81880bad58685b5768b1117eb7d0692a1bced103",
+      "size": 2292
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-capability-registry.md",
+      "sha256": "bd1f6ec0ffd52b9586247a1cfed5178faf701ecc4e789e5b959b0e58b8ddf890",
+      "size": 11845
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-closeout-validation.md",
+      "sha256": "4cdbb1b493e737acecc5bd99ad24c59713a946c7cf74ecb14d5fd7420a94f04a",
+      "size": 41635
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-core-contract.md",
+      "sha256": "de8a2da372ce367a08432187ae7da69cbac1b04d726ea31411f0831ab497dc41",
+      "size": 25587
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-host-platform-pitfalls.md",
+      "sha256": "46c02ab6b962c750ea7d5683f4254dd6221774b504f8b674227aa8c094570296",
+      "size": 6340
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-office-model-routing.md",
+      "sha256": "61b0188af6c623a950e0bfce236d0ee912f4fc586d628b3285adee32f2dfd14e",
+      "size": 7654
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-offices-dispatch.md",
+      "sha256": "7c69239eefa01cc78f637a8b59eeb6833287461e613ac5a979f74e2d94ca1f56",
+      "size": 58373
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-policy.yaml",
+      "sha256": "36c147fac883744f2dcd1aab677c26b0a7b04dacdfab3415d97755e2d8218ed8",
+      "size": 1280
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-roles.yaml",
+      "sha256": "829c0919b12b5ff37e825a0d678b7df05cff3424ce64cf91720eb5127a902538",
+      "size": 1379
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-shiguan-memory.md",
+      "sha256": "3c75a8ede3a27bb6e355b100f9ac46fdad6af317f9455539f9b137bacb79fecc",
+      "size": 32251
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-startup-authority.md",
+      "sha256": "45745b2d80cc50b8325d1e6e976249b6fecf5a7c921b3406618d9fffcb8bce41",
+      "size": 28530
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-state-runtime-agents.md",
+      "sha256": "76998cea68bdc24b9f0107cbc2b9134980301240262ec3edcf2b7c1144ec1404",
+      "size": 64709
+    },
+    {
+      "mode": "100644",
+      "path": "references/court-supercc-runtime-selection.md",
+      "sha256": "b917fed3c015b36fe1ed0097853f96c861fc7ba5d93edc1b3f966e49eb6b2f62",
+      "size": 21093
+    },
+    {
+      "mode": "100644",
+      "path": "references/department-map.md",
+      "sha256": "fa28df3661a9f533ece7d33428852e9dc35125c14a8bf6f3bcff7b0756e5c8ad",
+      "size": 5335
+    },
+    {
+      "mode": "100644",
+      "path": "references/edict-registry-import.md",
+      "sha256": "7784396442891395cb572b7ed7cdf77168f36f7af79410681ff0880e1d59c3fe",
+      "size": 747
+    },
+    {
+      "mode": "100644",
+      "path": "references/fixtures/context-compression-survival.json",
+      "sha256": "50855adc3981e8ce48f041c7c6deb909f90c31e9fc0a95c0df06898a8c15cfe9",
+      "size": 17875
+    },
+    {
+      "mode": "100644",
+      "path": "references/fixtures/response-draft-families.json",
+      "sha256": "1127b8910e611fc0df6e6c48f606c462dd5befa6d550b137cc5d432022261914",
+      "size": 4571
+    },
+    {
+      "mode": "100644",
+      "path": "references/hermes-delegation-feasibility.md",
+      "sha256": "82f575c71ed893c9b51d261e004eedd85759b26fdce93ac246624ab0db5dc30f",
+      "size": 3574
+    },
+    {
+      "mode": "100644",
+      "path": "references/hermes-desktop-gateway-troubleshooting.md",
+      "sha256": "eb7a0e1ba6c912d24ed2be3234f201079aa2b991a26c7324adc31bfe45aa13e7",
+      "size": 807
+    },
+    {
+      "mode": "100644",
+      "path": "references/hermes-studio-group-chat.md",
+      "sha256": "b43fd9d2781c3e43941d22ef0036c265ef60f0b65af66bd4a8e0feb813f0e0c8",
+      "size": 4249
+    },
+    {
+      "mode": "100644",
+      "path": "references/hermes-studio-super-gl.md",
+      "sha256": "87a52e52580929b2d283ead7075390f1f60a27e2e1e8b4242617ee62259d53f4",
+      "size": 5522
+    },
+    {
+      "mode": "100644",
+      "path": "references/install.md",
+      "sha256": "6e051d58d7c58bb50bb1f31c533621492e2e4a043441987620880ce2f114158d",
+      "size": 20336
+    },
+    {
+      "mode": "100644",
+      "path": "references/installed-capabilities-catalog.example.md",
+      "sha256": "62d1a3ddaebdbd7d252db0ee96ebc40c4a6fb52f3eb1348abab977c192761b7d",
+      "size": 306
+    },
+    {
+      "mode": "100644",
+      "path": "references/manifests/release-gates.v1.json",
+      "sha256": "f5905170349b021046e2fc0f2eb185df277073a37e69fa2e12e87b97003f3da1",
+      "size": 8791
+    },
+    {
+      "mode": "100644",
+      "path": "references/manifests/source-state-budget.v1.json",
+      "sha256": "c1a1d940d90ea48a628e4c636454c194693ace77c4da7cd2c0497747f429d6fa",
+      "size": 3504
+    },
+    {
+      "mode": "100644",
+      "path": "references/obsidian-autosync-rest.md",
+      "sha256": "b5dbc329cba5b647b95f84ab089c4dce97c60c801cc61b809dfab45b8baac4c8",
+      "size": 12523
+    },
+    {
+      "mode": "100644",
+      "path": "references/reference-section-index.md",
+      "sha256": "1ee07098d9e5def61071710dbce42e88da4afcb61853ef486608cd2462b89a3c",
+      "size": 6736
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-capability-verification-index.md",
+      "sha256": "291e3154309ad52a76a9439999a08723a4479198516e94bc34a2b109fa4c2128",
+      "size": 3608
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-closeout-installation-validation.md",
+      "sha256": "704db7eb0e48d61b93a935bc32db517a8efbfda8ab138e6c641a3118a78f55df",
+      "size": 4922
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-closeout-memorial-format.md",
+      "sha256": "710e8a8181319aaa7394cf59dd3b1956d55b338a87e9e4fbd298dd5326552703",
+      "size": 7804
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-context-compression-survival.md",
+      "sha256": "4431a5b1a40af1e2eb59f4e1f2485d9901072d84c07bb5708d29abb828fb089c",
+      "size": 6204
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-office-voice-fewshot.md",
+      "sha256": "04a8fa61bfd45c7b2603cdd0a77d9e442936c82e2ef80d69e250466f10496bc1",
+      "size": 3621
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-response-fewshot-format.md",
+      "sha256": "e984f6546e6ffd27f3a91df3a7c5e08cc4f5c7325bb20287457ebc239b48eceb",
+      "size": 8301
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-startup-approval-policy-details.md",
+      "sha256": "62d22034cebaea7aff93af309f2ea453d1471536d088d49441ab1245e4bf869b",
+      "size": 6877
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-index.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-knowledge-graph.json",
+      "sha256": "2f0454eec5355fb502624fb3658c477386da668920836fd0e33ff9ad47ec4922",
+      "size": 338
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-ledger-policy.md",
+      "sha256": "eac08ee1923ab2d8f4fbc57f9ee91856ebe71c6c29502fa00c0783f1388d5dc7",
+      "size": 939
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/README.md",
+      "sha256": "6006fdd189d3dd100f9d41947292269047baf2fa39fa7952d43c9245309a25c5",
+      "size": 601
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/_index.md",
+      "sha256": "ce5671b2da87093f9b0d6a17d030be39c5a0632db98cff6d3a0671a671fb4169",
+      "size": 268
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/branches/README.md",
+      "sha256": "2e913fd44d2ec2e5838a1aa0692154799d798cda36ef7a272b87a251c9e0dc13",
+      "size": 93
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/capability-index/README.md",
+      "sha256": "c2fff662d4c5147635204a123b21995bcdfde42c8cfb79034d07ba67b62e296f",
+      "size": 171
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/capability-index/_index.md",
+      "sha256": "01bc65df443e52103fc08b86de8f5250b8630e13dde4b3b6c5b5dc7ed09aef7a",
+      "size": 517
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/leaves/README.md",
+      "sha256": "52da30cdbb5f948108eb835415df4b30860aa882a7f6024e08ff9262b445b25b",
+      "size": 114
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/manual/README.md",
+      "sha256": "6c24574ca30c2d967fc4703a481fb1031ab7e195a564565d87e08d3fb774e856",
+      "size": 73
+    },
+    {
+      "mode": "100644",
+      "path": "references/shiguan-tree/sources/README.md",
+      "sha256": "9e91508bd2d8345b555ca29751f4f5c1eb7b6956a0481a65dbe9952a2d298b7e",
+      "size": 125
+    },
+    {
+      "mode": "100644",
+      "path": "references/startup-tasks/README.md",
+      "sha256": "ccb3b6c24dc496ef44a2ae5af2555c9e63ff4688bbd04b767e85a6481e3623d2",
+      "size": 254
+    },
+    {
+      "mode": "100644",
+      "path": "references/supercc-phase-cycling-model.md",
+      "sha256": "1a142e8a852132042530da5582ef6963132d1709bf399019a79dd54f170f4a25",
+      "size": 4530
+    },
+    {
+      "mode": "100644",
+      "path": "references/user-manual-zh.md",
+      "sha256": "7e5c96c40558a45331148192fd574d09102c7b26c3769bc795eaaba72cdf0799",
+      "size": 13255
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/agent_runtime_probe.py",
+      "sha256": "c1d51a082f5eccec00878dc01a24b311582492056d9808bf396d1d6e6d95f89c",
+      "size": 48289
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/agente_terminal.py",
+      "sha256": "eca32dc13926d3dfd0f6a039aceefdbeb40862e8a106502f87b3ed6ebe08c565",
+      "size": 16064
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/archive_checkpoint.py",
+      "sha256": "1a9e8ef42ec29cfbe85ed31f7944e43e4bf85d644f2ffc00a189d1965b107a95",
+      "size": 20298
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/archive_runtime_task.py",
+      "sha256": "0d942bc630a85506d6225f73b6c6e949519285d46effb342d58067a7dede2d0c",
+      "size": 3285
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/build_shiguan_knowledge_graph.py",
+      "sha256": "b1fe94baf87646ce3c7ba9893c4ec53d7f8a4b417773c0c8177a91157d487d93",
+      "size": 6690
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_active_copy_hashes.py",
+      "sha256": "dbee58a158c3fed66dae25b9450c1595f10ac9b44045259080dd2dffe8ad496e",
+      "size": 6985
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_agente_terminal.py",
+      "sha256": "1e612d769e8c2ed3b65e6bdb4adb4cb27d2e923a35f631d4ff056e55f64f9870",
+      "size": 10353
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_capability_index_gate.py",
+      "sha256": "fdc837f9da68bd4bfca77031b9b7d24cb09fddd3d55048756ad3001431be0f14",
+      "size": 6967
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_catalog.py",
+      "sha256": "3947b1a52c6243a6f4f1dd35f6399368b62749046b4671f351d651a1e0e9343b",
+      "size": 21455
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_codex_agent_roles.py",
+      "sha256": "4555cf27d69367a3d97b7dd5f9b760ca1536f37af5b9e2654ac43b1b4367ebf3",
+      "size": 11804
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_context_compression_survival.py",
+      "sha256": "bc76acf205633cfe23ae080cbfac31349f8c15ded9238c387168df3b4f102c23",
+      "size": 12207
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_agent_config.py",
+      "sha256": "7ae1d3af9bf33027f65599d285e2722a5cd1a8010378b49d46a2e5ab941d0ba0",
+      "size": 27185
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_agent_lifecycle.py",
+      "sha256": "5d572ebe2c1ef5d9aa24a6b41bdd90d000f24aaca91454703050d939f76bc6e7",
+      "size": 19219
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_codex_host_resolution.py",
+      "sha256": "3d8c24694421e6da4e9f99260ca91df940eb94bc8427f5067ceb1b114b788e65",
+      "size": 2620
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_codex_office_worker.py",
+      "sha256": "17098ab03f59465ed6d370f091f6f1b908c39cc3d4258a0cbb8b73ab672f4097",
+      "size": 5891
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_dispatch_policy.py",
+      "sha256": "02fd8c3107b30557c25e7387b2957aeb4443aceca54655ed68c42a0cbc513a89",
+      "size": 9015
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_intervention_matrix.py",
+      "sha256": "1224f64861998bb05298a08893673080fbd1f4498a3316addc974ec9a16faac5",
+      "size": 22292
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_model_router.py",
+      "sha256": "33e23246726399f0874ba12b4e4225102d3d39f2b1bbba3aad12260934175282",
+      "size": 8790
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_office_bootstrap.py",
+      "sha256": "e442145a7055928bdaddddf78bd70eac64147b93bd5bc877449128d768b6b4ce",
+      "size": 3781
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_runtime.py",
+      "sha256": "35d7cef820385572db8bb7abcad9cc69b25303591df734040a5294ce6aa764fa",
+      "size": 38757
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_runtime_concurrency.py",
+      "sha256": "a20082a47d23908279f673e49a5ad6cfa65802cb312cd6e4ad9743b2175fa470",
+      "size": 2600
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_court_usage_ledger.py",
+      "sha256": "0414373ce70264860c5c2148cee667fc5f655e6033b1700a59ece955dfaae1c6",
+      "size": 7126
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_obsidian_sync_transaction.py",
+      "sha256": "55e404d34e4d951bc1e84f7a826f924f9bab2d377c07590afd20bb0682768270",
+      "size": 20360
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_package_privacy.py",
+      "sha256": "441ffd9bf8ec1257ca31749ee75ff0bf8229e4f913c1b0c4242d2c6c72639385",
+      "size": 20202
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_portability.py",
+      "sha256": "09bf5f08121c031e785d82c37fe29ad5f2abb694234f21248d2e28b28a9ccc0f",
+      "size": 8493
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_read_only_contract.py",
+      "sha256": "38859a91225518e60e07de21a02ea6474aa5e38ef6b7bd127e2a07024f97276e",
+      "size": 10813
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_release_gate.py",
+      "sha256": "b9971b55822e3ecbfefa7ad13f01587238cb98b8db7a6df8e774393f7399d681",
+      "size": 7686
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_release_legal.py",
+      "sha256": "e64cfaf65c0258d044c7044a8b1bce3751a53029ddad26984ef2b8c6ea77349a",
+      "size": 8615
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_release_manifest.py",
+      "sha256": "5febbfde8040edb2833e2a515d1445523bf394bd5c984003bfbbc3effaaeba97",
+      "size": 5202
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_response_draft_fixtures.py",
+      "sha256": "8f1510403726e96ead64e9fcc7d6374bbe98dd84b23191047153839e4e8c8c60",
+      "size": 11090
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_response_fewshot_format.py",
+      "sha256": "829a25d15be53216f0ab99830ea35589d8cafeb8de262b96215efc90f303ee16",
+      "size": 6894
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_concurrency.py",
+      "sha256": "492a84591eb2a181ee9aa436f1053373d511ee464bb2b87bc8fdebb173881644",
+      "size": 8632
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_http.py",
+      "sha256": "e47c9d0ae761bce203ad70e5f0165ff69b5599f2cccc7d63b5b77c1c124c3613",
+      "size": 50638
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_import_queue.py",
+      "sha256": "875b285a8fa0d3ff8ddf9e8810862f55587bda91f577af0fd3ec12065f007e4d",
+      "size": 12291
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_peer_state_transaction.py",
+      "sha256": "31513f8142dcf151a2bec526ba0e03010d57522f9d62bfb748f85ab698c3857d",
+      "size": 38547
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_pending_quarantine_plan.py",
+      "sha256": "a54386454ee5c29118cfec76177741e003eacd4636c63c93117126215f41ca7a",
+      "size": 31440
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_queue_and_autosync_safety.py",
+      "sha256": "f14918cbfa942e8f5973c6d0b99bfa486d92a2647051c41fd3d42abb4efdb4bd",
+      "size": 12949
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_source_state_budget.py",
+      "sha256": "12b1956f6d29496d477caf45a585cb22e0d5715cbfbdac3108b804fe330386e6",
+      "size": 20030
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_claude_hard_gates.py",
+      "sha256": "437043de4dd72df72b557130368a5e5624922ecf1b23059bddf6a609da7e52dd",
+      "size": 8437
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_client_selection.py",
+      "sha256": "c86e86b2008b9ecc2ef204db7327e7e1fd6235000007d8a96e5a9d7fd226d18c",
+      "size": 3000
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_functional.py",
+      "sha256": "82ea72705867ac57947c839aee5c17facda19bd2d3a34b6d4b490aee4ae67b98",
+      "size": 15268
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_ministry_dispatch.py",
+      "sha256": "621b576205d47f7c799653fb70482799ba93ea71d603104a30f402bf10c19b32",
+      "size": 24440
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_no_silence_429_patrol.py",
+      "sha256": "95cb37bcf68b60873c16b06aa47591990be88d8c21e4c87b9f07c64824091f3a",
+      "size": 8318
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_profiles.py",
+      "sha256": "79081b2c7988438748d7465110008ecb8ed90db8ecea648049621e25ced06741",
+      "size": 9430
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_squad_wrapper.py",
+      "sha256": "8e9e25f8c47039f0f180ccb39abe474db4e83048f0e23a658b736939bcbca5ba",
+      "size": 5805
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_state_concurrency.py",
+      "sha256": "90f66cd26786e5142e9a62ec296dbe5eddfc8310f4d30f238e18213a73e466a3",
+      "size": 22674
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_super_entry.py",
+      "sha256": "ec3c2a4600acd90b0c0793afd914101532b453923f33616b3f9ae9da6c8c1416",
+      "size": 6105
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_supercc_truth_gates.py",
+      "sha256": "f55fb786f6183ae3b19528ad0764ac67359f188e1bb49be9ee64b79a615b74b8",
+      "size": 3710
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/codex_runtime_probe_support.py",
+      "sha256": "ff30a55daf84b45c8440be4a04168c81be16768ab169ee097c1247524ad595f0",
+      "size": 10034
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_cli.py",
+      "sha256": "e7256b43d42822fb311d899774ab0f4b47b7f6b983794d213e1a524f65b66870",
+      "size": 221
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_codex_host_resolution.py",
+      "sha256": "9b31153426bde15787ba68c34221ab431cadc0b05b3c6bf7214fda35af80d9cd",
+      "size": 7671
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_codex_office_worker.py",
+      "sha256": "05d761361b2bc0dde30703d841e274e2abbbe800e8e83eaf3ef8eac2efa2d40e",
+      "size": 15261
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_codex_protocol_launcher.py",
+      "sha256": "3c9a476a4a2b9d98471b85306c8367e3d28d7dad5537843e5543a2827b94767c",
+      "size": 17186
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_dispatch_policy.py",
+      "sha256": "5b2cb95f716d76817535e3016f385d37773ebf9288503387d713464a7022d973",
+      "size": 9952
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_file_lock.py",
+      "sha256": "d48704babf0fd14d910346a1995dc3e82dfe50092a83f5ac9f4201f182347479",
+      "size": 6955
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_heartbeat_watch.py",
+      "sha256": "13c648a151def49665e1d7e721e59f14c4b39fd9468e7f725f3339e005cc4259",
+      "size": 6351
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_model_router.py",
+      "sha256": "8887280b8277940981678086adf013320727a6a7010a5f2fc43ee85658031d11",
+      "size": 9242
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_multi_agent_protocol.py",
+      "sha256": "e6ca04e403324577c54f006e8993c243bbb65bdf3a87642a21e71781fd9dd358",
+      "size": 21967
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_office_bootstrap.py",
+      "sha256": "daf0cdba6b25a0cdce5d99cebdd184bb5a22006b0e44f91d8591f3ea916ab41c",
+      "size": 6228
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_platform.py",
+      "sha256": "ac36e405e1ff52b505324356f5fe25b57c1192fd93955eb1f4226cab2b39cf15",
+      "size": 3636
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_runtime.py",
+      "sha256": "821eeadc21054d4871c5e71c3d4d63d632c4ed1c0d6cbbe8a68571779a8d7d1a",
+      "size": 95498
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_usage_ledger.py",
+      "sha256": "9091218bf97e554be99920409a292072cc23335769a99a7fe23c664bc498818d",
+      "size": 17886
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_codex_yolo_startup_task.py",
+      "sha256": "fa431ba2ab7c52a94751a521ed5a1b591542e94823f9a3ca49035a0f10076f4e",
+      "size": 9978
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_court_agent_config.py",
+      "sha256": "868063f0ae7ae261c7c5ec1300a4796a70c1867e261e9d27dbbcedf40d947f88",
+      "size": 15187
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_hermes_supercc.py",
+      "sha256": "9be636dfa15c10036200704c9aefb06db270694d1b8912353d469c602080f8e4",
+      "size": 16988
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_obsidian_shared_vault.py",
+      "sha256": "d4b4d159764694128439b5e76b663142b087801f33164d742f29902b586192f2",
+      "size": 14140
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_portable_court_bootstrap.py",
+      "sha256": "6136277d00e11d253c809e4d1869ccf3255fb4098e1e10e7257edc28187635ca",
+      "size": 28384
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_shiguan_autosync.py",
+      "sha256": "688db28143ce777f068315bb102b03f95e15aab5ed129efa7bfb9569643ace5d",
+      "size": 18200
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_shiguan_service_daemon.py",
+      "sha256": "ab79e0005a994956fac98451d7b80ad24314114466bb0d6e69941443e5508eef",
+      "size": 14394
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_shiguan_web.py",
+      "sha256": "1af5348fba79feee95e0aa2e2f290e410ced594b3a9674b723c62d3389935624",
+      "size": 10255
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_supercc_court.py",
+      "sha256": "8dbc58459b3c71fd953ea0e2faa392845a39206d90010c00441b2224f89d7cc6",
+      "size": 232967
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/export_shiguan_obsidian.py",
+      "sha256": "15cd28712f8360ab430d1b624b4b7f4922c3f6ac93813966c44fba980641cbea",
+      "size": 13091
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/grow_shiguan_tree.py",
+      "sha256": "c73868ec7feea7a0a5456025dbc34c378bb85248c349116d8a04e7ad70c2193f",
+      "size": 14606
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/internal_memory_shiguan_bridge.py",
+      "sha256": "4a2d57cc527c0c7d49b51fe367b06d04aa2bb46c4a17abc73e9d9b4711c3e806",
+      "size": 29887
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/memory_decision.py",
+      "sha256": "e9cc7a7a102367e4b3299988a03b7eb45f083dbeda72a400dd520a6c0f8dbe4b",
+      "size": 6552
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/migrate_shared_shiguan.py",
+      "sha256": "5c7f49468e2d66931ec974389390031c11a416467bd1741c26fc74a5324f5c16",
+      "size": 6701
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/obsidian_config_state.py",
+      "sha256": "6d76bfae3a487cfe41f01935f03b5ebe881201c9858cac2a75775c2a2eadbaca",
+      "size": 6939
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/package_skill.py",
+      "sha256": "9e2ac3e1431b363768d4c7ac2bf8fbdd61d8e55789a92370f270cf15410c5b13",
+      "size": 51222
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/plan_shiguan_pending_quarantine.py",
+      "sha256": "a251aacee2cf0c0603fafdc8080a601af9823bfa664b5e97d96eeeb7427bd782",
+      "size": 23833
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/query_shiguan_index.py",
+      "sha256": "be590984e0bb09222b79c015dd0cdccb7df68ae6b69db248834fbb35b64fbef4",
+      "size": 7921
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/quick_validate.py",
+      "sha256": "2cc93efb3afc42064bc9b6360e15025918b19d4b0d259cba9ad618f83f876080",
+      "size": 6800
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/rebuild_shiguan_index.py",
+      "sha256": "082370abbb59938070689d67f239a0a2ea1f6e4b5e1a326748d6a0dfc4ab6add",
+      "size": 12093
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/reevaluate_memory_decisions.py",
+      "sha256": "aee6157191bb2e4244a41b30755a7c3aab9b279c26c38a232bb7db9590f3f0eb",
+      "size": 7606
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/refresh_capability_registry.py",
+      "sha256": "a82c84697001a6599bbbe05f0612c5f15073cff4d93008c5b4dd8c77ee8301db",
+      "size": 30879
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/register_agent_presence.py",
+      "sha256": "7e08f879fa137fe37fdd61fc72bb19852b08fc41dfd45b2c3a37ac420b2e5484",
+      "size": 806
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/release_gate_manifest.py",
+      "sha256": "80f72ff9d8ad5f196be9fcf0f6bc5a1e641227d7d1f34dff9dba68d91466243a",
+      "size": 13995
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/release_payload_manifest.py",
+      "sha256": "35e12480f227246436fff4491e3a3e7e80738474372f0aeed0a1da205a33f0b1",
+      "size": 17962
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/repair_archive_placeholders.py",
+      "sha256": "366ab1c5151500d28237875c39573e8b4a8d8f7ecca0a2bafabfbaff0bf435b4",
+      "size": 2788
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/report_office_startup_latency.py",
+      "sha256": "660d84a598ac66d5b51ef1094b6309042cd8d7154a543a9f9180165ed839ac5a",
+      "size": 7371
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/serve_shiguan_tree.py",
+      "sha256": "a41c2dfc0567efe0c0cb254f9051968694cacf23f68845c3796d114fcc451948",
+      "size": 105339
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_autosync_daemon.py",
+      "sha256": "e56bcbd1c1695d9be53c6197b628bd29ffefe98e5481e3ee900a5a07d17c44f8",
+      "size": 20979
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_entry_utils.py",
+      "sha256": "a9f87be33d3d79b3a8b323fdb8c73f7af3ddae0a9318062902c3b8e784d12266",
+      "size": 48420
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_paths.py",
+      "sha256": "42d58f65df4fb2a1076e124b59177e67ef837d0bfa4fbb594a6cf69adbae9c87",
+      "size": 14641
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_peer_downloads.py",
+      "sha256": "aac821239ce36080ba517605ee096148ada63cd6f47470de8aaef47109ad64b4",
+      "size": 14603
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_peer_state.py",
+      "sha256": "7e41de12b418094ed0ce5995ae40437513427d600a8d112f7321e012319de3b8",
+      "size": 11786
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_pending_governance.py",
+      "sha256": "ec236724268b762f8f62431165c4c3c34a184352cf7467ab52bb9f4a72d6de30",
+      "size": 26725
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_pending_governance_cli.py",
+      "sha256": "c067471f10d9e953b9b5e6a72255b9f9b068917329dd034021b8390f2d4d72e5",
+      "size": 5393
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_pending_trust.py",
+      "sha256": "f7ff6f74ebeaa9b800f9978908abd25fd05141b6259f992955e470f37d124c02",
+      "size": 21367
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_security.py",
+      "sha256": "b370423eb55eb934db08725368dec171fddf3293d884e871dfce5e641dabdf53",
+      "size": 557
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_service_daemon.py",
+      "sha256": "437978f1c992f97b6efc9c68733143f8e91b0e77c541cd8eb44c6b791769ee21",
+      "size": 3106
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_web_pending.py",
+      "sha256": "b5b7e23aa975245b561a37b723baef7100b5d855b4c1ce0676f0f05da13dd8af",
+      "size": 9659
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/stress_supercc_rate_limit.py",
+      "sha256": "5ea931641b65bd05a917e75be15b6814c19172fca41eec94ad19f411c75cb520",
+      "size": 10586
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/supercc-squad.cmd",
+      "sha256": "968234386e68337aca9c53ee21f677292becb9e8c62f7aa5dff74ff5cf9e1e80",
+      "size": 482
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/supercc-squad.ps1",
+      "sha256": "46bc2e9c9e8091983ad9615c0aefc0aca0b9f3890c2292e74bd429c33f63b75c",
+      "size": 678
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/supercc-squad.sh",
+      "sha256": "fe9a63e849c937dac76bb7af95c310a8ce1edcb122521af105e1375919aa9ba9",
+      "size": 990
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/supercc_client_selection.py",
+      "sha256": "eccc1c7efe1b601b02842b4688aaa1dd4aef7a4b0e7d54d0052f4d4624083fab",
+      "size": 15132
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/supercc_office_state.py",
+      "sha256": "bcab3d94f45f35d96f22bfd42ad155f24d8815267d4faf97c797e2eb55a3b01c",
+      "size": 12590
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/supercc_squad.py",
+      "sha256": "78c2bb13b2494b2205ff414181502933031e3b15ee0c409b67ca04946ffc60f2",
+      "size": 8693
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/supercc_watchdog.py",
+      "sha256": "8cd0bf974d1d793ccd1988a6aadea715c827451822069eeb7ff963a00bb8e858",
+      "size": 21390
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/sync_active_copies.py",
+      "sha256": "96ed29ba39c3f1675e673a90dfef988e6cbe351ac424686613241859438d2232",
+      "size": 3935
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/sync_codex_agents_from_profiles.py",
+      "sha256": "1c0fe49ecf0f7174dfab4c6b230daaab6dd91c75161808666f15a750eb3bee2d",
+      "size": 13748
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/sync_shiguan_obsidian_vault.py",
+      "sha256": "890ab825bb2894a35d153f485c07067b9f69c244cc05766c1c69ee2673832b01",
+      "size": 26810
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/tidy_shiguan_records.py",
+      "sha256": "cd27356287ae2462dd63473006850043b389bd4005da909dc1387f4dab16d34a",
+      "size": 19433
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/watch_session_completion.py",
+      "sha256": "b05b0e8b409561b1f233c430c0f114f6c5a80b7ad5bedfaa9457e074d035ed1e",
+      "size": 1362
+    },
+    {
+      "mode": "100644",
+      "path": "web/shiguan-tree/api.js",
+      "sha256": "c9045bf74e58c70a4b40a22a824f79b3856489d1008210a06b4353e37f0362b6",
+      "size": 1693
+    },
+    {
+      "mode": "100644",
+      "path": "web/shiguan-tree/app.js",
+      "sha256": "b385f20873b594ddfc532ec27aeb8939f8457ef2d1d96a43dcf35575aa10d538",
+      "size": 172683
+    },
+    {
+      "mode": "100644",
+      "path": "web/shiguan-tree/index.html",
+      "sha256": "60bb7b2c3d4e5135f241a899e96941a61988fe15f31226b9640ccb5e144c99bc",
+      "size": 15321
+    },
+    {
+      "mode": "100644",
+      "path": "web/shiguan-tree/styles.css",
+      "sha256": "436c3f219f7499171076a23dd12b7bff62341ab62798f9f52c7060105c6f554d",
+      "size": 36284
+    }
+  ],
+  "generated_portable_seed_paths": [
+    "references/shiguan-index.jsonl",
+    "references/shiguan-knowledge-graph.json",
+    "references/shiguan-tree/_index.md",
+    "references/shiguan-tree/branches/README.md",
+    "references/shiguan-tree/capability-index/README.md",
+    "references/shiguan-tree/capability-index/_index.md",
+    "references/shiguan-tree/leaves/README.md",
+    "references/shiguan-tree/sources/README.md"
+  ],
+  "integrity": {
+    "algorithm": "sha256",
+    "generated_portable_seed_count": 8,
+    "manifest_in_file_inventory": false,
+    "manifest_path": "release-manifest.json",
+    "payload_bytes": 3031086,
+    "payload_file_count": 212,
+    "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
+    "payload_index_sha256": "c207882bd5b8e58995143114f4d1a3afcce30ab81b878b1d2adb0606c58f6c2f",
+    "source_packaged_tracked_file_count": 204,
+    "source_tracked_file_count": 204
+  },
+  "license": {
+    "declared": "Apache-2.0",
+    "file": "LICENSE"
+  },
+  "name": "court-capability-router",
+  "privacy_policy": "PRIVACY.md",
+  "release_label": "beta0.5.9",
+  "repository_only_files": [],
+  "sbom": "SBOM.spdx.json",
+  "schema": "court.release_manifest.v2",
+  "security_policy": "SECURITY.md",
+  "sidecar_name": "court-capability-router-beta0.5.9.zip.sha256",
+  "source_ref": "refs/tags/beta0.5.9",
+  "third_party_notices": "THIRD_PARTY_NOTICES.md",
+  "version_core": "0.5.9"
+}
