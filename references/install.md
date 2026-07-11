@@ -36,6 +36,9 @@ court-capability-router/
   scripts/shiguan_peer_downloads.py
   scripts/refresh_capability_registry.py
   scripts/package_skill.py
+  scripts/check_release_legal.py
+  scripts/release_payload_manifest.py
+  scripts/build_release_artifacts.py
   scripts/shiguan_paths.py
   scripts/migrate_shared_shiguan.py
   scripts/sync_shiguan_obsidian_vault.py
@@ -296,6 +299,9 @@ Release assets:
 ```text
 court-capability-router-beta0.5.9.zip
 court-capability-router-beta0.5.9.zip.sha256
+court-capability-router-beta0.5.9.release-attestation.json
+court-capability-router-beta0.5.9.release-notes.md
+SBOM.spdx.json
 ```
 
 The ZIP has one top-level root: `court-capability-router/`.
@@ -313,9 +319,17 @@ After extraction, inspect `VERSION` and `release-manifest.json`, then run the po
 python -B scripts/quick_validate.py .
 python -B scripts/check_catalog.py --strict
 python -B scripts/check_release_manifest.py --json
+python -B scripts/check_release_legal.py --self-test --json
+python -B scripts/release_payload_manifest.py --self-test --check --json
 ```
 
-The root `release-manifest.json` describes this artifact. `references/manifests/release-gates.v1.json` describes the source release-gate policy; neither replaces SHA256 verification. Maintainers run the full package gate from a clean canonical source tree with `scripts/check_release_gate.py --package <path-to-zip> --require-package --skip-runtime --json`, because the extracted release intentionally contains generated portable seed files that are absent from the active-source tree.
+The root `release-manifest.json` describes this artifact. `references/manifests/release-gates.v1.json` describes the source release-gate policy; neither replaces SHA256 verification. The external attestation binds the ZIP to the reviewed HEAD commit, annotated tag, Git tree, payload-manifest digest and external asset digests. Maintainers run the full package gate from a clean canonical source tree with `scripts/check_release_gate.py --package <path-to-zip> --require-package --skip-runtime --json`, because the extracted release intentionally contains generated portable seed files that are absent from the active-source tree. With `--skip-runtime`, ordinary `super` release validation reports runtime status `NOT_APPLICABLE` and reason `runtime_not_selected`; it does not claim a superCC runtime pass.
+
+## License And Upstream Notice
+
+Original project material is offered under Apache License 2.0, subject to the contributor actually owning or controlling the necessary rights. Apache-2.0 was selected for its explicit patent grant and NOTICE/contribution governance. `cft0808/edict` commit `14a207557719c046af0f993a7bff1cc5a5015b33` uses the MIT License. MIT permits use, modification, redistribution and sublicensing, but its copyright and permission notice must accompany any distributed copy or substantial portion. The pinned provenance and complete notice are in `THIRD_PARTY_NOTICES.md`.
+
+These files do not prove authorship, trademark clearance, privacy consent, or absence of substantial similarity. Stop public publication if provenance or contributor rights are unresolved. The package contains no Git remote, GitHub credential, access token, account selection, or authenticated release state.
 
 After installing, copying, or recruiting any new skill, run:
 
@@ -453,16 +467,31 @@ seed. Local catalogs and stage archives are generated on the host.
 
 ## Build The Portable Package
 
-Use the packaging script instead of hand-zipping the live directory:
+Use an absent candidate path instead of hand-zipping the live directory. The package writer has no overwrite flag:
 
 ```sh
-python -B scripts/package_skill.py --out "court-capability-router-skill.zip"
+python -B scripts/package_skill.py --out "court-capability-router-beta0.5.9-candidate.zip"
 ```
 
 The script stages a clean copy, removes host-local Shiguan record bodies,
 derived local records, and local capability catalogs, writes the empty Shiguan
 seed files, validates the zip, and keeps the root folder as
-`court-capability-router/`.
+`court-capability-router/`. ZIP members use stored compression, a fixed timestamp
+and mode, and UTF-8 path ordering. If the requested output already exists, the
+command fails without replacing it.
+
+After source gates pass, the worktree is clean, and an annotated release tag
+points to HEAD, create the final version directory with:
+
+```powershell
+python -B scripts/build_release_artifacts.py --out-root '<immutable-package-root>' --json
+```
+
+The builder validates all candidate bytes before creating the final directory,
+writes each asset with exclusive creation, and refuses an existing version
+directory or asset. It emits the ZIP, SHA256 sidecar, source/tag/tree
+attestation, release notes and SBOM. It never creates or guesses a Git remote
+and does not publish to GitHub.
 
 For true no-sandbox `super` sessions, start Codex with one of these commands
 before invoking the skill:

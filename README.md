@@ -9,7 +9,9 @@
 - ZIP 内唯一根目录：`court-capability-router/`
 - 包内版本与逐文件摘要：[release-manifest.json](release-manifest.json)
 - 项目许可证：[Apache License 2.0](LICENSE)
+- 上游许可与来源：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - 安全策略：[SECURITY.md](SECURITY.md)
+- 隐私边界：[PRIVACY.md](PRIVACY.md)
 - 安装与包校验：[references/install.md](references/install.md)
 - 简明变更：[CHANGELOG.md](CHANGELOG.md)
 - 详细记录：[RELEASE-LOG.md](RELEASE-LOG.md)
@@ -24,11 +26,14 @@
 
 ### beta0.5.9 更新、修复与新增
 
-- 更新：生产配置统一为 Multi-Agent V2；整棵会话树 16 槽、根计槽、最大深度 4。
-- 修复：移除 V2 文档中的 legacy `agents.max_threads` 推荐，并明确六部默认非显性、静默，仅在尚书差遣后启用。
-- 修复：公共包不再包含或宣称包含 `plan-archives`、`memory-decisions`、个人史馆正文、日志、会话、备份、peer/import/runtime 状态或本机索引。
-- 修复：打包器改为大小写无关的 fail-closed 路径 allowlist，拒绝未知目录、reparse/symlink、嵌套包、Zip Slip、重复/大小写碰撞、异常压缩比与秘密/宿主路径。
-- 新增：版本文件、详细发布日志、逐文件 SHA256 manifest、外部 ZIP SHA256 sidecar，以及 Git tree—ZIP 精确一致性验收。
+- 新增：`COURT-DYNMSG-BUDGET-V1-20260712`，消息预算为 6000 floor、1000 quantum、12000 ceiling。
+- 修复：能力索引统一从共享史馆根读取；路径异常以结构化失败返回。
+- 开源：项目原创材料采用 Apache-2.0；`cft0808/edict` 的 MIT 来源、固定提交和完整许可文本保存在 `THIRD_PARTY_NOTICES.md`。许可成立以贡献者拥有必要权利为前提。
+- 发布：ZIP 使用 stored entries、固定时间戳/mode、UTF-8 排序和稳定源读取；已有输出与已有版本目录一律拒绝，旧 `beta0.5.8` 不覆盖、不删除、不改签。
+- 门禁：v2 payload manifest 精确核验每个文件；发布策略包含法律、隐私、能力索引、构建器和条件运行时共 40 步。
+- 安全：Web/daemon 默认仅 `127.0.0.1`，LAN 需显式 opt-in；非回环 peer 强制 HTTPS、禁重定向与内嵌凭据，quoted JSON secret 纳入脱敏。
+- 资产：最终版本目录包含 ZIP、SHA256 sidecar、HEAD/tag/tree/manifest attestation、release notes 与 SPDX SBOM。
+- 边界：包内没有 Git remote、GitHub 账号或凭据；物理宿主 child-thread 回收仍未完整验证，不宣称已修复。
 
 详见 `RELEASE-LOG.md`。
 
