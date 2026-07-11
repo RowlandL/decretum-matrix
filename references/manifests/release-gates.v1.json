@@ -1,0 +1,290 @@
+{
+  "schema": "court.release_gates.v1",
+  "package_gate": {
+    "optional_by_default": true,
+    "require_flag": "--require-package",
+    "validator": "package_skill.validate_zip"
+  },
+  "steps": [
+    {
+      "name": "quick_validate",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/quick_validate.py", "."],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "catalog_strict",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_catalog.py", "--strict"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "portability",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_portability.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "release_manifest",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_release_manifest.py", "--json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "source_state_budget",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_source_state_budget.py", "--self-test", "--json"],
+      "timeout": 240,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_profiles",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_profiles.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_truth_gates",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_truth_gates.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_ministry_dispatch",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_ministry_dispatch.py"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_squad_wrapper",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_squad_wrapper.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_claude_hard_gates",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_claude_hard_gates.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_super_entry",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_super_entry.py"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_client_selection",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_client_selection.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "supercc_state_concurrency",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_supercc_state_concurrency.py", "--json"],
+      "timeout": 240,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_runtime",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_runtime.py"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_agent_lifecycle",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_agent_lifecycle.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_dispatch_policy",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_dispatch_policy.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_codex_office_worker",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_codex_office_worker.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_codex_host_resolution",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_codex_host_resolution.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_agent_config",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_agent_config.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "codex_privacy_contract",
+      "gate_class": "installation",
+      "command": ["$PYTHON", "scripts/check_court_agent_config.py", "--live-runtime", "--format", "json"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "codex_host_resolution_live",
+      "gate_class": "installation",
+      "command": ["$PYTHON", "scripts/court_codex_host_resolution.py", "--json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_model_router",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_model_router.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_office_bootstrap",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_office_bootstrap.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_runtime_concurrency",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_runtime_concurrency.py"],
+      "timeout": 240,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_intervention_matrix",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_intervention_matrix.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "read_only_contract",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_read_only_contract.py"],
+      "timeout": 240,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "shiguan_concurrency",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_shiguan_concurrency.py"],
+      "timeout": 300,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "shiguan_http_security",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_shiguan_http.py", "--static-only"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "shiguan_peer_state_transaction",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_shiguan_peer_state_transaction.py"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "shiguan_queue_autosync_safety",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_shiguan_queue_and_autosync_safety.py"],
+      "timeout": 240,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "obsidian_sync_transaction",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_obsidian_sync_transaction.py", "--json"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "shiguan_pending_quarantine_plan",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_shiguan_pending_quarantine_plan.py", "--format", "json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "codex_agent_roles",
+      "gate_class": "installation",
+      "command": ["$PYTHON", "scripts/check_codex_agent_roles.py", "--format", "json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "active_copy_hashes",
+      "gate_class": "installation",
+      "command": ["$PYTHON", "scripts/check_active_copy_hashes.py", "--json"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "active_copies_enabled"
+    },
+    {
+      "name": "supercc_runtime_truth",
+      "gate_class": "runtime",
+      "command": ["$PYTHON", "scripts/check_supercc_functional.py", "--workspace", ".", "--json", "--strict"],
+      "timeout": 240,
+      "allowed_returncodes": [0],
+      "condition": "runtime_enabled"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "counts": {
+    "edges": 0,
+    "entries": 0,
+    "nodes": 1
+  },
+  "edges": [],
+  "nodes": [
+    {
+      "count": 1,
+      "id": "root:史馆总纪",
+      "kind": "root",
+      "label": "史馆总纪"
+    }
+  ],
+  "schema": {
+    "name": "shiguan-multidimensional-knowledge-graph",
+    "portable_seed": true,
+    "version": 1
+  }
+}

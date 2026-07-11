@@ -1,0 +1,39 @@
+schema: court.benchmark.v1
+id: cft0808-edict
+name: cft0808/edict
+url: https://github.com/cft0808/edict
+checked_at: "2026-07-10"
+commit: "14a207557719c046af0f993a7bff1cc5a5015b33"
+
+authority_boundary:
+  runtime_dependency: false
+  governing_source: false
+  historical_authority: false
+  purpose: engineering_semantic_benchmark
+  local_source_of_truth:
+    - SKILL.md
+    - references/court-core-contract.md
+    - references/court-offices-dispatch.md
+
+adopted_dimensions:
+  - mandatory_review
+  - legal_state_transitions
+  - parallel_office_execution
+  - heartbeat_and_liveness
+  - bounded_intervention
+  - audit_trails
+
+rejected_dimensions:
+  - openclaw_specific_commands
+  - openclaw_deployment_assumptions
+  - undocumented_ui_behavior
+  - runtime_dependency_on_cft0808_edict
+  - claim_of_historical_three_departments_equivalence
+
+historical_boundary:
+  model: hybrid_adaptation
+  statement: >-
+    The local court uses a three-departments-and-six-ministries responsibility
+    model with an Inner-Cabinet-drafting analogue for imperial-edict work. This
+    is an engineering adaptation, not a claim that Ming or Qing edicts passed
+    through the historical Tang three-departments process.

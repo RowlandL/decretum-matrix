@@ -1,0 +1,437 @@
+{
+  "schema": "court_context_compression_survival.v1",
+  "original_decree_text": "多次语义压缩后，三省六部 skill 仍需被调用，最开始输入的计划不变，回复格式不变形。",
+  "plan_text": "先读取 court-capability-router，再保持原始旨意与计划锚点，最后按十四标签结诏回复。",
+  "reply_voice_contract": "court_office_self_reference",
+  "reply_voice_markers": [
+    "作业AI：",
+    "门下裁定：",
+    "太子回奏："
+  ],
+  "forbidden_reply_voice": [
+    "作为AI",
+    "我是AI",
+    "作为一个AI",
+    "助手回复",
+    "assistant",
+    "我会",
+    "我已经",
+    "我将",
+    "我认为",
+    "I will",
+    "I have",
+    "I think"
+  ],
+  "closeout_identifier_contract": "court_code_and_ancient_lineage_required_for_any_closeout_or_snapshot",
+  "forbidden_closeout_identifier_values": [
+    "",
+    "...",
+    "…",
+    "未生成",
+    "pending_archive_assignment",
+    "NOT_APPLICABLE"
+  ],
+  "restored_reply_preview": "结诏：\n诏令编号：CTXSNAP-20260701-A-DBAA\n古制谱系：史馆总纪·朝制志·官署门·压缩存活条\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：按三省六部格式回复。",
+  "cases": [
+    {
+      "name": "survives_three_cycles",
+      "expected_gate": "PASSED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": []
+    },
+    {
+      "name": "rejects_missing_response_reload",
+      "expected_gate": "FAILED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_missing_response_reload:missing_reload:references/sections/court-response-fewshot-format.md"
+      ]
+    },
+    {
+      "name": "rejects_missing_hash_anchors",
+      "expected_gate": "FAILED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_missing_hash_anchors:original_decree_sha256",
+        "rejects_missing_hash_anchors:plan_sha256"
+      ]
+    },
+    {
+      "name": "rejects_missing_closeout_label_hash",
+      "expected_gate": "FAILED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_missing_closeout_label_hash:closeout_label_hash"
+      ]
+    },
+    {
+      "name": "rejects_unissued_closeout_identifiers",
+      "expected_gate": "FAILED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "restored_reply_preview": "结诏：\n诏令编号：未生成\n古制谱系：未生成\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：按三省六部格式回复。",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_unissued_closeout_identifiers:invalid_closeout_identifier:诏令编号：",
+        "rejects_unissued_closeout_identifiers:invalid_closeout_identifier:古制谱系："
+      ]
+    },
+    {
+      "name": "rejects_generic_assistant_voice",
+      "expected_gate": "FAILED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "restored_reply_preview": "结诏：\n诏令编号：CTXSNAP-20260701-B-DBAA\n古制谱系：史馆总纪·朝制志·官署门·压缩存活条\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：assistant 普通口吻已漂移。",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_generic_assistant_voice:generic_reply_voice:assistant"
+      ]
+    },
+    {
+      "name": "rejects_first_person_office_voice",
+      "expected_gate": "FAILED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "restored_reply_preview": "结诏：\n诏令编号：CTXSNAP-20260701-C-DBAA\n古制谱系：史馆总纪·朝制志·官署门·压缩存活条\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：我已经完成压缩恢复，接下来我会结诏。",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_first_person_office_voice:generic_reply_voice:我会",
+        "rejects_first_person_office_voice:generic_reply_voice:我已经"
+      ]
+    },
+    {
+      "name": "rejects_forced_closeout_reload",
+      "expected_gate": "FAILED",
+      "cycle_count": 3,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "先读取 court-capability-router",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md",
+        "references/sections/court-closeout-memorial-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_forced_closeout_reload:closeout_shard_forced_reload"
+      ]
+    },
+    {
+      "name": "rejects_mutated_plan_anchor",
+      "expected_gate": "FAILED",
+      "cycle_count": 4,
+      "original_decree_anchor": "多次语义压缩后",
+      "original_decree_sha256": "b444c1d5698f2856cf1ee7c2f729e2bd72cce03f06d355ab8b110951feb30c01",
+      "plan_anchor": "改为普通摘要回复",
+      "plan_sha256": "1c19e707193ac660a76512f7b6c369848aef73909c61c63459e4c8094d03c38e",
+      "active_skill": "court-capability-router",
+      "required_reload": [
+        "SKILL.md",
+        "references/sections/court-context-compression-survival.md",
+        "references/sections/court-response-fewshot-format.md"
+      ],
+      "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
+      "reply_family": "implementation_closeout",
+      "closeout_labels": [
+        "诏令编号：",
+        "古制谱系：",
+        "状态：",
+        "作业AI：",
+        "旨意与边界：",
+        "执行门禁：",
+        "门下裁定：",
+        "实际动作：",
+        "验收证据：",
+        "运行态与并行：",
+        "史馆：",
+        "余险：",
+        "太子回奏：",
+        "下一步："
+      ],
+      "closeout_label_hash": "2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41",
+      "closeout_shard_on_demand": "references/sections/court-closeout-memorial-format.md",
+      "closeout_reload_condition": "label_hash_missing_or_mismatch_or_final_closeout_repair",
+      "token_policy": [
+        "metadata_precision",
+        "body_reference_policy",
+        "on_demand_loading"
+      ],
+      "expected_errors": [
+        "rejects_mutated_plan_anchor:plan_anchor"
+      ]
+    }
+  ]
+}

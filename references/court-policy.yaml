@@ -1,0 +1,35 @@
+schema: court.policy.v1
+updated: "2026-07-10"
+scope: court-capability-router
+default_boundaries:
+  newest_user_decree: required
+  secrets_private_tokens_cookies: never_echo
+  destructive_delete_move: explicit_confirmation_required
+  paid_actions: explicit_confirmation_required
+  public_exposure: explicit_confirmation_required
+  dangerous_yolo_autostart_registration: explicit_danger_confirmation_required
+durable_security_gates:
+  lan_anonymous_state: strict_public_projection_only
+  administrative_writes: same_origin_or_explicit_cli_header_plus_lan_token
+  pending_imports: metadata_before_body_and_menxia_review_before_promotion
+  shared_shiguan_writes: os_lock_plus_atomic_replacement
+  read_only_commands: zero_filesystem_or_runtime_mutation
+  secrets_in_logs_and_archives: always_redact
+source_release_gates:
+  - quick_validate
+  - catalog_strict
+  - portability
+  - supercc_profiles
+  - supercc_truth_gates
+  - supercc_ministry_dispatch
+  - read_only_contract
+  - shiguan_concurrency
+  - shiguan_http_security
+  - codex_agent_roles
+  - active_copy_hashes
+  - supercc_runtime_truth_strict
+package_release_gates:
+  package_ok_is_not_release_ok: true
+  startup_task_drafts_excluded_except_readme: true
+  host_private_state_excluded: true
+  generated_catalogs_excluded: true

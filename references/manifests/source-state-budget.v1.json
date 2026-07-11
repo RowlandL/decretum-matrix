@@ -1,0 +1,130 @@
+{
+  "schema": "court.source_state_budget.v1",
+  "classification": {
+    "historical_top_level_prefixes": [
+      "references.imported-"
+    ],
+    "historical_path_prefixes": [
+      "references/shiguan-backups/"
+    ],
+    "generated_dir_names": [
+      "__pycache__",
+      ".git",
+      ".mypy_cache",
+      ".pytest_cache",
+      ".ruff_cache",
+      "agente-logs",
+      "capability-index",
+      "court-runtime",
+      "memory-decisions",
+      "obsidian-sync",
+      "plan-archives",
+      "shiguan-imports",
+      "shiguan-peers",
+      "shiguan-tidy-reports"
+    ],
+    "generated_exact_files": [
+      "references/installed-capabilities-catalog.md",
+      "references/installed-skills-catalog.md",
+      "references/installed-capabilities-manifest.json",
+      "references/shiguan-index.jsonl",
+      "references/shiguan-knowledge-graph.json",
+      "references/shiguan-tree/_index.md",
+      "references/shiguan-tree/最新树叶.md",
+      "references/shiguan-tree/史馆 Web UI.md"
+    ],
+    "generated_path_rules": [
+      {
+        "prefix": "references/startup-tasks/",
+        "portable_basenames": ["README.md"]
+      },
+      {
+        "prefix": "references/shiguan-tree/leaves/",
+        "portable_basenames": ["README.md"]
+      },
+      {
+        "prefix": "references/shiguan-tree/branches/",
+        "portable_basenames": ["README.md"]
+      },
+      {
+        "prefix": "references/shiguan-tree/sources/",
+        "portable_basenames": ["README.md"]
+      }
+    ],
+    "generated_path_components": [
+      "Obsidian 回传"
+    ],
+    "generated_filename_prefixes": [
+      ".tmp-"
+    ],
+    "generated_filename_contains": [
+      ".backup"
+    ],
+    "generated_suffixes": [
+      ".pyc",
+      ".tmp",
+      ".bak",
+      ".log",
+      ".sqlite",
+      ".sqlite3",
+      ".db"
+    ],
+    "runtime_candidate_directory_fragments": [
+      "runtime",
+      "generated",
+      "pending",
+      "import",
+      "backup",
+      "cache",
+      "logs",
+      "sessions"
+    ],
+    "runtime_candidate_suffixes": [
+      ".pyc",
+      ".log",
+      ".sqlite",
+      ".sqlite3",
+      ".db"
+    ]
+  },
+  "hard_limits": {
+    "portable_source": {
+      "max_files": 220,
+      "max_bytes": 3300000
+    },
+    "source_lines": {
+      "scripts/ensure_supercc_court.py": 5250,
+      "scripts/supercc_client_selection.py": 400,
+      "scripts/serve_shiguan_tree.py": 2650,
+      "scripts/shiguan_peer_downloads.py": 420,
+      "scripts/shiguan_peer_state.py": 320,
+      "scripts/shiguan_web_pending.py": 260,
+      "scripts/supercc_office_state.py": 320,
+      "scripts/court_multi_agent_protocol.py": 600,
+      "scripts/court_codex_protocol_launcher.py": 450,
+      "scripts/court_codex_office_worker.py": 450,
+      "scripts/check_court_codex_office_worker.py": 220,
+      "scripts/court_codex_host_resolution.py": 320,
+      "scripts/check_court_codex_host_resolution.py": 140,
+      "scripts/shiguan_pending_governance.py": 650,
+      "scripts/shiguan_pending_governance_cli.py": 220,
+      "scripts/shiguan_pending_trust.py": 460,
+      "scripts/plan_shiguan_pending_quarantine.py": 650,
+      "scripts/obsidian_config_state.py": 220,
+      "scripts/agent_runtime_probe.py": 1100,
+      "scripts/codex_runtime_probe_support.py": 300
+    }
+  },
+  "warning_targets": {
+    "historical": {
+      "max_files": 0,
+      "max_bytes": 0,
+      "code": "legacy_over_target"
+    },
+    "generated_runtime": {
+      "max_files": 0,
+      "max_bytes": 0,
+      "code": "generated_runtime_present"
+    }
+  }
+}

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>史馆生长树</title>
+  <link rel="stylesheet" href="styles.css?v=20260608-orbit10">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1>史馆生长树</h1>
+      <p id="meta">本地史馆管理</p>
+      <div id="peerStatusBar" class="peer-status-bar" aria-live="polite"></div>
+    </div>
+    <div class="actions">
+      <button id="rebuildBtn" type="button" aria-label="重建索引">重建</button>
+      <button id="growBtn" type="button" aria-label="刷新树">刷新</button>
+      <button id="syncObsidianBtn" type="button" aria-label="同步 Obsidian">同步 Obsidian</button>
+      <button id="obsidianRestPushBtn" type="button" aria-label="通过 REST API 推送到当前 Obsidian vault">REST 推送</button>
+      <details class="hamburger-menu">
+        <summary aria-label="更多工具">☰</summary>
+        <div class="menu-panel">
+          <button id="importTextBtn" type="button">导入 md/txt</button>
+          <button id="generateKeyBtn" type="button">生成密钥</button>
+          <button id="exportKeyBtn" type="button">导出密钥</button>
+          <button id="manageKeyBtn" type="button">管理密钥</button>
+          <button id="importKeyBtn" type="button">导入密钥</button>
+        </div>
+      </details>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel graph-panel">
+      <div class="graph-head">
+        <div>
+          <h2>星图 / 树图</h2>
+          <p id="graphMeta">分支、树叶、关键词关系</p>
+        </div>
+        <div class="graph-controls">
+          <div class="segmented" role="group" aria-label="关系图模式">
+            <button id="graphModeStar" class="active" type="button">星图</button>
+            <button id="graphModeTree" type="button">树图</button>
+          </div>
+          <button id="classColorToggle" class="soft-toggle" type="button" aria-pressed="true">分类色</button>
+          <button id="facetToggle" class="soft-toggle" type="button" aria-pressed="true">分面</button>
+          <button id="orbitToggle" class="soft-toggle" type="button" aria-pressed="true">旋转</button>
+          <button id="themeToggle" class="soft-toggle" type="button" aria-pressed="false">暗夜</button>
+          <div class="panel-toggles" role="group" aria-label="侧栏显示">
+            <button id="toggleListBtn" type="button" aria-pressed="true">史馆</button>
+          </div>
+        </div>
+      </div>
+      <div class="graph-tools" aria-label="关系图缩放">
+        <label class="graph-limit">显示<input id="graphLimitInput" type="number" min="10" max="500" step="10" value="120"></label>
+        <button id="zoomOutBtn" type="button">-</button>
+        <span id="zoomLevel">100%</span>
+        <button id="zoomInBtn" type="button">+</button>
+        <button id="zoomResetBtn" type="button">归位</button>
+      </div>
+      <div class="graph-wrap">
+        <svg id="graph" viewBox="0 0 900 560" role="img" aria-label="史馆生长树关系图"></svg>
+      </div>
+      <div id="graphDetail" class="graph-detail"><strong>关系详情</strong><br>点按节点查看完整信息；桌面端也可悬停预览。</div>
+      <div class="code-legend">
+        <strong>编号律令</strong>
+        <span>诏令编号：层级码串-日期-日内36进制-四字码</span>
+        <span>四字码固定为：状态 / 风险 / 知识库价值 / 优先级</span>
+        <span>状态是离散执行结论，只用中文和颜色标识，不按等级量化。</span>
+        <span>后三项等级：S 最高，F 最低</span>
+        <span>分类法：主树按内容谱系，阶段、状态、风险、价值、优先级作为分面检索。</span>
+        <span>网页展示：关键词、摘要、理由用中文；原始正文与证据字段保持原样。</span>
+      </div>
+    </section>
+
+    <section class="panel list-panel">
+      <div class="panel-head">
+        <h2>史馆</h2>
+        <div class="editor-actions">
+          <button id="newBtn" type="button">新叶</button>
+          <button id="toggleEditorBtn" type="button" aria-pressed="true">树叶编辑</button>
+          <button id="collapseListBtn" type="button">收起</button>
+        </div>
+      </div>
+      <div class="search-row">
+        <input id="searchInput" type="search" placeholder="关键词 / 行为 / 诏令">
+        <button id="searchBtn" type="button">检索</button>
+      </div>
+      <div id="status" class="status">准备就绪</div>
+      <div id="entries" class="entries"></div>
+
+      <section class="editor-panel editor-subpanel" aria-label="树叶编辑">
+        <div class="editor-head">
+          <h3>树叶编辑</h3>
+          <div class="editor-actions">
+            <button id="editEntryBtn" type="button" aria-pressed="false">编辑</button>
+            <button id="collapseEditorBtn" type="button">收起编辑</button>
+          </div>
+        </div>
+        <form id="entryForm">
+          <input id="id" name="id" type="hidden">
+          <section id="entryProfile" class="entry-profile" aria-label="树叶多维图">
+            <div class="profile-head">
+              <div>
+                <strong>树叶画像</strong>
+                <p id="profileStage">朝程阶段：未定</p>
+              </div>
+              <span id="profileStatus" class="status-chip">状态：未定</span>
+            </div>
+            <svg id="profileRadar" class="profile-radar" viewBox="0 0 260 190" role="img" aria-label="朝程、记忆、风险、价值、优先级多维图"></svg>
+            <div id="profileClass" class="profile-class">分类：未分类</div>
+          </section>
+          <label>诏令编号<span class="field-help">自动生成；格式为 层级码串-日期-日内序号-四字码。</span><input id="court_code" name="court_code" autocomplete="off" readonly></label>
+          <label>古制谱系<span class="field-help">按内容名展示的史馆分类路径，不用动作阶段分类。</span><input id="ancient_lineage" name="ancient_lineage" autocomplete="off" readonly></label>
+          <label>主题<span class="field-help">事项主名；用于聚类、标题和后续追踪。</span><input id="topic" name="topic" autocomplete="off"></label>
+          <label>阶段<span class="field-help">本条记录处在朝议、营造、复核等哪一步。</span><input id="phase" name="phase" autocomplete="off"></label>
+          <label>状态<span class="field-help">DONE、APPROVED、BLOCKED 等结论状态。</span><input id="statusField" name="status" autocomplete="off"></label>
+          <label>时间<span class="field-help">实录发生时间；留空时由系统补当前时间。</span><input id="time" name="time" autocomplete="off"></label>
+          <label>关键词<span class="field-help">给人和 agente 检索用的短词，逗号分隔。</span><textarea id="keywords" name="keywords" rows="2"></textarea></label>
+          <label>关键行为<span class="field-help">记录本次做过的关键动作，如重建索引、打包。</span><textarea id="key_actions" name="key_actions" rows="2"></textarea></label>
+          <label>摘要<span class="field-help">默认显示中文译述；点“显示原文”后在同一文本框查看或编辑源摘要。</span><textarea id="display_summary" rows="6" readonly></textarea></label>
+          <input id="summary" name="summary" type="hidden">
+          <div class="source-toggle-row">
+            <button id="rawSummaryToggle" type="button" aria-expanded="false" aria-controls="display_summary">显示原文</button>
+            <span id="rawSummaryState" class="source-toggle-state">原文已隐藏</span>
+          </div>
+          <label>证据<span class="field-help">相关文件、命令、网页或校验结果。</span><textarea id="evidence" name="evidence" rows="3"></textarea></label>
+          <label>下一步<span class="field-help">后续应继续、复查或等待的事项。</span><textarea id="next" name="next" rows="2"></textarea></label>
+          <div class="grid-two">
+            <label>记忆裁定<span class="field-help">WRITE、PROPOSE、SKIP 或 DEFERRED。</span><input id="memory_decision" name="memory_decision"></label>
+            <label>记录类型<span class="field-help">实录、手动笔记、记忆候选等分类。</span><input id="record_type" name="record_type"></label>
+          </div>
+          <div class="grid-three">
+            <label>风险等级<span class="field-help">四字码第2位；S 最高，F 最低。</span><input id="risk_level" name="risk_level" maxlength="1"></label>
+            <label>知识价值<span class="field-help">四字码第3位；对后续召回是否有用。</span><input id="knowledge_value" name="knowledge_value" maxlength="1"></label>
+            <label>优先级<span class="field-help">四字码第4位；后续处理轻重。</span><input id="priority_level" name="priority_level" maxlength="1"></label>
+          </div>
+          <label>记忆内容<span class="field-help">若可长期复用，写成简短稳定规则。</span><textarea id="memory_content" name="memory_content" rows="3"></textarea></label>
+          <label>记忆理由<span class="field-help">说明为何写入、暂缓或跳过长期记忆。</span><textarea id="memory_reason" name="memory_reason" rows="2"></textarea></label>
+          <label>来源<span class="field-help">原始实录、索引或人工新增的来源路径。</span><input id="source" name="source"></label>
+          <button id="saveEntryBtn" class="primary" type="submit">保存并生长</button>
+        </form>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="keyGenerateDialog" class="modal-dialog">
+    <form id="keyGenerateForm" class="modal-card" method="dialog">
+      <div class="modal-head">
+        <h2 id="keyGenerateTitle">生成密钥</h2>
+        <p id="keyGenerateHelp">先生成只读或编辑密钥，再用“导出密钥”下载文件。</p>
+      </div>
+      <label>权限
+        <select id="keyRole">
+          <option value="read" selected>只读</option>
+          <option value="edit">编辑</option>
+        </select>
+      </label>
+      <label>有效期
+        <select id="keyExpiryPreset">
+          <option value="1">1 天</option>
+          <option value="7" selected>7 天</option>
+          <option value="30">30 天</option>
+          <option value="90">90 天</option>
+          <option value="365">1 年</option>
+          <option value="permanent">永久</option>
+        </select>
+      </label>
+      <label>分享主机地址
+        <input id="keyShareHost" autocomplete="off" placeholder="留空自动使用本机局域网地址">
+      </label>
+      <label>分享端口
+        <input id="keySharePort" inputmode="numeric" autocomplete="off" placeholder="留空使用当前服务端口">
+      </label>
+      <div class="modal-actions">
+        <button type="submit" value="cancel">取消</button>
+        <button class="primary" type="submit" value="generate">生成</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="keyManageDialog" class="modal-dialog key-manage-dialog">
+    <form id="keyManageForm" class="modal-card" method="dialog">
+      <div class="modal-head">
+        <h2>管理密钥</h2>
+        <p>管理本机已生成、已分享的密钥。删除会让已分享文件失效。</p>
+      </div>
+      <div id="keyManageList" class="key-manage-list"></div>
+      <label>选中密钥
+        <select id="keyManageSelect"></select>
+      </label>
+      <label>续期时间
+        <select id="keyManageExpiryPreset">
+          <option value="1">1 天</option>
+          <option value="7" selected>7 天</option>
+          <option value="30">30 天</option>
+          <option value="90">90 天</option>
+          <option value="365">1 年</option>
+          <option value="permanent">永久</option>
+        </select>
+      </label>
+      <div class="modal-actions">
+        <button type="submit" value="close">关闭</button>
+        <button type="submit" value="renew">续期</button>
+        <button type="submit" value="permanent">设为永久</button>
+        <button class="danger" type="submit" value="delete">删除</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="obsidianSyncDialog" class="modal-dialog obsidian-sync-dialog">
+    <form id="obsidianSyncForm" class="modal-card" method="dialog">
+      <div class="modal-head">
+        <h2>同步 Obsidian</h2>
+        <p id="obsidianSyncHelp">默认使用 preserve-only 文件同步刷新 Obsidian 缓存；REST 仅用于可选导入/推送，导入内容先进入待处理队列。</p>
+      </div>
+      <div class="segmented sync-mode-control" role="group" aria-label="同步模式">
+        <button id="obsidianManualMode" type="button" class="active" aria-pressed="true">手动</button>
+        <button id="obsidianAutoMode" type="button" aria-pressed="false">自动</button>
+      </div>
+      <div class="grid-two">
+        <label>API 地址
+          <input id="obsidianEndpoint" autocomplete="off" placeholder="https://127.0.0.1:27124">
+        </label>
+        <label>API Key
+          <input id="obsidianApiKey" autocomplete="off" type="password" placeholder="留空则保留原密钥">
+        </label>
+      </div>
+      <div class="grid-two">
+        <label>导入搜索词
+          <input id="obsidianImportQuery" autocomplete="off" placeholder="tag:#史馆 或关键词">
+        </label>
+        <label>导出目录
+          <input id="obsidianOutputFolder" autocomplete="off" placeholder="Court Shiguan">
+        </label>
+      </div>
+      <label>导入路径
+        <textarea id="obsidianImportPaths" rows="3" placeholder="每行一个 Obsidian 内路径，例如 Notes/example.md"></textarea>
+      </label>
+      <div class="sync-options">
+        <label class="check-row"><input id="obsidianAutoEnabled" type="checkbox"> 自动同步开关</label>
+        <label class="check-row"><input id="obsidianVerifySsl" type="checkbox"> 校验证书</label>
+      </div>
+      <div id="obsidianSyncResult" class="sync-result">尚未连接</div>
+      <div class="modal-actions">
+        <button type="submit" value="close">关闭</button>
+        <button type="submit" value="save">保存连接</button>
+        <button type="submit" value="test">测试连接</button>
+        <button type="submit" value="choose">选择文件</button>
+        <button type="submit" value="preview">预览导入</button>
+        <button type="submit" value="import">同步导入</button>
+        <button type="submit" value="export">REST 导出</button>
+        <button class="primary" type="submit" value="filesystem">文件同步</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input id="keyFileInput" type="file" accept=".shiguan-key,application/x-shiguan-key" hidden>
+  <input id="textFileInput" type="file" accept=".md,.txt,text/markdown,text/plain" multiple hidden>
+  <input id="obsidianFileInput" type="file" accept=".md,.txt,.zip,text/markdown,text/plain,application/zip" multiple hidden>
+
+  <script src="api.js?v=20260608-court-runtime1"></script>
+  <script src="app.js?v=20260608-court-runtime1"></script>
+</body>
+</html>

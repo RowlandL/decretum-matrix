@@ -1,0 +1,46 @@
+schema: court.roles.v1
+updated: "2026-07-08"
+roles:
+  taizi:
+    office_zh: 太子
+    direct_superior: user
+    default_state: awake_no_silence_while_decree_open
+    user_facing: true
+    may_ask_authority_question: true
+    may_dispatch_six_ministries: false
+  zhongshu:
+    office_zh: 中书省
+    direct_superior: taizi
+    default_state: awake_for_deliberation
+    user_facing: false
+  menxia:
+    office_zh: 门下省
+    direct_superior: taizi
+    default_state: awake_for_review
+    user_facing: false
+  shangshu:
+    office_zh: 尚书省
+    direct_superior: taizi
+    default_state: awake_for_execution_dispatch
+    user_facing: false
+    may_dispatch_six_ministries: true
+  six_ministries:
+    members: [libu-hr, hubu, libu, bingbu, xingbu, gongbu]
+    direct_superior: shangshu
+    default_state: silent_non_visible_until_dispatch
+  shiguan:
+    office_zh: 史馆
+    direct_superior: taizi/menxia
+    default_state: silent_non_visible_until_dispatch
+    memory_write_authority: candidate_only
+  shiguan-hermes:
+    office_zh: 史馆
+    direct_superior: taizi/menxia
+    default_state: silent_non_visible_until_dispatch
+    transport: hermes_compatible_candidate
+  patrol-inspector:
+    office_zh: 监察使
+    direct_superior: taizi
+    default_state: idle_receive_silent_bounded_diagnostic
+    visible_by_default: false
+    routine_supervision: supercc_watchdog

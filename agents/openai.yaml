@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "Court Capability Router"
+  short_description: "Route local skills through 三省六部."
+  default_prompt: "Use $court-capability-router to route this task through the local capability catalog and 三省六部 workflow."

@@ -1,0 +1,56 @@
+{
+  "schema": "court_response_draft_fixtures.v1",
+  "description": "Generated draft-reply fixtures for the ten court response families. These examples are lint inputs, not user-facing boilerplate.",
+  "families": [
+    {
+      "family": "direct_answer",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：已确认该命令只读取当前状态，不写入文件。\n证据：scripts/check_catalog.py --strict\n下一步：无"
+    },
+    {
+      "family": "plan_start",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：本轮按 super 并行的授权边界执行。\n中书省拟旨：1. 读取回复规则；2. 增加 fixture lint；3. 自检并同步 active copy。\n门下省封驳：风险为格式漂移；门禁为不扩大到 superCC 运行态。\n尚书省分派：先由工部改脚本，再由礼部审格式、刑部审风险。\n下一步：开始修改回复 shard 与校验脚本。"
+    },
+    {
+      "family": "progress_update",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：进展：已完成 fixture 文件与校验脚本草拟。\n当前判断：十四标签结诏应由 closeout shard 作为唯一字段源。\n下一步：接入 quick_validate、check_catalog 与 package_skill。"
+    },
+    {
+      "family": "clarification_question",
+      "expected_gate": "PASSED",
+      "draft": "太子上奏下一项问题：本轮是否允许启动会写入索引的 Obsidian 同步？\n原因：该选择决定只做本地 lint，还是同时更新可见索引。"
+    },
+    {
+      "family": "implementation_closeout",
+      "expected_gate": "PASSED",
+      "draft": "结诏：\n诏令编号：SWZZFIXTURE-20260701-A-DBAA\n古制谱系：史馆总纪·朝制志·官署门·回复格式条\n状态：DONE\n作业AI：Codex\n旨意与边界：为十类回复增加 draft lint，不进入 superCC 运行态。\n执行门禁：APPROVED\n门下裁定：APPROVED_WITH_CAVEATS\n实际动作：新增 fixture、校验脚本，并接入目录与打包门禁。\n验收证据：VERIFIED；quick_validate.py、check_catalog.py --strict、package_skill.py。\n运行态与并行：ordinary parallel；礼部/刑部只读审查，superCC=NOT_APPLICABLE。\n史馆：Web local_url=http://127.0.0.1:8765/；lan_urls=unavailable\n余险：若后续生成器新增字段，先由该 lint 拒绝，再回到礼部修订 few-shot；因此回滚面限定在回复 shard、fixture 与脚本。\n太子回奏：本轮把格式约束从示例文本推进到可执行门禁；证据链覆盖本地校验、打包包含性与四份 copy 同步。\n下一步：后续若扩展新 family，先补 fixture，再更新 SAMPLE_FAMILIES 与目录索引。"
+    },
+    {
+      "family": "partial_or_not_run",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：已完成脚本接入；仍有 Obsidian 同步未运行。\n验收证据：PARTIAL；用户未授权本轮启动同步服务。\n风险：可见索引可能落后于本地源码。\n下一步：获得授权后运行 shiguan_autosync_daemon.py --once --force-sync。"
+    },
+    {
+      "family": "authority_blocked",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：authority_blocked\n边界：当前权限为 approval。\n受阻动作：写入 Obsidian vault 并刷新共享史馆索引。\n需要朱批：允许本轮进行索引写入与同步验证。"
+    },
+    {
+      "family": "code_review",
+      "expected_gate": "PASSED",
+      "draft": "门下省封驳：\n- 阻断 scripts/check_response_draft_fixtures.py:1 若未接入 check_catalog，新增规则不会成为 release gate。\n\n余险：未指定 git fixed point，只能审本轮触达文件和脚本输出；因此结论不覆盖历史未改文件。\n简要结论：审查重点是格式门禁、包包含性与 active copy 同步。"
+    },
+    {
+      "family": "office_report",
+      "expected_gate": "PASSED",
+      "draft": "上奏：尚书省\n身份：礼部 agente\n状态：部奏\n要点：十类回复均已保留官署自称，结诏由十四标签模板管束。\n证据：references/fixtures/response-draft-families.json\n请裁：无"
+    },
+    {
+      "family": "handoff_or_pause",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：PAUSED\n当前状态：已新增 fixture，但尚未同步四份 active copy。\n未竟事项：运行 quick_validate、check_catalog、package_skill 与 hash 对齐。\n恢复入口：scripts/check_response_draft_fixtures.py --json\n风险：若直接收尾，其他运行面可能仍使用旧规则。"
+    }
+  ]
+}
