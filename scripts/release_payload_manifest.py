@@ -39,6 +39,14 @@ LEGAL_PATHS = {
     "CONTRIBUTING.md",
     "SBOM.spdx.json",
 }
+BUILD_CONTRACT = {
+    "deterministic_zip": True,
+    "zip_compression": "stored",
+    "zip_timestamp": "1980-01-01T00:00:00Z",
+    "zip_file_mode": "100644",
+    "no_clobber": True,
+    "atomic_publish": "same_directory_hard_link_no_replace",
+}
 
 
 class ManifestError(ValueError):
@@ -150,14 +158,7 @@ def build_manifest(root: Path) -> dict[str, object]:
         "security_policy": "SECURITY.md",
         "privacy_policy": "PRIVACY.md",
         "sbom": "SBOM.spdx.json",
-        "build": {
-            "deterministic_zip": True,
-            "zip_compression": "stored",
-            "zip_timestamp": "1980-01-01T00:00:00Z",
-            "zip_file_mode": "100644",
-            "no_clobber": True,
-            "atomic_publish": "same_directory_hard_link_no_replace",
-        },
+        "build": dict(BUILD_CONTRACT),
         "integrity": {
             "algorithm": "sha256",
             "manifest_path": MANIFEST_NAME,
@@ -203,7 +204,7 @@ def shape_problems(manifest: object) -> list[str]:
     if license_info != {"declared": "Apache-2.0", "file": "LICENSE"}:
         problems.append("identity:license")
     build = manifest.get("build")
-    if not isinstance(build, dict) or build.get("deterministic_zip") is not True or build.get("no_clobber") is not True:
+    if build != BUILD_CONTRACT:
         problems.append("build:contract")
     files = manifest.get("files")
     if not isinstance(files, list):
@@ -299,9 +300,32 @@ def validate_zip_payload(path: Path) -> list[str]:
     manifest_member = f"{package_skill.ROOT_NAME}/{MANIFEST_NAME}"
     try:
         with zipfile.ZipFile(path) as archive:
-            names = [info.filename for info in archive.infolist() if not info.is_dir()]
+            infos = archive.infolist()
+            if archive.comment:
+                problems.append("release-manifest:zip-comment")
+            for info in infos:
+                if info.is_dir():
+                    problems.append(f"release-manifest:directory-entry:{info.filename}")
+                    continue
+                if info.compress_type != zipfile.ZIP_STORED:
+                    problems.append(f"release-manifest:compression-not-stored:{info.filename}")
+                if info.date_time != package_skill.ZIP_TIMESTAMP:
+                    problems.append(f"release-manifest:timestamp-drift:{info.filename}")
+                if info.create_system != 3:
+                    problems.append(f"release-manifest:create-system-drift:{info.filename}")
+                mode = (info.external_attr >> 16) & 0xFFFF
+                if mode != 0o100644:
+                    problems.append(f"release-manifest:mode-drift:{info.filename}")
+                if info.extra:
+                    problems.append(f"release-manifest:extra-field:{info.filename}")
+                if info.comment:
+                    problems.append(f"release-manifest:member-comment:{info.filename}")
+            names = [info.filename for info in infos if not info.is_dir()]
+            if names != sorted(names, key=lambda item: item.encode("utf-8")):
+                problems.append("release-manifest:member-order")
             if names.count(manifest_member) != 1:
-                return ["release-manifest:missing-or-duplicate"]
+                problems.append("release-manifest:missing-or-duplicate")
+                return sorted(set(problems))
             try:
                 manifest = json.loads(archive.read(manifest_member).decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
@@ -314,7 +338,7 @@ def validate_zip_payload(path: Path) -> list[str]:
                 return sorted(set(problems))
             expected = {str(entry.get("path")): entry for entry in files if isinstance(entry, dict)}
             actual: dict[str, dict[str, object]] = {}
-            for info in archive.infolist():
+            for info in infos:
                 if info.is_dir() or info.filename == manifest_member:
                     continue
                 prefix = ARCHIVE_ROOT
@@ -352,7 +376,7 @@ def self_tests() -> dict[str, bool]:
         "security_policy": "SECURITY.md",
         "privacy_policy": "PRIVACY.md",
         "sbom": "SBOM.spdx.json",
-        "build": {"deterministic_zip": True, "no_clobber": True},
+        "build": dict(BUILD_CONTRACT),
         "integrity": {
             "manifest_in_file_inventory": False,
             "payload_file_count": len(entries),
@@ -392,6 +416,52 @@ def self_tests() -> dict[str, bool]:
             archive.writestr(f"{ARCHIVE_ROOT}{MANIFEST_NAME}", b'{"schema":"court.release.v1"}\n')
         malformed_problems = validate_zip_payload(archive_path)
     tests["malformed_zip_manifest_rejected_without_exception"] = bool(malformed_problems)
+    payloads = {str(entry["path"]): str(entry["path"]).encode("utf-8") for entry in entries}
+
+    def write_fixture_zip(
+        archive_path: Path,
+        *,
+        altered_compression: bool = False,
+        altered_timestamp: bool = False,
+        reverse_order: bool = False,
+    ) -> None:
+        members = {
+            **payloads,
+            MANIFEST_NAME: (json.dumps(base, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
+        }
+        names = sorted_paths(set(members))
+        if reverse_order:
+            names.reverse()
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
+            for index, relative in enumerate(names):
+                info = package_skill.deterministic_zip_info(f"{ARCHIVE_ROOT}{relative}")
+                compression = zipfile.ZIP_STORED
+                if index == 0 and altered_compression:
+                    compression = zipfile.ZIP_DEFLATED
+                if index == 0 and altered_timestamp:
+                    info.date_time = (2026, 7, 12, 0, 0, 0)
+                archive.writestr(info, members[relative], compress_type=compression)
+
+    with tempfile.TemporaryDirectory(prefix="court-release-metadata-self-test-") as tmp_text:
+        tmp = Path(tmp_text)
+        valid_zip = tmp / "valid.zip"
+        compressed_zip = tmp / "compressed.zip"
+        timestamp_zip = tmp / "timestamp.zip"
+        reordered_zip = tmp / "reordered.zip"
+        write_fixture_zip(valid_zip)
+        write_fixture_zip(compressed_zip, altered_compression=True)
+        write_fixture_zip(timestamp_zip, altered_timestamp=True)
+        write_fixture_zip(reordered_zip, reverse_order=True)
+        tests["valid_zip_metadata_passes"] = validate_zip_payload(valid_zip) == []
+        tests["wrong_zip_compression_rejected"] = any(
+            "compression-not-stored" in item for item in validate_zip_payload(compressed_zip)
+        )
+        tests["wrong_zip_timestamp_rejected"] = any(
+            "timestamp-drift" in item for item in validate_zip_payload(timestamp_zip)
+        )
+        tests["wrong_zip_member_order_rejected"] = any(
+            "member-order" in item for item in validate_zip_payload(reordered_zip)
+        )
     return tests
 
 
