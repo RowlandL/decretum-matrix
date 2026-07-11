@@ -13,10 +13,12 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from datetime import datetime
+import errno
 import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -448,7 +450,88 @@ def validate_source_directory(relative: Path) -> None:
         raise PackagePolicyError(f"unknown-directory:{relative.as_posix()}")
 
 
-def validate_source_file(path: Path, relative: Path) -> None:
+def _stat_identity(value: os.stat_result) -> tuple[int, int, int]:
+    return (value.st_dev, value.st_ino, stat.S_IFMT(value.st_mode))
+
+
+def _stat_snapshot(value: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (*_stat_identity(value), value.st_size, value.st_mtime_ns)
+
+
+def _assert_resolved_within(path: Path, root: Path, relative: Path) -> None:
+    try:
+        path.resolve(strict=True).relative_to(root)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise PackagePolicyError(f"source-path-escaped-root:{relative.as_posix()}") from exc
+
+
+def _assert_no_link_components(path: Path, root: Path, relative: Path) -> None:
+    try:
+        relative_to_root = path.relative_to(root)
+    except ValueError as exc:
+        raise PackagePolicyError(f"source-path-escaped-root:{relative.as_posix()}") from exc
+    current = root
+    for part in relative_to_root.parts:
+        current = current / part
+        if is_link_or_reparse(current):
+            raise PackagePolicyError(f"symlink-or-reparse:{relative.as_posix()}")
+
+
+def read_source_file_stable(path: Path, relative: Path, source_root: Path) -> bytes:
+    """Read one regular file without following a replacement link or changed inode."""
+
+    root = source_root.resolve(strict=True)
+    _assert_resolved_within(path, root, relative)
+    _assert_no_link_components(path, root, relative)
+    if is_link_or_reparse(path):
+        raise PackagePolicyError(f"symlink-or-reparse:{relative.as_posix()}")
+    try:
+        before = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise PackagePolicyError(f"cannot stat source file:{relative.as_posix()}:{exc}") from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise PackagePolicyError(f"unsupported-special-file:{relative.as_posix()}")
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.EMLINK}:
+            raise PackagePolicyError(f"symlink-or-reparse:{relative.as_posix()}") from exc
+        raise PackagePolicyError(f"cannot open source file:{relative.as_posix()}:{exc}") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or _stat_identity(before) != _stat_identity(opened):
+            raise PackagePolicyError(f"source-changed-during-read:{relative.as_posix()}")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_MEMBER_UNCOMPRESSED_BYTES:
+                raise PackagePolicyError(f"source-file-too-large:{relative.as_posix()}:{total}")
+            chunks.append(chunk)
+        data = b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+    try:
+        after = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise PackagePolicyError(f"source-changed-during-read:{relative.as_posix()}") from exc
+    if (
+        _stat_snapshot(opened) != _stat_snapshot(after)
+        or is_link_or_reparse(path)
+    ):
+        raise PackagePolicyError(f"source-changed-during-read:{relative.as_posix()}")
+    _assert_resolved_within(path, root, relative)
+    _assert_no_link_components(path, root, relative)
+    return data
+
+
+def validate_source_file(path: Path, relative: Path, source_root: Path) -> bytes:
     key = relative_key(relative)
     lower_name = relative.name.casefold()
     if len(relative.parts) == 1 and lower_name not in ROOT_ALLOWED_FILES:
@@ -458,16 +541,7 @@ def validate_source_file(path: Path, relative: Path) -> None:
         raise PackagePolicyError(f"nested-package:{relative.as_posix()}")
     if not (suffix in TEXT_SUFFIXES or (len(relative.parts) == 1 and lower_name in ROOT_TEXT_BASENAMES)):
         raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}")
-    try:
-        size = path.stat(follow_symlinks=False).st_size
-    except OSError as exc:
-        raise PackagePolicyError(f"cannot stat source file:{relative.as_posix()}:{exc}") from exc
-    if size > MAX_MEMBER_UNCOMPRESSED_BYTES:
-        raise PackagePolicyError(f"source-file-too-large:{relative.as_posix()}:{size}")
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        raise PackagePolicyError(f"cannot read portable source file:{relative.as_posix()}:{exc}") from exc
+    data = read_source_file_stable(path, relative, source_root)
     if b"\x00" in data:
         raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}:nul-byte")
     try:
@@ -476,6 +550,7 @@ def validate_source_file(path: Path, relative: Path) -> None:
         raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}:not-utf8") from exc
     if key in ARCHIVE_EXACT_REGENERATED_FILES:
         raise PackagePolicyError(f"regenerated-file-selected-from-source:{relative.as_posix()}")
+    return data
 
 
 def copy_portable_tree(src: Path, dst: Path) -> None:
@@ -491,6 +566,8 @@ def copy_portable_tree(src: Path, dst: Path) -> None:
         raise PackagePolicyError(f"destination-inside-source:{destination}")
 
     def visit(current: Path, relative_dir: Path) -> None:
+        _assert_resolved_within(current, source_root, relative_dir)
+        _assert_no_link_components(current, source_root, relative_dir)
         try:
             entries = sorted(os.scandir(current), key=lambda entry: (entry.name.casefold(), entry.name))
         except OSError as exc:
@@ -515,9 +592,10 @@ def copy_portable_tree(src: Path, dst: Path) -> None:
                 continue
             if not is_file:
                 raise PackagePolicyError(f"unsupported-special-file:{relative.as_posix()}")
-            validate_source_file(path, relative)
+            data = validate_source_file(path, relative, source_root)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target, follow_symlinks=False)
+            with target.open("xb") as handle:
+                handle.write(data)
 
     destination.mkdir(parents=True, exist_ok=True)
     visit(source_root, Path())
@@ -678,7 +756,7 @@ def write_core_shiguan_files(root: Path) -> None:
 def deterministic_zip_info(name: str, mode: int = 0o100644) -> zipfile.ZipInfo:
     info = zipfile.ZipInfo(name, ZIP_TIMESTAMP)
     info.create_system = 3
-    info.compress_type = zipfile.ZIP_DEFLATED
+    info.compress_type = zipfile.ZIP_STORED
     info.external_attr = (mode & 0xFFFF) << 16
     return info
 
@@ -686,30 +764,75 @@ def deterministic_zip_info(name: str, mode: int = 0o100644) -> zipfile.ZipInfo:
 def make_zip(stage_root: Path, out: Path) -> int:
     if out.exists():
         raise PackagePolicyError(f"output-already-exists:{out}")
-    files = [
-        path
-        for path in sorted(
-            stage_root.rglob("*"),
-            key=lambda item: item.relative_to(stage_root.parent).as_posix().encode("utf-8"),
-        )
-        if path.is_file()
-    ]
+    stage_root_resolved = stage_root.resolve(strict=True)
+    files: list[Path] = []
+    for path in sorted(
+        stage_root.rglob("*"),
+        key=lambda item: item.relative_to(stage_root.parent).as_posix().encode("utf-8"),
+    ):
+        relative = path.relative_to(stage_root)
+        if is_link_or_reparse(path):
+            raise PackagePolicyError(f"symlink-or-reparse:{relative.as_posix()}")
+        try:
+            mode = path.stat(follow_symlinks=False).st_mode
+        except OSError as exc:
+            raise PackagePolicyError(f"cannot stat staged member:{relative.as_posix()}:{exc}") from exc
+        if stat.S_ISDIR(mode):
+            continue
+        if not stat.S_ISREG(mode):
+            raise PackagePolicyError(f"unsupported-special-file:{relative.as_posix()}")
+        files.append(path)
     with out.open("xb") as raw:
-        with zipfile.ZipFile(
-            raw,
-            "w",
-            compression=zipfile.ZIP_DEFLATED,
-            compresslevel=9,
-        ) as archive:
+        with zipfile.ZipFile(raw, "w", compression=zipfile.ZIP_STORED) as archive:
             for path in files:
                 name = path.relative_to(stage_root.parent).as_posix()
+                relative = path.relative_to(stage_root)
                 archive.writestr(
                     deterministic_zip_info(name),
-                    path.read_bytes(),
-                    compress_type=zipfile.ZIP_DEFLATED,
-                    compresslevel=9,
+                    read_source_file_stable(path, relative, stage_root_resolved),
+                    compress_type=zipfile.ZIP_STORED,
                 )
     return len(files)
+
+
+def candidate_path_for(out: Path) -> Path:
+    return out.parent / f".{out.name}.{os.getpid()}.{secrets.token_hex(8)}.candidate"
+
+
+def fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def publish_candidate_no_clobber(candidate: Path, out: Path) -> None:
+    """Atomically publish a validated candidate without replacing any existing path."""
+
+    try:
+        # Windows requires a writable descriptor for FlushFileBuffers/os.fsync.
+        with candidate.open("r+b") as handle:
+            os.fsync(handle.fileno())
+        os.link(candidate, out, follow_symlinks=False)
+    except FileExistsError as exc:
+        raise PackagePolicyError(f"output-already-exists:{out}") from exc
+    except OSError as exc:
+        if exc.errno == errno.EEXIST:
+            raise PackagePolicyError(f"output-already-exists:{out}") from exc
+        raise PackagePolicyError(f"atomic-no-clobber-publish-failed:{out}:{exc}") from exc
+    try:
+        fsync_directory(out.parent)
+    except OSError as exc:
+        try:
+            if out.exists() and os.path.samefile(candidate, out):
+                out.unlink()
+                fsync_directory(out.parent)
+        except OSError:
+            pass
+        raise PackagePolicyError(f"atomic-publish-fsync-failed:{out}:{exc}") from exc
 
 
 def archive_member_chunks(
@@ -1116,21 +1239,27 @@ def build(out: Path) -> tuple[int, int, list[str]]:
     with tempfile.TemporaryDirectory(prefix="court-router-package-") as tmp_text:
         tmp = Path(tmp_text)
         stage = tmp / ROOT_NAME
-        candidate = tmp / f"{out.name}.candidate.zip"
+        candidate = candidate_path_for(out)
         try:
             copy_portable_tree(src, stage)
         except PackagePolicyError as exc:
             return 0, 0, [f"source-policy:{exc}"]
-        write_core_shiguan_files(stage)
-        stage_problems = run_stage_validation(stage)
-        if stage_problems:
-            return 0, 0, stage_problems
-        cleanup_stage_transients(stage)
-        entry_count = make_zip(stage, candidate)
-        zip_count, problems = validate_zip(candidate)
-        if problems:
-            return entry_count, zip_count, problems
-        shutil.move(str(candidate), str(out))
+        try:
+            write_core_shiguan_files(stage)
+            stage_problems = run_stage_validation(stage)
+            if stage_problems:
+                return 0, 0, stage_problems
+            cleanup_stage_transients(stage)
+            entry_count = make_zip(stage, candidate)
+            zip_count, problems = validate_zip(candidate)
+            if problems:
+                return entry_count, zip_count, problems
+            try:
+                publish_candidate_no_clobber(candidate, out)
+            except PackagePolicyError as exc:
+                return entry_count, zip_count, [str(exc)]
+        finally:
+            candidate.unlink(missing_ok=True)
     return entry_count, zip_count, []
 
 

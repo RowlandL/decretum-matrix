@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import warnings
 import zipfile
 
@@ -290,6 +291,52 @@ class PackageBuildTests(unittest.TestCase):
             hashlib.sha256(first.read_bytes()).digest(),
             hashlib.sha256(second.read_bytes()).digest(),
         )
+        with zipfile.ZipFile(first) as archive:
+            file_members = [info for info in archive.infolist() if not info.is_dir()]
+            self.assertTrue(file_members)
+            for info in file_members:
+                self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
+                self.assertEqual(info.date_time, package_skill.ZIP_TIMESTAMP)
+                self.assertEqual((info.external_attr >> 16) & 0xFFFF, 0o100644)
+
+    def test_late_competing_output_is_preserved(self) -> None:
+        out = self.temp_path / "late.zip"
+        sentinel = b"late competing writer"
+        original_validate = package_skill.validate_zip
+
+        def create_competing_output(candidate: Path) -> tuple[int, list[str]]:
+            result = original_validate(candidate)
+            out.write_bytes(sentinel)
+            return result
+
+        with mock.patch.object(package_skill, "validate_zip", side_effect=create_competing_output):
+            _, _, problems = package_skill.build(out)
+
+        self.assertIn("output-already-exists", "\n".join(problems))
+        self.assertEqual(out.read_bytes(), sentinel)
+        self.assertEqual(list(self.temp_path.glob(f".{out.name}.*.candidate")), [])
+
+    def test_source_replacement_during_open_is_rejected(self) -> None:
+        source_root = self.temp_path / "source"
+        source_root.mkdir()
+        source = source_root / "README.md"
+        replacement = self.temp_path / "replacement.md"
+        source.write_text("safe\n", encoding="utf-8")
+        replacement.write_text("replacement\n", encoding="utf-8")
+        real_open = os.open
+        replaced = False
+
+        def racing_open(path: object, flags: int, mode: int = 0o777) -> int:
+            nonlocal replaced
+            candidate = Path(path)
+            if not replaced and candidate == source:
+                os.replace(replacement, source)
+                replaced = True
+            return real_open(path, flags, mode)
+
+        with mock.patch.object(package_skill.os, "open", side_effect=racing_open):
+            with self.assertRaisesRegex(package_skill.PackagePolicyError, "source-changed-during-read"):
+                package_skill.read_source_file_stable(source, Path("README.md"), source_root)
 
 
 class ContentPrivacyTests(unittest.TestCase):
