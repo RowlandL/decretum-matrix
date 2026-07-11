@@ -258,6 +258,7 @@ MAX_MEMBER_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
 MIN_COMPRESSION_RATIO_BYTES = 1024 * 1024
 MAX_COMPRESSION_RATIO = 200.0
+ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 REQUIRED_COURT_SCRIPTS = [
     "quick_validate.py",
@@ -674,17 +675,41 @@ def write_core_shiguan_files(root: Path) -> None:
     )
 
 
+def deterministic_zip_info(name: str, mode: int = 0o100644) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(name, ZIP_TIMESTAMP)
+    info.create_system = 3
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = (mode & 0xFFFF) << 16
+    return info
+
+
 def make_zip(stage_root: Path, out: Path) -> int:
     if out.exists():
-        out.unlink()
-    count = 0
-    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(stage_root.rglob("*")):
-            if path.is_dir():
-                continue
-            archive.write(path, path.relative_to(stage_root.parent).as_posix())
-            count += 1
-    return count
+        raise PackagePolicyError(f"output-already-exists:{out}")
+    files = [
+        path
+        for path in sorted(
+            stage_root.rglob("*"),
+            key=lambda item: item.relative_to(stage_root.parent).as_posix().encode("utf-8"),
+        )
+        if path.is_file()
+    ]
+    with out.open("xb") as raw:
+        with zipfile.ZipFile(
+            raw,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+        ) as archive:
+            for path in files:
+                name = path.relative_to(stage_root.parent).as_posix()
+                archive.writestr(
+                    deterministic_zip_info(name),
+                    path.read_bytes(),
+                    compress_type=zipfile.ZIP_DEFLATED,
+                    compresslevel=9,
+                )
+    return len(files)
 
 
 def archive_member_chunks(
@@ -1052,7 +1077,17 @@ def run_stage_validation(stage: Path) -> list[str]:
         ("check_package_privacy.py", []),
     ):
         command = [sys.executable, "-B", str(stage / "scripts" / script), *args]
-        completed = subprocess.run(command, cwd=stage, text=True, capture_output=True, timeout=60)
+        env = os.environ.copy()
+        if script == "check_package_privacy.py":
+            env["COURT_PACKAGE_STAGE_VALIDATION"] = "1"
+        completed = subprocess.run(
+            command,
+            cwd=stage,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
         if completed.returncode != 0:
             output = (completed.stdout + completed.stderr).strip().replace("\n", " | ")
             problems.append(f"stage_validation_failed:{script}:{output[:500]}")
@@ -1069,6 +1104,8 @@ def cleanup_stage_transients(stage: Path) -> None:
 
 
 def build(out: Path) -> tuple[int, int, list[str]]:
+    if out.exists():
+        return 0, 0, [f"output-already-exists:{out}"]
     src = skill_root()
     try:
         out.resolve(strict=False).relative_to(src.resolve(strict=True))
@@ -1093,8 +1130,6 @@ def build(out: Path) -> tuple[int, int, list[str]]:
         zip_count, problems = validate_zip(candidate)
         if problems:
             return entry_count, zip_count, problems
-        if out.exists():
-            out.unlink()
         shutil.move(str(candidate), str(out))
     return entry_count, zip_count, []
 

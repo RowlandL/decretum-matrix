@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import stat
@@ -258,6 +259,37 @@ class ZipStructurePrivacyTests(unittest.TestCase):
 
         bad_manifest = validation_problems([(f"{ROOT_NAME}/release-manifest.json", b"[]\n")])
         self.assert_problem(bad_manifest, "invalid-release-manifest")
+
+
+@unittest.skipIf(
+    os.environ.get("COURT_PACKAGE_STAGE_VALIDATION") == "1",
+    "avoid recursive package builds during staged package validation",
+)
+class PackageBuildTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="court-package-build-")
+        self.temp_path = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_existing_output_is_preserved(self) -> None:
+        out = self.temp_path / "existing.zip"
+        out.write_bytes(b"sentinel")
+        before = hashlib.sha256(out.read_bytes()).hexdigest()
+        _, _, problems = package_skill.build(out)
+        self.assertIn("output-already-exists", "\n".join(problems))
+        self.assertEqual(before, hashlib.sha256(out.read_bytes()).hexdigest())
+
+    def test_two_clean_builds_are_byte_identical(self) -> None:
+        first = self.temp_path / "first.zip"
+        second = self.temp_path / "second.zip"
+        self.assertEqual(package_skill.build(first)[2], [])
+        self.assertEqual(package_skill.build(second)[2], [])
+        self.assertEqual(
+            hashlib.sha256(first.read_bytes()).digest(),
+            hashlib.sha256(second.read_bytes()).digest(),
+        )
 
 
 class ContentPrivacyTests(unittest.TestCase):
