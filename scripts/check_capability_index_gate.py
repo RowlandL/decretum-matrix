@@ -29,8 +29,7 @@ def catalog_path() -> Path:
     return reference_path("installed-capabilities-catalog.md")
 
 
-def load_records() -> list[dict[str, object]]:
-    path = manifest_path()
+def load_records(path: Path) -> list[dict[str, object]]:
     if not path.exists():
         return []
     try:
@@ -60,28 +59,30 @@ def score_record(record: dict[str, object], terms: list[str]) -> int:
     return sum(3 if term in str(record.get("name", "")).lower() else 1 for term in terms if term in haystack)
 
 
-def prerequisite_status() -> dict[str, object]:
+def prerequisite_status(
+    manifest: Path,
+    catalog: Path,
+    shared_capability_index: Path,
+) -> dict[str, object]:
     home = codex_home()
     find_skills = home / "skills" / "find-skills" / "SKILL.md"
     skill_creator = home / "skills" / ".system" / "skill-creator" / "SKILL.md"
     quick_validate = home / "skills" / ".system" / "skill-creator" / "scripts" / "quick_validate.py"
-    shiguan_index = catalog_path()
-    shared_capability_index = reference_path("shiguan-tree", "capability-index", "_index.md")
     return {
         "find_skills": find_skills.exists(),
         "skill_creator": skill_creator.exists(),
         "quick_validate": quick_validate.exists(),
-        "catalog": shiguan_index.exists(),
-        "manifest_path": str(manifest_path()),
-        "catalog_path": str(shiguan_index),
+        "catalog": catalog.exists(),
+        "manifest_path": str(manifest),
+        "catalog_path": str(catalog),
         "shared_shiguan_capability_index": shared_capability_index.exists(),
         "shared_shiguan_capability_index_path": str(shared_capability_index),
     }
 
 
-def select_candidates(query: str, top: int) -> list[dict[str, object]]:
+def select_candidates(query: str, top: int, manifest: Path) -> list[dict[str, object]]:
     terms = tokenize(query)
-    records = load_records()
+    records = load_records(manifest)
     ranked: list[tuple[int, dict[str, object]]] = []
     for record in records:
         score = score_record(record, terms)
@@ -104,9 +105,28 @@ def select_candidates(query: str, top: int) -> list[dict[str, object]]:
 
 
 def evaluate(query: str, top: int) -> dict[str, object]:
-    prereq = prerequisite_status()
-    candidates = select_candidates(query, top)
-    if not manifest_path().exists():
+    try:
+        manifest = manifest_path()
+        catalog = catalog_path()
+        shared_capability_index = reference_path("shiguan-tree", "capability-index", "_index.md")
+    except (OSError, RuntimeError) as exc:
+        return {
+            "capability_index_skill_gate": "FAILED",
+            "query": query,
+            "manifest": None,
+            "catalog": None,
+            "prerequisites": {},
+            "candidate_count": 0,
+            "candidates": [],
+            "error": {
+                "code": "shared_shiguan_path_error",
+                "exception_type": type(exc).__name__,
+            },
+            "invocation_rule": "index_first_select_one_or_bounded_set; do_not_invoke_all_candidates",
+        }
+    prereq = prerequisite_status(manifest, catalog, shared_capability_index)
+    candidates = select_candidates(query, top, manifest)
+    if not manifest.exists():
         gate = "FAILED"
     elif not all(bool(prereq[key]) for key in ("find_skills", "skill_creator", "quick_validate", "catalog")):
         gate = "PARTIAL"
@@ -117,8 +137,8 @@ def evaluate(query: str, top: int) -> dict[str, object]:
     return {
         "capability_index_skill_gate": gate,
         "query": query,
-        "manifest": str(manifest_path()),
-        "catalog": str(catalog_path()),
+        "manifest": str(manifest),
+        "catalog": str(catalog),
         "prerequisites": prereq,
         "candidate_count": len(candidates),
         "candidates": candidates,
@@ -126,12 +146,37 @@ def evaluate(query: str, top: int) -> dict[str, object]:
     }
 
 
+def run_self_test() -> dict[str, object]:
+    global reference_path
+    original_reference_path = reference_path
+
+    def broken_reference_path(*_parts: str) -> Path:
+        raise RuntimeError("simulated shared-root resolution loop")
+
+    try:
+        reference_path = broken_reference_path
+        result = evaluate("release manifest", 3)
+    finally:
+        reference_path = original_reference_path
+    assert result["capability_index_skill_gate"] == "FAILED"
+    assert result["error"]["code"] == "shared_shiguan_path_error"
+    return {"ok": True, "shared_shiguan_path_error": True}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--query", required=True)
+    parser.add_argument("--query", default="")
     parser.add_argument("--top", type=int, default=10)
+    parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+
+    if args.self_test:
+        result = run_self_test()
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+    if not args.query:
+        parser.error("--query is required unless --self-test is used")
 
     result = evaluate(args.query, max(1, args.top))
     if args.json:
