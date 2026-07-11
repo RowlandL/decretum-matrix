@@ -49,6 +49,9 @@ def admit(
     risk: str = "medium",
     ambiguity: str = "medium",
     transport: str = "codex",
+    message_chars: int | None = None,
+    message_required_chars: int | None = None,
+    message_optional_chars: int | None = None,
 ) -> dict[str, object]:
     args = [
         "agent-admit",
@@ -87,6 +90,12 @@ def admit(
     ]
     if requested_roles:
         args.extend(("--requested-roles", requested_roles))
+    if message_chars is not None:
+        args.extend(("--message-chars", str(message_chars)))
+    if message_required_chars is not None:
+        args.extend(("--message-required-chars", str(message_required_chars)))
+    if message_optional_chars is not None:
+        args.extend(("--message-optional-chars", str(message_optional_chars)))
     if user_budget is not None:
         args.extend(("--user-agent-budget", str(user_budget)))
     if provider_budget is not None:
@@ -173,6 +182,38 @@ def main() -> int:
         assert bounded["wave_policy"] == "dynamic_by_duty_and_capacity"
         assert bounded["deadline_seconds"] == 600
         assert bounded["tool_call_budget"] == 8
+        assert bounded["message_budget_status"] == "legacy_unmeasured"
+
+        dynamic_message = admit(
+            cli,
+            env,
+            "agent-policy",
+            "message-budget-9000",
+            message_chars=9000,
+            requested_roles="gongbu",
+            evidence="bounded dynamic message admission",
+        )
+        assert dynamic_message["allowed"] is True
+        assert dynamic_message["message_budget_effective_chars"] == 9000
+        assert dynamic_message["message_budget_status"] == "within_budget"
+
+        oversized_message = admit(
+            cli,
+            env,
+            "agent-policy",
+            "message-budget-12001",
+            message_chars=12001,
+            message_required_chars=11500,
+            message_optional_chars=501,
+            requested_roles="gongbu",
+            evidence="oversized dynamic message admission",
+        )
+        assert oversized_message["allowed"] is False
+        assert oversized_message["decision"] == "dispatch_message_too_large"
+        assert oversized_message["required_reduction_chars"] == 1
+        assert oversized_message["optional_compression_target_chars"] == 1
+        assert oversized_message["compression_possible_without_required_loss"] is True
+        assert oversized_message["message_budget_retryable"] is True
 
         run_cli(cli, env, "create", "--task-id", "dynamic-capacity", "--title", "dynamic capacity",
                 "--charter", "bounded ordinary parallel review", "--evidence", "create")

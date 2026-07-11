@@ -2,14 +2,17 @@
 
 ## 发布 / Release
 
-当前版本：`beta0.5.8`
+当前版本：`beta0.5.9`
 
-- 发布包：`court-capability-router-beta0.5.8.zip`
-- SHA256：`court-capability-router-beta0.5.8.zip.sha256`
+- 发布包：`court-capability-router-beta0.5.9.zip`
+- SHA256：`court-capability-router-beta0.5.9.zip.sha256`
 - ZIP 内唯一根目录：`court-capability-router/`
-- 包内版本与逐文件摘要：`release-manifest.json`
-- 简明变更：`CHANGELOG.md`
-- 详细记录：`RELEASE-LOG.md`
+- 包内版本与逐文件摘要：[release-manifest.json](release-manifest.json)
+- 项目许可证：[Apache License 2.0](LICENSE)
+- 安全策略：[SECURITY.md](SECURITY.md)
+- 安装与包校验：[references/install.md](references/install.md)
+- 简明变更：[CHANGELOG.md](CHANGELOG.md)
+- 详细记录：[RELEASE-LOG.md](RELEASE-LOG.md)
 
 维护约定：后续发版须同步更新 `VERSION`、本节、`CHANGELOG.md`、`RELEASE-LOG.md` 与 `release-manifest.json`。ZIP 自身摘要只写在外部 sidecar，避免清单自引用。
 
@@ -19,7 +22,7 @@
 - 按任务调用本地 skills、MCP、CLI、脚本与 agente，并受权限、容量、深度、请求预算和安全门禁约束。
 - 提供 portable bootstrap、共享史馆 seed、metadata-only 记忆桥、本地/LAN 管理与发布校验。
 
-### beta0.5.8 更新、修复与新增
+### beta0.5.9 更新、修复与新增
 
 - 更新：生产配置统一为 Multi-Agent V2；整棵会话树 16 槽、根计槽、最大深度 4。
 - 修复：移除 V2 文档中的 legacy `agents.max_threads` 推荐，并明确六部默认非显性、静默，仅在尚书差遣后启用。
@@ -272,8 +275,17 @@ court-capability-router/
 
 解压后把 `court-capability-router` 目录复制到 Codex skills 目录：
 
-```sh
-python -c "from pathlib import Path; import os, shutil; src=Path('court-capability-router'); dst=Path(os.environ.get('CODEX_HOME') or Path.home()/'.codex')/'skills'/src.name; shutil.copytree(src, dst, dirs_exist_ok=True)"
+```python
+from pathlib import Path
+import os
+import shutil
+
+src = Path("court-capability-router")
+skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
+dst = skills_root / "court-capability-router-beta0.5.9"
+if dst.exists():
+    raise SystemExit(f"refusing to overwrite existing install: {dst}")
+shutil.copytree(src, dst)
 ```
 
 然后重启 Codex。安装后先运行只读基线：
@@ -692,8 +704,17 @@ This is a portable core package. It includes the skill semantics, standing-offic
 
 After extracting the ZIP, copy `court-capability-router` into the Codex skills directory:
 
-```sh
-python -c "from pathlib import Path; import os, shutil; src=Path('court-capability-router'); dst=Path(os.environ.get('CODEX_HOME') or Path.home()/'.codex')/'skills'/src.name; shutil.copytree(src, dst, dirs_exist_ok=True)"
+```python
+from pathlib import Path
+import os
+import shutil
+
+src = Path("court-capability-router")
+skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
+dst = skills_root / "court-capability-router-beta0.5.9"
+if dst.exists():
+    raise SystemExit(f"refusing to overwrite existing install: {dst}")
+shutil.copytree(src, dst)
 ```
 
 Restart Codex. Then run:

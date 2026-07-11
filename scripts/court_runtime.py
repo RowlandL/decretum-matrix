@@ -97,7 +97,36 @@ AGENT_LONG_CONTEXT_TOKENS = 32_000
 AGENT_MAX_RECENT_FORK_TURNS = 3
 AGENT_DEFAULT_DEADLINE_SECONDS = 600
 AGENT_DEFAULT_TOOL_CALL_BUDGET = 8
-AGENT_MAX_MESSAGE_CHARS = 6_000
+AGENT_MESSAGE_BUDGET_SCHEMA = "court.agent.dispatch_message_budget.v1"
+AGENT_MESSAGE_BUDGET_FLOOR_CHARS = 6_000
+AGENT_MESSAGE_BUDGET_QUANTUM_CHARS = 1_000
+AGENT_MESSAGE_BUDGET_CEILING_CHARS = 12_000
+# Deprecated compatibility alias. New admission code uses the bounded V1 ceiling.
+AGENT_MAX_MESSAGE_CHARS = AGENT_MESSAGE_BUDGET_FLOOR_CHARS
+AGENT_MESSAGE_BUDGET_FIELDS = (
+    "message_budget_schema",
+    "message_budget_policy",
+    "message_measurement",
+    "message_scope",
+    "message_chars",
+    "message_budget_floor_chars",
+    "message_budget_quantum_chars",
+    "message_budget_ceiling_chars",
+    "message_budget_effective_chars",
+    "message_budget_status",
+    "message_budget_basis",
+    "message_required_chars",
+    "message_optional_chars",
+    "message_component_status",
+    "message_budget_remaining_chars",
+    "message_overage_chars",
+    "required_reduction_chars",
+    "optional_compression_target_chars",
+    "required_message_overage_chars",
+    "compression_possible_without_required_loss",
+    "message_budget_retryable",
+    "compression_guidance",
+)
 
 
 def now_text() -> str:
@@ -296,6 +325,136 @@ def parse_requested_roles(value: object, fallback_count: int = 1) -> tuple[str, 
     return tuple(f"unspecified-{index + 1}" for index in range(max(1, fallback_count)))
 
 
+def agent_dispatch_message_budget(
+    raw_message_chars: object,
+    raw_required_chars: object = None,
+    raw_optional_chars: object = None,
+) -> dict[str, object]:
+    common: dict[str, object] = {
+        "message_budget_schema": AGENT_MESSAGE_BUDGET_SCHEMA,
+        "message_budget_policy": "bounded_quantized_growth_v1",
+        "message_measurement": "unicode_code_points",
+        "message_scope": "max_single_final_message_per_wave",
+        "message_budget_floor_chars": AGENT_MESSAGE_BUDGET_FLOOR_CHARS,
+        "message_budget_quantum_chars": AGENT_MESSAGE_BUDGET_QUANTUM_CHARS,
+        "message_budget_ceiling_chars": AGENT_MESSAGE_BUDGET_CEILING_CHARS,
+    }
+    components_supplied = raw_required_chars is not None or raw_optional_chars is not None
+    message_value = (
+        raw_message_chars
+        if isinstance(raw_message_chars, int) and not isinstance(raw_message_chars, bool)
+        else None
+    )
+    required_value = (
+        raw_required_chars
+        if isinstance(raw_required_chars, int)
+        and not isinstance(raw_required_chars, bool)
+        and raw_required_chars >= 0
+        else None
+    )
+    optional_value = (
+        raw_optional_chars
+        if isinstance(raw_optional_chars, int)
+        and not isinstance(raw_optional_chars, bool)
+        and raw_optional_chars >= 0
+        else None
+    )
+    component_fields: dict[str, object] = {
+        "message_required_chars": required_value,
+        "message_optional_chars": optional_value,
+        "message_component_status": "unspecified",
+        "optional_compression_target_chars": None,
+        "required_message_overage_chars": None,
+        "compression_possible_without_required_loss": None,
+    }
+    if raw_message_chars is None and not components_supplied:
+        return {
+            **common,
+            **component_fields,
+            "message_chars": None,
+            "message_budget_effective_chars": AGENT_MESSAGE_BUDGET_FLOOR_CHARS,
+            "message_budget_status": "legacy_unmeasured",
+            "message_budget_basis": "legacy_floor_without_measurement",
+            "message_budget_remaining_chars": None,
+            "message_overage_chars": 0,
+            "required_reduction_chars": 0,
+            "message_budget_retryable": False,
+            "compression_guidance": "measure the exact final dispatch message before new integrations",
+        }
+    total_valid = message_value is not None and message_value >= 0
+    components_valid = (
+        not components_supplied
+        or (
+            required_value is not None
+            and optional_value is not None
+            and total_valid
+            and required_value + optional_value == message_value
+        )
+    )
+    if not total_valid or not components_valid:
+        component_fields["message_component_status"] = "invalid" if components_supplied else "unspecified"
+        return {
+            **common,
+            **component_fields,
+            "message_chars": message_value,
+            "message_budget_effective_chars": AGENT_MESSAGE_BUDGET_FLOOR_CHARS,
+            "message_budget_status": "invalid",
+            "message_budget_basis": "invalid_measurement",
+            "message_budget_remaining_chars": None,
+            "message_overage_chars": None,
+            "required_reduction_chars": None,
+            "message_budget_retryable": False,
+            "compression_guidance": "report a non-negative Unicode code-point count",
+        }
+    if components_supplied:
+        component_fields["message_component_status"] = "measured"
+    rounded = (
+        (message_value + AGENT_MESSAGE_BUDGET_QUANTUM_CHARS - 1)
+        // AGENT_MESSAGE_BUDGET_QUANTUM_CHARS
+        * AGENT_MESSAGE_BUDGET_QUANTUM_CHARS
+    )
+    effective = min(
+        AGENT_MESSAGE_BUDGET_CEILING_CHARS,
+        max(AGENT_MESSAGE_BUDGET_FLOOR_CHARS, rounded),
+    )
+    overage = max(0, message_value - effective)
+    exceeded = overage > 0
+    if components_supplied:
+        optional_target = min(optional_value, overage)
+        required_overage = max(0, overage - optional_value)
+        component_fields.update(
+            optional_compression_target_chars=optional_target,
+            required_message_overage_chars=required_overage,
+            compression_possible_without_required_loss=required_overage == 0,
+        )
+    if not exceeded:
+        guidance = "none"
+    elif components_supplied and component_fields["compression_possible_without_required_loss"]:
+        guidance = (
+            f"remove at least {overage} optional characters, then re-admit with a new wave_id"
+        )
+    elif components_supplied:
+        guidance = (
+            "required context exceeds the ceiling; split without truncating required fields, "
+            "then re-admit with a new wave_id"
+        )
+    else:
+        guidance = "compress optional context or split the dispatch, then re-admit with a new wave_id"
+    return {
+        **common,
+        **component_fields,
+        "message_chars": message_value,
+        "message_budget_effective_chars": effective,
+        "message_budget_status": "exceeded" if exceeded else "within_budget",
+        "message_budget_basis": "measured_quantized_and_hard_capped",
+        "message_budget_remaining_chars": max(0, effective - message_value),
+        "message_overage_chars": overage,
+        "required_reduction_chars": overage,
+        "message_budget_retryable": exceeded,
+        "compression_guidance": guidance,
+    }
+
+
 def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     dispatch_requested_at = now_text()
     wave_id = str(getattr(args, "wave_id", "") or "wave-default")
@@ -327,7 +486,11 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
     )
     user_agent_budget = getattr(args, "user_agent_budget", None)
     provider_launch_budget = getattr(args, "provider_launch_budget", None)
-    message_chars = max(0, int(getattr(args, "message_chars", 0) or 0))
+    message_budget = agent_dispatch_message_budget(
+        getattr(args, "message_chars", None),
+        getattr(args, "message_required_chars", None),
+        getattr(args, "message_optional_chars", None),
+    )
     valid_fork, requested_fork = parse_requested_fork_turns(
         getattr(args, "requested_fork_turns", "none")
     )
@@ -394,6 +557,7 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
         "deadline_seconds": AGENT_DEFAULT_DEADLINE_SECONDS,
         "tool_call_budget": AGENT_DEFAULT_TOOL_CALL_BUDGET,
         "reuse_errored_agents": False,
+        **message_budget,
     }
 
     def deny(decision: str, dispatch: str = "runtime_degraded") -> dict[str, Any]:
@@ -445,7 +609,9 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
         return deny("unbounded_context_fork")
     if context_tokens >= AGENT_LONG_CONTEXT_TOKENS and requested_fork != "none":
         return deny("long_context_requires_no_fork")
-    if message_chars > AGENT_MAX_MESSAGE_CHARS:
+    if result["message_budget_status"] == "invalid":
+        return deny("invalid_dispatch_message_size")
+    if result["message_budget_status"] == "exceeded":
         return deny("dispatch_message_too_large")
     invalid_roles = [role for role in requested_roles if not role.startswith("unspecified-") and role not in OFFICES]
     if invalid_roles:
@@ -761,6 +927,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 "provider_launch_budget",
                 "deadline_seconds",
                 "tool_call_budget",
+                *AGENT_MESSAGE_BUDGET_FIELDS,
                 "protocol_decision",
                 "selected_protocol",
                 "model_route_inputs",
@@ -794,6 +961,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             model_route_ids={role: route["model_route_id"] for role, route in model_routes.items()},
             selected_protocol=result.get("selected_protocol"),
         )
+        event.update({key: result[key] for key in AGENT_MESSAGE_BUDGET_FIELDS})
         append_event(event)
     return result
 
@@ -1588,6 +1756,16 @@ def probe_payload() -> dict[str, Any]:
             "max_recent_fork_turns": AGENT_MAX_RECENT_FORK_TURNS,
             "deadline_seconds": AGENT_DEFAULT_DEADLINE_SECONDS,
             "tool_call_budget": AGENT_DEFAULT_TOOL_CALL_BUDGET,
+            "message_budget_schema": AGENT_MESSAGE_BUDGET_SCHEMA,
+            "message_budget_policy": "bounded_quantized_growth_v1",
+            "message_measurement": "unicode_code_points",
+            "message_scope": "max_single_final_message_per_wave",
+            "message_budget_floor_chars": AGENT_MESSAGE_BUDGET_FLOOR_CHARS,
+            "message_budget_quantum_chars": AGENT_MESSAGE_BUDGET_QUANTUM_CHARS,
+            "message_budget_ceiling_chars": AGENT_MESSAGE_BUDGET_CEILING_CHARS,
+            "message_component_contract": "optional required+optional metadata must equal total",
+            "message_body_storage": "forbidden",
+            "oversize_action": "compress_or_split_then_new_wave_id",
             "reuse_errored_agents": False,
             "fatal_provider_retry": False,
         },
@@ -1710,7 +1888,24 @@ def build_parser() -> argparse.ArgumentParser:
     agent_admit_parser.add_argument("--needs-reasoning-effort-override", action="store_true")
     agent_admit_parser.add_argument("--requested-fork-turns", default="none")
     agent_admit_parser.add_argument("--context-tokens", type=int, default=0)
-    agent_admit_parser.add_argument("--message-chars", type=int, default=0)
+    agent_admit_parser.add_argument(
+        "--message-chars",
+        type=int,
+        default=None,
+        help="Unicode code-point count of the largest exact final dispatch message in the wave.",
+    )
+    agent_admit_parser.add_argument(
+        "--message-required-chars",
+        type=int,
+        default=None,
+        help="Optional non-compressible portion of --message-chars; requires --message-optional-chars.",
+    )
+    agent_admit_parser.add_argument(
+        "--message-optional-chars",
+        type=int,
+        default=None,
+        help="Optional compressible portion of --message-chars; required+optional must equal total.",
+    )
     agent_admit_parser.add_argument("--requested-agents", type=int, default=1)
     agent_admit_parser.add_argument("--requested-roles", default="", help="Comma/semicolon-separated useful office roles.")
     agent_admit_parser.add_argument("--host-active-agents", type=int, help="Live occupied slots for the whole agent tree, including the root thread; omitted means unknown and fails closed.")

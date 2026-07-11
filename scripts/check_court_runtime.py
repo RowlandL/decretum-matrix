@@ -421,6 +421,10 @@ max_threads = 6
             assert probe["agent_dispatch_policy"]["max_threads"] == 16
             assert probe["agent_dispatch_policy"]["max_depth"] == 4
             assert probe["agent_dispatch_policy"]["long_context_fork_turns"] == "none"
+            assert probe["agent_dispatch_policy"]["message_budget_schema"] == "court.agent.dispatch_message_budget.v1"
+            assert probe["agent_dispatch_policy"]["message_budget_floor_chars"] == 6000
+            assert probe["agent_dispatch_policy"]["message_budget_quantum_chars"] == 1000
+            assert probe["agent_dispatch_policy"]["message_budget_ceiling_chars"] == 12000
             assert probe["agent_model_routing"]["schema"] == "court.office.model_route.v2"
             assert probe["agent_model_routing"]["codex_models"] == {
                 "gpt-5.6-luna": "max",
@@ -435,6 +439,114 @@ max_threads = 6
             assert probe["agent_model_routing"]["v1_v2_child_override_status"] == "unavailable_in_current_reserved_spawn_path"
             assert probe["agent_model_routing"]["claude_code"] == "inherit_main_thread_model"
             assert probe["agent_model_routing"]["hermes"] == "inherit_main_profile_model_design_deferred"
+
+            def sized_admission(
+                message_chars: object,
+                wave_id: str,
+                *,
+                required_chars: object | None = None,
+                optional_chars: object | None = None,
+            ) -> dict[str, object]:
+                values: dict[str, object] = {
+                    "wave_id": wave_id,
+                    "context_tokens": 1000,
+                    "requested_agents": 1,
+                    "requested_roles": "gongbu",
+                    "host_active_agents": 1,
+                    "host_capacity": 4,
+                    "host_retained_agents": 0,
+                    "host_reclamation_status": "unknown",
+                    "next_depth": 1,
+                    "user_agent_budget": None,
+                    "provider_launch_budget": None,
+                    "requested_fork_turns": "none",
+                    "execution_topology": "parallel",
+                    "active_session_protocol": "v2",
+                }
+                if message_chars is not None:
+                    values["message_chars"] = message_chars
+                if required_chars is not None:
+                    values["message_required_chars"] = required_chars
+                if optional_chars is not None:
+                    values["message_optional_chars"] = optional_chars
+                return court_runtime.evaluate_agent_admission(
+                    {"task_id": wave_id, "agents": {}},
+                    Namespace(**values),
+                )
+
+            for message_chars, effective_budget in (
+                (6000, 6000),
+                (6001, 7000),
+                (9000, 9000),
+                (12000, 12000),
+            ):
+                budgeted = sized_admission(message_chars, f"message-{message_chars}")
+                assert budgeted["allowed"] is True
+                assert budgeted["message_budget_schema"] == "court.agent.dispatch_message_budget.v1"
+                assert budgeted["message_measurement"] == "unicode_code_points"
+                assert budgeted["message_scope"] == "max_single_final_message_per_wave"
+                assert budgeted["message_chars"] == message_chars
+                assert budgeted["message_budget_effective_chars"] == effective_budget
+                assert budgeted["message_budget_status"] == "within_budget"
+                assert budgeted["message_overage_chars"] == 0
+                assert budgeted["message_budget_retryable"] is False
+
+            oversized = sized_admission(12001, "message-12001")
+            assert oversized["allowed"] is False
+            assert oversized["decision"] == "dispatch_message_too_large"
+            assert oversized["message_budget_effective_chars"] == 12000
+            assert oversized["message_budget_status"] == "exceeded"
+            assert oversized["message_overage_chars"] == 1
+            assert oversized["required_reduction_chars"] == 1
+            assert oversized["message_budget_retryable"] is True
+            assert "new wave_id" in oversized["compression_guidance"]
+
+            legacy_unmeasured = sized_admission(None, "message-legacy")
+            assert legacy_unmeasured["allowed"] is True
+            assert legacy_unmeasured["message_chars"] is None
+            assert legacy_unmeasured["message_budget_status"] == "legacy_unmeasured"
+            assert legacy_unmeasured["message_budget_effective_chars"] == 6000
+
+            invalid_size = sized_admission(-1, "message-invalid")
+            assert invalid_size["allowed"] is False
+            assert invalid_size["decision"] == "invalid_dispatch_message_size"
+            assert invalid_size["message_budget_status"] == "invalid"
+
+            invalid_body_sentinel = sized_admission("PRIVATE-DISPATCH-BODY", "message-invalid-body")
+            assert invalid_body_sentinel["allowed"] is False
+            assert invalid_body_sentinel["message_chars"] is None
+            assert "PRIVATE-DISPATCH-BODY" not in repr(invalid_body_sentinel)
+
+            optional_compression = sized_admission(
+                13000,
+                "message-components-compressible",
+                required_chars=11500,
+                optional_chars=1500,
+            )
+            assert optional_compression["allowed"] is False
+            assert optional_compression["message_component_status"] == "measured"
+            assert optional_compression["optional_compression_target_chars"] == 1000
+            assert optional_compression["required_message_overage_chars"] == 0
+            assert optional_compression["compression_possible_without_required_loss"] is True
+
+            required_overage = sized_admission(
+                13000,
+                "message-components-required-overage",
+                required_chars=12500,
+                optional_chars=500,
+            )
+            assert required_overage["required_message_overage_chars"] == 500
+            assert required_overage["compression_possible_without_required_loss"] is False
+
+            invalid_components = sized_admission(
+                9000,
+                "message-components-invalid",
+                required_chars=6000,
+                optional_chars=2000,
+            )
+            assert invalid_components["allowed"] is False
+            assert invalid_components["decision"] == "invalid_dispatch_message_size"
+            assert invalid_components["message_component_status"] == "invalid"
             six_role_admission = court_runtime.evaluate_agent_admission(
                 {"task_id": "dynamic-six", "agents": {}},
                 Namespace(

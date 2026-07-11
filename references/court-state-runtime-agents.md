@@ -720,6 +720,24 @@ turns; pass a bounded dossier/path/hash and compact assignment instead. A short
 task may explicitly inherit only the latest one to three turns. `fork_turns=all`
 is forbidden for ordinary court dispatch.
 
+Every `agent-admit` wave also applies
+`court.agent.dispatch_message_budget.v1` to the largest exact final message in
+that wave, measured by the caller as Unicode code points without storing the
+message body. The compatibility floor is 6,000 characters, the allocation
+quantum is 1,000, and the absolute V1 ceiling is 12,000. The effective budget is
+`min(12000, max(6000, ceil(message_chars / 1000) * 1000))`; therefore an observed
+9,000-character self-contained dispatch is admitted, while 12,001 is rejected
+with `dispatch_message_too_large`, an exact reduction count, and guidance to
+compress or split before retrying under a new `wave_id`. Missing legacy
+measurements remain admitted as `legacy_unmeasured`; negative or malformed
+measurements fail closed. The runtime never truncates a dispatch automatically,
+does not derive this character budget from `context_tokens`, and preserves the
+4/16 tree limits independently. A caller may additionally report required and
+optional character counts; both must be non-negative and sum exactly to the
+total. On rejection the ledger then distinguishes the optional compression
+target from any required-context overage, so required dossier, identity,
+authority, evidence, and stop-condition fields are never silently discarded.
+
 Every ordinary Codex office admission also carries the task-aware
 `court.office.model_route.v2` assessment. It records a Sol/Terra/Luna
 recommendation at that model's real highest supported effort, but the current

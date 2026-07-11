@@ -162,6 +162,40 @@ def set_task_field(task_id: str, mutate: Callable[[dict[str, object]], None]) ->
 
 
 def check_admission_binding() -> None:
+    budget_task = "message-budget-ledger"
+    create_task(budget_task)
+    budgeted = admit(budget_task, "budget-wave", message_chars=9000)
+    assert budgeted["allowed"] is True
+    assert budgeted["message_budget_effective_chars"] == 9000
+    stored_budget = court_runtime.load_tasks()[budget_task]["agent_admissions"]["budget-wave"]
+    for field in (
+        "message_budget_schema",
+        "message_measurement",
+        "message_scope",
+        "message_chars",
+        "message_budget_floor_chars",
+        "message_budget_quantum_chars",
+        "message_budget_ceiling_chars",
+        "message_budget_effective_chars",
+        "message_budget_status",
+        "message_required_chars",
+        "message_optional_chars",
+        "message_component_status",
+        "message_overage_chars",
+        "required_reduction_chars",
+        "optional_compression_target_chars",
+        "required_message_overage_chars",
+        "compression_possible_without_required_loss",
+        "message_budget_retryable",
+        "compression_guidance",
+    ):
+        assert stored_budget[field] == budgeted[field]
+    budget_events = court_runtime.read_events(limit=10, task_id=budget_task)
+    budget_event = next(event for event in budget_events if event["action"] == "agent_admit")
+    assert budget_event["message_chars"] == 9000
+    assert budget_event["message_budget_effective_chars"] == 9000
+    assert budget_event["message_budget_status"] == "within_budget"
+
     task_id = "lifecycle-binding"
     create_task(task_id)
     route = admit(task_id, "route-wave")

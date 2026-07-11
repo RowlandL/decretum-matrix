@@ -161,8 +161,17 @@ skill registry refreshes.
 
 1. Copy `court-capability-router` into the Codex skills directory:
 
-```sh
-python -c "from pathlib import Path; import os, shutil; src=Path('court-capability-router'); dst=Path(os.environ.get('CODEX_HOME') or Path.home()/'.codex')/'skills'/src.name; shutil.copytree(src, dst, dirs_exist_ok=True)"
+```python
+from pathlib import Path
+import os
+import shutil
+
+src = Path("court-capability-router")
+skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
+dst = skills_root / "court-capability-router-beta0.5.9"
+if dst.exists():
+    raise SystemExit(f"refusing to overwrite existing install: {dst}")
+shutil.copytree(src, dst)
 ```
 
 2. Restart the Codex session so the skill list refreshes.
@@ -280,19 +289,19 @@ adds bilingual recall fields (`keyword_summary_zh`, `keyword_summary_en`,
 `keywords_zh`, `keywords_en`), and refreshes the Markdown growth tree. Run it
 after upgrading older installs.
 
-## Verify the beta0.5.8 Release
+## Verify the beta0.5.9 Release
 
 Release assets:
 
 ```text
-court-capability-router-beta0.5.8.zip
-court-capability-router-beta0.5.8.zip.sha256
+court-capability-router-beta0.5.9.zip
+court-capability-router-beta0.5.9.zip.sha256
 ```
 
 The ZIP has one top-level root: `court-capability-router/`.
 
 ```powershell
-$zip = 'court-capability-router-beta0.5.8.zip'
+$zip = 'court-capability-router-beta0.5.9.zip'
 $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0]
 $actual = (Get-FileHash $zip -Algorithm SHA256).Hash
 if ($actual -ine $expected) { throw 'SHA256 mismatch' }
