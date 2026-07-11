@@ -10,7 +10,11 @@ import sys
 
 sys.dont_write_bytecode = True
 
-from shiguan_paths import references_root as shared_references_root
+from check_capability_index_gate import (
+    catalog_path as capability_index_catalog_path,
+    manifest_path as capability_index_manifest_path,
+)
+from shiguan_paths import reference_path, references_root as shared_references_root
 
 
 REQUIRED_UNITS = [
@@ -412,6 +416,9 @@ def main() -> int:
         help="Fail on missing optional local agents/catalog state instead of warning.",
     )
     args = parser.parse_args()
+
+    assert capability_index_manifest_path() == reference_path("installed-capabilities-manifest.json")
+    assert capability_index_catalog_path() == reference_path("installed-capabilities-catalog.md")
 
     path = catalog_path()
     if not path.exists():

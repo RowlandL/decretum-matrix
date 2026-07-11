@@ -22,7 +22,11 @@ def codex_home() -> Path:
 
 
 def manifest_path() -> Path:
-    return skill_root() / "references" / "installed-capabilities-manifest.json"
+    return reference_path("installed-capabilities-manifest.json")
+
+
+def catalog_path() -> Path:
+    return reference_path("installed-capabilities-catalog.md")
 
 
 def load_records() -> list[dict[str, object]]:
@@ -61,13 +65,15 @@ def prerequisite_status() -> dict[str, object]:
     find_skills = home / "skills" / "find-skills" / "SKILL.md"
     skill_creator = home / "skills" / ".system" / "skill-creator" / "SKILL.md"
     quick_validate = home / "skills" / ".system" / "skill-creator" / "scripts" / "quick_validate.py"
-    shiguan_index = skill_root() / "references" / "installed-capabilities-catalog.md"
+    shiguan_index = catalog_path()
     shared_capability_index = reference_path("shiguan-tree", "capability-index", "_index.md")
     return {
         "find_skills": find_skills.exists(),
         "skill_creator": skill_creator.exists(),
         "quick_validate": quick_validate.exists(),
         "catalog": shiguan_index.exists(),
+        "manifest_path": str(manifest_path()),
+        "catalog_path": str(shiguan_index),
         "shared_shiguan_capability_index": shared_capability_index.exists(),
         "shared_shiguan_capability_index_path": str(shared_capability_index),
     }
@@ -112,6 +118,7 @@ def evaluate(query: str, top: int) -> dict[str, object]:
         "capability_index_skill_gate": gate,
         "query": query,
         "manifest": str(manifest_path()),
+        "catalog": str(catalog_path()),
         "prerequisites": prereq,
         "candidate_count": len(candidates),
         "candidates": candidates,
