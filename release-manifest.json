@@ -333,8 +333,8 @@
     {
       "mode": "100644",
       "path": "references/court-policy.yaml",
-      "sha256": "36c147fac883744f2dcd1aab677c26b0a7b04dacdfab3415d97755e2d8218ed8",
-      "size": 1280
+      "sha256": "e2fe8a144a635e180efd90b3549275dd432617a990658f04c30e27fdef3bb903",
+      "size": 1444
     },
     {
       "mode": "100644",
@@ -429,8 +429,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/release-gates.v1.json",
-      "sha256": "f5905170349b021046e2fc0f2eb185df277073a37e69fa2e12e87b97003f3da1",
-      "size": 8791
+      "sha256": "1ce5223d7aa922d638aec52c12a4cdc46755b4c8e815381da11b6a3a710a8b63",
+      "size": 10117
     },
     {
       "mode": "100644",
@@ -602,6 +602,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/build_release_artifacts.py",
+      "sha256": "a3fbf85eb5459482f2ebc3b3776019d7bfdc717b5d3ae185bed02c0b2252eaaa",
+      "size": 16176
+    },
+    {
+      "mode": "100644",
       "path": "scripts/build_shiguan_knowledge_graph.py",
       "sha256": "b1fe94baf87646ce3c7ba9893c4ec53d7f8a4b417773c0c8177a91157d487d93",
       "size": 6690
@@ -627,8 +633,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_catalog.py",
-      "sha256": "3947b1a52c6243a6f4f1dd35f6399368b62749046b4671f351d651a1e0e9343b",
-      "size": 21455
+      "sha256": "bba551e6fe5adec8c2230152f94427220c8e207626959df3c64723d05d7ff8aa",
+      "size": 21554
     },
     {
       "mode": "100644",
@@ -735,8 +741,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_release_gate.py",
-      "sha256": "b9971b55822e3ecbfefa7ad13f01587238cb98b8db7a6df8e774393f7399d681",
-      "size": 7686
+      "sha256": "aec1993b8dcd9a603f3e60c91674754540a6e28a06be0f49a45eba722cb6839a",
+      "size": 7928
     },
     {
       "mode": "100644",
@@ -747,8 +753,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_release_manifest.py",
-      "sha256": "5febbfde8040edb2833e2a515d1445523bf394bd5c984003bfbbc3effaaeba97",
-      "size": 5202
+      "sha256": "6501d3ad0486c0660881390f28af2227f59b075045159ceffa740475ce3e5be7",
+      "size": 5770
     },
     {
       "mode": "100644",
@@ -1089,8 +1095,8 @@
     {
       "mode": "100644",
       "path": "scripts/release_gate_manifest.py",
-      "sha256": "80f72ff9d8ad5f196be9fcf0f6bc5a1e641227d7d1f34dff9dba68d91466243a",
-      "size": 13995
+      "sha256": "3e403c9420bad794417dc55964e424a2cb86047445b727b562eb341a961d3394",
+      "size": 14927
     },
     {
       "mode": "100644",
@@ -1300,12 +1306,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 3031086,
-    "payload_file_count": 212,
+    "payload_bytes": 3050593,
+    "payload_file_count": 213,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "c207882bd5b8e58995143114f4d1a3afcce30ab81b878b1d2adb0606c58f6c2f",
-    "source_packaged_tracked_file_count": 204,
-    "source_tracked_file_count": 204
+    "payload_index_sha256": "c75f927d4da53900870979a484369a748cdf9761ff3b6b3e036a07d1db84fb4a",
+    "source_packaged_tracked_file_count": 205,
+    "source_tracked_file_count": 205
   },
   "license": {
     "declared": "Apache-2.0",

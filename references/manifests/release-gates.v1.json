@@ -39,6 +39,46 @@
       "condition": "always"
     },
     {
+      "name": "capability_index",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_capability_index_gate.py", "--query", "release license manifest package security", "--json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "release_legal",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_release_legal.py", "--self-test", "--json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "release_payload_manifest",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/release_payload_manifest.py", "--self-test", "--check", "--json"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "package_privacy_regressions",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_package_privacy.py", "-q"],
+      "timeout": 300,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "release_artifact_builder",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/build_release_artifacts.py", "--self-test", "--json"],
+      "timeout": 300,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "source_state_budget",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_source_state_budget.py", "--self-test", "--json"],

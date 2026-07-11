@@ -22,6 +22,42 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
     ("portability", "source", ("$PYTHON", "scripts/check_portability.py"), "always"),
     ("release_manifest", "source", ("$PYTHON", "scripts/check_release_manifest.py", "--json"), "always"),
     (
+        "capability_index",
+        "source",
+        (
+            "$PYTHON",
+            "scripts/check_capability_index_gate.py",
+            "--query",
+            "release license manifest package security",
+            "--json",
+        ),
+        "always",
+    ),
+    (
+        "release_legal",
+        "source",
+        ("$PYTHON", "scripts/check_release_legal.py", "--self-test", "--json"),
+        "always",
+    ),
+    (
+        "release_payload_manifest",
+        "source",
+        ("$PYTHON", "scripts/release_payload_manifest.py", "--self-test", "--check", "--json"),
+        "always",
+    ),
+    (
+        "package_privacy_regressions",
+        "source",
+        ("$PYTHON", "scripts/check_package_privacy.py", "-q"),
+        "always",
+    ),
+    (
+        "release_artifact_builder",
+        "source",
+        ("$PYTHON", "scripts/build_release_artifacts.py", "--self-test", "--json"),
+        "always",
+    ),
+    (
         "source_state_budget",
         "source",
         ("$PYTHON", "scripts/check_source_state_budget.py", "--self-test", "--json"),

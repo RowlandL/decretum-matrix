@@ -66,6 +66,12 @@ def run_negative_contract_checks(manifest: dict[str, object]) -> list[str]:
     missing_required["steps"].pop()  # type: ignore[union-attr]
     cases.append(("missing_required_step", missing_required, "external required-step policy"))
 
+    missing_builder = deepcopy(manifest)
+    missing_builder["steps"] = [  # type: ignore[index]
+        step for step in missing_builder["steps"] if step.get("name") != "release_artifact_builder"  # type: ignore[union-attr]
+    ]
+    cases.append(("missing_release_artifact_builder", missing_builder, "external required-step policy"))
+
     mutating_command = deepcopy(manifest)
     mutating_command["steps"][0]["command"] = [  # type: ignore[index]
         "$PYTHON",
@@ -113,6 +119,13 @@ def main() -> int:
         "schema": MANIFEST_SCHEMA,
         "step_count": len(steps),  # type: ignore[arg-type]
         "gate_counts": gate_counts,
+        "expanded_release_steps": [
+            "capability_index",
+            "release_legal",
+            "release_payload_manifest",
+            "package_privacy_regressions",
+            "release_artifact_builder",
+        ],
         "negative_contract_cases": negative_cases,
     }
     if args.json:

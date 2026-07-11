@@ -1,5 +1,5 @@
 schema: court.policy.v1
-updated: "2026-07-10"
+updated: "2026-07-12"
 scope: court-capability-router
 default_boundaries:
   newest_user_decree: required
@@ -19,6 +19,11 @@ source_release_gates:
   - quick_validate
   - catalog_strict
   - portability
+  - capability_index
+  - release_legal
+  - release_payload_manifest
+  - package_privacy_regressions
+  - release_artifact_builder
   - supercc_profiles
   - supercc_truth_gates
   - supercc_ministry_dispatch
@@ -27,6 +32,7 @@ source_release_gates:
   - shiguan_http_security
   - codex_agent_roles
   - active_copy_hashes
+conditional_runtime_release_gates:
   - supercc_runtime_truth_strict
 package_release_gates:
   package_ok_is_not_release_ok: true

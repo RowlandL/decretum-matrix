@@ -144,11 +144,13 @@ def main() -> int:
             "source_gate": "FAILED",
             "installation_gate": "NOT_EVALUATED",
             "runtime_gate": "NOT_EVALUATED",
+            "runtime_reason": "release_manifest_invalid",
             "package_gate": {
                 "name": "package_validation",
-                "status": "NOT_EVALUATED",
+                "status": "NOT_RUN",
                 "path": None,
                 "problems": [],
+                "reason": "release_manifest_invalid",
             },
             "steps": [],
             "failed": [failure],
@@ -188,9 +190,10 @@ def main() -> int:
     else:
         package_gate = {
             "name": "package_validation",
-            "status": "NOT_EVALUATED",
+            "status": "NOT_RUN",
             "path": None,
             "problems": [],
+            "reason": "package_not_supplied",
         }
 
     failed = [step for step in steps if step["status"] != "PASSED"]
@@ -206,10 +209,11 @@ def main() -> int:
         "source_gate": "PASSED" if not source_failed else "FAILED",
         "installation_gate": "PASSED" if not installation_failed else "FAILED",
         "runtime_gate": (
-            "NOT_EVALUATED"
+            "NOT_APPLICABLE"
             if args.skip_runtime
             else ("PASSED" if not runtime_failed else "FAILED")
         ),
+        "runtime_reason": "runtime_not_selected" if args.skip_runtime else "runtime_selected",
         "package_gate": package_gate,
         "steps": steps,
         "failed": failed,
