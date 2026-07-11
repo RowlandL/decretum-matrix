@@ -181,11 +181,16 @@ skill 包含本地 Web 管理页：
 web/shiguan-tree/index.html
 ```
 
-开朝时可由脚本启动或复用本地/LAN 服务：
+开朝时默认只启动或复用 `127.0.0.1` 回环服务：
 
 ```powershell
 python -B scripts/ensure_shiguan_service_daemon.py
 python -B scripts/ensure_shiguan_web.py
+```
+
+只有明确需要同一局域网访问时，才显式执行：
+
+```powershell
 python -B scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765
 ```
 
@@ -195,7 +200,7 @@ python -B scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765
 http://127.0.0.1:8765/
 ```
 
-LAN 设备使用脚本返回的 `lan_urls`。管理端点需要本地 admin token，不能把 token、API key、cookie 或私密二维码写进报告、图谱或日志。默认守护任务名为 `CourtShiguanDaemon`，隐藏登录启动，负责同时维护 8765 WebUI 与 preserve-only Obsidian autosync；后台进程使用 `pythonw.exe` 静默运行，不应弹出周期性控制台窗口；撤销命令为 `schtasks /Delete /TN CourtShiguanDaemon /F`。
+只有显式 LAN opt-in 才会返回 `lan_urls`。管理端点需要本地 admin token，不能把 token、API key、cookie 或私密二维码写进报告、图谱或日志。peer endpoint 不得内嵌凭据、query 或 fragment；非回环 peer 必须使用 HTTPS，重定向会被拒绝，bearer token 不会转发到其他 origin。`.shiguan-key` 只是混淆，不是加密；下载后应立即限制为仅当前用户可读写（POSIX `chmod 600`）。默认守护任务名为 `CourtShiguanDaemon`，隐藏登录启动，负责同时维护 8765 WebUI 与 preserve-only Obsidian autosync；后台进程使用 `pythonw.exe` 静默运行，不应弹出周期性控制台窗口；撤销命令为 `schtasks /Delete /TN CourtShiguanDaemon /F`。
 
 #### 8. 直接导入队列
 
@@ -607,10 +612,15 @@ The package includes a local web manager:
 web/shiguan-tree/index.html
 ```
 
-The service can be started or reused with:
+The default service starts or reuses a loopback-only `127.0.0.1` listener:
 
 ```powershell
 python -B scripts/ensure_shiguan_web.py
+```
+
+Only for an explicit same-LAN opt-in, run:
+
+```powershell
 python -B scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765
 ```
 
@@ -620,7 +630,7 @@ On the same machine, it usually runs at:
 http://127.0.0.1:8765/
 ```
 
-LAN devices should use the `lan_urls` returned by the script. Management endpoints require a local admin token. Tokens, API keys, cookies, private QR codes, and private identifiers must not appear in reports, graph labels, or logs.
+`lan_urls` are returned only after explicit LAN opt-in. Management endpoints require a local admin token. Peer endpoints may not contain credentials, queries, or fragments; non-loopback peers require HTTPS, redirects are rejected, and bearer tokens are never forwarded to another origin. A `.shiguan-key` is obfuscation, not encryption; restrict a downloaded file to its owner (POSIX `chmod 600`). Tokens, API keys, cookies, private QR codes, and private identifiers must not appear in reports, graph labels, or logs.
 
 #### 8. Direct Import Queue
 

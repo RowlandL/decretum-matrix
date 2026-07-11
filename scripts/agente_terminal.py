@@ -37,7 +37,10 @@ OFFICE_CODES = {
 }
 
 SENSITIVE_RE = re.compile(
-    r"(?i)(api[_-]?key|authorization|bearer|cookie|token|secret|password)\s*[:=]\s*([^\s]+)"
+    r'''(?ix)
+    (["']?(?:api[_-]?key|authorization|bearer|cookie|token|secret|password)["']?\s*[:=]\s*)
+    (?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,}]+)
+    '''
 )
 BEARER_RE = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+")
 ATTENTION_STATES = {"blocked", "failed", "stale", "orphaned"}
@@ -110,7 +113,7 @@ def build_metadata(args: argparse.Namespace) -> dict[str, object]:
 
 
 def redact(text: str) -> str:
-    text = SENSITIVE_RE.sub(lambda match: f"{match.group(1)}=[REDACTED]", text)
+    text = SENSITIVE_RE.sub(lambda match: f"{match.group(1)}[REDACTED]", text)
     return BEARER_RE.sub("Bearer [REDACTED]", text)
 
 
@@ -278,6 +281,28 @@ def mirror_runtime_event(args: argparse.Namespace, metadata: dict[str, object], 
     if not args.runtime_task_id or args.runtime_action == "none":
         return {"runtime_mirror": "not_requested"}
     evidence = redact(args.runtime_evidence or f"{args.runtime_action} {metadata['log_id']}; log_path={log_path}")
+    start_fields: dict[str, object] = {}
+    if args.runtime_action in {"start", "spawn"}:
+        wave_id = str(args.runtime_wave_id or "wave-default")
+        task = court_runtime.load_tasks().get(args.runtime_task_id)
+        admissions = task.get("agent_admissions") if isinstance(task, dict) else None
+        admission = admissions.get(wave_id) if isinstance(admissions, dict) else None
+        route_inputs = admission.get("model_route_inputs") if isinstance(admission, dict) else None
+        if not isinstance(admission, dict) or not isinstance(route_inputs, dict):
+            raise ValueError(f"runtime admission not found for wave: {wave_id}")
+        start_fields = {
+            "wave_id": wave_id,
+            "dispatch_requested_at": admission.get("dispatch_requested_at"),
+            "task_focus": route_inputs.get("task_focus"),
+            "complexity": route_inputs.get("complexity"),
+            "risk": route_inputs.get("risk"),
+            "ambiguity": route_inputs.get("ambiguity"),
+            "transport": route_inputs.get("transport"),
+            "fork_turns": admission.get("recommended_fork_turns"),
+            "context_tokens": admission.get("context_tokens"),
+            "deadline_seconds": admission.get("deadline_seconds"),
+            "tool_call_budget": admission.get("tool_call_budget"),
+        }
     namespace = argparse.Namespace(
         task_id=args.runtime_task_id,
         agent_id=args.agent_id,
@@ -288,6 +313,7 @@ def mirror_runtime_event(args: argparse.Namespace, metadata: dict[str, object], 
         note=redact(args.note or "agente_terminal mirror"),
         result=redact(args.result or str(metadata.get("agent_status") or "")),
         status=args.agent_status if args.agent_status in {"completed", "failed", "cancelled"} else "failed",
+        **start_fields,
     )
     if args.runtime_action in {"start", "spawn"}:
         result = court_runtime.agent_start(namespace)
@@ -332,6 +358,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--auto-close-seconds", type=int, default=3)
     parser.add_argument("--runtime-task-id", default="")
+    parser.add_argument("--runtime-wave-id", default="wave-default")
     parser.add_argument(
         "--runtime-action",
         default="none",

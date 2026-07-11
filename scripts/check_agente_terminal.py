@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,49 @@ def main() -> int:
         env["COURT_SHARED_SHIGUAN_ROOT"] = str(shared_root)
 
         run_cli(cli, env, "create", "--task-id", "terminal", "--title", "terminal", "--evidence", "create")
+        admission = json.loads(
+            run_cli(
+                cli,
+                env,
+                "agent-admit",
+                "--task-id", "terminal",
+                "--wave-id", "wave-default",
+                "--execution-topology", "parallel",
+                "--protocol-mode", "v2",
+                "--active-session-protocol", "v2",
+                "--needs-parallel-tree",
+                "--requested-fork-turns", "none",
+                "--context-tokens", "1000",
+                "--message-chars", "256",
+                "--message-required-chars", "256",
+                "--message-optional-chars", "0",
+                "--requested-agents", "1",
+                "--requested-roles", "hubu",
+                "--host-active-agents", "1",
+                "--host-capacity", "4",
+                "--host-retained-agents", "0",
+                "--host-reclamation-status", "verified",
+                "--next-depth", "1",
+                "--max-depth", "4",
+                "--max-threads", "16",
+                "--user-agent-budget", "3",
+                "--provider-launch-budget", "3",
+                "--assignment", "terminal test",
+                "--task-focus", "agente terminal regression",
+                "--complexity", "low",
+                "--risk", "low",
+                "--ambiguity", "low",
+                "--transport", "codex",
+                "--actor", "shangshu",
+                "--evidence", "terminal fixture admission",
+                "--format", "json",
+            ).stdout
+        )
+        json_secret = "secret" + "-value"
+        quoted_secret = "quoted" + "-secret"
+        api_key_name = "api_" + "key"
+        password_name = "pass" + "word"
+        json_line = json.dumps({api_key_name: json_secret, password_name: quoted_secret})
         first = json.loads(
             run_cli(
                 terminal,
@@ -53,7 +97,7 @@ def main() -> int:
                 "--sequence",
                 "1",
                 "--body",
-                "token=secret123\nBearer abc.def\nnormal line",
+                f"token=secret123\nBearer abc.def\n{json_line}\nnormal line",
                 "--summary",
                 "户部窗口日志测试",
                 "--agent-status",
@@ -83,7 +127,40 @@ def main() -> int:
         assert "token=[REDACTED]" in first_text
         assert "Bearer [REDACTED]" in first_text
         assert "secret123" not in first_text
+        assert json_secret not in first_text
+        assert quoted_secret not in first_text
+        assert f'"{api_key_name}": [REDACTED]' in first_text
+        assert f'"{password_name}": [REDACTED]' in first_text
         assert first["runtime_mirror"]["runtime_mirror"] == "start"
+
+        def sha256(path: Path) -> str:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        route_id = admission["model_routes"]["hubu"]["model_route_id"]
+        repo_root = scripts.parent
+        run_cli(
+            cli,
+            env,
+            "agent-preload-ack",
+            "--task-id", "terminal",
+            "--agent-id", "agent-1",
+            "--role", "hubu",
+            "--office-zh", "户部",
+            "--direct-superior", "shangshu",
+            "--profile-hash", sha256(repo_root / "agents" / "standing-officials" / "hubu.toml"),
+            "--dossier-hash", sha256(repo_root / "agents" / "supercc-dossiers" / "hubu" / "AGENTS.md"),
+            "--court-skill-hash", sha256(repo_root / "SKILL.md"),
+            "--loaded-skills", "court-capability-router",
+            "--agent-dossier-loaded", "YES",
+            "--model-route-id", route_id,
+            "--model-override-applied", "NO",
+            "--inheritance-policy", "inherit_main_thread_model_reserved_schema",
+            "--schema", "court.office.preload_ack.v1",
+            "--preload-status", "PASSED",
+            "--actor", "shangshu",
+            "--evidence", "terminal fixture preload",
+            "--format", "json",
+        )
 
         second = json.loads(
             run_cli(

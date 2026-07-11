@@ -19,6 +19,9 @@ from urllib.request import urlopen
 from shiguan_paths import code_root, ensure_shared_seed, references_root as shared_references_root
 
 
+DEFAULT_BIND_HOST = "127.0.0.1"
+
+
 def skill_root() -> Path:
     return code_root()
 
@@ -172,6 +175,7 @@ def result(
         "local_url": local_url if is_available else "",
         "lan_urls": urls if is_available else [],
         "bind_host": host,
+        "explicit_lan_opt_in": is_wildcard_host(host),
         "host": host,
         "port": port,
         "reason": reason,
@@ -249,7 +253,7 @@ def ensure(args: argparse.Namespace) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default=DEFAULT_BIND_HOST)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--max-port", type=int, default=8765)
     parser.add_argument("--timeout", type=float, default=8.0)

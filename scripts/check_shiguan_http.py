@@ -161,10 +161,39 @@ def run_static_regressions() -> dict[str, object]:
             os.environ["COURT_SHARED_SHIGUAN_ROOT"] = str(temp / "court-data")
             os.environ["COURT_DISABLE_AGENT_PRESENCE"] = "1"
             server = importlib.import_module("serve_shiguan_tree")
+            web_ensure = importlib.import_module("ensure_shiguan_web")
+            service_daemon = importlib.import_module("shiguan_service_daemon")
             exporter = importlib.import_module("export_shiguan_obsidian")
             autosync = importlib.import_module("shiguan_autosync_daemon")
             filesystem_sync = importlib.import_module("sync_shiguan_obsidian_vault")
             autosync_ensure = importlib.import_module("ensure_shiguan_autosync")
+
+            if server.DEFAULT_BIND_HOST != "127.0.0.1":
+                raise AssertionError("serve_shiguan_tree default bind is not loopback")
+            if web_ensure.DEFAULT_BIND_HOST != "127.0.0.1":
+                raise AssertionError("ensure_shiguan_web default bind is not loopback")
+            if service_daemon.DEFAULT_BIND_HOST != "127.0.0.1":
+                raise AssertionError("shiguan_service_daemon default bind is not loopback")
+            loopback_result = web_ensure.result("CHECK_ONLY", "127.0.0.1", 8765)
+            lan_result = web_ensure.result("CHECK_ONLY", "0.0.0.0", 8765)
+            if loopback_result.get("explicit_lan_opt_in") is not False:
+                raise AssertionError("loopback result was mislabeled as LAN opt-in")
+            if lan_result.get("explicit_lan_opt_in") is not True:
+                raise AssertionError("wildcard result did not label explicit LAN opt-in")
+            if server.validate_peer_endpoint("http://127.0.0.1:8765/") != "http://127.0.0.1:8765":
+                raise AssertionError("loopback peer endpoint was rejected")
+            for unsafe_peer in (
+                "http://192.168.1.10:8765/",
+                "https://user:pass@example.invalid/",
+                "https://example.invalid/?token=secret",
+                "https://example.invalid/#fragment",
+            ):
+                try:
+                    server.validate_peer_endpoint(unsafe_peer)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"unsafe peer endpoint was accepted: {unsafe_peer}")
 
             blank_identity_root = temp / "court-data"
             identity = server.read_node_identity()
@@ -850,6 +879,8 @@ def run_static_regressions() -> dict[str, object]:
         "obsidian_boundaries": True,
         "key_download_nonce": True,
         "browser_token_session_only": True,
+        "loopback_bind_defaults": True,
+        "peer_endpoint_policy": True,
     }
 
 

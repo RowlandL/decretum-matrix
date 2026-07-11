@@ -696,6 +696,41 @@ def check_empty_read_zero_write(base: Path, server) -> dict[str, object]:
     return {"revision": 0, "files_created": 0}
 
 
+def check_peer_endpoint_and_key_protection(base: Path, server) -> dict[str, object]:
+    use_root(base / "endpoint-policy")
+    require(
+        server.validate_peer_endpoint("http://127.0.0.1:8765/") == "http://127.0.0.1:8765",
+        "loopback peer endpoint was rejected",
+    )
+    for endpoint in (
+        "http://192.168.1.10:8765/",
+        "https://user:pass@example.invalid/",
+        "https://example.invalid/?token=secret",
+        "https://example.invalid/#fragment",
+    ):
+        try:
+            server.validate_peer_endpoint(endpoint)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsafe peer endpoint was accepted: {endpoint}")
+
+    handler = server.NoRedirectHandler()
+    require(
+        handler.redirect_request(None, None, 302, "fixture", {}, "https://other.invalid/") is None,
+        "peer redirect handler did not reject redirects",
+    )
+    exported = server.export_peer_key(
+        {"role": "read", "endpoint": "http://127.0.0.1:8765/", "note": "fixture"}
+    )
+    require(exported.get("protection") == "obfuscation_not_encryption", "key protection metadata missing")
+    require(exported.get("credential_semantics") == "bearer_secret_plaintext_equivalent", "key bearer warning missing")
+    require(exported.get("recommended_file_mode") == "0600", "key file mode guidance missing")
+    decoded = peer.decode_peer_key(str(exported.get("key_text") or ""))
+    require(decoded.get("protection") == "obfuscation_not_encryption", "encoded key warning missing")
+    return {"remote_http_rejected": True, "redirects_rejected": True, "key_warning_exported": True}
+
+
 def main() -> int:
     previous_root = os.environ.get("COURT_SHARED_SHIGUAN_ROOT")
     try:
@@ -722,6 +757,7 @@ def main() -> int:
                 "network_io_outside_state_lock": check_peer_network_io_outside_state_lock(base, server),
                 "public_projection_allowlists": check_public_projection_allowlists(base, server),
                 "empty_read_zero_write": check_empty_read_zero_write(base, server),
+                "endpoint_and_key_protection": check_peer_endpoint_and_key_protection(base, server),
             }
             print(json.dumps({"ok": True, "results": result}, ensure_ascii=False, indent=2, sort_keys=True))
             return 0

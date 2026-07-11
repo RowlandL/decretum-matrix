@@ -22,7 +22,7 @@ import tempfile
 import zipfile
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 sys.dont_write_bytecode = True
 
@@ -120,11 +120,26 @@ STATIC_TYPES = {
     ".js": "application/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
 }
-SERVER_BIND_HOST = "127.0.0.1"
+DEFAULT_BIND_HOST = "127.0.0.1"
+SERVER_BIND_HOST = DEFAULT_BIND_HOST
 SERVER_PORT = 8765
 PEER_TIMEOUT_SECONDS = 1.8
 PEER_KEY_ID_BYTES = 24
 PEER_KEY_TOKEN_BYTES = 96
+PEER_KEY_PROTECTION = {
+    "protection": "obfuscation_not_encryption",
+    "credential_semantics": "bearer_secret_plaintext_equivalent",
+    "storage_warning": "Anyone who can read this file can use the credential until expiry or revocation.",
+    "recommended_file_mode": "0600",
+}
+
+
+class NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+PEER_OPENER = build_opener(NoRedirectHandler())
 ADMIN_REQUEST_HEADER = "X-Shiguan-Admin-Request"
 PUBLIC_STATE_LIMIT = 200
 MAX_OBSIDIAN_IMPORT_FILES = 200
@@ -1349,9 +1364,7 @@ def _export_peer_key_with_snapshot(
     days = bounded_int(payload.get("days"), 7, 1, 3650)
     share_host = str(payload.get("share_host") or first_share_host()).strip() or first_share_host()
     share_port = bounded_int(payload.get("share_port"), default_share_port(), 1, 65535)
-    endpoint = str(payload.get("endpoint") or service_url(share_host, share_port)).strip()
-    if not endpoint.endswith("/"):
-        endpoint += "/"
+    endpoint = validate_peer_endpoint(payload.get("endpoint") or service_url(share_host, share_port))
     key_id = secrets.token_hex(PEER_KEY_ID_BYTES)
     token = secrets.token_urlsafe(PEER_KEY_TOKEN_BYTES)
     created_at = now_text()
@@ -1385,6 +1398,7 @@ def _export_peer_key_with_snapshot(
         "node": node,
         "note": str(payload.get("note") or ""),
         "regenerate_from": regenerate_from,
+        **PEER_KEY_PROTECTION,
     }
     key_record = {
         "key_id": key_id,
@@ -1417,7 +1431,8 @@ def _export_peer_key_with_snapshot(
         "filename": file_name,
         "key_text": text,
         "delivery": "browser_download",
-        "warning": "凯撒算法仅作密钥文件包装；权限以各节点服务端验签、过期和吊销为准。",
+        "warning": "凯撒包装仅为混淆，不是加密；任何能读取文件的人都可在过期或吊销前使用该 bearer secret。",
+        **PEER_KEY_PROTECTION,
     }
     remember_pending_key_download(result)
     try:
@@ -1578,7 +1593,7 @@ def import_peer_key(payload: dict[str, object]) -> dict[str, object]:
         "key_id": key_id,
         "role": str(value.get("role") or "read"),
         "token": str(value.get("token") or ""),
-        "endpoint": str(value.get("endpoint") or ""),
+        "endpoint": validate_peer_endpoint(value.get("endpoint")),
         "node": node,
         "created_at": str(value.get("created_at") or ""),
         "expires_at": str(value.get("expires_at") or ""),
@@ -1670,15 +1685,45 @@ def peer_headers(peer: dict[str, object]) -> dict[str, str]:
     }
 
 
+def validate_peer_endpoint(endpoint: object) -> str:
+    text = str(endpoint or "").strip().rstrip("/")
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("peer endpoint must be an absolute http(s) URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("peer endpoint must not contain credentials, query, or fragment")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("peer endpoint must not contain a path")
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("peer endpoint port is invalid") from exc
+    host = parsed.hostname.lower()
+    loopback = host == "localhost"
+    if not loopback:
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            try:
+                addresses = {
+                    item[4][0]
+                    for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+                }
+            except OSError as exc:
+                raise ValueError("peer endpoint host could not be resolved") from exc
+            loopback = bool(addresses) and all(ipaddress.ip_address(address).is_loopback for address in addresses)
+    if parsed.scheme != "https" and not loopback:
+        raise ValueError("non-loopback peer endpoint requires HTTPS")
+    return text
+
+
 def call_peer(peer: dict[str, object], path: str, method: str = "GET", payload: dict[str, object] | None = None) -> dict[str, object]:
-    endpoint = str(peer.get("endpoint") or "").rstrip("/")
-    if not endpoint:
-        raise ValueError("peer endpoint missing")
+    endpoint = validate_peer_endpoint(peer.get("endpoint"))
     data = None
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = Request(endpoint + path, data=data, headers=peer_headers(peer), method=method)
-    with urlopen(request, timeout=PEER_TIMEOUT_SECONDS) as response:
+    with PEER_OPENER.open(request, timeout=PEER_TIMEOUT_SECONDS) as response:
         raw = response.read().decode("utf-8")
     value = json.loads(raw or "{}")
     return value if isinstance(value, dict) else {}
@@ -2180,6 +2225,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Disposition", f'attachment; filename="{safe_name}"')
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Shiguan-Key-Protection", "obfuscation-not-encryption")
+        self.send_header("X-Shiguan-Recommend-Mode", "0600")
         self.end_headers()
         self.wfile.write(body)
 
@@ -2515,7 +2562,7 @@ class SingleBindThreadingHTTPServer(ThreadingHTTPServer):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default=DEFAULT_BIND_HOST)
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
@@ -2535,7 +2582,7 @@ def main() -> int:
         server = SingleBindThreadingHTTPServer((args.host, args.port), Handler)
         print(f"SHIGUAN_TREE_WEB {service_url('127.0.0.1', args.port)}")
         for url in lan_urls(args.host, args.port):
-            print(f"SHIGUAN_TREE_WEB_LAN {url}")
+            print(f"SHIGUAN_TREE_WEB_LAN {url} explicit_lan_opt_in=true")
         print(f"SHIGUAN_TREE_WEB_PATH {web_root() / 'index.html'}")
         try:
             server.serve_forever()

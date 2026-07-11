@@ -19,6 +19,11 @@ redaction, release manifests, or provenance. The package is provided without
 warranty under Apache-2.0; this policy does not create a service-level
 agreement.
 
+The default Web listener is loopback-only. Non-loopback peer endpoints require
+HTTPS; endpoints containing credentials, query strings, fragments, or base
+paths are rejected. HTTP redirects are not followed, so authorization headers
+cannot be forwarded to a redirected origin.
+
 ## Supported release
 
 The next reviewed release is `beta0.5.9`. Historical artifacts remain

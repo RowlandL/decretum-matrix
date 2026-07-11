@@ -373,8 +373,8 @@ To revoke a registered task, run the generated
 ## Local And LAN Shiguan Web Manager
 
 The package includes a standard-library local web manager for the built-in
-growth tree. The default ensure command starts or reuses a LAN-reachable service
-and reports both the same-machine URL and any same-network URLs. The preferred
+growth tree. The default ensure command starts or reuses a loopback-only
+`127.0.0.1` service. LAN exposure is an explicit opt-in. The preferred
 entry point is the service watchdog, which also installs/reuses a hidden user
 logon task for preserve-only autosync:
 
@@ -386,19 +386,26 @@ python -B scripts/ensure_shiguan_web.py
 The watchdog task is named `CourtShiguanDaemon`; revoke it with
 `schtasks /Delete /TN CourtShiguanDaemon /F`.
 
-Manual LAN service command:
+Explicit manual LAN service command:
 
 ```powershell
 python -B scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765
 ```
 
-Open `http://127.0.0.1:8765/` on the host machine, or open one of the returned
-`lan_urls` such as `http://<LAN-IP>:8765/` from a phone, tablet, or another
-computer on the same network. The service is intended for LAN use only. Do not
+Open `http://127.0.0.1:8765/` on the host machine. After explicit LAN opt-in,
+open one of the returned `lan_urls` such as `http://<LAN-IP>:8765/` from a
+phone, tablet, or another computer on the same network. Do not
 set up router port forwarding, public tunneling, or public remote exposure unless the
 user explicitly asks for that separate external-access change. If Windows
 Firewall blocks inbound access, allow the Python process or the chosen local
 port for the private network profile.
+
+Peer synchronization is stricter than browser LAN viewing: peer endpoints may
+not contain credentials, query strings, fragments, or base paths; non-loopback
+peers require HTTPS; redirects are rejected and bearer tokens are not forwarded
+to another origin. `.shiguan-key` files are bearer-secret containers using
+obfuscation rather than encryption. After browser download, restrict the file
+to the current user where supported (for example `chmod 600 file.shiguan-key`).
 
 The web UI includes phone and tablet breakpoints: desktop uses a three-panel
 workspace, tablet prioritizes the graph with side panels below, and phones use a

@@ -16,6 +16,9 @@ import time
 from shiguan_paths import ensure_shared_seed, reference_path, references_root
 
 
+DEFAULT_BIND_HOST = "127.0.0.1"
+
+
 def now_text() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -35,7 +38,7 @@ def write_json(path: Path, value: object) -> None:
 
 def web_args() -> argparse.Namespace:
     return argparse.Namespace(
-        host="0.0.0.0",
+        host=DEFAULT_BIND_HOST,
         port=8765,
         max_port=8765,
         timeout=8.0,
