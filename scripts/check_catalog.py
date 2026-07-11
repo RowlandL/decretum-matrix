@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -405,6 +406,36 @@ def check_codex_config(path: Path) -> list[str]:
     return messages
 
 
+def capability_index_path_contract() -> dict[str, object]:
+    try:
+        expected_manifest = reference_path("installed-capabilities-manifest.json")
+        expected_catalog = reference_path("installed-capabilities-catalog.md")
+        actual_manifest = capability_index_manifest_path()
+        actual_catalog = capability_index_catalog_path()
+    except (OSError, RuntimeError) as exc:
+        return {
+            "ok": False,
+            "status": "FAILED",
+            "reason": "shared_shiguan_path_error",
+            "error_type": type(exc).__name__,
+        }
+    if actual_manifest != expected_manifest or actual_catalog != expected_catalog:
+        return {
+            "ok": False,
+            "status": "FAILED",
+            "reason": "capability_index_path_mismatch",
+            "manifest_path": str(actual_manifest),
+            "catalog_path": str(actual_catalog),
+        }
+    return {
+        "ok": True,
+        "status": "PASSED",
+        "reason": "shared_shiguan_paths_match",
+        "manifest_path": str(actual_manifest),
+        "catalog_path": str(actual_catalog),
+    }
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -415,10 +446,29 @@ def main() -> int:
         action="store_true",
         help="Fail on missing optional local agents/catalog state instead of warning.",
     )
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 
-    assert capability_index_manifest_path() == reference_path("installed-capabilities-manifest.json")
-    assert capability_index_catalog_path() == reference_path("installed-capabilities-catalog.md")
+    if args.self_test:
+        original = globals()["capability_index_manifest_path"]
+
+        def broken_manifest_path() -> Path:
+            raise RuntimeError("simulated shared-root resolution loop")
+
+        try:
+            globals()["capability_index_manifest_path"] = broken_manifest_path
+            result = capability_index_path_contract()
+        finally:
+            globals()["capability_index_manifest_path"] = original
+        assert result["ok"] is False
+        assert result["reason"] == "shared_shiguan_path_error"
+        print(json.dumps({"ok": True, "shared_shiguan_path_error": True}, sort_keys=True))
+        return 0
+
+    path_contract = capability_index_path_contract()
+    if not path_contract["ok"]:
+        print(json.dumps(path_contract, ensure_ascii=False, sort_keys=True))
+        return 2
 
     path = catalog_path()
     if not path.exists():
