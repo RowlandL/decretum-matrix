@@ -26,6 +26,8 @@ import sys
 import tempfile
 import zipfile
 
+sys.dont_write_bytecode = True
+
 
 ROOT_NAME = "court-capability-router"
 SECRET_PATTERNS = [
