@@ -1,0 +1,32 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "creationInfo": {
+    "created": "2026-07-12T00:00:00Z",
+    "creators": [
+      "Tool: court-capability-router release process"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentNamespace": "https://spdx.org/spdxdocs/court-capability-router-beta0.5.9-20260712",
+  "name": "court-capability-router-beta0.5.9",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package",
+      "copyrightText": "Copyright 2026 court-capability-router contributors",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "Apache-2.0",
+      "name": "court-capability-router",
+      "versionInfo": "beta0.5.9"
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-Package",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
+}

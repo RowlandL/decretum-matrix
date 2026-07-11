@@ -2,8 +2,15 @@ schema: court.benchmark.v1
 id: cft0808-edict
 name: cft0808/edict
 url: https://github.com/cft0808/edict
-checked_at: "2026-07-10"
+checked_at: "2026-07-12"
 commit: "14a207557719c046af0f993a7bff1cc5a5015b33"
+
+license:
+  spdx: MIT
+  file: LICENSE
+  git_blob_sha1: "69499c3250cbecc6079c69dc0e5a0f7a4be716da"
+  sha256: "5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c"
+  copyright: "Copyright (c) 2026 openclaw-sansheng-liubu contributors"
 
 authority_boundary:
   runtime_dependency: false

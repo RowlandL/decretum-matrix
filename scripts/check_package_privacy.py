@@ -21,6 +21,15 @@ import package_skill
 
 
 ROOT_NAME = package_skill.ROOT_NAME
+LEGAL_REQUIRED = {
+    f"{ROOT_NAME}/LICENSE",
+    f"{ROOT_NAME}/NOTICE",
+    f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md",
+    f"{ROOT_NAME}/SECURITY.md",
+    f"{ROOT_NAME}/PRIVACY.md",
+    f"{ROOT_NAME}/CONTRIBUTING.md",
+    f"{ROOT_NAME}/SBOM.spdx.json",
+}
 
 
 def write_zip(path: Path, members: list[tuple[str, bytes]]) -> None:
@@ -243,9 +252,23 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (f"{ROOT_NAME}/RELEASE-LOG.md", b"# Release log\n"),
                 (f"{ROOT_NAME}/release-manifest.json", b'{"schema":"court.release.v1"}\n'),
                 (f"{ROOT_NAME}/.gitignore", b"dist/\n"),
+                (f"{ROOT_NAME}/LICENSE", b"Apache License\n"),
+                (f"{ROOT_NAME}/NOTICE", b"court-capability-router\n"),
+                (f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md", b"# Third-party notices\n"),
+                (f"{ROOT_NAME}/SECURITY.md", b"# Security\n"),
+                (f"{ROOT_NAME}/PRIVACY.md", b"# Privacy\n"),
+                (f"{ROOT_NAME}/CONTRIBUTING.md", b"# Contributing\n"),
+                (
+                    f"{ROOT_NAME}/SBOM.spdx.json",
+                    b'{"spdxVersion":"SPDX-2.3","packages":[{"licenseDeclared":"Apache-2.0"}]}\n',
+                ),
             ]
         )
-        for filename in ("VERSION", "CHANGELOG.md", "RELEASE-LOG.md", "release-manifest.json", ".gitignore"):
+        for filename in (
+            "VERSION", "CHANGELOG.md", "RELEASE-LOG.md", "release-manifest.json", ".gitignore",
+            "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "SECURITY.md", "PRIVACY.md",
+            "CONTRIBUTING.md", "SBOM.spdx.json",
+        ):
             self.assertFalse(
                 any(filename in problem and "not-allowed" in problem for problem in allowed),
                 f"known optional root file rejected: {filename}: {allowed[:12]!r}",
@@ -260,6 +283,11 @@ class ZipStructurePrivacyTests(unittest.TestCase):
 
         bad_manifest = validation_problems([(f"{ROOT_NAME}/release-manifest.json", b"[]\n")])
         self.assert_problem(bad_manifest, "invalid-release-manifest")
+
+        bad_sbom = validation_problems(
+            [(f"{ROOT_NAME}/SBOM.spdx.json", b'{"spdxVersion":"SPDX-2.2"}\n')]
+        )
+        self.assert_problem(bad_sbom, "invalid-sbom")
 
 
 @unittest.skipIf(
@@ -281,6 +309,13 @@ class PackageBuildTests(unittest.TestCase):
         _, _, problems = package_skill.build(out)
         self.assertIn("output-already-exists", "\n".join(problems))
         self.assertEqual(before, hashlib.sha256(out.read_bytes()).hexdigest())
+
+    def test_legal_governance_files_are_mandatory_package_members(self) -> None:
+        self.assertEqual(package_skill.LEGAL_REQUIRED_MEMBERS, LEGAL_REQUIRED)
+        out = self.temp_path / "legal.zip"
+        self.assertEqual(package_skill.build(out)[2], [])
+        with zipfile.ZipFile(out) as archive:
+            self.assertEqual(LEGAL_REQUIRED - set(archive.namelist()), set())
 
     def test_two_clean_builds_are_byte_identical(self) -> None:
         first = self.temp_path / "first.zip"

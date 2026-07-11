@@ -104,13 +104,20 @@ SECRET_BEARING_DIRS = {".ssh", ".aws", ".docker", ".gcloud", ".azure"}
 ROOT_ALLOWED_FILES = {
     ".gitignore",
     "changelog.md",
+    "contributing.md",
+    "license",
+    "notice",
+    "privacy.md",
     "readme.md",
     "release-log.md",
     "release-manifest.json",
+    "sbom.spdx.json",
+    "security.md",
     "skill.md",
+    "third_party_notices.md",
     "version",
 }
-ROOT_TEXT_BASENAMES = {".gitignore", "version"}
+ROOT_TEXT_BASENAMES = {".gitignore", "license", "notice", "version"}
 SENSITIVE_DIR_NAMES = {
     ".git",
     ".mypy_cache",
@@ -261,6 +268,15 @@ MAX_TOTAL_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
 MIN_COMPRESSION_RATIO_BYTES = 1024 * 1024
 MAX_COMPRESSION_RATIO = 200.0
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+LEGAL_REQUIRED_MEMBERS = {
+    f"{ROOT_NAME}/LICENSE",
+    f"{ROOT_NAME}/NOTICE",
+    f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md",
+    f"{ROOT_NAME}/SECURITY.md",
+    f"{ROOT_NAME}/PRIVACY.md",
+    f"{ROOT_NAME}/CONTRIBUTING.md",
+    f"{ROOT_NAME}/SBOM.spdx.json",
+}
 
 REQUIRED_COURT_SCRIPTS = [
     "quick_validate.py",
@@ -311,6 +327,7 @@ REQUIRED_COURT_SCRIPTS = [
     "register_agent_presence.py",
     "refresh_capability_registry.py",
     "check_capability_index_gate.py",
+    "check_release_legal.py",
     "check_response_fewshot_format.py",
     "check_response_draft_fixtures.py",
     "check_context_compression_survival.py",
@@ -990,6 +1007,15 @@ def validate_optional_release_metadata(name: str, data: bytes) -> str | None:
             return "invalid-release-manifest"
         if not isinstance(value, dict) or not value:
             return "invalid-release-manifest"
+    if name == f"{ROOT_NAME}/SBOM.spdx.json":
+        try:
+            value = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return "invalid-sbom"
+        packages = value.get("packages") if isinstance(value, dict) else None
+        declared = [item.get("licenseDeclared") for item in packages or [] if isinstance(item, dict)]
+        if value.get("spdxVersion") != "SPDX-2.3" or "Apache-2.0" not in declared:
+            return "invalid-sbom"
     return None
 
 
@@ -1041,6 +1067,7 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
         f"{ROOT_NAME}/references/shiguan-tree/capability-index/_index.md",
         f"{ROOT_NAME}/references/shiguan-tree/sources/README.md",
     }
+    required.update(LEGAL_REQUIRED_MEMBERS)
     required.update({f"{ROOT_NAME}/scripts/{name}" for name in REQUIRED_COURT_SCRIPTS})
     required.update(
         {
@@ -1197,6 +1224,7 @@ def run_stage_validation(stage: Path) -> list[str]:
         ("check_response_fewshot_format.py", []),
         ("check_response_draft_fixtures.py", []),
         ("check_context_compression_survival.py", []),
+        ("check_release_legal.py", ["--self-test", "--json"]),
         ("check_package_privacy.py", []),
     ):
         command = [sys.executable, "-B", str(stage / "scripts" / script), *args]
