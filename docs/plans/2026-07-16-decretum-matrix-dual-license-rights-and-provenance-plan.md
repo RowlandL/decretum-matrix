@@ -2,7 +2,9 @@
 
 计划编号：`DM-LPR-20260716-A02`
 
-状态：`ACTIVE / PLAN_REVIEW_PASS / LEGAL_REVIEW_REQUIRED`
+状态：`ACTIVE / P0_P5_PASS_WITH_LEGAL_REVIEW_REQUIRED / CLEAN_CANDIDATE_PENDING`
+
+当前游标：`P5_ALL_SURFACES_AND_PACKAGE_CONTRACT`
 
 执行工作树：`D:\project\decretum-matrix-beta0.5.10`
 
@@ -75,6 +77,26 @@
 - Apache License 2.0：`https://www.apache.org/licenses/LICENSE-2.0.txt`
 - ASF contributor agreement 参考：`https://www.apache.org/licenses/contributor-agreements.html`
 
+## 4A. 当前可审计 gate ledger
+
+本表只记录当前工作树、已存在 receipt 与已运行 checker 能证明的状态；合规文件、
+commit author metadata、GitHub maintainer 身份和 checker PASS 均不得替代权属证明。
+未知项保持 `UNKNOWN` 或 `LEGAL_REVIEW_REQUIRED`，不得据此虚构发行或交付事实。
+
+| Gate | 当前状态 | 可审计依据与剩余条件 |
+|---|---|---|
+| P0 `LEGAL_PREIMAGE_INVENTORY_GATE` | `PASS / LEGAL_REVIEW_REQUIRED` | `docs/legal/2026-07-16-license-preimage-inventory.md` 已记录有界 local/GitHub preimage、`beta0.5.10_external_distribution_count=0` 的证据边界与自动顺延规则；该 receipt 明确不把合规文件、作者 metadata 或历史许可声明当作权属证明。 |
+| P1 `UPSTREAM_MIT_PROVENANCE_GATE` | `PASS_WITH_LEGAL_REVIEW_REQUIRED` | `docs/legal/2026-07-16-cft0808-edict-bounded-similarity-and-rights-review.md` 固定 GitHub commit/tree/archive 与 MIT hash，记录 18×113 文件、1040 对的 normalized-text/token-shingle/structure 阈值、top hits 与人工裁定；exact-file intersection 为 0，但明确不把 0 match 写成 0 借鉴。MIT notice 永久独立保留。 |
+| P2 `FUTURE_LICENSE_ARCHITECTURE_GATE` | `PASS_WITH_LEGAL_REVIEW_REQUIRED` | AGPL 原文/hash、`AGPL-3.0-only` metadata、商业授权说明和 Apache 历史边界已收敛；仅 `beta0.5.9` 为 Git 已确证 Apache-2.0 历史版本，`beta0.5.8` 保持 `LICENSE_NOT_ESTABLISHED_FROM_TAG`，除非出现 artifact-specific evidence。 |
+| P3 `CLA_AND_RIGHTS_CHAIN_GATE` | `PASS_WITH_LEGAL_REVIEW_REQUIRED` | 同一 receipt 将当前 269 个 manifest 路径全部映射到 third-party、project-directed original/generated、upstream-inspired/locally implemented、generated local、original/local 或 modified-derived（当前 0 identified）；维护者声明精确记录 `孙华清` 为项目权利主体，`@RowlandL` 仅为 GitHub maintainer identity。29 个 reachable commit metadata 行仅出现 `RowlandL=12` 与自动化身份 `Court Release Bot=17`；metadata 和合规文件均不作为权属证明。 |
+| P4 `TRADEMARK_AND_AFFILIATION_GATE` | `PASS_WITH_LEGAL_REVIEW_REQUIRED` | `TRADEMARKS.md` 精确记录 `Trademark policy owner: 孙华清`、指名性使用、no-affiliation 与未注册边界；`assets/brand/*` 已记录来源任务 `019f6691-258f-71a1-b63d-f7ad0b881d70`、latest v2 修正版及四个精确 hash，分类为 project-directed original/generated artwork，不归入 cft0808 MIT，法律权属仍需审阅。 |
+| P5 `ALL_SURFACES_CONVERGED_GATE` | `PASS_WITH_LEGAL_REVIEW_REQUIRED` | 权威 manifest 已按最终 tracked preimage 再生；package staging 可在无 Git metadata 的 materialized payload 上直接校验而不重新生成；privacy `59/59`、payload self-test/check、builder self-test、source budget、legal 与 diff check 均通过。四个 brand assets、release manifest、benchmark 与 skill identity 均为机械 mandatory members。 |
+| P6 `LEGAL_PROVENANCE_PACKAGE_ACCEPTANCE_GATE` | `BLOCKED / CLEAN_CANDIDATE_PENDING` | P0-P5 已通过；仍须从 clean accepted commit 构建 tagless candidate、通过 pre-install、安装同一 ZIP 并通过 post-install。无 annotated-tag 授权时 final promotion/attestation 保持 `NOT_RUN`，不阻断本地 candidate acceptance，也不得冒充正式 release。 |
+
+当前最早未完成门禁为 P6；`current_cursor=P6_CLEAN_CANDIDATE_INSTALL_ACCEPTANCE`。
+在 clean commit/candidate/install receipts 形成前，不得把 source/package checker green
+解释为首次候选包已经签发。
+
 ## 5. 分阶段执行
 
 ### R0 — 本地更名与控制面迁移验收
@@ -85,7 +107,7 @@
 4. 新 `.repo-control/state/decretum-matrix`、events、root refs 与 mounts 指向新路径；旧 namespace 冻结保留；追加 project-rename supersede receipt。
 5. 更新根 README、project-memory、repository architecture、inventory 与 repo-control tests；不得覆盖根仓已有无关 dirty 修改。
 
-Gate：`LOCAL_RENAME_AND_MAPPING_GATE=PASS`。当前游标进入 `P0_LEGAL_PREIMAGE_INVENTORY`。
+Gate：`LOCAL_RENAME_AND_MAPPING_GATE=PASS`。历史游标随后进入 P0；当前游标以第 4A 节 gate ledger 为准。
 
 ### P0 — 只读 preimage 与发行面 inventory
 
@@ -175,6 +197,8 @@ Gate：`ALL_SURFACES_CONVERGED_GATE=PASS`。
 - `python -B scripts/check_install_prompt.py`、`python -B scripts/check_install_current_agent_copy.py`
 - `python -B scripts/check_court_runtime.py`、`python -B scripts/check_semantic_continuity.py --json`
 - 从同一 clean commit 分别运行 `python -B scripts/package_skill.py --out <run1b-no-clobber.zip>` 与 `python -B scripts/package_skill.py --out <run2b-no-clobber.zip>`，逐文件 manifest 和 ZIP SHA-256 必须相同
+- `TAGLESS_CANDIDATE_GATE`：`build_release_artifacts.py --mode candidate` 在 full HEAD 目录生成或精确复用候选，不创建 tag/attestation；`check_release_gate.py --phase pre-install` 只跑 source/package，安装同一 ZIP 后再跑 `--phase post-install`
+- `ANNOTATED_FINAL_TAG_GATE` 与 `BYTE_IDENTICAL_PROMOTION_GATE`：final attestation 仅在 annotated tag 指向 accepted HEAD 且 final ZIP 与候选 ZIP SHA-256 相同时通过
 - 其余受影响的 Phase 1 runtime/dispatch/preload/assignment/result/outcome/completion/migration 全量回归
 - `git diff --check`、`.pyc=0`、root/child/all affected index=0、protected hash unchanged、pending body access=NO
 

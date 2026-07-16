@@ -1,5 +1,9 @@
 # Decretum Matrix（诏令矩阵）
 
+<p align="center">
+  <img src="assets/brand/decretum-matrix-icon.svg" alt="Decretum Matrix icon" width="160">
+</p>
+
 ## 发布 / Release
 
 规范产品名、repository/skill/package 标识与调用分别为
@@ -13,7 +17,7 @@
 - 历史发布包：`court-capability-router-beta0.5.9.zip`
 - 历史 SHA256：`court-capability-router-beta0.5.9.zip.sha256`
 - 历史 ZIP 内受保护根目录：`court-capability-router/`
-- 历史包版本与逐文件摘要：[release-manifest.json](release-manifest.json)
+- 当前候选包版本与逐文件摘要：[release-manifest.json](release-manifest.json)
 - 当前社区许可证：[GNU AGPLv3，SPDX `AGPL-3.0-only`](LICENSE)
 - 商业授权说明：[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)（本文件本身不授予商业许可）
 - 贡献者许可协议：[CLA.md](CLA.md)（DCO + CLA gate；`LEGAL_REVIEW_REQUIRED`）
@@ -38,7 +42,7 @@
 
 - 新增：`COURT-DYNMSG-BUDGET-V1-20260712`，消息预算为 6000 floor、1000 quantum、12000 ceiling。
 - 修复：能力索引统一从共享史馆根读取；路径异常以结构化失败返回。
-- 开源：当前社区许可架构为 `AGPL-3.0-only`；旧 `beta0.5.8`/`beta0.5.9` Apache-2.0 授权不追溯撤销。`cft0808/edict` 的 MIT 来源、固定提交和完整许可文本保存在 `THIRD_PARTY_NOTICES.md` 与 `PROVENANCE.md`。商业授权、CLA 和商标文本均标记 `LEGAL_REVIEW_REQUIRED`。
+- 开源：当前社区许可架构为 `AGPL-3.0-only`；`beta0.5.9` 是 Git 已确证的历史 `Apache-2.0` 版本，其既有授权不追溯撤销；`beta0.5.8` 的 tag 证据为 `LICENSE_NOT_ESTABLISHED_FROM_TAG`，任何 Apache 定性都需 artifact-specific evidence 与法律审阅。`cft0808/edict` 的 MIT 来源、固定提交和完整许可文本保存在 `THIRD_PARTY_NOTICES.md` 与 `PROVENANCE.md`。商业授权、CLA 和商标文本均标记 `LEGAL_REVIEW_REQUIRED`。
 - 发布：ZIP 使用 stored entries、固定时间戳/mode、UTF-8 排序和稳定源读取；已有输出与已有版本目录一律拒绝，旧 `beta0.5.8` 不覆盖、不删除、不改签。
 - 门禁：v2 payload manifest 精确核验每个文件；发布策略包含法律、隐私、能力索引、构建器和条件运行时共 40 步。
 - 安全：Web/daemon 默认仅 `127.0.0.1`，LAN 需显式 opt-in；非回环 peer 强制 HTTPS、禁重定向与内嵌凭据，quoted JSON secret 纳入脱敏。

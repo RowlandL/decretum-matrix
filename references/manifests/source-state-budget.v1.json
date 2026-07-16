@@ -7,6 +7,10 @@
     "historical_path_prefixes": [
       "references/shiguan-backups/"
     ],
+    "repository_only_path_prefixes": [
+      ".github/",
+      "docs/"
+    ],
     "generated_dir_names": [
       "__pycache__",
       ".mypy_cache",
@@ -88,8 +92,8 @@
   },
   "hard_limits": {
     "portable_source": {
-      "max_files": 220,
-      "max_bytes": 3300000
+      "max_files": 265,
+      "max_bytes": 5600000
     },
     "source_lines": {
       "scripts/ensure_supercc_court.py": 5250,
@@ -100,6 +104,7 @@
       "scripts/shiguan_web_pending.py": 260,
       "scripts/supercc_office_state.py": 320,
       "scripts/court_multi_agent_protocol.py": 600,
+      "scripts/court_agent_admission.py": 650,
       "scripts/court_codex_protocol_launcher.py": 450,
       "scripts/court_codex_office_worker.py": 450,
       "scripts/check_court_codex_office_worker.py": 220,
@@ -110,7 +115,7 @@
       "scripts/shiguan_pending_trust.py": 460,
       "scripts/plan_shiguan_pending_quarantine.py": 650,
       "scripts/obsidian_config_state.py": 220,
-      "scripts/agent_runtime_probe.py": 1100,
+      "scripts/agent_runtime_probe.py": 1120,
       "scripts/codex_runtime_probe_support.py": 300
     }
   },

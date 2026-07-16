@@ -401,7 +401,7 @@ python -B scripts/check_release_legal.py --self-test --json
 python -B scripts/release_payload_manifest.py --self-test --check --json
 ```
 
-The root `release-manifest.json` describes this artifact. `references/manifests/release-gates.v1.json` describes the source release-gate policy; neither replaces SHA256 verification. The external attestation binds the ZIP to the reviewed HEAD commit, annotated tag, Git tree, payload-manifest digest and external asset digests. Maintainers run the full package gate from a clean canonical source tree with `scripts/check_release_gate.py --package <path-to-zip> --require-package --skip-runtime --json`, because the extracted release intentionally contains generated portable seed files that are absent from the active-source tree. With `--skip-runtime`, ordinary `super` release validation reports runtime status `NOT_APPLICABLE` and reason `runtime_not_selected`; it does not claim a superCC runtime pass.
+The root `release-manifest.json` describes this artifact. `references/manifests/release-gates.v1.json` describes the gate policy; neither replaces SHA256 verification. Before installation, maintainers validate the tagless candidate from a clean canonical source tree with `scripts/check_release_gate.py --phase pre-install --package <path-to-zip> --require-package --json`. Pass that verified ZIP digest to `install_current_agent_copy(..., source_package_sha256=<sha256>)`, persist its successful JSON receipt, then use `scripts/check_release_gate.py --phase post-install --package <same-zip> --require-package --install-receipt <install-receipt.json> --json` for host projections and optionally `--skip-runtime`. Only a final annotated-tag release emits the external attestation binding the ZIP to the reviewed HEAD commit, tag object, Git tree, payload-manifest digest and external asset digests.
 
 ## License, Commercial Terms, And Provenance
 
@@ -570,11 +570,25 @@ as `court-capability-router/`. ZIP members use stored compression, a fixed times
 and mode, and UTF-8 path ordering. If the requested output already exists, the
 command fails without replacing it.
 
-After source gates pass, the worktree is clean, and an annotated release tag
-points to HEAD, create the final version directory with:
+After source gates pass and the worktree is clean, create or reuse the immutable
+tagless candidate directory bound to the full HEAD commit:
 
 ```powershell
-python -B scripts/build_release_artifacts.py --out-root '<immutable-package-root>' --json
+python -B scripts/build_release_artifacts.py --mode candidate --json
+python -B scripts/check_release_gate.py --phase pre-install --package '<candidate-zip>' --require-package --json
+```
+
+The default candidate path is
+`<workspace>/release-staging/decretum-matrix/<release-label>/<full-head>/`.
+It contains the ZIP, sidecar, candidate receipt, release notes and SBOM, but no
+release attestation and no claim that a tag or release exists. An identical
+existing candidate is returned as `reused=true`; any mismatch fails closed.
+
+Only after an annotated release tag points to the accepted HEAD may maintainers
+create the final version directory with:
+
+```powershell
+python -B scripts/build_release_artifacts.py --mode release --out-root '<immutable-package-root>' --json
 ```
 
 The builder validates all candidate bytes before creating the final directory,

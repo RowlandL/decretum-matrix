@@ -11,6 +11,8 @@ from typing import Mapping, Sequence
 
 sys.dont_write_bytecode = True
 
+import court_agent_admission as _admission
+import court_multi_agent_protocol as _protocol
 from court_dispatch_policy import normalize_mode, select_wave as _select_wave, validate_dispatch_plan
 from court_multi_agent_protocol import admit_roles as _admit_roles
 
@@ -34,6 +36,37 @@ DISPATCH_PRELOAD_BY_ROLE: dict[str, dict[str, str]] = {}
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def check_admission_facade() -> dict[str, object]:
+    exports = (
+        "RoleAdmissionDecision",
+        "admit_roles",
+        "approved_budget_limit",
+        "approved_budget_selection",
+        "canonical_repo_relative_paths",
+        "repository_paths_overlap",
+        "validate_admission_instance_shape",
+    )
+    for name in exports:
+        require(
+            getattr(_protocol, name) is getattr(_admission, name),
+            f"court_multi_agent_protocol stopped re-exporting {name}",
+        )
+    require(
+        _protocol.HARD_MAX_DEPTH == _admission.HARD_MAX_DEPTH,
+        "HARD_MAX_DEPTH facade value drifted",
+    )
+    require(
+        _protocol.DEFAULT_HIGH_PARALLEL_THREADS
+        == _admission.DEFAULT_HIGH_PARALLEL_THREADS,
+        "DEFAULT_HIGH_PARALLEL_THREADS facade value drifted",
+    )
+    return {
+        "exports": list(exports),
+        "hard_max_depth": _protocol.HARD_MAX_DEPTH,
+        "default_high_parallel_threads": _protocol.DEFAULT_HIGH_PARALLEL_THREADS,
+    }
 
 
 def active_budget(
@@ -1098,6 +1131,7 @@ def main() -> int:
         check_public_admission_canonical_shape()
         result = {
             "ok": True,
+            "admission_facade": check_admission_facade(),
             "mode_semantics": check_mode_semantics(),
             "dynamic_capacity": check_dynamic_capacity(),
             "dispatch_plan": check_dispatch_plan(),

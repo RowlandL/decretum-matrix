@@ -1,6 +1,6 @@
 # Decretum Matrix provenance and rights matrix
 
-Status: `ACTIVE / LEGAL_REVIEW_REQUIRED`
+Status: `ACTIVE / P1_P3_PASS_WITH_LEGAL_REVIEW_REQUIRED`
 
 This document records source and rights boundaries. It is not a warranty of title and is not legal advice.
 
@@ -8,9 +8,12 @@ This document records source and rights boundaries. It is not a warranty of titl
 
 - Product: `Decretum Matrix（诏令矩阵）`
 - Canonical repository/skill/package name: `decretum-matrix`
-- Legal owner, CLA licensor and trademark owner for material in which those rights are held: `孙华清`
+- Project rights subject, CLA licensor and trademark policy owner for project-directed material, as expressly declared by the user/maintainer: `孙华清`
 - Public maintainer identity: `@RowlandL` (GitHub ID `42199880`)
 - Stable protected install/Shiguan locators may retain `court-capability-router`; they are compatibility paths, not the current product identity.
+
+This maintainer declaration is a governance record, not a warranty of title or
+a substitute for contributor, employer/client, copyrightability or legal review.
 
 ## Third-party source: cft0808/edict
 
@@ -28,7 +31,18 @@ The full upstream MIT text and copyright are preserved in `THIRD_PARTY_NOTICES.m
 
 ## Comparison evidence and conservative conclusion
 
-A prior bounded audit compared the then-current 252 worktree files and all reachable local Git objects with the 222 blobs at the fixed upstream commit. Whole-file matches: `0`.
+A prior bounded audit compared the then-current 252 worktree files and all reachable local Git objects with the 222 non-LICENSE payload blobs at the fixed upstream commit. Whole-file matches: `0`. This prior history/object comparison was not rerun in the current review.
+
+The current bounded receipt is
+`docs/legal/2026-07-16-cft0808-edict-bounded-similarity-and-rights-review.md`.
+GitHub primary-source evidence shows `223` total blobs at tree
+`7b44f37128938137493fe07be85aad99408fb54a`; excluding `LICENSE` leaves the
+same `222` payload-blob scope. A current 18-file semantic-core review against
+all 113 upstream Markdown/Python files found no normalized-text, token-shingle
+or structure score at its review threshold. Fifteen long-line containment
+flags were manually adjudicated as the single standard directive
+`from __future__ import annotations`. The current manifest/upstream whole-file
+SHA-256 intersection was also `0`.
 
 That result means only that no identical whole file was found. It does not exclude rewritten fragments, structural influence, concept selection or semantic borrowing. The user explicitly confirmed that earlier versions were influenced by the upstream project, so this project permanently retains the upstream MIT notice and classifies the affected semantic architecture as `upstream-inspired`.
 
@@ -46,20 +60,24 @@ That result means only that no identical whole file was found. It does not exclu
 | Packaging, deterministic release, SBOM, manifest, legal/privacy checkers | `original / locally developed` | Project-specific release engineering; third-party notices remain separate inputs. |
 | Standing profiles, office dossiers, fixtures, user/development manuals and bilingual documentation | `original or generated from local sources` | Generated files must trace to their local generator; current brand surfaces use Decretum Matrix while historical/path locators are allowlisted. |
 | Current A02 uncommitted changes | `AI-assisted / directed local work` | Produced under the direction of 孙华清 in this workspace; copyrightability and commercial relicensing treatment remain subject to legal review. |
-| Candidate logo, icon and brand artwork, including any material associated with `work/decretum-matrix-icon` | `unknown-needs-review` until receipt exists | Do not publish, package or claim exclusive rights until source, generation process, author/rightsholder, license, exact path and SHA-256 are recorded. |
-| Any future external contribution | `unknown until DCO + CLA accepted` | No inclusion in dual/commercial licensing until contribution and rights gates pass. |
+| `assets/brand/decretum-matrix-icon.svg`, PNG, ICO and README | `project-directed original/generated artwork / LEGAL_REVIEW_REQUIRED` | Selected from user task `019f6691-258f-71a1-b63d-f7ad0b881d70`, latest v2 after node-alignment/symmetry repair. Exact hashes and maintainer declaration are in the bounded receipt. No third-party source is asserted; this is not independent title proof and is not cft0808/edict material. |
+| Any file later shown to copy or adapt protected upstream expression | `modified-derived / MIT` | No such file was identified in the bounded review. If later evidence supports this classification, preserve upstream copyright/MIT and supersede the current matrix; never interpret zero current identifications as zero borrowing. |
+| Any future external contribution | `unknown-needs-review until DCO + CLA accepted` | No inclusion in dual/commercial licensing until contribution and rights gates pass. |
 
 ## Existing contribution and rights-chain matrix
 
 | Local metadata identity | Reachable commit count | Provisional rights treatment |
 |---|---:|---|
-| `@RowlandL` (GitHub ID `42199880`) | 11 | Maintainer account only. Commit attribution supports provenance but does not establish ownership, a separate legal identity or authority to relicense. |
+| `@RowlandL` (GitHub ID `42199880`) | 12 | Maintainer account only. Commit attribution supports provenance but does not establish ownership, a separate legal identity or authority to relicense. |
 | `Court Release Bot` | 17 | Automation identity, not a legal person. Treat content as operator-generated local release work only after confirming its inputs and operator authority; author metadata is not title evidence. |
 | cft0808/edict contributors | independent upstream | MIT rights and copyright remain upstream; never include in a claim of exclusive ownership. |
 
-No other human author name appears in the bounded reachable local commit metadata. That is not proof that no other rights exist.
+The metadata-only `git log --all --format=%an%x09%cn` query returned 29 local
+reachable commit rows. Author and committer counts were the same: `RowlandL=12`
+and `Court Release Bot=17`. No other name appeared and no email was collected.
+That is not proof that no other rights exist.
 
-Before `CLA_AND_RIGHTS_CHAIN_GATE` can pass, each included file/module must map to one of:
+For `CLA_AND_RIGHTS_CHAIN_GATE`, each included file/module maps to one of:
 
 1. verified original material for which 孙华清 controls the necessary rights; maintainer metadata for `@RowlandL` (GitHub ID `42199880`) does not itself establish ownership;
 2. verified local automation output whose inputs and operator rights are recorded;
@@ -67,9 +85,29 @@ Before `CLA_AND_RIGHTS_CHAIN_GATE` can pass, each included file/module must map 
 4. a contributor with an accepted DCO + CLA or retrospective written permission;
 5. removed or cleanly rewritten material where rights cannot be established.
 
+The 269-entry ordered matrix in the bounded receipt maps all current manifest
+paths to `third-party`, `project-directed original/generated artwork`,
+`upstream-inspired / locally implemented`, `project-directed generated local
+surface`, `original / locally developed`, or `modified-derived` (none currently
+identified). Gate:
+`P3_CLA_AND_RIGHTS_CHAIN_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED`.
+
 ## Logo, artwork and brand-asset provenance gate
 
-The product name is separate from rights in logo artwork and other assets. No logo, icon, illustration, screenshot, font, template, generated image or other brand/release asset is cleared for official use until a receipt records its exact path and SHA-256, source, author/rightsholder, license, modifications, generation tool/process and applicable terms, plus approval by 孙华清. Absence from the current repository, or a claim that an asset was AI-generated, is not rights clearance. Until reviewed, such assets remain excluded from release packages, repository or social branding, marketing and exclusive-rights claims. Gate: `LOGO_AND_ASSET_PROVENANCE_GATE=LEGAL_REVIEW_REQUIRED`.
+The product name is separate from rights in logo artwork and other assets. The
+four files under `assets/brand/` now have an exact source-task/revision/hash
+receipt in the bounded review and are classified as project-directed
+original/generated artwork under the maintainer declaration. Their legal title,
+copyrightability and trademark enforceability remain `LEGAL_REVIEW_REQUIRED`;
+no registered status or third-party source is claimed. Gate:
+`LOGO_AND_ASSET_PROVENANCE_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED`.
+
+## Current provenance gates
+
+- `P1_UPSTREAM_MIT_PROVENANCE_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED`
+- `P3_CLA_AND_RIGHTS_CHAIN_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED`
+- `source_thread=019f6691-258f-71a1-b63d-f7ad0b881d70`
+- `pending_body_access=NO`
 
 ## No-affiliation boundary
 

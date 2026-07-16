@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,20 @@ sys.dont_write_bytecode = True
 import tempfile
 from datetime import datetime, timedelta, timezone
 
+from court_complexity_budget import normalize_budget_pool
 from court_office_bootstrap import build_preload_manifest
+
+
+TASK_BINDINGS: dict[str, dict[str, object]] = {}
+CONTEXT_HARD_LIMITS = {
+    "ram_percent_max": 99.0,
+    "memory_mb_max": 2_048,
+    "context_tokens_max": 100_000,
+    "message_chars_max": 12_000,
+    "tool_calls_max": 8,
+    "time_seconds_max": 600.0,
+    "retained_agents_max": 15,
+}
 
 
 def run_cli(script: Path, env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -27,6 +41,380 @@ def run_cli(script: Path, env: dict[str, str], *args: str, expect: int = 0) -> s
 
 def json_cli(script: Path, env: dict[str, str], *args: str) -> dict[str, object]:
     return json.loads(run_cli(script, env, "--format", "json", *args).stdout)
+
+
+def create_formal_task(
+    cli: Path,
+    env: dict[str, str],
+    intake_file: Path,
+    *args: str,
+) -> dict[str, object]:
+    values = list(args)
+    task_id = values[values.index("--task-id") + 1]
+    charter = values[values.index("--charter") + 1] if "--charter" in values else ""
+    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
+    capsule_file = intake_file.parent / f"{task_id}-invariant-capsule.json"
+    capsule_file.write_text(
+        json.dumps(
+            {
+                "schema": "court.semantic.invariant_capsule.v1",
+                "latest_decree_anchor": charter,
+                "latest_decree_sha256": charter_sha256,
+                "non_goals": ["do not mutate real runtime state"],
+                "boundaries": ["TemporaryDirectory fixture only"],
+                "allowed_actions": ["synthetic intervention verification"],
+                "forbidden_actions": ["real Shiguan access"],
+                "acceptance": ["intervention matrix passes"],
+                "evidence_requirements": ["machine-readable receipt"],
+                "stop_gates": ["semantic drift"],
+                "write_set": ["scripts/check_court_intervention_matrix.py"],
+                "governing_hashes": {"fixture": charter_sha256},
+                "charter_sha256": charter_sha256,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_cli(
+        cli,
+        env,
+        "create",
+        *args,
+        "--work-kind",
+        "audit",
+        "--intake-file",
+        str(intake_file),
+        "--invariant-capsule-file",
+        str(capsule_file),
+    )
+    context_file = intake_file.parent / f"{task_id}-semantic-context.json"
+    context_file.write_text(
+        json.dumps(
+            {
+                "authority_revision": 3,
+                "authority_sha256": hashlib.sha256(b"authority-v3").hexdigest(),
+                "plan_revision": 7,
+                "plan_sha256": hashlib.sha256(b"plan-v7").hexdigest(),
+                "plan_cursor": "phase1/rc2/intervention-matrix",
+                "git_fingerprint": hashlib.sha256(b"intervention-git-fixture").hexdigest(),
+                "recovery_checkpoint_id": "intervention-recovery-fixture",
+                "shiguan_revision": 0,
+                "shiguan_fingerprint": hashlib.sha256(b"synthetic-shiguan-none").hexdigest(),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for command in ("checkpoint", "verify"):
+        payload = json_cli(
+            cli,
+            env,
+            "semantic",
+            command,
+            "--task-id",
+            task_id,
+            "--context-file",
+            str(context_file),
+            "--trigger",
+            command,
+            "--actor",
+            "taizi",
+            "--evidence",
+            f"intervention matrix semantic {command}",
+        )
+    result = payload.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("task"), dict):
+        raise AssertionError("semantic verification did not return a task")
+    task = result["task"]
+    TASK_BINDINGS[task_id] = task
+    return task
+
+
+def task_semantic_args(task_id: str) -> list[str]:
+    task = TASK_BINDINGS[task_id]
+    receipt = task.get("semantic_receipt")
+    if not isinstance(receipt, dict):
+        raise AssertionError(f"semantic receipt missing for {task_id}")
+    return [
+        "--expected-semantic-epoch",
+        str(task["semantic_epoch"]),
+        "--expected-charter-sha256",
+        str(task["charter_sha256"]),
+        "--expected-invariant-capsule-sha256",
+        str(task["invariant_capsule_sha256"]),
+        "--expected-checkpoint-id",
+        str(receipt["checkpoint_id"]),
+    ]
+
+
+def dispatch_context_packet(task_id: str, wave_id: str) -> dict[str, object]:
+    task = TASK_BINDINGS[task_id]
+    receipt = task.get("semantic_receipt")
+    if not isinstance(receipt, dict):
+        raise AssertionError(f"semantic receipt missing for {task_id}")
+    return {
+        "schema": "court.semantic.dispatch_context_packet.v1",
+        "task_id": task_id,
+        "sub_id": wave_id,
+        "semantic_epoch": receipt["semantic_epoch"],
+        "invariant_capsule_sha256": receipt["invariant_capsule_sha256"],
+        "semantic_receipt_id": receipt["receipt_id"],
+        "semantic_receipt_sha256": receipt["receipt_sha256"],
+        "authority_sha256": receipt["authority_sha256"],
+        "plan_sha256": receipt["plan_sha256"],
+        "plan_cursor": receipt["plan_cursor"],
+        "fork_context": "minimal",
+        "context_mode": "bounded",
+        "pointers": [
+            {"path": "authority/current.md", "sha256": receipt["authority_sha256"]},
+            {"path": "plans/current.md", "sha256": receipt["plan_sha256"]},
+        ],
+        "summary": {
+            "text": "bounded intervention dispatch packet",
+            "semantic_receipt_id": receipt["receipt_id"],
+            "semantic_receipt_sha256": receipt["receipt_sha256"],
+        },
+    }
+
+
+def context_budget_pool(task_id: str, wave_id: str) -> dict[str, object]:
+    return normalize_budget_pool(
+        total_share=100.0,
+        root_id="taizi",
+        reserve_share=10.0,
+        hard_limits=CONTEXT_HARD_LIMITS,
+        task_id=task_id,
+        phase="P00-INTERVENTION",
+        wave_id=wave_id,
+        approved_by="taizi",
+        approved_at="2026-07-16T00:00:00+00:00",
+        expected_output="bounded intervention receipt",
+        return_conditions=("COMPLETED", "FAILED_CLOSED", "CANCELLED"),
+    )
+
+
+def context_economy_args(task_id: str, wave_id: str) -> list[str]:
+    return [
+        "--dispatch-context-packet-json",
+        json.dumps(dispatch_context_packet(task_id, wave_id), ensure_ascii=False),
+        "--context-budget-pool-json",
+        json.dumps(context_budget_pool(task_id, wave_id), ensure_ascii=False),
+        "--context-result-mode",
+        "bounded_structured_receipt",
+        "--context-tool-output-mode",
+        "pointer",
+    ]
+
+
+def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
+    roles = [item.strip() for item in requested_roles.split(",") if item.strip()]
+    if not roles:
+        return []
+    direct_superiors = {
+        "taizi": "user",
+        "zhongshu": "taizi",
+        "menxia": "taizi",
+        "shangshu": "taizi",
+        "libu-hr": "shangshu",
+        "hubu": "shangshu",
+        "libu": "shangshu",
+        "bingbu": "shangshu",
+        "xingbu": "shangshu",
+        "gongbu": "shangshu",
+        "shiguan": "taizi/menxia",
+    }
+    ministry_roles = {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
+    counts: dict[str, int] = {}
+    bindings: list[dict[str, object]] = []
+    for role in roles:
+        counts[role] = counts.get(role, 0) + 1
+        number = counts[role]
+        instance_id = f"{role}#{number:04d}"
+        worker = number > 1 and role in ministry_roles
+        bindings.append(
+            {
+                "role": role,
+                "instance_id": instance_id,
+                "shard_id": f"{role}-shard-{number:04d}",
+                "direct_superior": role if worker else direct_superiors.get(role, "shangshu"),
+                "instance_kind": "office_worker_instance" if worker else "office",
+                "canonical_authority": number == 1,
+                "owner_role": role if worker else None,
+                "write_set": [],
+                "access_mode": "read_only",
+                "read_scope": [f"work/{role}/{number:04d}.txt"],
+                "mutation_allowed": False,
+                "integration_authority": False,
+            }
+        )
+    lease = {
+        "status": "ACTIVE",
+        "lease_id": f"{task_id}-lease-{len(bindings)}",
+        "approved_count": len(bindings),
+        "task_id": task_id,
+        "calling_office": "shangshu",
+        "direct_superior": "taizi",
+        "integration_domain": "intervention-matrix",
+        "authority": "super",
+        "approved_roles": [binding["role"] for binding in bindings],
+        "approved_instance_ids": [binding["instance_id"] for binding in bindings],
+        "approved_shards": [binding["shard_id"] for binding in bindings],
+        "approved_write_sets": {
+            str(binding["instance_id"]): list(binding["write_set"]) for binding in bindings
+        },
+        "approved_access_contracts": {
+            str(binding["instance_id"]): {
+                "access_mode": binding["access_mode"],
+                "read_scope": list(binding["read_scope"]),
+                "mutation_allowed": binding["mutation_allowed"],
+                "integration_authority": binding["integration_authority"],
+            }
+            for binding in bindings
+        },
+        "approved_instance_shapes": {
+            str(binding["instance_id"]): {
+                "instance_kind": binding["instance_kind"],
+                "canonical_authority": binding["canonical_authority"],
+                "owner_role": binding["owner_role"],
+                "direct_superior": binding["direct_superior"],
+            }
+            for binding in bindings
+        },
+    }
+    return [
+        "--budget-lease-json",
+        json.dumps(lease, ensure_ascii=False),
+        "--requested-bindings-json",
+        json.dumps(bindings, ensure_ascii=False),
+        "--integration-domain",
+        "intervention-matrix",
+        "--authority",
+        "super",
+        "--calling-office",
+        "shangshu",
+        "--direct-superior",
+        "taizi",
+    ]
+
+
+def agent_semantic_args(env: dict[str, str], task_id: str, agent_id: str) -> list[str]:
+    tasks = json.loads((Path(env["COURT_RUNTIME_ROOT"]) / "tasks.json").read_text(encoding="utf-8"))
+    agent = tasks[task_id]["agents"][agent_id]
+    return [
+        "--semantic-epoch",
+        str(agent["semantic_epoch"]),
+        "--charter-sha256",
+        str(agent["charter_sha256"]),
+        "--invariant-capsule-sha256",
+        str(agent["invariant_capsule_sha256"]),
+        "--checkpoint-id",
+        str(agent["checkpoint_id"]),
+        "--dispatch-uid",
+        str(agent["dispatch_uid"]),
+        "--attempt",
+        str(agent["attempt"]),
+    ]
+
+
+def result_envelope_file(
+    env: dict[str, str],
+    task_id: str,
+    agent_id: str,
+    role: str,
+    status: str,
+) -> Path:
+    runtime_root = Path(env["COURT_RUNTIME_ROOT"])
+    tasks = json.loads((runtime_root / "tasks.json").read_text(encoding="utf-8"))
+    agent = tasks[task_id]["agents"][agent_id]
+    write_set_sha256 = hashlib.sha256(
+        json.dumps(
+            agent.get("write_set"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    envelope = {
+        "schema": "court.office.result.v1",
+        "task_id": task_id,
+        "semantic_epoch": agent["semantic_epoch"],
+        "charter_sha256": agent["charter_sha256"],
+        "invariant_capsule_sha256": agent["invariant_capsule_sha256"],
+        "checkpoint_id": agent["checkpoint_id"],
+        "dispatch_uid": agent["dispatch_uid"],
+        "attempt": agent["attempt"],
+        "office_instance_id": agent["office_instance_id"],
+        "agent_id": agent_id,
+        "role": role,
+        "direct_superior": agent["direct_superior"],
+        "worktree": agent["worktree"],
+        "write_set_sha256": write_set_sha256,
+        "status": status,
+        "summary": "bounded structured intervention result",
+        "evidence": ["synthetic-intervention-result-pointer"],
+        "produced_at": "2026-07-16T00:00:00+00:00",
+    }
+    path = runtime_root / f"{agent_id}-{status}-result.json"
+    path.write_text(
+        json.dumps(envelope, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def admission_semantic_args(admission: dict[str, object]) -> list[str]:
+    return [
+        "--semantic-epoch",
+        str(admission["semantic_epoch"]),
+        "--charter-sha256",
+        str(admission["charter_sha256"]),
+        "--invariant-capsule-sha256",
+        str(admission["invariant_capsule_sha256"]),
+        "--checkpoint-id",
+        str(admission["checkpoint_id"]),
+        "--dispatch-uid",
+        str(admission["dispatch_uid"]),
+        "--attempt",
+        str(admission["attempt"]),
+    ]
+
+
+def skill_requirements_json() -> str:
+    skill = Path(__file__).resolve().parents[1] / "SKILL.md"
+    digest = hashlib.sha256(skill.read_bytes()).hexdigest()
+    return json.dumps(
+        [
+            {
+                "name": "decretum-matrix",
+                "source": str(skill.resolve()),
+                "sha256": digest,
+                "purpose": "intervention matrix assignment binding",
+                "ack_name": "decretum-matrix",
+                "ack_sha256": digest,
+            }
+        ],
+        ensure_ascii=False,
+    )
+
+
+def start_contract_args(
+    admission: dict[str, object],
+    task_id: str,
+    wave_id: str,
+    collaboration_task_name: str,
+) -> list[str]:
+    return [
+        *admission_semantic_args(admission),
+        "--collaboration-task-name",
+        collaboration_task_name,
+        "--skill-requirements-json",
+        skill_requirements_json(),
+        *context_economy_args(task_id, wave_id),
+    ]
 
 
 def admit(
@@ -57,12 +445,14 @@ def admit(
         "agent-admit",
         "--task-id",
         task_id,
+        *task_semantic_args(task_id),
         "--wave-id",
         wave_id,
         "--requested-fork-turns",
         fork_turns,
         "--context-tokens",
         str(context_tokens),
+        *context_economy_args(task_id, wave_id),
         "--host-active-agents",
         str(host_active),
         "--host-capacity",
@@ -90,6 +480,7 @@ def admit(
     ]
     if requested_roles:
         args.extend(("--requested-roles", requested_roles))
+        args.extend(role_budget_args(task_id, requested_roles))
     if message_chars is not None:
         args.extend(("--message-chars", str(message_chars)))
     if message_required_chars is not None:
@@ -129,6 +520,7 @@ def preload_ack(cli: Path, env: dict[str, str], task_id: str, agent_id: str, rol
         env,
         "agent-preload-ack",
         "--task-id", task_id,
+        *agent_semantic_args(env, task_id, agent_id),
         "--agent-id", agent_id,
         "--role", role,
         "--office-zh", manifest.office_zh,
@@ -136,7 +528,7 @@ def preload_ack(cli: Path, env: dict[str, str], task_id: str, agent_id: str, rol
         "--profile-hash", manifest.profile_hash,
         "--dossier-hash", manifest.dossier_hash,
         "--court-skill-hash", manifest.court_skill_hash,
-        "--loaded-skills", "court-capability-router",
+        "--loaded-skills", "decretum-matrix",
         "--agent-dossier-loaded", "YES",
         *route_args,
         "--evidence", "preload manifest verified",
@@ -151,16 +543,62 @@ def main() -> int:
         env = dict(os.environ)
         env["COURT_RUNTIME_ROOT"] = temp_dir
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        intake_file = Path(temp_dir) / "formal-task-intake.json"
+        intake_file.write_text(
+            json.dumps(
+                {
+                    "schema": "court.conversation_gate.v1",
+                    "active_decree": False,
+                    "active_decree_state": "NONE",
+                    "message_class": "FORMAL_TASK",
+                    "confidence": "HIGH",
+                    "relation_to_active_decree": "NONE",
+                    "taskization_consent": "EXPLICIT",
+                    "requires_tools": True,
+                    "mutates_state": False,
+                    "risk_present": False,
+                    "next_route": "THREE_DEPARTMENTS",
+                    "question": "",
+                    "rationale": "intervention matrix formal task fixture",
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
-        run_cli(cli, env, "create", "--task-id", "serial-policy", "--title", "serial policy", "--charter",
-                "parallel_dispatch=NOT_APPLICABLE/user_serial_override; no child spawn", "--evidence", "create")
+        create_formal_task(
+            cli,
+            env,
+            intake_file,
+            "--task-id",
+            "serial-policy",
+            "--title",
+            "serial policy",
+            "--charter",
+            "parallel_dispatch=NOT_APPLICABLE/user_serial_override; no child spawn",
+            "--evidence",
+            "create",
+        )
         serial_admission = admit(cli, env, "serial-policy", "serial-wave", evidence="serial override check")
         assert serial_admission["allowed"] is False
         assert serial_admission["decision"] == "user_serial_override"
         assert serial_admission["parallel_dispatch"] == "NOT_APPLICABLE/user_serial_override"
 
-        run_cli(cli, env, "create", "--task-id", "agent-policy", "--title", "agent policy", "--charter",
-                "bounded ordinary parallel review", "--evidence", "create")
+        create_formal_task(
+            cli,
+            env,
+            intake_file,
+            "--task-id",
+            "agent-policy",
+            "--title",
+            "agent policy",
+            "--charter",
+            "bounded ordinary parallel review",
+            "--evidence",
+            "create",
+        )
         unbounded = admit(cli, env, "agent-policy", "wave-1", "all", 100000, "long context fork check")
         assert unbounded["allowed"] is False
         assert unbounded["decision"] == "unbounded_context_fork"
@@ -177,7 +615,7 @@ def main() -> int:
             assignment="policy test",
             task_focus="standards review",
         )
-        assert bounded["allowed"] is True
+        assert bounded["allowed"] is True, bounded
         assert bounded["static_wave_cap"] is None
         assert bounded["wave_policy"] == "dynamic_by_duty_and_capacity"
         assert bounded["deadline_seconds"] == 600
@@ -215,8 +653,19 @@ def main() -> int:
         assert oversized_message["compression_possible_without_required_loss"] is True
         assert oversized_message["message_budget_retryable"] is True
 
-        run_cli(cli, env, "create", "--task-id", "dynamic-capacity", "--title", "dynamic capacity",
-                "--charter", "bounded ordinary parallel review", "--evidence", "create")
+        create_formal_task(
+            cli,
+            env,
+            intake_file,
+            "--task-id",
+            "dynamic-capacity",
+            "--title",
+            "dynamic capacity",
+            "--charter",
+            "bounded ordinary parallel review",
+            "--evidence",
+            "create",
+        )
         six_roles = admit(
             cli, env, "dynamic-capacity", "six-role-wave",
             requested_roles="libu-hr,hubu,libu,bingbu,xingbu,gongbu", host_capacity=8,
@@ -236,8 +685,9 @@ def main() -> int:
             task_focus="security privacy and destructive-operation risk",
             risk="high",
         )
-        assert security_routes["model_routes"]["xingbu"]["recommended_model"] == "gpt-5.6-sol"
-        assert security_routes["model_routes"]["xingbu"]["recommended_reasoning_effort"] == "ultra"
+        assert security_routes["allowed"] is True, security_routes
+        assert security_routes["model_routes"]["xingbu#0001"]["recommended_model"] == "gpt-5.6-sol"
+        assert security_routes["model_routes"]["xingbu#0001"]["recommended_reasoning_effort"] == "ultra"
         four_slots = admit(
             cli, env, "dynamic-capacity", "four-slot-wave",
             requested_roles="zhongshu,menxia,shangshu,shiguan", host_capacity=4,
@@ -247,7 +697,7 @@ def main() -> int:
         assert four_slots["selection_basis"] == "runtime_capacity"
         tree_cap = admit(
             cli, env, "dynamic-capacity", "tree-cap-wave",
-            requested_roles=",".join(f"unspecified-{index}" for index in range(1, 21)),
+            requested_roles=",".join("gongbu" for _ in range(20)),
             host_capacity=64, host_active=1, next_depth=1,
         )
         assert len(tree_cap["selected_roles"]) == 15
@@ -259,7 +709,9 @@ def main() -> int:
         )
         assert depth_five["allowed"] is False
         assert depth_five["decision"] == "max_depth_exceeded"
-        run_cli(cli, env, "agent-spawn", "--task-id", "agent-policy", "--agent-id", "policy-agent",
+        run_cli(cli, env, "agent-spawn", "--task-id", "agent-policy",
+                *start_contract_args(bounded, "agent-policy", "wave-1-retry", "menxia_policy_review"),
+                "--agent-id", "menxia-policy-01",
                 "--role", "menxia", "--scope", "policy test", "--wave-id", "wave-1-retry", "--fork-turns", "none",
                 "--dispatch-requested-at", str(bounded["dispatch_requested_at"]),
                 "--task-focus", "standards review", "--complexity", "medium", "--risk", "medium",
@@ -267,7 +719,8 @@ def main() -> int:
                 "--context-tokens", "100000", "--deadline-seconds", "600", "--tool-call-budget", "8",
                 "--evidence", "spawned after admission")
         reconciled = json_cli(
-            cli, env, "agent-reconcile", "--task-id", "agent-policy", "--agent-id", "policy-agent",
+            cli, env, "agent-reconcile", "--task-id", "agent-policy",
+            *agent_semantic_args(env, "agent-policy", "menxia-policy-01"), "--agent-id", "menxia-policy-01",
             "--role", "menxia", "--error-kind", "fatal-quota", "--result",
             "403 Forbidden: quota insufficient; balance=-0.05; request id: req-sensitive; url: https://provider.invalid/v1/responses",
             "--evidence", "fatal quota from https://provider.invalid; request id: req-sensitive; balance=-0.05",
@@ -287,8 +740,19 @@ def main() -> int:
         assert blocked_after_fatal["allowed"] is False
         assert blocked_after_fatal["decision"] == "fatal_provider_circuit_open"
 
-        run_cli(cli, env, "create", "--task-id", "capacity-policy", "--title", "capacity policy", "--charter",
-                "bounded ordinary parallel review", "--evidence", "create")
+        create_formal_task(
+            cli,
+            env,
+            intake_file,
+            "--task-id",
+            "capacity-policy",
+            "--title",
+            "capacity policy",
+            "--charter",
+            "bounded ordinary parallel review",
+            "--evidence",
+            "create",
+        )
         capacity_admission = admit(
             cli,
             env,
@@ -298,14 +762,22 @@ def main() -> int:
             assignment="capacity test",
             task_focus="capacity coordination",
         )
-        run_cli(cli, env, "agent-spawn", "--task-id", "capacity-policy", "--agent-id", "capacity-agent",
+        run_cli(cli, env, "agent-spawn", "--task-id", "capacity-policy",
+                *start_contract_args(
+                    capacity_admission,
+                    "capacity-policy",
+                    "capacity-wave",
+                    "shangshu_capacity_review",
+                ), "--agent-id", "shangshu-capacity-01",
                 "--role", "shangshu", "--scope", "capacity test", "--wave-id", "capacity-wave",
                 "--dispatch-requested-at", str(capacity_admission["dispatch_requested_at"]),
                 "--task-focus", "capacity coordination", "--complexity", "medium", "--risk", "medium",
                 "--ambiguity", "medium", "--transport", "codex",
                 "--evidence", "spawn capacity test agent")
         capacity_reconciled = json_cli(
-            cli, env, "agent-reconcile", "--task-id", "capacity-policy", "--agent-id", "capacity-agent",
+            cli, env, "agent-reconcile", "--task-id", "capacity-policy",
+            *agent_semantic_args(env, "capacity-policy", "shangshu-capacity-01"),
+            "--agent-id", "shangshu-capacity-01",
             "--role", "shangshu", "--error-kind", "capacity", "--result", "agent thread limit reached",
             "--evidence", "host capacity response",
         )
@@ -317,8 +789,13 @@ def main() -> int:
             "agent-admit",
             "--task-id",
             "capacity-policy",
+            *task_semantic_args("capacity-policy"),
+            *context_economy_args("capacity-policy", "capacity-wave"),
+            *role_budget_args("capacity-policy", "shangshu"),
             "--wave-id",
             "capacity-wave",
+            "--requested-roles",
+            "shangshu",
             "--requested-fork-turns",
             "none",
             "--context-tokens",
@@ -348,11 +825,30 @@ def main() -> int:
             expect=1,
         )
         assert "agent admission wave already exists: capacity-wave" in same_wave.stderr
-        next_wave = admit(cli, env, "capacity-policy", "capacity-wave-2", evidence="new bounded wave")
-        assert next_wave["allowed"] is True
+        next_wave = admit(
+            cli,
+            env,
+            "capacity-policy",
+            "capacity-wave-2",
+            requested_roles="shangshu",
+            evidence="new bounded wave",
+        )
+        assert next_wave["allowed"] is True, next_wave
         assert next_wave["reuse_errored_agents"] is False
 
-        run_cli(cli, env, "create", "--task-id", "matrix", "--title", "matrix", "--evidence", "create")
+        create_formal_task(
+            cli,
+            env,
+            intake_file,
+            "--task-id",
+            "matrix",
+            "--title",
+            "matrix",
+            "--charter",
+            "bounded intervention matrix lifecycle",
+            "--evidence",
+            "create",
+        )
         for state, actor in [
             ("Taizi", "taizi"),
             ("ThreeDepartments", "zhongshu"),
@@ -433,7 +929,7 @@ def main() -> int:
             cli,
             env,
             "matrix",
-            "matrix-agent-1",
+            "gongbu-matrix-wave-01",
             requested_roles="gongbu",
             assignment="matrix",
             task_focus="architecture and final integration",
@@ -448,14 +944,20 @@ def main() -> int:
             "agent-spawn",
             "--task-id",
             "matrix",
+            *start_contract_args(
+                matrix_admission,
+                "matrix",
+                "gongbu-matrix-wave-01",
+                "gongbu_matrix_integration",
+            ),
             "--agent-id",
-            "agent-1",
+            "gongbu-matrix-01",
             "--role",
             "gongbu",
             "--scope",
             "matrix",
             "--wave-id",
-            "matrix-agent-1",
+            "gongbu-matrix-wave-01",
             "--task-focus",
             "architecture and final integration",
             "--complexity",
@@ -471,7 +973,7 @@ def main() -> int:
             "--evidence",
             "spawned",
         )
-        acked = preload_ack(cli, env, "matrix", "agent-1", "gongbu")
+        acked = preload_ack(cli, env, "matrix", "gongbu-matrix-01", "gongbu")
         assert acked["agent"]["status"] == "running"
         assert acked["agent"]["office_identity_evidence"] == "PASSED"
         assert acked["agent"]["dispatch_requested_at"] == dispatch_requested_at
@@ -483,18 +985,21 @@ def main() -> int:
         assert acked["agent"]["inheritance_policy"] == "inherit_main_thread_model_reserved_schema"
         assert acked["agent"]["model_route_status"] == "PASSED"
         reported = json_cli(
-            cli, env, "agent-report", "--task-id", "matrix", "--agent-id", "agent-1",
+            cli, env, "agent-report", "--task-id", "matrix",
+            *agent_semantic_args(env, "matrix", "gongbu-matrix-01"),
+            "--agent-id", "gongbu-matrix-01",
             "--role", "gongbu", "--evidence", "first substantive office report",
         )
-        assert reported["task"]["agents"]["agent-1"]["first_office_report_at"]
+        assert reported["task"]["agents"]["gongbu-matrix-01"]["first_office_report_at"]
         run_cli(
             cli,
             env,
             "agent-heartbeat",
             "--task-id",
             "matrix",
+            *agent_semantic_args(env, "matrix", "gongbu-matrix-01"),
             "--agent-id",
-            "agent-1",
+            "gongbu-matrix-01",
             "--role",
             "gongbu",
             "--evidence",
@@ -502,15 +1007,15 @@ def main() -> int:
         )
         agents = run_cli(cli, env, "--format", "json", "agents", "--stale-after", "3600").stdout
         agents_payload = json.loads(agents)
-        agent = next(item for item in agents_payload["agents"] if item["agent_id"] == "agent-1")
+        agent = next(item for item in agents_payload["agents"] if item["agent_id"] == "gongbu-matrix-01")
         assert agent["status"] == "running"
         watch_payload = json.loads(run_cli(watch, env, "--stale-seconds", "3600").stdout)
         assert watch_payload["ok"] is True
         tasks_path = Path(temp_dir) / "tasks.json"
         tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
         stale_time = (datetime.now(timezone.utc).astimezone() - timedelta(minutes=10)).isoformat(timespec="seconds")
-        tasks["matrix"]["agents"]["agent-1"]["last_heartbeat"] = stale_time
-        tasks["matrix"]["agents"]["agent-1"]["expected_duration"] = "short"
+        tasks["matrix"]["agents"]["gongbu-matrix-01"]["last_heartbeat"] = stale_time
+        tasks["matrix"]["agents"]["gongbu-matrix-01"]["expected_duration"] = "short"
         tasks_path.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding="utf-8")
         stale_payload = json.loads(run_cli(watch, env, "--stale-seconds", "3600", expect=1).stdout)
         stale_agent = stale_payload["stale_agents"][0]
@@ -520,23 +1025,31 @@ def main() -> int:
         marked_payload = json.loads(run_cli(watch, env, "--stale-seconds", "3600", "--mark-stale", expect=1).stdout)
         assert marked_payload["mark_stale"] is True
         marked_tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
-        marked_agent = marked_tasks["matrix"]["agents"]["agent-1"]
+        marked_agent = marked_tasks["matrix"]["agents"]["gongbu-matrix-01"]
         assert marked_agent["status"] == "stale"
         assert "threshold 300s" in marked_agent["stale_reason"]
+        finish_envelope = result_envelope_file(
+            env,
+            "matrix",
+            "gongbu-matrix-01",
+            "gongbu",
+            "cancelled",
+        )
         run_cli(
             cli,
             env,
             "agent-finish",
             "--task-id",
             "matrix",
+            *agent_semantic_args(env, "matrix", "gongbu-matrix-01"),
             "--agent-id",
-            "agent-1",
+            "gongbu-matrix-01",
             "--role",
             "gongbu",
             "--status",
             "cancelled",
-            "--result",
-            "stale agent reclaimed",
+            "--result-envelope-file",
+            str(finish_envelope),
             "--evidence",
             "stale watchdog cancellation",
         )
@@ -546,8 +1059,9 @@ def main() -> int:
             "agent-close",
             "--task-id",
             "matrix",
+            *agent_semantic_args(env, "matrix", "gongbu-matrix-01"),
             "--agent-id",
-            "agent-1",
+            "gongbu-matrix-01",
             "--role",
             "gongbu",
             "--result",

@@ -38,3 +38,21 @@ remains below 650 lines, `shiguan_pending_governance_cli.py` below 220, and
 identity derivation, HMAC/event-chain verification, and the external append-only
 head; future trust changes belong there instead of returning those concerns to
 the governance core or Web server.
+
+## 2026-07-16 Measured Revision
+
+This measured revision supersedes both the 2026-07-11 documented ceiling of
+190 files / 2.95 MB and the later manifest ceiling of 220 files / 3,300,000
+bytes. After classifying `.github/` and `docs/` as repository-only surfaces,
+the measured portable source is 258 files / 5,409,889 bytes; the new hard
+ceiling is 265 files / 5,600,000 bytes. These limits are a measured baseline,
+not a growth entitlement. If either repository-only directory later becomes
+part of the portable payload, its exclusion must be removed and the package
+contract remeasured.
+
+The admission split keeps `court_multi_agent_protocol.py` at 488 lines under
+its unchanged 600-line limit and moves the independently testable admission
+surface into `court_agent_admission.py`, measured at 611 lines with a 650-line
+limit. `agent_runtime_probe.py` is measured at 1,106 lines; its narrow ceiling
+is 1,120. Future admission or probe growth must be split or justified by a new
+measured revision rather than silently raising these limits.

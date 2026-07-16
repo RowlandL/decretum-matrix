@@ -102,7 +102,10 @@ python -B scripts/check_release_legal.py --self-test --json
 python -B scripts/release_payload_manifest.py --self-test --check --json
 python -B scripts/check_release_manifest.py --json
 python -B scripts/build_release_artifacts.py --self-test --json
-python -B scripts/check_release_gate.py --package <zip> --require-package --skip-runtime --json
+python -B scripts/build_release_artifacts.py --mode candidate --json
+python -B scripts/check_release_gate.py --phase pre-install --package <zip> --require-package --json
+# Install the exact candidate, then:
+python -B scripts/check_release_gate.py --phase post-install --package <same-zip> --require-package --install-receipt <install-receipt.json> --skip-runtime --json
 ```
 
 ## beta0.5.8 — 2026-07-11
@@ -173,4 +176,4 @@ python -B scripts/check_release_gate.py --package <zip> --require-package --skip
 - `VERSION`、README 与 manifest 的 release label、artifact name 必须一致。
 - manifest inventory 必须等于 Git tree 与 ZIP payload（排除 manifest 自身）。
 - `references/manifests/release-gates.v1.json` 是门禁策略，不是发行物清单。
-- 维护者必须从干净的 canonical source tree 对最终 ZIP 运行 `scripts/check_release_gate.py --package <zip> --require-package --skip-runtime --json`；解压 release tree 自身包含预期的 portable seed，不作为 active-source budget 输入。
+- 维护者必须先从干净的 canonical source tree 对无 tag 候选 ZIP 运行 `scripts/check_release_gate.py --phase pre-install --package <zip> --require-package --json`，把该 ZIP SHA256 作为 `source_package_sha256` 传给安装器并保存成功 receipt，安装同一 ZIP 后再运行 `--phase post-install --install-receipt <install-receipt.json>`；解压 release tree 自身包含预期的 portable seed，不作为 active-source budget 输入。只有 annotated tag final 才允许生成 release attestation。

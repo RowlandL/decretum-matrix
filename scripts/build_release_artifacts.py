@@ -1,4 +1,4 @@
-"""Build and exclusively publish immutable Decretum Matrix release artifacts."""
+"""Build immutable Decretum Matrix candidates or annotated-tag release artifacts."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 LICENSE_ID = "AGPL-3.0-only"
 ATTESTATION_SCHEMA = "court.release_attestation.v1"
+CANDIDATE_RECEIPT_SCHEMA = "court.release_candidate_receipt.v1"
 RELEASE_RE = re.compile(r"^beta(?P<core>0\.[0-9]+\.[0-9]+)$")
 TAG_SIGNATURE_MARKERS = (
     "-----BEGIN PGP SIGNATURE-----",
@@ -115,6 +116,38 @@ def collect_source_identity(release_label: str, root: Path = ROOT) -> dict[str, 
     }
 
 
+def collect_candidate_source_identity(
+    release_label: str,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    if git_text("status", "--porcelain", root=root):
+        raise ArtifactBuildError("candidate source worktree is not clean")
+    return {
+        "kind": "commit",
+        "head_commit": git_text("rev-parse", "HEAD", root=root),
+        "tree": git_text("rev-parse", "HEAD^{tree}", root=root),
+        "worktree_clean": True,
+        "expected_tag_ref": f"refs/tags/{release_label}",
+        "tag_ref": None,
+        "tag_object": None,
+        "tag_commit": None,
+        "tag_signature": "NOT_APPLICABLE",
+    }
+
+
+def find_workspace_root(root: Path = ROOT) -> Path:
+    for candidate in (root.resolve(), *root.resolve().parents):
+        if (candidate / "workspace.yaml").is_file():
+            return candidate
+    return root.resolve().parent
+
+
+def default_out_root(mode: str, root: Path = ROOT) -> Path:
+    workspace = find_workspace_root(root)
+    surface = "release-staging" if mode == "candidate" else "release-packages"
+    return workspace / surface / NAME
+
+
 def expected_names(manifest: Mapping[str, object]) -> tuple[str, str, str, str, str]:
     release_label = str(manifest.get("release_label"))
     if (
@@ -134,6 +167,20 @@ def expected_names(manifest: Mapping[str, object]) -> tuple[str, str, str, str, 
         str(manifest.get("attestation_name")),
         f"{NAME}-{release_label}.release-notes.md",
         "SBOM.spdx.json",
+    )
+
+
+def expected_candidate_names(
+    manifest: Mapping[str, object],
+) -> tuple[str, str, str, str, str]:
+    zip_name, sidecar_name, _, notes_name, sbom_name = expected_names(manifest)
+    release_label = str(manifest.get("release_label"))
+    return (
+        zip_name,
+        sidecar_name,
+        f"{NAME}-{release_label}.candidate-receipt.json",
+        notes_name,
+        sbom_name,
     )
 
 
@@ -217,6 +264,131 @@ def build_candidate_artifacts(
         attestation_name: (json.dumps(attestation, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
         notes_name: notes_bytes,
         sbom_name: sbom_bytes,
+    }
+
+
+def build_candidate_receipt(
+    *,
+    manifest: Mapping[str, object],
+    source: Mapping[str, object],
+    zip_bytes: bytes,
+    notes_bytes: bytes,
+    sbom_bytes: bytes,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    zip_name, sidecar_name, _, notes_name, sbom_name = expected_candidate_names(manifest)
+    zip_sha = sha256_bytes(zip_bytes)
+    sidecar_bytes = f"{zip_sha}  {zip_name}\n".encode("utf-8")
+    manifest_bytes = (root / release_payload_manifest.MANIFEST_NAME).read_bytes()
+    integrity = manifest.get("integrity")
+    if not isinstance(integrity, dict):
+        raise ArtifactBuildError("release payload manifest integrity block is missing")
+    return {
+        "schema": CANDIDATE_RECEIPT_SCHEMA,
+        "state": "CANDIDATE_NOT_RELEASED",
+        "name": NAME,
+        "display_name": DISPLAY_NAME,
+        "package_name": NAME,
+        "license": LICENSE_ID,
+        "archive_root": f"{package_skill.ROOT_NAME}/",
+        "release_label": manifest.get("release_label"),
+        "candidate_id": source.get("head_commit"),
+        "source": dict(source),
+        "release_manifest": {
+            "path": release_payload_manifest.MANIFEST_NAME,
+            "sha256": sha256_bytes(manifest_bytes),
+            "payload_index_sha256": integrity.get("payload_index_sha256"),
+            "expected_final_tag": manifest.get("expected_final_tag"),
+        },
+        "artifacts": [
+            {"name": zip_name, "sha256": zip_sha, "size": len(zip_bytes)},
+            {"name": sidecar_name, "sha256": sha256_bytes(sidecar_bytes), "size": len(sidecar_bytes)},
+            {"name": notes_name, "sha256": sha256_bytes(notes_bytes), "size": len(notes_bytes)},
+            {"name": sbom_name, "sha256": sha256_bytes(sbom_bytes), "size": len(sbom_bytes)},
+        ],
+        "build_contract": {
+            "deterministic_zip": True,
+            "no_clobber": True,
+            "tag_required": False,
+            "release_attestation_emitted": False,
+            "final_release_claimed": False,
+        },
+    }
+
+
+def build_tagless_candidate_artifacts(
+    *,
+    candidate_zip: Path,
+    manifest: Mapping[str, object],
+    source: Mapping[str, object],
+    root: Path = ROOT,
+) -> dict[str, bytes]:
+    zip_name, sidecar_name, receipt_name, notes_name, sbom_name = expected_candidate_names(manifest)
+    zip_bytes = build_candidate_zip(candidate_zip)
+    zip_sha = sha256_bytes(zip_bytes)
+    notes_bytes = (root / "RELEASE-LOG.md").read_bytes()
+    sbom_bytes = (root / "SBOM.spdx.json").read_bytes()
+    receipt = build_candidate_receipt(
+        manifest=manifest,
+        source=source,
+        zip_bytes=zip_bytes,
+        notes_bytes=notes_bytes,
+        sbom_bytes=sbom_bytes,
+        root=root,
+    )
+    return {
+        zip_name: zip_bytes,
+        sidecar_name: f"{zip_sha}  {zip_name}\n".encode("utf-8"),
+        receipt_name: (json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        notes_name: notes_bytes,
+        sbom_name: sbom_bytes,
+    }
+
+
+def validate_tagless_candidate_artifacts(
+    artifacts: Mapping[str, bytes],
+    *,
+    manifest: Mapping[str, object],
+    source: Mapping[str, object],
+    root: Path = ROOT,
+) -> dict[str, object]:
+    expected = expected_candidate_names(manifest)
+    if set(artifacts) != set(expected):
+        raise ArtifactBuildError(
+            f"tagless candidate artifact set mismatch: expected={sorted(expected)!r} actual={sorted(artifacts)!r}"
+        )
+    zip_name, sidecar_name, receipt_name, notes_name, sbom_name = expected
+    zip_bytes = artifacts[zip_name]
+    zip_sha = sha256_bytes(zip_bytes)
+    if artifacts[sidecar_name] != f"{zip_sha}  {zip_name}\n".encode("utf-8"):
+        raise ArtifactBuildError("candidate checksum sidecar does not match ZIP")
+    try:
+        receipt = json.loads(artifacts[receipt_name].decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ArtifactBuildError(f"candidate receipt is not valid UTF-8 JSON: {exc}") from exc
+    expected_receipt = build_candidate_receipt(
+        manifest=manifest,
+        source=source,
+        zip_bytes=zip_bytes,
+        notes_bytes=artifacts[notes_name],
+        sbom_bytes=artifacts[sbom_name],
+        root=root,
+    )
+    if receipt != expected_receipt:
+        raise ArtifactBuildError("candidate receipt does not match commit/tree/manifest/artifacts")
+    with tempfile.TemporaryDirectory(prefix="decretum-candidate-validate-") as tmp_text:
+        archive_path = Path(tmp_text) / zip_name
+        archive_path.write_bytes(zip_bytes)
+        _, package_problems = package_skill.validate_zip(archive_path)
+        payload_problems = release_payload_manifest.validate_zip_payload(archive_path)
+    if package_problems or payload_problems:
+        raise ArtifactBuildError(
+            "candidate ZIP validation failed: " + ",".join((package_problems + payload_problems)[:20])
+        )
+    return {
+        "zip_sha256": zip_sha,
+        "zip_size": len(zip_bytes),
+        "receipt": receipt,
     }
 
 
@@ -361,6 +533,44 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
             and attestation["release_manifest"].get("sha256")
             == sha256_bytes((root / release_payload_manifest.MANIFEST_NAME).read_bytes())
         )
+        candidate_source: dict[str, object] = {
+            "kind": "commit",
+            "head_commit": source["head_commit"],
+            "tree": source["tree"],
+            "worktree_clean": True,
+            "expected_tag_ref": f"refs/tags/{release_label}",
+            "tag_ref": None,
+            "tag_object": None,
+            "tag_commit": None,
+            "tag_signature": "NOT_APPLICABLE",
+        }
+        tagless = build_tagless_candidate_artifacts(
+            candidate_zip=temp_root / "candidate-tagless.zip",
+            manifest=manifest,
+            source=candidate_source,
+            root=root,
+        )
+        tagless_validation = validate_tagless_candidate_artifacts(
+            tagless,
+            manifest=manifest,
+            source=candidate_source,
+            root=root,
+        )
+        candidate_receipt_name = expected_candidate_names(manifest)[2]
+        candidate_receipt = tagless_validation["receipt"]
+        tests["tagless_candidate_excludes_release_attestation"] = (
+            str(manifest["attestation_name"]) not in tagless
+            and candidate_receipt_name in tagless
+        )
+        tests["tagless_candidate_does_not_forge_tag_identity"] = (
+            isinstance(candidate_receipt, dict)
+            and candidate_receipt.get("state") == "CANDIDATE_NOT_RELEASED"
+            and candidate_receipt.get("source", {}).get("tag_ref") is None
+            and candidate_receipt.get("source", {}).get("tag_signature") == "NOT_APPLICABLE"
+        )
+        tests["candidate_and_release_zip_are_byte_identical"] = (
+            tagless[zip_name] == artifacts[zip_name]
+        )
 
         existing_root = temp_root / "existing-root"
         existing_root.mkdir()
@@ -397,6 +607,90 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
     return tests
 
 
+def artifact_rows(directory: Path) -> list[dict[str, object]]:
+    return [
+        {
+            "name": path.name,
+            "size": path.stat().st_size,
+            "sha256": sha256_bytes(path.read_bytes()),
+        }
+        for path in sorted(directory.iterdir(), key=lambda value: value.name.encode("utf-8"))
+        if path.is_file()
+    ]
+
+
+def read_artifact_directory(directory: Path) -> dict[str, bytes]:
+    if not directory.is_dir():
+        raise ArtifactBuildError(f"candidate directory is not a directory: {directory}")
+    return {
+        path.name: path.read_bytes()
+        for path in directory.iterdir()
+        if path.is_file()
+    }
+
+
+def build_candidate(out_root: Path, root: Path = ROOT) -> dict[str, object]:
+    manifest = load_payload_manifest(root)
+    release_label = read_release_label(root)
+    if manifest.get("release_label") != release_label:
+        raise ArtifactBuildError("VERSION and release payload manifest disagree")
+    source = collect_candidate_source_identity(release_label, root)
+    head_commit = str(source["head_commit"])
+    out_root = out_root.resolve()
+    out_root.mkdir(parents=True, exist_ok=True)
+    candidate_directory = out_root / release_label / head_commit
+    if candidate_directory.exists():
+        artifacts = read_artifact_directory(candidate_directory)
+        validation = validate_tagless_candidate_artifacts(
+            artifacts,
+            manifest=manifest,
+            source=source,
+            root=root,
+        )
+        return {
+            "ok": True,
+            "kind": "candidate",
+            "state": "CANDIDATE_NOT_RELEASED",
+            "reused": True,
+            "release_label": release_label,
+            "candidate_directory": str(candidate_directory),
+            "artifacts": artifact_rows(candidate_directory),
+            "zip_sha256": validation["zip_sha256"],
+            "source": source,
+        }
+    with tempfile.TemporaryDirectory(prefix=f".{release_label}.tagless-", dir=out_root) as tmp_text:
+        temp_root = Path(tmp_text)
+        artifacts = build_tagless_candidate_artifacts(
+            candidate_zip=temp_root / str(manifest["artifact_name"]),
+            manifest=manifest,
+            source=source,
+            root=root,
+        )
+        validation = validate_tagless_candidate_artifacts(
+            artifacts,
+            manifest=manifest,
+            source=source,
+            root=root,
+        )
+        staged_directory = temp_root / "candidate"
+        staged_directory.mkdir()
+        for name in sorted(artifacts, key=lambda value: value.encode("utf-8")):
+            exclusive_write(staged_directory / name, artifacts[name])
+        candidate_directory.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(staged_directory, candidate_directory)
+    return {
+        "ok": True,
+        "kind": "candidate",
+        "state": "CANDIDATE_NOT_RELEASED",
+        "reused": False,
+        "release_label": release_label,
+        "candidate_directory": str(candidate_directory),
+        "artifacts": artifact_rows(candidate_directory),
+        "zip_sha256": validation["zip_sha256"],
+        "source": source,
+    }
+
+
 def build_release(out_root: Path, root: Path = ROOT) -> dict[str, object]:
     manifest = load_payload_manifest(root)
     release_label = read_release_label(root)
@@ -425,6 +719,7 @@ def build_release(out_root: Path, root: Path = ROOT) -> dict[str, object]:
         )
     return {
         "ok": True,
+        "kind": "release",
         "release_label": release_label,
         "final_directory": str(final),
         "artifacts": [
@@ -442,7 +737,8 @@ def build_release(out_root: Path, root: Path = ROOT) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out-root", type=Path, default=ROOT.parent / "release-packages" / NAME)
+    parser.add_argument("--mode", choices=("candidate", "release"))
+    parser.add_argument("--out-root", type=Path)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -450,14 +746,25 @@ def main() -> int:
         if args.self_test:
             tests = run_self_tests()
             result: dict[str, object] = {"ok": all(tests.values()), "self_test": tests}
+        elif args.mode is None:
+            raise ArtifactBuildError("--mode candidate|release is required for a real build")
         else:
-            result = build_release(args.out_root)
+            out_root = args.out_root or default_out_root(args.mode)
+            result = (
+                build_candidate(out_root)
+                if args.mode == "candidate"
+                else build_release(out_root)
+            )
     except (ArtifactBuildError, FileExistsError, OSError, subprocess.SubprocessError) as exc:
         result = {"ok": False, "error": f"{type(exc).__name__}:{exc}"}
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     elif result.get("ok"):
-        print("RELEASE_ARTIFACT_BUILDER_PASSED")
+        print(
+            "RELEASE_CANDIDATE_BUILDER_PASSED"
+            if result.get("kind") == "candidate"
+            else "RELEASE_ARTIFACT_BUILDER_PASSED"
+        )
     else:
         print(f"RELEASE_ARTIFACT_BUILDER_FAILED {result.get('error', 'self-test')}")
     return 0 if result.get("ok") else 2

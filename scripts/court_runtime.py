@@ -6560,6 +6560,13 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--note", default="")
     create.add_argument("--work-kind", required=True, choices=sorted(WORK_KINDS))
     create.add_argument("--intake-file", type=Path, required=True)
+    create_capsule = create.add_mutually_exclusive_group()
+    create_capsule.add_argument("--invariant-capsule-file", type=Path)
+    create_capsule.add_argument(
+        "--invariant-capsule-json",
+        dest="invariant_capsule",
+        type=json_object_argument,
+    )
 
     revise = sub.add_parser("revise-charter", help="apply an audited charter revision")
     accept_format_after_command(revise)

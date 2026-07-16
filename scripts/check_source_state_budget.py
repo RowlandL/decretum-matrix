@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "references" / "manifests" / "source-state-budget.v1.json"
 MANIFEST_SCHEMA = "court.source_state_budget.v1"
 RESULT_SCHEMA = "court.source_state_budget.result.v1"
-CATEGORIES = ("portable_source", "generated_runtime", "historical")
+CATEGORIES = ("portable_source", "repository_only", "generated_runtime", "historical")
 
 
 class SourceStateBudgetError(ValueError):
@@ -77,6 +77,7 @@ def validate_manifest(value: object) -> dict[str, object]:
     for key in (
         "historical_top_level_prefixes",
         "historical_path_prefixes",
+        "repository_only_path_prefixes",
         "generated_dir_names",
         "generated_exact_files",
         "generated_path_components",
@@ -167,6 +168,8 @@ def classify(relative: Path, config: dict[str, object]) -> str:
         return "historical"
     if any(path_starts(text, prefix) for prefix in config["historical_path_prefixes"]):  # type: ignore[union-attr]
         return "historical"
+    if any(path_starts(text, prefix) for prefix in config["repository_only_path_prefixes"]):  # type: ignore[union-attr]
+        return "repository_only"
 
     directory_parts = set(parts[:-1])
     if directory_parts & set(config["generated_dir_names"]):  # type: ignore[arg-type]
@@ -389,6 +392,13 @@ def run_fixture_tests(manifest: dict[str, object]) -> dict[str, bool]:
     historical = evaluate(root, fixture_manifest)
     historical_body.unlink()
 
+    repository_docs = root / "docs" / "plans"
+    repository_docs.mkdir(parents=True)
+    repository_only_file = repository_docs / "fixture.md"
+    repository_only_file.write_text("repository-only fixture\n", encoding="utf-8")
+    repository_only = evaluate(root, fixture_manifest)
+    repository_only_file.unlink()
+
     over_budget_manifest = deepcopy(fixture_manifest)
     over_budget_manifest["hard_limits"]["portable_source"]["max_files"] = 1  # type: ignore[index]
     over_budget = evaluate(root, over_budget_manifest)
@@ -418,6 +428,10 @@ def run_fixture_tests(manifest: dict[str, object]) -> dict[str, bool]:
             "generated_runtime_present",
         ),
         "historical_zero_budget_is_hard_fail": has_failure(historical, "legacy_over_target"),
+        "repository_only_excluded_from_portable_budget": (
+            repository_only["categories"]["repository_only"]["files"] == 1  # type: ignore[index]
+            and repository_only["categories"]["portable_source"] == baseline["categories"]["portable_source"]  # type: ignore[index]
+        ),
         "unclassified_runtime_fails": has_failure(unclassified, "unclassified_runtime_detected"),
         "portable_budget_fails": has_failure(over_budget, "portable_file_budget_exceeded"),
         "bytecode_artifacts_fail": has_failure(bytecode_result, "bytecode_artifacts_present"),

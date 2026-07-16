@@ -38,6 +38,17 @@ LEGAL_REQUIRED = {
     f"{ROOT_NAME}/CONTRIBUTING.md",
     f"{ROOT_NAME}/SBOM.spdx.json",
 }
+BRAND_REQUIRED = {
+    f"{ROOT_NAME}/assets/brand/decretum-matrix-icon.svg",
+    f"{ROOT_NAME}/assets/brand/decretum-matrix-icon-256.png",
+    f"{ROOT_NAME}/assets/brand/decretum-matrix-icon.ico",
+    f"{ROOT_NAME}/assets/brand/README.md",
+}
+PACKAGE_IDENTITY_REQUIRED = {
+    f"{ROOT_NAME}/release-manifest.json",
+    f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
+    f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
+}
 
 
 def write_zip(path: Path, members: list[tuple[str, bytes]]) -> None:
@@ -1298,10 +1309,31 @@ class PackageBuildTests(unittest.TestCase):
 
     def test_legal_governance_files_are_mandatory_package_members(self) -> None:
         self.assertEqual(package_skill.LEGAL_REQUIRED_MEMBERS, LEGAL_REQUIRED)
+        self.assertEqual(getattr(package_skill, "BRAND_REQUIRED_MEMBERS", set()), BRAND_REQUIRED)
+        self.assertEqual(
+            getattr(package_skill, "PACKAGE_IDENTITY_REQUIRED_MEMBERS", set()),
+            PACKAGE_IDENTITY_REQUIRED,
+        )
         out = self.temp_path / "legal.zip"
         self.assertEqual(package_skill.build(out)[2], [])
         with zipfile.ZipFile(out) as archive:
-            self.assertEqual(LEGAL_REQUIRED - set(archive.namelist()), set())
+            self.assertEqual(
+                (LEGAL_REQUIRED | BRAND_REQUIRED | PACKAGE_IDENTITY_REQUIRED)
+                - set(archive.namelist()),
+                set(),
+            )
+        for index, missing_member in enumerate(
+            (
+                sorted(BRAND_REQUIRED)[0],
+                f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
+            )
+        ):
+            missing_archive = self.temp_path / f"missing-required-{index}.zip"
+            with zipfile.ZipFile(out) as archive, zipfile.ZipFile(missing_archive, "w") as altered:
+                for info in archive.infolist():
+                    if info.filename != missing_member:
+                        altered.writestr(info, archive.read(info))
+            self.assertIn(missing_member, package_skill.validate_zip(missing_archive)[1])
 
     def test_two_clean_builds_are_byte_identical(self) -> None:
         first = self.temp_path / "first.zip"

@@ -126,6 +126,7 @@ REQUIRED_COURT_SCRIPTS = [
     "package_skill.py",
     "court_runtime.py",
     "court_cli.py",
+    "court_agent_admission.py",
     "court_multi_agent_protocol.py",
     "court_codex_protocol_launcher.py",
     "court_codex_office_worker.py",

@@ -43,6 +43,8 @@
   influence or zero borrowing.
 - This entry records a locally verified candidate. Remote push, tag, PR and
   GitHub Release remain separate acceptance actions and are not claimed here.
+- Tagless candidates now use a reusable, no-clobber commit directory with an
+  external candidate receipt. Final release attestation remains annotated-tag-only.
 
 ## beta0.5.9 — 2026-07-12
 

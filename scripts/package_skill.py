@@ -165,6 +165,20 @@ SOURCE_REGENERATED_DIRS = {
     "references/shiguan-tree",
     "references/startup-tasks",
 }
+BRAND_ASSET_PATHS = frozenset(
+    {
+        "assets/brand/decretum-matrix-icon.svg",
+        "assets/brand/decretum-matrix-icon-256.png",
+        "assets/brand/decretum-matrix-icon.ico",
+        "assets/brand/readme.md",
+    }
+)
+BRAND_BINARY_ASSET_PATHS = frozenset(
+    {
+        "assets/brand/decretum-matrix-icon-256.png",
+        "assets/brand/decretum-matrix-icon.ico",
+    }
+)
 SOURCE_ALLOWED_DIRS = {
     "agents",
     "agents/office-dossiers",
@@ -198,6 +212,8 @@ SOURCE_ALLOWED_DIRS = {
     "agents/supercc-dossiers/xingbu",
     "agents/supercc-dossiers/zaochao",
     "agents/supercc-dossiers/zhongshu",
+    "assets",
+    "assets/brand",
     "development-manual",
     "references",
     "references/benchmarks",
@@ -312,6 +328,17 @@ LEGAL_REQUIRED_MEMBERS = {
     f"{ROOT_NAME}/CONTRIBUTING.md",
     f"{ROOT_NAME}/SBOM.spdx.json",
 }
+BRAND_REQUIRED_MEMBERS = {
+    f"{ROOT_NAME}/assets/brand/decretum-matrix-icon.svg",
+    f"{ROOT_NAME}/assets/brand/decretum-matrix-icon-256.png",
+    f"{ROOT_NAME}/assets/brand/decretum-matrix-icon.ico",
+    f"{ROOT_NAME}/assets/brand/README.md",
+}
+PACKAGE_IDENTITY_REQUIRED_MEMBERS = {
+    f"{ROOT_NAME}/release-manifest.json",
+    f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
+    f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
+}
 
 REQUIRED_COURT_SCRIPTS = [
     "quick_validate.py",
@@ -372,6 +399,7 @@ REQUIRED_COURT_SCRIPTS = [
     "package_skill.py",
     "court_runtime.py",
     "court_cli.py",
+    "court_agent_admission.py",
     "court_multi_agent_protocol.py",
     "court_codex_protocol_launcher.py",
     "court_codex_office_worker.py",
@@ -592,20 +620,28 @@ def read_source_file_stable(path: Path, relative: Path, source_root: Path) -> by
 def validate_source_file(path: Path, relative: Path, source_root: Path) -> bytes:
     key = relative_key(relative)
     lower_name = relative.name.casefold()
+    is_brand_asset = key in BRAND_ASSET_PATHS
+    if key.startswith("assets/") and not is_brand_asset:
+        raise PackagePolicyError(f"brand-asset-not-allowed:{relative.as_posix()}")
     if len(relative.parts) == 1 and lower_name not in ROOT_ALLOWED_FILES:
         raise PackagePolicyError(f"root-file-not-allowed:{relative.as_posix()}")
     suffix = relative.suffix.casefold()
     if suffix in NESTED_PACKAGE_SUFFIXES:
         raise PackagePolicyError(f"nested-package:{relative.as_posix()}")
-    if not (suffix in TEXT_SUFFIXES or (len(relative.parts) == 1 and lower_name in ROOT_TEXT_BASENAMES)):
+    if not (
+        is_brand_asset
+        or suffix in TEXT_SUFFIXES
+        or (len(relative.parts) == 1 and lower_name in ROOT_TEXT_BASENAMES)
+    ):
         raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}")
     data = read_source_file_stable(path, relative, source_root)
-    if b"\x00" in data:
-        raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}:nul-byte")
-    try:
-        data.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}:not-utf8") from exc
+    if key not in BRAND_BINARY_ASSET_PATHS:
+        if b"\x00" in data:
+            raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}:nul-byte")
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise PackagePolicyError(f"unsupported-binary:{relative.as_posix()}:not-utf8") from exc
     if key in ARCHIVE_EXACT_REGENERATED_FILES:
         raise PackagePolicyError(f"regenerated-file-selected-from-source:{relative.as_posix()}")
     return data
@@ -1006,6 +1042,9 @@ def archive_member_policy_problem(normalized: str, is_dir: bool) -> str | None:
         return None
 
     lower_name = relative_parts[-1].casefold()
+    is_brand_asset = lower_relative in BRAND_ASSET_PATHS
+    if lower_relative.startswith("assets/") and not is_brand_asset:
+        return "brand-asset-not-allowed"
     if len(relative_parts) == 1 and lower_name not in ROOT_ALLOWED_FILES:
         return "root-file-not-allowed"
     if lower_name in SECRET_BEARING_NAMES:
@@ -1022,7 +1061,11 @@ def archive_member_policy_problem(normalized: str, is_dir: bool) -> str | None:
     suffix = PurePosixPath(relative).suffix.casefold()
     if suffix in NESTED_PACKAGE_SUFFIXES:
         return "nested-package"
-    if not (suffix in TEXT_SUFFIXES or (len(relative_parts) == 1 and lower_name in ROOT_TEXT_BASENAMES)):
+    if not (
+        is_brand_asset
+        or suffix in TEXT_SUFFIXES
+        or (len(relative_parts) == 1 and lower_name in ROOT_TEXT_BASENAMES)
+    ):
         return "unsupported-binary"
 
     if lower_relative.startswith("references/shiguan-tree/") or lower_relative.startswith(
@@ -1132,6 +1175,8 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
         f"{ROOT_NAME}/references/shiguan-tree/sources/README.md",
     }
     required.update(LEGAL_REQUIRED_MEMBERS)
+    required.update(BRAND_REQUIRED_MEMBERS)
+    required.update(PACKAGE_IDENTITY_REQUIRED_MEMBERS)
     required.update({f"{ROOT_NAME}/scripts/{name}" for name in REQUIRED_COURT_SCRIPTS})
     required.update(
         {
@@ -1227,6 +1272,10 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
                     continue
                 if len(data) != info.file_size:
                     forbidden.append(f"{normalized}:member-size-mismatch:{len(data)}:{info.file_size}")
+                    continue
+                relative_key_value = normalized.split("/", 1)[1].casefold()
+                if relative_key_value in BRAND_BINARY_ASSET_PATHS:
+                    data_by_name[normalized] = data
                     continue
                 if b"\x00" in data:
                     forbidden.append(f"{normalized}:unsupported-binary:nul-byte")

@@ -27,6 +27,7 @@ REQUIRED_FILES = (
     "SECURITY.md",
     "PRIVACY.md",
     "CONTRIBUTING.md",
+    "README.md",
     "SBOM.spdx.json",
 )
 EXPECTED_UPSTREAM_COMMIT = "14a207557719c046af0f993a7bff1cc5a5015b33"
@@ -44,6 +45,7 @@ EXPECTED_COPYRIGHT = "Copyright 2026 孙华清"
 EXPECTED_OWNER = "孙华清"
 EXPECTED_MAINTAINER = "@RowlandL"
 EXPECTED_GITHUB_ID = "42199880"
+EXPECTED_TRADEMARK_POLICY_OWNER = f"Trademark policy owner: {EXPECTED_OWNER}"
 EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 MIT_FENCE_PATTERN = re.compile(r"```text\n(?P<body>MIT License\n.*?\n)```", re.DOTALL)
 COMMERCIAL_GRANT_PATTERN = re.compile(
@@ -59,6 +61,34 @@ ADDRESS_FIELD_PATTERN = re.compile(r"(?im)^\s*(?:postal\s+)?address\s*[:：]|^\s
 OWNER_AS_MAINTAINER_PATTERN = re.compile(
     rf"(?im)^\s*(?:[-*]\s*)?maintainer(?:[^:\n]*)\s*:[^\n]*{re.escape(EXPECTED_OWNER)}"
 )
+TRADEMARK_OWNER_DISCLAIMER_PATTERN = re.compile(
+    r"does not claim that any mark is owned|does not establish ownership of any trademark",
+    re.IGNORECASE,
+)
+UNSUPPORTED_BETA058_APACHE_PATTERNS = (
+    re.compile(
+        r"(?i)(?:`?beta0\.5\.8`?.{0,80}`?beta0\.5\.9`?|"
+        r"`?beta0\.5\.9`?.{0,80}`?beta0\.5\.8`?).{0,80}"
+        r"`?Apache-2\.0`?.{0,40}(?:授权|licenses?|releases?|版本)"
+    ),
+    re.compile(
+        r"(?i)`?beta0\.5\.8`?\s*(?:=|is|was|为|是)\s*"
+        r"`?Apache-2\.0`?\s*(?:授权|licenses?|releases?|版本)"
+    ),
+)
+
+
+def has_beta058_apache_claim_without_evidence(text: str) -> bool:
+    for line in text.splitlines():
+        normalized = line.casefold()
+        if "beta0.5.8" not in normalized or "apache-2.0" not in normalized:
+            continue
+        if (
+            "license_not_established_from_tag" not in normalized
+            or "artifact-specific evidence" not in normalized
+        ):
+            return True
+    return False
 
 
 def read_text(path: Path) -> str:
@@ -205,6 +235,10 @@ def evaluate(root: Path) -> dict[str, object]:
         "Whole-file matches: `0`",
         "does not exclude",
         "unknown-needs-review",
+        "docs/legal/2026-07-16-cft0808-edict-bounded-similarity-and-rights-review.md",
+        "P1_UPSTREAM_MIT_PROVENANCE_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED",
+        "P3_CLA_AND_RIGHTS_CHAIN_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED",
+        "source_thread=019f6691-258f-71a1-b63d-f7ad0b881d70",
     ):
         if marker not in provenance:
             problems.append(f"provenance:missing:{marker}")
@@ -233,14 +267,31 @@ def evaluate(root: Path) -> dict[str, object]:
 
     trademarks = read_text(root / "TRADEMARKS.md") if (root / "TRADEMARKS.md").is_file() else ""
     for marker in (
-        EXPECTED_OWNER,
+        EXPECTED_TRADEMARK_POLICY_OWNER,
         "Decretum Matrix（诏令矩阵）",
         "decretum-matrix",
         "nominative",
         "no affiliation",
+        "does not claim that any mark is registered",
     ):
         if marker not in trademarks:
             problems.append(f"trademarks:missing:{marker}")
+    if TRADEMARK_OWNER_DISCLAIMER_PATTERN.search(trademarks):
+        problems.append("trademarks:policy-owner-disclaimed")
+
+    readme = read_text(root / "README.md") if (root / "README.md").is_file() else ""
+    for marker in (
+        "`beta0.5.9` 是 Git 已确证的历史 `Apache-2.0` 版本",
+        "`beta0.5.8` 的 tag 证据为 `LICENSE_NOT_ESTABLISHED_FROM_TAG`",
+        "artifact-specific evidence",
+    ):
+        if marker not in readme:
+            problems.append(f"readme:missing:{marker}")
+    if (
+        any(pattern.search(readme) for pattern in UNSUPPORTED_BETA058_APACHE_PATTERNS)
+        or has_beta058_apache_claim_without_evidence(readme)
+    ):
+        problems.append("readme:unsupported-beta0.5.8-apache-claim")
 
     authors = read_text(root / "AUTHORS.md") if (root / "AUTHORS.md").is_file() else ""
     for marker in (EXPECTED_OWNER, EXPECTED_MAINTAINER, EXPECTED_GITHUB_ID):
@@ -329,6 +380,28 @@ def run_self_test(root: Path) -> dict[str, object]:
         assertions["altered_mit_text_fails"] = evaluate(fixture)["ok"] is False
         shutil.copy2(root / "THIRD_PARTY_NOTICES.md", fixture / "THIRD_PARTY_NOTICES.md")
 
+        provenance = (fixture / "PROVENANCE.md").read_text(encoding="utf-8")
+        (fixture / "PROVENANCE.md").write_text(
+            provenance.replace(
+                "P1_UPSTREAM_MIT_PROVENANCE_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED",
+                "P1_UPSTREAM_MIT_PROVENANCE_GATE=REVIEW_PENDING",
+            ),
+            encoding="utf-8",
+        )
+        assertions["missing_p1_provenance_receipt_gate_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "PROVENANCE.md", fixture / "PROVENANCE.md")
+
+        provenance = (fixture / "PROVENANCE.md").read_text(encoding="utf-8")
+        (fixture / "PROVENANCE.md").write_text(
+            provenance.replace(
+                "P3_CLA_AND_RIGHTS_CHAIN_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED",
+                "P3_CLA_AND_RIGHTS_CHAIN_GATE=REVIEW_PENDING",
+            ),
+            encoding="utf-8",
+        )
+        assertions["missing_p3_rights_matrix_gate_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "PROVENANCE.md", fixture / "PROVENANCE.md")
+
         commercial = (fixture / "COMMERCIAL-LICENSE.md").read_text(encoding="utf-8")
         (fixture / "COMMERCIAL-LICENSE.md").write_text(
             commercial + "\nThis notice grants a commercial license.\n", encoding="utf-8"
@@ -367,6 +440,34 @@ def run_self_test(root: Path) -> dict[str, object]:
         )
         assertions["missing_legal_review_marker_fails"] = evaluate(fixture)["ok"] is False
         shutil.copy2(root / "TRADEMARKS.md", fixture / "TRADEMARKS.md")
+
+        trademarks = (fixture / "TRADEMARKS.md").read_text(encoding="utf-8")
+        (fixture / "TRADEMARKS.md").write_text(
+            trademarks.replace(
+                EXPECTED_TRADEMARK_POLICY_OWNER,
+                f"Trademark policy owner: {EXPECTED_MAINTAINER}",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        assertions["wrong_trademark_policy_owner_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "TRADEMARKS.md", fixture / "TRADEMARKS.md")
+
+        trademarks = (fixture / "TRADEMARKS.md").read_text(encoding="utf-8")
+        (fixture / "TRADEMARKS.md").write_text(
+            trademarks + "\nThis identity statement does not establish ownership of any trademark.\n",
+            encoding="utf-8",
+        )
+        assertions["trademark_owner_disclaimer_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "TRADEMARKS.md", fixture / "TRADEMARKS.md")
+
+        readme = (fixture / "README.md").read_text(encoding="utf-8")
+        (fixture / "README.md").write_text(
+            readme + "\nOld beta0.5.8 and beta0.5.9 are Apache-2.0 releases.\n",
+            encoding="utf-8",
+        )
+        assertions["unsupported_beta058_apache_claim_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "README.md", fixture / "README.md")
 
         sbom = json.loads((fixture / "SBOM.spdx.json").read_text(encoding="utf-8"))
         sbom["spdxVersion"] = "SPDX-2.2"

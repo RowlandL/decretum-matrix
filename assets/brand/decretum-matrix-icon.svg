@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Decretum Matrix abstract seal icon</title>
+  <desc id="desc">An abstract nine-cell matrix rendered as a classical vermilion and bronze seal.</desc>
+  <defs>
+    <clipPath id="sealClip">
+      <path d="M512 174 808 338v348L512 850 216 686V338L512 174Z"/>
+    </clipPath>
+    <linearGradient id="bronze" x1="250" y1="190" x2="780" y2="850" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff0bd"/>
+      <stop offset="0.22" stop-color="#d9ad5f"/>
+      <stop offset="0.48" stop-color="#a87331"/>
+      <stop offset="0.7" stop-color="#f0d28a"/>
+      <stop offset="1" stop-color="#805728"/>
+    </linearGradient>
+    <linearGradient id="cinnabar" x1="280" y1="230" x2="750" y2="810" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ef5a4c"/>
+      <stop offset="0.34" stop-color="#c72e31"/>
+      <stop offset="0.7" stop-color="#951b25"/>
+      <stop offset="1" stop-color="#5d1119"/>
+    </linearGradient>
+    <radialGradient id="sealLight" cx="35%" cy="25%" r="78%">
+      <stop offset="0" stop-color="#ffb078" stop-opacity="0.3"/>
+      <stop offset="0.48" stop-color="#ff6a57" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#35030b" stop-opacity="0.42"/>
+    </radialGradient>
+    <linearGradient id="goldLight" x1="350" y1="330" x2="680" y2="700" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff1bc"/>
+      <stop offset="0.4" stop-color="#d5a34f"/>
+      <stop offset="0.62" stop-color="#f3d98f"/>
+      <stop offset="1" stop-color="#9b6a2d"/>
+    </linearGradient>
+    <filter id="goldDepth" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="7" flood-color="#3c0b0d" flood-opacity="0.44"/>
+      <feDropShadow dx="0" dy="-3" stdDeviation="2" flood-color="#fff5c9" flood-opacity="0.34"/>
+    </filter>
+    <filter id="kernelDepth" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#33050b" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <g clip-path="url(#sealClip)">
+    <path d="M512 174 808 338v348L512 850 216 686V338L512 174Z" fill="url(#cinnabar)"/>
+    <path d="M512 174 808 338v348L512 850 216 686V338L512 174Z" fill="url(#sealLight)"/>
+    <path d="M512 174 808 338v348L512 850 216 686V338L512 174Z" fill="none" stroke="url(#bronze)" stroke-width="24"/>
+    <path d="M512 216 770 358v308L512 808 254 666V358L512 216Z" fill="none" stroke="#ffd98f" stroke-opacity="0.42" stroke-width="9"/>
+  </g>
+
+  <!-- Nine-square matrix, drawn like carved seal channels. -->
+  <g fill="none" stroke="url(#bronze)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" filter="url(#goldDepth)" clip-path="url(#sealClip)">
+    <path d="M348 348H676V676H348Z"/>
+    <path d="M457 348V676M567 348V676M348 457H676M348 567H676"/>
+  </g>
+
+  <!-- Abstract seal-script paths: authority enters at the cardinal points and folds into the matrix. -->
+  <g fill="none" stroke="url(#goldLight)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" filter="url(#goldDepth)" clip-path="url(#sealClip)">
+    <path d="M512 286V402H402V512"/>
+    <path d="M738 512H622V402H512"/>
+    <path d="M512 738V622H622V512"/>
+    <path d="M286 512H402V622H512"/>
+  </g>
+
+  <!-- Central decree kernel. -->
+  <g filter="url(#kernelDepth)">
+    <path d="m512 438 74 74-74 74-74-74 74-74Z" fill="#171816" stroke="url(#bronze)" stroke-width="26" stroke-linejoin="round"/>
+    <circle cx="512" cy="512" r="25" fill="url(#goldLight)"/>
+    <circle cx="505" cy="504" r="9" fill="#fff1b4" fill-opacity="0.5"/>
+  </g>
+
+  <!-- Four restrained registration marks evoke an old cast seal without literal ornament. -->
+  <g fill="#171816" stroke="url(#goldLight)" stroke-width="12" stroke-linejoin="round" filter="url(#goldDepth)" clip-path="url(#sealClip)">
+    <path d="m512 248 22 22-22 22-22-22 22-22Z"/>
+    <path d="m754 490 22 22-22 22-22-22 22-22Z"/>
+    <path d="m512 732 22 22-22 22-22-22 22-22Z"/>
+    <path d="m270 490 22 22-22 22-22-22 22-22Z"/>
+  </g>
+</svg>

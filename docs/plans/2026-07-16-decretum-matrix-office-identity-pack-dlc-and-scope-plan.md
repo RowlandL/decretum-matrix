@@ -1,6 +1,6 @@
 # Decretum Matrix Office Identity Pack、DLC 与作用域治理计划
 
-状态：`QUEUED_POST_A02_HANDOFF / PLAN_ONLY`
+状态：`QUEUED_POST_MAINLINE_REBASE / PLAN_ONLY`
 
 日期：2026-07-16
 
@@ -9,6 +9,10 @@
 本计划只定义主线结项后的后续工作。本轮不得实现 Office Identity Pack、
 DLC、`.decretum` 作用域、promotion 或 `$decretum-office-architect`，不得改变
 当前版本行为，也不得创建第二仓库、第二 ledger、第二执行权威或任何 remote。
+
+当前审查前像仅为中间提交 `6f97c91`；它不是最终实现基线。所有目录、CLI、
+schema、shared Shiguan Git 状态与 carrier 细节必须在主线最终闭环后由
+`POST_MAINLINE_REBASE/P0` 重新采集和裁定。
 
 ## 1. 排队与基线
 
@@ -21,6 +25,7 @@ A02 current work
 -> required local install/migration/index receipts
 -> next release branch/worktree/task handoff accepted
 -> MAINLINE_ACCEPTED_BASELINE_GATE
+-> POST_MAINLINE_REBASE/P0
 -> this plan Q0
 ```
 
@@ -38,6 +43,23 @@ A02 current work
 
 任何 dirty worktree、未验包、漂移 schema、未完成 handoff 或仅凭当前 A02
 工作副本启动本计划，均返回 `BASELINE_NOT_ACCEPTED`。
+
+### POST_MAINLINE_REBASE/P0 — 最终主线重定
+
+本阶段只允许修改本计划本身及 root controller 正常生成的本 task
+`.repo-control/state|events` 映射元数据；不得修改产品代码。必须：
+
+1. 重新读取 root authority、当前 project memory、A02 execution/recovery receipt；
+2. 固定 accepted child branch/HEAD/common-dir、clean package、安装/迁移/index 与
+   next-release handoff；
+3. 对本计划全部路径、schema、CLI、shared Git 与 carrier 假设输出
+   `UNCHANGED|RENAMED|SUPERSEDED|CONFLICT` 矩阵；
+4. 原位更新本计划并移除过时中间态事实；
+5. 通过 `MAINLINE_ACCEPTED_BASELINE_GATE`、
+   `ROOT_CHILD_TASK_IDENTITY_GATE` 与
+   `NO_INTERMEDIATE_FACT_PROMOTION_GATE`。
+
+任一项缺失即停止，不进入 Q0。
 
 ## 2. 权威拓扑
 
@@ -67,6 +89,11 @@ Obsidian 或工具原生记忆都不得覆盖最新旨意或 Decree Kernel。
 separate git-dir 管理。Shared Shiguan 只登记 repo/pathspec/HEAD/write-policy/
 paired receipt，不复制正文或 Git objects，不使用 submodule/subtree/nested
 tracking。Obsidian 只是 preserve-only 派生视图。
+
+Root `.repo-control` 的 per-task state/events 是工作树和任务控制面；Decretum
+Matrix 产品内 `references/court-runtime/tasks.json + court_events.jsonl` 是当前
+诏令运行态。两者职责、schema 与锁域必须分离，不得双写成同一个 ledger，也不得
+由 Office Pack 配置替代其中任一权威。
 
 ### 2.3 全局官署配置唯一可变权威
 
@@ -120,6 +147,21 @@ Manifest 至少包含：
 
 Pack 安装只进入已批准 package/config domain。它不得写 runtime ledger、pending、
 records、memory body、tool config、remote 或未批准项目文件。
+
+内置身份的规范源固定为
+`agents/standing-officials/<role>.toml` 与
+`agents/office-dossiers/<role>/AGENTS.md`。
+`agents/supercc-dossiers/<role>/AGENTS.md` 只能由规范身份、carrier 模板和
+shell contract 确定性生成，不再成为独立可编辑身份权威。所有 carrier preload
+必须同时绑定 canonical profile/dossier hash、carrier projection hash、
+Decree Kernel digest 与 effective identity digest。
+
+每次子官署/专家载入还必须绑定有界 semantic capsule：decree/task id、最终 plan
+cursor/hash、semantic epoch/charter/invariant checkpoint（若真实存在）、resolved
+pack/scope/kernel digest、允许 write/read scope、pending/privacy/remote/index
+门禁、停止条件与 compact result schema。Identity Pack 只能补充身份与 presentation，
+不得生成、覆盖或降级语义胶囊；carrier 只能传输同一 capsule，不能自行改写。
+profile/capsule hash 漂移时必须拒绝 preload。
 
 ## 4. 类型化 DLC
 
@@ -191,10 +233,11 @@ root、common-dir/HEAD 漂移或未锁 hash 均 fail closed。
 
 ### 5.3 跨工具一致性
 
-Codex、Hermes、Claude Code 与 `other:<stable-id>` 必须调用同一 packaged resolver
-library，并对同一 project root/global commit/pack lock 产生相同 canonical effective
-JSON 与 SHA-256。工具 adapter 只负责定位实际 project root、loader 和可用 UI，
-不得实现自己的 merge/override 语义。
+Codex、Hermes、Claude Code、superCC 与 generic CLI/`other:<stable-id>` 必须调用
+同一 packaged resolver library，并对同一 project root/global commit/pack lock
+产生相同 canonical effective JSON 与 `semantic_effective_digest`。工具 adapter
+只负责定位实际 project root、loader、transport 和可用 UI，不得实现自己的
+merge/override 语义。
 
 未绑定项目使用 shared global default；shared root 未就绪或 default 不可验证时，
 回退到内置默认并明确记录 degraded reason，绝不猜测或静默写回。
@@ -265,7 +308,34 @@ Menxia adjudication -> explicit global-write authority -> CAS/transaction -> sha
 commit/reread -> project/global paired receipt。历史 record 不改写，memory correction
 只追加 `supersedes`，pending body 永不成为 promotion 输入。
 
-## 10. 实施阶段
+## 10. 资料导入、候选知识图谱与晋升隔离
+
+现有 md/txt/Obsidian 待审队列、metadata sidecar、JSON 索引/图谱与正文授权边界
+必须在 P0 重新核验。后续可规划可插拔 parser/schema/extractor/resolver/retriever，
+但默认图谱保持本地、零外部依赖；插件不得直接读取 pending 路径。
+
+知识权威至少分为：
+
+```text
+official_record
+approved_knowledge
+candidate
+rejected
+historical_evidence
+```
+
+默认查询和 `shiguan-knowledge-graph.json` 只返回正式记录与已批准知识。候选项
+必须进入独立 `shiguan-candidate-knowledge-graph.json` 生成视图，携带
+`candidate_id`、claim hash、scope、source anchors、confidence、conflict set、
+privacy/provenance 与 adjudication status；只有显式 `--include-candidates` 或
+reviewer API 可见。候选不得自动成为事实、记忆或 global default。
+
+导入流程固定为 metadata preflight -> 真实 body authority -> bounded extraction ->
+provenance/license/privacy -> candidate claims -> dedup/conflict -> Menxia adjudication
+-> explicit promotion -> target transaction -> reread/paired receipt。本计划不授权
+真实 pending body；host 仍无不可伪造 body capability 时，该步骤保持 BLOCKED。
+
+## 11. 实施阶段
 
 ### Q0 — Accepted baseline inventory
 
@@ -306,7 +376,8 @@ contention/reconcile tests。默认仍为 exclusive。
 
 ### Q7 — Promotion and cross-tool lifecycle
 
-实现 project-to-global promotion、memory adjudication、sanitized record reference、
+实现 candidate/approved knowledge authority separation、默认检索隔离、
+project-to-global promotion、memory adjudication、sanitized record reference、
 per-tool reread 与 paired receipts。保持 native memory body/tool repo authority。
 
 ### Q8 — Package, migration and release acceptance
@@ -314,20 +385,42 @@ per-tool reread 与 paired receipts。保持 native memory body/tool repo author
 更新 docs/SBOM/release manifest/package allowlist/installer；从 clean commit 构建
 deterministic package，执行正式本机安装/有界迁移/索引，并交接下一 release。
 
-## 11. Acceptance gates
+### 11.1 阶段 write sets
+
+| 阶段 | 允许 write set |
+| --- | --- |
+| P0 | 本计划；root controller 生成的当前 task mapping state/events |
+| Q1 | Kernel lock、pack/scope/effective-receipt schema、fixtures、RED checkers |
+| Q2 | pure resolver/CLI、resolver fixtures；不得接真实 shared root |
+| Q3 | resolver scope、`.decretum` fixtures、global generation fixtures |
+| Q4 | 同一 shared Shiguan Git 的 `manifests/office-identity/**` 与既有 formal receipt 路径 |
+| Q5 | `bundled-skills/decretum-office-architect/**`、proposal fixtures、同一 resolver CLI |
+| Q6 | mutation transaction/concurrency/recovery fixtures；root repo-control 产品代码默认不改 |
+| Q7 | index/query/knowledge-graph/memory/promotion 模块与 synthetic/authorized non-pending fixtures |
+| Q8 | installer/package/release manifest/SBOM/docs/checkers 与受控安装投影 |
+
+任一阶段共享 current/registry/index/pack-lock/manifest 的最终写入仍由唯一 integrator
+串行完成；overlap 只能采用 exclusive、partitioned、proposal-integrator、CAS 或
+transactional 合同。
+
+## 12. Acceptance gates
 
 必须全部通过：
 
 ```text
+POST_MAINLINE_REBASE_GATE
 MAINLINE_ACCEPTED_BASELINE_GATE
 OFFICE_IDENTITY_PACK_SCHEMA_GATE
 DLC_TYPED_COMPOSITION_GATE
 SCOPE_RESOLUTION_PARITY_GATE
+CROSS_HOST_EFFECTIVE_DIGEST_PARITY_GATE
 DECRETUM_KERNEL_INVARIANT_GATE
 SHIGUAN_SINGLE_CONFIG_AUTHORITY_GATE
 COLLABORATION_GRAPH_RECEIPT_GATE
 OVERLAPPING_MUTATION_INTEGRITY_GATE
 OFFICE_ARCHITECT_BOUNDARY_GATE
+KNOWLEDGE_CANDIDATE_AUTHORITY_SEPARATION_GATE
+DEFAULT_QUERY_EXCLUDES_CANDIDATES_GATE
 PROJECT_TO_GLOBAL_PROMOTION_GATE
 PACKAGE_MIGRATION_ROLLBACK_GATE
 ```
@@ -337,7 +430,7 @@ tracking；pending body access=`NO`；protected bytes/hash 不变；精确 paths
 所有受影响 index=`0`；`.pyc=0`；remote/push/tag/PR/release 仅在后续明确发布
 门禁内执行。
 
-## 12. 本轮停止点
+## 13. 本轮停止点
 
 本轮只允许创建本计划与 governing-plan 指针。本计划状态保持
 `QUEUED_POST_A02_HANDOFF`，不得把任何 Q0-Q8 实现吸收到当前 beta0.5.10 行为、

@@ -17,6 +17,7 @@ entry point::
         blank_host_configuration: dict[str, object] | None = None,
         configuration_adapter: object | None = None,
         platform_context: dict[str, object] | None = None,
+        source_package_sha256: str | None = None,
     ) -> dict
 
 When ``blank_host_configuration`` is supplied, the same public entry point is
@@ -1328,6 +1329,7 @@ def _invoke(
     blank_host_configuration: dict[str, object] | None = None,
     configuration_adapter: object | None = None,
     platform_context: dict[str, object] | None = None,
+    source_package_sha256: object | None = None,
 ) -> tuple[dict[str, object] | None, str | None]:
     optional: dict[str, object] = {}
     if blank_host_configuration is not None:
@@ -1336,6 +1338,8 @@ def _invoke(
         optional["configuration_adapter"] = configuration_adapter
     if platform_context is not None:
         optional["platform_context"] = platform_context
+    if source_package_sha256 is not None:
+        optional["source_package_sha256"] = source_package_sha256
     try:
         raw = install(
             source_root=source_root,
@@ -1809,6 +1813,63 @@ def _check_cases(
                 errors.append(f"{name}:persistent_binding_not_posix_relative")
                 break
     if len(errors) == before_errors:
+        passed += 1
+
+    name = "source_package_sha256_receipt_round_trip"
+    before_errors = len(errors)
+    case_root = temp_root / "source-package-sha256"
+    source = case_root / "source"
+    home = case_root / "home"
+    manifest = _write_fixture_source(source)
+    roots = _target_roots(home)
+    _prime_existing_roots(home, roots)
+    source_package_sha256 = "a" * 64
+    result = _require_success(
+        install,
+        name=name,
+        expected_targets=[_agents_root(home), roots["codex"]],
+        errors=errors,
+        source_root=source,
+        home_root=home,
+        current_tool="codex",
+        explicit_tools=[],
+        tool_roots=roots,
+        projection_manifest=manifest,
+        write=True,
+        source_package_sha256=source_package_sha256,
+    )
+    if result is not None and result.get("source_package_sha256") != source_package_sha256:
+        errors.append(f"{name}:top_level_source_package_sha256_missing")
+    if len(errors) == before_errors:
+        passed += 1
+
+    name = "invalid_source_package_sha256_rejected"
+    before_errors = len(errors)
+    case_root = temp_root / "invalid-source-package-sha256"
+    source = case_root / "source"
+    home = case_root / "home"
+    manifest = _write_fixture_source(source)
+    roots = _target_roots(home)
+    _prime_existing_roots(home, roots)
+    invalid_values: tuple[object, ...] = ("", "A" * 64, "g" * 64, 7)
+    rejected = all(
+        _require_rejection(
+            install,
+            name=f"{name}:{index}",
+            reason="source_package_sha256_invalid",
+            errors=errors,
+            source_root=source,
+            home_root=home,
+            current_tool="codex",
+            explicit_tools=[],
+            tool_roots=roots,
+            projection_manifest=manifest,
+            write=False,
+            source_package_sha256=value,
+        )
+        for index, value in enumerate(invalid_values)
+    )
+    if rejected and len(errors) == before_errors:
         passed += 1
 
     return passed
@@ -2724,7 +2785,7 @@ def evaluate() -> dict[str, object]:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 11,
+        "declared_cases": 13,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

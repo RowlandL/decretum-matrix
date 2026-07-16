@@ -63,6 +63,18 @@ class _InstallContractError(RuntimeError):
         self.detail = detail or reason
 
 
+def _validate_source_package_sha256(value: object | None) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise _InstallContractError("source_package_sha256_invalid")
+    return value
+
+
 def _safe_relative(value: object) -> bool:
     if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
         return False
@@ -953,6 +965,7 @@ def install_current_agent_copy(
     blank_host_configuration: dict[str, object] | None = None,
     configuration_adapter: object | None = None,
     platform_context: dict[str, object] | None = None,
+    source_package_sha256: str | None = None,
 ) -> dict[str, object]:
     """Plan or apply the manifest projection without real host discovery."""
 
@@ -961,6 +974,9 @@ def install_current_agent_copy(
     if fanout:
         return _failure("fanout_forbidden")
     try:
+        validated_source_package_sha256 = _validate_source_package_sha256(
+            source_package_sha256
+        )
         manifest, identity = _load_projection_contract(
             source,
             Path(projection_manifest),
@@ -1004,6 +1020,8 @@ def install_current_agent_copy(
         "pending_body_accessed": False,
         "real_host_configuration_accessed": False,
     }
+    if validated_source_package_sha256 is not None:
+        result["source_package_sha256"] = validated_source_package_sha256
     portability = _portability_evidence(platform_context)
     if portability is not None:
         result["portability_evidence"] = portability

@@ -88,7 +88,7 @@ def release_identity(version_text: str) -> dict[str, str]:
         "artifact_name": ARTIFACT_NAME,
         "sidecar_name": SIDECAR_NAME,
         "attestation_name": ATTESTATION_NAME,
-        "source_ref": f"refs/tags/{value}",
+        "expected_final_tag": f"refs/tags/{value}",
     }
 
 
@@ -145,6 +145,56 @@ def stage_inventory(root: Path) -> tuple[list[dict[str, object]], set[str]]:
             entries.append(inventory_entry(relative, data))
             staged_paths.add(relative)
         return entries, staged_paths
+
+
+def payload_tree_inventory(root: Path) -> list[dict[str, object]]:
+    """Inventory an already-materialized payload without source regeneration or Git."""
+
+    named_root = Path(os.path.abspath(root))
+    if package_skill.is_link_or_reparse(named_root):
+        raise ManifestError("payload root is a symlink or reparse point")
+    source_root = named_root.resolve(strict=True)
+    entries: list[dict[str, object]] = []
+
+    def visit(directory: Path, relative_directory: Path) -> None:
+        try:
+            children = sorted(
+                os.scandir(directory),
+                key=lambda entry: (entry.name.casefold(), entry.name),
+            )
+        except OSError as exc:
+            raise ManifestError(
+                f"cannot scan payload directory:{relative_directory.as_posix()}:{exc}"
+            ) from exc
+        for child in children:
+            path = Path(child.path)
+            relative = relative_directory / child.name
+            if package_skill.is_link_or_reparse(path):
+                raise ManifestError(f"payload symlink or reparse point:{relative.as_posix()}")
+            try:
+                is_directory = child.is_dir(follow_symlinks=False)
+                is_file = child.is_file(follow_symlinks=False)
+            except OSError as exc:
+                raise ManifestError(
+                    f"cannot classify payload entry:{relative.as_posix()}:{exc}"
+                ) from exc
+            if is_directory:
+                visit(path, relative)
+                continue
+            if not is_file:
+                raise ManifestError(f"unsupported payload entry:{relative.as_posix()}")
+            relative_text = relative.as_posix()
+            if relative_text == MANIFEST_NAME:
+                continue
+            data = package_skill.read_source_file_stable(
+                path,
+                relative,
+                source_root,
+            )
+            entries.append(inventory_entry(relative_text, data))
+
+    visit(source_root, Path())
+    return sorted(entries, key=lambda entry: str(entry["path"]).encode("utf-8"))
 
 
 def build_manifest(root: Path) -> dict[str, object]:
@@ -209,7 +259,7 @@ def shape_problems(manifest: object) -> list[str]:
         "archive_root": ARCHIVE_ROOT,
         "sidecar_name": SIDECAR_NAME,
         "attestation_name": ATTESTATION_NAME,
-        "source_ref": f"refs/tags/{RELEASE_LABEL}",
+        "expected_final_tag": f"refs/tags/{RELEASE_LABEL}",
         "third_party_notices": "THIRD_PARTY_NOTICES.md",
         "provenance": "PROVENANCE.md",
         "commercial_license_notice": "COMMERCIAL-LICENSE.md",
@@ -322,7 +372,7 @@ def check_current(root: Path) -> dict[str, object]:
     except (OSError, json.JSONDecodeError) as exc:
         return {"ok": False, "problems": [f"manifest-read:{type(exc).__name__}"]}
     if os.environ.get("COURT_PACKAGE_STAGE_VALIDATION") == "1":
-        expected_files, _ = stage_inventory(root)
+        expected_files = payload_tree_inventory(root)
         problems = compare_staged_payload(actual, expected_files)
         return {
             "ok": not problems,
@@ -474,6 +524,35 @@ def self_tests() -> dict[str, bool]:
         }.issubset(LEGAL_PATHS),
         "stable_archive_locator_required": ARCHIVE_ROOT == "court-capability-router/",
     }
+    with tempfile.TemporaryDirectory(prefix="court-staged-payload-self-test-") as tmp_text:
+        staged_root = Path(tmp_text)
+        for entry in entries:
+            target = staged_root / str(entry["path"])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(str(entry["path"]).encode("utf-8"))
+        (staged_root / MANIFEST_NAME).write_text(
+            json.dumps(base, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        previous_stage_validation = os.environ.get("COURT_PACKAGE_STAGE_VALIDATION")
+        os.environ["COURT_PACKAGE_STAGE_VALIDATION"] = "1"
+        try:
+            staged_result = check_current(staged_root)
+            (staged_root / "extra.txt").write_text("extra\n", encoding="utf-8")
+            staged_extra_result = check_current(staged_root)
+        finally:
+            if previous_stage_validation is None:
+                os.environ.pop("COURT_PACKAGE_STAGE_VALIDATION", None)
+            else:
+                os.environ["COURT_PACKAGE_STAGE_VALIDATION"] = previous_stage_validation
+        tests["staged_payload_without_git_metadata_passes"] = bool(
+            staged_result.get("ok")
+            and staged_result.get("validation_mode")
+            == "staged_payload_without_git_metadata"
+        )
+        tests["staged_unmanifested_payload_rejected"] = (
+            "missing-payload:extra.txt" in staged_extra_result.get("problems", [])
+        )
     try:
         release_identity("beta0.5.9")
     except ManifestError:

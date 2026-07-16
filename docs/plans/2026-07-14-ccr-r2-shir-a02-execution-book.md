@@ -360,7 +360,7 @@ Git index: empty
 
 ### 3.1 Major-stage 子仓 release 分支循环门禁
 
-本执行书中阶段循环所称“分支”，只指独立 `court-capability-router` 子仓的 `release/beta0.5.x` 分支及其 child worktree；不得为产品阶段创建根治理仓 release 分支。根治理仓只镜像阶段、子仓 ref、commit、worktree 与本地包 receipt/hash 等台账元数据，不纳入子仓文件、历史或产物。
+本执行书中阶段循环所称“分支”，只指独立 `decretum-matrix` 子仓的 `release/beta0.5.x` 分支及其当期 child worktree；不得为产品阶段创建根治理仓 release 分支。旧 `court-capability-router` 仅可保留为受保护 ZIP/install/Shiguan/history locator。根治理仓只镜像阶段、子仓 ref、commit、worktree 与本地包 receipt/hash 等台账元数据，不纳入子仓文件、历史或产物。
 
 以下五项才是 major stage，不得把单个 micro RED、checker 或 repair cluster 各自升级成版本循环：
 
@@ -370,35 +370,74 @@ Git index: empty
 4. Obsidian + install + updater；
 5. final audit + package。
 
-每个 major stage 严格执行同一闭环：当前工作分支记为 `release/beta0.5.x`；阶段 RED/GREEN/SPEC/QUALITY 与必要全局回归全部通过 -> 仅在 `court-capability-router` 子仓对已批准 pathspec 做一次有界暂存事务并创建本地 commit -> 立即复核真实 index 为 `0` -> 从该精确 commit 创建 clean child worktree，仅由该 clean worktree 构建并验证本地包 -> 记录 commit/branch/worktree/package hash receipt -> 按 §3.2 对 `release/beta0.5.(x-1)` 取得 `UPLOADED` 或明确 `NOT_AUTHORIZED|NOT_RUN|BLOCKED` 终态 -> 从已验收 `x` commit 创建下一顺位 `release/beta0.5.(x+1)` 子仓分支及 worktree -> 按 §3.3 自动交接 -> 后续 major stage 只在新任务与新 release worktree 继续。阶段无文件变化时以当前已验收 HEAD 作为 stage commit，禁止空提交。分支或 worktree 已存在且绑定不一致时 fail closed，禁止 force/reset/覆盖。
+每个 major stage 严格执行同一闭环：当前工作分支记为 `release/beta0.5.x`，唯一写入面是 Decretum Matrix 独立 child repository 的当期 linked worktree `D:\project\decretum-matrix-beta0.5.x`；阶段 RED/GREEN/SPEC/QUALITY 与必要全局回归全部通过 -> 仅在该当期版本工作树对已批准 pathspec 做一次有界暂存事务并创建本地 commit -> 立即复核真实 index 为 `0` -> 从该精确 commit 创建 clean child worktree，仅由该 clean worktree执行 `TAGLESS_CANDIDATE_GATE`，在 `<release-staging>/<name>/<version>/<full-head>/` create-only 生成或精确复用 ZIP/sidecar/candidate receipt/release notes/SBOM -> `CANDIDATE_REUSE_GATE` 证明 receipt、commit、tree、manifest 与 ZIP 字节一致且不生成 attestation -> 安装并验证同一候选包，记录 commit/branch/worktree/package hash/install receipt -> 按 §3.2 对 `release/beta0.5.(x-1)` 取得 `UPLOADED` 或明确 `NOT_AUTHORIZED|NOT_RUN|BLOCKED` 终态 -> 从已验收 `x` commit 创建下一顺位 `release/beta0.5.(x+1)` 分支及受控 mapped worktree `D:\project\decretum-matrix-beta0.5.(x+1)` -> 按 §3.3 自动交接 -> 后续 major stage 只在新任务与新 release worktree 继续。只有上述闭环取得真实终态后，才在任务状态和 governing plan 游标中标记该 major stage `COMPLETED`，并绑定 commit、包 SHA-256、安装与上传回执；未执行项保持 `PENDING|NOT_RUN`。阶段无文件变化时以当前已验收 HEAD 作为 stage commit，禁止空提交。分支或 worktree 已存在且绑定不一致时 fail closed，禁止 force/reset/覆盖。
 
 每个 gate 与每项 Git/包操作开始、结束均要求 `git diff --cached --name-only` 计数为 `0`。commit 窗口是唯一例外：只可暂存门下已批准的精确 pathspec，commit 前必须证明 cached set 与批准集合完全一致；commit 后立即复核 index 为 `0`。集合不符或 commit 失败时停止并只回滚该有界事务，禁止夹带、清理或暂存其他 dirty path。
 
-clean package worktree 必须固定到刚验收的 commit，且无 tracked/untracked 构建输入漂移。既有 beta0.5.12 与 beta0.5.13 的 run1/run2 保持原路径、原字节、原哈希；对应新产物只使用 run1b/run2b 或唯一 no-clobber 后缀，并保存外置哈希。major-stage commit/package/branch 循环本身保持本地；只有下一顺位子分支建立后，才可另行进入 §3.2 的上一版本上传门禁。
+clean package worktree 必须固定到刚验收的 commit，且无 tracked/untracked 构建输入漂移。既有 beta0.5.12 与 beta0.5.13 的 run1/run2 保持原路径、原字节、原哈希；对应新产物只使用 run1b/run2b 或唯一 no-clobber 后缀，并保存外置哈希。major-stage 的当前 `x` commit/package/install 必须先闭环；随后按 §3.2 处理上一完成版本 `x-1` 的上传终态，最后才创建并切入 `x+1` 分支与版本工作树。不得在 `x` 尚未验收时提前建 `x+1`，也不得把根控制仓纳入上传。
+
+`ANNOTATED_FINAL_TAG_GATE` 与 `BYTE_IDENTICAL_PROMOTION_GATE` 独立于 tagless candidate：只有另获 tag 授权、annotated tag 精确指向 accepted commit，且 final ZIP SHA-256 等于已验收 candidate 时，才可生成 final release directory 与 release attestation；candidate receipt、manifest 的 `expected_final_tag` 或本地候选目录均不得冒充 tag 已存在。最终 builder 在实现并验收 `--candidate-dir` 或 `--expected-candidate-sha256` 前，`BYTE_IDENTICAL_PROMOTION_GATE=BLOCKED`：不得先创建 final 目录再比较，也不得仅凭重新构建的“应当相同”结论发布。
+
+#### 3.1A 首次候选包快速路径（后续版本复用）
+
+为避免在 dirty tree、陈旧 manifest 或错误阶段反复执行昂贵的完整打包，首次打包及后续每个版本必须复用以下固定顺序；任何步骤首错未绿前不得提前重复后续步骤：
+
+1. 主线先冻结当期 `release/beta0.5.x` write set，确认 pending body access=`NO`、root/child index=`0`、无第二 mainline writer；互斥的法律、来源、预算和方案审查可用既有只读官署并行。
+2. 在 dirty 主线只跑 source-level 首错检查；`release-manifest.json` 陈旧时先修源码/清单，不运行真实 candidate build，不运行 full gate。
+3. payload write set 稳定后运行一次 `release_payload_manifest.py --write` 供自测；若存在新文件，优先用一次性 `GIT_INDEX_FILE` 执行 `git read-tree HEAD` 并只暂存该获准新文件，在不污染真实 index 的情况下生成最终 tracked preimage manifest。commit 窗口仍须用真实批准 pathspec 再复核一次 manifest 与 staged set。禁止在提交后才发现 untracked/tracked 分类漂移。
+4. 依次通过 release manifest、source budget、legal/provenance、package privacy、source catalog/required-script 完整性、阶段 SPEC/QUALITY 与 `git diff --check`；dirty 主线不重复运行 deterministic builder self-test，后者只由 clean package worktree 的第 8 步/pre-install gate 执行一次。`check_catalog.py --strict` 若唯一失败为已安装 profile 尚缺新版本 access term，可精确记录为 `DEFERRED_TO_POST_INSTALL` 而不阻断 commit；任何 source catalog 缺项仍阻断。只保留首个失败及其 bounded repair cluster，禁止重复跑已知会失败的全量 gate。
+5. 创建当期唯一有界 child commit，立即恢复 index=`0`；记录 branch、commit、tree、approved pathspec 和测试 receipt。无内容变化时复用已验收 HEAD，不建空提交。
+6. 复用现有 clean detached package worktree；只将它移动到刚验收 commit，不创建第二 mainline writer。确认 clean tracked/untracked 状态后运行 `build_release_artifacts.py --mode candidate --json`。
+7. candidate 固定写入 `<release-staging>/decretum-matrix/<version>/<full-head>/`；receipt 完全匹配时直接 `reused=true`，不重建、不覆盖。无 annotated tag 时不得生成 release attestation 或冒充正式 release。
+8. 对该唯一 ZIP 运行 `check_release_gate.py --phase pre-install --package <zip> --require-package --json`；该 gate 是本轮 deterministic builder self-test 的唯一执行面。失败时回到对应 source/package 首错，禁止换包绕过。
+9. 工部安装线程只安装该已验 SHA-256 的 ZIP到批准的 `.agents + current tool` 投影；随后由独立迁移/索引线程处理兼容数据并回读。三者必须引用同一 package hash，pending body 继续保持零访问。
+10. 对同一 ZIP 运行 `--phase post-install`，并要求 `check_catalog.py --strict` 的 installed-profile access term 漂移转绿；记录 host projection、active-copy hash、迁移/index 与必要 runtime 结果，未运行项必须明确 `NOT_RUN|NOT_APPLICABLE|BLOCKED`。完成等式必须机械成立：从 `candidate_receipt.artifacts[]` 按 canonical `artifact_name` 精确选择的 `sha256 == pre_install.package_gate.sha256 == install_receipt.source_package_sha256 == post_install.package_gate.sha256`；安装 receipt 的 `source_package_sha256` 为必填，任一缺失或不等即阻断上传和完成标记，禁止通过重打包“修复”等式。
+11. 当前 `x` 闭环后，仅按 §3.2 上传已完成的 `x-1`；取得上传终态后，从 `x` accepted commit 创建 `x+1` 分支与 `D:\project\decretum-matrix-beta0.5.(x+1)` 受控工作树。
+12. 只有 commit、candidate、安装、上传终态和下一版本 mapping 都有真实 receipt 后，才在任务及 governing plan 标记阶段完成。recovery checkpoint 至少绑定 plan cursor/hash、开发与 package worktree path/common-dir/HEAD、最终 manifest SHA/payload-index、candidate dir/receipt SHA/ZIP SHA、pre/install/post receipt 路径与 hash、`x-1` upload outcome/authorized actions、`x+1` mapping state/event hashes、index=`0` 和 pending access=`NO`，使下一任务只预载 compact receipt 而不重放全历史。
+
+#### 3.1B 子官署 Profile 与语义胶囊合同
+
+所有 spawned、reused 或 follow-up 子官署均必须在办差前加载并确认：
+
+- `role_key`、`direct_superior`、精确 `agents/office-dossiers/<role>/AGENTS.md`
+  与 `agents/standing-officials/<role>.toml` 路径/hash；
+- 当前 `SKILL.md` 路径/hash、模型路由 id 与
+  `model_override_applied=NO`/继承策略；
+- 有界语义胶囊：decree/task id、plan cursor/hash、真实 semantic epoch/charter/
+  invariant capsule/checkpoint（若生产 runtime 已签发）；未签发时只能标记
+  `controller_bounded_capsule`，不得伪造 production checkpoint；
+- 当前不变量、允许 write/read scope、pending/secret/remote/index 门禁、停止条件、
+  证据合同和 compact result envelope。
+
+胶囊只携带本原子任务必需字段与指针，不复制全计划、全历史或 pending body，默认
+`fork_turns=none`。子官署必须在首个回执中确认 profile/dossier/SKILL/capsule hash
+后才可执行；任一 hash、semantic epoch、branch/worktree 或 write lease 漂移即停止并
+重新加载。优先复用已有线程，但只允许复用同一 role、无未决状态且 profile/capsule
+仍匹配的线程；不得为节省启动时间绕过身份或语义连续性门禁。
 
 ### 3.2 PREVIOUS_VERSION_GITHUB_UPLOAD_GATE 与 OSS-GOV 证据
 
 当前 major stage 工作分支为 `release/beta0.5.x` 时，只有其 commit/package 已验收后，自动化才可把紧邻上一已完成版本 `release/beta0.5.(x-1)` 作为唯一上传候选。不得上传本轮刚完成、仍承担当前交接源的 `x`，不得跳级选择更早/其他版本，绝不得为 `D:\project` 根治理仓配置或执行上传。上传取得终态后才返回 §3.1 创建 `x+1`。
 
-上传判定必须来自独立 clean `OSS-GOV` child worktree，例如 `D:\project\worktrees\court-capability-router\oss-gov-beta0.5.(x-1)`。该 worktree 只连接 Court 子仓 common-dir、固定到上一版本精确 commit，index 为 `0`，无 dirty/untracked 构建输入；其 evidence 必须记录 worktree path/common-dir/ref/commit、验证命令与结果、package/manifest SHA-256，且不得复用当前开发 worktree 的未提交状态。
+上传判定必须来自独立 clean `OSS-GOV` child worktree，例如 `D:\project\worktrees\decretum-matrix\oss-gov-beta0.5.(x-1)`。该 worktree 只连接 Decretum Matrix 子仓 common-dir、固定到上一版本精确 commit，index 为 `0`，无 dirty/untracked 构建输入；其 evidence 必须记录 worktree path/common-dir/ref/commit、验证命令与结果、package/manifest SHA-256，且不得复用当前开发 worktree 的未提交状态。
 
 `PREVIOUS_VERSION_GITHUB_UPLOAD_GATE=PASS` 至少要求：Apache-2.0 或用户明确批准且与仓库文件一致的许可证；面向 GitHub 的中英双语 README/homepage；中英双语 CHANGELOG 与该版本 release notes；commit、包、manifest/hash、隐私/安全扫描和全部规定测试均 clean/pass；目标确为 Court 子仓且 remote fetch/push URL、目标 upstream/branch 均正确；以及一份显式上一版本 receipt，把候选/后继版本与 ref、commit、包/hash、安全/测试/文档/许可证证据、remote/upstream 和本次 `authorized_actions` 精确绑定。任一缺失即 fail closed。
 
-receipt 未逐项授权的动作一律禁止。`push`、`tag`、`PR`、GitHub `release` 与资产上传分别裁定，不得由其中一项推定另一项；不得新增/修改 remote 或 upstream 来绕过门禁。当前 Court 子仓 `remote_count=0`，因此本轮状态固定为 `GITHUB_UPLOAD=NOT_RUN / REMOTE_ABSENT`，不执行任何上传。
+receipt 未逐项授权的动作一律禁止。`push`、`tag`、`PR`、GitHub `release` 与资产上传分别裁定，不得由其中一项推定另一项；不得新增/修改 remote 或 upstream 来绕过门禁。当前 Decretum Matrix 子仓本地 `remote_count=0`，线上 `RowlandL/decretum-matrix` 已初始化为空仓；只有上一版本上传 gate 与对应授权动作同时通过后才可受检添加 canonical remote。本轮未到上传顺位时保持 `GITHUB_UPLOAD=NOT_RUN`。
 
 ### 3.3 MAJOR_STAGE_AUTO_HANDOFF_GATE
 
 每个 future major-stage loop 都必须自动交接，但不得在当前已派发 subtasks/官署/lane 尚有 `running|pending|unreconciled` 状态、有效 write lease 或未回收结果时开始。先收齐并核对全部 terminal receipts；本轮计划更新不创建任务、分支或 worktree。
 
-上传门禁已有终态后，使用 root `repo-control` 或同等 manifest-safe 操作，从当前已验收 commit 创建唯一下一顺位 Court child `release/beta0.5.(x+1)` worktree。随后同步 `.repo-control/state/court-capability-router/<task-id>.json` 与 immutable events/root ref-only mapping；根治理仓只同步映射元数据，不 checkout 子历史、不创建新的 mainline Codex worktree，也不复制或重建已经存在的 child worktree。
+上传门禁已有终态后，使用 root `repo-control` 或同等 manifest-safe 操作，从当前已验收 commit 创建唯一下一顺位 Decretum Matrix child `release/beta0.5.(x+1)` worktree。随后同步 `.repo-control/state/decretum-matrix/<task-id>.json` 与 immutable events/root ref-only mapping；旧 `court-capability-router` state/events/refs 只作 append-only 历史 locator，不删除、不重写。根治理仓只同步映射元数据，不 checkout 子历史、不创建新的 mainline Codex worktree，也不复制或重建已经存在的 child worktree。
 
-映射成功后，在同一个 `D:\project` Codex 项目下创建一个**新的本地任务**，可见标题精确使用 `release/beta0.5.(x+1)`。该任务不是新的根 mainline worktree；它通过 root mapping/`attached/court-capability-router` 指向刚创建且已经存在的 child release worktree。禁止两个任务同时持有同一 branch/write lease。
+映射成功后，在同一个 `D:\project` Codex 项目下创建一个**新的本地任务**，可见标题精确使用 `codex/decretum-matrix/release/beta0.5.(x+1)`。该任务不是新的根 mainline worktree；它通过 root mapping/`attached/decretum-matrix` 指向刚创建且已经存在的 child release worktree。禁止两个任务同时持有同一 branch/write lease。
 
-新任务首包只携带 compact handoff：诏令/任务编号、已完成 major stage、child branch/worktree/common-dir/commit、包与计划 hash、semantic receipt/plan cursor、上传终态、未决风险和下一原子动作；全量日志留在 `.repo-control/events/court-capability-router/<old-task-id>/` 并以 `full_log_path` 指针提供，不复制进上下文或共享 `tasks.json`。
+新任务首包只携带 compact handoff：诏令/任务编号、已完成 major stage、child branch/worktree/common-dir/commit、包与计划 hash、semantic receipt/plan cursor、上传终态、未决风险和下一原子动作；全量日志留在 `.repo-control/events/decretum-matrix/<old-task-id>/`，旧 namespace 日志保持原位并以 `full_log_path` 指针提供，不复制进上下文或共享 `tasks.json`。
 
 新任务必须回传 `MAJOR_STAGE_HANDOFF_ACCEPTED` receipt，至少绑定新旧 task id、可见标题、root project、child path/common-dir/branch/HEAD、index=`0`、root mapping state/event hashes、compact-handoff hash、full-log path、plan cursor/hash 和 upload outcome。receipt 验证通过后才关闭旧任务；验证失败时旧任务保持 open/paused，新任务不得写入，禁止双 writer 或丢失恢复锚点。
 
-首次交接目标固定为标题 `release/beta0.5.10` 的 `D:\project` 本地任务，并复用现有 child worktree `D:\project\court-capability-router-beta0.5.10`。执行时必须先证明其 branch 为 `release/beta0.5.10`、common-dir 为 `D:\project\court-capability-router\.git` 且 index=`0`；不得另建、移动或覆盖该 child worktree。只有当前全部 subtasks 关闭后才可同步映射并创建该任务。
+当前已在 `release/beta0.5.10` 与 `D:\project\decretum-matrix-beta0.5.10`；首次后续交接目标因此是 `codex/decretum-matrix/release/beta0.5.11`。执行时必须从 beta0.5.10 accepted commit 创建并验证 `release/beta0.5.11`、`D:\project\decretum-matrix-beta0.5.11`、common-dir=`D:\project\decretum-matrix\.git` 和 index=`0`；不得另建第二 writer、覆盖既有不匹配 worktree 或回退旧产品 namespace。
 
 ## 4. 阶段计划
 
@@ -1093,5 +1132,6 @@ Git index empty
 ### Post-A02 Office Identity Pack / DLC / Scope queue
 
 - 详细后续计划：`docs/plans/2026-07-16-decretum-matrix-office-identity-pack-dlc-and-scope-plan.md`；本执行书不复制其正文。
-- 排队游标：`A02_ACCEPTED_COMMIT -> CLEAN_PACKAGE -> PER_RELEASE_LOCAL_INSTALL/MIGRATION/INDEX -> NEXT_RELEASE_HANDOFF_ACCEPTED -> MAINLINE_ACCEPTED_BASELINE_GATE -> OFFICE_PACK_Q0`。
+- 排队游标：`A02_ACCEPTED_COMMIT -> CLEAN_PACKAGE -> PER_RELEASE_LOCAL_INSTALL/MIGRATION/INDEX -> NEXT_RELEASE_HANDOFF_ACCEPTED -> MAINLINE_ACCEPTED_BASELINE_GATE -> POST_MAINLINE_REBASE/P0 -> OFFICE_PACK_Q0`。
+- Acceptance：P0 必须以最终 accepted baseline 重采 preimage；当前仅计划，不实施 pack/DLC/scope/knowledge promotion。
 - Acceptance gate：当前 A02 与下一 release 交接完成前只允许保留计划；不得实现 pack/DLC/`.decretum`/promotion/office architect，不得建立第二 shared-config repo、ledger 或行为权威，pending body access 必须保持 `NO`。

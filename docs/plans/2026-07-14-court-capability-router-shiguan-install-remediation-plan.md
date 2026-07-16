@@ -1040,5 +1040,6 @@ remote publication not run
 ## Post-A02 Office Identity Pack / DLC / Scope queue
 
 - Governing detail: `docs/plans/2026-07-16-decretum-matrix-office-identity-pack-dlc-and-scope-plan.md`; do not duplicate it here.
-- Cursor: `A02_ACCEPTED_COMMIT -> CLEAN_PACKAGE -> PER_RELEASE_LOCAL_INSTALL/MIGRATION/INDEX -> NEXT_RELEASE_HANDOFF_ACCEPTED -> MAINLINE_ACCEPTED_BASELINE_GATE -> OFFICE_PACK_Q0`.
+- Cursor: `A02_ACCEPTED_COMMIT -> CLEAN_PACKAGE -> PER_RELEASE_LOCAL_INSTALL/MIGRATION/INDEX -> NEXT_RELEASE_HANDOFF_ACCEPTED -> MAINLINE_ACCEPTED_BASELINE_GATE -> POST_MAINLINE_REBASE/P0 -> OFFICE_PACK_Q0`.
+- Acceptance: P0 must rebase every path/schema/topology assumption onto the final accepted baseline; this queue is plan-only and does not implement pack/DLC/scope/knowledge promotion now.
 - Acceptance: plan-only until the cursor is reached. Shared global defaults may later reuse the one shared Shiguan Git manifest domain, but must not create a second repo/ledger/authority or override the Decree Kernel; no implementation or pending-body access is authorized in the current A02 release.
