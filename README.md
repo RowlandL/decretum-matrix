@@ -10,9 +10,10 @@
 `Decretum Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix`。
 项目主页：[github.com/RowlandL/decretum-matrix](https://github.com/RowlandL/decretum-matrix)。
 
-当前开发迭代为 `release/beta0.5.11` / `beta0.5.11`。该版本仍在本地
-RED/GREEN/SPEC/QUALITY 阶段，tag、GitHub Release 与线上资产均未创建；
-已发布的上一版本为
+当前源码发布身份为 `release/beta0.5.11` / `beta0.5.11`，本节记录
+2026-07-17 收敛的源码与本地发布合同。候选 ZIP、pre/post-install、本机安装、
+tag、push、GitHub Release、npm package 与资产上传分别只由对应后续 receipt
+证明；本文不预称任何尚未取得回执的动作成功。已发布的上一版本仍为
 [`beta0.5.10`](https://github.com/RowlandL/decretum-matrix/releases/tag/beta0.5.10)。
 
 当前源码与发行版本以 `VERSION` 为准；正式线上状态只由对应 annotated tag、
@@ -37,6 +38,16 @@ Apache-2.0 历史证据与兼容 locator：
 - 详细记录：[RELEASE-LOG.md](RELEASE-LOG.md)
 
 维护约定：后续发版须同步更新 `VERSION`、本节、`CHANGELOG.md`、`RELEASE-LOG.md`、身份/法律清单与 `release-manifest.json`。ZIP 自身摘要只写在外部 sidecar，避免清单自引用。
+
+### beta0.5.11 更新、修复与新增
+
+- 层级：普通调度与 `superCC` 共用 `court.dispatch_hierarchy.v1`；正常链固定为 `user -> taizi -> 三省`、`shangshu -> 六部`、六部仅差遣本部 bounded child。
+- TOCTOU：approved lease 冻结差遣 body、read/write access contract、child profile、profile/dossier/skill/P00 hashes、expiry 与 canonical binding SHA-256；admission 与 agent-start 在写状态前复核。
+- `superCC`：pane/squad/native-enter 只增加 transport evidence，不得重解释 shared validator；非法层级在 bootstrap、投递、wake 与状态变更前 fail closed。
+- 史馆：WebUI 以 filesystem preserve-only autosync 为主健康状态；Obsidian REST 为可选、失败非阻塞；复用既有 daemon 时只提交异步 refresh request，避免重复同步循环。
+- NPM：version-neutral 私有 harness 动态推导 `@rowlandl/decretum-matrix@0.5.11-beta.0`；source harness exact four 明确 repository-only，不进入 portable ZIP；验证 nested-ZIP privacy、双次 pack 确定性和 strict offline install。
+- 门禁：发布策略共 41 步（source 36、installation 4、runtime 1）；candidate pre-install 选择 35 步，正常 post-install 选择 5 步。
+- 隐私：本轮 `pending_body_access=NO`；pending 正文不读、不哈希、不搬移、不删除。
 
 ### 能做什么
 

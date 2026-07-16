@@ -2,22 +2,24 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
-## beta0.5.11 — 2026-07-16（进行中）
+## beta0.5.11 — 2026-07-17
 
-### 当前结论
+### 发布结论
+`release/beta0.5.11` 从已发布的 `beta0.5.10` 精确提交顺延，现已收敛共享差遣层级、不可变 child lease、superCC parity、史馆 autosync/WebUI 修复及动态 NPM 发布合同。候选包、本机安装与任何外部发布动作仍只以各自后续 receipt 为准，本节不预称成功。
 
-`release/beta0.5.11` 已从已发布的 `beta0.5.10` 精确提交顺延创建，当前仅完成
-版本身份与治理计划落点。该版本仍须完成差遣层级 RED/GREEN、SPEC、QUALITY、
-确定性候选包与本机安装闭环；`beta0.5.11` 的 tag、push、GitHub Release、资产
-上传和安装均不得从本节推定为已执行。
+### 核心变更
+1. 共享层级：`court.dispatch_hierarchy.v1` 统一普通与 superCC 的太子→三省、尚书→六部、六部→本部 bounded child 裁决。
+2. Lease/TOCTOU：lease 绑定 bounded mandate、expected result、terminal condition、access scope、expiry、child profile 与全部语义/preload hashes；admission 和 agent-start 双重复核。
+3. superCC parity：transport 只附加 pane/squad/native-enter 证据；非法 caller/target/profile 在 bootstrap、wake、投递和状态写入前拒绝。
+4. 史馆同步：filesystem preserve-only daemon 是主同步通道，REST 可选且非阻塞；已有 daemon 通过 `refresh-request.json` 异步刷新，WebUI 防重复提交并保留本机错误证据。
+5. NPM：私有 `0.0.0-private` harness 动态生成 `0.5.11-beta.0` 候选；exact four 仅属仓库，portable ZIP 明确拒绝；pack allowlist、nested ZIP privacy、双包确定性与 offline install 均纳入合同。
+6. 发布门禁：41 步由 source 36、installation 4、runtime 1 组成；candidate pre-install 为 35 步，正常 post-install 为 5 步。`--skip-runtime` 不得声称完成 runtime step。
 
-### 当前强制门禁
-
-- 太子/主线程正常执行差遣只到三省；尚书省是六部唯一差遣者。
-- 六部只能在当前尚书授权、部属 profile、P00 semantic capsule、lease、write set
-  与 stop conditions 同时有效时派生本部有界子官署。
-- ordinary 与 superCC 必须使用同一 hierarchy validator；最终
-  `NEXT_RELEASE_PREPUBLICATION_GATE=PASS` 前不得发布 `beta0.5.11`。
+### 验收与发布边界
+- `pending_body_access=NO`；pending 正文保持未读、未哈希、未移动、未删除。
+- package gate 由 `--require-package` 单独强制，不计入上述 manifest step 数。
+- candidate SHA、pre/install/post SHA closure、本机安装以及外部 tag/Release/npm/assets 状态必须引用实际 receipt；缺失时保留 `NOT_RUN|BLOCKED|NOT_AUTHORIZED`。
+- `beta0.5.10` 的发布、许可切点、安装和 handoff 记录保持不可变。
 
 ## beta0.5.10 — 2026-07-16
 

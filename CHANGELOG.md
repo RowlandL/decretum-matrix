@@ -1,16 +1,26 @@
 # Changelog
 
-## beta0.5.11 — Unreleased
+## beta0.5.11 — 2026-07-17
+
+### Added
+- Added the data-backed `court.dispatch_hierarchy.v1` manifest and shared validator for Taizi-to-Three-Departments, Shangshu-to-Six-Ministries, and ministry-owned bounded child dispatch.
+- Added immutable lease-bound child profiles and canonical binding digests covering the bounded dispatch body, access scope, expiry, and P00/profile/dossier/skill hashes.
+- Added a version-neutral private npm release harness with dynamic package identity, strict pack allowlists, nested-ZIP privacy checks, deterministic double-pack proof, and offline install verification.
 
 ### Changed
+- Made ordinary dispatch and `superCC` use the same hierarchy decision before capacity selection, task delivery, pane wake, native transport, or runtime mutation.
+- Made filesystem preserve-only autosync the primary Shiguan/Obsidian health signal; Local REST API is optional and non-blocking, while an existing daemon receives asynchronous refresh requests.
+- Expanded the release policy to 41 manifest steps: 36 source, 4 installation, and 1 conditional runtime step; candidate pre-install selects 35 and normal post-install selects 5.
 
-- Opened the `release/beta0.5.11` iteration from the accepted and published
-  `beta0.5.10` commit. This entry records local development state only; no
-  beta0.5.11 tag, push, GitHub Release, package upload, or installation is
-  implied.
-- Added the prepublication implementation plan for enforcing Taizi-to-Three-
-  Departments and Shangshu-to-Six-Ministries dispatch authority. The behavior
-  remains gated on RED/GREEN, SPEC, and QUALITY acceptance before publication.
+### Fixed
+- Rejected lease, bounded-body, access-contract, profile, semantic-hash, hierarchy-receipt, and expiry drift before agent-start persistence, closing admission-to-start TOCTOU paths.
+- Repaired Shiguan WebUI autosync save/test/action controls, busy-state handling, local-only error reporting, daemon freshness, and asynchronous preserve-only refresh.
+- Kept `package.json`, `package-lock.json`, `scripts/build_npm_package.mjs`, and `scripts/check_npm_package.mjs` tracked as explicit repository-only authority while rejecting them from portable ZIPs.
+
+### Release and compatibility notes
+- `pending_body_access=NO`; no pending body was opened, hashed, moved, deleted, or marked seen.
+- `beta0.5.10` remains immutable historical release/lineage evidence.
+- Candidate, installation, tag, push, GitHub Release, npm publication, and asset success require their own later receipts and are not asserted here.
 
 ## beta0.5.10 — 2026-07-16
 
