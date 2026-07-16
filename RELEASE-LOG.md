@@ -6,9 +6,9 @@
 
 ### 发布结论
 
-`beta0.5.10` 是 Decretum Matrix（诏令矩阵）的首个新名称本地发布候选。
+`beta0.5.10` 是 Decretum Matrix（诏令矩阵）的首个新名称 beta 发行版本。
 规范产品/skill/package 名为 `decretum-matrix`，调用入口为
-`$decretum-matrix`，候选 ZIP 为 `decretum-matrix-beta0.5.10.zip`。为保持
+`$decretum-matrix`，发行 ZIP 为 `decretum-matrix-beta0.5.10.zip`。为保持
 既有安装与史馆连续性，ZIP 内根、物理安装目录和共享史馆 namespace 继续使用
 受保护的技术 locator `court-capability-router`，不再把它作为当前产品显示名。
 
@@ -26,7 +26,7 @@
    门下最终复核或太子统筹权限；工匠任务使用 role-prefixed 名称并保持直属链。
 
 3. 许可、权属与来源
-   当前社区候选使用 `AGPL-3.0-only`。商业权利只由孙华清另行签署的书面协议
+   当前社区发行使用 `AGPL-3.0-only`。商业权利只由孙华清另行签署的书面协议
    产生；贡献采用 DCO + CLA gate，CLA 仍标记 `LEGAL_REVIEW_REQUIRED`。
    `@RowlandL`（GitHub id `42199880`）仅作为公开维护者身份。上游
    `cft0808/edict` 固定提交的 MIT 文本、版权与 provenance 独立完整保留，
@@ -49,11 +49,13 @@
 - Phase 1 P00/RC2/RC4/RC5/RC6：GREEN；门下 `SPEC PASS`；刑部
   `QUALITY READY YES`。
 - package privacy：59/59；release manifest：40 steps；artifact builder
-  deterministic self-test：12/12；legal checker real/self-test：PASS。
+  deterministic/promotion self-test：21/21；legal checker real/self-test：PASS。
 - 四个受保护史馆文件保持原路径、原长度、原 SHA-256；pending body access 为
   `NO`；Git index、`.pyc` 与 remote count 均为 `0`。
-- 当前只声明本地候选。remote push、tag、PR、GitHub Release 与线上资产上传
-  仍须通过 clean accepted commit/package 及相应发布门禁后另行执行。
+- 本文件记录发行内容与本地验收；remote push、tag、GitHub Release 与线上资产
+  上传是否成功，只以对应外部回执为准，不从仓库文字或本地候选目录推定。
+- 正式晋升必须显式传入已验候选 ZIP 的 SHA-256；builder 在创建最终版本目录前
+  比较重建 ZIP，任何格式错误或字节不一致均 fail closed。
 
 ## beta0.5.9 — 2026-07-12
 
@@ -106,6 +108,8 @@ python -B scripts/build_release_artifacts.py --mode candidate --json
 python -B scripts/check_release_gate.py --phase pre-install --package <zip> --require-package --json
 # Install the exact candidate, then:
 python -B scripts/check_release_gate.py --phase post-install --package <same-zip> --require-package --install-receipt <install-receipt.json> --skip-runtime --json
+# After an annotated tag points to the accepted commit:
+python -B scripts/build_release_artifacts.py --mode release --expected-candidate-sha256 <same-zip-sha256> --json
 ```
 
 ## beta0.5.8 — 2026-07-11

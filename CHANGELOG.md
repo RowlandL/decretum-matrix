@@ -37,14 +37,17 @@
 
 - `beta0.5.9` remains an immutable historical Apache-2.0 release. Its grants are
   not withdrawn; the AGPL cutover applies to the new `beta0.5.10` community
-  release candidate.
+  release.
 - The `cft0808/edict` MIT notice and fixed commit provenance remain independent
   and complete. Zero whole-file blob matches are not represented as zero
   influence or zero borrowing.
-- This entry records a locally verified candidate. Remote push, tag, PR and
-  GitHub Release remain separate acceptance actions and are not claimed here.
+- This entry records the release payload and local acceptance. Remote
+  publication is proven only by its external tag, release and asset receipts;
+  repository text alone never claims those actions succeeded.
 - Tagless candidates now use a reusable, no-clobber commit directory with an
   external candidate receipt. Final release attestation remains annotated-tag-only.
+- Final promotion requires the exact accepted candidate SHA-256 and rejects a
+  mismatch before creating the final version directory.
 
 ## beta0.5.9 — 2026-07-12
 

@@ -10,14 +10,15 @@
 `Decretum Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix`。
 项目主页：[github.com/RowlandL/decretum-matrix](https://github.com/RowlandL/decretum-matrix)。
 
-当前源码版本以 `VERSION` 为准；在新品牌发行门禁完成前，不宣称已生成新的正式
-发行包。规范新发行产物使用 `decretum-matrix-<version>.zip`。以下旧名只
-保留为不可变的 `beta0.5.9` Apache-2.0 历史证据与兼容 locator：
+当前源码与发行版本以 `VERSION` 为准；正式线上状态只由对应 annotated tag、
+GitHub Release 与资产回执证明，不从仓库说明文字推断。规范发行产物使用
+`decretum-matrix-<version>.zip`。以下旧名只保留为不可变的 `beta0.5.9`
+Apache-2.0 历史证据与兼容 locator：
 
 - 历史发布包：`court-capability-router-beta0.5.9.zip`
 - 历史 SHA256：`court-capability-router-beta0.5.9.zip.sha256`
 - 历史 ZIP 内受保护根目录：`court-capability-router/`
-- 当前候选包版本与逐文件摘要：[release-manifest.json](release-manifest.json)
+- 当前发行版本与逐文件摘要：[release-manifest.json](release-manifest.json)
 - 当前社区许可证：[GNU AGPLv3，SPDX `AGPL-3.0-only`](LICENSE)
 - 商业授权说明：[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)（本文件本身不授予商业许可）
 - 贡献者许可协议：[CLA.md](CLA.md)（DCO + CLA gate；`LEGAL_REVIEW_REQUIRED`）
