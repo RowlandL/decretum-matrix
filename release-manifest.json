@@ -1077,8 +1077,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_skill_identity.py",
-      "sha256": "ca9fe2871df48954de39c53dec586496b8edf4b0d35feb1bafedcf8d0cfab464",
-      "size": 24546
+      "sha256": "e03e9eb93e0679f911ebab814d81511f78d2c090a3d250322e1a68abc08134ee",
+      "size": 28295
     },
     {
       "mode": "100644",
@@ -1648,10 +1648,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 5483832,
+    "payload_bytes": 5487581,
     "payload_file_count": 269,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "7730f7edae472e627d289ef54090df8b97821cd57476f17d16c1e4dd4057b12b",
+    "payload_index_sha256": "e1df8bdcd66270f7ad9b5d09e49fa68427d912a6967b83ba290ac1d0e30f754e",
     "source_packaged_tracked_file_count": 261,
     "source_tracked_file_count": 269
   },

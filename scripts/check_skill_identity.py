@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import tempfile
 import tomllib
 from typing import Any
 
@@ -65,11 +66,13 @@ CANONICAL_NAME = EXPECTED_IDENTITY["canonical_skill_name"]
 CANONICAL_INVOCATION = EXPECTED_IDENTITY["canonical_invocation"]
 WITHDRAWN_PATTERN = re.compile(r"DecreeMatri|decreematri")
 HOST_METHODOLOGY_PATTERN = re.compile(r"super[\s_:-]*power(?:s)?", re.IGNORECASE)
-HOST_METHODOLOGY_CURRENT_SURFACES = (
+HOST_METHODOLOGY_PORTABLE_SURFACES = (
     Path("SKILL.md"),
     Path("references/court-offices-dispatch.md"),
     Path("scripts/check_court_agent_lifecycle.py"),
     Path("scripts/check_court_office_assignment_binding.py"),
+)
+HOST_METHODOLOGY_REPOSITORY_ONLY_SURFACES = (
     Path("docs/plans/2026-07-14-ccr-r2-shir-a02-execution-book.md"),
     Path("docs/plans/2026-07-14-court-capability-router-shiguan-install-remediation-plan.md"),
 )
@@ -467,9 +470,20 @@ def _check_host_methodology_decoupling(
     root: Path,
     findings: list[dict[str, str]],
 ) -> None:
-    for relative in HOST_METHODOLOGY_CURRENT_SURFACES:
+    def check_surface(relative: Path, *, required: bool) -> None:
         try:
             text = (root / relative).read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            if not required:
+                return
+            _add_finding(
+                findings,
+                code="HOST_METHODOLOGY_SURFACE_UNREADABLE",
+                surface="host_methodology",
+                path=relative,
+                message=f"{type(exc).__name__}: {exc}",
+            )
+            return
         except (OSError, UnicodeError) as exc:
             _add_finding(
                 findings,
@@ -478,7 +492,7 @@ def _check_host_methodology_decoupling(
                 path=relative,
                 message=f"{type(exc).__name__}: {exc}",
             )
-            continue
+            return
         if HOST_METHODOLOGY_PATTERN.search(text):
             _add_finding(
                 findings,
@@ -487,6 +501,75 @@ def _check_host_methodology_decoupling(
                 path=relative,
                 message="project authority must not name or depend on a host methodology family",
             )
+
+    for relative in HOST_METHODOLOGY_PORTABLE_SURFACES:
+        check_surface(relative, required=True)
+    for relative in HOST_METHODOLOGY_REPOSITORY_ONLY_SURFACES:
+        check_surface(relative, required=False)
+
+
+def run_self_test() -> dict[str, Any]:
+    """Exercise installed-vs-repository host-methodology surface boundaries."""
+
+    portable_surfaces = (
+        Path("SKILL.md"),
+        Path("references/court-offices-dispatch.md"),
+        Path("scripts/check_court_agent_lifecycle.py"),
+        Path("scripts/check_court_office_assignment_binding.py"),
+    )
+    repository_only_surfaces = (
+        Path("docs/plans/2026-07-14-ccr-r2-shir-a02-execution-book.md"),
+        Path("docs/plans/2026-07-14-court-capability-router-shiguan-install-remediation-plan.md"),
+    )
+
+    def write_surfaces(root: Path, surfaces: tuple[Path, ...], text: str = "portable\n") -> None:
+        for relative in surfaces:
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+
+    with tempfile.TemporaryDirectory(prefix="decretum-skill-identity-") as raw_temp:
+        temp_root = Path(raw_temp)
+
+        installed_root = temp_root / "installed"
+        write_surfaces(installed_root, portable_surfaces)
+        installed_findings: list[dict[str, str]] = []
+        _check_host_methodology_decoupling(installed_root, installed_findings)
+
+        repository_root = temp_root / "repository"
+        write_surfaces(repository_root, portable_surfaces)
+        write_surfaces(repository_root, repository_only_surfaces)
+        (repository_root / repository_only_surfaces[0]).write_text(
+            "Superpowers coupling must be rejected.\n",
+            encoding="utf-8",
+        )
+        repository_findings: list[dict[str, str]] = []
+        _check_host_methodology_decoupling(repository_root, repository_findings)
+
+        incomplete_root = temp_root / "incomplete"
+        write_surfaces(incomplete_root, portable_surfaces[:-1])
+        write_surfaces(incomplete_root, repository_only_surfaces)
+        incomplete_findings: list[dict[str, str]] = []
+        _check_host_methodology_decoupling(incomplete_root, incomplete_findings)
+
+    checks = {
+        "installed_root_without_repository_plans_passes": not installed_findings,
+        "repository_plan_coupling_fails": any(
+            finding["code"] == "HOST_METHODOLOGY_COUPLING_PRESENT"
+            and finding["path"] == repository_only_surfaces[0].as_posix()
+            for finding in repository_findings
+        ),
+        "missing_portable_surface_fails": any(
+            finding["code"] == "HOST_METHODOLOGY_SURFACE_UNREADABLE"
+            and finding["path"] == portable_surfaces[-1].as_posix()
+            for finding in incomplete_findings
+        ),
+    }
+    return {
+        "schema": "court.skill_identity.self_test.v1",
+        "status": "PASSED" if all(checks.values()) else "FAILED",
+        "checks": checks,
+    }
 
 
 def check_identity(root: Path) -> dict[str, Any]:
@@ -636,6 +719,11 @@ def check_identity(root: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run isolated host-methodology boundary fixtures.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Print JSON (the default output format; retained for explicit callers).",
@@ -647,6 +735,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Skill root to validate; defaults to the checker parent skill.",
     )
     args = parser.parse_args(argv)
+    if args.self_test:
+        result = run_self_test()
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0 if result["status"] == "PASSED" else 1
     result = check_identity(args.root.resolve())
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0 if result["status"] == "PASSED" else 1
