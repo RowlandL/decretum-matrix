@@ -4251,8 +4251,8 @@ function renderObsidianSyncStatus(status = {}) {
     el.obsidianVerifySsl.checked = Boolean(config.verify_ssl);
   }
   setObsidianMode(config.sync_mode === "auto" || config.auto_enabled ? "auto" : "manual");
-  const prefix = status.ok ? "已连接" : "未连接";
-  const message = status.message || (config.has_api_key ? "等待测试连接" : "尚未保存 API key");
+  const prefix = status.ok ? "同步正常" : "同步异常";
+  const message = status.message || (config.has_api_key ? "等待同步状态" : "REST 通道未配置（可选）");
   const daemonState = autosync.status || autosync.mode || (autosync.ok ? "running" : "not running");
   const detail = [
     `权威库 ${truncate(config.source_vault_path || config.shared_shiguan_root || "", 68)}`,
@@ -4261,7 +4261,7 @@ function renderObsidianSyncStatus(status = {}) {
   ].filter((item) => !item.endsWith(" "));
   if (el.obsidianSyncResult) {
     el.obsidianSyncResult.textContent = `${prefix}：${message}${detail.length ? `\n${detail.join("；")}` : ""}`;
-    el.obsidianSyncResult.classList.toggle("warn", !status.ok && !autosync.ok);
+    el.obsidianSyncResult.classList.toggle("warn", !status.ok);
   }
 }
 
@@ -4375,13 +4375,15 @@ async function openObsidianSyncDialog() {
       const payload = obsidianConfigPayload();
       try {
         if (action === "save") {
-          const data = await api("/api/obsidian-sync/config", { method: "POST", body: JSON.stringify(payload) });
-          renderObsidianSyncStatus({ ok: false, message: "连接配置已保存", config: data.config || {} });
+          await api("/api/obsidian-sync/config", { method: "POST", body: JSON.stringify(payload) });
+          await loadObsidianSyncStatus();
           setStatus("Obsidian 同步配置已保存");
         } else if (action === "test") {
           await api("/api/obsidian-sync/config", { method: "POST", body: JSON.stringify(payload) });
           const status = await loadObsidianSyncStatus();
-          setStatus(status.ok ? "Obsidian API 连接成功" : `Obsidian API 未连接：${status.message}`);
+          const restOk = Boolean(status.rest?.ok);
+          const restMessage = status.rest?.message || status.message;
+          setStatus(restOk ? "Obsidian API 连接成功" : `Obsidian API 未连接：${restMessage}`);
         } else if (action === "preview") {
           const preview = await api("/api/obsidian-sync/preview", { method: "POST", body: JSON.stringify(payload) });
           if (el.obsidianSyncResult) {

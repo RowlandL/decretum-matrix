@@ -168,6 +168,31 @@ def run_static_regressions() -> dict[str, object]:
             filesystem_sync = importlib.import_module("sync_shiguan_obsidian_vault")
             autosync_ensure = importlib.import_module("ensure_shiguan_autosync")
 
+            healthy_filesystem_config = {
+                "has_api_key": False,
+                "sync_mode": "filesystem_preserve_only",
+                "autosync_enabled": True,
+            }
+            healthy_autosync = {"ok": True, "mode": "daemon", "pid": 5100}
+            with (
+                mock.patch.object(server, "obsidian_sync_config", return_value=healthy_filesystem_config),
+                mock.patch.object(server, "autosync_public_status", return_value=healthy_autosync),
+            ):
+                healthy_filesystem_status = server.obsidian_sync_status()
+            if healthy_filesystem_status.get("ok") is not True:
+                raise AssertionError("healthy filesystem autosync was reported as overall disconnected")
+            status_message = str(healthy_filesystem_status.get("message") or "")
+            if "尚未保存 API key" in status_message or "REST" not in status_message or "可选" not in status_message:
+                raise AssertionError("optional unconfigured REST channel was not reported as non-blocking")
+            rest_status = healthy_filesystem_status.get("rest")
+            if not isinstance(rest_status, dict) or rest_status.get("configured") is not False:
+                raise AssertionError("REST channel configuration state was not separated from overall sync health")
+            app_source = (root / "web" / "shiguan-tree" / "app.js").read_text(encoding="utf-8")
+            if 'const prefix = status.ok ? "已连接" : "未连接";' in app_source:
+                raise AssertionError("frontend still renders overall sync health as REST connection state")
+            if "status.rest?.ok" not in app_source:
+                raise AssertionError("frontend REST connection test still consumes overall sync health")
+
             if server.DEFAULT_BIND_HOST != "127.0.0.1":
                 raise AssertionError("serve_shiguan_tree default bind is not loopback")
             if web_ensure.DEFAULT_BIND_HOST != "127.0.0.1":
@@ -881,6 +906,7 @@ def run_static_regressions() -> dict[str, object]:
         "browser_token_session_only": True,
         "loopback_bind_defaults": True,
         "peer_endpoint_policy": True,
+        "obsidian_filesystem_status_nonblocking": True,
     }
 
 

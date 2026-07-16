@@ -1078,19 +1078,55 @@ def normalize_obsidian_search_results(value: object, limit: int) -> list[str]:
 
 def obsidian_sync_status() -> dict[str, object]:
     config = obsidian_sync_config(include_secret=False)
-    if not config.get("has_api_key"):
-        return {"ok": False, "message": "尚未保存 API key", "config": config, "autosync": autosync_public_status()}
-    try:
-        status, body, _ = obsidian_api_request("/", timeout=2.5)
-        return {
-            "ok": 200 <= status < 300,
-            "status": status,
-            "message": body.decode("utf-8", errors="replace")[:240],
-            "config": obsidian_sync_config(False),
-            "autosync": autosync_public_status(),
-        }
-    except Exception as exc:
-        return {"ok": False, "message": str(exc), "config": obsidian_sync_config(False), "autosync": autosync_public_status()}
+    autosync = autosync_public_status()
+    rest: dict[str, object] = {
+        "configured": bool(config.get("has_api_key")),
+        "ok": False,
+    }
+    if rest["configured"]:
+        try:
+            status, body, _ = obsidian_api_request("/", timeout=2.5)
+            rest.update(
+                {
+                    "ok": 200 <= status < 300,
+                    "status": status,
+                    "message": body.decode("utf-8", errors="replace")[:240],
+                }
+            )
+        except Exception as exc:
+            rest["message"] = str(exc)
+    else:
+        rest["message"] = "REST 通道未配置（可选）"
+
+    filesystem_mode = config.get("sync_mode") == "filesystem_preserve_only"
+    if filesystem_mode:
+        ok = bool(autosync.get("ok"))
+        message = "filesystem preserve-only autosync 正常" if ok else str(
+            autosync.get("message") or "filesystem preserve-only autosync 异常"
+        )
+        if rest["configured"]:
+            rest_message = (
+                "REST 通道已连接"
+                if rest["ok"]
+                else f"REST 通道异常（非阻塞）：{rest.get('message') or '未知错误'}"
+            )
+        else:
+            rest_message = str(rest["message"])
+        message = f"{message}；{rest_message}"
+    else:
+        ok = bool(rest["ok"])
+        message = str(rest.get("message") or "REST 通道状态未知")
+
+    result: dict[str, object] = {
+        "ok": ok,
+        "message": message,
+        "config": config,
+        "autosync": autosync,
+        "rest": rest,
+    }
+    if "status" in rest:
+        result["status"] = rest["status"]
+    return result
 
 
 def autosync_public_status() -> dict[str, object]:
