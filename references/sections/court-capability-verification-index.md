@@ -4,6 +4,13 @@ This shard governs the active index skill layer for `court-capability-registry.m
 Load it when capability verification, 官籍 refresh, recruitment, or dispatch depends
 on whether an existing skill/agent/tool should be considered available.
 
+For the accepted C1/C2-RC handoff and its runtime/result boundary, see
+[Court Runtime Result And Recruitment Contract](court-runtime-result-and-recruitment-contract.md).
+Broader public discovery, creation, installation, or write behavior below is
+outside the I1/C purified lane. For I1/C, the dedicated contract governs:
+zero network calls, zero external writes, no capability mutation,
+`ASK_USER` intent-only handoff, and `C2_FULL=HOLD_BY_AUTHORITY`.
+
 ## Required Gate
 
 Capability verification must not stop at a static file scan or wait for the user
@@ -52,6 +59,42 @@ scope, and the evidence contract. If the selected capability requires a
 state-changing MCP write, install, paid action, secret, private upload, external
 service, or broader workspace change, stop according to the active authority;
 otherwise proceed with the indexed skill/agent/MCP/CLI/script directly.
+
+## Registry Record Contract
+
+- MCP names come only from direct top-level `mcp_servers`/legacy `mcp` entries;
+  the server node must contain a direct declaration key (`command`, `url`,
+  `transport`, `enabled`, `disabled`, or explicit marker). Nested-only
+  environment tables cannot create candidates. Plugin nodes follow the same
+  direct-declaration rule; nested-only settings do not register a plugin.
+- Plugins use `kind=plugin`. Their embedded skills use `kind=skill` with
+  `source=codex_plugin` so selection can distinguish the container from the
+  callable skill.
+- The deterministic C2 recruitment registry serializes only
+  `kind=skill|plugin|mcp` and
+  `source=local_skill|codex_plugin|local_plugin|local_mcp`. Both standalone
+  skill roots map to `local_skill`; agents and CLIs remain only in the separate
+  legacy broad catalog path.
+- Disabled capabilities remain indexed with `enabled=false` and
+  `dispatchable=false`; selection must fail closed even when query fit is strong.
+- Offline fixtures inject all roots and executable inventories. They must make
+  no network calls, no catalog writes, and no ambient-host fallback reads.
+- Public metadata discovery runs only when the injected authority permits it.
+  Every create/install/write outcome is `ASK_USER` and a structured handoff to
+  尚书省; authority or verification failures preserve blocked/runtime-degraded
+  reason codes and never trigger direct 吏部 mutation.
+- Records use stable fields and sorting, contain no per-record timestamp, secret,
+  environment value, account identifier, or private absolute host path.
+- Plugin ID components must be path-safe. Resolve candidates relative to each
+  injected root and reject traversal/escape before reading. Deduplicate by full
+  `(kind, source, name, relative_path)` identity; cross-source `(kind, name)`
+  conflicts are compared using the full normalized semantic payload. Equivalent
+  duplicates collapse; differing relative paths, content, command/URL, enabled
+  state, or evidence emit one fail-closed record with `verified=false`,
+  `dispatchable=false`, `LOCAL_METADATA_CONFLICT`, and deterministic conflict
+  digests. Sort exactly by
+  `(kind, name, source, relative_path)`. Every emitted record has the exact
+  mandatory schema including boolean `verified` and list `evidence`.
 
 ## Token Policy
 

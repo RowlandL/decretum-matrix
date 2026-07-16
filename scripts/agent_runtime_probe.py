@@ -40,7 +40,7 @@ from court_multi_agent_protocol import validate_protocol_config
 
 
 RECOMMENDED_AGENT_MAX_DEPTH = 4
-RECOMMENDED_AGENT_MAX_THREADS = 16
+RECOMMENDED_AGENT_MAX_THREADS = 32
 
 
 def parse_codex_wrapper_target(text: str) -> Path | None:
@@ -454,13 +454,13 @@ def run_store_false_probe(
                 "-c",
                 "agents.max_depth=4",
                 "-c",
-                "agents.max_threads=15",
+                f"agents.max_threads={RECOMMENDED_AGENT_MAX_THREADS - 1}",
                 "-c",
                 "features.multi_agent=true",
                 "-c",
                 "features.multi_agent_v2.enabled=false",
                 "-c",
-                "features.multi_agent_v2.max_concurrent_threads_per_session=16",
+                f"features.multi_agent_v2.max_concurrent_threads_per_session={RECOMMENDED_AGENT_MAX_THREADS}",
                 "-c",
                 "features.multi_agent_v2.hide_spawn_agent_metadata=true",
             ]
@@ -479,7 +479,7 @@ def run_store_false_probe(
             protocol_config_args = [
                 "-c", "agents.max_depth=4",
                 "-c", "features.multi_agent_v2.enabled=true",
-                "-c", "features.multi_agent_v2.max_concurrent_threads_per_session=16",
+                "-c", f"features.multi_agent_v2.max_concurrent_threads_per_session={RECOMMENDED_AGENT_MAX_THREADS}",
                 "-c", "features.multi_agent_v2.hide_spawn_agent_metadata=true",
             ]
             config_keys.extend(
@@ -686,17 +686,21 @@ def native_config_read_summary(executable_path: Path, *, cwd: Path, timeout_seco
         v2 = features.get("multi_agent_v2") if isinstance(features.get("multi_agent_v2"), dict) else {}
         selected = (
             "v2" if v2.get("enabled") is True and agents.get("max_threads") is None
-            else "v1" if v2.get("enabled") is False and features.get("multi_agent") is True and agents.get("max_threads") == 15
+            else "v1" if v2.get("enabled") is False and features.get("multi_agent") is True and isinstance(agents.get("max_threads"), int) and agents.get("max_threads") >= 1
             else None
         )
         errors: list[str] = []
         if agents.get("max_depth") != 4: errors.append("max_depth")
         if selected == "v2" and (
-            v2.get("max_concurrent_threads_per_session") != 16 or v2.get("hide_spawn_agent_metadata") is not True
+            not isinstance(v2.get("max_concurrent_threads_per_session"), int)
+            or v2.get("max_concurrent_threads_per_session") < 2
+            or v2.get("hide_spawn_agent_metadata") is not True
         ):
             errors.append("v2_bounds_or_reserved_schema")
         if selected == "v1" and (
-            v2.get("max_concurrent_threads_per_session") != 16 or v2.get("hide_spawn_agent_metadata") is not True
+            not isinstance(v2.get("max_concurrent_threads_per_session"), int)
+            or v2.get("max_concurrent_threads_per_session") < 2
+            or v2.get("hide_spawn_agent_metadata") is not True
         ):
             errors.append("v1_inactive_v2_table")
         if selected is None: errors.append("protocol_unresolved")
@@ -951,8 +955,10 @@ def probe() -> dict[str, object]:
         if not config.get("reserved_spawn_schema_compatible"):
             config_notices.append("codex reserved collaboration.spawn_agent schema is incompatible")
     elif selected_protocol == "v1":
-        if config.get("max_threads") != RECOMMENDED_AGENT_MAX_THREADS - 1:
-            config_notices.append("codex V1 child thread limit must equal 15")
+        if not config.get("max_threads") or int(config.get("max_threads") or 0) < RECOMMENDED_AGENT_MAX_THREADS - 1:
+            config_notices.append(
+                f"codex V1 child thread limit below recommended {RECOMMENDED_AGENT_MAX_THREADS - 1}"
+            )
         if not config.get("inactive_v2_config_preserved"):
             config_notices.append("codex inactive V2 rollback table is not fully preserved")
     else:
@@ -1010,7 +1016,7 @@ def probe() -> dict[str, object]:
             "max_concurrent_threads_per_session": RECOMMENDED_AGENT_MAX_THREADS,
             "effective_child_thread_limit": RECOMMENDED_AGENT_MAX_THREADS - 1,
             "meaning": "bounded host ceiling, not an ordinary-wave dispatch target",
-            "remediation": "python -B scripts/ensure_court_agent_config.py --write",
+            "remediation": f"python -B scripts/ensure_court_agent_config.py --apply --threads {RECOMMENDED_AGENT_MAX_THREADS}",
             "multi_agent_v2_enabled": True,
             "hide_spawn_agent_metadata": True,
             "reserved_spawn_schema_compatible": True,
@@ -1067,7 +1073,7 @@ def probe() -> dict[str, object]:
             "recommended_max_depth": RECOMMENDED_AGENT_MAX_DEPTH,
             "recommended_max_threads": RECOMMENDED_AGENT_MAX_THREADS,
             "static_wave_cap": None,
-            "capacity_semantics": "whole-tree live host ceiling clamped to max_threads=16; root consumes one slot, so at most fifteen child threads may be active",
+            "capacity_semantics": "configured threads are advisory and parameterized; actual host capacity/rejection, occupancy, retained nodes, depth, hierarchy, resources, and write-set gates remain authoritative",
             "depth_semantics": "validate every proposed next_depth <= 4; unknown depth fails closed",
         },
         "degraded_reasons": degraded,

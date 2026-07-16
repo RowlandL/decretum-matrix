@@ -15,6 +15,27 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temp_dir:
         env = dict(os.environ)
         env["COURT_RUNTIME_ROOT"] = temp_dir
+        intake_file = Path(temp_dir) / "formal-task-intake.json"
+        intake_file.write_text(
+            json.dumps(
+                {
+                    "schema": "court.conversation_gate.v1",
+                    "active_decree": False,
+                    "active_decree_state": "NONE",
+                    "message_class": "FORMAL_TASK",
+                    "confidence": "HIGH",
+                    "relation_to_active_decree": "NEW_TASK",
+                    "taskization_consent": "EXPLICIT",
+                    "requires_tools": True,
+                    "mutates_state": True,
+                    "risk_present": False,
+                    "next_route": "THREE_DEPARTMENTS",
+                    "question": "",
+                    "rationale": "concurrency smoke formal task fixture",
+                }
+            ),
+            encoding="utf-8",
+        )
         create = subprocess.run(
             [
                 sys.executable,
@@ -24,8 +45,14 @@ def main() -> int:
                 "concurrency",
                 "--title",
                 "concurrency smoke",
+                "--charter",
+                "concurrency smoke charter",
                 "--evidence",
                 "create",
+                "--work-kind",
+                "operation",
+                "--intake-file",
+                str(intake_file),
             ],
             text=True,
             capture_output=True,

@@ -1,6 +1,7 @@
 # Court Office Voice Few-Shot
 
-This shard owns office-title grammar examples for `court-capability-router`.
+This shard owns office-title grammar examples for Decretum Matrix（诏令矩阵）
+(`decretum-matrix`, invoked as `$decretum-matrix`).
 Load it when a reply, progress update, office report, or closeout drifts into
 first-person assistant voice. Use the smallest matching pair: read the rule,
 compare the counterexample, then render the corrected sample.

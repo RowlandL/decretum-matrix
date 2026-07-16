@@ -49,6 +49,36 @@ FAMILY_LINE_PREFIXES = {
     "authority_blocked": ["太子回奏：authority_blocked", "边界：", "受阻动作：", "需要朱批："],
     "office_report": ["上奏：", "身份：", "状态：", "要点：", "证据：", "请裁："],
     "handoff_or_pause": ["太子回奏：", "当前状态：", "未竟事项：", "恢复入口：", "风险："],
+    "dispatch_local_candidate": ["太子回奏：", "状态：", "候选动作：", "证据：", "下一步："],
+    "ask_user_create_skill": ["太子上奏下一项问题：", "状态：", "建议动作：", "证据：", "下一步："],
+    "continue_after_user_rejects": ["太子回奏：", "状态：", "用户决定：", "原任务：", "下一步："],
+    "discovery_authority_blocked": ["太子回奏：authority_blocked", "状态：", "发现结论：", "证据：", "下一步："],
+    "discovery_failed_without_no-candidate_claim": ["太子回奏：", "状态：", "发现结论：", "证据：", "下一步："],
+    "handoff_with_concerns": ["太子回奏：HANDOFF", "状态：", "当前结果：", "证据：", "下一步："],
+    "partial_result": ["太子回奏：", "状态：", "当前结果：", "验收证据：PARTIAL", "下一步："],
+    "verified_done": ["结诏：DONE", "状态：DONE", "完成核验：VERIFIED", "验收证据：VERIFIED", "下一步："],
+}
+
+FAMILY_EXACT_LABELS = {
+    "dispatch_local_candidate": ["太子回奏：", "状态：", "候选动作：", "证据：", "下一步："],
+    "ask_user_create_skill": ["太子上奏下一项问题：", "状态：", "建议动作：", "证据：", "下一步："],
+    "continue_after_user_rejects": ["太子回奏：", "状态：", "用户决定：", "原任务：", "下一步："],
+    "discovery_authority_blocked": ["太子回奏：", "状态：", "发现结论：", "证据：", "下一步："],
+    "discovery_failed_without_no-candidate_claim": ["太子回奏：", "状态：", "发现结论：", "证据：", "下一步："],
+    "handoff_with_concerns": ["太子回奏：", "状态：", "当前结果：", "证据：", "下一步："],
+    "partial_result": ["太子回奏：", "状态：", "当前结果：", "验收证据：", "下一步："],
+    "verified_done": ["结诏：", "状态：", "完成核验：", "验收证据：", "下一步："],
+}
+
+FAMILY_EXACT_VALUES = {
+    "dispatch_local_candidate": {"状态：": {"IN_PROGRESS"}, "候选动作：": {"DISPATCH_LOCAL"}},
+    "ask_user_create_skill": {"状态：": {"NEEDS_CONTEXT"}, "建议动作：": {"PROPOSE_CREATE_SKILL"}},
+    "continue_after_user_rejects": {"状态：": {"IN_PROGRESS"}, "用户决定：": {"REJECTED"}, "原任务：": {"CONTINUES"}},
+    "discovery_authority_blocked": {"太子回奏：": {"authority_blocked"}, "状态：": {"BLOCKED"}, "发现结论：": {"AUTHORITY_BLOCKED"}},
+    "discovery_failed_without_no-candidate_claim": {"状态：": {"PARTIAL"}, "发现结论：": {"DISCOVERY_FAILED"}},
+    "handoff_with_concerns": {"太子回奏：": {"HANDOFF"}, "状态：": {"HANDOFF"}},
+    "partial_result": {"状态：": {"PARTIAL"}, "验收证据：": {"PARTIAL"}},
+    "verified_done": {"结诏：": {"DONE"}, "状态：": {"DONE"}, "完成核验：": {"VERIFIED"}, "验收证据：": {"VERIFIED"}, "下一步：": {"无"}},
 }
 
 FORBIDDEN_GENERIC_VOICE = [
@@ -97,9 +127,22 @@ def _check_ordered_prefixes(family: str, lines: list[str], errors: list[str]) ->
     if len(lines) != len(prefixes):
         errors.append(f"{family}:line_count:{len(lines)}!={len(prefixes)}")
         return
-    for index, (line, prefix) in enumerate(zip(lines, prefixes), start=1):
-        if not line.startswith(prefix):
-            errors.append(f"{family}:line_{index}_prefix:{prefix}")
+    exact_labels = FAMILY_EXACT_LABELS.get(family)
+    if exact_labels is None:
+        for index, (line, prefix) in enumerate(zip(lines, prefixes), start=1):
+            if not line.startswith(prefix):
+                errors.append(f"{family}:line_{index}_prefix:{prefix}")
+        return
+    for index, (line, label) in enumerate(zip(lines, exact_labels), start=1):
+        actual_label, separator, value = line.partition("：")
+        actual_label = actual_label + separator
+        if separator != "：" or actual_label != label:
+            errors.append(f"{family}:line_{index}_label:{label}")
+            continue
+        allowed = FAMILY_EXACT_VALUES.get(family, {}).get(label)
+        enum_value = re.split(r"[；;]", value, maxsplit=1)[0].strip()
+        if allowed is not None and enum_value not in allowed:
+            errors.append(f"{family}:line_{index}_value:{sorted(allowed)}")
 
 
 def _check_closeout(lines: list[str], errors: list[str]) -> None:
@@ -156,7 +199,7 @@ def _check_voice_and_length(family: str, lines: list[str], errors: list[str]) ->
     for term in FORBIDDEN_GENERIC_VOICE:
         if re.search(re.escape(term), joined, flags=re.IGNORECASE):
             errors.append(f"{family}:generic_voice:{term}")
-    if family != "implementation_closeout":
+    if family not in {"implementation_closeout", "verified_done"}:
         allowed_starts = ("太子回奏：", "太子上奏下一项问题：", "门下省封驳：", "上奏：")
         if not lines or not lines[0].startswith(allowed_starts):
             errors.append(f"{family}:missing_office_self_reference")
@@ -250,8 +293,8 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
         errors.append(f"{family}:missing_fixture")
     for family in extra:
         errors.append(f"{family}:extra_fixture")
-    if len(fixtures) != 10:
-        errors.append(f"fixture_count:{len(fixtures)}!=10")
+    if len(fixtures) != len(expected_families):
+        errors.append(f"fixture_count:{len(fixtures)}!={len(expected_families)}")
 
     gate = "PASSED" if not errors else "FAILED"
     return {

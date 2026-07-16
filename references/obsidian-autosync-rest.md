@@ -1,12 +1,15 @@
 # Obsidian Autosync REST / 史馆 Obsidian 实时同步
 
-本卷治理 court-capability-router 史馆与本机 Obsidian vault 的同步、Local REST API、插件和父 vault 入口规则。
+本卷治理 Decretum Matrix（诏令矩阵）（`decretum-matrix` / `$decretum-matrix`）史馆与本机 Obsidian
+vault 的同步、Local REST API、插件和父 vault 入口规则。现存
+`court-capability-router` 目录段仅是受保护的共享史馆与安装 locator，不是当前产品名。
 
 ## Authority
 
 用户最新纠正优先：史馆↔Obsidian freshness 不应依赖 Hermes cron；共享史馆应由本机独立 `shiguan_service_daemon.py` 常驻维护。该守护进程由 `ensure_shiguan_service_daemon.py` 安装为隐藏的用户登录启动任务 `CourtShiguanDaemon`，统一确保单一 8765 史馆 WebUI 与 preserve-only autosync daemon 运行。结诏/checkpoint 的前台路径只负责快速写入归档、索引和刷新请求；全量生长树/Obsidian 镜像刷新由后台 daemon 在检测到史馆源变更后异步执行，除非本轮明确需要阻塞式验证。
 
-权威史馆数据根由 `scripts/shiguan_paths.py` 决定：默认
+权威史馆数据根由 `scripts/shiguan_paths.py` 决定。默认路径继续保留受保护的
+`court-capability-router` 共享史馆 namespace：
 `%LOCALAPPDATA%\court-shiguan\court-capability-router\references`，可由
 `COURT_SHARED_SHIGUAN_ROOT` 或 `SHIGUAN_SHARED_ROOT` 覆盖。Codex、Hermes 与
 Agent Skills 的 skill-local `references/` 不是运行时权威库。
@@ -27,7 +30,7 @@ official records.
 
 ## Independent Autosync Gates
 
-- 开朝：加载 `court-capability-router` 后、进入实质任务前，若 filesystem tool 可用，`approval` 仅运行 `scripts/ensure_shiguan_service_daemon.py --check-only`，除非最新旨意明确允许服务写入；`autonomous`/`super` 仅在任务范围内运行 `scripts/ensure_shiguan_service_daemon.py`，确保隐藏登录任务 `CourtShiguanDaemon` 已注册并启动。该服务守护进程负责复用/启动 `scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765` 与 `scripts/shiguan_autosync_daemon.py`。`scripts/ensure_shiguan_autosync.py` 保留为底层诊断/手动修复入口，不再作为唯一 freshness 机制。
+- 开朝：加载 `$decretum-matrix` 后、进入实质任务前，若 filesystem tool 可用，`approval` 仅运行 `scripts/ensure_shiguan_service_daemon.py --check-only`，除非最新旨意明确允许服务写入；`autonomous`/`super` 仅在任务范围内运行 `scripts/ensure_shiguan_service_daemon.py`，确保隐藏登录任务 `CourtShiguanDaemon` 已注册并启动。该服务守护进程负责复用/启动 `scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765` 与 `scripts/shiguan_autosync_daemon.py`。`scripts/ensure_shiguan_autosync.py` 保留为底层诊断/手动修复入口，不再作为唯一 freshness 机制。
 - 若 Windows 拒绝 XML 方式导入计划任务，`ensure_shiguan_service_daemon.py` 可降级为当前用户 `ONLOGON` 简式任务，任务名仍为 `CourtShiguanDaemon`，动作仍是同一个隐藏 `ShiguanServiceDaemon.vbs` wrapper；撤销命令不变。
 - 静默运行：所有长驻后台进程必须优先使用 `pythonw.exe`，并在 Windows 上设置无窗口启动标志。autosync/WebUI/结诏触发的短时同步子进程也必须通过 `pythonw.exe` 加临时 JSON 文件回传结果，不能周期性弹出控制台窗口。
 - 后台存活探测不得通过会生成控制台宿主的外部命令实现，例如 `tasklist.exe`、未隐藏的 `powershell.exe` 或 `cmd.exe`。Windows PID 检查应使用进程内 API（例如 `OpenProcess`/`GetExitCodeProcess`）或等价无窗口机制；确需调用系统工具时必须设置 `CREATE_NO_WINDOW`。
@@ -58,8 +61,8 @@ official records.
 
 ## Portable Host Paths
 
-- 默认权威共享史馆数据根：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references`
-- 默认权威史馆树：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references\shiguan-tree`
+- 默认权威共享史馆数据根（受保护兼容 locator）：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references`
+- 默认权威史馆树（受保护兼容 locator）：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references\shiguan-tree`
 - 默认父 Obsidian vault：`%USERPROFILE%\Documents\Obsidian Vault`
 - 默认父 vault 入口：`%USERPROFILE%\Documents\Obsidian Vault\史馆入口.md`
 - 默认 Obsidian 缓存镜像：`%USERPROFILE%\Documents\Obsidian Vault\Court Shiguan`
@@ -94,6 +97,7 @@ official records.
 每次相关变更至少验证：
 
 ```bash
+# `court-capability-router` is the protected physical install locator.
 cd "$HOME/.agents/skills/court-capability-router"
 python -B scripts/ensure_shiguan_service_daemon.py --check-only
 python -B scripts/shiguan_autosync_daemon.py --once --force-sync

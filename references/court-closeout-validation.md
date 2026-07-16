@@ -440,3 +440,13 @@ Obsidian/export validation, catalog prerequisite handling, and package-ready
 hard gates including `package_ready_gate`, `package_exclusion_check`, and the
 rule that `package_skill.py` requires separate 太子回奏 authorization for the
 current decree.
+
+## Phase Review And Continuation Gates
+
+`phase_level_tdd_review_gate` is mandatory at each material phase: first preserve
+the failing `RED` proof, then reach `GREEN / SPEC`, and finally pass an independent
+`QUALITY` review before declaring the phase closed.
+
+`resume_correction_same_task_gate` keeps a continuation or correction on the
+same task. It invalidates stale derived state, returns through Three Departments
+（三省）, and requires a new phase closeout / 阶段结项 before packaging or handoff.

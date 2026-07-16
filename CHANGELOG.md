@@ -1,5 +1,49 @@
 # Changelog
 
+## beta0.5.10 — 2026-07-16
+
+### Added
+
+- Added the canonical Decretum Matrix（诏令矩阵） identity, `decretum-matrix`
+  skill/package name, `$decretum-matrix` invocation, and role-prefixed ordinary
+  office dossier/preload contracts.
+- Added body-bound semantic continuity, P00 bounded dispatch/resume packets,
+  idempotent decree/closeout operation receipts, office-carrier lifecycle
+  checks, capability recruitment, and current-tool install projection tests.
+- Added `AGPL-3.0-only` community licensing, separate commercial-license
+  notice, DCO + CLA governance, trademark policy, authorship metadata, and
+  explicit upstream MIT provenance.
+
+### Changed
+
+- Renamed the local repository, managed worktree namespace, release artifacts,
+  documentation, SBOM, and release manifest to `decretum-matrix`; the protected
+  `court-capability-router` install/archive/Shiguan locators remain explicit
+  compatibility surfaces.
+- Updated the release artifact contract to
+  `decretum-matrix-beta0.5.10.zip` while retaining the stable ZIP internal root
+  `court-capability-router/` for existing installations.
+- Decoupled the Decretum Matrix kernel from any named Superpowers methodology;
+  optional workflow skills remain ordinary bounded tool invocations.
+
+### Fixed
+
+- Closed semantic-binding fixture drift, ministry authority overreach,
+  preload-source reachability, Windows 8.3 temporary-root false positives,
+  stage validation without Git metadata, portable bytecode ordering, and
+  deterministic package privacy regressions.
+
+### Release and compatibility notes
+
+- `beta0.5.9` remains an immutable historical Apache-2.0 release. Its grants are
+  not withdrawn; the AGPL cutover applies to the new `beta0.5.10` community
+  release candidate.
+- The `cft0808/edict` MIT notice and fixed commit provenance remain independent
+  and complete. Zero whole-file blob matches are not represented as zero
+  influence or zero borrowing.
+- This entry records a locally verified candidate. Remote push, tag, PR and
+  GitHub Release remain separate acceptance actions and are not claimed here.
+
 ## beta0.5.9 — 2026-07-12
 
 ### Added

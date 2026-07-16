@@ -1,4 +1,4 @@
-"""Generate and strictly validate the beta0.5.9 staged-package payload manifest."""
+"""Generate and strictly validate the Decretum Matrix beta0.5.10 payload manifest."""
 
 from __future__ import annotations
 
@@ -21,12 +21,15 @@ import package_skill
 
 
 SCHEMA = "court.release_manifest.v2"
-NAME = "court-capability-router"
-RELEASE_LABEL = "beta0.5.9"
-VERSION_CORE = "0.5.9"
-ARTIFACT_NAME = "court-capability-router-beta0.5.9.zip"
+NAME = "decretum-matrix"
+DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
+PACKAGE_NAME = NAME
+LICENSE_ID = "AGPL-3.0-only"
+RELEASE_LABEL = "beta0.5.10"
+VERSION_CORE = "0.5.10"
+ARTIFACT_NAME = "decretum-matrix-beta0.5.10.zip"
 SIDECAR_NAME = f"{ARTIFACT_NAME}.sha256"
-ATTESTATION_NAME = "court-capability-router-beta0.5.9.release-attestation.json"
+ATTESTATION_NAME = "decretum-matrix-beta0.5.10.release-attestation.json"
 MANIFEST_NAME = "release-manifest.json"
 ARCHIVE_ROOT = f"{package_skill.ROOT_NAME}/"
 INDEX_FORMAT = "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes"
@@ -34,6 +37,11 @@ LEGAL_PATHS = {
     "LICENSE",
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
+    "PROVENANCE.md",
+    "COMMERCIAL-LICENSE.md",
+    "CLA.md",
+    "TRADEMARKS.md",
+    "AUTHORS.md",
     "SECURITY.md",
     "PRIVACY.md",
     "CONTRIBUTING.md",
@@ -151,10 +159,18 @@ def build_manifest(root: Path) -> dict[str, object]:
     return {
         "schema": SCHEMA,
         "name": NAME,
+        "display_name": DISPLAY_NAME,
+        "package_name": PACKAGE_NAME,
         **identity,
         "archive_root": ARCHIVE_ROOT,
-        "license": {"declared": "Apache-2.0", "file": "LICENSE"},
+        "license": {"declared": LICENSE_ID, "file": "LICENSE"},
         "third_party_notices": "THIRD_PARTY_NOTICES.md",
+        "provenance": "PROVENANCE.md",
+        "commercial_license_notice": "COMMERCIAL-LICENSE.md",
+        "contributor_license_agreement": "CLA.md",
+        "trademarks": "TRADEMARKS.md",
+        "authors": "AUTHORS.md",
+        "contributing": "CONTRIBUTING.md",
         "security_policy": "SECURITY.md",
         "privacy_policy": "PRIVACY.md",
         "sbom": "SBOM.spdx.json",
@@ -184,6 +200,8 @@ def shape_problems(manifest: object) -> list[str]:
     expected = {
         "schema": SCHEMA,
         "name": NAME,
+        "display_name": DISPLAY_NAME,
+        "package_name": PACKAGE_NAME,
         "version_core": VERSION_CORE,
         "channel": "beta",
         "release_label": RELEASE_LABEL,
@@ -193,6 +211,12 @@ def shape_problems(manifest: object) -> list[str]:
         "attestation_name": ATTESTATION_NAME,
         "source_ref": f"refs/tags/{RELEASE_LABEL}",
         "third_party_notices": "THIRD_PARTY_NOTICES.md",
+        "provenance": "PROVENANCE.md",
+        "commercial_license_notice": "COMMERCIAL-LICENSE.md",
+        "contributor_license_agreement": "CLA.md",
+        "trademarks": "TRADEMARKS.md",
+        "authors": "AUTHORS.md",
+        "contributing": "CONTRIBUTING.md",
         "security_policy": "SECURITY.md",
         "privacy_policy": "PRIVACY.md",
         "sbom": "SBOM.spdx.json",
@@ -201,7 +225,7 @@ def shape_problems(manifest: object) -> list[str]:
         if manifest.get(key) != value:
             problems.append(f"identity:{key}")
     license_info = manifest.get("license")
-    if license_info != {"declared": "Apache-2.0", "file": "LICENSE"}:
+    if license_info != {"declared": LICENSE_ID, "file": "LICENSE"}:
         problems.append("identity:license")
     build = manifest.get("build")
     if build != BUILD_CONTRACT:
@@ -269,14 +293,44 @@ def compare_manifest(actual: object, expected: dict[str, object]) -> list[str]:
     return sorted(set(problems))
 
 
+def compare_staged_payload(actual: object, expected_files: list[dict[str, object]]) -> list[str]:
+    problems = shape_problems(actual)
+    if not isinstance(actual, dict):
+        return problems
+    actual_files = actual.get("files") if isinstance(actual.get("files"), list) else []
+    actual_map = {
+        str(entry.get("path")): entry
+        for entry in actual_files
+        if isinstance(entry, dict)
+    }
+    expected_map = {str(entry["path"]): entry for entry in expected_files}
+    for path in sorted_paths(set(expected_map) - set(actual_map)):
+        problems.append(f"missing-payload:{path}")
+    for path in sorted_paths(set(actual_map) - set(expected_map)):
+        problems.append(f"extra-payload:{path}")
+    for path in sorted_paths(set(actual_map) & set(expected_map)):
+        if actual_map[path] != expected_map[path]:
+            problems.append(f"payload-drift:{path}")
+    return sorted(set(problems))
+
+
 def check_current(root: Path) -> dict[str, object]:
     root = root.resolve()
-    expected = build_manifest(root)
     path = root / MANIFEST_NAME
     try:
         actual = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return {"ok": False, "problems": [f"manifest-read:{type(exc).__name__}"], "expected": expected}
+        return {"ok": False, "problems": [f"manifest-read:{type(exc).__name__}"]}
+    if os.environ.get("COURT_PACKAGE_STAGE_VALIDATION") == "1":
+        expected_files, _ = stage_inventory(root)
+        problems = compare_staged_payload(actual, expected_files)
+        return {
+            "ok": not problems,
+            "problems": problems,
+            "manifest": actual,
+            "validation_mode": "staged_payload_without_git_metadata",
+        }
+    expected = build_manifest(root)
     problems = compare_manifest(actual, expected)
     return {"ok": not problems, "problems": problems, "manifest": actual, "expected": expected}
 
@@ -369,10 +423,18 @@ def self_tests() -> dict[str, bool]:
     base: dict[str, object] = {
         "schema": SCHEMA,
         "name": NAME,
+        "display_name": DISPLAY_NAME,
+        "package_name": PACKAGE_NAME,
         **release_identity(RELEASE_LABEL),
         "archive_root": ARCHIVE_ROOT,
-        "license": {"declared": "Apache-2.0", "file": "LICENSE"},
+        "license": {"declared": LICENSE_ID, "file": "LICENSE"},
         "third_party_notices": "THIRD_PARTY_NOTICES.md",
+        "provenance": "PROVENANCE.md",
+        "commercial_license_notice": "COMMERCIAL-LICENSE.md",
+        "contributor_license_agreement": "CLA.md",
+        "trademarks": "TRADEMARKS.md",
+        "authors": "AUTHORS.md",
+        "contributing": "CONTRIBUTING.md",
         "security_policy": "SECURITY.md",
         "privacy_policy": "PRIVACY.md",
         "sbom": "SBOM.spdx.json",
@@ -385,15 +447,46 @@ def self_tests() -> dict[str, bool]:
         },
         "files": entries,
     }
-    tests: dict[str, bool] = {"valid_shape_passes": shape_problems(base) == []}
+    tests: dict[str, bool] = {
+        "valid_shape_passes": shape_problems(base) == [],
+        "canonical_product_identity_required": (
+            NAME == "decretum-matrix"
+            and globals().get("DISPLAY_NAME") == "Decretum Matrix（诏令矩阵）"
+        ),
+        "beta_0_5_10_artifact_identity_required": (
+            RELEASE_LABEL == "beta0.5.10"
+            and VERSION_CORE == "0.5.10"
+            and ARTIFACT_NAME == "decretum-matrix-beta0.5.10.zip"
+        ),
+        "agpl_only_license_required": base.get("license")
+        == {"declared": "AGPL-3.0-only", "file": "LICENSE"},
+        "complete_legal_surface_required": {
+            "LICENSE",
+            "NOTICE",
+            "THIRD_PARTY_NOTICES.md",
+            "PROVENANCE.md",
+            "COMMERCIAL-LICENSE.md",
+            "CLA.md",
+            "TRADEMARKS.md",
+            "AUTHORS.md",
+            "CONTRIBUTING.md",
+            "SBOM.spdx.json",
+        }.issubset(LEGAL_PATHS),
+        "stable_archive_locator_required": ARCHIVE_ROOT == "court-capability-router/",
+    }
     try:
-        release_identity("beta0.5.8")
+        release_identity("beta0.5.9")
     except ManifestError:
         tests["stale_VERSION_rejected"] = True
     else:
         tests["stale_VERSION_rejected"] = False
     for name, mutate in {
-        "wrong_release_label_rejected": lambda value: value.__setitem__("release_label", "beta0.5.8"),
+        "wrong_release_label_rejected": lambda value: value.__setitem__("release_label", "beta0.5.9"),
+        "wrong_display_name_rejected": lambda value: value.__setitem__("display_name", "wrong"),
+        "wrong_package_name_rejected": lambda value: value.__setitem__("package_name", "wrong"),
+        "wrong_license_rejected": lambda value: value.__setitem__(
+            "license", {"declared": "Apache-2.0", "file": "LICENSE"}
+        ),
         "wrong_artifact_name_rejected": lambda value: value.__setitem__("artifact_name", "wrong.zip"),
         "manifest_self_inclusion_rejected": lambda value: value["files"].append(inventory_entry(MANIFEST_NAME, b"self")),
         "unsorted_payload_rejected": lambda value: value.__setitem__("files", list(reversed(value["files"]))),
@@ -474,21 +567,26 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     result: dict[str, object] = {}
-    if args.self_test:
-        tests = self_tests()
-        result["self_test"] = tests
-        result["self_test_ok"] = all(tests.values())
-    if args.write:
-        result["written"] = write_manifest(args.root)
-    if args.check or not (args.write or args.self_test):
-        result["check"] = check_current(args.root)
-    result["ok"] = all(
-        bool(value)
-        for value in (
-            result.get("self_test_ok", True),
-            result.get("check", {}).get("ok", True) if isinstance(result.get("check"), dict) else True,
+    try:
+        if args.self_test:
+            tests = self_tests()
+            result["self_test"] = tests
+            result["self_test_ok"] = all(tests.values())
+        if args.write:
+            result["written"] = write_manifest(args.root)
+        if args.check or not (args.write or args.self_test):
+            result["check"] = check_current(args.root)
+        result["ok"] = all(
+            bool(value)
+            for value in (
+                result.get("self_test_ok", True),
+                result.get("check", {}).get("ok", True)
+                if isinstance(result.get("check"), dict)
+                else True,
+            )
         )
-    )
+    except (ManifestError, package_skill.PackagePolicyError, OSError, subprocess.SubprocessError) as exc:
+        result = {"ok": False, "error": f"{type(exc).__name__}:{exc}"}
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     else:

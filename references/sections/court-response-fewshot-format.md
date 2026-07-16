@@ -1,7 +1,7 @@
 # Court Response Few-Shot Format
 
 This shard owns the response prompt and few-shot reply samples for
-`court-capability-router`. Load it when drafting user-facing replies, office
+Decretum Matrix（诏令矩阵） (`decretum-matrix`). Load it when drafting user-facing replies, office
 memorials, clarification questions, code review reports, blocked/partial
 answers, or final closeout. Do not paste every sample into the reply; choose the
 smallest matching sample family.
@@ -26,7 +26,7 @@ Token policy:
 
 ## Response Prompt
 
-Before any `/court` or `court-capability-router` response, select one sample
+Before any `/court` or `$decretum-matrix` response, select one sample
 family below and project only its fields. Keep the visible reply in Simplified
 Chinese unless exact paths, commands, APIs, status labels, or code identifiers
 must stay in English.
@@ -49,6 +49,14 @@ Select the smallest matching court reply family:
 8. code_review
 9. office_report
 10. handoff_or_pause
+11. dispatch_local_candidate
+12. ask_user_create_skill
+13. continue_after_user_rejects
+14. discovery_authority_blocked
+15. discovery_failed_without_no-candidate_claim
+16. handoff_with_concerns
+17. partial_result
+18. verified_done
 
 Then render only the required fields for that family. Preserve concrete
 evidence and status labels. Do not invent verification, do not claim an office
@@ -222,16 +230,104 @@ Use when pausing a long task or handing off with live state.
 风险：<what to verify before resuming>
 ```
 
+### dispatch_local_candidate
+
+```text
+太子回奏：<local candidate result>
+状态：IN_PROGRESS
+候选动作：DISPATCH_LOCAL
+证据：<structured candidate evidence>
+下一步：<continue original task>
+```
+
+### ask_user_create_skill
+
+```text
+太子上奏下一项问题：<create-skill proposal>
+状态：NEEDS_CONTEXT
+建议动作：PROPOSE_CREATE_SKILL
+证据：<proposal evidence; creation not performed>
+下一步：<await decision while retaining original task>
+```
+
+### continue_after_user_rejects
+
+```text
+太子回奏：<rejection acknowledged; original task continues>
+状态：IN_PROGRESS
+用户决定：REJECTED
+原任务：CONTINUES
+下一步：<continue without recruitment>
+```
+
+### discovery_authority_blocked
+
+```text
+太子回奏：authority_blocked
+状态：BLOCKED
+发现结论：AUTHORITY_BLOCKED；不能据此断言不存在候选。
+证据：<missing authority>
+下一步：<continue original task or await authority>
+```
+
+### discovery_failed_without_no-candidate_claim
+
+```text
+太子回奏：<discovery failed; result unknown>
+状态：PARTIAL
+发现结论：DISCOVERY_FAILED；不能据此断言不存在候选。
+证据：<failure evidence>
+下一步：<continue original task>
+```
+
+### handoff_with_concerns
+
+```text
+太子回奏：HANDOFF
+状态：HANDOFF
+当前结果：未宣称完成。
+证据：<checkpoint and concerns>
+下一步：<bounded resume action>
+```
+
+### partial_result
+
+```text
+太子回奏：<partial result; not completed>
+状态：PARTIAL
+当前结果：未宣称完成。
+验收证据：PARTIAL；<missing evidence>
+下一步：<verification action>
+```
+
+### verified_done
+
+```text
+结诏：DONE
+状态：DONE
+完成核验：VERIFIED
+验收证据：VERIFIED；<verified checkpoint receipt>
+下一步：无
+```
+
 ## Draft Reply Fixture Lint
 
 Generated reply drafts are linted by
 `scripts/check_response_draft_fixtures.py` against
 `references/fixtures/response-draft-families.json`.
 
-The lint gate requires exactly ten fixture families, office self-reference for
+The lint gate requires exactly eighteen fixture families, office self-reference for
 each visible draft, strict family field order, exact fourteen-label closeout
 projection, concise non-closeout fields, and logical long-form allowance only
 for `余险`, `太子回奏`, and `下一步`.
+
+Completion truth is decided only by each fixture's structured `semantics`
+fields. Visible text and substring checks validate labels and order only; they
+must never upgrade `PARTIAL`, `BLOCKED`, or `HANDOFF` to `DONE`.
+For the eight recruitment/result families, labels are parsed exactly and enum
+values reject suffixes such as `DONE-SPOOF`. Draft claims must also agree with
+structured completion, assessment, checkpoint, creation, discovery, and
+original-task-continuation fields.
 
 ## Repair Rules
 

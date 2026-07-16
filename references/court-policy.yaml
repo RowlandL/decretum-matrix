@@ -1,6 +1,6 @@
 schema: court.policy.v1
 updated: "2026-07-12"
-scope: court-capability-router
+scope: decretum-matrix
 default_boundaries:
   newest_user_decree: required
   secrets_private_tokens_cookies: never_echo

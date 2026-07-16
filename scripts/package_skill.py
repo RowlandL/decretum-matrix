@@ -1,4 +1,4 @@
-"""Build a portable court-capability-router skill package.
+"""Build a portable Decretum Matrix skill package.
 
 The package is staged from the local skill directory but intentionally excludes
 host-local Shiguan record bodies, plan archives, memory decisions, generated
@@ -29,6 +29,11 @@ import zipfile
 sys.dont_write_bytecode = True
 
 
+PRODUCT_NAME = "decretum-matrix"
+DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
+RELEASE_LABEL = "beta0.5.10"
+LICENSE_ID = "AGPL-3.0-only"
+# Stable install/archive locator retained for compatibility with existing hosts.
 ROOT_NAME = "court-capability-router"
 SECRET_PATTERNS = [
     re.compile(rb'(?i)"api_key"\s*:\s*"(?!\s*")[^"]{8,}"'),
@@ -105,11 +110,16 @@ SECRET_BEARING_NAMES = {".npmrc", ".pypirc", ".netrc", "_netrc", "netrc"}
 SECRET_BEARING_DIRS = {".ssh", ".aws", ".docker", ".gcloud", ".azure"}
 ROOT_ALLOWED_FILES = {
     ".gitignore",
+    "authors.md",
     "changelog.md",
+    "cla.md",
+    "commercial-license.md",
     "contributing.md",
+    "install-prompt.md",
     "license",
     "notice",
     "privacy.md",
+    "provenance.md",
     "readme.md",
     "release-log.md",
     "release-manifest.json",
@@ -117,6 +127,7 @@ ROOT_ALLOWED_FILES = {
     "security.md",
     "skill.md",
     "third_party_notices.md",
+    "trademarks.md",
     "version",
 }
 ROOT_TEXT_BASENAMES = {".gitignore", "license", "notice", "version"}
@@ -156,6 +167,21 @@ SOURCE_REGENERATED_DIRS = {
 }
 SOURCE_ALLOWED_DIRS = {
     "agents",
+    "agents/office-dossiers",
+    "agents/office-dossiers/bingbu",
+    "agents/office-dossiers/gongbu",
+    "agents/office-dossiers/hubu",
+    "agents/office-dossiers/libu",
+    "agents/office-dossiers/libu-hr",
+    "agents/office-dossiers/menxia",
+    "agents/office-dossiers/patrol-inspector",
+    "agents/office-dossiers/shangshu",
+    "agents/office-dossiers/shiguan",
+    "agents/office-dossiers/shiguan-hermes",
+    "agents/office-dossiers/taizi",
+    "agents/office-dossiers/xingbu",
+    "agents/office-dossiers/zaochao",
+    "agents/office-dossiers/zhongshu",
     "agents/standing-officials",
     "agents/supercc-dossiers",
     "agents/supercc-dossiers/bingbu",
@@ -215,10 +241,12 @@ DEPRECATED_PACKAGE_TEXT_PATTERNS = [
 ]
 EXCLUDE_DIRS = {
     "__pycache__",
+    ".github",
     ".pytest_cache",
     ".mypy_cache",
     ".ruff_cache",
     ".git",
+    "docs",
     "manual",
 }
 EXCLUDE_REFERENCE_DIRS = {
@@ -274,6 +302,11 @@ LEGAL_REQUIRED_MEMBERS = {
     f"{ROOT_NAME}/LICENSE",
     f"{ROOT_NAME}/NOTICE",
     f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md",
+    f"{ROOT_NAME}/PROVENANCE.md",
+    f"{ROOT_NAME}/COMMERCIAL-LICENSE.md",
+    f"{ROOT_NAME}/CLA.md",
+    f"{ROOT_NAME}/TRADEMARKS.md",
+    f"{ROOT_NAME}/AUTHORS.md",
     f"{ROOT_NAME}/SECURITY.md",
     f"{ROOT_NAME}/PRIVACY.md",
     f"{ROOT_NAME}/CONTRIBUTING.md",
@@ -282,6 +315,7 @@ LEGAL_REQUIRED_MEMBERS = {
 
 REQUIRED_COURT_SCRIPTS = [
     "quick_validate.py",
+    "check_install_prompt.py",
     "archive_checkpoint.py",
     "court_file_lock.py",
     "court_usage_ledger.py",
@@ -395,7 +429,7 @@ def skill_root() -> Path:
 
 
 def default_out() -> Path:
-    return Path.home() / "court-capability-router-skill.zip"
+    return Path.home() / f"{PRODUCT_NAME}-{RELEASE_LABEL}.zip"
 
 
 class PackagePolicyError(ValueError):
@@ -436,6 +470,8 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
     lower_name = relative.name.casefold()
     key = relative_key(relative)
     if has_sensitive_directory(relative):
+        return True
+    if lower_parts & {part.casefold() for part in EXCLUDE_DIRS}:
         return True
     if lower_parts & SECRET_BEARING_DIRS:
         return True
@@ -486,12 +522,14 @@ def _assert_resolved_within(path: Path, root: Path, relative: Path) -> None:
 
 
 def _assert_no_link_components(path: Path, root: Path, relative: Path) -> None:
+    expected = root.joinpath(*relative.parts)
     try:
-        relative_to_root = path.relative_to(root)
-    except ValueError as exc:
+        if not os.path.samefile(path, expected):
+            raise ValueError("source path identity differs from expected relative path")
+    except (OSError, ValueError) as exc:
         raise PackagePolicyError(f"source-path-escaped-root:{relative.as_posix()}") from exc
     current = root
-    for part in relative_to_root.parts:
+    for part in relative.parts:
         current = current / part
         if is_link_or_reparse(current):
             raise PackagePolicyError(f"symlink-or-reparse:{relative.as_posix()}")
@@ -1001,7 +1039,12 @@ def validate_optional_release_metadata(name: str, data: bytes) -> str | None:
             value = data.decode("utf-8").strip()
         except UnicodeDecodeError:
             return "invalid-version"
-        if not value or len(value) > 128 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", value):
+        if (
+            not value
+            or len(value) > 128
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", value)
+            or value != RELEASE_LABEL
+        ):
             return "invalid-version"
     if name == f"{ROOT_NAME}/release-manifest.json":
         try:
@@ -1010,14 +1053,31 @@ def validate_optional_release_metadata(name: str, data: bytes) -> str | None:
             return "invalid-release-manifest"
         if not isinstance(value, dict) or not value:
             return "invalid-release-manifest"
+        if (
+            value.get("name") != PRODUCT_NAME
+            or value.get("display_name") != DISPLAY_NAME
+            or value.get("package_name") != PRODUCT_NAME
+            or value.get("release_label") != RELEASE_LABEL
+            or value.get("artifact_name") != f"{PRODUCT_NAME}-{RELEASE_LABEL}.zip"
+            or value.get("archive_root") != f"{ROOT_NAME}/"
+            or value.get("license") != {"declared": LICENSE_ID, "file": "LICENSE"}
+        ):
+            return "invalid-release-manifest"
     if name == f"{ROOT_NAME}/SBOM.spdx.json":
         try:
             value = json.loads(data.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return "invalid-sbom"
         packages = value.get("packages") if isinstance(value, dict) else None
-        declared = [item.get("licenseDeclared") for item in packages or [] if isinstance(item, dict)]
-        if value.get("spdxVersion") != "SPDX-2.3" or "Apache-2.0" not in declared:
+        matching = [
+            item
+            for item in packages or []
+            if isinstance(item, dict)
+            and item.get("name") == PRODUCT_NAME
+            and item.get("versionInfo") == RELEASE_LABEL
+            and item.get("licenseDeclared") == LICENSE_ID
+        ]
+        if value.get("spdxVersion") != "SPDX-2.3" or len(matching) != 1:
             return "invalid-sbom"
     return None
 
@@ -1028,7 +1088,7 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
         f"{ROOT_NAME}/SKILL.md",
         f"{ROOT_NAME}/release-manifest.json",
         f"{ROOT_NAME}/development-manual/README.md",
-        f"{ROOT_NAME}/development-manual/court-capability-router-development-manual-zh.md",
+        f"{ROOT_NAME}/development-manual/decretum-matrix-development-manual-zh.md",
         f"{ROOT_NAME}/web/shiguan-tree/app.js",
         f"{ROOT_NAME}/references/README.md",
         f"{ROOT_NAME}/references/reference-section-index.md",
@@ -1075,7 +1135,8 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
     required.update({f"{ROOT_NAME}/scripts/{name}" for name in REQUIRED_COURT_SCRIPTS})
     required.update(
         {
-            f"{ROOT_NAME}/agents/supercc-dossiers/{role}/AGENTS.md"
+            f"{ROOT_NAME}/agents/{dossier_kind}/{role}/AGENTS.md"
+            for dossier_kind in ("office-dossiers", "supercc-dossiers")
             for role in (
                 "taizi",
                 "zhongshu",
@@ -1231,15 +1292,17 @@ def run_stage_validation(stage: Path) -> list[str]:
 
     for script, args in (
         ("quick_validate.py", []),
+        ("check_install_prompt.py", []),
         ("check_response_fewshot_format.py", []),
         ("check_response_draft_fixtures.py", []),
         ("check_context_compression_survival.py", []),
         ("check_release_legal.py", ["--self-test", "--json"]),
+        ("release_payload_manifest.py", ["--self-test", "--check", "--json"]),
         ("check_package_privacy.py", []),
     ):
         command = [sys.executable, "-B", str(stage / "scripts" / script), *args]
         env = os.environ.copy()
-        if script == "check_package_privacy.py":
+        if script in {"release_payload_manifest.py", "check_package_privacy.py"}:
             env["COURT_PACKAGE_STAGE_VALIDATION"] = "1"
         completed = subprocess.run(
             command,

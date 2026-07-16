@@ -1,8 +1,11 @@
-# 三省六部 Skill 使用手册
+# Decretum Matrix（诏令矩阵）使用手册
 
 ## 1. 这是什么
 
-三省六部 skill 是一个面向 CLI Agent 的任务路由与协作编排 skill。它把复杂任务拆成可管理的职责区：太子总领目标，中书省起草与规划，门下省审查与驳正，尚书省执行与分派，六部承担不同专业方向。
+Decretum Matrix（诏令矩阵）是一个面向 CLI Agent 的任务路由与协作编排
+skill，规范 skill 名与调用为 `decretum-matrix` / `$decretum-matrix`。它把复杂
+任务拆成可管理的职责区：太子总领目标，中书省起草与规划，门下省审查与驳正，
+尚书省执行与分派，六部承担不同专业方向。
 
 它的目标不是增加形式，而是让 Agent 在空白环境中也能快速知道：
 
@@ -68,23 +71,26 @@
 
 ### 触发方式
 
-在 Codex、Claude、Hermes 或其他支持 skill 的 CLI Agent 中，可以直接说：
+在 Codex、Claude、Hermes 或其他支持 skill 的 CLI Agent 中，优先使用规范调用：
 
 ```text
-调用三省六部 skill，按 super 并行执行，先制定计划，再实施、验证、打包。
+调用 `$decretum-matrix`，按 super 并行执行，先制定计划，再实施、验证、打包。
 ```
 
 如果只需要审查，不希望改文件，可以说：
 
 ```text
-调用三省六部 skill，只读审查，不做安装、不改文件、不杀进程。
+调用 `$decretum-matrix`，只读审查，不做安装、不改文件、不杀进程。
 ```
 
 如果需要 superCC，可以说：
 
 ```text
-调用三省六部 skill，以 superCC 模式启动，并验证 zellij 与 squad 门禁。
+调用 `$decretum-matrix`，以 superCC 模式启动，并验证 zellij 与 squad 门禁。
 ```
+
+旧 `$court-capability-router` 输入已 deprecated；只有宿主 alias 探测明确通过时，
+才可把它作为兼容输入解析到同一物理 skill authority，不得复制第二份 skill。
 
 ### 第一次检查
 
@@ -193,7 +199,8 @@ python -B scripts/check_supercc_ministry_dispatch.py
 
 ### 泛 CLI 选择
 
-三省六部 skill 不应只绑定 Codex、Claude、Hermes。它应支持泛 CLI Agent：
+Decretum Matrix 的三省六部协作能力不应只绑定 Codex、Claude、Hermes。
+它应支持泛 CLI Agent：
 
 - 当前 CLI 可识别时，默认使用当前 CLI。
 - 用户指定 CLI 时，按指定工具启动。
@@ -239,7 +246,7 @@ python -B scripts/supercc_watchdog.py --stop-daemon
 打包命令：
 
 ```powershell
-python -B scripts/package_skill.py --out "%USERPROFILE%\court-capability-router-skill.zip"
+python -B scripts/package_skill.py --out "%USERPROFILE%\decretum-matrix-skill.zip"
 ```
 
 ## 7. 高阶使用
@@ -316,7 +323,7 @@ python -m py_compile scripts/*.py
 python -B scripts/check_catalog.py --strict
 python -B scripts/check_portability.py .
 python -B scripts/check_active_copy_hashes.py
-python -B scripts/package_skill.py --out "%USERPROFILE%\court-capability-router-skill.zip"
+python -B scripts/package_skill.py --out "%USERPROFILE%\decretum-matrix-skill.zip"
 ```
 
 如果发现问题，应先列出修复计划，再按计划修复，最后重新验证。
@@ -355,7 +362,7 @@ python -B scripts/check_portability.py .
 ### 打包
 
 ```powershell
-python -B scripts/package_skill.py --out "%USERPROFILE%\court-capability-router-skill.zip"
+python -B scripts/package_skill.py --out "%USERPROFILE%\decretum-matrix-skill.zip"
 ```
 
 ### 静默监督
@@ -393,7 +400,7 @@ python -B scripts/supercc_watchdog.py --stop-daemon
 
 1. 读 `SKILL.md`。
 2. 读 `references/README.md`。
-3. 判断任务是否需要三省六部。
+3. 判断任务是否需要调用 `$decretum-matrix` 及启用其三省六部协作模式。
 4. 做最小计划。
 5. 执行并验证。
 6. 汇报结果。
@@ -427,4 +434,3 @@ python -B scripts/supercc_watchdog.py --stop-daemon
 - 脚本应依靠相对路径和标准库，不依赖本机绝对路径。
 - 包内只放可复用材料，不放本机私有记录。
 - 每次重要更改后都要验证、复核、再打包。
-

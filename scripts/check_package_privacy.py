@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 import warnings
@@ -18,6 +19,8 @@ import zipfile
 sys.dont_write_bytecode = True
 
 import package_skill
+import court_safe_fs
+import court_safe_fs_windows
 
 
 ROOT_NAME = package_skill.ROOT_NAME
@@ -25,6 +28,11 @@ LEGAL_REQUIRED = {
     f"{ROOT_NAME}/LICENSE",
     f"{ROOT_NAME}/NOTICE",
     f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md",
+    f"{ROOT_NAME}/PROVENANCE.md",
+    f"{ROOT_NAME}/COMMERCIAL-LICENSE.md",
+    f"{ROOT_NAME}/CLA.md",
+    f"{ROOT_NAME}/TRADEMARKS.md",
+    f"{ROOT_NAME}/AUTHORS.md",
     f"{ROOT_NAME}/SECURITY.md",
     f"{ROOT_NAME}/PRIVACY.md",
     f"{ROOT_NAME}/CONTRIBUTING.md",
@@ -51,6 +59,947 @@ def validation_problems(members: list[tuple[str, bytes]]) -> list[str]:
         archive_path = Path(tmp_text) / "candidate.zip"
         write_zip(archive_path, members)
         return package_skill.validate_zip(archive_path)[1]
+
+
+class CommonSafeFilesystemTests(unittest.TestCase):
+    @staticmethod
+    def _fake_stat(mode: int, inode: int = 1) -> SimpleNamespace:
+        return SimpleNamespace(
+            st_dev=1,
+            st_ino=inode,
+            st_mode=mode,
+            st_nlink=1,
+            st_size=0,
+            st_mtime_ns=0,
+            st_ctime_ns=0,
+        )
+
+    def _make_directory_link(self, target: Path, link: Path) -> None:
+        try:
+            os.symlink(target, link, target_is_directory=True)
+            return
+        except OSError as symlink_error:
+            if os.name != "nt":
+                self.skipTest(f"directory symlink creation unavailable: {symlink_error}")
+            completed = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            if completed.returncode != 0:
+                self.fail(
+                    "native Windows reparse fixture unavailable: "
+                    f"symlink={symlink_error}; "
+                    f"junction={completed.stdout.strip()} {completed.stderr.strip()}"
+                )
+
+    def _remove_directory_link(self, link: Path) -> None:
+        if link.is_symlink():
+            link.unlink()
+        elif link.exists() or getattr(link, "is_junction", lambda: False)():
+            os.rmdir(link)
+
+    def test_common_safe_fs_rejects_reparse_attributes(self) -> None:
+        fake = SimpleNamespace(st_file_attributes=0x400)
+        with mock.patch.object(Path, "lstat", return_value=fake):
+            self.assertTrue(court_safe_fs.is_link_or_reparse(Path("fixture")))
+
+    def test_common_safe_fs_rejects_unsafe_relative_components(self) -> None:
+        cases = (
+            Path(),
+            Path("..") / "escape.txt",
+            Path("CON"),
+            Path("NUL.txt"),
+            Path("name."),
+            Path("name "),
+            Path("stream:secret"),
+            Path("control\x01name"),
+            Path("C:\\absolute.txt"),
+            Path("\\\\server\\share\\private.txt"),
+            Path("\\\\?\\C:\\private.txt"),
+            Path("/absolute.txt"),
+        )
+        for relative in cases:
+            with self.subTest(relative=str(relative)):
+                with self.assertRaisesRegex(
+                    court_safe_fs.SafeFilesystemError,
+                    "unsafe-relative-path",
+                ):
+                    court_safe_fs.validate_relative_path(relative)
+
+    def test_common_safe_fs_rejects_windows_forbidden_and_extended_devices(self) -> None:
+        cases = (
+            Path("question?.txt"),
+            Path("star*.txt"),
+            Path("less<than.txt"),
+            Path("greater>than.txt"),
+            Path('quote"name.txt'),
+            Path("pipe|name.txt"),
+            Path("CONIN$"),
+            Path("conout$.txt"),
+            Path("COM\u00b9"),
+            Path("com\u00b2.txt"),
+            Path("LPT\u00b3"),
+        )
+        for relative in cases:
+            with self.subTest(relative=str(relative)):
+                with self.assertRaisesRegex(
+                    court_safe_fs.SafeFilesystemError,
+                    "unsafe-relative-path",
+                ):
+                    court_safe_fs.validate_relative_path(relative)
+
+    def test_common_safe_fs_normalizes_nfc_and_case_collision_keys(self) -> None:
+        decomposed = Path("Folder") / "e\u0301.txt"
+        composed = Path("folder") / "\u00e9.txt"
+        self.assertEqual(
+            court_safe_fs.validate_relative_path(decomposed),
+            Path("Folder") / "\u00e9.txt",
+        )
+        self.assertEqual(
+            court_safe_fs.normalized_relative_key(decomposed),
+            court_safe_fs.normalized_relative_key(composed),
+        )
+
+    def test_common_safe_fs_rejects_native_reparse_tree_entry(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            base = Path(raw)
+            root = base / "root"
+            outside = base / "outside"
+            root.mkdir()
+            outside.mkdir()
+            (outside / "private.txt").write_text("private\n", encoding="utf-8")
+            link = root / "linked"
+            self._make_directory_link(outside, link)
+            try:
+                self.assertTrue(court_safe_fs.is_link_or_reparse(link))
+                with self.assertRaisesRegex(
+                    court_safe_fs.SafeFilesystemError,
+                    "symlink-or-reparse",
+                ):
+                    list(court_safe_fs.iter_regular_files_beneath(root))
+            finally:
+                self._remove_directory_link(link)
+
+    def test_common_safe_fs_rejects_normalization_collision(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            first = root / "\u00e9.txt"
+            second = root / "e\u0301.txt"
+            first.write_text("first\n", encoding="utf-8")
+            second.write_text("second\n", encoding="utf-8")
+            self.assertEqual(len(list(root.iterdir())), 2)
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "path-collision",
+            ):
+                list(court_safe_fs.iter_regular_files_beneath(root))
+
+    def test_common_safe_walk_rejects_windows_case_collision(self) -> None:
+        if os.name != "nt":
+            self.skipTest("WindowsPath equality semantics are Windows-specific")
+        root = Path(r"C:\fixture")
+        directory_metadata = self._fake_stat(stat.S_IFDIR | 0o700, inode=10)
+        file_metadata = self._fake_stat(stat.S_IFREG | 0o600, inode=11)
+        entries = [
+            SimpleNamespace(name="Folder.txt", path=os.fspath(root / "Folder.txt")),
+            SimpleNamespace(name="folder.txt", path=os.fspath(root / "folder.txt")),
+        ]
+        scanner = mock.MagicMock()
+        scanner.__enter__.return_value = entries
+        scanner.__exit__.return_value = False
+
+        def fake_lstat(
+            path: Path,
+            relative: Path,
+            *,
+            missing_code: str = "missing-entry",
+        ) -> SimpleNamespace:
+            del path, missing_code
+            return directory_metadata if relative == Path() else file_metadata
+
+        with (
+            mock.patch.object(court_safe_fs.os, "scandir", return_value=scanner),
+            mock.patch.object(court_safe_fs, "_lstat", side_effect=fake_lstat),
+            mock.patch.object(Path, "lstat", return_value=file_metadata),
+            mock.patch.object(Path, "is_junction", return_value=False),
+        ):
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "path-collision",
+            ):
+                list(court_safe_fs._walk_verified_directory(root, root, Path(), {}))
+
+    def test_common_safe_read_rejects_missing_and_special_entries(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            (root / "directory").mkdir()
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "missing-entry",
+            ):
+                court_safe_fs.read_regular_file_beneath(
+                    root,
+                    Path("missing.txt"),
+                    max_bytes=1024,
+                )
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "unsupported-special-file",
+            ):
+                court_safe_fs.read_regular_file_beneath(
+                    root,
+                    Path("directory"),
+                    max_bytes=1024,
+                )
+
+    def test_common_safe_read_rejects_hardlink(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            source = root / "source.txt"
+            alias = root / "alias.txt"
+            source.write_text("private\n", encoding="utf-8")
+            os.link(source, alias)
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "hardlink-rejected",
+            ):
+                court_safe_fs.read_regular_file_beneath(
+                    root,
+                    Path("alias.txt"),
+                    max_bytes=1024,
+                )
+
+    def test_common_safe_read_is_bounded(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            (root / "large.bin").write_bytes(b"12345")
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "file-too-large",
+            ):
+                court_safe_fs.read_regular_file_beneath(
+                    root,
+                    Path("large.bin"),
+                    max_bytes=4,
+                )
+
+    def test_common_safe_read_detects_identity_drift(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            source = root / "source.txt"
+            replacement = root / "replacement.txt"
+            source.write_text("safe\n", encoding="utf-8")
+            replacement.write_text("replacement\n", encoding="utf-8")
+            replaced = False
+
+            if os.name == "nt":
+                real_open = court_safe_fs_windows.open_verified_regular_descriptor
+
+                def racing_windows_open(path: Path, relative: Path) -> int:
+                    nonlocal replaced
+                    if not replaced and os.path.samefile(path, source):
+                        os.replace(replacement, source)
+                        replaced = True
+                    return real_open(path, relative)
+
+                patcher = mock.patch.object(
+                    court_safe_fs_windows,
+                    "open_verified_regular_descriptor",
+                    side_effect=racing_windows_open,
+                )
+            else:
+                real_open = court_safe_fs.os.open
+
+                def racing_posix_open(
+                    path: object,
+                    flags: int,
+                    mode: int = 0o777,
+                    *,
+                    dir_fd: int | None = None,
+                ) -> int:
+                    nonlocal replaced
+                    if not replaced and os.fspath(path) == source.name and dir_fd is not None:
+                        os.replace(replacement, source)
+                        replaced = True
+                    if dir_fd is None:
+                        return real_open(path, flags, mode)
+                    return real_open(path, flags, mode, dir_fd=dir_fd)
+
+                patcher = mock.patch.object(
+                    court_safe_fs.os,
+                    "open",
+                    side_effect=racing_posix_open,
+                )
+
+            with patcher:
+                with self.assertRaisesRegex(
+                    court_safe_fs.SafeFilesystemError,
+                    "identity-drift",
+                ):
+                    court_safe_fs.read_regular_file_beneath(
+                        root,
+                        Path("source.txt"),
+                        max_bytes=1024,
+                    )
+
+    def test_common_safe_read_classifies_unlink_during_read_as_identity_drift(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            source = root / "source.txt"
+            source.write_bytes(b"read-before-unlink")
+            real_read = court_safe_fs.os.read
+            unlinked = False
+
+            def unlinking_read(descriptor: int, count: int) -> bytes:
+                nonlocal unlinked
+                chunk = real_read(descriptor, count)
+                if chunk and not unlinked:
+                    source.unlink()
+                    unlinked = True
+                return chunk
+
+            with mock.patch.object(court_safe_fs.os, "read", side_effect=unlinking_read):
+                with self.assertRaisesRegex(
+                    court_safe_fs.SafeFilesystemError,
+                    "identity-drift",
+                ) as raised:
+                    court_safe_fs.read_regular_file_beneath(
+                        root,
+                        Path("source.txt"),
+                        max_bytes=1024,
+                    )
+            self.assertEqual(raised.exception.code, "identity-drift")
+
+    def test_common_safe_stat_snapshot_tracks_only_authoritative_change_time(self) -> None:
+        before = self._fake_stat(stat.S_IFREG | 0o600, inode=31)
+        after = SimpleNamespace(**vars(before))
+        after.st_ctime_ns = before.st_ctime_ns + 1
+        if os.name == "nt":
+            self.assertEqual(
+                court_safe_fs._stat_snapshot(before),
+                court_safe_fs._stat_snapshot(after),
+            )
+        else:
+            self.assertNotEqual(
+                court_safe_fs._stat_snapshot(before),
+                court_safe_fs._stat_snapshot(after),
+            )
+
+    def test_posix_parent_walk_uses_verified_directory_descriptors(self) -> None:
+        root = Path("/verified-root")
+        directory_metadata = self._fake_stat(stat.S_IFDIR | 0o700, inode=20)
+        with (
+            mock.patch.object(court_safe_fs, "_verified_root", return_value=root),
+            mock.patch.object(court_safe_fs, "_lstat", return_value=directory_metadata),
+            mock.patch.object(court_safe_fs.os, "open", side_effect=(41, 42)) as open_mock,
+            mock.patch.object(court_safe_fs.os, "stat", return_value=directory_metadata),
+            mock.patch.object(court_safe_fs.os, "fstat", return_value=directory_metadata),
+            mock.patch.object(court_safe_fs.os, "close") as close_mock,
+        ):
+            parent = court_safe_fs._open_verified_parent_posix(
+                root,
+                Path("nested") / "target.txt",
+            )
+            try:
+                self.assertEqual(parent.descriptor, 42)
+                self.assertEqual(parent.leaf, "target.txt")
+                self.assertIn(
+                    mock.call(
+                        "nested",
+                        court_safe_fs._POSIX_DIRECTORY_OPEN_FLAGS,
+                        dir_fd=41,
+                    ),
+                    open_mock.call_args_list,
+                )
+            finally:
+                parent.close()
+        close_mock.assert_any_call(41)
+        close_mock.assert_any_call(42)
+
+    def test_posix_candidate_create_and_publish_are_dir_fd_anchored(self) -> None:
+        with mock.patch.object(court_safe_fs.os, "open", return_value=51) as open_mock:
+            descriptor = court_safe_fs._create_candidate_descriptor_posix(
+                17,
+                ".candidate.tmp",
+                0x1234,
+            )
+        self.assertEqual(descriptor, 51)
+        open_mock.assert_called_once_with(
+            ".candidate.tmp",
+            0x1234,
+            0o600,
+            dir_fd=17,
+        )
+
+        with (
+            mock.patch.object(court_safe_fs.os, "replace") as replace_mock,
+            mock.patch.object(court_safe_fs.os, "fsync") as fsync_mock,
+        ):
+            court_safe_fs._replace_names_posix(
+                17,
+                ".candidate.tmp",
+                18,
+                "target.txt",
+            )
+        replace_mock.assert_called_once_with(
+            ".candidate.tmp",
+            "target.txt",
+            src_dir_fd=17,
+            dst_dir_fd=18,
+        )
+        fsync_mock.assert_has_calls([mock.call(17), mock.call(18)])
+
+    def test_common_safe_replace_is_failure_atomic_on_cas_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            destination = root / "target.txt"
+            destination.write_bytes(b"original")
+            before = {path.name: path.read_bytes() for path in root.iterdir()}
+            changed = court_safe_fs.atomic_replace_bytes_beneath(
+                root,
+                Path("target.txt"),
+                b"replacement",
+                expected=court_safe_fs.ExpectedDestination("sha256", "0" * 64),
+            )
+            self.assertFalse(changed)
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in root.iterdir()},
+                before,
+            )
+
+    def test_common_safe_replace_rejects_hardlinked_destination(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            source = root / "source.txt"
+            destination = root / "target.txt"
+            source.write_bytes(b"original")
+            os.link(source, destination)
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "hardlink-rejected",
+            ):
+                court_safe_fs.atomic_replace_bytes_beneath(
+                    root,
+                    Path("target.txt"),
+                    b"replacement",
+                    expected=court_safe_fs.ExpectedDestination("any"),
+                )
+            self.assertEqual(source.read_bytes(), b"original")
+            self.assertEqual(destination.read_bytes(), b"original")
+
+    def test_common_safe_replace_any_rejects_destination_generation_drift(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            destination = root / "target.txt"
+            competitor = root / "competitor.txt"
+            destination.write_bytes(b"original")
+            competitor.write_bytes(b"competing-generation")
+            real_candidate_generated_file = court_safe_fs._candidate_generated_file
+            candidate_checks = 0
+
+            def racing_candidate_generated_file(
+                checked_root: Path,
+                candidate: court_safe_fs.SafeCandidateFile,
+            ) -> tuple[Path, court_safe_fs.GeneratedFile]:
+                nonlocal candidate_checks
+                result = real_candidate_generated_file(checked_root, candidate)
+                candidate_checks += 1
+                if candidate_checks == 2:
+                    os.replace(competitor, destination)
+                return result
+
+            with mock.patch.object(
+                court_safe_fs,
+                "_candidate_generated_file",
+                side_effect=racing_candidate_generated_file,
+            ):
+                changed = court_safe_fs.atomic_replace_bytes_beneath(
+                    root,
+                    Path("target.txt"),
+                    b"replacement",
+                    expected=court_safe_fs.ExpectedDestination("any"),
+                )
+            self.assertFalse(changed)
+            self.assertEqual(destination.read_bytes(), b"competing-generation")
+
+    def test_common_safe_replace_publishes_only_on_expected_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            destination = root / "target.txt"
+            destination.write_bytes(b"original")
+            self.assertFalse(
+                court_safe_fs.atomic_replace_bytes_beneath(
+                    root,
+                    Path("target.txt"),
+                    b"wrong",
+                    expected=court_safe_fs.ExpectedDestination("absent"),
+                )
+            )
+            self.assertEqual(destination.read_bytes(), b"original")
+            expected = hashlib.sha256(b"original").hexdigest()
+            self.assertTrue(
+                court_safe_fs.atomic_replace_bytes_beneath(
+                    root,
+                    Path("target.txt"),
+                    b"replacement",
+                    expected=court_safe_fs.ExpectedDestination("sha256", expected),
+                )
+            )
+            self.assertEqual(destination.read_bytes(), b"replacement")
+
+    def test_common_safe_create_and_replace_reject_sibling_nfc_collision(self) -> None:
+        for mode in ("create", "replace"):
+            with self.subTest(mode=mode):
+                with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+                    root = Path(raw)
+                    decomposed = root / "e\u0301.txt"
+                    composed = root / "\u00e9.txt"
+                    decomposed.write_bytes(b"decomposed-sibling")
+                    if mode == "replace":
+                        composed.write_bytes(b"composed-target")
+                    expected = court_safe_fs.ExpectedDestination(
+                        "absent" if mode == "create" else "any"
+                    )
+                    with self.assertRaisesRegex(
+                        court_safe_fs.SafeFilesystemError,
+                        "path-collision",
+                    ):
+                        court_safe_fs.atomic_replace_bytes_beneath(
+                            root,
+                            Path("\u00e9.txt"),
+                            b"replacement",
+                            expected=expected,
+                        )
+                    self.assertEqual(decomposed.read_bytes(), b"decomposed-sibling")
+                    if mode == "replace":
+                        self.assertEqual(composed.read_bytes(), b"composed-target")
+
+    def test_common_safe_replace_rejects_sibling_casefold_collision(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            existing = root / "Target.txt"
+            existing.write_bytes(b"case-preserved")
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "path-collision",
+            ):
+                court_safe_fs.atomic_replace_bytes_beneath(
+                    root,
+                    Path("target.txt"),
+                    b"replacement",
+                    expected=court_safe_fs.ExpectedDestination("any"),
+                )
+            self.assertEqual(existing.read_bytes(), b"case-preserved")
+
+    def test_common_safe_candidate_publish_rejects_sibling_nfc_collision(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            (root / "e\u0301.bin").write_bytes(b"decomposed-sibling")
+            candidate = court_safe_fs.create_candidate_file_beneath(root, suffix=".bin")
+            candidate.file_object.write(b"candidate")
+            try:
+                with self.assertRaisesRegex(
+                    court_safe_fs.SafeFilesystemError,
+                    "path-collision",
+                ):
+                    court_safe_fs.atomic_publish_file_beneath(
+                        root,
+                        Path("\u00e9.bin"),
+                        candidate,
+                        expected=court_safe_fs.ExpectedDestination("absent"),
+                    )
+            finally:
+                candidate.file_object.close()
+                (root / candidate.relative).unlink(missing_ok=True)
+
+    def test_common_safe_post_commit_failure_reports_committed_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            destination = root / "target.bin"
+            destination.write_bytes(b"original")
+            with mock.patch.object(
+                court_safe_fs,
+                "_hash_regular_file",
+                side_effect=OSError("forced post-commit verification failure"),
+            ):
+                with self.assertRaises(court_safe_fs.SafeFilesystemError) as raised:
+                    court_safe_fs.atomic_replace_bytes_beneath(
+                        root,
+                        Path("target.bin"),
+                        b"replacement",
+                        expected=court_safe_fs.ExpectedDestination("any"),
+                    )
+            self.assertEqual(destination.read_bytes(), b"replacement")
+            self.assertEqual(raised.exception.code, "publish-post-commit-failed")
+            self.assertEqual(raised.exception.commit_state, "committed")
+            self.assertIn("commit-state=committed", str(raised.exception))
+
+    def test_common_safe_replace_close_failure_preserves_commit_outcome(self) -> None:
+        cases = (
+            (
+                "published",
+                court_safe_fs.ExpectedDestination("any"),
+                None,
+                "candidate-close-failed",
+                "committed",
+                b"replacement",
+            ),
+            (
+                "not-published",
+                court_safe_fs.ExpectedDestination("absent"),
+                None,
+                "candidate-close-failed",
+                "not-committed",
+                b"original",
+            ),
+            (
+                "primary-post-commit-error",
+                court_safe_fs.ExpectedDestination("any"),
+                court_safe_fs.SafeFilesystemError(
+                    "publish-post-commit-failed",
+                    Path("target.bin"),
+                    "forced primary committed failure",
+                    commit_state="committed",
+                ),
+                "publish-post-commit-failed",
+                "committed",
+                b"replacement",
+            ),
+        )
+        real_create_candidate = court_safe_fs._create_candidate_in_directory
+        real_hash_regular_file = court_safe_fs._hash_regular_file
+
+        for name, expected, verification_error, error_code, commit_state, body in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+                    root = Path(raw)
+                    destination = root / "target.bin"
+                    destination.write_bytes(b"original")
+
+                    def create_candidate_with_failing_close(*args, **kwargs):
+                        candidate = real_create_candidate(*args, **kwargs)
+                        real_file = candidate.file_object
+                        failing_file = mock.Mock(wraps=real_file)
+                        failing_file.closed = False
+
+                        def fail_close() -> None:
+                            real_file.close()
+                            raise OSError("forced candidate close failure")
+
+                        failing_file.close.side_effect = fail_close
+                        candidate.file_object = failing_file
+                        return candidate
+
+                    hash_side_effect = verification_error or real_hash_regular_file
+                    with (
+                        mock.patch.object(
+                            court_safe_fs,
+                            "_create_candidate_in_directory",
+                            side_effect=create_candidate_with_failing_close,
+                        ),
+                        mock.patch.object(
+                            court_safe_fs,
+                            "_hash_regular_file",
+                            side_effect=hash_side_effect,
+                        ),
+                    ):
+                        with self.assertRaises(court_safe_fs.SafeFilesystemError) as raised:
+                            court_safe_fs._replace_bytes_platform(
+                                root,
+                                Path("target.bin"),
+                                b"replacement",
+                                expected,
+                                verify_windows=os.name == "nt",
+                            )
+
+                    self.assertEqual(destination.read_bytes(), body)
+                    self.assertEqual(raised.exception.code, error_code)
+                    self.assertEqual(raised.exception.commit_state, commit_state)
+                    if isinstance(verification_error, court_safe_fs.SafeFilesystemError):
+                        self.assertIs(raised.exception, verification_error)
+
+    def test_common_safe_candidate_flush_error_is_normalized(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            candidate = court_safe_fs.create_candidate_file_beneath(root, suffix=".bin")
+            candidate.file_object.write(b"candidate")
+            failing_file = mock.Mock(wraps=candidate.file_object)
+            failing_file.closed = False
+            failing_file.flush.side_effect = OSError("forced flush failure")
+            failing_candidate = court_safe_fs.SafeCandidateFile(
+                candidate.relative,
+                failing_file,
+                candidate.platform_handle,
+            )
+            try:
+                with self.assertRaises(court_safe_fs.SafeFilesystemError) as raised:
+                    court_safe_fs.atomic_publish_file_beneath(
+                        root,
+                        Path("published.bin"),
+                        failing_candidate,
+                        expected=court_safe_fs.ExpectedDestination("absent"),
+                    )
+                self.assertEqual(raised.exception.code, "candidate-flush-failed")
+                self.assertEqual(raised.exception.commit_state, "not-committed")
+            finally:
+                candidate.file_object.close()
+                (root / candidate.relative).unlink(missing_ok=True)
+
+    def test_common_safe_candidate_publish_is_failure_atomic(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            destination = root / "target.bin"
+            destination.write_bytes(b"original")
+            candidate = court_safe_fs.create_candidate_file_beneath(root, suffix=".bin")
+            candidate.file_object.write(b"candidate")
+            candidate.file_object.flush()
+            try:
+                self.assertFalse(
+                    court_safe_fs.atomic_publish_file_beneath(
+                        root,
+                        Path("target.bin"),
+                        candidate,
+                        expected=court_safe_fs.ExpectedDestination("sha256", "f" * 64),
+                    )
+                )
+                self.assertEqual(destination.read_bytes(), b"original")
+                self.assertFalse(candidate.file_object.closed)
+                self.assertTrue((root / candidate.relative).is_file())
+            finally:
+                candidate.file_object.close()
+                (root / candidate.relative).unlink(missing_ok=True)
+
+    def test_common_safe_candidate_publish_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            candidate = court_safe_fs.create_candidate_file_beneath(root, suffix=".bin")
+            candidate.file_object.write(b"candidate")
+            try:
+                self.assertTrue(
+                    court_safe_fs.atomic_publish_file_beneath(
+                        root,
+                        Path("published.bin"),
+                        candidate,
+                        expected=court_safe_fs.ExpectedDestination("absent"),
+                    )
+                )
+                self.assertEqual(
+                    court_safe_fs.read_regular_file_beneath(
+                        root,
+                        Path("published.bin"),
+                        max_bytes=1024,
+                    ),
+                    b"candidate",
+                )
+                self.assertFalse(candidate.file_object.closed)
+            finally:
+                candidate.file_object.close()
+
+    def test_windows_module_exposes_batch_a_handle_contract(self) -> None:
+        for name in (
+            "iter_regular_files_handle",
+            "read_regular_file_handle",
+            "replace_bytes_handle",
+            "publish_candidate_handle",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue(callable(getattr(court_safe_fs_windows, name)))
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle traversal is Windows-specific")
+    def test_windows_tree_walk_never_uses_path_only_fallback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-safe-fs-") as raw:
+            root = Path(raw)
+            (root / "nested").mkdir()
+            (root / "nested" / "file.txt").write_bytes(b"safe")
+            with mock.patch.object(
+                court_safe_fs,
+                "_walk_verified_directory",
+                side_effect=AssertionError("path-only Windows traversal used"),
+            ):
+                files = list(court_safe_fs.iter_regular_files_beneath(root))
+        self.assertEqual([relative.as_posix() for relative, _ in files], ["nested/file.txt"])
+
+    def test_windows_handle_snapshot_tracks_change_time(self) -> None:
+        before = court_safe_fs_windows.WindowsHandleInformation(
+            final_path=os.fspath(Path("/verified-root/file.txt")),
+            volume_serial_number=7,
+            file_id=0x1234,
+            file_attributes=0x80,
+            number_of_links=1,
+            file_size=4,
+            last_write_time=10,
+            change_time=20,
+        )
+        after = court_safe_fs_windows.WindowsHandleInformation(
+            final_path=before.final_path,
+            volume_serial_number=before.volume_serial_number,
+            file_id=before.file_id,
+            file_attributes=before.file_attributes,
+            number_of_links=before.number_of_links,
+            file_size=before.file_size,
+            last_write_time=before.last_write_time,
+            change_time=before.change_time + 1,
+        )
+        self.assertNotEqual(
+            court_safe_fs_windows.handle_information_snapshot(before),
+            court_safe_fs_windows.handle_information_snapshot(after),
+        )
+
+    def test_windows_authoritative_link_count_rejects_hardlink(self) -> None:
+        expected_path = Path("/verified-root/target.txt")
+        relative = Path("target.txt")
+        opened = self._fake_stat(stat.S_IFREG | 0o600, inode=0x1234)
+        hardlinked = court_safe_fs_windows.WindowsHandleInformation(
+            final_path=os.fspath(expected_path),
+            volume_serial_number=7,
+            file_id=0x1234,
+            file_attributes=0x80,
+            number_of_links=2,
+        )
+        with (
+            mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+            mock.patch.object(court_safe_fs_windows, "platform_handle_from_fd", return_value=63),
+            mock.patch.object(
+                court_safe_fs_windows,
+                "_windows_handle_information",
+                return_value=hardlinked,
+            ),
+        ):
+            with self.assertRaisesRegex(
+                court_safe_fs.SafeFilesystemError,
+                "hardlink-rejected",
+            ):
+                court_safe_fs_windows.verify_open_descriptor(
+                    62,
+                    expected_path,
+                    opened,
+                    relative=relative,
+                )
+
+    def test_windows_verified_open_uses_reparse_safe_flags(self) -> None:
+        expected_path = Path("/verified-root/nested/target.txt")
+        relative = Path("nested") / "target.txt"
+        opened = self._fake_stat(stat.S_IFREG | 0o600, inode=0x1234)
+        information = court_safe_fs_windows.WindowsHandleInformation(
+            final_path=os.fspath(expected_path),
+            volume_serial_number=7,
+            file_id=0x1234,
+            file_attributes=0x80,
+            number_of_links=1,
+        )
+        with (
+            mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+            mock.patch.object(court_safe_fs_windows, "_verify_windows_parent_chain"),
+            mock.patch.object(court_safe_fs_windows, "_create_file_handle", return_value=61) as create_mock,
+            mock.patch.object(court_safe_fs_windows, "_descriptor_from_handle", return_value=62),
+            mock.patch.object(court_safe_fs_windows.os, "fstat", return_value=opened),
+            mock.patch.object(
+                court_safe_fs_windows,
+                "verify_open_descriptor",
+                return_value=information,
+            ) as verify_mock,
+        ):
+            descriptor = court_safe_fs_windows.open_verified_regular_descriptor(
+                expected_path,
+                relative,
+            )
+        self.assertEqual(descriptor, 62)
+        flags = create_mock.call_args.kwargs["flags_and_attributes"]
+        self.assertEqual(
+            flags
+            & (
+                court_safe_fs_windows.FILE_FLAG_OPEN_REPARSE_POINT
+                | court_safe_fs_windows.FILE_FLAG_BACKUP_SEMANTICS
+            ),
+            court_safe_fs_windows.FILE_FLAG_OPEN_REPARSE_POINT
+            | court_safe_fs_windows.FILE_FLAG_BACKUP_SEMANTICS,
+        )
+        verify_mock.assert_called_once_with(
+            62,
+            expected_path,
+            opened,
+            relative=relative,
+        )
+
+    def test_windows_handle_information_mocks_final_path_and_file_id(self) -> None:
+        expected_path = Path("/verified-root/nested/target.txt")
+        relative = Path("nested") / "target.txt"
+        opened = self._fake_stat(stat.S_IFREG | 0o600, inode=0x1234)
+        matching = court_safe_fs_windows.WindowsHandleInformation(
+            final_path=os.fspath(expected_path),
+            volume_serial_number=7,
+            file_id=0x1234,
+            file_attributes=0x80,
+            number_of_links=1,
+        )
+        with (
+            mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+            mock.patch.object(court_safe_fs_windows, "platform_handle_from_fd", return_value=63),
+            mock.patch.object(
+                court_safe_fs_windows,
+                "_windows_handle_information",
+                return_value=matching,
+            ),
+        ):
+            self.assertEqual(
+                court_safe_fs_windows.verify_open_descriptor(
+                    62,
+                    expected_path,
+                    opened,
+                    relative=relative,
+                ),
+                matching,
+            )
+
+        for information, detail in (
+            (
+                court_safe_fs_windows.WindowsHandleInformation(
+                    final_path=os.fspath(expected_path.with_name("raced.txt")),
+                    volume_serial_number=7,
+                    file_id=0x1234,
+                    file_attributes=0x80,
+                    number_of_links=1,
+                ),
+                "opened-handle-final-path-mismatch",
+            ),
+            (
+                court_safe_fs_windows.WindowsHandleInformation(
+                    final_path=os.fspath(expected_path),
+                    volume_serial_number=7,
+                    file_id=0x9999,
+                    file_attributes=0x80,
+                    number_of_links=1,
+                ),
+                "opened-handle-file-id-mismatch",
+            ),
+        ):
+            with self.subTest(detail=detail):
+                with (
+                    mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+                    mock.patch.object(
+                        court_safe_fs_windows,
+                        "platform_handle_from_fd",
+                        return_value=63,
+                    ),
+                    mock.patch.object(
+                        court_safe_fs_windows,
+                        "_windows_handle_information",
+                        return_value=information,
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        court_safe_fs.SafeFilesystemError,
+                        detail,
+                    ) as raised:
+                        court_safe_fs_windows.verify_open_descriptor(
+                            62,
+                            expected_path,
+                            opened,
+                            relative=relative,
+                        )
+                self.assertEqual(raised.exception.relative, relative)
 
 
 class SourceTreePrivacyTests(unittest.TestCase):
@@ -247,27 +1196,43 @@ class ZipStructurePrivacyTests(unittest.TestCase):
     def test_root_release_allowlist_accepts_known_files_and_rejects_unknown(self) -> None:
         allowed = validation_problems(
             [
-                (f"{ROOT_NAME}/VERSION", b"beta0.5.8\n"),
+                (f"{ROOT_NAME}/VERSION", b"beta0.5.10\n"),
                 (f"{ROOT_NAME}/CHANGELOG.md", b"# Changelog\n"),
                 (f"{ROOT_NAME}/RELEASE-LOG.md", b"# Release log\n"),
-                (f"{ROOT_NAME}/release-manifest.json", b'{"schema":"court.release.v1"}\n'),
+                (
+                    f"{ROOT_NAME}/release-manifest.json",
+                    (
+                        b'{"name":"decretum-matrix","display_name":"Decretum Matrix'
+                        b'\\uff08\\u8bcf\\u4ee4\\u77e9\\u9635\\uff09","package_name":"decretum-matrix",'
+                        b'"release_label":"beta0.5.10","artifact_name":"decretum-matrix-beta0.5.10.zip",'
+                        b'"archive_root":"court-capability-router/","license":{"declared":"AGPL-3.0-only",'
+                        b'"file":"LICENSE"}}\n'
+                    ),
+                ),
                 (f"{ROOT_NAME}/.gitignore", b"dist/\n"),
-                (f"{ROOT_NAME}/LICENSE", b"Apache License\n"),
-                (f"{ROOT_NAME}/NOTICE", b"court-capability-router\n"),
+                (f"{ROOT_NAME}/LICENSE", b"GNU AFFERO GENERAL PUBLIC LICENSE\n"),
+                (f"{ROOT_NAME}/NOTICE", b"Decretum Matrix\n"),
                 (f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md", b"# Third-party notices\n"),
+                (f"{ROOT_NAME}/PROVENANCE.md", b"# Provenance\n"),
+                (f"{ROOT_NAME}/COMMERCIAL-LICENSE.md", b"# Commercial license notice\n"),
+                (f"{ROOT_NAME}/CLA.md", b"# Contributor License Agreement\n"),
+                (f"{ROOT_NAME}/TRADEMARKS.md", b"# Trademarks\n"),
+                (f"{ROOT_NAME}/AUTHORS.md", b"# Authors\n"),
                 (f"{ROOT_NAME}/SECURITY.md", b"# Security\n"),
                 (f"{ROOT_NAME}/PRIVACY.md", b"# Privacy\n"),
                 (f"{ROOT_NAME}/CONTRIBUTING.md", b"# Contributing\n"),
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
-                    b'{"spdxVersion":"SPDX-2.3","packages":[{"licenseDeclared":"Apache-2.0"}]}\n',
+                    b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
+                    b'"versionInfo":"beta0.5.10","licenseDeclared":"AGPL-3.0-only"}]}\n',
                 ),
             ]
         )
         for filename in (
             "VERSION", "CHANGELOG.md", "RELEASE-LOG.md", "release-manifest.json", ".gitignore",
-            "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "SECURITY.md", "PRIVACY.md",
-            "CONTRIBUTING.md", "SBOM.spdx.json",
+            "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "PROVENANCE.md",
+            "COMMERCIAL-LICENSE.md", "CLA.md", "TRADEMARKS.md", "AUTHORS.md",
+            "SECURITY.md", "PRIVACY.md", "CONTRIBUTING.md", "SBOM.spdx.json",
         ):
             self.assertFalse(
                 any(filename in problem and "not-allowed" in problem for problem in allowed),
@@ -281,11 +1246,20 @@ class ZipStructurePrivacyTests(unittest.TestCase):
         bad_version = validation_problems([(f"{ROOT_NAME}/VERSION", b"bad version with spaces\n")])
         self.assert_problem(bad_version, "invalid-version")
 
+        stale_version = validation_problems([(f"{ROOT_NAME}/VERSION", b"beta0.5.9\n")])
+        self.assert_problem(stale_version, "invalid-version")
+
         bad_manifest = validation_problems([(f"{ROOT_NAME}/release-manifest.json", b"[]\n")])
         self.assert_problem(bad_manifest, "invalid-release-manifest")
 
         bad_sbom = validation_problems(
-            [(f"{ROOT_NAME}/SBOM.spdx.json", b'{"spdxVersion":"SPDX-2.2"}\n')]
+            [
+                (
+                    f"{ROOT_NAME}/SBOM.spdx.json",
+                    b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
+                    b'"versionInfo":"beta0.5.10","licenseDeclared":"Apache-2.0"}]}\n',
+                )
+            ]
         )
         self.assert_problem(bad_sbom, "invalid-sbom")
 
@@ -309,6 +1283,18 @@ class PackageBuildTests(unittest.TestCase):
         _, _, problems = package_skill.build(out)
         self.assertIn("output-already-exists", "\n".join(problems))
         self.assertEqual(before, hashlib.sha256(out.read_bytes()).hexdigest())
+
+    def test_release_identity_license_and_locator_contract(self) -> None:
+        self.assertEqual(getattr(package_skill, "PRODUCT_NAME", None), "decretum-matrix")
+        self.assertEqual(
+            getattr(package_skill, "DISPLAY_NAME", None),
+            "Decretum Matrix（诏令矩阵）",
+        )
+        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.10")
+        self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")
+        self.assertEqual(package_skill.ROOT_NAME, "court-capability-router")
+        self.assertEqual(package_skill.default_out().name, "decretum-matrix-beta0.5.10.zip")
+        self.assertTrue(package_skill.should_skip(Path(".github"), is_dir=True))
 
     def test_legal_governance_files_are_mandatory_package_members(self) -> None:
         self.assertEqual(package_skill.LEGAL_REQUIRED_MEMBERS, LEGAL_REQUIRED)

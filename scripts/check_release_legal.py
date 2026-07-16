@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -17,6 +19,11 @@ REQUIRED_FILES = (
     "LICENSE",
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
+    "PROVENANCE.md",
+    "COMMERCIAL-LICENSE.md",
+    "CLA.md",
+    "TRADEMARKS.md",
+    "AUTHORS.md",
     "SECURITY.md",
     "PRIVACY.md",
     "CONTRIBUTING.md",
@@ -27,7 +34,31 @@ EXPECTED_UPSTREAM_LICENSE_BLOB_SHA1 = "69499c3250cbecc6079c69dc0e5a0f7a4be716da"
 EXPECTED_UPSTREAM_LICENSE_SHA256 = "5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c"
 EXPECTED_UPSTREAM_COPYRIGHT = "Copyright (c) 2026 openclaw-sansheng-liubu contributors"
 EXPECTED_UPSTREAM_REPOSITORY = "https://github.com/cft0808/edict"
-EXPECTED_RELEASE = "beta0.5.9"
+EXPECTED_RELEASE = "beta0.5.10"
+EXPECTED_PACKAGE_NAME = "decretum-matrix"
+EXPECTED_LICENSE = "AGPL-3.0-only"
+EXPECTED_AGPL_SHA256 = "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+EXPECTED_SBOM_NAME = "decretum-matrix-beta0.5.10"
+EXPECTED_SBOM_NAMESPACE = "https://spdx.org/spdxdocs/decretum-matrix-beta0.5.10-20260716"
+EXPECTED_COPYRIGHT = "Copyright 2026 孙华清"
+EXPECTED_OWNER = "孙华清"
+EXPECTED_MAINTAINER = "@RowlandL"
+EXPECTED_GITHUB_ID = "42199880"
+EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+MIT_FENCE_PATTERN = re.compile(r"```text\n(?P<body>MIT License\n.*?\n)```", re.DOTALL)
+COMMERCIAL_GRANT_PATTERN = re.compile(
+    r"\bthis\s+(?:document|notice|file)\s+(?:hereby\s+)?grants?\b.*?\bcommercial\s+(?:license|rights?)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+PINYIN_PATTERN = re.compile(r"\bSun\s+Hua[ -]?qing\b", re.IGNORECASE)
+COMPANY_PATTERN = re.compile(
+    r"\b(?:company|corporation|corp\.?|inc\.?|llc|ltd\.?)\b|公司|有限公司",
+    re.IGNORECASE,
+)
+ADDRESS_FIELD_PATTERN = re.compile(r"(?im)^\s*(?:postal\s+)?address\s*[:：]|^\s*地址\s*[:：]")
+OWNER_AS_MAINTAINER_PATTERN = re.compile(
+    rf"(?im)^\s*(?:[-*]\s*)?maintainer(?:[^:\n]*)\s*:[^\n]*{re.escape(EXPECTED_OWNER)}"
+)
 
 
 def read_text(path: Path) -> str:
@@ -40,23 +71,29 @@ def evaluate(root: Path) -> dict[str, object]:
     missing = [name for name in REQUIRED_FILES if not (root / name).is_file()]
     problems.extend(f"missing:{name}" for name in missing)
 
-    license_text = read_text(root / "LICENSE") if not missing or (root / "LICENSE").is_file() else ""
+    license_path = root / "LICENSE"
+    license_bytes = license_path.read_bytes() if license_path.is_file() else b""
+    license_sha256 = hashlib.sha256(license_bytes).hexdigest() if license_bytes else None
+    license_text = license_bytes.decode("utf-8") if license_bytes else ""
     for marker in (
-        "Apache License",
-        "Version 2.0, January 2004",
-        "http://www.apache.org/licenses/",
-        "3. Grant of Patent License.",
+        "GNU AFFERO GENERAL PUBLIC LICENSE",
+        "Version 3, 19 November 2007",
+        "13. Remote Network Interaction; Use with the GNU General Public License.",
         "END OF TERMS AND CONDITIONS",
     ):
         if marker not in license_text:
             problems.append(f"license:missing:{marker}")
+    if license_sha256 != EXPECTED_AGPL_SHA256:
+        problems.append(f"license:sha256:expected:{EXPECTED_AGPL_SHA256}")
 
     notice_text = read_text(root / "NOTICE") if (root / "NOTICE").is_file() else ""
     for marker in (
-        "court-capability-router",
-        "Copyright 2026 court-capability-router contributors",
-        "Apache License 2.0",
-        "not affiliated with cft0808/edict or OpenClaw",
+        "Decretum Matrix（诏令矩阵）",
+        f"Copyright 2026 {EXPECTED_OWNER}",
+        f"Community edition: {EXPECTED_LICENSE}",
+        f"GitHub: {EXPECTED_MAINTAINER}",
+        f"GitHub ID {EXPECTED_GITHUB_ID}",
+        "not affiliated with",
     ):
         if marker not in notice_text:
             problems.append(f"notice:missing:{marker}")
@@ -73,9 +110,18 @@ def evaluate(root: Path) -> dict[str, object]:
         "THE SOFTWARE IS PROVIDED \"AS IS\"",
         "no upstream runtime dependency",
         "no governing authority",
+        "upstream-inspired",
     ):
         if marker not in third_party:
             problems.append(f"third_party:missing:{marker}")
+    mit_match = MIT_FENCE_PATTERN.search(third_party)
+    mit_sha256 = (
+        hashlib.sha256(mit_match.group("body").encode("utf-8")).hexdigest()
+        if mit_match is not None
+        else None
+    )
+    if mit_sha256 != EXPECTED_UPSTREAM_LICENSE_SHA256:
+        problems.append(f"third_party:mit-sha256:expected:{EXPECTED_UPSTREAM_LICENSE_SHA256}")
 
     benchmark_path = root / "references" / "benchmarks" / "cft0808-edict.yaml"
     benchmark = read_text(benchmark_path) if benchmark_path.is_file() else ""
@@ -88,6 +134,8 @@ def evaluate(root: Path) -> dict[str, object]:
         f'git_blob_sha1: "{EXPECTED_UPSTREAM_LICENSE_BLOB_SHA1}"',
         f'sha256: "{EXPECTED_UPSTREAM_LICENSE_SHA256}"',
         f'copyright: "{EXPECTED_UPSTREAM_COPYRIGHT}"',
+        "runtime_dependency: false",
+        "governing_source: false",
     ):
         if marker not in benchmark:
             problems.append(f"benchmark:missing:{marker}")
@@ -112,16 +160,20 @@ def evaluate(root: Path) -> dict[str, object]:
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
+        "name": EXPECTED_SBOM_NAME,
+        "documentNamespace": EXPECTED_SBOM_NAMESPACE,
     }
     for key, expected in expected_sbom.items():
         if sbom.get(key) != expected:
             problems.append(f"sbom:{key}:expected:{expected}")
-    if package.get("name") != "court-capability-router":
+    if package.get("name") != EXPECTED_PACKAGE_NAME:
         problems.append("sbom:package-name")
     if package.get("versionInfo") != EXPECTED_RELEASE:
         problems.append("sbom:version")
-    if package.get("licenseDeclared") != "Apache-2.0":
+    if package.get("licenseDeclared") != EXPECTED_LICENSE:
         problems.append("sbom:license")
+    if package.get("copyrightText") != EXPECTED_COPYRIGHT:
+        problems.append("sbom:copyright")
     if package.get("filesAnalyzed") is not False:
         problems.append("sbom:files-analyzed")
     if not describes:
@@ -140,15 +192,98 @@ def evaluate(root: Path) -> dict[str, object]:
             problems.append(f"privacy:missing:{marker}")
 
     contributing = read_text(root / "CONTRIBUTING.md") if (root / "CONTRIBUTING.md").is_file() else ""
-    for marker in ("provenance", "Apache-2.0", "Signed-off-by", "private Shiguan"):
+    for marker in ("provenance", EXPECTED_LICENSE, "Signed-off-by", "CLA", "private Shiguan"):
         if marker not in contributing:
             problems.append(f"contributing:missing:{marker}")
 
+    provenance = read_text(root / "PROVENANCE.md") if (root / "PROVENANCE.md").is_file() else ""
+    for marker in (
+        EXPECTED_UPSTREAM_REPOSITORY,
+        EXPECTED_UPSTREAM_COMMIT,
+        EXPECTED_UPSTREAM_LICENSE_SHA256,
+        EXPECTED_UPSTREAM_COPYRIGHT,
+        "Whole-file matches: `0`",
+        "does not exclude",
+        "unknown-needs-review",
+    ):
+        if marker not in provenance:
+            problems.append(f"provenance:missing:{marker}")
+
+    commercial = read_text(root / "COMMERCIAL-LICENSE.md") if (root / "COMMERCIAL-LICENSE.md").is_file() else ""
+    for marker in (
+        "LEGAL_REVIEW_REQUIRED",
+        "does not itself grant a commercial license",
+        f"separate written agreement signed by {EXPECTED_OWNER}",
+    ):
+        if marker not in commercial:
+            problems.append(f"commercial:missing:{marker}")
+    if COMMERCIAL_GRANT_PATTERN.search(commercial):
+        problems.append("commercial:notice-must-not-grant")
+
+    cla = read_text(root / "CLA.md") if (root / "CLA.md").is_file() else ""
+    for marker in (
+        "LEGAL_REVIEW_REQUIRED",
+        EXPECTED_OWNER,
+        "dual-license",
+        "commercially license",
+        "irrevocable",
+    ):
+        if marker not in cla:
+            problems.append(f"cla:missing:{marker}")
+
+    trademarks = read_text(root / "TRADEMARKS.md") if (root / "TRADEMARKS.md").is_file() else ""
+    for marker in (
+        EXPECTED_OWNER,
+        "Decretum Matrix（诏令矩阵）",
+        "decretum-matrix",
+        "nominative",
+        "no affiliation",
+    ):
+        if marker not in trademarks:
+            problems.append(f"trademarks:missing:{marker}")
+
+    authors = read_text(root / "AUTHORS.md") if (root / "AUTHORS.md").is_file() else ""
+    for marker in (EXPECTED_OWNER, EXPECTED_MAINTAINER, EXPECTED_GITHUB_ID):
+        if marker not in authors:
+            problems.append(f"authors:missing:{marker}")
+
+    identity_docs = {
+        "NOTICE": notice_text,
+        "AUTHORS.md": authors,
+        "CLA.md": cla,
+        "COMMERCIAL-LICENSE.md": commercial,
+        "TRADEMARKS.md": trademarks,
+    }
+    for name, text in identity_docs.items():
+        if EMAIL_PATTERN.search(text):
+            problems.append(f"identity:email-forbidden:{name}")
+        if PINYIN_PATTERN.search(text):
+            problems.append(f"identity:pinyin-forbidden:{name}")
+        if COMPANY_PATTERN.search(text):
+            problems.append(f"identity:company-forbidden:{name}")
+        if ADDRESS_FIELD_PATTERN.search(text):
+            problems.append(f"identity:address-forbidden:{name}")
+        if OWNER_AS_MAINTAINER_PATTERN.search(text):
+            problems.append(f"identity:owner-is-not-maintainer:{name}")
+
+    legal_review_docs = {
+        "THIRD_PARTY_NOTICES.md": third_party,
+        "PROVENANCE.md": provenance,
+        "COMMERCIAL-LICENSE.md": commercial,
+        "CLA.md": cla,
+        "TRADEMARKS.md": trademarks,
+        "CONTRIBUTING.md": contributing,
+    }
+    for name, text in legal_review_docs.items():
+        if "LEGAL_REVIEW_REQUIRED" not in text:
+            problems.append(f"legal-review-marker:missing:{name}")
+
     return {
-        "schema": "court.release_legal.result.v1",
+        "schema": "decretum.release_legal.result.v2",
         "ok": not problems,
         "root": str(root),
-        "license_declared": "Apache-2.0" if "Apache License" in license_text else None,
+        "license_declared": EXPECTED_LICENSE if license_sha256 == EXPECTED_AGPL_SHA256 else None,
+        "license_sha256": license_sha256,
         "upstream": {
             "repository": EXPECTED_UPSTREAM_REPOSITORY,
             "commit": EXPECTED_UPSTREAM_COMMIT,
@@ -163,7 +298,7 @@ def evaluate(root: Path) -> dict[str, object]:
 def run_self_test(root: Path) -> dict[str, object]:
     current = evaluate(root)
     assertions: dict[str, bool] = {"current_tree_passes": current["ok"] is True}
-    with tempfile.TemporaryDirectory(prefix="court-release-legal-") as tmp_text:
+    with tempfile.TemporaryDirectory(prefix="decretum-release-legal-") as tmp_text:
         fixture = Path(tmp_text) / "fixture"
         (fixture / "references" / "benchmarks").mkdir(parents=True)
         for name in REQUIRED_FILES:
@@ -177,14 +312,78 @@ def run_self_test(root: Path) -> dict[str, object]:
         assertions["missing_notice_fails"] = evaluate(fixture)["ok"] is False
         shutil.copy2(root / "NOTICE", fixture / "NOTICE")
 
+        license_text = (fixture / "LICENSE").read_text(encoding="utf-8")
+        (fixture / "LICENSE").write_text(license_text + "\nTAMPERED\n", encoding="utf-8")
+        assertions["altered_agpl_text_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "LICENSE", fixture / "LICENSE")
+
         (fixture / "THIRD_PARTY_NOTICES.md").write_text("missing attribution\n", encoding="utf-8")
         assertions["missing_mit_notice_fails"] = evaluate(fixture)["ok"] is False
         shutil.copy2(root / "THIRD_PARTY_NOTICES.md", fixture / "THIRD_PARTY_NOTICES.md")
+
+        third_party = (fixture / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+        (fixture / "THIRD_PARTY_NOTICES.md").write_text(
+            third_party.replace("MIT License\n", "MIT License\nTAMPERED\n", 1),
+            encoding="utf-8",
+        )
+        assertions["altered_mit_text_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "THIRD_PARTY_NOTICES.md", fixture / "THIRD_PARTY_NOTICES.md")
+
+        commercial = (fixture / "COMMERCIAL-LICENSE.md").read_text(encoding="utf-8")
+        (fixture / "COMMERCIAL-LICENSE.md").write_text(
+            commercial + "\nThis notice grants a commercial license.\n", encoding="utf-8"
+        )
+        assertions["commercial_notice_must_not_grant_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "COMMERCIAL-LICENSE.md", fixture / "COMMERCIAL-LICENSE.md")
+
+        authors = (fixture / "AUTHORS.md").read_text(encoding="utf-8")
+        (fixture / "AUTHORS.md").write_text(authors + "\nowner@example.com\n", encoding="utf-8")
+        assertions["identity_email_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "AUTHORS.md", fixture / "AUTHORS.md")
+
+        authors = (fixture / "AUTHORS.md").read_text(encoding="utf-8")
+        (fixture / "AUTHORS.md").write_text(authors + "\nSun Huaqing\n", encoding="utf-8")
+        assertions["identity_pinyin_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "AUTHORS.md", fixture / "AUTHORS.md")
+
+        authors = (fixture / "AUTHORS.md").read_text(encoding="utf-8")
+        (fixture / "AUTHORS.md").write_text(authors + "\nCompany: Example LLC\n", encoding="utf-8")
+        assertions["identity_company_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "AUTHORS.md", fixture / "AUTHORS.md")
+
+        authors = (fixture / "AUTHORS.md").read_text(encoding="utf-8")
+        (fixture / "AUTHORS.md").write_text(authors + "\nAddress: Example Street\n", encoding="utf-8")
+        assertions["identity_address_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "AUTHORS.md", fixture / "AUTHORS.md")
+
+        authors = (fixture / "AUTHORS.md").read_text(encoding="utf-8")
+        (fixture / "AUTHORS.md").write_text(authors + f"\nMaintainer: {EXPECTED_OWNER}\n", encoding="utf-8")
+        assertions["owner_must_not_be_maintainer_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "AUTHORS.md", fixture / "AUTHORS.md")
+
+        trademarks = (fixture / "TRADEMARKS.md").read_text(encoding="utf-8")
+        (fixture / "TRADEMARKS.md").write_text(
+            trademarks.replace("LEGAL_REVIEW_REQUIRED", "REVIEWED", 1), encoding="utf-8"
+        )
+        assertions["missing_legal_review_marker_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "TRADEMARKS.md", fixture / "TRADEMARKS.md")
 
         sbom = json.loads((fixture / "SBOM.spdx.json").read_text(encoding="utf-8"))
         sbom["spdxVersion"] = "SPDX-2.2"
         (fixture / "SBOM.spdx.json").write_text(json.dumps(sbom), encoding="utf-8")
         assertions["wrong_sbom_version_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "SBOM.spdx.json", fixture / "SBOM.spdx.json")
+
+        sbom = json.loads((fixture / "SBOM.spdx.json").read_text(encoding="utf-8"))
+        sbom["documentNamespace"] = "https://example.invalid/wrong"
+        (fixture / "SBOM.spdx.json").write_text(json.dumps(sbom), encoding="utf-8")
+        assertions["wrong_sbom_namespace_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "SBOM.spdx.json", fixture / "SBOM.spdx.json")
+
+        sbom = json.loads((fixture / "SBOM.spdx.json").read_text(encoding="utf-8"))
+        sbom["packages"][0]["copyrightText"] = "NOASSERTION"
+        (fixture / "SBOM.spdx.json").write_text(json.dumps(sbom), encoding="utf-8")
+        assertions["wrong_sbom_copyright_fails"] = evaluate(fixture)["ok"] is False
 
     ok = all(assertions.values())
     return {"ok": ok, "assertions": assertions, "current": current}

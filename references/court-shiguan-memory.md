@@ -148,6 +148,24 @@ seed material; it is not the authoritative runtime archive. The directory name
 remains `plan-archives` for compatibility with the existing script, but the
 court semantics are 史馆实录.
 
+### RC6_LOCAL_AUTHORITY_REALM_PHASE1
+
+Phase 1 的 local authority realm 只产生 pure receipt 和
+`TemporaryDirectory` fixture。`authority_realm_id` 标识本机 realm，
+`root_fingerprint` 绑定已验证的 filesystem/directory identity；Windows
+大小写、长短路径和已解析的词法别名不得产生第二个物理根身份。只有带迁移收据证明的
+exact junction 可作为同根别名；未证明 junction、symlink、generic reparse
+或 containment escape 返回 `AUTHORITY_ROOT_UNTRUSTED`。
+
+此阶段不探测或绑定真实 `.agents` Shiguan root，也不接入 archive transaction。
+任何 receipt 即使在 synthetic fixture 内匹配，也必须保持
+`production_ready=false`、`authority_root_bound=false`、
+`archive_transaction_bound=false`。真实绑定须按顺序通过
+`PENDING_COUNT_ZERO`、`QUIESCENCE_STABLE`、`MIGRATION_GATE_PASSED` 后由单一
+writer 串行接入。UNC、NFS、SMB、cross-host 或无法证明 local filesystem 的
+输入返回 `AUTHORITY_TRANSPORT_UNSUPPORTED`；不得引入 distributed lock、第二
+ledger、SQLite、HTTP service 或 message queue 作为回退。
+
 史馆 triggers:
 
 - Every trigger below writes a complete stage record, not merely a final
@@ -570,3 +588,21 @@ If Codex memory writeback is unavailable in the current interface, or if 门下�
 has not yet approved writeback, record the candidate with
 `scripts/memory_decision.py` and report
 `记忆裁定：已候选入史馆，待门下封驳/记忆接口可用时写入`.
+
+## Current-Tool Install And Memory Projection Gates
+
+`current_tool_only_install_gate` installs only the current-tool requested by the
+newest explicit user instruction into its governed `.agents` surface and shared
+Shiguan boundary. `no_unrequested_tool_gate` forbids installing or mutating any
+other tool merely because it was discovered during inspection.
+
+`agent_tool_memory_obsidian_projection_gate` is metadata-only and
+`source_read_only`. Eligibility comes from
+`installed_tool_manifest_eligibility_gate`; each tool has an isolated graph under
+`per_tool_memory_graph_isolation_gate`, and a blank host must pass
+`blank_host_memory_probe_before_write_gate`. The
+`metadata_index_only_projection_gate` records `prompt_evidence_state`,
+`canonical_tool_classes` (`codex`, `hermes`, `claude-code`,
+`other:<stable-id>`), and `tool_memory_state` (`enabled`, `disabled`,
+`unavailable`, `unknown`). `unknown_state_fail_closed` and
+`no_unrequested_tool_mutation_gate` prevent inferred writes.

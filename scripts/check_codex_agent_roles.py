@@ -25,7 +25,7 @@ from sync_codex_agents_from_profiles import (
     template_root,
     codex_home,
 )
-from court_multi_agent_protocol import HARD_MAX_THREADS, validate_protocol_config
+from court_multi_agent_protocol import validate_protocol_config
 
 
 REQUIRED_STRING_KEYS = ("name", "description", "developer_instructions")
@@ -91,11 +91,12 @@ def validate_codex_multi_agent_config(
     error_aliases = {
         "v2_enabled_with_legacy_max_threads": "agents.max_threads:forbidden_when_multi_agent_v2_enabled",
         "v2_max_depth_must_equal_4": "agents.max_depth:must_equal_4",
-        "v2_total_threads_must_equal_16": "features.multi_agent_v2.max_concurrent_threads_per_session:must_equal_16",
+        "v2_total_threads_must_be_at_least_2": "features.multi_agent_v2.max_concurrent_threads_per_session:must_be_at_least_2",
         "v2_reserved_spawn_schema_must_be_hidden": "features.multi_agent_v2.hide_spawn_agent_metadata:must_be_true_for_reserved_schema",
         "v1_max_depth_must_equal_4": "agents.max_depth:must_equal_4",
-        "v1_child_threads_must_equal_15": "agents.max_threads:must_equal_15_for_v1",
-        "v1_inactive_v2_total_threads_must_equal_16": "features.multi_agent_v2.max_concurrent_threads_per_session:must_remain_16_when_v1",
+        "v1_child_threads_must_be_positive": "agents.max_threads:must_be_positive_for_v1",
+        "v1_inactive_v2_total_threads_must_be_at_least_2": "features.multi_agent_v2.max_concurrent_threads_per_session:must_be_at_least_2_when_v1",
+        "v1_child_threads_exceed_inactive_v2_capacity": "agents.max_threads:exceeds_inactive_v2_capacity",
         "v1_inactive_v2_reserved_schema_must_remain_hidden": "features.multi_agent_v2.hide_spawn_agent_metadata:must_remain_true_when_v1",
     }
     errors = [error_aliases.get(str(error), str(error)) for error in contract.get("errors", [])]
@@ -115,7 +116,7 @@ def validate_codex_multi_agent_config(
         "selected_protocol": selected_protocol,
         "max_depth": contract.get("max_depth"),
         "max_threads": configured_thread_limit,
-        "logical_total_threads": HARD_MAX_THREADS if selected_protocol in {"v1", "v2"} else None,
+        "logical_total_threads": v2_max_threads if selected_protocol in {"v1", "v2"} else None,
         "legacy_max_threads": legacy_max_threads,
         "max_concurrent_threads_per_session": v2_max_threads,
         "effective_child_thread_limit": effective_child_thread_limit,

@@ -48,6 +48,14 @@ SAMPLE_FAMILIES = [
     "code_review",
     "office_report",
     "handoff_or_pause",
+    "dispatch_local_candidate",
+    "ask_user_create_skill",
+    "continue_after_user_rejects",
+    "discovery_authority_blocked",
+    "discovery_failed_without_no-candidate_claim",
+    "handoff_with_concerns",
+    "partial_result",
+    "verified_done",
 ]
 
 REQUIRED_SAMPLE_TERMS = [
@@ -107,6 +115,14 @@ REQUIRED_FAMILY_BLOCK_TERMS = {
     "code_review": ["门下省封驳", "余险", "简要结论"],
     "office_report": ["上奏：<direct_superior>", "身份", "状态", "要点", "证据", "请裁"],
     "handoff_or_pause": ["太子回奏：HANDOFF | PAUSED", "当前状态", "未竟事项", "恢复入口", "风险"],
+    "dispatch_local_candidate": ["太子回奏", "状态", "候选动作", "证据", "下一步"],
+    "ask_user_create_skill": ["太子上奏下一项问题", "状态", "建议动作", "证据", "下一步"],
+    "continue_after_user_rejects": ["太子回奏", "状态", "用户决定", "原任务", "下一步"],
+    "discovery_authority_blocked": ["太子回奏：authority_blocked", "状态", "发现结论", "证据", "下一步"],
+    "discovery_failed_without_no-candidate_claim": ["太子回奏", "状态", "发现结论", "证据", "下一步"],
+    "handoff_with_concerns": ["太子回奏：HANDOFF", "状态", "当前结果", "证据", "下一步"],
+    "partial_result": ["太子回奏", "状态", "当前结果", "验收证据：PARTIAL", "下一步"],
+    "verified_done": ["结诏：DONE", "状态：DONE", "完成核验：VERIFIED", "验收证据：VERIFIED", "下一步"],
 }
 
 
@@ -169,7 +185,7 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
         errors.append(f"too_few_code_blocks:{len(blocks)}")
     if "Prompt:" not in text:
         errors.append("missing_prompt_label")
-    if len(text.splitlines()) > 260:
+    if len(text.splitlines()) > 360:
         errors.append(f"oversized_shard_lines:{len(text.splitlines())}")
 
     voice_path = office_voice_shard_path(root)

@@ -1,6 +1,12 @@
-# Standard Skill Installation
+# Decretum Matrix Standard Skill Installation
 
-This package is a standard Codex skill directory:
+Decretum Matrix（诏令矩阵） uses the canonical skill name `decretum-matrix` and
+invocation `$decretum-matrix`. Its package and repository identifier is
+`decretum-matrix`.
+
+This package is a standard Codex skill directory. The top-level
+`court-capability-router/` name below is a protected ZIP/install locator retained
+for compatibility; it is not the current product identity:
 
 ```text
 court-capability-router/
@@ -64,17 +70,40 @@ Shiguan root after installation.
 ## Shared Shiguan Data Root
 
 Writable Shiguan data is not stored under a single skill installation. All
-Codex, Agent Skills, and Hermes installs resolve the shared root through
-`scripts/shiguan_paths.py`:
+explicitly selected tool installs resolve the same physical shared root. The
+`court-capability-router` path segment below is the protected shared-Shiguan
+namespace retained for compatibility. The blank-host safety contract is:
 
 ```text
-default data root: %LOCALAPPDATA%\court-shiguan\court-capability-router
-default references: %LOCALAPPDATA%\court-shiguan\court-capability-router\references
+shared_root=%USERPROFILE%\.agents\court-shiguan\court-capability-router\references
+probe_before_write=true
+install_current_tool_only=true
+unapproved_other_tools=REMINDER_ONLY
+auto_start_obsidian=false
+auto_start_daemon=false
+auto_install_dependencies=false
+restart_required=true
+restart_deferred=true
+tasks_continued=true
+restart_requires_latest_explicit_authority=true
+```
+
+The canonical resolver target is:
+
+```text
+default data root: %USERPROFILE%\.agents\court-shiguan\court-capability-router
+default references: %USERPROFILE%\.agents\court-shiguan\court-capability-router\references
 override env: COURT_SHARED_SHIGUAN_ROOT or SHIGUAN_SHARED_ROOT
 ```
 
-On a blank install, the first Shiguan script, service daemon, or WebUI startup calls
-`ensure_shared_seed()` and creates `plan-archives`, `memory-decisions`,
+After a separately verified migration, the old `%LOCALAPPDATA%` path may exist
+only as a compatibility junction to this same directory. It must not become a
+second writable Shiguan store.
+
+On a blank host, do not invoke a Shiguan service, daemon, WebUI startup, or
+shared-root writer before the read-only probe. After the probe and explicit
+current-tool/shared-root write authority, `ensure_shared_seed()` creates
+`plan-archives`, `memory-decisions`,
 `court-runtime`, `agente-logs`, `shiguan-imports`, `shiguan-peers`,
 `obsidian-sync`, `shiguan-tree`, `shiguan-tree\sources`, an empty
 `shiguan-index.jsonl`, and a portable seed knowledge graph. This is seed creation
@@ -88,21 +117,26 @@ python -B scripts/migrate_shared_shiguan.py --dry-run
 python -B scripts/migrate_shared_shiguan.py
 ```
 
-## One-command Portable Bootstrap
+## Probe-first Portable Bootstrap
 
-After copying the skill into a new Codex install and restarting Codex, run the
-portable bootstrap from the installed skill directory:
+After copying the skill for the current agent tool, probe from the installed
+skill directory before any write:
 
 ```powershell
 python -B scripts/ensure_portable_court_bootstrap.py --check-only --format text
-python -B scripts/ensure_portable_court_bootstrap.py --apply --format text
 ```
 
-This creates the shared Shiguan seed, registers the shared Shiguan tree with
-Obsidian, ensures the `CourtShiguanDaemon` service, enables Codex/Hermes native
-memory flags when disabled, records the metadata-only memory bridge, installs
-or checks first-run `superCC` dependencies (`zellij.exe` and `squad.exe`), and
-runs `squad init` when the workspace lacks `.squad`.
+The probe reports the current tool, shared-root state, memory/config state, and
+optional integrations without changing them. Blank-host installation defaults
+to `.agents` plus the current agent tool only. Detected Claude Code, Hermes, or
+other tools remain unchanged unless the newest explicit instruction names them;
+their unmet state is a nonblocking `REMINDER_ONLY`.
+
+The legacy aggregate `--apply` path is not a blank-host default because it can
+combine shared-root creation, memory flags, Obsidian registration, daemon state,
+and dependency installation. Run it only when the newest explicit authority
+separately covers every listed mutation. Otherwise keep Obsidian, daemons,
+dependencies, and non-current tools unchanged and report the available actions.
 
 The bootstrap installs zellij/squad only from configured GitHub release assets
 and requires a GitHub asset digest or sha256 sidecar unless the active decree
@@ -111,7 +145,8 @@ memory bodies, does not hand-edit Codex SQLite, does not include Obsidian API
 keys in packages, and does not process `shiguan-imports\pending` into official
 records.
 
-For only the `superCC` substrate, use:
+Only when the newest instruction explicitly authorizes the `superCC` substrate
+and its dependencies, use:
 
 ```powershell
 python -B scripts/ensure_portable_court_bootstrap.py --apply --supercc-deps-only --format text
@@ -157,12 +192,18 @@ npx skills add https://github.com/vercel-labs/skills --skill find-skills
 ```
 
 If the Skills CLI itself is missing, install Node.js/npm first, then run the
-same command through `npx`. After installing `find-skills`, restart Codex so the
-skill registry refreshes.
+same command through `npx`. After installing `find-skills`, the user may restart
+a later Codex session so the skill registry refreshes. The installer does not
+restart the current task.
 
 ## Install From A Local Folder
 
-1. Copy `court-capability-router` into the Codex skills directory:
+1. Copy the physical `court-capability-router` package root into the canonical
+   `.agents` skill root under the same protected locator, then project the same
+   verified bytes to the current agent tool only. The loader must expose
+   `Decretum Matrix（诏令矩阵）` / `decretum-matrix`; do not create a second alias
+   skill directory. This Codex example does not detect or modify Claude Code,
+   Hermes, or other tools:
 
 ```python
 from pathlib import Path
@@ -170,31 +211,63 @@ import os
 import shutil
 
 src = Path("court-capability-router")
-skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
-dst = skills_root / "court-capability-router-beta0.5.9"
-if dst.exists():
-    raise SystemExit(f"refusing to overwrite existing install: {dst}")
-shutil.copytree(src, dst)
+shared_root = Path.home() / ".agents" / "skills"
+current_tool_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
+targets = (
+    shared_root / "court-capability-router",
+    current_tool_root / "court-capability-router",
+)
+for dst in targets:
+    if dst.exists():
+        raise SystemExit(f"refusing to overwrite existing install: {dst}")
+for dst in targets:
+    shutil.copytree(src, dst)
 ```
 
-2. Restart the Codex session so the skill list refreshes.
-3. Apply the approved bounded recursive-agent defaults:
+2. The user may restart a future Codex session so the skill list refreshes.
+   Installation does not restart, stop, or interrupt the current task, and no
+   restart is performed without the newest explicit authority.
+3. Check the bounded recursive-agent recommendation, then apply only with the
+   current explicit configuration authority:
 
 ```sh
-python -B scripts/ensure_court_agent_config.py --managed-overlay --write --protocol v2
+python -B scripts/ensure_court_agent_config.py --check --threads 32
+python -B scripts/ensure_court_agent_config.py --apply --threads N
 ```
 
-This writes `[agents] max_depth = 4`, enables Multi-Agent V2, writes
-`features.multi_agent_v2.max_concurrent_threads_per_session = 16`, sets
-`hide_spawn_agent_metadata = true`, and removes the incompatible legacy
-`[agents].max_threads` key from `CODEX_HOME/config.toml` (or
-`~/.codex/config.toml` when `CODEX_HOME` is unset). It creates a backup before
-changing an existing file. Restart Codex after this step; a running session may
-not hot-reload recursion settings or the reserved collaboration tool schema.
+The helper writes `[agents] max_depth = 4`, enables Multi-Agent V2, sets
+`features.multi_agent_v2.max_concurrent_threads_per_session = N`, hides reserved
+spawn metadata, and removes incompatible legacy `[agents].max_threads`. It
+checks and applies compatible semantic deltas to both `config.toml` and
+`managed_config.toml`; unrelated provider, secret, and unknown fields are
+preserved, and the files need not become byte-identical.
 
-The V2 ceiling covers the whole tree: the root consumes one of 16 slots, leaving
-at most 15 children. Do not restore legacy `[agents].max_threads`; admission
-clamps to proven capacity, reclamation, depth, and request budgets.
+Sixteen is an advisory baseline. Thirty-two is the default high-parallel
+recommendation. Neither value is a skill-enforced ceiling: `--threads N`
+preserves any valid requested value. Actual host capacity or rejection,
+occupancy, retained-node reclamation, `max_depth`, hierarchy, resource budgets,
+instance/shard identity, and write-set ownership remain admission gates. A
+blank or low-parallel host receives an explicit nonblocking `REMINDER_ONLY`;
+the check does not claim compliance or stop unrelated tasks.
+
+Apply automatically probes the conventional host CC Switch SQLite path before
+either leaf TOML is written. It accepts only a proven
+`3.16.x + user_version=11` contract, or `3.17.x + user_version=13` with the exact
+six `profiles` columns plus an `input_token_semantics` column in both
+`proxy_request_logs` and `usage_daily_rollups`.
+Schema alone is not application-version evidence. Supply the independently proven app version with
+`--cc-switch-version` when a CC Switch DB is present. Automatic discovery
+locates only the DB path. The selected Codex profile payload must also match the
+known shape. A supported controller is backed up and updated before both
+effective files; an unknown, locked, or unprovable controller returns
+`REMINDER_ONLY` with zero configuration writes.
+Final success requires rereading both actual TOML files and a sanitized native
+`config/read` receipt (`--native-read-json`) when apply is used; DB-only,
+leaf-only, and legacy `--managed-overlay --apply` success are forbidden.
+
+Apply never stops, kills, or restarts Codex. A successful change reports
+`restart_required=true`, `restart_deferred=true`, and `tasks_continued=true`.
+Restart remains a separate latest-explicit-authority action.
 
 The former bidirectional V1/V2 startup switch is deprecated. Keep V1 source,
 fixtures, prior configuration, and immutable backups for recovery/audit, but do
@@ -202,8 +275,11 @@ not select V1 during routine installation or advertise it as a live switch.
 Production installation remains V2 unless a newer explicit user decree reopens
 the capability.
 
-4. Invoke with `$court-capability-router`; the skill defaults to the court
-   workflow and asks only for the three execution authorities when needed.
+4. Invoke with `$decretum-matrix`; the skill defaults to the court workflow and
+   asks only for the three execution authorities when needed. The legacy
+   `$court-capability-router` input is deprecated and must not be claimed as
+   supported unless a host alias probe proves that it resolves to this same
+   physical authority.
    The startup menu also names the Shiguan local manager:
    `web/shiguan-tree/index.html`. Editing requires the local server command
    shown below.
@@ -231,7 +307,7 @@ Read-only validation from the installed skill directory:
 python -B scripts/quick_validate.py
 python -B scripts/check_catalog.py --strict
 python -B scripts/ensure_portable_court_bootstrap.py --check-only --format text
-python -B scripts/ensure_court_agent_config.py --check
+python -B scripts/ensure_court_agent_config.py --check --threads 32
 python -B scripts/check_codex_agent_roles.py
 python -B scripts/sync_shiguan_obsidian_vault.py --dry-run
 python -B scripts/quick_validate.py .
@@ -241,10 +317,11 @@ python -B scripts/quick_validate.py .
 prerequisites, loading indexes, response few-shot gate, package-required
 references, standing profiles, and Codex agent role shape without initializing
 shared Shiguan state. If `find-skills` is missing it prints the `skills.sh` page
-and install command. If the Codex agent config is below `max_depth = 4` or V2
-`max_concurrent_threads_per_session = 16`, still contains legacy
-`agents.max_threads`, or exposes reserved spawn metadata, it prints the
-`ensure_court_agent_config.py --write` remediation command. The Obsidian dry-run verifies `preserve_only=true` and
+and install command. If the Codex agent config is below `max_depth = 4` or the
+advisory 32-thread high-parallel recommendation, still contains legacy
+`agents.max_threads`, or exposes reserved spawn metadata, it prints a
+nonblocking `ensure_court_agent_config.py --apply --threads N` remediation
+command. Values above 16 or 32 are not errors by themselves. The Obsidian dry-run verifies `preserve_only=true` and
 `removed=0` before any real vault refresh. On this host, `quick_validate.py` has
 a minimal frontmatter parser fallback, so it can run even when PyYAML is not
 installed. If another host still has an older `skill-creator`, repair that
@@ -292,9 +369,10 @@ adds bilingual recall fields (`keyword_summary_zh`, `keyword_summary_en`,
 `keywords_zh`, `keywords_en`), and refreshes the Markdown growth tree. Run it
 after upgrading older installs.
 
-## Verify the beta0.5.9 Release
+## Verify the legacy beta0.5.9 Apache-2.0 release
 
-Release assets:
+The following immutable names are historical release evidence, not the current
+product/package identity:
 
 ```text
 court-capability-router-beta0.5.9.zip
@@ -304,7 +382,7 @@ court-capability-router-beta0.5.9.release-notes.md
 SBOM.spdx.json
 ```
 
-The ZIP has one top-level root: `court-capability-router/`.
+The legacy ZIP has one protected compatibility root: `court-capability-router/`.
 
 ```powershell
 $zip = 'court-capability-router-beta0.5.9.zip'
@@ -325,13 +403,24 @@ python -B scripts/release_payload_manifest.py --self-test --check --json
 
 The root `release-manifest.json` describes this artifact. `references/manifests/release-gates.v1.json` describes the source release-gate policy; neither replaces SHA256 verification. The external attestation binds the ZIP to the reviewed HEAD commit, annotated tag, Git tree, payload-manifest digest and external asset digests. Maintainers run the full package gate from a clean canonical source tree with `scripts/check_release_gate.py --package <path-to-zip> --require-package --skip-runtime --json`, because the extracted release intentionally contains generated portable seed files that are absent from the active-source tree. With `--skip-runtime`, ordinary `super` release validation reports runtime status `NOT_APPLICABLE` and reason `runtime_not_selected`; it does not claim a superCC runtime pass.
 
-## License And Upstream Notice
+## License, Commercial Terms, And Provenance
 
-Original project material is offered under Apache License 2.0, subject to the contributor actually owning or controlling the necessary rights. Apache-2.0 was selected for its explicit patent grant and NOTICE/contribution governance. `cft0808/edict` commit `14a207557719c046af0f993a7bff1cc5a5015b33` uses the MIT License. MIT permits use, modification, redistribution and sublicensing, but its copyright and permission notice must accompany any distributed copy or substantial portion. The pinned provenance and complete notice are in `THIRD_PARTY_NOTICES.md`.
+The current Decretum Matrix community license is `AGPL-3.0-only`; see
+`LICENSE`. Commercial rights are available only through a separate written
+agreement signed by 孙华清; `COMMERCIAL-LICENSE.md` does not itself grant those
+rights. Contributions require DCO plus the CLA gate described in `CLA.md` and
+`CONTRIBUTING.md`. Trademark and affiliation boundaries are in `TRADEMARKS.md`.
+
+Legacy `beta0.5.8` and `beta0.5.9` artifacts remain under their original
+Apache-2.0 terms; those grants are not revoked or relabeled. The
+`cft0808/edict` commit `14a207557719c046af0f993a7bff1cc5a5015b33` remains under
+MIT. Its pinned provenance, complete notice, rights boundaries, and conservative
+similarity conclusion are in `THIRD_PARTY_NOTICES.md` and `PROVENANCE.md`.
 
 These files do not prove authorship, trademark clearance, privacy consent, or absence of substantial similarity. Stop public publication if provenance or contributor rights are unresolved. The package contains no Git remote, GitHub credential, access token, account selection, or authenticated release state.
 
-After installing, copying, or recruiting any new skill, run:
+After installing, copying, or recruiting a skill for the current tool, run the
+following only with explicit catalog-write authority:
 
 ```powershell
 python -B scripts/refresh_capability_registry.py
@@ -458,7 +547,7 @@ This merged skill replaces the need to invoke `installed-skill-selector`,
 refresh scripts, standing-official templates, and an empty portable Shiguan
 seed. Local catalogs and stage archives are generated on the host.
 
-- `court-capability-router`: one skill that reads the catalog and applies the
+- `decretum-matrix`: the single Decretum Matrix skill that reads the catalog and applies the
   default court workflow, including the three execution authorities, light/full
   catalog refresh, court roles, 三省上奏/太子回奏 dispatch gates, stage archives,
   Shiguan bilingual keyword/key-behavior recall, built-in growth tree, macro
@@ -470,13 +559,14 @@ seed. Local catalogs and stage archives are generated on the host.
 Use an absent candidate path instead of hand-zipping the live directory. The package writer has no overwrite flag:
 
 ```sh
-python -B scripts/package_skill.py --out "court-capability-router-beta0.5.9-candidate.zip"
+version="$(tr -d '\r\n' < VERSION)"
+python -B scripts/package_skill.py --out "decretum-matrix-${version}-candidate.zip"
 ```
 
 The script stages a clean copy, removes host-local Shiguan record bodies,
 derived local records, and local capability catalogs, writes the empty Shiguan
-seed files, validates the zip, and keeps the root folder as
-`court-capability-router/`. ZIP members use stored compression, a fixed timestamp
+seed files, validates the zip, and keeps the protected compatibility root folder
+as `court-capability-router/`. ZIP members use stored compression, a fixed timestamp
 and mode, and UTF-8 path ordering. If the requested output already exists, the
 command fails without replacing it.
 

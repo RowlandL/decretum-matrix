@@ -302,6 +302,9 @@ def mirror_runtime_event(args: argparse.Namespace, metadata: dict[str, object], 
             "context_tokens": admission.get("context_tokens"),
             "deadline_seconds": admission.get("deadline_seconds"),
             "tool_call_budget": admission.get("tool_call_budget"),
+            "collaboration_task_name": args.collaboration_task_name,
+            "requires_gongjiang": args.requires_gongjiang,
+            "skill_requirements_json": args.skill_requirements_json,
         }
     namespace = argparse.Namespace(
         task_id=args.runtime_task_id,
@@ -330,6 +333,32 @@ def mirror_runtime_event(args: argparse.Namespace, metadata: dict[str, object], 
         "runtime_task_id": args.runtime_task_id,
         "runtime_event": result.event,
     }
+
+
+def validate_runtime_start_binding(args: argparse.Namespace) -> None:
+    if args.runtime_action not in {"start", "spawn"}:
+        return
+    if not args.runtime_task_id:
+        raise ValueError("runtime-task-id is required for start/spawn")
+    collaboration_task_name = str(args.collaboration_task_name or "").strip()
+    requirements_text = str(args.skill_requirements_json or "").strip()
+    if not collaboration_task_name:
+        raise ValueError("collaboration-task-name is required for start/spawn")
+    if not requirements_text:
+        raise ValueError("skill-requirements-json is required for start/spawn")
+    try:
+        requirements = json.loads(requirements_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("skill requirements JSON is invalid") from exc
+    if not isinstance(requirements, list):
+        raise ValueError("skill requirements JSON must contain an array")
+    court_runtime.build_office_assignment_binding(
+        role_key=str(args.runtime_role or args.office).strip(),
+        collaboration_task_name=collaboration_task_name,
+        court_agent_id=str(args.agent_id).strip(),
+        requires_gongjiang=bool(args.requires_gongjiang),
+        skill_requirements=requirements,
+    )
 
 
 def main() -> int:
@@ -365,6 +394,9 @@ def main() -> int:
         choices=["none", "spawn", "start", "heartbeat", "finish", "close"],
     )
     parser.add_argument("--runtime-role", default="")
+    parser.add_argument("--collaboration-task-name", default="")
+    parser.add_argument("--requires-gongjiang", action="store_true")
+    parser.add_argument("--skill-requirements-json", default="")
     parser.add_argument("--runtime-evidence", default="")
     parser.add_argument("--scope", default="")
     parser.add_argument("--actor", default="shangshu", choices=sorted(court_runtime.OFFICES))
@@ -372,6 +404,8 @@ def main() -> int:
     parser.add_argument("--note", default="")
     parser.add_argument("--format", choices=["json", "text"], default="json")
     args = parser.parse_args()
+
+    validate_runtime_start_binding(args)
 
     body = args.body
     if args.body_file:

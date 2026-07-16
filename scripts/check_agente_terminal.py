@@ -24,6 +24,31 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def formal_gate() -> dict[str, object]:
+    return {
+        "schema": "court.conversation_gate.v1", "active_decree": False,
+        "active_decree_state": "NONE", "message_class": "FORMAL_TASK",
+        "confidence": "HIGH", "relation_to_active_decree": "NONE",
+        "taskization_consent": "EXPLICIT", "requires_tools": True,
+        "mutates_state": True, "risk_present": False,
+        "next_route": "THREE_DEPARTMENTS", "question": "",
+        "rationale": "isolated agente terminal integration fixture",
+    }
+
+
+def skill_requirements(repo_root: Path, root: Path) -> str:
+    task_skill = root / "task-specific-skill" / "SKILL.md"
+    task_skill.parent.mkdir(parents=True)
+    task_skill.write_text("# task-specific fixture\n", encoding="utf-8")
+    court = repo_root / "SKILL.md"
+    items = []
+    for name, source in (("court-capability-router", court), ("task-specific-fixture", task_skill)):
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        items.append({"name": name, "source": str(source.resolve()), "sha256": digest,
+                      "purpose": "agente terminal integration", "ack_name": name, "ack_sha256": digest})
+    return json.dumps(items)
+
+
 def main() -> int:
     scripts = Path(__file__).resolve().parent
     terminal = scripts / "agente_terminal.py"
@@ -38,7 +63,13 @@ def main() -> int:
         env["COURT_RUNTIME_ROOT"] = str(runtime_root)
         env["COURT_SHARED_SHIGUAN_ROOT"] = str(shared_root)
 
-        run_cli(cli, env, "create", "--task-id", "terminal", "--title", "terminal", "--evidence", "create")
+        repo_root = scripts.parent
+        intake = temp_root / "intake.json"
+        intake.write_text(json.dumps(formal_gate()), encoding="utf-8")
+        requirements_json = skill_requirements(repo_root, temp_root)
+
+        run_cli(cli, env, "create", "--task-id", "terminal", "--title", "terminal", "--evidence", "create",
+                "--work-kind", "implementation", "--intake-file", str(intake))
         admission = json.loads(
             run_cli(
                 cli,
@@ -77,6 +108,18 @@ def main() -> int:
                 "--format", "json",
             ).stdout
         )
+        runtime_before_invalid = {
+            path.name: path.read_bytes() for path in runtime_root.iterdir() if path.is_file()
+        }
+        run_cli(
+            terminal, env,
+            "--court-code", "COURT", "--agent-id", "hubu-invalid-1", "--office", "hubu",
+            "--agent-lineage-path", "zhongshu/hubu", "--runtime-task-id", "terminal",
+            "--runtime-action", "start", "--scope", "must fail before write", "--format", "json",
+            expect=1,
+        )
+        assert {path.name: path.read_bytes() for path in runtime_root.iterdir() if path.is_file()} == runtime_before_invalid
+        assert not shared_root.exists(), "invalid binding wrote logs or Shiguan evidence"
         json_secret = "secret" + "-value"
         quoted_secret = "quoted" + "-secret"
         api_key_name = "api_" + "key"
@@ -89,7 +132,7 @@ def main() -> int:
                 "--court-code",
                 "COURT",
                 "--agent-id",
-                "agent-1",
+                "hubu-terminal-1",
                 "--office",
                 "hubu",
                 "--agent-lineage-path",
@@ -108,6 +151,10 @@ def main() -> int:
                 "terminal",
                 "--runtime-action",
                 "start",
+                "--collaboration-task-name",
+                "hubu_terminal",
+                "--skill-requirements-json",
+                requirements_json,
                 "--scope",
                 "terminal test",
                 "--format",
@@ -132,18 +179,50 @@ def main() -> int:
         assert f'"{api_key_name}": [REDACTED]' in first_text
         assert f'"{password_name}": [REDACTED]' in first_text
         assert first["runtime_mirror"]["runtime_mirror"] == "start"
+        started_binding = json.loads((runtime_root / "tasks.json").read_text(encoding="utf-8"))["terminal"]["agents"]["hubu-terminal-1"]
+        assert started_binding["collaboration_task_name"] == "hubu_terminal"
+        assert started_binding["role_key"] == "hubu"
+        assert started_binding["office_zh"] == "户部"
+        assert started_binding["direct_superior"] == "shangshu"
+        assert started_binding["required_skill_bindings"] == json.loads(requirements_json)
+
+        run_cli(cli, env, "create", "--task-id", "terminal-spawn", "--title", "terminal spawn", "--evidence", "create",
+                "--work-kind", "implementation", "--intake-file", str(intake))
+        run_cli(
+            cli, env, "agent-admit", "--task-id", "terminal-spawn", "--wave-id", "spawn-wave",
+            "--execution-topology", "parallel", "--protocol-mode", "v2", "--active-session-protocol", "v2",
+            "--needs-parallel-tree", "--requested-fork-turns", "none", "--context-tokens", "1000",
+            "--message-chars", "256", "--message-required-chars", "256", "--message-optional-chars", "0",
+            "--requested-agents", "1", "--requested-roles", "hubu", "--host-active-agents", "1",
+            "--host-capacity", "4", "--host-retained-agents", "0", "--host-reclamation-status", "verified",
+            "--next-depth", "1", "--max-depth", "4", "--max-threads", "16", "--user-agent-budget", "3",
+            "--provider-launch-budget", "3", "--assignment", "terminal spawn test",
+            "--task-focus", "agente terminal spawn regression", "--complexity", "low", "--risk", "low",
+            "--ambiguity", "low", "--transport", "codex", "--actor", "shangshu",
+            "--evidence", "terminal spawn fixture admission", "--format", "json",
+        )
+        spawn = json.loads(run_cli(
+            terminal, env, "--court-code", "COURT", "--agent-id", "hubu-spawn-1", "--office", "hubu",
+            "--agent-lineage-path", "zhongshu/hubu", "--sequence", "4", "--summary", "户部 spawn 镜像",
+            "--runtime-task-id", "terminal-spawn", "--runtime-wave-id", "spawn-wave",
+            "--runtime-action", "spawn", "--collaboration-task-name", "hubu_spawn",
+            "--skill-requirements-json", requirements_json, "--scope", "terminal spawn test", "--format", "json",
+        ).stdout)
+        assert spawn["runtime_mirror"]["runtime_mirror"] == "spawn"
+        spawned_binding = json.loads((runtime_root / "tasks.json").read_text(encoding="utf-8"))["terminal-spawn"]["agents"]["hubu-spawn-1"]
+        assert spawned_binding["collaboration_task_name"] == "hubu_spawn"
+        assert spawned_binding["office_zh"] == "户部"
 
         def sha256(path: Path) -> str:
             return hashlib.sha256(path.read_bytes()).hexdigest()
 
         route_id = admission["model_routes"]["hubu"]["model_route_id"]
-        repo_root = scripts.parent
         run_cli(
             cli,
             env,
             "agent-preload-ack",
             "--task-id", "terminal",
-            "--agent-id", "agent-1",
+            "--agent-id", "hubu-terminal-1",
             "--role", "hubu",
             "--office-zh", "户部",
             "--direct-superior", "shangshu",
@@ -169,7 +248,7 @@ def main() -> int:
                 "--court-code",
                 "COURT",
                 "--agent-id",
-                "agent-1",
+                "hubu-terminal-1",
                 "--office",
                 "hubu",
                 "--agent-lineage-path",
@@ -219,7 +298,7 @@ def main() -> int:
                 "--court-code",
                 "COURT",
                 "--agent-id",
-                "agent-1",
+                "hubu-terminal-1",
                 "--office",
                 "hubu",
                 "--agent-lineage-path",
@@ -245,9 +324,9 @@ def main() -> int:
 
         tasks = json.loads((runtime_root / "tasks.json").read_text(encoding="utf-8"))
         assert "summary-secret" not in json.dumps(tasks, ensure_ascii=False)
-        assert tasks["terminal"]["agents"]["agent-1"]["status"] == "closed"
+        assert tasks["terminal"]["agents"]["hubu-terminal-1"]["status"] == "closed"
         entries = read_jsonl(shared_root / "references" / "shiguan-index.jsonl")
-        assert len(entries) == 3
+        assert len(entries) == 4
         first_entry = entries[0]
         assert first_entry["record_type"] == "agente_log"
         assert first_entry["agent_log_court_code"] == "COURT"

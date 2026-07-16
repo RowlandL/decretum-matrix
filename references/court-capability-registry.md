@@ -10,7 +10,29 @@
 - [Capability Verification Index Skill Gate](#capability-verification-index-skill-gate)
 - [Catalog Refresh](#catalog-refresh)
 
+Runtime result and bounded recruitment governance is defined in
+[Court Runtime Result And Recruitment Contract](sections/court-runtime-result-and-recruitment-contract.md).
+Broader public discovery, creation, installation, or write behavior elsewhere in
+this registry is outside the I1/C purified lane. For I1/C, the dedicated contract
+governs: zero network calls, zero external writes, no capability mutation,
+`ASK_USER` intent-only handoff, and `C2_FULL=HOLD_BY_AUTHORITY`.
+
 ## Moved Source
+
+## Canonical Skill Identity
+
+The authoritative identity contract is
+[`manifests/skill-identity.v1.json`](manifests/skill-identity.v1.json).
+The current display name is `Decretum Matrix（诏令矩阵）`; the only canonical
+skill record and invocation are `decretum-matrix` and `$decretum-matrix`.
+
+`court-capability-router` remains an allowlisted repository, install-directory,
+Shiguan-namespace, Python/environment, and service locator. A canonical registry
+record may therefore point to `court-capability-router/SKILL.md`, but its `name`
+must remain `decretum-matrix`. The old `$court-capability-router` invocation is a
+`deprecated` compatibility input with `alias_support=probe_required` and `compatibility_claimed=false` until
+a native loader probe proves otherwise. Do not create a second skill directory,
+package authority, or legacy-name registry record to simulate an alias.
 
 ## Capability Registry And Personnel System
 
@@ -118,6 +140,28 @@ Authorities:
   refreshed catalog and active index gate to choose the smallest suitable
   skill/agent/MCP/CLI/script set; 尚书省 then dispatches or calls only the selected
   capability under the active authority and evidence contract.
+- Codex plugin registry entries use `kind=plugin`; skills embedded under an
+  enabled plugin remain separate `kind=skill`, `source=codex_plugin` records.
+  Disabled plugins/MCPs stay visible for drift review but are never dispatchable.
+  MCP discovery parses only direct children of top-level `[mcp_servers.NAME]`
+  (or legacy `[mcp.NAME]`) tables; nested `.env` tables are metadata of that
+  server and must never become invented MCP identities.
+- The bounded C2 recruitment output is intentionally narrower than the legacy
+  broad catalog: only `skill|plugin|mcp` kinds and
+  `local_skill|codex_plugin|local_plugin|local_mcp` sources are serialized.
+  Semantic-equivalent duplicates collapse; conflicting local metadata becomes
+  one `LOCAL_METADATA_CONFLICT` fail-closed record rather than a trusted winner.
+- Registry collection is deterministic and local-first: tests and offline audits
+  receive explicit roots/inventories, perform zero network and zero writes, sort
+  records by stable identity fields, omit generation timestamps from records,
+  and expose source-relative public paths rather than host-private absolute paths.
+- 吏部 may propose recruitment from local evidence; public metadata discovery is
+  allowed only when explicitly permitted by the injected authority. Any
+  create/install/write action returns `next_action=ASK_USER` as a structured request/report to 尚书省 under the
+  active authority; 吏部 never performs direct mutation or forwards secrets,
+  account data, API configuration, or active-copy details. Missing authority,
+  failed discovery, identity conflicts, and unverifiable roots remain explicit
+  `authority_blocked` / `runtime_degraded`, never silently dispatchable.
 
 ## Capability Verification Index Skill Gate
 
@@ -131,6 +175,39 @@ skills, agents, MCPs, CLIs, and scripts before dispatch. Report
 `capability_index_skill_gate=PASSED | PARTIAL | FAILED | authority_blocked |
 runtime_degraded` before claiming that a missing, new, repaired, or stale
 capability is dispatchable.
+
+## Registry-First Routing And Maintenance
+
+`registered_capability_first_gate` requires 吏部 to consult the injected
+`installed-capabilities-manifest.json` before discovery. The pure
+`route_registry_first(query, current_tool, manifest, manifest_state,
+source_roots, bounded_discovery)` surface selects at most one verified,
+non-stale, sufficient, current-tool-compatible record. Its result preserves
+`owner=libu-hr`, the injected registry path, `selection_source`,
+`fallback_reason`, verification/hash/version evidence, and `dispatchable`.
+It never writes a second registry or starts a daemon.
+
+Bounded discovery runs exactly once only for `missing`, `stale`, `corrupt`, or
+`no_sufficient_match`. A sufficient registry hit does not invoke discovery.
+Discovery is local/offline in this A02 lane and cannot install, upgrade, mutate
+a capability, or write a replacement registry.
+
+`libu_hr_capability_registry_maintenance_gate` is event-driven and maps events
+to these refresh boundaries:
+
+| Event | Refresh boundary |
+| --- | --- |
+| `dispatch_failure` (dispatch failure), `phase_closeout` (phase closeout) | Light refresh of manifest/catalog and cheap local state. |
+| `skill_install`, `skill_upgrade` | Incremental update of affected capability entries and department rows. |
+| Single-source `hash_drift`, `version_drift` | Incremental verification/update of affected entries. |
+| Missing/corrupt manifest, untrusted manifest state, or broad unknown drift | Full refresh of declared local roots. |
+
+All maintenance remains local/offline, preserves the one canonical registry,
+and never starts a registry daemon. Under read-only authority, compute and
+report the due boundary but do not mutate: return `authority_blocked` plus a
+`staleness warning` so callers cannot mistake the cached manifest for current
+evidence.
+
 ## Catalog Refresh
 
 Match the original selector's two-level catalog behavior:

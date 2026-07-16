@@ -1,14 +1,52 @@
 ---
-name: court-capability-router
-description: Route tasks through local skills, MCP servers, agents, CLI tools, and the Codex/Hermes Edict 三省六部 court workflow. Use when the user invokes /court or $court-capability-router, asks to select capabilities, dispatch sub-agents, inspect Shiguan records, edit this skill, or apply court approval modes such as approval, autonomous, super, or superCC.
+name: decretum-matrix
+description: Decretum Matrix（诏令矩阵） routes tasks through local skills, MCP servers, agents, CLI tools, and the Codex/Hermes Edict 三省六部 court workflow. Use when the user invokes /court or $decretum-matrix, asks to select capabilities, dispatch sub-agents, inspect Shiguan records, edit this skill, or apply court approval modes such as approval, autonomous, super, or superCC.
 ---
 
-# Court Capability Router
+# Decretum Matrix（诏令矩阵）
+
+## P00 Highest-Priority Semantic Dispatch And Resume Contract
+
+`P00_HIGHEST_PRIORITY=REQUIRED`: apply this gate before any child/worktree
+dispatch, compaction resume, or ordinary `super parallel` fan-out. It unifies
+low-token delegation and long-context recovery; it does not create another
+capsule, task ledger, receipt authority, or state machine.
+
+- Reuse the current Semantic Continuity Guard only: the runtime authority is the
+  existing `court.semantic.invariant_capsule.v1` bound by
+  `semantic_epoch == charter_revision`, its canonical SHA-256, the current
+  `semantic_receipt`, `plan_cursor`, and authority/plan/governing hashes. A
+  reduced summary without those bindings is invalid.
+- A new dispatch defaults to the exact `task_id` plus a stable `sub_id`, the
+  current inline invariant capsule (maximum 2,048 UTF-8 bytes), current
+  `plan_cursor`, exact relative `path`/SHA-256 pointers, and the bounded receipt
+  id/hash. Default fork context is `none` or the minimum required context; do not
+  send a full agent list, full diff, full file, transcript, or inherited
+  conversation by default.
+- Compaction and resume consume the same capsule/receipt mechanism. Reload the
+  current inline capsule and cursor, then only exact authority pointers whose
+  hashes changed; unchanged sources are not reloaded. Reverify before dispatch,
+  and quarantine an alternate capsule authority or unbound compact summary.
+- Full context is exceptional. Only the user or 太子 may grant an explicit,
+  bounded budget override with a concrete maximum; the override changes context
+  volume only and never semantic authority, hierarchy, write set, or safety.
+- Dispatch remains registry-first and minimal-office-preload. Reuse a compatible
+  live instance before spawning another; do not blindly stop allocated or
+  in-flight instances before completion or explicit recall. 太子 allocates the
+  dynamic budget pool through the hierarchy, and no wave starts merely to fill
+  capacity.
+- `child_agent` and `worktree_thread` use the same semantic receipt and bounded
+  child trace. When `superCC` is not explicitly selected, its annex/profile/
+  runtime surface has zero load. Ordinary `super parallel` sends separate
+  bounded packets and never copies the full main-thread text to every office.
+- A migrated Shiguan task-point may later preserve this binding as a durable
+  projection (`task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`),
+  but it is never the inline runtime capsule or a second execution authority.
 
 ## Unified Dynamic Dispatch Semantics
 
 1. 官署按任务职责、依赖和证据价值动态分配。
-2. 实时容量与请求预算是运行门禁，不是模式固定人数；整棵 agent tree 受 max_threads=16（含根线程）和 max_depth=4 约束，未知容量、占用、终态节点保留数、回收状态或深度时 fail closed。
+2. 正常并行默认整棵 agent tree 最多 16 个线程（含根线程），`max_depth=4`；只有最新用户明确指定 `>16` 数量或明确开启 `unlimited/解限` 才可越过 16。旧状态、记忆或非明确来源 fail closed；解限仍须通过太子动态预算池、宿主压力降级、层级、写集和实例追溯门禁，且不得自动开满。
 3. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
 4. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
 5. 普通 Codex 官署按 assignment、task focus、complexity、risk、ambiguity 动态生成 `gpt-5.6-sol|terra|luna` 与最高支持思考强度的推荐（Sol/Terra=`ultra`，Luna=`max`）。V2 child 实际继承主线程模型/effort；fresh V1 当前只实证 `agent_type`，不得声称 child 模型/effort 已覆盖。经 host proof、精确 native binary 与 session `turn_context` 验证的 fresh-session leaf worker 可应用顶层推荐，但它不是 V1/V2 child 或同会话切换。Claude Code 与 Hermes 仍继承各自主线程/主 profile。
@@ -16,6 +54,20 @@ description: Route tasks through local skills, MCP servers, agents, CLI tools, a
 ## Session-derived installation pitfall
 
 - Windows GUI terminal/emulator installs under `super`/`superCC` are software-install decrees with source/provenance gates. Prefer trusted package managers. For Alacritty, verify `winget show Alacritty.Alacritty` before `winget install --id Alacritty.Alacritty --exact --source winget`; verify both the package-manager record and `alacritty --version`. If the user or host blocks a source query/download, stop and memorialize `BLOCKED`/`NEEDS_CONTEXT` instead of retrying the same outcome through another command or tool. If an async court probe returns after a blocked closeout, append it as supplemental Shiguan evidence rather than silently reopening or changing the decree.
+
+## Pinned Initial Court Anchors
+
+- 最新旨意优先；`approval`、`autonomous`、`super`、`superCC` 是权限类，
+  `super并行` / `ordinary_parallel` 只是 topology 拓扑限定。
+- 太子统摄中书省、门下省、尚书省；尚书省差遣六部，六部再管理工坊/工匠。
+- 每次普通派生前运行 `court_cli.py agent-admit`，并保持层级、容量、写集与
+  P00 紧凑语义回执门禁。
+- 共享史馆位于受保护的 `.agents` / shared Shiguan 当前工具边界；不得安装或
+  改动最新明确用户旨意未授权的其他工具。
+- 能力选择必须先查 [官籍](references/court-capability-registry.md)：
+  registry-first / index-first，current-tool 兼容项由 `libu-hr`（吏部）负责维护。
+- closeout / 结诏必须经过门下复核，并以 `archive_checkpoint.py` 的可验证证据
+  完成阶段闭环。
 
 ## Overview
 
@@ -49,7 +101,7 @@ When a behavior correction changes a hard gate, trigger, approval authority, sou
 | Selecting the superCC runtime family across Codex, Hermes CLI/desktop readiness, Claude Code sync, zellij gates, profile/session evidence, and squad requirements | [court-supercc-runtime-selection.md](references/court-supercc-runtime-selection.md) |
 | Detecting Hermes Studio group-chat rooms or using same-room `@profile` parallel office wake/dispatch as `super GL` | [hermes-studio-super-gl.md](references/hermes-studio-super-gl.md) |
 | Clarifying intent, asking one question at a time, preserving court voice, assigning offices, or dispatching work | [court-offices-dispatch.md](references/court-offices-dispatch.md) |
-| Managing legal transitions, runtime ledger, recursive agents, parallel dispatch, heartbeat, or agente cleanup | [court-state-runtime-agents.md](references/court-state-runtime-agents.md) |
+| Applying the P00 semantic capsule/dispatch/resume contract, or managing legal transitions, runtime ledger, recursive agents, parallel dispatch, heartbeat, or agente cleanup | [court-state-runtime-agents.md](references/court-state-runtime-agents.md) |
 | Selecting a Codex office model recommendation, preserving the reserved V2 spawn schema, validating inheritance acknowledgement, or preserving Claude/Hermes boundaries | [court-office-model-routing.md](references/court-office-model-routing.md) |
 | Selecting skills/MCPs/CLIs/scripts/agents, refreshing 官籍, recruiting capabilities, or mapping departments | [court-capability-registry.md](references/court-capability-registry.md) |
 | Reviewing Windows, Hermes, terminal, local GUI/HTTP boundaries, rate-limit, install/config, or host-specific hazards | [court-host-platform-pitfalls.md](references/court-host-platform-pitfalls.md) |
@@ -104,7 +156,7 @@ Portable first-run bootstrap is a governed script, not an implicit memory mirror
 - Network/web research is selected by evidence need. Current, volatile, external, niche, high-stakes, or citation-sensitive facts require browsing unless the active authority blocks it.
 - Capability selection follows `官籍 -> 铨选 -> 差遣 -> 考课`. A skill, MCP, CLI, script, or agent is selected by scope, allowed actions, forbidden actions, evidence, and stop conditions, not by name alone.
 - Skill/MCP/CLI/script calls must bind `calling_office`, `purpose`, `input_boundary`, `allowed_actions`, `forbidden_actions`, `risk_level`, `evidence_contract`, `stop_conditions`, and escalation path.
-- When the user asks to call a local `super power` / `superpowers` skill, treat that as a 工坊技艺 invocation, not as a new court office. First verify the skill exists in the active skill roots/catalog and read its own `SKILL.md`; if it is missing, installation is allowed only inside the active authority boundary, through a verified local/system installer or source with hashes/provenance, with 门下复核 for unverified install risk. Do not install third-party skills, run remote installers, mutate startup tasks, or expand standing 官署 merely to satisfy a skill name. Record `skill_call_contract`, `skills_invoked`, install/no-install decision, and Shiguan evidence.
+- When the user asks to call a local workflow or methodology skill, treat it as a 工坊技艺 invocation, not as a new court office. First verify the skill exists in the active skill roots/catalog and read its own `SKILL.md`; if it is missing, installation is allowed only inside the active authority boundary, through a verified local/system installer or source with hashes/provenance, with 门下复核 for unverified install risk. Do not install third-party skills, run remote installers, mutate startup tasks, or expand standing 官署 merely to satisfy a skill name. Record `skill_call_contract`, `skills_invoked`, install/no-install decision, and Shiguan evidence.
 - 史馆追溯 is mandatory for formal decrees and skill-behavior corrections. If filesystem writeback is available, do not close with “未另写史馆记录”. Use `archive_checkpoint.py` and include complete stage fields for replayable evidence.
 - 史馆 writable data lives in the shared Shiguan root resolved by `scripts/shiguan_paths.py`: default `%LOCALAPPDATA%\court-shiguan\court-capability-router\references`, overrideable with `COURT_SHARED_SHIGUAN_ROOT` or `SHIGUAN_SHARED_ROOT`. Skill-local `references/` contains governing references and portable seed files, not the authoritative runtime archive.
 - Obsidian is a management surface, not the authority. Default sync is `Shiguan shared root -> Obsidian` preserve-only filesystem refresh; Obsidian edits/imports return to `shiguan-imports/pending` and require 三省会审/门下复核 before becoming official records. Every Obsidian sync-config writer must use `obsidian_config_state.py` under the single config lock with field-level three-way CAS, post-write reread verification, and a public projection that never exposes `api_key`.
@@ -163,11 +215,11 @@ Do not skip 三省上奏/太子回奏 before implementation or dispatch. Do not 
 
 Formal decrees must attempt meaningful multi-agente or parallel ministry work when the runtime supports it and the work benefits from separation. Do not ask again merely because the work is parallel; the court workflow is the user's standing opt-in inside the approved boundary. Report `parallel_dispatch: USED | NOT_APPLICABLE | runtime_degraded | authority_blocked`.
 
-The newest user topology instruction overrides that default. If the user says `串行`, `完全串行`, `不启用/不派生子 agente`, or the runtime task records `parallel_dispatch=NOT_APPLICABLE/user_serial_override`, do not spawn, reuse, wake, or follow up any child agente for that decree; report `parallel_dispatch: NOT_APPLICABLE/user_serial_override`. Before every ordinary spawn wave, run the machine-checkable `court_cli.py agent-admit` gate with current context size, whole-tree live collaboration occupancy, host-retained terminal-node count, reclamation evidence, and the proposed `next_depth`. Ordinary child dispatch defaults to `fork_turns=none`, dynamic useful-role selection with `static_wave_cap=null`, 600 seconds, and 8 tool calls. The hard tree bounds are a logical `max_threads=16` including the root thread and `max_depth=4`; under Multi-Agent V2 this is configured as `features.multi_agent_v2.max_concurrent_threads_per_session=16`, while legacy `agents.max_threads` must be absent. Therefore at most 15 child slots exist when only the root is active. Clamp host capacity to that configured ceiling, validate `next_depth<=4` at every recursion, and fail closed when capacity, occupancy, retained-node count, reclamation status, or depth is unknown. Retained nodes with `not-reclaimed` consume physical capacity; only machine-verified reclamation permits active-only accounting. Never use `fork_turns=all` for ordinary court work, never reuse an errored/overgrown historical agent to bypass a thread limit, and stop the wave on capacity/thread-limit. If the host rejects a spawn before any lifecycle record exists, record it with `agent-spawn-failed`, block the wave, and defer the remaining roles without inventing an agente record. A 401/402/403 quota/auth/account/billing failure opens the task circuit: no same-task retry, reconcile the terminal status immediately with `agent-reconcile`, interrupt any still-running siblings, and record failed/closed rather than leaving the court ledger at running.
+The newest user topology instruction overrides the normal parallel default. If the user says `串行`, `完全串行`, `不启用/不派生子 agente`, or the runtime task records `parallel_dispatch=NOT_APPLICABLE/user_serial_override`, do not spawn, reuse, wake, or follow up any child agente for that decree; report `parallel_dispatch: NOT_APPLICABLE/user_serial_override`. Before every ordinary spawn wave, run the machine-checkable `court_cli.py agent-admit` gate with current context size, whole-tree live collaboration occupancy, host-retained terminal-node count, reclamation evidence, and the proposed `next_depth`. Ordinary child dispatch defaults to `fork_turns=none`, dynamic useful-role selection with `static_wave_cap=null`, 600 seconds, and 8 tool calls. The normal whole-tree limit is 16 including the root thread, while `max_depth=4` remains a hard recursion bound. A current explicit user count above 16 or a current explicit `unlimited/解限` switch may raise the thread ceiling; prior memory, stale task state, or an implicit host setting may not. Under Multi-Agent V2 the normal config is `features.multi_agent_v2.max_concurrent_threads_per_session=16`, while legacy `agents.max_threads` must be absent; therefore the normal root-only tree has at most 15 child slots. An override only changes the ceiling: it never creates a budget lease, bypasses capacity, memory-pressure downgrade, hierarchy, write-set, preload, or trace gates, and never instructs the court to fill every available slot. Clamp host capacity to the resolved ceiling, validate `next_depth<=4` at every recursion, and fail closed when capacity, occupancy, retained-node count, reclamation status, override provenance, or depth is unknown. Retained nodes with `not-reclaimed` consume physical capacity; only machine-verified reclamation permits active-only accounting. Never use `fork_turns=all` for ordinary court work, never reuse an errored/overgrown historical agent to bypass a thread limit, and stop the wave on capacity/thread-limit. If the host rejects a spawn before any lifecycle record exists, record it with `agent-spawn-failed`, block the wave, and defer the remaining roles without inventing an agente record. A 401/402/403 quota/auth/account/billing failure opens the task circuit: no same-task retry, reconcile the terminal status immediately with `agent-reconcile`, interrupt any still-running siblings, and record failed/closed rather than leaving the court ledger at running.
 
 For every admitted ordinary Codex office, `/root/*` remains only its collaboration address. Current Multi-Agent V2 uses a model-reserved `collaboration.spawn_agent` schema, so keep `hide_spawn_agent_metadata=true` and do not expose `agent_type`, `model`, `reasoning_effort`, or `service_tier` to the model-visible tool. Put the explicit `role_key`, corresponding office `AGENTS.md` dossier path/hash, court skill hash, and preload contract in the bounded spawn message; the child must load that dossier before claiming the office. Evaluate assignment, task focus, complexity, risk, and ambiguity through `court.office.model_route.v2`: Sol/Terra remain the `ultra` recommendations and Luna remains the `max` recommendation, while a compatible V2 child continues to inherit the main thread model and effort. The first preload acknowledgement must prove `model_route_id`, `model_override_applied=NO`, the exact inheritance policy, and the office dossier/profile hashes before status can become `running`. A separate fresh-session leaf worker may apply the recommendation only through `court_codex_office_worker.py` with a verified host proof, an exact native-binary path and SHA256, the matching dossier cwd, disabled multi-agent features, and session `turn_context` evidence for model and effort. That transport is not a V1/V2 child override, not a `/root/*` identity, and not a same-session protocol switch. Keep `.codex/agents/*.toml` model-neutral. Claude Code inherits its main thread model; Hermes inherits its main profile model and remains deferred for later detailed profile design. See [court-office-model-routing.md](references/court-office-model-routing.md).
 
-Production ordinary-agent routing is V2, with `serial` as the no-child override. `auto` must bind to the actual active V2 namespace; recursive tree/fork/cross-branch work uses V2, while child model/effort overrides remain unavailable on Codex 0.144.1. The former automated or bidirectional V1/V2 switching design is deprecated. Keep V1 code, fixtures, configuration history, and immutable backups only as dormant recovery evidence; do not invoke `--protocol v1`, advertise command-selectable switching, or stop/restart the backend through the protocol launcher unless a newer explicit user decree reopens that capability. V2 removes legacy `agents.max_threads`, enables the 16-slot table, and hides reserved metadata. Every production config change creates an immutable backup and must pass native `config/read`. Exact-session resume retains its initial tool namespace, so the existing quiescent launcher remains fail closed and never relabels a running tree.
+Production ordinary-agent routing is V2, with `serial` as the no-child override. `auto` must bind to the actual active V2 namespace; recursive tree/fork/cross-branch work uses V2, while child model/effort overrides remain unavailable on Codex 0.144.1. The former automated or bidirectional V1/V2 switching design is deprecated. Keep V1 code, fixtures, configuration history, and immutable backups only as dormant recovery evidence; do not invoke `--protocol v1`, advertise command-selectable switching, or stop/restart the backend through the protocol launcher unless a newer explicit user decree reopens that capability. V2 removes legacy `agents.max_threads`, defaults to the 16-slot table, permits a proven current explicit count above 16, and hides reserved metadata. Every production config change creates an immutable backup and must pass native `config/read`. Exact-session resume retains its initial tool namespace, so the existing quiescent launcher remains fail closed and never relabels a running tree.
 
 Spawned office agente are distinct from skills. A skill call is a 工坊技艺 invocation unless a real office agente carried the role. Recursive trees are bounded by court hierarchy and configured budgets: 太子 -> 三省; 尚书省 -> 六部; 六部 -> 工坊/工匠. Never create unbounded descendants or permanently install standing officials without 太子回奏 and user approval.
 

@@ -1,4 +1,4 @@
-"""Build and exclusively publish immutable court release artifacts."""
+"""Build and exclusively publish immutable Decretum Matrix release artifacts."""
 
 from __future__ import annotations
 
@@ -20,7 +20,9 @@ import release_payload_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-NAME = "court-capability-router"
+NAME = "decretum-matrix"
+DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
+LICENSE_ID = "AGPL-3.0-only"
 ATTESTATION_SCHEMA = "court.release_attestation.v1"
 RELEASE_RE = re.compile(r"^beta(?P<core>0\.[0-9]+\.[0-9]+)$")
 TAG_SIGNATURE_MARKERS = (
@@ -49,7 +51,10 @@ def read_release_label(root: Path = ROOT) -> str:
 
 
 def load_payload_manifest(root: Path = ROOT) -> dict[str, object]:
-    checked = release_payload_manifest.check_current(root)
+    try:
+        checked = release_payload_manifest.check_current(root)
+    except release_payload_manifest.ManifestError as exc:
+        raise ArtifactBuildError(f"release payload manifest contract failed: {exc}") from exc
     if not checked.get("ok"):
         raise ArtifactBuildError(
             "release payload manifest is stale: "
@@ -112,8 +117,19 @@ def collect_source_identity(release_label: str, root: Path = ROOT) -> dict[str, 
 
 def expected_names(manifest: Mapping[str, object]) -> tuple[str, str, str, str, str]:
     release_label = str(manifest.get("release_label"))
+    if (
+        manifest.get("name") != NAME
+        or manifest.get("display_name") != DISPLAY_NAME
+        or manifest.get("package_name") != NAME
+        or manifest.get("license") != {"declared": LICENSE_ID, "file": "LICENSE"}
+        or manifest.get("archive_root") != f"{package_skill.ROOT_NAME}/"
+    ):
+        raise ArtifactBuildError("release manifest product/license/locator identity mismatch")
+    expected_zip = f"{NAME}-{release_label}.zip"
+    if manifest.get("artifact_name") != expected_zip:
+        raise ArtifactBuildError(f"release artifact name mismatch: expected {expected_zip}")
     return (
-        str(manifest.get("artifact_name")),
+        expected_zip,
         str(manifest.get("sidecar_name")),
         str(manifest.get("attestation_name")),
         f"{NAME}-{release_label}.release-notes.md",
@@ -149,6 +165,10 @@ def build_attestation(
     return {
         "schema": ATTESTATION_SCHEMA,
         "name": NAME,
+        "display_name": DISPLAY_NAME,
+        "package_name": NAME,
+        "license": LICENSE_ID,
+        "archive_root": f"{package_skill.ROOT_NAME}/",
         "release_label": manifest.get("release_label"),
         "source": dict(source),
         "release_manifest": {
@@ -232,7 +252,7 @@ def validate_candidate_artifacts(
     )
     if attestation != expected_attestation:
         raise ArtifactBuildError("attestation does not match HEAD/tag/tree/manifest/artifacts")
-    with tempfile.TemporaryDirectory(prefix="court-release-validate-") as tmp_text:
+    with tempfile.TemporaryDirectory(prefix="decretum-release-validate-") as tmp_text:
         archive_path = Path(tmp_text) / zip_name
         archive_path.write_bytes(zip_bytes)
         _, package_problems = package_skill.validate_zip(archive_path)
@@ -295,16 +315,28 @@ def synthetic_source_identity(root: Path = ROOT) -> dict[str, str]:
 
 
 def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
+    tests: dict[str, bool] = {
+        "canonical_release_product_name_required": NAME == "decretum-matrix",
+        "canonical_display_name_required": getattr(release_payload_manifest, "DISPLAY_NAME", None)
+        == "Decretum Matrix（诏令矩阵）",
+        "canonical_beta_0_5_10_artifact_required": (
+            release_payload_manifest.RELEASE_LABEL == "beta0.5.10"
+            and release_payload_manifest.ARTIFACT_NAME == "decretum-matrix-beta0.5.10.zip"
+        ),
+        "agpl_only_release_required": getattr(release_payload_manifest, "LICENSE_ID", None)
+        == "AGPL-3.0-only",
+        "stable_install_locator_required": package_skill.ROOT_NAME == "court-capability-router",
+    }
+    if not all(tests.values()):
+        return tests
     manifest = load_payload_manifest(root)
     source = synthetic_source_identity(root)
     release_label = str(manifest["release_label"])
-    tests: dict[str, bool] = {
-        "annotated_tag_signature_markers_detected": all(
-            tag_has_signature(f"tag body\n{marker}\nfixture") for marker in TAG_SIGNATURE_MARKERS
-        )
+    tests["annotated_tag_signature_markers_detected"] = (
+        all(tag_has_signature(f"tag body\n{marker}\nfixture") for marker in TAG_SIGNATURE_MARKERS)
         and not tag_has_signature("unsigned annotated tag body")
-    }
-    with tempfile.TemporaryDirectory(prefix="court-release-builder-self-test-") as tmp_text:
+    )
+    with tempfile.TemporaryDirectory(prefix="decretum-release-builder-self-test-") as tmp_text:
         temp_root = Path(tmp_text)
         first = temp_root / "candidate-a.zip"
         second = temp_root / "candidate-b.zip"

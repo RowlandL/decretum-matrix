@@ -39,3 +39,56 @@ This reference owns host-specific pitfalls that are too detailed for the entrypo
 ## Local GUI And HTTP Exclusion
 
 - Local GUI/HTTP surfaces are explicitly sealed and out-of-scope for `superCC` supervision and monitoring. When modifying or extending `supercc_watchdog.py` or associated incident recovery systems, do not add endpoints, HTTP patrol calls, backend service dependencies, visible monitor panes, or popup windows. Keep incident tracing and safe-recover suggestions restricted to local JSON/JSONL files and silent background script records.
+
+## Controller Remediation And Release Platform Gates
+
+`blank_host_controller_config_remediation_gate` normalizes
+`normalized_controller_tool_classes` as `codex`, `claude-code`, `hermes`, and
+`other:<stable-id>`. `REMINDER_ONLY` is governed by
+`reminder_only_nonblocking_gate` and `no_false_compliance`. Any actual change
+requires `newest_explicit_change_authority_gate`, checks the
+`cc_switch_upstream_controller_first_gate`, performs a
+`reversible_backup_transaction_gate`, and passes
+`effective_config_reread_parse_acceptance_gate` plus
+`runtime_probe_when_available`; a database receipt alone is rejected by
+`db_receipt_never_sufficient`.
+
+For Codex, `codex_dual_config_semantic_delta_gate` compares `config.toml` and
+`managed_config.toml` for a `semantically_compatible_delta`. Hermes remains
+under `hermes_controller_non_materialization_gate`. A direct file fallback is
+allowed only by `explicitly_authorized_certain_reversible_actual_file_fallback`;
+otherwise record `NO_CHANGE_UNCERTAIN` under
+`no_change_uncertain_explanation_zero_writes_gate`. Always apply
+`preserve_secrets_provider_unknown_keys_gate`.
+
+`ccswitch_version_schema_allowlist_gate` recognizes CC Switch 3.16.x with
+`user_version=11` and CC Switch 3.17.x with `user_version=13`.
+`profiles_six_columns_gate` requires
+`profiles_columns=id/name/payload/sort_order/created_at/updated_at`.
+`proxy_request_logs_input_token_semantics` and
+`usage_daily_rollups_input_token_semantics` must remain explicit;
+`version_schema_mismatch_or_unknown_fail_closed_gate`,
+`adapter_no_schema_migration_gate`, and `tool_blocks_synthetic_fixture_only_gate`
+forbid guessing or migrating the controller schema.
+
+`effective_config_last_moment_per_file_semantic_reread_gate` rereads every
+effective file immediately before acceptance.
+`codex_dual_toml_no_permanent_byte_equality_gate` does not require permanent
+byte equality between `config.toml` and `managed_config.toml`.
+`hermes_platform_config_path_gate` resolves `hermes_config_dir` from
+`HERMES_HOME`, `%LOCALAPPDATA%\hermes`, or
+`<home>\AppData\Local\hermes` on Windows, and `~/.hermes/config.yaml` on
+Darwin/Linux.
+
+`final_macos_same_or_separate_package_gate` records either
+`same_release_package` or `separate_macos_package`. Release identity is governed
+by `rights_owner_exact_name_gate` = 孙华清 and
+`public_maintainer_identity_gate` = @RowlandL. The community gate is
+`community_agpl_3_0_only_release_gate` with `AGPL-3.0-only`, `LICENSE`, and
+`NOTICE`; `commercial_license_separate_written_agreement_gate` points to
+`COMMERCIAL-LICENSE.md`, `CLA.md`, and `TRADEMARKS.md`.
+`upstream_mit_provenance_preserved_gate` requires `PROVENANCE.md`,
+`THIRD_PARTY_NOTICES.md`, upstream `cft0808/edict`, and fixed commit
+`14a207557719c046af0f993a7bff1cc5a5015b33`. Historical `Apache-2.0` grants
+remain governed by `historical_apache_grants_irrevocable_gate`; the current
+release must pass `no_contradictory_license_terms_gate`.

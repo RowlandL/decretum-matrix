@@ -3,7 +3,7 @@
 ## Unified Dynamic Dispatch Semantics
 
 1. 官署按任务职责、依赖和证据价值动态分配。
-2. 实时容量与请求预算是运行门禁，不是模式固定人数；整棵 agent tree 受 max_threads=16（含根线程）和 max_depth=4 约束，未知容量、占用、终态节点保留数、回收状态或深度时 fail closed。
+2. 正常并行默认整棵 agent tree 最多 16 个线程（含根线程），`max_depth=4`；只有最新用户明确指定 `>16` 数量或明确开启 `unlimited/解限` 才可越过 16。旧状态、记忆或非明确来源 fail closed；解限仍须通过太子动态预算池、宿主压力降级、层级、写集和实例追溯门禁，且不得自动开满。
 3. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
 4. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
 
@@ -18,6 +18,94 @@
 - [协同上朝](#协同上朝)
 
 ## Moved Source
+
+## P00 Semantic Dispatch And Resume Unification
+
+This is the highest-priority context contract for ordinary child dispatch,
+worktree-thread handoff, compaction, and resume. It reuses the current Semantic
+Continuity Guard and introduces no task ledger, capsule schema, receipt
+authority, durable store, daemon, or second state machine.
+
+### One authority, two consumption surfaces
+
+- `runtime_inline_capsule=EXISTING_SEMANTIC_AUTHORITY`: the runtime uses the
+  exact current `court.semantic.invariant_capsule.v1` already bound to
+  `semantic_epoch == charter_revision`, `charter_sha256`, and
+  `invariant_capsule_sha256`. Its canonical JSON stays within 2,048 UTF-8 bytes.
+  `tasks.json` plus append-only runtime events remain authoritative; a compact
+  summary, prompt, message, Shiguan note, or projection cannot replace them.
+- Low-token dispatch and long-context recovery consume that same capsule. The
+  transient `court.semantic.dispatch_context_packet.v1` carries `task_id`, a
+  stable `sub_id`, current semantic epoch, capsule hash, current semantic receipt
+  id/hash, authority and plan hashes, `plan_cursor`, `fork_context`, and exact
+  relative `path`/SHA-256 pointers. The runtime task carries the inline capsule;
+  the packet binds it rather than defining another capsule.
+- `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: after the
+  Shiguan migration, a task-point record may durably project the same task/sub-id,
+  capsule hash, receipt, cursor, and pointer evidence. It is a later append-only
+  trace/recall projection, never the inline runtime capsule and never execution
+  authority. Projection absence cannot be repaired by inventing another capsule.
+
+### Default bounded dispatch
+
+- New dispatch defaults to `fork_turns=none`; `fork_context=minimal` is allowed
+  only for the smallest directly necessary context. `fork_turns=all`, inherited
+  transcript, full main-thread history, and unbounded context are forbidden.
+- The default packet is bounded and structured. It contains exact identity,
+  task/sub-id, receipt, `plan_cursor`, and path/hash pointers, plus at most a
+  receipt-bound compact summary. The normal path must not include
+  `full_agent_list`, `full_diff`, `full_file`, raw logs, private bodies, complete
+  prompts, or unrelated source text. Ordinary `super parallel` gives each office
+  its own bounded assignment packet; it never copies the full main-thread text to
+  every child.
+- Full context is exceptional and requires `budget_override.explicit=true`,
+  `granted_by=user|taizi`, and a concrete `max_bytes` above the bounded default.
+  The override expands context volume only. It does not replace the capsule or
+  receipt, change hierarchy/write set/safety, or authorize unrelated content.
+- This P00 contract does not redefine `court.agent.dispatch_message_budget.v1`.
+  That independent compatibility gate remains unchanged and cannot be used as
+  permission to send full context.
+
+### Resume and authority-hash reload
+
+- Compaction/resume first rereads the current inline capsule and `plan_cursor`,
+  verifies the current semantic receipt, and compares exact pointers with the
+  previous packet. Reload only pointers whose authority hashes changed. Do not
+  reload unchanged plan/source files, the full transcript, or every governing
+  document. Missing required reloads, extra reloads, hash mismatch, alternate
+  capsule authority, or an unbound summary fails closed and returns through
+  `REVERIFY`/`QUARANTINED` as the existing guard requires.
+- A permission-only authority update may advance authority revision/hash without
+  inventing a new semantic epoch. A decree/body correction still follows the
+  existing correction contract and updates `charter_revision`, `semantic_epoch`,
+  capsule, and receipt together.
+
+### Dispatch integration gates
+
+- Capability selection is `registry-first`; load the exact current skill and
+  smallest role-local dossier/profile, then only triggered governing references.
+  `compatible_instance_policy=REUSE_FIRST`: prefer a compatible live instance
+  with matching task, role, receipt, lease, write set, and preload hashes before
+  creating another.
+- `inflight_instance_policy=KEEP_UNTIL_COMPLETE_OR_EXPLICIT_RECALL`: an admitted
+  or in-flight instance retains its allocated budget until completion, explicit
+  superior recall, hard safety/authority failure, or machine-proven terminal
+  state. Do not start at maximum scale and interrupt surplus instances.
+- 太子 allocates the dynamic budget pool to 三省; each superior allocates only its
+  granted share to subordinates. Budget affects concurrency/context allowance,
+  not semantic authority. Capacity is a ceiling, never a fill target.
+- `carrier_receipt_parity=REQUIRED`: `child_agent` and `worktree_thread` consume
+  the same capsule hash, current semantic receipt, task/sub-id, budget/lease,
+  write-set, preload, result, and stop contract. A worktree is an isolation
+  carrier, not another authority or concurrent writer.
+- `disabled_supercc_zero_load=REQUIRED`: unless the newest decree explicitly
+  selects `superCC`, its annex, profiles, dossiers, scripts, watchdog, daemon, and
+  visible-office runtime are not loaded or probed by this path.
+- `bounded_child_trace=REQUIRED`: each dispatch/result records only stable ids,
+  role/superior, timestamps, capsule/receipt/cursor hashes, approved write set,
+  status, compact action/evidence pointers, and terminal disposition. Do not copy
+  full prompts, full diffs, full files, transcripts, or private bodies into the
+  child trace.
 
 ## State Machine
 
@@ -688,8 +776,9 @@ sets `features.multi_agent_v2.enabled=true` and
 `features.multi_agent_v2.hide_spawn_agent_metadata=true`.
 
 V2 is the production startup protocol. Each production write creates a
-byte-for-byte, exclusive, immutable backup and must preserve the 16-thread,
-hidden-metadata V2 shape without legacy `agents.max_threads`. Record backup
+byte-for-byte, exclusive, immutable backup and must preserve the normal
+16-thread default or the current explicit user count, plus the hidden-metadata
+V2 shape without legacy `agents.max_threads`. Record backup
 path, SHA256, attributes, and the exact changed keys in shared Shiguan without
 copying the secret-bearing config body. The former bidirectional V1/V2 switch
 is deprecated: retain V1 code, fixtures, prior config, and backups as dormant
@@ -703,9 +792,14 @@ policy, report the blocked configuration attempt and only degrade to 太子临�
 三省六部名义 when the actual required spawn/recursion work cannot be performed,
 with 尚书省 and 史馆 recording why recursion was blocked.
 
-The 4/16 values are a hard whole-tree ceiling, not a dispatch target. The root
-thread consumes one of the 16 slots, so a root-only tree may admit at most 15
-children. Ordinary spawned work uses `court_cli.py agent-admit` before every
+Depth 4 is the hard recursion bound. Sixteen is the normal whole-tree limit,
+not a dispatch target: the root consumes one slot, so the normal root-only tree
+may admit at most 15 children. A latest explicit user count above 16 or latest
+explicit `unlimited/解限` switch may raise only the thread ceiling. Stale task
+state, prior memory, an implicit host setting, or an old switch fails closed.
+The override never creates a lease, bypasses resource or memory-pressure
+downgrade, changes the hierarchy/write-set/trace gates, or auto-fills the host.
+Ordinary spawned work uses `court_cli.py agent-admit` before every
 wave with `wave_policy=dynamic_by_duty_and_capacity`, `static_wave_cap=null`,
 live host capacity/current whole-tree occupancy, retained terminal-node count,
 reclamation evidence, proposed `next_depth`, and optional user/provider launch
@@ -732,7 +826,7 @@ compress or split before retrying under a new `wave_id`. Missing legacy
 measurements remain admitted as `legacy_unmeasured`; negative or malformed
 measurements fail closed. The runtime never truncates a dispatch automatically,
 does not derive this character budget from `context_tokens`, and preserves the
-4/16 tree limits independently. A caller may additionally report required and
+depth-4 and resolved default-or-explicit thread limits independently. A caller may additionally report required and
 optional character counts; both must be non-negative and sum exactly to the
 total. On rejection the ledger then distinguishes the optional compression
 target from any required-context overage, so required dossier, identity,
@@ -848,7 +942,8 @@ Agent group rules:
   inspect current Codex agent settings, consult official Codex docs when needed,
   and, if allowed by the approval policy and host tool policy, configure bounded
   recursive delegation with `scripts/ensure_court_agent_config.py` toward the
-  4/16 install target. If the settings are below 4/16 but the current task can
+  normal 4/16 install target; a value above 16 requires a current explicit user
+  count or unlock decision. If the settings are below 4/16 but the current task can
   still run with the available bounded depth/threads, report
   `compatible_below_recommended` and proceed inside the smaller budget instead
   of treating the runtime as failed. For read-only review, status correction, single-file
@@ -919,3 +1014,54 @@ Agent group rules:
   require 尚书省 to redispatch.
 - Serialize shared-file edits, MCP writes, installs, config changes,
   destructive operations, and external application state.
+
+## RC2 Semantic Continuity And Operation Authority
+
+`tasks.json` current-task records and append-only `court_events.jsonl` remain
+the only runtime authority. Runtime-schema v2/v3 records that lack a body-bound
+semantic binding may be listed and diagnosed, but every mutation fails closed
+with `legacy_semantic_binding_read_only`; normalization never upgrades their
+stored bytes.
+
+A writable task binds `charter_revision == semantic_epoch`, the exact charter
+SHA-256, and an invariant capsule of at most 2 KiB. The capsule carries the
+latest decree anchor, non-goals, boundaries, allowed/forbidden actions,
+acceptance/evidence/stop gates, write set, and governing hashes. Checkpoint and
+verification receipts keep authority, plan, Git/worktree, recovery, and
+Shiguan evidence in separate fields. The supported JSON interface is:
+
+```text
+court semantic checkpoint|verify|correct|resume|quarantine|reconcile
+```
+
+Checkpoint/verify are required after restoration and before dispatch. Drift is
+persisted as `QUARANTINED`; correction and resume return through
+`ThreeDepartments` and `REVERIFY`. Reconcile may acknowledge restored sources
+only to `REVERIFY`; it cannot directly restore `DISPATCHABLE`.
+
+Admission and lifecycle receipts bind task id, semantic epoch, charter/capsule
+hashes, checkpoint id, dispatch uid, attempt, office instance, direct superior,
+worktree/write set/lease, and preload hashes. A current bound child result uses
+`court.office.result.v1`; free text cannot bypass that envelope, and stale
+results are quarantined rather than rebased.
+
+`court_operation_journal.py` is a disposable idempotency/recovery artifact, not
+a task ledger, event ledger, or sequence authority. `court decree-open` writes
+the allocated main number and receipt into the current task under the runtime
+lock; same-operation replay returns the original receipt, while a changed
+payload fails closed. Allocation recovery is forward-only, so gaps are allowed
+but an allocated number is never silently reused.
+
+Phase-1 closeout validation uses only `court synthetic-closeout` and a
+`synthetic-*` root beneath the temporary runtime root. It proves
+`PREPARED -> ARCHIVE_COMMITTED -> TASK_EVENT_COMMITTED` and
+`court closeout-recover --operation-id`; it is not a real Shiguan production
+adapter and never authorizes access to pending import bodies.
+
+## Hierarchical Budget Pool Gate
+
+`hierarchical_budget_pool_gate` requires every parallel allocation to carry a
+stable `budget_id`. A child allocation carries its `parent_budget_id`; its
+`direct_superior` grants a bounded `lease`, retains a safety `reserve`, and may
+reclaim only unused capacity. Capacity never grants authority, changes the
+office hierarchy, or permits a wave merely to fill available slots.

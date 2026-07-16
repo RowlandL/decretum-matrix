@@ -2,6 +2,59 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta0.5.10 — 2026-07-16
+
+### 发布结论
+
+`beta0.5.10` 是 Decretum Matrix（诏令矩阵）的首个新名称本地发布候选。
+规范产品/skill/package 名为 `decretum-matrix`，调用入口为
+`$decretum-matrix`，候选 ZIP 为 `decretum-matrix-beta0.5.10.zip`。为保持
+既有安装与史馆连续性，ZIP 内根、物理安装目录和共享史馆 namespace 继续使用
+受保护的技术 locator `court-capability-router`，不再把它作为当前产品显示名。
+
+### 核心变更
+
+1. P00 与语义连续性
+   新任务、修订、恢复、dispatch、结果、quarantine 和 closeout 都绑定当前
+   task、charter revision/semantic epoch、正文 SHA-256、2 KiB invariant capsule
+   与紧凑 receipt。普通子官署默认 `fork_turns=none`，只携带必要 pointer/hash，
+   不复制完整历史、diff、私密正文或 pending body。
+
+2. 官署身份与 carrier
+   十四官署绑定 standing-official TOML、ordinary office dossier、
+   Decretum Matrix skill hash 和 preload acknowledgement。六部不得吸收三省审计、
+   门下最终复核或太子统筹权限；工匠任务使用 role-prefixed 名称并保持直属链。
+
+3. 许可、权属与来源
+   当前社区候选使用 `AGPL-3.0-only`。商业权利只由孙华清另行签署的书面协议
+   产生；贡献采用 DCO + CLA gate，CLA 仍标记 `LEGAL_REVIEW_REQUIRED`。
+   `@RowlandL`（GitHub id `42199880`）仅作为公开维护者身份。上游
+   `cft0808/edict` 固定提交的 MIT 文本、版权与 provenance 独立完整保留，
+   不归入孙华清版权。
+
+4. 本地更名与控制面连续性
+   child repo、release worktree、managed worktree root、workspace manifest、
+   task mount 与新 root refs 已收敛到 `decretum-matrix`。旧 state/events、旧 refs、
+   历史 checkpoint 和受保护 locator 均 append-only 保留，没有删除或强推。
+
+5. 打包与安装投影
+   release manifest、SBOM、法律文件和新名称文档进入同一确定性 payload。
+   Windows 8.3 临时目录别名通过文件身份校验，不再被误判为 root escape；
+   stage 内无 `.git` 时只验证 payload/manifest，不伪造 source Git metadata。
+   当前工具安装器使用同一 manifest、备份、迁移、索引与逐文件回读合同；真实
+   本机安装只在 clean accepted package 后由正式工部工匠子官署执行。
+
+### 验收状态
+
+- Phase 1 P00/RC2/RC4/RC5/RC6：GREEN；门下 `SPEC PASS`；刑部
+  `QUALITY READY YES`。
+- package privacy：59/59；release manifest：40 steps；artifact builder
+  deterministic self-test：12/12；legal checker real/self-test：PASS。
+- 四个受保护史馆文件保持原路径、原长度、原 SHA-256；pending body access 为
+  `NO`；Git index、`.pyc` 与 remote count 均为 `0`。
+- 当前只声明本地候选。remote push、tag、PR、GitHub Release 与线上资产上传
+  仍须通过 clean accepted commit/package 及相应发布门禁后另行执行。
+
 ## beta0.5.9 — 2026-07-12
 
 ### 发布结论

@@ -1,0 +1,36 @@
+{
+  "schema": "court.skill_identity.v1",
+  "schema_version": 1,
+  "display_name": "Decretum Matrix（诏令矩阵）",
+  "canonical_skill_name": "decretum-matrix",
+  "canonical_invocation": "$decretum-matrix",
+  "community_license": "AGPL-3.0-only",
+  "commercial_license_notice": "COMMERCIAL-LICENSE.md",
+  "rights_owner": "孙华清",
+  "github_repository": "https://github.com/RowlandL/decretum-matrix",
+  "maintainer_github": "@RowlandL",
+  "maintainer_github_id": 42199880,
+  "withdrawn_names": [
+    "DecreeMatri",
+    "decreematri"
+  ],
+  "legacy_names": [
+    {
+      "name": "court-capability-router",
+      "invocation": "$court-capability-router",
+      "status": "deprecated",
+      "alias_support": "probe_required",
+      "compatibility_claimed": false
+    }
+  ],
+  "locator_policy": {
+    "repository_id": "decretum-matrix",
+    "install_directory_name": "court-capability-router",
+    "shiguan_namespace": "court-capability-router",
+    "python_locator_pattern": "court.*",
+    "environment_locator_pattern": "COURT_*",
+    "service_name": "CourtShiguanDaemon",
+    "directory_basename_may_differ_from_skill_name": true,
+    "rename_policy": "rename_repository_preserve_install_and_shiguan_locators"
+  }
+}

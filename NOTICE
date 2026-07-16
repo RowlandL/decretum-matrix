@@ -1,8 +1,15 @@
-court-capability-router
-Copyright 2026 court-capability-router contributors
+Decretum Matrix（诏令矩阵）
+Copyright 2026 孙华清
 
-This product is licensed under the Apache License 2.0.
+Community edition: AGPL-3.0-only.
+Separate commercial licensing is available only through a written agreement
+signed by 孙华清; COMMERCIAL-LICENSE.md is informational and grants no license.
 
-This project is not affiliated with cft0808/edict or OpenClaw. Third-party
-benchmark attribution and license notices are recorded in
-THIRD_PARTY_NOTICES.md.
+Maintainer — GitHub: @RowlandL (GitHub ID 42199880).
+
+This project is not affiliated with or endorsed by cft0808/edict,
+openclaw-sansheng-liubu contributors, GNU, the Apache Software Foundation,
+OpenAI, or any other named upstream organization. Third-party provenance,
+copyright and license notices are preserved in THIRD_PARTY_NOTICES.md and
+PROVENANCE.md. Upstream material identified there remains under its independent
+MIT license and is not relicensed by this notice.

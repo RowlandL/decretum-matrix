@@ -1,24 +1,24 @@
 {
   "SPDXID": "SPDXRef-DOCUMENT",
   "creationInfo": {
-    "created": "2026-07-12T00:00:00Z",
+    "created": "2026-07-16T00:00:00Z",
     "creators": [
-      "Tool: court-capability-router release process"
+      "Tool: Decretum Matrix release process"
     ]
   },
   "dataLicense": "CC0-1.0",
-  "documentNamespace": "https://spdx.org/spdxdocs/court-capability-router-beta0.5.9-20260712",
-  "name": "court-capability-router-beta0.5.9",
+  "documentNamespace": "https://spdx.org/spdxdocs/decretum-matrix-beta0.5.10-20260716",
+  "name": "decretum-matrix-beta0.5.10",
   "packages": [
     {
       "SPDXID": "SPDXRef-Package",
-      "copyrightText": "Copyright 2026 court-capability-router contributors",
+      "copyrightText": "Copyright 2026 孙华清",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "Apache-2.0",
-      "name": "court-capability-router",
-      "versionInfo": "beta0.5.9"
+      "licenseDeclared": "AGPL-3.0-only",
+      "name": "decretum-matrix",
+      "versionInfo": "beta0.5.10"
     }
   ],
   "relationships": [

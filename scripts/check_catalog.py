@@ -1,4 +1,4 @@
-"""Check whether the court router catalog and portable court assets are usable."""
+"""Check whether the Decretum Matrix catalog and portable court assets are usable."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from check_capability_index_gate import (
     catalog_path as capability_index_catalog_path,
     manifest_path as capability_index_manifest_path,
 )
+from check_skill_identity import check_identity as check_skill_identity_contract
 from shiguan_paths import reference_path, references_root as shared_references_root
 
 
@@ -121,6 +122,7 @@ REQUIRED_COURT_SCRIPTS = [
     "shiguan_service_daemon.py",
     "register_agent_presence.py",
     "refresh_capability_registry.py",
+    "check_skill_identity.py",
     "package_skill.py",
     "court_runtime.py",
     "court_cli.py",
@@ -206,6 +208,7 @@ REQUIRED_COURT_REFERENCES = [
     Path("references") / "complexity-budget.md",
     Path("references") / "manifests" / "release-gates.v1.json",
     Path("references") / "manifests" / "source-state-budget.v1.json",
+    Path("references") / "manifests" / "skill-identity.v1.json",
 ]
 
 REQUIRED_SHIGUAN_STATE = [
@@ -215,13 +218,13 @@ REQUIRED_SHIGUAN_STATE = [
 ]
 
 REQUIRED_AGENT_ACCESS_TERMS = [
-    "court-capability-router",
+    "decretum-matrix",
     "query_shiguan_index.py",
     "court-shiguan",
 ]
 
 RECOMMENDED_AGENT_MAX_DEPTH = 4
-RECOMMENDED_AGENT_MAX_THREADS = 16
+RECOMMENDED_AGENT_MAX_THREADS = 32
 FIND_SKILLS_URL = "https://www.skills.sh/vercel-labs/skills/find-skills"
 FIND_SKILLS_INSTALL = "npx skills add https://github.com/vercel-labs/skills --skill find-skills"
 
@@ -380,7 +383,7 @@ def check_codex_config(path: Path) -> list[str]:
         messages.append(
             "AGENTS_MAX_DEPTH_BELOW_RECOMMENDED "
             f"recommended >= {RECOMMENDED_AGENT_MAX_DEPTH}; run "
-            "python .\\scripts\\ensure_court_agent_config.py --write"
+            f"python .\\scripts\\ensure_court_agent_config.py --apply --threads {RECOMMENDED_AGENT_MAX_THREADS}"
         )
     if v2_enabled:
         if legacy_threads is not None:
@@ -389,20 +392,22 @@ def check_codex_config(path: Path) -> list[str]:
             messages.append(
                 "MULTI_AGENT_V2_THREADS_BELOW_RECOMMENDED "
                 f"recommended >= {RECOMMENDED_AGENT_MAX_THREADS}; run "
-                "python .\\scripts\\ensure_court_agent_config.py --write"
+                f"python .\\scripts\\ensure_court_agent_config.py --apply --threads {RECOMMENDED_AGENT_MAX_THREADS}"
             )
         if multi_agent_v2.get("hide_spawn_agent_metadata") is not True:
             messages.append("MULTI_AGENT_V2_RESERVED_SCHEMA_NOT_HIDDEN")
     else:
         if features.get("multi_agent") is not True:
             messages.append("MULTI_AGENT_V1_FEATURE_NOT_ENABLED")
-        if not isinstance(legacy_threads, int) or isinstance(legacy_threads, bool) or legacy_threads < 15:
+        if not isinstance(legacy_threads, int) or isinstance(legacy_threads, bool) or legacy_threads < RECOMMENDED_AGENT_MAX_THREADS - 1:
             messages.append(
                 "AGENTS_MAX_THREADS_BELOW_RECOMMENDED "
-                "recommended >= 15 for V1 child threads; run "
-                "python .\\scripts\\ensure_court_agent_config.py --write --protocol v1"
+                f"recommended >= {RECOMMENDED_AGENT_MAX_THREADS - 1} for dormant V1 recovery; "
+                "managed-overlay apply is disabled, so use "
+                f"python .\\scripts\\ensure_court_agent_config.py --managed-overlay --check --protocol v1 --threads {RECOMMENDED_AGENT_MAX_THREADS} "
+                "and obtain a newer explicit V1 authority before any mutation"
             )
-        if v2_threads != RECOMMENDED_AGENT_MAX_THREADS:
+        if not isinstance(v2_threads, int) or isinstance(v2_threads, bool) or v2_threads < 2:
             messages.append("MULTI_AGENT_V1_INACTIVE_V2_THREADS_NOT_PRESERVED")
         if multi_agent_v2.get("hide_spawn_agent_metadata") is not True:
             messages.append("MULTI_AGENT_V1_INACTIVE_V2_SCHEMA_NOT_PRESERVED")
@@ -560,6 +565,11 @@ def main() -> int:
         print("COURT_REFERENCES_INCOMPLETE " + ", ".join(missing_references))
         return 19
 
+    identity_result = check_skill_identity_contract(skill_root())
+    if identity_result.get("status") != "PASSED":
+        print("SKILL_IDENTITY_INCOMPLETE " + json.dumps(identity_result, ensure_ascii=False, sort_keys=True))
+        return 20
+
     missing_state = check_shiguan_state()
     if missing_state:
         print("SHIGUAN_STATE_INCOMPLETE " + ", ".join(missing_state))
@@ -612,6 +622,7 @@ def main() -> int:
     print("Court scripts: " + ", ".join(REQUIRED_COURT_SCRIPTS))
     print("Court web: " + ", ".join(str(path) for path in REQUIRED_COURT_WEB))
     print("Court references: " + ", ".join(str(path) for path in REQUIRED_COURT_REFERENCES))
+    print("Skill identity: Decretum Matrix（诏令矩阵） / decretum-matrix")
     print(f"Shared Shiguan root: {shared_references_root()}")
     print("Shiguan state: " + ", ".join(str(path) for path in REQUIRED_SHIGUAN_STATE))
     print("Agent capability access: " + ", ".join(REQUIRED_AGENT_ACCESS_TERMS))

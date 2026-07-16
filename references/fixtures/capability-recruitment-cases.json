@@ -1,0 +1,895 @@
+{
+  "schema": "court_capability_recruitment_cases.v1",
+  "decision_schema": "court.capability_recruitment.v1",
+  "defaults": {
+    "capability_need": "reusable structured capability",
+    "authority": "autonomous",
+    "explicit_no_network": false,
+    "network_discovery_approved": false,
+    "network_attempted": false,
+    "network_status": "not_run",
+    "searched_kinds": [],
+    "local_candidates": [],
+    "discovered_candidates": [],
+    "task_complexity": "low",
+    "reuse_value": "one_off",
+    "stable_steps": 0,
+    "stable_io": false,
+    "stable_verification": false,
+    "creation_benefit": false,
+    "existing_combination_sufficient": false,
+    "contains_secret_or_private_content": false,
+    "user_declined_creation": false,
+    "proposal_asked_in_decree": false,
+    "redaction_terms": []
+  },
+  "candidate_templates": {
+    "local_good_skill": {
+      "scope": "local",
+      "kind": "skill",
+      "name": "local-report-skill",
+      "source": "codex_skills",
+      "immutable_ref": "v1.2.3",
+      "content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true,
+      "fit_score": 0.96,
+      "stale": false,
+      "ambiguous": false,
+      "risk": "low",
+      "evidence_time": "2026-07-12T00:00:00Z"
+    },
+    "local_stale_skill": {
+      "scope": "local",
+      "kind": "skill",
+      "name": "stale-report-skill",
+      "source": "codex_skills",
+      "immutable_ref": "v1.2.3",
+      "content_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true,
+      "fit_score": 0.91,
+      "stale": true,
+      "ambiguous": false,
+      "risk": "low",
+      "evidence_time": "2025-01-01T00:00:00Z"
+    },
+    "local_ambiguous_skill": {
+      "scope": "local",
+      "kind": "skill",
+      "name": "ambiguous-report-skill",
+      "source": "agent_fallback_skills",
+      "immutable_ref": "v1.2.3",
+      "content_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true,
+      "fit_score": 0.72,
+      "stale": false,
+      "ambiguous": true,
+      "risk": "medium",
+      "evidence_time": "2026-07-12T00:00:00Z"
+    },
+    "public_skill_good": {
+      "scope": "public",
+      "kind": "skill",
+      "name": "official-report-skill",
+      "publisher": "Example Foundation",
+      "source": "official_registry",
+      "url": "https://example.invalid/skills/official-report-skill",
+      "immutable_ref": "v1.2.3",
+      "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "version_date": "2026-07-01",
+      "license": "Apache-2.0",
+      "permissions": ["read_workspace"],
+      "install_behavior": "copy_only",
+      "postinstall": "none",
+      "binary_dependencies": [],
+      "network_data_behavior": "metadata_only",
+      "maintenance_signal": "release_within_30_days",
+      "fit_score": 0.94,
+      "risk": "low",
+      "evidence_time": "2026-07-12T00:00:00Z",
+      "requires_paid_action": false,
+      "requires_login": false,
+      "requires_private_upload": false,
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true
+    },
+    "public_plugin_good": {
+      "scope": "public",
+      "kind": "plugin",
+      "name": "official-report-plugin",
+      "publisher": "Example Host",
+      "source": "official_marketplace",
+      "url": "https://example.invalid/plugins/official-report-plugin",
+      "immutable_ref": "2026.7.1",
+      "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "version_date": "2026-07-01",
+      "license": "MIT",
+      "permissions": ["read_workspace"],
+      "install_behavior": "host_managed",
+      "postinstall": "none",
+      "binary_dependencies": [],
+      "network_data_behavior": "metadata_only",
+      "maintenance_signal": "official_current_release",
+      "fit_score": 0.92,
+      "risk": "low",
+      "evidence_time": "2026-07-12T00:00:00Z",
+      "requires_paid_action": false,
+      "requires_login": false,
+      "requires_private_upload": false,
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true
+    },
+    "public_mcp_good": {
+      "scope": "public",
+      "kind": "mcp",
+      "name": "official-report-mcp",
+      "publisher": "Example Foundation",
+      "source": "official_server_docs",
+      "url": "https://example.invalid/mcp/official-report-mcp",
+      "immutable_ref": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "version_date": "2026-07-01",
+      "license": "Apache-2.0",
+      "permissions": ["read_resources"],
+      "install_behavior": "configure_after_consent",
+      "postinstall": "none",
+      "binary_dependencies": ["python>=3.11"],
+      "network_data_behavior": "declared_public_metadata_only",
+      "maintenance_signal": "official_current_release",
+      "fit_score": 0.93,
+      "risk": "low",
+      "evidence_time": "2026-07-12T00:00:00Z",
+      "requires_paid_action": false,
+      "requires_login": false,
+      "requires_private_upload": false,
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true
+    },
+    "public_untrusted": {
+      "scope": "public",
+      "kind": "skill",
+      "name": "unknown-report-skill",
+      "publisher": "unknown",
+      "source": "unverified_blog",
+      "url": "https://example.invalid/unverified/unknown-report-skill",
+      "immutable_ref": "main",
+      "content_hash": "",
+      "version_date": "unknown",
+      "license": "unknown",
+      "permissions": ["unknown"],
+      "install_behavior": "unknown",
+      "postinstall": "unknown",
+      "binary_dependencies": ["unknown"],
+      "network_data_behavior": "unknown",
+      "maintenance_signal": "unknown",
+      "fit_score": 0.98,
+      "risk": "unknown",
+      "evidence_time": "2026-07-12T00:00:00Z",
+      "requires_paid_action": false,
+      "requires_login": false,
+      "requires_private_upload": false,
+      "verified": false,
+      "trusted": false,
+      "meets_requirements": true
+    },
+    "public_paid": {
+      "scope": "public",
+      "kind": "plugin",
+      "name": "paid-report-plugin",
+      "publisher": "Example Vendor",
+      "source": "official_marketplace",
+      "url": "https://example.invalid/plugins/paid-report-plugin",
+      "immutable_ref": "v2.0.0",
+      "content_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "version_date": "2026-07-01",
+      "license": "commercial",
+      "permissions": ["read_workspace"],
+      "install_behavior": "paid_subscription",
+      "postinstall": "none",
+      "binary_dependencies": [],
+      "network_data_behavior": "vendor_cloud",
+      "maintenance_signal": "current",
+      "fit_score": 0.95,
+      "risk": "medium",
+      "evidence_time": "2026-07-12T00:00:00Z",
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true,
+      "requires_paid_action": true,
+      "requires_login": false,
+      "requires_private_upload": false
+    },
+    "public_login": {
+      "scope": "public",
+      "kind": "mcp",
+      "name": "login-report-mcp",
+      "publisher": "Example Vendor",
+      "source": "official_server_docs",
+      "url": "https://example.invalid/mcp/login-report-mcp",
+      "immutable_ref": "v1.0.0",
+      "content_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "version_date": "2026-07-01",
+      "license": "MIT",
+      "permissions": ["read_resources"],
+      "install_behavior": "configure_after_consent",
+      "postinstall": "none",
+      "binary_dependencies": [],
+      "network_data_behavior": "authenticated_cloud",
+      "maintenance_signal": "current",
+      "fit_score": 0.95,
+      "risk": "medium",
+      "evidence_time": "2026-07-12T00:00:00Z",
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true,
+      "requires_paid_action": false,
+      "requires_login": true,
+      "requires_private_upload": false
+    },
+    "public_private_upload": {
+      "scope": "public",
+      "kind": "skill",
+      "name": "upload-report-skill",
+      "publisher": "Example Vendor",
+      "source": "official_registry",
+      "url": "https://example.invalid/skills/upload-report-skill",
+      "immutable_ref": "v1.0.0",
+      "content_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "version_date": "2026-07-01",
+      "license": "MIT",
+      "permissions": ["read_workspace", "upload_content"],
+      "install_behavior": "copy_only",
+      "postinstall": "none",
+      "binary_dependencies": [],
+      "network_data_behavior": "uploads_workspace_content",
+      "maintenance_signal": "current",
+      "fit_score": 0.95,
+      "risk": "high",
+      "evidence_time": "2026-07-12T00:00:00Z",
+      "verified": true,
+      "trusted": true,
+      "meets_requirements": true,
+      "requires_paid_action": false,
+      "requires_login": false,
+      "requires_private_upload": true
+    }
+  },
+  "action_bindings": {
+    "local_create": {
+      "request": {
+        "action": "CREATE",
+        "kind": "skill",
+        "name": "court-report-skill",
+        "purpose": "reusable offline report validation",
+        "destination": "D:/project/court-report-skill",
+        "allowed_actions": ["CREATE"],
+        "candidate_snapshot": {
+          "kind": "skill",
+          "name": "court-report-skill",
+          "source": "local_creation",
+          "purpose": "reusable offline report validation",
+          "destination": "D:/project/court-report-skill",
+          "requires_paid_action": false,
+          "requires_login": false,
+          "requires_private_upload": false,
+          "trusted": false,
+          "verified": false
+        },
+        "candidate_digest": "f5cec154deddafc53778a880900ba32cefcec6730980ff926f2aa0eadbe73a84",
+        "discovery_query": "reusable structured capability",
+        "discovery_status": "PUBLIC_DISCOVERY_NO_QUALIFIED_CANDIDATE",
+        "decree_id": "DECREE-C1-QUALITY",
+        "turn_id": "TURN-C1-CREATE"
+      },
+      "consent": {
+        "explicit": true,
+        "current_turn": true,
+        "action": "CREATE",
+        "kind": "skill",
+        "name": "court-report-skill",
+        "purpose": "reusable offline report validation",
+        "destination": "D:/project/court-report-skill",
+        "allowed_actions": ["CREATE"],
+        "candidate_snapshot": {
+          "kind": "skill",
+          "name": "court-report-skill",
+          "source": "local_creation",
+          "purpose": "reusable offline report validation",
+          "destination": "D:/project/court-report-skill",
+          "requires_paid_action": false,
+          "requires_login": false,
+          "requires_private_upload": false,
+          "trusted": false,
+          "verified": false
+        },
+        "candidate_digest": "f5cec154deddafc53778a880900ba32cefcec6730980ff926f2aa0eadbe73a84",
+        "discovery_query": "reusable structured capability",
+        "discovery_status": "PUBLIC_DISCOVERY_NO_QUALIFIED_CANDIDATE",
+        "decree_id": "DECREE-C1-QUALITY",
+        "turn_id": "TURN-C1-CREATE"
+      },
+      "action_candidate": {
+        "kind": "skill",
+        "name": "court-report-skill",
+        "source": "local_creation",
+        "purpose": "reusable offline report validation",
+        "destination": "D:/project/court-report-skill",
+        "requires_paid_action": false,
+        "requires_login": false,
+        "requires_private_upload": false,
+        "trusted": false,
+        "verified": false
+      }
+    },
+    "external_install": {
+      "request": {
+        "action": "INSTALL",
+        "kind": "skill",
+        "name": "official-report-skill",
+        "purpose": "reusable offline report validation",
+        "source": "official_registry",
+        "publisher": "Example Foundation",
+        "immutable_ref": "v1.2.3",
+        "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "destination": "D:/project/.codex/skills/official-report-skill",
+        "allowed_actions": ["INSTALL"],
+        "candidate_snapshot": {
+          "kind": "skill",
+          "name": "official-report-skill",
+          "source": "official_registry",
+          "publisher": "Example Foundation",
+          "url": "https://example.invalid/skills/official-report-skill",
+          "immutable_ref": "v1.2.3",
+          "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "version_date": "2026-07-01",
+          "license": "Apache-2.0",
+          "permissions": ["read_workspace"],
+          "install_behavior": "copy_only",
+          "postinstall": "none",
+          "binary_dependencies": [],
+          "network_data_behavior": "metadata_only",
+          "maintenance_signal": "release_within_30_days",
+          "fit_score": 0.94,
+          "risk": "low",
+          "evidence_time": "2026-07-12T00:00:00Z",
+          "requires_paid_action": false,
+          "requires_login": false,
+          "requires_private_upload": false,
+          "trusted": true,
+          "verified": true
+        },
+        "candidate_digest": "78d7624fbea5112e62ddf9754ea24a45213ba0bbd29a550e7291b36593151b4c",
+        "discovery_query": "reusable structured capability",
+        "discovery_status": "PUBLIC_DISCOVERY_FOUND",
+        "decree_id": "DECREE-C1-QUALITY",
+        "turn_id": "TURN-C1-INSTALL"
+      },
+      "consent": {
+        "explicit": true,
+        "current_turn": true,
+        "action": "INSTALL",
+        "kind": "skill",
+        "name": "official-report-skill",
+        "purpose": "reusable offline report validation",
+        "source": "official_registry",
+        "publisher": "Example Foundation",
+        "immutable_ref": "v1.2.3",
+        "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "destination": "D:/project/.codex/skills/official-report-skill",
+        "allowed_actions": ["INSTALL"],
+        "candidate_snapshot": {
+          "kind": "skill",
+          "name": "official-report-skill",
+          "source": "official_registry",
+          "publisher": "Example Foundation",
+          "url": "https://example.invalid/skills/official-report-skill",
+          "immutable_ref": "v1.2.3",
+          "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "version_date": "2026-07-01",
+          "license": "Apache-2.0",
+          "permissions": ["read_workspace"],
+          "install_behavior": "copy_only",
+          "postinstall": "none",
+          "binary_dependencies": [],
+          "network_data_behavior": "metadata_only",
+          "maintenance_signal": "release_within_30_days",
+          "fit_score": 0.94,
+          "risk": "low",
+          "evidence_time": "2026-07-12T00:00:00Z",
+          "requires_paid_action": false,
+          "requires_login": false,
+          "requires_private_upload": false,
+          "trusted": true,
+          "verified": true
+        },
+        "candidate_digest": "78d7624fbea5112e62ddf9754ea24a45213ba0bbd29a550e7291b36593151b4c",
+        "discovery_query": "reusable structured capability",
+        "discovery_status": "PUBLIC_DISCOVERY_FOUND",
+        "decree_id": "DECREE-C1-QUALITY",
+        "turn_id": "TURN-C1-INSTALL"
+      },
+      "action_candidate_ref": "public_skill_good",
+      "required_provenance_fields": ["source", "publisher", "immutable_ref", "content_hash"]
+    }
+  },
+  "response_semantics_bindings": {
+    "dispatch_local_candidate": "local_hit_dispatchable",
+    "ask_user_create_skill": "high_likely_reuse_creation_proposal",
+    "continue_after_user_rejects": "user_declined_creation_continues",
+    "discovery_authority_blocked": "authority_not_selected",
+    "discovery_failed_without_no-candidate_claim": "network_failure_is_unknown",
+    "handoff_with_concerns": null,
+    "partial_result": null,
+    "verified_done": null
+  },
+  "cases": [
+    {
+      "id": "local_hit",
+      "name": "local_hit_dispatchable",
+      "input": {"searched_kinds": ["skill"], "local_candidate_refs": ["local_good_skill"]},
+      "expect": {
+        "schema": "court.capability_recruitment.v1",
+        "discovery_status": "LOCAL_CANDIDATE_SUFFICIENT",
+        "searched_kinds": ["skill"],
+        "candidate_fit.status": "DISPATCHABLE_LOCAL",
+        "candidate_fit.dispatchable_count": 1,
+        "creation_recommendation.status": "NOT_NEEDED",
+        "next_action.action": "DISPATCH_LOCAL",
+        "question": null
+      },
+      "reason_includes": ["LOCAL_CANDIDATE_DISPATCHABLE"]
+    },
+    {
+      "id": "local_miss",
+      "name": "local_miss_network_allowed_not_searched",
+      "input": {"authority": "autonomous"},
+      "expect": {
+        "discovery_status": "UNKNOWN_NOT_SEARCHED",
+        "candidate_fit.status": "INSUFFICIENT",
+        "next_action.action": "DISCOVER_PUBLIC_METADATA"
+      },
+      "reason_includes": ["LOCAL_CANDIDATES_EMPTY", "NETWORK_DISCOVERY_ALLOWED", "NETWORK_NOT_ATTEMPTED"]
+    },
+    {
+      "id": "local_stale",
+      "name": "stale_local_candidate",
+      "input": {"searched_kinds": ["skill"], "local_candidate_refs": ["local_stale_skill"]},
+      "expect": {
+        "discovery_status": "UNKNOWN_NOT_SEARCHED",
+        "candidate_fit.status": "INSUFFICIENT",
+        "next_action.action": "DISCOVER_PUBLIC_METADATA"
+      },
+      "reason_includes": ["LOCAL_CANDIDATE_STALE"]
+    },
+    {
+      "id": "local_ambiguous",
+      "name": "ambiguous_local_approval_blocked",
+      "input": {"authority": "approval", "searched_kinds": ["skill"], "local_candidate_refs": ["local_ambiguous_skill"]},
+      "expect": {
+        "discovery_status": "UNKNOWN_NOT_SEARCHED",
+        "candidate_fit.status": "INSUFFICIENT",
+        "next_action.action": "BLOCKED_BY_AUTHORITY"
+      },
+      "reason_includes": ["LOCAL_CANDIDATE_AMBIGUOUS", "NETWORK_APPROVAL_REQUIRED"]
+    },
+    {
+      "id": "extra-authority-not-selected",
+      "name": "authority_not_selected",
+      "input": {"authority": "unset"},
+      "expect": {
+        "discovery_status": "UNKNOWN_NOT_SEARCHED",
+        "next_action.action": "BLOCKED_BY_AUTHORITY"
+      },
+      "reason_includes": ["AUTHORITY_NOT_SELECTED"]
+    },
+    {
+      "id": "explicit_no_network",
+      "name": "explicit_no_network_zero_calls",
+      "input": {"authority": "super", "explicit_no_network": true},
+      "expect": {
+        "discovery_status": "BLOCKED_BY_USER_NO_NETWORK",
+        "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT",
+        "network_policy.allowed": false
+      },
+      "reason_includes": ["BLOCKED_BY_USER_NO_NETWORK"]
+    },
+    {
+      "id": "redacted_query",
+      "name": "no_network_external_consent_cannot_bypass",
+      "input": {
+        "authority": "super",
+        "explicit_no_network": true,
+        "capability_need": "report skill secret: topsecret",
+        "redaction_terms": ["topsecret"],
+        "searched_kinds": ["skill"],
+        "discovered_candidate_refs": ["public_skill_good"],
+        "action_binding_ref": "external_install"
+      },
+      "expect": {
+        "discovery_query": "report skill [REDACTED]",
+        "discovery_status": "BLOCKED_BY_USER_NO_NETWORK",
+        "candidate_fit.status": "INSUFFICIENT",
+        "candidate_fit.qualified_external_count": 0,
+        "user_decision.status": "ACCEPTED",
+        "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT"
+      },
+      "reason_includes": ["EXTERNAL_CANDIDATE_REQUIRES_ALLOWED_COMPLETED_DISCOVERY"]
+    },
+    {
+      "id": "approval_blocked",
+      "name": "unset_authority_external_consent_cannot_bypass",
+      "input": {
+        "authority": "approval",
+        "network_attempted": true,
+        "network_status": "success",
+        "searched_kinds": ["skill"],
+        "discovered_candidate_refs": ["public_skill_good"],
+        "action_binding_ref": "external_install"
+      },
+      "expect": {
+        "candidate_fit.status": "INSUFFICIENT",
+        "candidate_fit.qualified_external_count": 0,
+        "user_decision.status": "ACCEPTED",
+        "next_action.action": "BLOCKED_BY_AUTHORITY"
+      },
+      "reason_includes": ["EXTERNAL_CANDIDATE_REQUIRES_ALLOWED_COMPLETED_DISCOVERY"]
+    },
+    {
+      "id": "extra-unknown-discovery-consent-bypass",
+      "name": "unknown_discovery_external_consent_cannot_bypass",
+      "input": {
+        "authority": "autonomous",
+        "network_attempted": false,
+        "network_status": "not_run",
+        "searched_kinds": ["skill"],
+        "discovered_candidate_refs": ["public_skill_good"],
+        "action_binding_ref": "external_install"
+      },
+      "expect": {
+        "discovery_status": "UNKNOWN_NOT_SEARCHED",
+        "candidate_fit.status": "INSUFFICIENT",
+        "candidate_fit.qualified_external_count": 0,
+        "user_decision.status": "ACCEPTED",
+        "next_action.action": "DISCOVER_PUBLIC_METADATA"
+      },
+      "reason_includes": ["EXTERNAL_CANDIDATE_REQUIRES_ALLOWED_COMPLETED_DISCOVERY"]
+    },
+    {
+      "id": "public_discovery_allowed",
+      "name": "skill_public_discovery",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["skill"], "discovered_candidate_refs": ["public_skill_good"]},
+      "expect": {
+        "discovery_status": "PUBLIC_DISCOVERY_FOUND",
+        "searched_kinds": ["skill"],
+        "candidate_fit.status": "QUALIFIED_EXTERNAL",
+        "candidate_fit.qualified_external_count": 1,
+        "creation_recommendation.status": "NOT_NEEDED",
+        "next_action.action": "BLOCKED_BY_AUTHORITY"
+      }
+    },
+    {
+      "id": "plugin_candidate",
+      "name": "plugin_public_discovery",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["plugin"], "discovered_candidate_refs": ["public_plugin_good"]},
+      "expect": {
+        "discovery_status": "PUBLIC_DISCOVERY_FOUND",
+        "searched_kinds": ["plugin"],
+        "candidate_fit.status": "QUALIFIED_EXTERNAL",
+        "next_action.action": "BLOCKED_BY_AUTHORITY"
+      }
+    },
+    {
+      "id": "mcp_candidate",
+      "name": "mcp_public_discovery",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["mcp"], "discovered_candidate_refs": ["public_mcp_good"]},
+      "expect": {
+        "discovery_status": "PUBLIC_DISCOVERY_FOUND",
+        "searched_kinds": ["mcp"],
+        "candidate_fit.status": "QUALIFIED_EXTERNAL",
+        "next_action.action": "BLOCKED_BY_AUTHORITY"
+      }
+    },
+    {
+      "id": "discovery_failure",
+      "name": "network_failure_is_unknown",
+      "input": {"network_attempted": true, "network_status": "failed", "searched_kinds": ["skill", "plugin", "mcp"]},
+      "expect": {
+        "discovery_status": "NETWORK_DISCOVERY_FAILED",
+        "candidate_fit.status": "INSUFFICIENT",
+        "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT"
+      },
+      "reason_includes": ["NETWORK_DISCOVERY_FAILED", "RUNTIME_DEGRADED"]
+    },
+    {
+      "id": "untrusted_source",
+      "name": "untrusted_source_hard_stop",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["skill"], "discovered_candidate_refs": ["public_untrusted"]},
+      "expect": {
+        "discovery_status": "PUBLIC_DISCOVERY_NO_QUALIFIED_CANDIDATE",
+        "candidate_fit.status": "INSUFFICIENT",
+        "candidate_fit.hard_stop_count": 1,
+        "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT"
+      },
+      "reason_includes": ["UNTRUSTED_SOURCE", "UNPINNED_OR_MUTABLE_REF", "MISSING_OR_INVALID_CONTENT_HASH", "UNKNOWN_POSTINSTALL"]
+    },
+    {
+      "id": "paid_candidate",
+      "name": "paid_candidate_hard_stop",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["plugin"], "discovered_candidate_refs": ["public_paid"]},
+      "expect": {"candidate_fit.status": "INSUFFICIENT", "candidate_fit.hard_stop_count": 1},
+      "reason_includes": ["CANDIDATE_REQUIRES_PAID_ACTION"]
+    },
+    {
+      "id": "login_required_candidate",
+      "name": "login_candidate_hard_stop",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["mcp"], "discovered_candidate_refs": ["public_login"]},
+      "expect": {"candidate_fit.status": "INSUFFICIENT", "candidate_fit.hard_stop_count": 1},
+      "reason_includes": ["CANDIDATE_REQUIRES_LOGIN"]
+    },
+    {
+      "id": "private_upload_candidate",
+      "name": "private_upload_candidate_hard_stop",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["skill"], "discovered_candidate_refs": ["public_private_upload"]},
+      "expect": {"candidate_fit.status": "INSUFFICIENT", "candidate_fit.hard_stop_count": 1},
+      "reason_includes": ["CANDIDATE_REQUIRES_PRIVATE_UPLOAD"]
+    },
+    {
+      "id": "extra-candidate-kind-not-searched",
+      "name": "candidate_kind_not_searched_hard_stop",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["skill"], "discovered_candidate_refs": ["public_plugin_good"]},
+      "expect": {"candidate_fit.status": "INSUFFICIENT", "candidate_fit.qualified_external_count": 0, "candidate_fit.hard_stop_count": 1},
+      "reason_includes": ["CANDIDATE_KIND_NOT_SEARCHED"]
+    },
+    {
+      "id": "extra-unknown-declared-provenance",
+      "name": "unknown_declared_provenance_hard_stop",
+      "input": {
+        "network_attempted": true,
+        "network_status": "success",
+        "searched_kinds": ["skill"],
+        "discovered_candidate_refs": ["public_skill_good"],
+        "candidate_overrides": {"official-report-skill": {"publisher": "unknown"}}
+      },
+      "expect": {"candidate_fit.status": "INSUFFICIENT", "candidate_fit.qualified_external_count": 0, "candidate_fit.hard_stop_count": 1},
+      "reason_includes": ["PROVENANCE_VALUE_UNKNOWN:publisher"]
+    },
+    {
+      "id": "extra-paid-declaration-conflict",
+      "name": "paid_declaration_conflict_hard_stop",
+      "input": {
+        "network_attempted": true,
+        "network_status": "success",
+        "searched_kinds": ["skill"],
+        "discovered_candidate_refs": ["public_skill_good"],
+        "candidate_overrides": {"official-report-skill": {"install_behavior": "paid_subscription", "requires_paid_action": false}}
+      },
+      "expect": {"candidate_fit.status": "INSUFFICIENT", "candidate_fit.qualified_external_count": 0, "candidate_fit.hard_stop_count": 1},
+      "reason_includes": ["CANDIDATE_PAID_STATE_CONFLICT"]
+    },
+    {
+      "id": "extra-boolean-flag-type",
+      "name": "boolean_flag_type_hard_stop",
+      "input": {
+        "network_attempted": true,
+        "network_status": "success",
+        "searched_kinds": ["skill"],
+        "discovered_candidate_refs": ["public_skill_good"],
+        "candidate_overrides": {"official-report-skill": {"requires_paid_action": "false"}}
+      },
+      "expect": {"candidate_fit.status": "INSUFFICIENT", "candidate_fit.qualified_external_count": 0, "candidate_fit.hard_stop_count": 1},
+      "reason_includes": ["PROVENANCE_FIELD_TYPE_INVALID:requires_paid_action"]
+    },
+    {
+      "id": "create_skill_high_reuse",
+      "name": "high_likely_reuse_creation_proposal",
+      "input": {"network_attempted": true, "network_status": "success", "searched_kinds": ["skill", "plugin", "mcp"], "task_complexity": "high", "reuse_value": "likely", "creation_benefit": true},
+      "expect": {
+        "creation_recommendation.status": "CREATE_SKILL_PROPOSAL",
+        "creation_recommendation.next_action": "ASK_USER",
+        "next_action.action": "ASK_USER",
+        "question.type": "CREATE_SKILL_PROPOSAL",
+        "side_effects.actions": []
+      },
+      "reason_includes": ["CREATE_SKILL_PROPOSAL"]
+    },
+    {
+      "id": "extra-stable-steps-creation-proposal",
+      "name": "four_stable_steps_creation_proposal",
+      "input": {"network_attempted": true, "network_status": "success", "task_complexity": "low", "reuse_value": "unknown", "stable_steps": 4, "stable_io": true, "stable_verification": true, "creation_benefit": true},
+      "expect": {"creation_recommendation.status": "CREATE_SKILL_PROPOSAL", "question.type": "CREATE_SKILL_PROPOSAL"}
+    },
+    {
+      "id": "extra-stable-steps-explicit-one-off",
+      "name": "four_stable_steps_explicit_one_off_stays_direct",
+      "input": {"network_attempted": true, "network_status": "success", "task_complexity": "low", "reuse_value": "one_off", "stable_steps": 4, "stable_io": true, "stable_verification": true, "creation_benefit": true},
+      "expect": {"creation_recommendation.status": "NOT_RECOMMENDED", "question": null, "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT"},
+      "reason_includes": ["TRIVIAL_DIRECT"]
+    },
+    {
+      "id": "extra-bound-create-consent",
+      "name": "bound_local_create_consent_suppresses_proposal_question",
+      "input": {
+        "network_attempted": true,
+        "network_status": "success",
+        "task_complexity": "high",
+        "reuse_value": "recurring",
+        "stable_steps": 4,
+        "stable_io": true,
+        "stable_verification": true,
+        "creation_benefit": true,
+        "action_binding_ref": "local_create"
+      },
+      "expect": {
+        "user_decision.status": "ACCEPTED",
+        "creation_recommendation.status": "CREATE_SKILL_PROPOSAL",
+        "creation_recommendation.proposal_only": true,
+        "question.type": "CREATE_SKILL_PROPOSAL",
+        "next_action.action": "ASK_USER"
+      },
+      "reason_includes": ["BOUND_ACTION_CONSENT_VALID"],
+      "reason_includes": ["BOUND_ACTION_CONSENT_VALID", "CREATE_SKILL_PROPOSAL"]
+    },
+    {
+      "id": "skill_candidate",
+      "name": "sufficient_candidate_prevents_creation",
+      "input": {"searched_kinds": ["skill"], "local_candidate_refs": ["local_good_skill"], "task_complexity": "critical", "reuse_value": "recurring", "stable_steps": 6, "stable_io": true, "stable_verification": true, "creation_benefit": true},
+      "expect": {"creation_recommendation.status": "NOT_NEEDED", "question": null},
+      "reason_excludes": ["CREATE_SKILL_PROPOSAL"]
+    },
+    {
+      "id": "create_skill_one_off_rejected",
+      "name": "trivial_one_off_no_creation",
+      "input": {"network_attempted": true, "network_status": "success", "task_complexity": "trivial", "reuse_value": "one_off", "creation_benefit": true},
+      "expect": {"creation_recommendation.status": "NOT_RECOMMENDED", "question": null, "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT"},
+      "reason_includes": ["TRIVIAL_DIRECT"]
+    },
+    {
+      "id": "create_skill_secret_input_rejected",
+      "name": "private_content_no_creation",
+      "input": {"network_attempted": true, "network_status": "success", "task_complexity": "critical", "reuse_value": "recurring", "stable_steps": 5, "stable_io": true, "stable_verification": true, "creation_benefit": true, "contains_secret_or_private_content": true},
+      "expect": {"creation_recommendation.status": "NOT_RECOMMENDED", "question": null},
+      "reason_includes": ["CREATION_UNSAFE_PRIVATE_CONTENT"]
+    },
+    {
+      "id": "user_rejected_continue",
+      "name": "user_declined_creation_continues",
+      "input": {"network_attempted": true, "network_status": "success", "task_complexity": "critical", "reuse_value": "recurring", "stable_steps": 5, "stable_io": true, "stable_verification": true, "creation_benefit": true, "user_declined_creation": true},
+      "expect": {"creation_recommendation.status": "DECLINED", "question": null, "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT", "user_decision.status": "DECLINED"},
+      "reason_includes": ["USER_DECLINED_CREATION"]
+    },
+    {
+      "id": "extra-proposal-asked-once",
+      "name": "proposal_asked_only_once",
+      "input": {"network_attempted": true, "network_status": "success", "task_complexity": "critical", "reuse_value": "recurring", "stable_steps": 5, "stable_io": true, "stable_verification": true, "creation_benefit": true, "proposal_asked_in_decree": true},
+      "expect": {"creation_recommendation.status": "ALREADY_ASKED", "question": null, "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT"},
+      "reason_includes": ["PROPOSAL_ALREADY_ASKED"]
+    },
+    {
+      "id": "extra-existing-combination-sufficient",
+      "name": "existing_combination_sufficient",
+      "input": {"existing_combination_sufficient": true, "task_complexity": "high", "reuse_value": "recurring", "creation_benefit": true},
+      "expect": {"candidate_fit.status": "SATISFIED_BY_EXISTING_COMBINATION", "creation_recommendation.status": "NOT_NEEDED", "next_action.action": "CONTINUE_WITHOUT_RECRUITMENT"},
+      "reason_includes": ["EXISTING_COMBINATION_SUFFICIENT"]
+    }
+  ],
+  "redaction_cases": [
+    {
+      "name": "redacts_private_query_material",
+      "query": "Need report automation for C:\\Users\\alice\\PrivateRepo source: proprietary.py log: token=sk-secret prompt: customer body alice@example.com",
+      "redaction_terms": ["PrivateRepo", "proprietary.py", "customer body"],
+      "must_not_contain": ["C:\\Users\\alice", "PrivateRepo", "proprietary.py", "sk-secret", "customer body", "alice@example.com"],
+      "must_contain": ["Need report automation"]
+    },
+    {
+      "name": "redacts_sk_proj_and_fullwidth_colon",
+      "query": "Need reusable report skill token：sk-proj-abcdefghijklmnopqrstuvwxyz123456 source：private-source.py",
+      "must_not_contain": ["sk-proj-abcdefghijklmnopqrstuvwxyz123456", "private-source.py"],
+      "must_contain": ["Need reusable report skill"]
+    },
+    {
+      "name": "redacts_quoted_windows_path_with_spaces",
+      "query": "Need indexing for \"C:\\Users\\alice\\Private Repo\\secret file.txt\"",
+      "must_not_contain": ["C:\\Users\\alice", "Private Repo", "secret file.txt"],
+      "must_contain": ["Need indexing"]
+    },
+    {
+      "name": "redacts_fullwidth_path_and_password_labels",
+      "query": "Need metadata 路径：C:\\Users\\alice\\Private Repo\\secret.txt 日志：password：hunter2",
+      "must_not_contain": ["C:\\Users\\alice", "Private Repo", "secret.txt", "hunter2"],
+      "must_contain": ["Need metadata"]
+    },
+    {
+      "name": "redacts_identity_repository_and_unlabelled_tokens",
+      "query": "Need metadata username: alice 用户名：张三 private_repository: acme/hidden-repo 私有仓库：公司/隐秘库",
+      "must_not_contain": ["alice", "张三", "acme/hidden-repo", "公司/隐秘库"],
+      "must_contain": ["Need metadata"]
+    }
+  ],
+  "c1_red_mutation_cases": [
+    {"id": "c1-01-kind-request", "mode": "request_mutation", "field": "kind"},
+    {"id": "c1-02-kind-consent", "mode": "consent_mutation", "field": "kind"},
+    {"id": "c1-03-source-request", "mode": "request_mutation", "field": "source"},
+    {"id": "c1-04-source-consent", "mode": "consent_mutation", "field": "source"},
+    {"id": "c1-05-ref-request", "mode": "request_mutation", "field": "immutable_ref"},
+    {"id": "c1-06-ref-consent", "mode": "consent_mutation", "field": "immutable_ref"},
+    {"id": "c1-07-hash-request", "mode": "request_mutation", "field": "content_hash"},
+    {"id": "c1-08-hash-consent", "mode": "consent_mutation", "field": "content_hash"},
+    {"id": "c1-09-destination-request", "mode": "request_mutation", "field": "destination"},
+    {"id": "c1-10-destination-consent", "mode": "consent_mutation", "field": "destination"},
+    {"id": "c1-11-action-request", "mode": "request_mutation", "field": "action"},
+    {"id": "c1-12-action-consent", "mode": "consent_mutation", "field": "action"},
+    {"id": "c1-13-query-request", "mode": "request_mutation", "field": "discovery_query"},
+    {"id": "c1-14-query-consent", "mode": "consent_mutation", "field": "discovery_query"},
+    {"id": "c1-15-digest-request", "mode": "request_mutation", "field": "candidate_digest"},
+    {"id": "c1-16-digest-consent", "mode": "consent_mutation", "field": "candidate_digest"},
+    {"id": "c1-17-status-request", "mode": "request_mutation", "field": "discovery_status"},
+    {"id": "c1-18-status-consent", "mode": "consent_mutation", "field": "discovery_status"},
+    {"id": "c1-19-stale-create", "mode": "stale_actions", "actions": ["CREATE"]},
+    {"id": "c1-20-stale-existing", "mode": "stale_actions", "actions": ["INSTALL", "MODIFY", "ENABLE"]}
+  ],
+  "consent_binding": {
+    "request": {
+      "action": "CREATE",
+      "kind": "skill",
+      "name": "court-report-skill",
+      "purpose": "reusable offline report validation",
+      "destination": "D:/project/court-report-skill",
+      "allowed_actions": ["CREATE"],
+      "candidate_snapshot": {
+        "kind": "skill",
+        "name": "court-report-skill",
+        "source": "local_creation",
+        "purpose": "reusable offline report validation",
+        "destination": "D:/project/court-report-skill",
+        "requires_paid_action": false,
+        "requires_login": false,
+        "requires_private_upload": false,
+        "trusted": false,
+        "verified": false
+      },
+      "candidate_digest": "f5cec154deddafc53778a880900ba32cefcec6730980ff926f2aa0eadbe73a84",
+      "discovery_query": "reusable structured capability",
+      "discovery_status": "PUBLIC_DISCOVERY_NO_QUALIFIED_CANDIDATE",
+      "decree_id": "DECREE-C1-QUALITY",
+      "turn_id": "TURN-C1-CONSENT"
+    },
+    "consent": {
+      "explicit": true,
+      "current_turn": true,
+      "action": "CREATE",
+      "kind": "skill",
+      "name": "court-report-skill",
+      "purpose": "reusable offline report validation",
+      "destination": "D:/project/court-report-skill",
+      "allowed_actions": ["CREATE"],
+      "candidate_snapshot": {
+        "kind": "skill",
+        "name": "court-report-skill",
+        "source": "local_creation",
+        "purpose": "reusable offline report validation",
+        "destination": "D:/project/court-report-skill",
+        "requires_paid_action": false,
+        "requires_login": false,
+        "requires_private_upload": false,
+        "trusted": false,
+        "verified": false
+      },
+      "candidate_digest": "f5cec154deddafc53778a880900ba32cefcec6730980ff926f2aa0eadbe73a84",
+      "discovery_query": "reusable structured capability",
+      "discovery_status": "PUBLIC_DISCOVERY_NO_QUALIFIED_CANDIDATE",
+      "decree_id": "DECREE-C1-QUALITY",
+      "turn_id": "TURN-C1-CONSENT"
+    },
+    "mutation_fields": ["action", "kind", "name", "purpose", "destination", "allowed_actions", "candidate_snapshot", "candidate_digest", "discovery_query", "discovery_status", "decree_id", "turn_id"],
+    "actual_candidate_mutation_fields": ["requires_paid_action", "requires_login", "requires_private_upload", "trusted", "verified"],
+    "create_does_not_imply": ["INSTALL", "MODIFY", "ENABLE"]
+  }
+}

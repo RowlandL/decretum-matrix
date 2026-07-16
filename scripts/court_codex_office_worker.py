@@ -29,6 +29,7 @@ HOST_PROOF_SCHEMA = "court.codex_fresh_worker_host_proof.v1"
 WORKER_SCHEMA = "court.codex_fresh_worker.v1"
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 ALLOWED_SANDBOXES = frozenset({"read-only", "workspace-write"})
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _canonical_json(value: object) -> bytes:
@@ -148,7 +149,12 @@ def build_worker_plan(
     if (model, effort) not in proved_pairs:
         raise ValueError("recommended model/effort pair lacks host proof")
     manifest = build_preload_manifest(str(role).strip().lower())
-    dossier_dir = str(Path(manifest.dossier_path).parent)
+    dossier_file = (REPO_ROOT / Path(manifest.dossier_path)).resolve()
+    try:
+        dossier_file.relative_to(REPO_ROOT)
+    except ValueError as exc:
+        raise ValueError("office dossier locator escaped the repository root") from exc
+    dossier_dir = str(dossier_file.parent)
     native_path_text: str | None = None
     native_sha256: str | None = None
     if native_codex_path is not None:
@@ -188,6 +194,7 @@ def build_worker_plan(
         "office_zh": manifest.office_zh,
         "direct_superior": manifest.direct_superior,
         "dossier_dir": dossier_dir,
+        "dossier_locator": manifest.dossier_path,
         "dossier_hash": manifest.dossier_hash,
         "profile_hash": manifest.profile_hash,
         "court_skill_hash": manifest.court_skill_hash,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from argparse import Namespace
+import hashlib
+import json
 import tempfile
 from pathlib import Path
 import sys
@@ -27,7 +29,924 @@ from check_court_agent_lifecycle import run_agent_lifecycle_checks
 import report_office_startup_latency as startup_latency
 
 
+def formal_gate_fixture(*, mutates_state: bool = False) -> dict[str, object]:
+    return {
+        "schema": "court.conversation_gate.v1",
+        "active_decree": False,
+        "active_decree_state": "NONE",
+        "message_class": "FORMAL_TASK",
+        "confidence": "HIGH",
+        "relation_to_active_decree": "NONE",
+        "taskization_consent": "EXPLICIT",
+        "requires_tools": True,
+        "mutates_state": mutates_state,
+        "risk_present": False,
+        "next_route": "THREE_DEPARTMENTS",
+        "question": "",
+        "rationale": "self-test formal court task",
+    }
+
+
+def create_args(task_id: str, *, intake_gate: object, work_kind: str = "audit") -> Namespace:
+    charter = "formal runtime schema fixture"
+    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
+    return Namespace(
+        title=task_id,
+        charter=charter,
+        task_id=task_id,
+        owner="taizi",
+        report_tier="brief",
+        evidence=f"create {task_id}",
+        note="runtime schema fixture",
+        work_kind=work_kind,
+        intake_gate=intake_gate,
+        intake_file=None,
+        invariant_capsule={
+            "schema": "court.semantic.invariant_capsule.v1",
+            "latest_decree_anchor": charter,
+            "latest_decree_sha256": charter_sha256,
+            "non_goals": ["do not mutate real runtime state"],
+            "boundaries": ["TemporaryDirectory fixture only"],
+            "allowed_actions": ["synthetic runtime verification"],
+            "forbidden_actions": ["real Shiguan access"],
+            "acceptance": ["runtime checker passes"],
+            "evidence_requirements": ["machine-readable receipt"],
+            "stop_gates": ["semantic drift"],
+            "write_set": ["scripts/check_court_runtime.py"],
+            "governing_hashes": {"fixture": charter_sha256},
+            "charter_sha256": charter_sha256,
+        },
+        invariant_capsule_file=None,
+    )
+
+
+def _semantic_context_fixture() -> dict[str, object]:
+    digest = lambda label: hashlib.sha256(label.encode("utf-8")).hexdigest()
+    return {
+        "authority_revision": 1,
+        "authority_sha256": digest("runtime-authority"),
+        "plan_revision": 1,
+        "plan_sha256": digest("runtime-plan"),
+        "plan_cursor": "runtime-checker",
+        "git_fingerprint": "runtime-checker-head",
+        "recovery_checkpoint_id": "runtime-checker-recovery",
+        "shiguan_revision": 0,
+        "shiguan_fingerprint": digest("runtime-synthetic-shiguan"),
+    }
+
+
+def _make_task_dispatchable(task_id: str) -> dict[str, object]:
+    context = _semantic_context_fixture()
+    common = dict(
+        task_id=task_id,
+        semantic_context=context,
+        semantic_context_file=None,
+        actor="taizi",
+        evidence="runtime semantic dispatch fixture",
+        note="runtime semantic dispatch fixture",
+    )
+    court_runtime.semantic_checkpoint_task(
+        Namespace(**common, trigger="checkpoint")
+    )
+    return court_runtime.semantic_verify_task(
+        Namespace(**common, trigger="verify")
+    ).task
+
+
+def _bind_admission_args(args: Namespace, task: dict[str, object]) -> Namespace:
+    receipt = task["semantic_receipt"]
+    args.expected_semantic_epoch = task["semantic_epoch"]
+    args.expected_charter_sha256 = task["charter_sha256"]
+    args.expected_invariant_capsule_sha256 = task["invariant_capsule_sha256"]
+    args.expected_checkpoint_id = receipt["checkpoint_id"]
+    return args
+
+
+def _public_admission_fixture(
+    *,
+    task_id: str,
+    roles: tuple[str, ...],
+    integration_domain: str,
+    approved_count: int | None = None,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    normalized_roles = court_runtime.parse_requested_roles(roles, len(roles))
+    count = len(normalized_roles) if approved_count is None else approved_count
+    if count < 1 or count > len(normalized_roles):
+        raise ValueError("approved fixture count is outside the requested role set")
+    direct_superiors = {
+        "taizi": "user",
+        "zhongshu": "taizi",
+        "menxia": "taizi",
+        "shangshu": "taizi",
+        "libu-hr": "shangshu",
+        "hubu": "shangshu",
+        "libu": "shangshu",
+        "bingbu": "shangshu",
+        "xingbu": "shangshu",
+        "gongbu": "shangshu",
+        "shiguan": "taizi/menxia",
+    }
+    ministry_roles = {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
+    role_counts: dict[str, int] = {}
+    bindings: list[dict[str, object]] = []
+    for index, role in enumerate(normalized_roles):
+        role_counts[role] = role_counts.get(role, 0) + 1
+        role_number = role_counts[role]
+        instance_id = f"{role}#{role_number:04d}"
+        worker = role_number > 1 and role in ministry_roles
+        bindings.append(
+            {
+                "role": role,
+                "instance_id": instance_id,
+                "shard_id": f"{role}-shard-{role_number:04d}",
+                "direct_superior": role if worker else direct_superiors.get(role, "shangshu"),
+                "instance_kind": "office_worker_instance" if worker else "office",
+                "canonical_authority": role_number == 1,
+                "owner_role": role if worker else None,
+                "write_set": [f"work/{role}/{role_number:04d}.txt"],
+                "access_mode": "read_write",
+                "read_scope": [f"work/{role}/{role_number:04d}.txt"],
+                "mutation_allowed": True,
+                "integration_authority": False,
+            }
+        )
+    approved = bindings[:count]
+    lease: dict[str, object] = {
+        "status": "ACTIVE",
+        "lease_id": f"{task_id}-lease-{count}",
+        "approved_count": count,
+        "task_id": task_id,
+        "calling_office": "shangshu",
+        "direct_superior": "taizi",
+        "integration_domain": integration_domain,
+        "authority": "super",
+        "approved_roles": [binding["role"] for binding in approved],
+        "approved_instance_ids": [binding["instance_id"] for binding in approved],
+        "approved_shards": [binding["shard_id"] for binding in approved],
+        "approved_write_sets": {
+            str(binding["instance_id"]): list(binding["write_set"]) for binding in approved
+        },
+        "approved_access_contracts": {
+            str(binding["instance_id"]): {
+                "access_mode": binding["access_mode"],
+                "read_scope": list(binding["read_scope"]),
+                "mutation_allowed": binding["mutation_allowed"],
+                "integration_authority": binding["integration_authority"],
+            }
+            for binding in approved
+        },
+        "approved_instance_shapes": {
+            str(binding["instance_id"]): {
+                "instance_kind": binding["instance_kind"],
+                "canonical_authority": binding["canonical_authority"],
+                "owner_role": binding["owner_role"],
+                "direct_superior": binding["direct_superior"],
+            }
+            for binding in approved
+        },
+    }
+    return lease, bindings
+
+
+def _public_admission_fields(
+    *,
+    task_id: str,
+    roles: tuple[str, ...],
+    integration_domain: str,
+    approved_count: int | None = None,
+) -> dict[str, object]:
+    lease, bindings = _public_admission_fixture(
+        task_id=task_id,
+        roles=roles,
+        integration_domain=integration_domain,
+        approved_count=approved_count,
+    )
+    return {
+        "budget_lease_json": json.dumps(lease, ensure_ascii=False),
+        "requested_bindings_json": json.dumps(bindings, ensure_ascii=False),
+        "integration_domain": integration_domain,
+        "authority": "super",
+        "calling_office": "shangshu",
+        "direct_superior": "taizi",
+    }
+
+
+def _cardinality_fixture(*, approved_count: int = 17) -> tuple[dict[str, object], list[dict[str, object]]]:
+    return _public_admission_fixture(
+        task_id="runtime-cardinality",
+        roles=tuple("gongbu" for _ in range(17)),
+        integration_domain="runtime-cardinality",
+        approved_count=approved_count,
+    )
+
+
+def _cardinality_args(
+    *,
+    approved_count: int = 17,
+    explicit_count: int | None = None,
+    unlimited: bool = False,
+    control_source: str | None = None,
+    memory_percent: float = 40.0,
+) -> Namespace:
+    lease, bindings = _cardinality_fixture(approved_count=approved_count)
+    argv = [
+        "agent-admit",
+        "--task-id", "runtime-cardinality",
+        "--wave-id", "runtime-cardinality-wave",
+        "--execution-topology", "parallel",
+        "--protocol-mode", "v2",
+        "--active-session-protocol", "v2",
+        "--requested-fork-turns", "none",
+        "--context-tokens", "1000",
+        "--message-chars", "100",
+        "--requested-agents", "17",
+        "--requested-roles", ",".join("gongbu" for _ in range(17)),
+        "--host-active-agents", "1",
+        "--host-capacity", "48",
+        "--host-retained-agents", "0",
+        "--host-reclamation-status", "verified",
+        "--next-depth", "2",
+        "--max-depth", "4",
+        "--max-threads", "48",
+        "--budget-lease-json", json.dumps(lease, ensure_ascii=False),
+        "--requested-bindings-json", json.dumps(bindings, ensure_ascii=False),
+        "--integration-domain", "runtime-cardinality",
+        "--authority", "super",
+        "--calling-office", "shangshu",
+        "--direct-superior", "taizi",
+        "--assignment", "cardinality tracer",
+        "--task-focus", "runtime admission",
+        "--complexity", "medium",
+        "--risk", "low",
+        "--ambiguity", "low",
+        "--transport", "codex",
+        "--evidence", "synthetic public parser tracer",
+        "--system-memory-percent", str(memory_percent),
+    ]
+    if explicit_count is not None:
+        argv.extend(("--explicit-parallel-count", str(explicit_count)))
+    if unlimited:
+        argv.append("--parallel-unlimited")
+    if control_source is not None:
+        argv.extend(("--parallel-control-source", control_source))
+    return court_runtime.build_parser().parse_args(argv)
+
+
+def check_runtime_parallel_cardinality() -> None:
+    task = {"task_id": "runtime-cardinality", "agents": {}}
+
+    default = court_runtime.evaluate_agent_admission(task, _cardinality_args())
+    assert len(default["selected_roles"]) == 15
+
+    explicit_17 = court_runtime.evaluate_agent_admission(
+        task,
+        _cardinality_args(explicit_count=17, control_source="current_user_explicit"),
+    )
+    assert len(explicit_17["selected_roles"]) == 16
+
+    explicit_18 = court_runtime.evaluate_agent_admission(
+        task,
+        _cardinality_args(explicit_count=18, control_source="current_user_explicit"),
+    )
+    assert len(explicit_18["selected_roles"]) == 17
+
+    unlimited = court_runtime.evaluate_agent_admission(
+        task,
+        _cardinality_args(unlimited=True, control_source="current_user_explicit"),
+    )
+    assert len(unlimited["selected_roles"]) == 17
+
+    for source in (None, "prior_memory"):
+        stale = court_runtime.evaluate_agent_admission(
+            task,
+            _cardinality_args(explicit_count=18, control_source=source),
+        )
+        assert stale["allowed"] is False
+        assert "parallel_override_not_current_user_explicit" in stale["selection_basis"]
+        assert stale["selected_bindings"] == ()
+        assert stale["selected_instance_ids"] == ()
+
+    bounded = court_runtime.evaluate_agent_admission(task, _cardinality_args(approved_count=5))
+    assert len(bounded["selected_roles"]) == 5
+
+    pressure = court_runtime.evaluate_agent_admission(
+        task,
+        _cardinality_args(
+            explicit_count=18,
+            control_source="current_user_explicit",
+            memory_percent=99.0,
+        ),
+    )
+    assert len(pressure["selected_roles"]) == 15
+
+
+def check_runtime_instance_keyed_routes() -> None:
+    with tempfile.TemporaryDirectory(prefix="court-runtime-instance-routes-") as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(
+                create_args(
+                    "runtime-cardinality",
+                    intake_gate=formal_gate_fixture(mutates_state=True),
+                )
+            )
+            task = _make_task_dispatchable("runtime-cardinality")
+            admission = court_runtime.agent_admit(
+                _bind_admission_args(_cardinality_args(approved_count=3), task)
+            )
+            assert tuple(admission["model_routes"]) == (
+                "gongbu#0001",
+                "gongbu#0002",
+                "gongbu#0003",
+            )
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def _instance_start_args(
+    *,
+    instance_id: str,
+    agent_id: str,
+    dispatch_requested_at: str,
+) -> Namespace:
+    skill_path = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
+    skill_hash = hashlib.sha256(skill_path.read_bytes()).hexdigest()
+    suffix = instance_id.split("#", 1)[-1]
+    args = court_runtime.build_parser().parse_args(
+        [
+            "agent-start",
+            "--task-id", "runtime-cardinality",
+            "--agent-id", agent_id,
+            "--instance-id", instance_id,
+            "--role", "gongbu",
+            "--collaboration-task-name", f"gongbu_rc1_{suffix}",
+            "--skill-requirements-json",
+            json.dumps(
+                [
+                    {
+                        "name": "court-capability-router",
+                        "source": str(skill_path.resolve()),
+                        "sha256": skill_hash,
+                        "purpose": "RC1 instance-keyed runtime tracer",
+                        "ack_name": "court-capability-router",
+                        "ack_sha256": skill_hash,
+                    }
+                ]
+            ),
+            "--scope", "cardinality tracer",
+            "--task-focus", "runtime admission",
+            "--complexity", "medium",
+            "--risk", "low",
+            "--ambiguity", "low",
+            "--transport", "codex",
+            "--wave-id", "runtime-cardinality-wave",
+            "--dispatch-requested-at", dispatch_requested_at,
+            "--fork-turns", "none",
+            "--context-tokens", "1000",
+            "--actor", "shangshu",
+            "--evidence", f"start {instance_id}",
+        ]
+    )
+    task = court_runtime.load_tasks()["runtime-cardinality"]
+    admission = task["agent_admissions"]["runtime-cardinality-wave"]
+    bindings = admission["selected_bindings"]
+    binding = next(
+        item for item in bindings if item.get("instance_id") == instance_id
+    )
+    for field in court_runtime.AGENT_SEMANTIC_ARG_FIELDS:
+        setattr(args, field, binding[field])
+    return args
+
+
+def _spawn_failed_args(*, instance_id: str | None) -> Namespace:
+    argv = [
+        "agent-spawn-failed",
+        "--task-id", "runtime-cardinality",
+        "--wave-id", "runtime-cardinality-wave",
+        "--role", "gongbu",
+        "--error-kind", "retryable",
+        "--result", "synthetic host refusal",
+        "--actor", "shangshu",
+        "--evidence", "RC1 instance-keyed spawn failure tracer",
+    ]
+    if instance_id is not None:
+        argv.extend(("--instance-id", instance_id))
+    return court_runtime.build_parser().parse_args(argv)
+
+
+def check_runtime_instance_keyed_spawn_failure() -> None:
+    with tempfile.TemporaryDirectory(prefix="court-runtime-instance-failure-") as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(
+                create_args(
+                    "runtime-cardinality",
+                    intake_gate=formal_gate_fixture(mutates_state=True),
+                )
+            )
+            task = _make_task_dispatchable("runtime-cardinality")
+            court_runtime.agent_admit(
+                _bind_admission_args(_cardinality_args(approved_count=3), task)
+            )
+            try:
+                court_runtime.agent_spawn_failed(_spawn_failed_args(instance_id=None))
+            except ValueError as exc:
+                assert "instance-id" in str(exc)
+            else:
+                raise AssertionError("multi-instance spawn-failed accepted without instance-id")
+
+            first = court_runtime.agent_spawn_failed(
+                _spawn_failed_args(instance_id="gongbu#0001")
+            )
+            second = court_runtime.agent_spawn_failed(
+                _spawn_failed_args(instance_id="gongbu#0002")
+            )
+            assert first["failed_instance_id"] == "gongbu#0001"
+            assert second["failed_instance_id"] == "gongbu#0002"
+            task = court_runtime.load_tasks()["runtime-cardinality"]
+            stored = task["agent_admissions"]["runtime-cardinality-wave"]
+            assert tuple(stored["failed_instances"]) == ("gongbu#0001", "gongbu#0002")
+            assert "gongbu#0003" not in stored["failed_instances"]
+            assert stored.get("consumed_instances", {}) == {}
+            for instance_id in ("gongbu#0001", "gongbu#0002"):
+                assert stored["failed_instances"][instance_id]["model_route_id"] == (
+                    stored["model_routes"][instance_id]["model_route_id"]
+                )
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+    with tempfile.TemporaryDirectory(prefix="court-runtime-unique-failure-") as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(
+                create_args(
+                    "runtime-cardinality",
+                    intake_gate=formal_gate_fixture(mutates_state=True),
+                )
+            )
+            task = _make_task_dispatchable("runtime-cardinality")
+            court_runtime.agent_admit(
+                _bind_admission_args(_cardinality_args(approved_count=1), task)
+            )
+            inferred = court_runtime.agent_spawn_failed(
+                _spawn_failed_args(instance_id=None)
+            )
+            assert inferred["failed_instance_id"] == "gongbu#0001"
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_runtime_instance_keyed_consumption() -> None:
+    with tempfile.TemporaryDirectory(prefix="court-runtime-instance-consumption-") as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(
+                create_args(
+                    "runtime-cardinality",
+                    intake_gate=formal_gate_fixture(mutates_state=True),
+                )
+            )
+            task = _make_task_dispatchable("runtime-cardinality")
+            admission = court_runtime.agent_admit(
+                _bind_admission_args(_cardinality_args(approved_count=3), task)
+            )
+            dispatch_requested_at = str(admission["dispatch_requested_at"])
+            court_runtime.agent_start(
+                _instance_start_args(
+                    instance_id="gongbu#0001",
+                    agent_id="gongbu-0001",
+                    dispatch_requested_at=dispatch_requested_at,
+                )
+            )
+            court_runtime.agent_start(
+                _instance_start_args(
+                    instance_id="gongbu#0002",
+                    agent_id="gongbu-0002",
+                    dispatch_requested_at=dispatch_requested_at,
+                )
+            )
+            task = court_runtime.load_tasks()["runtime-cardinality"]
+            stored = task["agent_admissions"]["runtime-cardinality-wave"]
+            assert stored["consumed_instances"] == {
+                "gongbu#0001": "gongbu-0001",
+                "gongbu#0002": "gongbu-0002",
+            }
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def assert_create_rejected_before_lock(args: Namespace, expected: str) -> None:
+    original_runtime_lock = court_runtime.runtime_lock
+
+    def forbidden_lock(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("formal intake validation acquired the runtime lock")
+
+    court_runtime.runtime_lock = forbidden_lock  # type: ignore[assignment]
+    try:
+        try:
+            court_runtime.create_task(args)
+        except ValueError as exc:
+            assert expected in str(exc)
+        else:
+            raise AssertionError("invalid formal intake was accepted")
+    finally:
+        court_runtime.runtime_lock = original_runtime_lock  # type: ignore[assignment]
+
+
+def canonical_task_bytes(task: dict[str, object]) -> bytes:
+    return json.dumps(task, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def expected_legacy_normalization(task: dict[str, object]) -> dict[str, object]:
+    normalized = dict(task)
+    normalized["migrated_from_runtime_schema_version"] = int(
+        normalized.get("runtime_schema_version") or 2
+    )
+    normalized["runtime_schema_version"] = 3
+    normalized.setdefault("work_kind", "legacy")
+    normalized.setdefault(
+        "conversation_gate",
+        {
+            "schema": "court.conversation_gate.legacy.v1",
+            "active_decree": False,
+            "active_decree_state": "NONE",
+            "message_class": "LEGACY_UNCLASSIFIED",
+            "confidence": "LOW",
+            "relation_to_active_decree": "UNCLEAR",
+            "taskization_consent": "PENDING",
+            "requires_tools": False,
+            "mutates_state": False,
+            "risk_present": False,
+            "next_route": "SINGLE_QUESTION",
+            "question": "",
+            "rationale": "legacy runtime task requires revise-charter before new work",
+            "creatable": False,
+            "revisable": False,
+        },
+    )
+    normalized.setdefault("charter_revision_history", [])
+    normalized.setdefault(
+        "outcome_assessment",
+        {
+            "schema": "court.outcome_assessment.v1",
+            "gate": "UNASSESSED",
+            "reasons": [],
+            "outcome": None,
+        },
+    )
+    normalized.setdefault("shiguan_checkpoint", {})
+    normalized.setdefault("completion", {"status": "UNASSESSED"})
+    normalized.setdefault("agent_runtime", court_runtime.default_agent_runtime())
+    normalized.setdefault("stop_condition", "")
+    normalized.setdefault("unsafe_remaining", "")
+    normalized.setdefault("evidence_preserved", "")
+    normalized.setdefault("agents", {})
+    return normalized
+
+
+def check_runtime_schema_v3_intake_and_migration() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            assert_create_rejected_before_lock(
+                create_args("missing-intake", intake_gate=None),
+                "formal conversation gate is required",
+            )
+            non_formal_gate = {
+                **formal_gate_fixture(),
+                "message_class": "TRIVIAL_DIRECT",
+                "taskization_consent": "NOT_REQUIRED",
+                "requires_tools": False,
+                "next_route": "DIRECT_ANSWER",
+            }
+            assert_create_rejected_before_lock(
+                create_args("invalid-intake", intake_gate=non_formal_gate),
+                "new_formal_task_gate_required",
+            )
+
+            created = court_runtime.create_task(
+                create_args("schema-v3", intake_gate=formal_gate_fixture())
+            )
+            assert created.task["runtime_schema_version"] == 3
+            assert created.task["work_kind"] == "audit"
+            assert created.task["conversation_gate"]["message_class"] == "FORMAL_TASK"
+            assert created.task["charter_revision_history"] == []
+            assert created.task["outcome_assessment"] == {
+                "schema": "court.outcome_assessment.v1",
+                "gate": "UNASSESSED",
+                "reasons": [],
+                "outcome": None,
+            }
+            assert created.task["shiguan_checkpoint"] == {}
+            assert created.task["completion"] == {"status": "UNASSESSED"}
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            raw_legacy: dict[str, object] = {
+                "runtime_schema_version": 2,
+                "task_id": "legacy-task",
+                "title": "legacy fixture",
+                "charter": "legacy charter",
+                "state": "Pending",
+                "owner": "taizi",
+                "report_tier": "brief",
+                "last_evidence": "legacy evidence",
+            }
+            path = court_runtime.tasks_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"legacy-task": raw_legacy}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            before_read = path.read_bytes()
+            normalized = court_runtime.load_tasks()["legacy-task"]
+            assert normalized == expected_legacy_normalization(raw_legacy)
+            assert path.read_bytes() == before_read
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+    raw_missing_version: dict[str, object] = {
+        "task_id": "missing-version-legacy-task",
+        "title": "missing version legacy fixture",
+        "state": "Pending",
+    }
+    normalized_missing_version = court_runtime.normalize_task(raw_missing_version)
+    assert normalized_missing_version == expected_legacy_normalization(raw_missing_version)
+    assert "runtime_schema_version" not in raw_missing_version
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            raw_legacy = {
+                "runtime_schema_version": 2,
+                "task_id": "legacy-task",
+                "title": "legacy fixture",
+                "charter": "legacy charter",
+                "state": "Pending",
+                "owner": "taizi",
+                "report_tier": "brief",
+                "last_evidence": "legacy evidence",
+            }
+            raw_target = {
+                "runtime_schema_version": 3,
+                "task_id": "target-task",
+                "title": "target fixture",
+                "charter": "target charter",
+                "state": "Pending",
+                "owner": "taizi",
+                "report_tier": "brief",
+                "last_evidence": "target evidence",
+                "work_kind": "audit",
+                "conversation_gate": formal_gate_fixture(),
+                "charter_revision_history": [],
+                "outcome_assessment": {
+                    "schema": "court.outcome_assessment.v1",
+                    "gate": "UNASSESSED",
+                    "reasons": [],
+                    "outcome": None,
+                },
+                "shiguan_checkpoint": {},
+                "completion": {"status": "UNASSESSED"},
+                "agent_runtime": court_runtime.default_agent_runtime(),
+                "stop_condition": "",
+                "unsafe_remaining": "",
+                "evidence_preserved": "",
+                "agents": {},
+            }
+            path = court_runtime.tasks_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {"legacy-task": raw_legacy, "target-task": raw_target},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            tasks = {
+                "legacy-task": expected_legacy_normalization(raw_legacy),
+                "target-task": {**raw_target, "last_evidence": "unrelated target mutation"},
+            }
+            court_runtime.write_tasks(tasks)
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            assert canonical_task_bytes(persisted["legacy-task"]) == canonical_task_bytes(raw_legacy)
+            assert "work_kind" not in persisted["legacy-task"]
+            assert "migrated_from_runtime_schema_version" not in persisted["legacy-task"]
+            assert persisted["target-task"]["last_evidence"] == "unrelated target mutation"
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_future_runtime_schema_rejected() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            future_task = {
+                "runtime_schema_version": 4,
+                "task_id": "future-task",
+                "title": "future fixture",
+                "charter": "must remain opaque to this runtime",
+                "state": "Pending",
+                "owner": "taizi",
+                "report_tier": "brief",
+                "future_payload": {"preserve": ["exactly"]},
+            }
+            path = court_runtime.tasks_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"future-task": future_task}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            before_tasks = path.read_bytes()
+            events = court_runtime.events_path()
+            assert not events.exists()
+            try:
+                court_runtime.create_task(
+                    create_args("unrelated-create", intake_gate=formal_gate_fixture())
+                )
+            except ValueError as exc:
+                assert str(exc) == "unsupported runtime schema version 4; maximum supported is 3"
+            else:
+                raise AssertionError("future runtime schema was normalized and persisted as v3")
+            assert path.read_bytes() == before_tasks
+            assert not events.exists()
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_malformed_task_entries_rejected() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            path = court_runtime.tasks_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"malformed-target": ["opaque", {"preserve": True}]}, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+            before_tasks = path.read_bytes()
+            try:
+                court_runtime.load_tasks()
+            except ValueError as exc:
+                assert str(exc) == (
+                    "tasks.json entry 'malformed-target' must contain an object"
+                )
+            else:
+                raise AssertionError("malformed target entry was silently filtered")
+            assert path.read_bytes() == before_tasks
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            valid_target = {
+                "runtime_schema_version": 3,
+                "task_id": "valid-target",
+                "title": "valid fixture",
+                "charter": "valid charter",
+                "state": "Pending",
+                "owner": "taizi",
+                "report_tier": "brief",
+            }
+            path = court_runtime.tasks_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "valid-target": valid_target,
+                        "opaque-sibling": ["must", "survive", {"nested": [1, 2, 3]}],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            before_tasks = path.read_bytes()
+            events = court_runtime.events_path()
+            assert not events.exists()
+            try:
+                court_runtime.create_task(
+                    create_args("unrelated-create", intake_gate=formal_gate_fixture())
+                )
+            except ValueError as exc:
+                assert str(exc) == "tasks.json entry 'opaque-sibling' must contain an object"
+            else:
+                raise AssertionError("unrelated write silently deleted a malformed sibling entry")
+            assert path.read_bytes() == before_tasks
+            assert not events.exists()
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_normalization_deep_copy() -> None:
+    source = {
+        "runtime_schema_version": 3,
+        "task_id": "deep-copy",
+        "conversation_gate": {
+            **formal_gate_fixture(),
+            "details": {"reasons": ["source"]},
+        },
+        "charter_revision_history": [{"evidence": ["source"]}],
+        "outcome_assessment": {
+            "schema": "court.outcome_assessment.v1",
+            "gate": "UNASSESSED",
+            "reasons": [{"detail": ["source"]}],
+            "outcome": None,
+        },
+        "shiguan_checkpoint": {"evidence": ["source"]},
+        "completion": {"status": "UNASSESSED", "detail": ["source"]},
+        "agent_runtime": {"kind": "fixture", "capabilities": ["source"]},
+        "agents": {"agent-1": {"evidence": ["source"]}},
+    }
+    before_source = canonical_task_bytes(source)
+    normalized = court_runtime.normalize_task(source)
+    normalized["conversation_gate"]["details"]["reasons"].append("normalized")
+    normalized["charter_revision_history"][0]["evidence"].append("normalized")
+    normalized["outcome_assessment"]["reasons"][0]["detail"].append("normalized")
+    normalized["shiguan_checkpoint"]["evidence"].append("normalized")
+    normalized["completion"]["detail"].append("normalized")
+    normalized["agent_runtime"]["capabilities"].append("normalized")
+    normalized["agents"]["agent-1"]["evidence"].append("normalized")
+    assert canonical_task_bytes(source) == before_source
+
+
+def check_existing_task_intake_cannot_create_new_task() -> None:
+    for message_class, relation in (
+        ("TASK_CORRECTION", "CORRECTS"),
+        ("TASK_CONTINUATION", "CONTINUES"),
+    ):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            original_runtime_root = court_runtime.runtime_root
+            court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+            try:
+                target_task_id = f"target-{message_class.lower()}"
+                court_runtime.create_task(
+                    create_args(target_task_id, intake_gate=formal_gate_fixture())
+                )
+                path = court_runtime.tasks_path()
+                before_tasks = path.read_bytes()
+                before_task_ids = set(court_runtime.load_tasks())
+                existing_task_gate = {
+                    **formal_gate_fixture(mutates_state=True),
+                    "active_decree": True,
+                    "active_decree_state": "ACTIVE",
+                    "message_class": message_class,
+                    "relation_to_active_decree": relation,
+                    "taskization_consent": "NOT_REQUIRED",
+                    "target_task_id": target_task_id,
+                }
+                assert_create_rejected_before_lock(
+                    create_args(
+                        f"forbidden-new-{message_class.lower()}",
+                        intake_gate=existing_task_gate,
+                    ),
+                    "new_formal_task_gate_required",
+                )
+                assert set(court_runtime.load_tasks()) == before_task_ids
+                assert path.read_bytes() == before_tasks
+
+                missing_target_gate = dict(existing_task_gate)
+                del missing_target_gate["target_task_id"]
+                assert_create_rejected_before_lock(
+                    create_args(
+                        f"missing-target-{message_class.lower()}",
+                        intake_gate=missing_target_gate,
+                    ),
+                    "target_task_id_required",
+                )
+                assert set(court_runtime.load_tasks()) == before_task_ids
+                assert path.read_bytes() == before_tasks
+            finally:
+                court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
 def main() -> int:
+    check_runtime_parallel_cardinality()
+    check_runtime_instance_keyed_routes()
+    check_runtime_instance_keyed_spawn_failure()
+    check_runtime_instance_keyed_consumption()
+    check_runtime_schema_v3_intake_and_migration()
+    check_future_runtime_schema_rejected()
+    check_malformed_task_entries_rejected()
+    check_normalization_deep_copy()
+    check_existing_task_intake_cannot_create_new_task()
     ordinary = ProtocolRequirements(
         child_agents_required=True,
         needs_parallel_tree=True,
@@ -73,20 +992,73 @@ def main() -> int:
     assert conflict.selected_mode is None
     assert "capability_conflict" in conflict.reason_codes
 
+    capacity_roles = tuple(f"role-{index}" for index in range(20))
+    capacity_bindings = tuple(
+        {
+            "role": role,
+            "instance_id": f"{role}#0001",
+            "shard_id": f"capacity-{index}",
+            "direct_superior": "shangshu",
+            "instance_kind": "office",
+            "canonical_authority": True,
+            "owner_role": None,
+            "write_set": [f"synthetic/runtime-capacity/{index}"],
+        }
+        for index, role in enumerate(capacity_roles)
+    )
+    capacity_lease = {
+        "status": "ACTIVE",
+        "lease_id": "runtime-capacity-lease",
+        "approved_count": len(capacity_roles),
+        "task_id": "runtime-capacity-check",
+        "calling_office": "shangshu",
+        "direct_superior": "taizi",
+        "integration_domain": "runtime-capacity",
+        "authority": "super",
+        "approved_roles": list(capacity_roles),
+        "approved_instance_ids": [
+            str(binding["instance_id"]) for binding in capacity_bindings
+        ],
+        "approved_shards": [
+            str(binding["shard_id"]) for binding in capacity_bindings
+        ],
+        "approved_write_sets": {
+            str(binding["instance_id"]): list(binding["write_set"])
+            for binding in capacity_bindings
+        },
+        "approved_instance_shapes": {
+            str(binding["instance_id"]): {
+                "instance_kind": binding["instance_kind"],
+                "canonical_authority": binding["canonical_authority"],
+                "owner_role": binding["owner_role"],
+                "direct_superior": binding["direct_superior"],
+            }
+            for binding in capacity_bindings
+        },
+    }
     capacity = admit_roles(
         host_capacity=64,
         active_threads=1,
         retained_threads=0,
-        requested_roles=[f"role-{index}" for index in range(20)],
+        requested_roles=capacity_roles,
         max_threads=16,
         next_depth=4,
         max_depth=4,
+        budget_lease=capacity_lease,
+        task_id="runtime-capacity-check",
+        calling_office="shangshu",
+        direct_superior="taizi",
+        requested_bindings=capacity_bindings,
+        integration_domain="runtime-capacity",
+        authority="super",
     )
     assert capacity.allowed is True
     assert capacity.effective_host_capacity == 16
     assert len(capacity.selected_roles) == 15
     assert len(capacity.deferred_roles) == 5
     assert capacity.available_slots == 15
+    assert "capacity_clamped" in capacity.reason_codes
+    assert "approved_budget_clamped" not in capacity.reason_codes
 
     depth_rejected = admit_roles(
         host_capacity=64,
@@ -353,6 +1325,9 @@ max_threads = 6
                     report_tier="",
                     evidence="self-test",
                     note="create",
+                    work_kind="audit",
+                    intake_gate=formal_gate_fixture(),
+                    intake_file=None,
                 )
             )
             assert created.task["read_only"] is True
@@ -366,8 +1341,6 @@ max_threads = 6
                 ("SixMinistries", "shangshu"),
                 ("Workshops", "gongbu"),
                 ("MenxiaReview", "menxia"),
-                ("ShiguanRecorded", "shiguan"),
-                ("Done", "menxia"),
             ]
             for state, actor in path:
                 court_runtime.transition_task(
@@ -385,6 +1358,35 @@ max_threads = 6
                 court_runtime.transition_task(
                     Namespace(
                         task_id="self-test",
+                        to_state="ShiguanRecorded",
+                        actor="shiguan",
+                        owner="",
+                        heartbeat="alive",
+                        evidence="generic checkpoint must fail",
+                        note="self-test",
+                    )
+                )
+            except ValueError as exc:
+                assert str(exc) == "assessment_binding_integrity"
+            else:
+                raise AssertionError("generic ShiguanRecorded transition was accepted")
+            recorded_probe = dict(court_runtime.load_tasks()["self-test"])
+            recorded_probe["state"] = "ShiguanRecorded"
+            try:
+                court_runtime.validate_runtime_gate(
+                    recorded_probe,
+                    "ShiguanRecorded",
+                    "Done",
+                    "generic completion must fail",
+                )
+            except ValueError as exc:
+                assert str(exc) == "atomic_completion_required"
+            else:
+                raise AssertionError("generic Done transition was accepted")
+            try:
+                court_runtime.transition_task(
+                    Namespace(
+                        task_id="self-test",
                         to_state="Pending",
                         actor="taizi",
                         owner="",
@@ -398,12 +1400,12 @@ max_threads = 6
             else:
                 raise AssertionError("illegal transition was accepted")
             events = court_runtime.read_events(limit=50, task_id="self-test")
-            assert len(events) == 11
+            assert len(events) == 9
             payload = court_runtime.status_payload(Namespace(limit=5, state=""))
             assert payload["kind"] == "court_runtime_status"
             assert payload["runtime_schema_version"] == court_runtime.RUNTIME_SCHEMA_VERSION
             assert payload["task_count"] == 1
-            assert payload["tasks"][0]["state"] == "Done"
+            assert payload["tasks"][0]["state"] == "MenxiaReview"
             assert "COURT RUNTIME" in payload["dashboard"]
             probe = court_runtime.probe_payload()
             assert probe["kind"] == "court_runtime_probe"
@@ -463,6 +1465,13 @@ max_threads = 6
                     "execution_topology": "parallel",
                     "active_session_protocol": "v2",
                 }
+                values.update(
+                    _public_admission_fields(
+                        task_id=wave_id,
+                        roles=("gongbu",),
+                        integration_domain="runtime-message-budget",
+                    )
+                )
                 if message_chars is not None:
                     values["message_chars"] = message_chars
                 if required_chars is not None:
@@ -589,6 +1598,11 @@ max_threads = 6
                     requested_fork_turns="none",
                     execution_topology="parallel",
                     active_session_protocol="v2",
+                    **_public_admission_fields(
+                        task_id="dynamic-six",
+                        roles=("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"),
+                        integration_domain="runtime-dynamic-six",
+                    ),
                 ),
             )
             assert six_role_admission["allowed"] is True
@@ -613,6 +1627,11 @@ max_threads = 6
                     requested_fork_turns="none",
                     execution_topology="parallel",
                     active_session_protocol="v2",
+                    **_public_admission_fields(
+                        task_id="dynamic-four",
+                        roles=("zhongshu", "menxia", "shangshu", "shiguan"),
+                        integration_domain="runtime-dynamic-four",
+                    ),
                 ),
             )
             assert tuple(partial_admission["selected_roles"]) == ("zhongshu", "menxia", "shangshu")
@@ -636,6 +1655,11 @@ max_threads = 6
                     requested_fork_turns="none",
                     execution_topology="parallel",
                     active_session_protocol="v2",
+                    **_public_admission_fields(
+                        task_id="root-tree-cap",
+                        roles=tuple(f"unspecified-{index}" for index in range(1, 21)),
+                        integration_domain="runtime-root-tree-cap",
+                    ),
                 ),
             )
             assert root_tree_cap["allowed"] is True
@@ -684,6 +1708,11 @@ max_threads = 6
                     protocol_mode="auto",
                     needs_agent_type_override=True,
                     active_session_protocol="v1",
+                    **_public_admission_fields(
+                        task_id="v1-override",
+                        roles=("xingbu",),
+                        integration_domain="runtime-v1-override",
+                    ),
                 ),
             )
             assert v1_override_admission["allowed"] is True
@@ -724,6 +1753,9 @@ max_threads = 6
                     report_tier="",
                     evidence="create",
                     note="create",
+                    work_kind="audit",
+                    intake_gate=formal_gate_fixture(),
+                    intake_file=None,
                 )
             )
             assert paused.task["state"] == "Pending"
@@ -810,6 +1842,9 @@ max_threads = 6
                     report_tier="",
                     evidence="create",
                     note="create",
+                    work_kind="audit",
+                    intake_gate=formal_gate_fixture(),
+                    intake_file=None,
                 )
             )
             assert cancel_gate.task["state"] == "Pending"
@@ -861,6 +1896,9 @@ max_threads = 6
                     report_tier="brief",
                     evidence="create",
                     note="create",
+                    work_kind="audit",
+                    intake_gate=formal_gate_fixture(),
+                    intake_file=None,
                 )
             )
             assert done_gate.task["state"] == "Pending"

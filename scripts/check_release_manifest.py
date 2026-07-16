@@ -1,4 +1,4 @@
-"""Validate the release-gate manifest and its path/argv safety contract."""
+"""Validate release-gate policy plus Decretum Matrix package identity."""
 
 from __future__ import annotations
 
@@ -15,6 +15,9 @@ from release_gate_manifest import (
     load_release_manifest,
     validate_release_manifest,
 )
+import build_release_artifacts
+import package_skill
+import release_payload_manifest
 
 
 def expect_invalid(manifest: dict[str, object], expected_text: str) -> None:
@@ -95,6 +98,23 @@ def run_negative_contract_checks(manifest: dict[str, object]) -> list[str]:
     return passed
 
 
+def release_surface_contract() -> dict[str, bool]:
+    return {
+        "canonical_product_name": release_payload_manifest.NAME == "decretum-matrix",
+        "canonical_display_name": getattr(release_payload_manifest, "DISPLAY_NAME", None)
+        == "Decretum Matrix（诏令矩阵）",
+        "canonical_artifact_name": release_payload_manifest.ARTIFACT_NAME
+        == "decretum-matrix-beta0.5.10.zip",
+        "canonical_release_label": release_payload_manifest.RELEASE_LABEL == "beta0.5.10",
+        "agpl_only": getattr(release_payload_manifest, "LICENSE_ID", None) == "AGPL-3.0-only",
+        "artifact_builder_identity": build_release_artifacts.NAME == "decretum-matrix",
+        "stable_locator": (
+            package_skill.ROOT_NAME == "court-capability-router"
+            and release_payload_manifest.ARCHIVE_ROOT == "court-capability-router/"
+        ),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
@@ -102,6 +122,12 @@ def main() -> int:
     try:
         manifest = load_release_manifest()
         negative_cases = run_negative_contract_checks(manifest)
+        surface_contract = release_surface_contract()
+        if not all(surface_contract.values()):
+            raise AssertionError(
+                "release surface contract failed: "
+                + ",".join(name for name, passed in surface_contract.items() if not passed)
+            )
     except (ReleaseGateManifestError, AssertionError) as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2, sort_keys=True))
@@ -117,6 +143,14 @@ def main() -> int:
     result = {
         "ok": True,
         "schema": MANIFEST_SCHEMA,
+        "release_identity": {
+            "name": release_payload_manifest.NAME,
+            "display_name": release_payload_manifest.DISPLAY_NAME,
+            "release_label": release_payload_manifest.RELEASE_LABEL,
+            "artifact_name": release_payload_manifest.ARTIFACT_NAME,
+            "license": release_payload_manifest.LICENSE_ID,
+            "archive_root": release_payload_manifest.ARCHIVE_ROOT,
+        },
         "step_count": len(steps),  # type: ignore[arg-type]
         "gate_counts": gate_counts,
         "expanded_release_steps": [
@@ -126,6 +160,7 @@ def main() -> int:
             "package_privacy_regressions",
             "release_artifact_builder",
         ],
+        "release_surface_contract": surface_contract,
         "negative_contract_cases": negative_cases,
     }
     if args.json:

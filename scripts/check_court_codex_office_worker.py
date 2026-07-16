@@ -48,6 +48,7 @@ def plan_for(*, assignment: str, task_focus: str, complexity: str, risk: str, am
 
 
 def main() -> int:
+    repo_root = Path(__file__).resolve().parents[1]
     luna = plan_for(
         assignment="light clerical status",
         task_focus="轻量状态格式",
@@ -79,11 +80,15 @@ def main() -> int:
     assert sol["reasoning_effort"] == "ultra"
     assert sol["office_instance_kind"] == "fresh_codex_worker"
     assert sol["model_override_applied"] is True
+    expected_dossier_dir = (repo_root / "agents" / "office-dossiers" / "hubu").resolve()
+    assert Path(str(sol["dossier_dir"])).is_absolute()
+    assert Path(str(sol["dossier_dir"])).resolve() == expected_dossier_dir
     argv = list(sol["argv"])
     assert argv[:3] == ["codex", "exec", "--json"]
     assert "resume" not in argv and "--last" not in argv and "--ephemeral" not in argv
     assert argv[argv.index("-m") + 1] == "gpt-5.6-sol"
     assert argv[argv.index("-c") + 1] == 'model_reasoning_effort="ultra"'
+    assert Path(argv[argv.index("-C") + 1]).resolve() == expected_dossier_dir
     disabled = [argv[index + 1] for index, item in enumerate(argv[:-1]) if item == "--disable"]
     assert disabled == ["multi_agent_v2", "multi_agent"]
 

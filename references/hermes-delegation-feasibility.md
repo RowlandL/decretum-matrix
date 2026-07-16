@@ -1,6 +1,8 @@
 # Hermes Delegation Feasibility
 
-Use this reference when configuring `court-capability-router` for Hermes Agent `delegate_task`, standing court agents, startup hooks, or nested smoke tests.
+Use this reference when configuring Decretum Matrix（诏令矩阵） (`decretum-matrix`,
+invoked as `$decretum-matrix`) for Hermes Agent `delegate_task`, standing court
+agents, startup hooks, or nested smoke tests.
 
 ## Runtime facts
 
@@ -16,7 +18,7 @@ Use this reference when configuring `court-capability-router` for Hermes Agent `
 3. Sync only meaningful mirror drift from this skill's `agents/standing-officials/*.toml` into `%USERPROFILE%\.codexgents`.
 4. Generate/update `references/hermes-standing-agents/registry.json` from the `.toml` files.
 5. Ensure Hermes delegation has bounded recursion and bounded child runtime: `max_concurrent_children >= 8`, `max_async_children >= 8`, `max_spawn_depth >= 3`, `orchestrator_enabled: true`, `subagent_auto_approve: true`, and `child_timeout_seconds` set to a finite value such as `300` when the user has granted the appropriate authority. A zero child timeout can make smoke-test subagents appear dead indefinitely.
-6. Add or preserve `SOUL.md` startup rules requiring `court-capability-router` loading and autonomous `delegate_task` use for non-trivial court work.
+6. Add or preserve `SOUL.md` startup rules requiring `$decretum-matrix` loading and autonomous `delegate_task` use for non-trivial court work.
 7. Run non-interactive validation: config parse/assertions, `check_catalog.py`, `refresh_capability_registry.py`, `ensure_court_agent_config.py --check`, `check_court_runtime.py`, and Shiguan import queue check.
 8. Verify with real `delegate_task`: one leaf role, parallel 三省 leaves, and 尚书省 as `role='orchestrator'` attempting nested 六部 dispatch.
 

@@ -1,14 +1,24 @@
-# Court Capability Router / 朝廷能力路由器
+# Decretum Matrix（诏令矩阵）
 
 ## 发布 / Release
 
-当前版本：`beta0.5.9`
+规范产品名、repository/skill/package 标识与调用分别为
+`Decretum Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix`。
+项目主页：[github.com/RowlandL/decretum-matrix](https://github.com/RowlandL/decretum-matrix)。
 
-- 发布包：`court-capability-router-beta0.5.9.zip`
-- SHA256：`court-capability-router-beta0.5.9.zip.sha256`
-- ZIP 内唯一根目录：`court-capability-router/`
-- 包内版本与逐文件摘要：[release-manifest.json](release-manifest.json)
-- 项目许可证：[Apache License 2.0](LICENSE)
+当前源码版本以 `VERSION` 为准；在新品牌发行门禁完成前，不宣称已生成新的正式
+发行包。规范新发行产物使用 `decretum-matrix-<version>.zip`。以下旧名只
+保留为不可变的 `beta0.5.9` Apache-2.0 历史证据与兼容 locator：
+
+- 历史发布包：`court-capability-router-beta0.5.9.zip`
+- 历史 SHA256：`court-capability-router-beta0.5.9.zip.sha256`
+- 历史 ZIP 内受保护根目录：`court-capability-router/`
+- 历史包版本与逐文件摘要：[release-manifest.json](release-manifest.json)
+- 当前社区许可证：[GNU AGPLv3，SPDX `AGPL-3.0-only`](LICENSE)
+- 商业授权说明：[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)（本文件本身不授予商业许可）
+- 贡献者许可协议：[CLA.md](CLA.md)（DCO + CLA gate；`LEGAL_REVIEW_REQUIRED`）
+- 商标与来源识别：[TRADEMARKS.md](TRADEMARKS.md)
+- 来源与权利边界：[PROVENANCE.md](PROVENANCE.md)
 - 上游许可与来源：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - 安全策略：[SECURITY.md](SECURITY.md)
 - 隐私边界：[PRIVACY.md](PRIVACY.md)
@@ -16,7 +26,7 @@
 - 简明变更：[CHANGELOG.md](CHANGELOG.md)
 - 详细记录：[RELEASE-LOG.md](RELEASE-LOG.md)
 
-维护约定：后续发版须同步更新 `VERSION`、本节、`CHANGELOG.md`、`RELEASE-LOG.md` 与 `release-manifest.json`。ZIP 自身摘要只写在外部 sidecar，避免清单自引用。
+维护约定：后续发版须同步更新 `VERSION`、本节、`CHANGELOG.md`、`RELEASE-LOG.md`、身份/法律清单与 `release-manifest.json`。ZIP 自身摘要只写在外部 sidecar，避免清单自引用。
 
 ### 能做什么
 
@@ -24,11 +34,11 @@
 - 按任务调用本地 skills、MCP、CLI、脚本与 agente，并受权限、容量、深度、请求预算和安全门禁约束。
 - 提供 portable bootstrap、共享史馆 seed、metadata-only 记忆桥、本地/LAN 管理与发布校验。
 
-### beta0.5.9 更新、修复与新增
+### 历史 beta0.5.9 更新、修复与新增
 
 - 新增：`COURT-DYNMSG-BUDGET-V1-20260712`，消息预算为 6000 floor、1000 quantum、12000 ceiling。
 - 修复：能力索引统一从共享史馆根读取；路径异常以结构化失败返回。
-- 开源：项目原创材料采用 Apache-2.0；`cft0808/edict` 的 MIT 来源、固定提交和完整许可文本保存在 `THIRD_PARTY_NOTICES.md`。许可成立以贡献者拥有必要权利为前提。
+- 开源：当前社区许可架构为 `AGPL-3.0-only`；旧 `beta0.5.8`/`beta0.5.9` Apache-2.0 授权不追溯撤销。`cft0808/edict` 的 MIT 来源、固定提交和完整许可文本保存在 `THIRD_PARTY_NOTICES.md` 与 `PROVENANCE.md`。商业授权、CLA 和商标文本均标记 `LEGAL_REVIEW_REQUIRED`。
 - 发布：ZIP 使用 stored entries、固定时间戳/mode、UTF-8 排序和稳定源读取；已有输出与已有版本目录一律拒绝，旧 `beta0.5.8` 不覆盖、不删除、不改签。
 - 门禁：v2 payload manifest 精确核验每个文件；发布策略包含法律、隐私、能力索引、构建器和条件运行时共 40 步。
 - 安全：Web/daemon 默认仅 `127.0.0.1`，LAN 需显式 opt-in；非回环 peer 强制 HTTPS、禁重定向与内嵌凭据，quoted JSON secret 纳入脱敏。
@@ -41,7 +51,12 @@
 
 ### 这是什么
 
-`court-capability-router` 是一个 Codex skill，用来把本机 Codex 的任务执行、能力选择、并行 agente、脚本工具、史馆记录和最终复核统一到一套“三省六部”工作流里。它不是单纯的输出风格模板，而是一个语义路由器：当用户点名 `$court-capability-router` 或任务需要能力分派时，它会把请求转成可执行的朝廷流程。
+Decretum Matrix（诏令矩阵）是一个规范名为 `decretum-matrix` 的 Codex skill，
+用来把本机 Codex 的任务执行、能力选择、并行 agente、脚本工具、史馆记录和最终
+复核统一到一套“三省六部”工作流里。它不是单纯的输出风格模板，而是一个语义
+路由器：当用户点名 `$decretum-matrix` 或任务需要能力分派时，它会把请求转成
+可执行的朝廷流程。旧 `$court-capability-router` 输入已 deprecated；仅在宿主 alias
+探测证明其解析到同一物理 authority 时才可作为兼容输入，不创建第二份 skill。
 
 标准流程是：
 
@@ -162,7 +177,8 @@ python -B scripts/rebuild_shiguan_index.py
 python -B scripts/grow_shiguan_tree.py
 ```
 
-史馆运行时数据使用共享根：
+史馆运行时数据使用以下受保护兼容 locator；其中
+`court-capability-router` 是共享史馆 namespace，不是当前产品名：
 
 ```text
 %LOCALAPPDATA%\court-shiguan\court-capability-router\references
@@ -258,7 +274,8 @@ python -B scripts/check_codex_agent_roles.py
 
 ### 这个 ZIP 包包含什么
 
-典型结构：
+典型结构如下。ZIP 内根 `court-capability-router/` 是受保护的兼容 locator，
+加载后的规范身份仍是 `Decretum Matrix（诏令矩阵）` / `decretum-matrix`：
 
 ```text
 court-capability-router/
@@ -283,7 +300,8 @@ court-capability-router/
 
 ### 安装方式概览
 
-解压后把 `court-capability-router` 目录复制到 Codex skills 目录：
+解压后把物理包根 `court-capability-router` 复制到 Codex skills 目录的同名兼容
+locator；不得创建第二份 `decretum-matrix` alias 目录，loader 必须暴露规范身份：
 
 ```python
 from pathlib import Path
@@ -292,7 +310,7 @@ import shutil
 
 src = Path("court-capability-router")
 skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
-dst = skills_root / "court-capability-router-beta0.5.9"
+dst = skills_root / "court-capability-router"
 if dst.exists():
     raise SystemExit(f"refusing to overwrite existing install: {dst}")
 shutil.copytree(src, dst)
@@ -409,7 +427,8 @@ Markdown、TXT、Obsidian 直导材料不再自动进入官方史馆。它们先
 
 #### 20. ZIP 双语说明更新
 
-此前向已打包的 `court-capability-router-skill.zip` 添加了这份中英双语 `README.md`，说明当前功能和历史更新摘要。
+历史 beta 包 `court-capability-router-skill.zip` 曾加入这份中英双语
+`README.md`；该旧文件名只作为历史发行证据保留。
 
 #### 21. 本次结构整理与重打包
 
@@ -440,7 +459,8 @@ python -B scripts/memory_decision.py --topic "topic" --decision "SKIP" --content
 
 ### 使用建议
 
-- 复杂任务、安装、调试、研究、打包、记忆写入和多 agente 工作优先使用 `$court-capability-router`。
+- 复杂任务、安装、调试、研究、打包、记忆写入和多 agente 工作优先使用 `$decretum-matrix`。
+- 旧 `$court-capability-router` 仅是 deprecated 兼容输入；宿主 alias 未经探测证明时，不得声称可用。
 - GitHub 或 GitHub Releases 下载速度慢时，优先使用 `aria2c` 多线程下载；下载后仍需校验 digest、哈希或签名。
 - 不要把 token、API key、cookie、私密二维码、微信用户 ID 或其他敏感信息写入报告、图谱、日志或长期记忆。
 - 对外发布 ZIP 前使用 `scripts/package_skill.py`，不要手工把本机私有史馆记录打进公共包。
@@ -452,9 +472,17 @@ python -B scripts/memory_decision.py --topic "topic" --decision "SKIP" --content
 
 ### What This Is
 
-`court-capability-router` is a Codex skill that routes local Codex work through a structured Three Departments and Six Ministries court workflow. It coordinates task interpretation, capability selection, parallel agents, local scripts, audit records, memory decisions, and final review.
+Decretum Matrix（诏令矩阵） is a Codex skill whose canonical name and invocation
+are `decretum-matrix` and `$decretum-matrix`. It routes local Codex work through
+a structured Three Departments and Six Ministries court workflow, coordinating
+task interpretation, capability selection, parallel agents, local scripts,
+audit records, memory decisions, and final review.
 
-It is not just a response style. It is a semantic router: when the user invokes `$court-capability-router`, or when a task needs capability routing, the skill turns the request into an executable court process.
+It is not just a response style. It is a semantic router: when the user invokes
+`$decretum-matrix`, or when a task needs capability routing, the skill turns the
+request into an executable court process. The legacy `$court-capability-router`
+input is deprecated and may be treated as compatible only after a host alias
+probe proves that it resolves to this same physical authority.
 
 The standard flow is:
 
@@ -576,7 +604,9 @@ python -B scripts/rebuild_shiguan_index.py
 python -B scripts/grow_shiguan_tree.py
 ```
 
-Runtime Shiguan data uses the shared root:
+Runtime Shiguan data uses the protected compatibility locator below. Its
+`court-capability-router` segment is the stable Shiguan namespace, not the
+current product identity:
 
 ```text
 %LOCALAPPDATA%\court-shiguan\court-capability-router\references
@@ -692,7 +722,8 @@ Before a formal task is completed, paused, blocked, cancelled, or handed off, th
 
 ### What This ZIP Contains
 
-Typical structure:
+Typical structure follows. The `court-capability-router/` ZIP root is a protected
+compatibility locator; the loaded identity remains Decretum Matrix / `decretum-matrix`:
 
 ```text
 court-capability-router/
@@ -717,7 +748,10 @@ This is a portable core package. It includes the skill semantics, standing-offic
 
 ### Installation Overview
 
-After extracting the ZIP, copy `court-capability-router` into the Codex skills directory:
+After extracting the ZIP, copy the physical `court-capability-router` package
+root to the same protected locator in the Codex skills directory. Do not create
+a second `decretum-matrix` alias directory; the loader must expose the canonical
+identity:
 
 ```python
 from pathlib import Path
@@ -726,7 +760,7 @@ import shutil
 
 src = Path("court-capability-router")
 skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
-dst = skills_root / "court-capability-router-beta0.5.9"
+dst = skills_root / "court-capability-router"
 if dst.exists():
     raise SystemExit(f"refusing to overwrite existing install: {dst}")
 shutil.copytree(src, dst)
@@ -830,7 +864,9 @@ The skill now explicitly blocks unauthorized secret exposure, token/API key/cook
 
 #### 20. ZIP Bilingual Documentation Update
 
-An earlier package update added this bilingual `README.md` to `court-capability-router-skill.zip`. It explains the current functionality and summarizes past updates.
+An earlier legacy beta package, `court-capability-router-skill.zip`, added this
+bilingual `README.md`. That old filename is retained only as historical release
+evidence.
 
 #### 21. This Structural Reorganization and Repackage
 
@@ -861,7 +897,8 @@ python -B scripts/memory_decision.py --topic "topic" --decision "SKIP" --content
 
 ### Usage Recommendations
 
-- Use `$court-capability-router` for complex tasks, installs, debugging, research, packaging, memory writes, and multi-agent work.
+- Use `$decretum-matrix` for complex tasks, installs, debugging, research, packaging, memory writes, and multi-agent work.
+- `$court-capability-router` is a deprecated compatibility input; do not claim it works unless a host alias probe proves it.
 - For slow GitHub or GitHub Releases downloads, prefer `aria2c` multi-thread downloading, then still verify digest, hash, or signature.
 - Do not write tokens, API keys, cookies, private QR codes, WeChat IDs, or other sensitive data into reports, graphs, logs, or long-term memory.
 - Use `scripts/package_skill.py` before public release. Do not manually package host-private Shiguan records into a public ZIP.

@@ -3,7 +3,8 @@
 ## Unified Dynamic Dispatch Semantics
 
 1. 官署按任务职责、依赖和证据价值动态分配。
-2. 实时容量与请求预算是运行门禁，不是模式固定人数；整棵 agent tree 受 max_threads=16（含根线程）和 max_depth=4 约束，未知容量、占用或深度时 fail closed。
+2. 正常 whole-tree 并行默认最多 16 个线程（含 root），只有最新用户明确指定大于 16 的数量或明确开启 `unlimited/解限` 才可抬高该上限。override 只改变 ceiling，不提供预算 lease，不得绕过宿主容量/拒绝、资源压力、层级、写集、preload、实例追溯或 max_depth，也不得自动开满；未知关键证据时 fail closed。
+   `explicit_count` 也是 whole-tree 数量：root 已占 1 时，`17` 最多准入 16 个 child，准入第 17 个 child 需要最新用户明确 `explicit_count=18`。控制来源使用 `current_user_explicit`；`latest_user_explicit` 仅作兼容别名。系统内存达到 99% 时仍降回默认 16。
 3. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
 4. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
 
@@ -29,6 +30,31 @@ The 三省六部 names are the skill's governing semantics. They define who may
 decide intent, who may reject or approve, who may dispatch execution, and what
 kind of evidence must be produced. Do not collapse the offices into generic
 planning, review, and implementation labels.
+
+### Canonical hierarchy and exact office preload
+
+This is the single governing office-chain contract for every runtime carrier.
+`shangshu_six_ministries_hierarchy_gate` requires every ministry assignment to
+record `direct_superior=shangshu`. `ministry_craftsman_hierarchy_gate` requires
+each workshop, worker, or craftsman assignment to record
+`direct_superior=<owning_ministry_role>`; a worker may not report directly to
+尚书省、三省, or 太子. The complete execution chain is therefore 太子 -> 三省,
+尚书省 -> 六部, and each ministry -> its own 工坊/工匠. 中书省 and 门下省 remain
+peer review offices and never acquire 六部 dispatch authority.
+
+Before any of the 14 official roles performs named-office work, the dispatcher
+and child must prove the exact role binding: canonical role key, standing
+profile source/hash, role-specific `AGENTS.md` dossier path/hash, governing
+`SKILL.md` path/hash, direct superior, and the required loaded-skill set. The
+child must read those exact files and return a matching preload acknowledgement
+before its lifecycle becomes running. Persist repository-relative profile,
+dossier, and skill paths so a worktree or portable install remains valid;
+absolute host paths are runtime resolution evidence only. A task name, role
+label, inherited conversation, pane title, or generic capability match is not
+preload proof. The same rule applies to ordinary spawned offices, recursive
+ministries and workers, terminal-visible `superCC`, and other supported office
+carriers; carrier-specific sections below only add transport evidence and do
+not weaken this contract.
 
 Historical basis and adaptation boundary:
 
@@ -454,8 +480,9 @@ clarification request and the user's answers as 实录 checkpoints.
   `parallel_dispatch=NOT_APPLICABLE/user_serial_override`) overrides the default
   attempt for that decree. 尚书 records the reason and must not spawn, reuse,
   wake, or follow up child agents.
-- Ordinary dispatch requires a successful `court_cli.py agent-admit` record
-  before the collaboration spawn. Default `fork_turns=none`; never use `all`.
+- Ordinary dispatch requires a successful `court_cli.py office admit` record
+  before a child-agent spawn or worktree-thread start. Existing `agent-admit`
+  remains a `child_agent` compatibility alias. Default `fork_turns=none`; never use `all`.
   No mode defines a fixed office count. Each wave is selected from useful roles
   by live host capacity, current occupancy, retained terminal-node count,
   reclamation evidence, explicit user budget, and provider launch budget;
@@ -485,12 +512,42 @@ clarification request and the user's answers as 实录 checkpoints.
   stop the backend, or claim a warm switch unless a newer explicit user decree
   reopens the capability and fresh host proof passes.
 - Before admission, 尚书省 records a machine-checkable dispatch plan. Every
-  selected office entry carries `role`, `office_zh`, `duty`,
-  `direct_superior`, `dependency_roles`, `parallel_group`, `allowed_actions`,
+  selected office entry carries `role`, `office_instance_id`, `office_zh`,
+  `duty`, `shard`, `write_set`, `integration_owner`, `direct_superior`,
+  `dependency_roles`, `parallel_group`, `allowed_actions`,
   `forbidden_actions`, `evidence_contract`, `stop_conditions`, and
-  `visibility`. Empty duties, duplicate roles, wrong superior links, missing
-  evidence/stop contracts, self-dependencies, or unknown roles are invalid;
-  roles without a concrete duty/evidence contract never enter `useful_roles`.
+  `visibility`. Empty duties, duplicate instance ids or shards, overlapping
+  write sets, duplicate canonical integration authority, wrong superior links,
+  missing preload/lease/evidence/stop contracts, self-dependencies, or unknown
+  roles are invalid. A repeated non-Taizi role key is valid when those instance
+  gates pass; roles without a concrete duty/evidence contract never enter
+  `useful_roles`.
+- Budget admission binds access with one per-instance contract:
+  `access_mode`, `read_scope`, `write_set`, `mutation_allowed`, and
+  `integration_authority`. A writer uses `access_mode=read_write`, must have a
+  non-empty write set, and carries mutation authority. A read-only reviewer
+  uses `access_mode=read_only`, must have an empty write set plus a non-empty
+  bounded repository-relative read scope, and must have both mutation and
+  integration authority disabled. Empty writer write sets, empty or escaping
+  read scopes, and read-only mutation/integration authority fail closed. Both
+  scope lists accept repository-relative paths only and persist a portable key
+  using `/` separators and case-folded components; absolute, drive, UNC,
+  empty-component, `.`, or `..` paths are rejected. Equal paths and either
+  ancestor/descendant direction are one writer conflict.
+- Role is an authorization dimension, not a runtime identity key. Admission
+  preserves repeated roles and binds the approved indices to
+  `selected_bindings` and `selected_instance_ids`. Model routes and lease
+  consumption are keyed by `instance_id`; `agent-start --instance-id` is
+  required when more than one admitted instance shares a role. One canonical
+  Gongbu office and multiple Gongbu workers may therefore start concurrently
+  when instance ids, shards, hierarchy, and write sets are independent, while
+  duplicate instance/shard identities or overlapping writes remain invalid.
+- `decree-open` freezes `main_court_code`, `lineage_parts`, `lineage_key`, and
+  `lineage_version=1`. Every admitted ordinary carrier inherits that root plus
+  `parent_court_code=main_court_code` and one atomically allocated `child_no`.
+  A changed summary, topic, sidebar title, carrier, or worktree must not
+  reclassify lineage; reclassification requires a separate explicit future
+  operation.
 - Ordinary `super` / `super并行` entries are always `visibility=non_visible` and
   never create zellij panes. In `superCC`, only 太子 and 三省 may be
   `visible_core`; 六部 remain `non_visible` by default. A
@@ -518,13 +575,35 @@ clarification request and the user's answers as 实录 checkpoints.
   script allowed by its mandate and evidence contract, but it may not bypass
   太子/三省/尚书省 hierarchy, host authorization, recursion/depth budget, or a
   required 逐一上奏/待朱批 gate.
-- Under ordinary `approval`/`autonomous`/`super` parallelism, a spawned office
-  subagent is a real 官署 agente when the dispatch preserves
-  `office_instance_kind=spawned_subagent`, role, direct superior,
-  dossier/profile or bounded context, task id/assignment, report path, and
-  evidence pointer. It does not need `superCC` visible pane evidence, but it also
-  must not be reported as `superCC`, `standing_officials=PASSED`, or terminal
-  visible office execution.
+- Office admission follows the three-proof contract in
+  [court-office-name-profile-skill-binding.md](sections/court-office-name-profile-skill-binding.md).
+  task_name is routing metadata; name_binding does not prove profile_binding or skill_binding.
+  `task_name` is routing metadata; its name does not prove the standing profile
+  or required skills were loaded, acknowledged, or fresh.
+- Under ordinary `approval`/`autonomous`/`super` parallelism,
+  `office_instance_kind=child_agent|worktree_thread` shares one
+  admit/start/preload/report/finish/close lifecycle and one RC2 semantic/result
+  binding. Child proof contains only `agent_id`; worktree proof adds
+  `thread_id`, canonical worktree id/path, repo/common-dir/worktree fingerprints,
+  branch, and start head. A worktree has an independent metadata-first Shiguan
+  pointer but never a private task/event authority. Codex thread transport and
+  Git/worktree operations remain external to the CLI. Neither ordinary carrier
+  needs terminal-visible evidence or may be reported as terminal-visible office
+  execution. The worktree fields are assertions, not authority: admission and
+  every lifecycle call use read-only Git queries against the existing claimed
+  worktree to recompute top/common-dir/branch/HEAD, repository/worktree ids, and
+  fingerprints before matching them. First-use self-assertion never establishes
+  repository authority.
+- Ordinary office `start`, formal `report`, and `finish` require the task's
+  current semantic state to be `DISPATCHABLE`; every other state fails before
+  task/event mutation. Formal `report` additionally requires `preload_status=PASSED`.
+  `close` and terminal `reconcile` remain bounded release operations and cannot
+  restore dispatchability. Each appended lifecycle event receives a distinct
+  event id even when two valid reports share the same timestamp second.
+- `court office ...` is JSON-only at its public boundary. Success and malformed
+  JSON, missing-argument, unknown-subcommand, and business-error failures all
+  use `court.office.cli.v1`; failures return stable `error_code`, exit 2, and no
+  argparse usage text.
 - Usage accounting is not a dispatched office and does not add a new mandatory
   sub-office to each assignment. The dispatch evidence already produced by an
   office, task, or `superCC` pane may later be referenced by the 结诏 usage
@@ -565,15 +644,18 @@ clarification request and the user's answers as 实录 checkpoints.
   supervision involved in the decree records `silent_supervisor`,
   `supercc_watchdog`, `watchdog_no_visible_window`, and
   `watchdog_daemon_stop` when a hidden supervisor was started.
-- Under `superCC`, office uniqueness is not scoped to visibility. 太子、三省、
-  六部、史馆 and any legacy inspection identity retained for compatibility each have one canonical role identity for the active court:
-  one active `squad` identity for the role and at most one current-session pane
-  with that canonical title. 六部 are non-visible by default, but a 尚书省
-  dispatch to any single ministry must first pass the same uniqueness gate:
-  no active duplicate `role-N` identity, no second active identity with the same
-  role, and no duplicate canonical pane. Duplicate identity or pane evidence is
-  `runtime_degraded`; dispatch must repair, requeue, or explicitly degrade
-  rather than letting 太子 do the ministry's work.
+- Under `superCC`, visible-entry uniqueness is scoped to visibility. 太子 is the
+  only role-wide singleton. Each terminal-visible canonical role keeps one
+  current-session pane/receive identity, but 三省、六部、史馆 and workshops may
+  also have multiple non-visible workers with distinct `office_instance_id`
+  values. Same-role 六部 instances have the highest affinity; 三省 scale-out is
+  lower, and 尚书省 scale-out is exceptional for super-giant work with multiple
+  independent integration domains. All remain budget decisions. Duplicate
+  canonical panes are `runtime_degraded`, while background dispatch is blocked
+  only by duplicate instance/shard, overlapping write set, wrong superior,
+  duplicate integration authority, or missing preload/lease/evidence. A visible
+  entrance repair must not reject otherwise valid same-role workers or let 太子
+  perform their ministry work.
 - Claim validity checklist: a named 三省、尚书、六部, or 史馆 result requires
   `office_instance_kind`, `office_transport`, direct-superior evidence, a
   preserved task/direct-assignment id, an office reply or heartbeat/report, and
@@ -641,8 +723,8 @@ clarification request and the user's answers as 实录 checkpoints.
   broad filesystem writes, or apparent overreach must be raised to 门下省 for
   封驳 review and, when the boundary is not already approved, to 太子 for
   逐一上奏/待朱批.
-- A requested local `super power`/`superpowers` skill is still a skill call, not
-  an office identity. Verify the active skill root/catalog and read the selected
+- A requested local workflow or methodology skill is still a skill call, not an
+  office identity. Verify the active skill root/catalog and read the selected
   skill's `SKILL.md` before using it. If the skill is absent, install only through
   a verified local/system installer or provenance-checked source allowed by the
   current authority, then refresh capability registries and record the install or

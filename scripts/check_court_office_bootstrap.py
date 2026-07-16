@@ -21,8 +21,14 @@ def main() -> int:
     require(manifest.office_zh == "刑部", "xingbu Chinese office mismatch")
     require(manifest.direct_superior == "shangshu", "xingbu superior mismatch")
     require(bool(manifest.profile_hash and manifest.dossier_hash), "profile/dossier hashes missing")
-    require(manifest.court_skill_name == "court-capability-router", "court skill name mismatch")
+    require(manifest.court_skill_name == "decretum-matrix", "court skill name mismatch")
+    require(manifest.court_skill_path == "SKILL.md", "technical skill locator changed")
     require(bool(manifest.court_skill_hash), "court skill hash missing")
+    gongbu_manifest = build_preload_manifest("gongbu")
+    require(
+        gongbu_manifest.direct_superior == "shangshu",
+        "ordinary Gongbu superior drifted away from shangshu",
+    )
 
     try:
         build_preload_manifest("/root/xingbu_wave3")
@@ -60,7 +66,7 @@ def main() -> int:
         "dossier_hash": manifest.dossier_hash,
         "court_skill_hash": manifest.court_skill_hash,
         "agent_dossier_loaded": "YES",
-        "loaded_skills": ["court-capability-router"],
+        "loaded_skills": ["decretum-matrix"],
         "model_route_id": contract["model_route"]["model_route_id"],
         "model_override_applied": False,
         "inheritance_policy": "inherit_main_thread_model_reserved_schema",

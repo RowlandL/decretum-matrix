@@ -1,0 +1,194 @@
+{
+  "schema": "court.install_projection.v1",
+  "schema_version": 1,
+  "identity_manifest": "references/manifests/skill-identity.v1.json",
+  "policy": {
+    "required_target": ".agents",
+    "default_optional_target": "current_agent_tool_only",
+    "extra_targets": "explicit_latest_user_request_only",
+    "fanout": "forbidden"
+  },
+  "projections": {
+    "shared_agents": [
+      "SKILL.md",
+      "VERSION",
+      "LICENSE",
+      "NOTICE",
+      "COMMERCIAL-LICENSE.md",
+      "THIRD_PARTY_NOTICES.md",
+      "PROVENANCE.md",
+      "TRADEMARKS.md",
+      "AUTHORS.md",
+      "README.md",
+      "INSTALL-PROMPT.md",
+      "agents",
+      "references/README.md",
+      "references/complexity-budget.md",
+      "references/court-capability-registry.md",
+      "references/court-closeout-validation.md",
+      "references/court-core-contract.md",
+      "references/court-host-platform-pitfalls.md",
+      "references/court-office-model-routing.md",
+      "references/court-offices-dispatch.md",
+      "references/court-policy.yaml",
+      "references/court-roles.yaml",
+      "references/court-shiguan-memory.md",
+      "references/court-startup-authority.md",
+      "references/court-state-runtime-agents.md",
+      "references/court-supercc-runtime-selection.md",
+      "references/department-map.md",
+      "references/hermes-studio-group-chat.md",
+      "references/hermes-studio-super-gl.md",
+      "references/install.md",
+      "references/obsidian-autosync-rest.md",
+      "references/reference-section-index.md",
+      "references/shiguan-ledger-policy.md",
+      "references/supercc-phase-cycling-model.md",
+      "references/user-manual-zh.md",
+      "references/benchmarks",
+      "references/fixtures",
+      "references/manifests",
+      "references/sections",
+      "scripts"
+    ],
+    "portable_current_tool": [
+      "SKILL.md",
+      "VERSION",
+      "LICENSE",
+      "NOTICE",
+      "COMMERCIAL-LICENSE.md",
+      "THIRD_PARTY_NOTICES.md",
+      "PROVENANCE.md",
+      "TRADEMARKS.md",
+      "AUTHORS.md",
+      "README.md",
+      "INSTALL-PROMPT.md",
+      "agents",
+      "references/README.md",
+      "references/complexity-budget.md",
+      "references/court-capability-registry.md",
+      "references/court-closeout-validation.md",
+      "references/court-core-contract.md",
+      "references/court-host-platform-pitfalls.md",
+      "references/court-office-model-routing.md",
+      "references/court-offices-dispatch.md",
+      "references/court-policy.yaml",
+      "references/court-roles.yaml",
+      "references/court-shiguan-memory.md",
+      "references/court-startup-authority.md",
+      "references/court-state-runtime-agents.md",
+      "references/court-supercc-runtime-selection.md",
+      "references/department-map.md",
+      "references/hermes-studio-group-chat.md",
+      "references/hermes-studio-super-gl.md",
+      "references/install.md",
+      "references/obsidian-autosync-rest.md",
+      "references/reference-section-index.md",
+      "references/shiguan-ledger-policy.md",
+      "references/supercc-phase-cycling-model.md",
+      "references/user-manual-zh.md",
+      "references/benchmarks",
+      "references/fixtures",
+      "references/manifests",
+      "references/sections",
+      "scripts"
+    ],
+    "repository_only": [
+      ".git",
+      ".github",
+      "docs",
+      "work",
+      "references/agente-logs",
+      "references/court-runtime",
+      "references/memory-decisions",
+      "references/shiguan-imports",
+      "references/shiguan-tree"
+    ]
+  },
+  "persistent_bindings": [
+    {
+      "role_key": "bingbu",
+      "profile_source": "agents/standing-officials/bingbu.toml",
+      "dossier_path": "agents/office-dossiers/bingbu/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "gongbu",
+      "profile_source": "agents/standing-officials/gongbu.toml",
+      "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "hubu",
+      "profile_source": "agents/standing-officials/hubu.toml",
+      "dossier_path": "agents/office-dossiers/hubu/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "libu",
+      "profile_source": "agents/standing-officials/libu.toml",
+      "dossier_path": "agents/office-dossiers/libu/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "libu-hr",
+      "profile_source": "agents/standing-officials/libu-hr.toml",
+      "dossier_path": "agents/office-dossiers/libu-hr/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "menxia",
+      "profile_source": "agents/standing-officials/menxia.toml",
+      "dossier_path": "agents/office-dossiers/menxia/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "patrol-inspector",
+      "profile_source": "agents/standing-officials/patrol-inspector.toml",
+      "dossier_path": "agents/office-dossiers/patrol-inspector/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "shangshu",
+      "profile_source": "agents/standing-officials/shangshu.toml",
+      "dossier_path": "agents/office-dossiers/shangshu/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "shiguan",
+      "profile_source": "agents/standing-officials/shiguan.toml",
+      "dossier_path": "agents/office-dossiers/shiguan/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "shiguan-hermes",
+      "profile_source": "agents/standing-officials/shiguan-hermes.toml",
+      "dossier_path": "agents/office-dossiers/shiguan-hermes/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "taizi",
+      "profile_source": "agents/standing-officials/taizi.toml",
+      "dossier_path": "agents/office-dossiers/taizi/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "xingbu",
+      "profile_source": "agents/standing-officials/xingbu.toml",
+      "dossier_path": "agents/office-dossiers/xingbu/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "zaochao",
+      "profile_source": "agents/standing-officials/zaochao.toml",
+      "dossier_path": "agents/office-dossiers/zaochao/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    },
+    {
+      "role_key": "zhongshu",
+      "profile_source": "agents/standing-officials/zhongshu.toml",
+      "dossier_path": "agents/office-dossiers/zhongshu/AGENTS.md",
+      "court_skill_path": "SKILL.md"
+    }
+  ]
+}

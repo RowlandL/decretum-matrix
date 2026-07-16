@@ -51,6 +51,58 @@
       "family": "handoff_or_pause",
       "expected_gate": "PASSED",
       "draft": "太子回奏：PAUSED\n当前状态：已新增 fixture，但尚未同步四份 active copy。\n未竟事项：运行 quick_validate、check_catalog、package_skill 与 hash 对齐。\n恢复入口：scripts/check_response_draft_fixtures.py --json\n风险：若直接收尾，其他运行面可能仍使用旧规则。"
+    },
+    {
+      "family": "dispatch_local_candidate",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：发现已验证的本地候选，可继续原任务。\n状态：IN_PROGRESS\n候选动作：DISPATCH_LOCAL\n证据：LOCAL_CANDIDATE_SUFFICIENT；candidate_fit=DISPATCHABLE_LOCAL\n下一步：派发本地候选处理原任务。",
+      "recruitment_case": "local_hit_dispatchable",
+      "semantics": {"status": "IN_PROGRESS", "completion": {"verified": false, "rendered_completed": false}, "checkpoint_receipt": {"verified": false, "evidence": null}, "assessment": {"binding": "IN_PROGRESS"}, "original_task": {"continues": true}}
+    },
+    {
+      "family": "ask_user_create_skill",
+      "expected_gate": "PASSED",
+      "draft": "太子上奏下一项问题：是否创建可复用 skill？\n状态：NEEDS_CONTEXT\n建议动作：PROPOSE_CREATE_SKILL\n证据：CREATE_SKILL_PROPOSAL；尚未执行创建。\n下一步：等待用户决定，同时保留原任务上下文。",
+      "recruitment_case": "high_likely_reuse_creation_proposal",
+      "semantics": {"status": "NEEDS_CONTEXT", "completion": {"verified": false, "rendered_completed": false}, "checkpoint_receipt": {"verified": false, "evidence": null}, "assessment": {"binding": "NEEDS_CONTEXT"}, "creation": {"action": "PROPOSE", "performed": false}, "original_task": {"continues": true}}
+    },
+    {
+      "family": "continue_after_user_rejects",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：用户已拒绝创建 skill，原任务继续。\n状态：IN_PROGRESS\n用户决定：REJECTED\n原任务：CONTINUES\n下一步：不招聘新能力，按现有能力完成原任务。",
+      "recruitment_case": "user_declined_creation_continues",
+      "semantics": {"status": "IN_PROGRESS", "completion": {"verified": false, "rendered_completed": false}, "checkpoint_receipt": {"verified": false, "evidence": null}, "assessment": {"binding": "IN_PROGRESS"}, "user_decision": {"status": "REJECTED"}, "original_task": {"continues": true}}
+    },
+    {
+      "family": "discovery_authority_blocked",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：authority_blocked\n状态：BLOCKED\n发现结论：AUTHORITY_BLOCKED；不能据此断言不存在候选。\n证据：public discovery 未获授权。\n下一步：继续原任务，或等待发现授权。",
+      "semantics": {"status": "BLOCKED", "completion": {"verified": false, "rendered_completed": false}, "checkpoint_receipt": {"verified": false, "evidence": null}, "assessment": {"binding": "BLOCKED"}, "discovery": {"status": "AUTHORITY_BLOCKED", "conclusion": "AUTHORITY_BLOCKED", "no_candidate_exists": false}, "original_task": {"continues": true}}
+    },
+    {
+      "family": "discovery_failed_without_no-candidate_claim",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：公开发现失败，结果仍属未知。\n状态：PARTIAL\n发现结论：DISCOVERY_FAILED；不能据此断言不存在候选。\n证据：NETWORK_DISCOVERY_FAILED\n下一步：使用现有能力继续原任务。",
+      "recruitment_case": "network_failure_is_unknown",
+      "semantics": {"status": "PARTIAL", "completion": {"verified": false, "rendered_completed": false}, "checkpoint_receipt": {"verified": false, "evidence": null}, "assessment": {"binding": "PARTIAL"}, "discovery": {"status": "FAILED", "conclusion": "DISCOVERY_FAILED", "no_candidate_exists": false}, "original_task": {"continues": true}}
+    },
+    {
+      "family": "handoff_with_concerns",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：HANDOFF\n状态：HANDOFF\n当前结果：未宣称完成。\n证据：checkpoint=I2-RC；concerns=fixture alignment\n下一步：接手者复验结构化结果字段。",
+      "semantics": {"status": "HANDOFF", "completion": {"verified": false, "rendered_completed": false}, "checkpoint_receipt": {"verified": false, "evidence": "checkpoint=I2-RC"}, "assessment": {"binding": "HANDOFF"}, "original_task": {"continues": true}}
+    },
+    {
+      "family": "partial_result",
+      "expected_gate": "PASSED",
+      "draft": "太子回奏：已取得部分结果，尚未完成。\n状态：PARTIAL\n当前结果：未宣称完成。\n验收证据：PARTIAL；仍缺最终 checkpoint receipt。\n下一步：补齐证据后再判断 DONE。",
+      "semantics": {"status": "PARTIAL", "completion": {"verified": false, "rendered_completed": false}, "checkpoint_receipt": {"verified": false, "evidence": null}, "assessment": {"binding": "PARTIAL"}, "original_task": {"continues": true}}
+    },
+    {
+      "family": "verified_done",
+      "expected_gate": "PASSED",
+      "draft": "结诏：DONE\n状态：DONE\n完成核验：VERIFIED\n验收证据：VERIFIED；checkpoint receipt=I2_RC_ACCEPTED\n下一步：无",
+      "semantics": {"status": "DONE", "completion": {"verified": true, "rendered_completed": true}, "checkpoint_receipt": {"verified": true, "evidence": "I2_RC_ACCEPTED"}, "assessment": {"binding": "PASSED"}, "original_task": {"continues": false}}
     }
   ]
 }
