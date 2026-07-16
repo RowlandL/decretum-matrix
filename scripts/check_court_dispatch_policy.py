@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ import court_agent_admission as _admission
 import court_multi_agent_protocol as _protocol
 from court_dispatch_policy import normalize_mode, select_wave as _select_wave, validate_dispatch_plan
 from court_multi_agent_protocol import admit_roles as _admit_roles
+from court_office_bootstrap import canonical_child_office_binding_sha256
 
 
 TARGET_SUPERIORS = {
@@ -124,6 +126,42 @@ def _bindings(
     return result
 
 
+def _bounded_child_profile(
+    *,
+    owner_role: str = "gongbu",
+    office_instance_id: str = "gongbu#0001",
+    ordinal: int = 1,
+) -> dict[str, object]:
+    return {
+        "schema": "court.child_office_profile.v1",
+        "child_role": "GongBu-GongJiang",
+        "role_key": owner_role,
+        "office_instance_id": office_instance_id,
+        "owner_role": owner_role,
+        "direct_superior": owner_role,
+        "canonical_authority": False,
+        "instance_kind": "office_worker_instance",
+        "bounded_mandate": "execute one bounded Gongbu implementation shard",
+        "expected_result": "return one structured implementation receipt",
+        "read_scope": [f"work/{owner_role}/input-{ordinal:04d}.txt"],
+        "write_set": [f"work/{owner_role}/{ordinal:04d}.txt"],
+        "task_id": "dispatch-policy-child-profile",
+        "dispatch_uid": f"DSP-DISPATCH-POLICY-CHILD-{ordinal:04d}",
+        "shard_id": f"{owner_role}-child-{ordinal:04d}",
+        "attempt": 1,
+        "profile_sha256": "1" * 64,
+        "dossier_sha256": "2" * 64,
+        "skill_sha256": "3" * 64,
+        "terminal_condition": "stop after the bounded receipt is accepted",
+        "expires_at_utc": "2099-01-01T00:00:00Z",
+        "dispatch_context_packet_schema": "court.semantic.dispatch_context_packet.v1",
+        "dispatch_context_packet_sha256": "4" * 64,
+        "semantic_receipt_sha256": "5" * 64,
+        "invariant_capsule_schema": "court.semantic.invariant_capsule.v1",
+        "invariant_capsule_sha256": "6" * 64,
+    }
+
+
 def _approved_scope_kwargs(
     roles: Sequence[str],
     budget_lease: Mapping[str, object] | None,
@@ -183,6 +221,16 @@ def _approved_scope_kwargs(
                 "direct_superior": binding["direct_superior"],
             }
             for binding in approved_bindings
+        },
+    )
+    lease.setdefault(
+        "approved_binding_sha256s",
+        {
+            str(binding["instance_id"]): canonical_child_office_binding_sha256(
+                binding
+            )
+            for binding in approved_bindings
+            if isinstance(binding.get("child_profile"), Mapping)
         },
     )
     lease.setdefault("integration_domain", integration_domain)
@@ -271,10 +319,14 @@ def check_dynamic_capacity() -> dict[str, object]:
         provider_launch_budget=None,
         host_retained=0,
         next_depth=1,
-        budget_lease=active_budget(4),
+        budget_lease=active_budget(
+            4,
+            calling_office="taizi",
+            direct_superior="user",
+        ),
         task_id="dispatch-policy-check",
-        calling_office="shangshu",
-        direct_superior="taizi",
+        calling_office="taizi",
+        direct_superior="user",
     )
     require(current_host.selected_roles == ("zhongshu", "menxia", "shangshu"), "four-slot host selected the wrong roles")
     require(current_host.deferred_roles == ("shiguan",), "four-slot host did not defer the fourth role")
@@ -523,15 +575,27 @@ def check_dynamic_capacity() -> dict[str, object]:
         budget_lease=active_budget(1), binding_overrides={0: {"direct_superior": "taizi"}},
         task_id="dispatch-policy-check", calling_office="shangshu", direct_superior="taizi",
     )
-    require(ministry_parent_mismatch.selected_roles == () and ministry_parent_mismatch.reason == "approved_budget_hierarchy_mismatch", "six-ministry direct superior mismatch was admitted")
+    require(ministry_parent_mismatch.selected_roles == () and ministry_parent_mismatch.reason == "dispatch_hierarchy_target_superior_mismatch", "six-ministry direct superior mismatch was admitted")
     worker_parent_mismatch = select_wave(
-        useful_roles=("build-worker",), host_capacity=4, host_active=1,
+        useful_roles=("gongbu",), host_capacity=4, host_active=1,
         user_agent_budget=None, provider_launch_budget=None, host_retained=0, next_depth=1,
-        budget_lease=active_budget(1),
-        binding_overrides={0: {"instance_kind": "worker", "owner_role": "gongbu", "direct_superior": "shangshu"}},
+        budget_lease=active_budget(
+            1,
+            calling_office="gongbu",
+            direct_superior="shangshu",
+        ),
+        binding_overrides={
+            0: {
+                "instance_kind": "worker",
+                "canonical_authority": False,
+                "owner_role": "gongbu",
+                "direct_superior": "shangshu",
+                "child_profile": _bounded_child_profile(),
+            }
+        },
         task_id="dispatch-policy-check", calling_office="gongbu", direct_superior="shangshu",
     )
-    require(worker_parent_mismatch.selected_roles == () and worker_parent_mismatch.reason == "approved_budget_hierarchy_mismatch", "worker was admitted above its owning ministry")
+    require(worker_parent_mismatch.selected_roles == () and worker_parent_mismatch.reason == "dispatch_hierarchy_target_superior_mismatch", "worker was admitted above its owning ministry")
     protocol_role_scope_mismatch = admit_roles(
         host_capacity=4, active_threads=1, retained_threads=0,
         requested_roles=("gongbu",), max_threads=32, next_depth=1, max_depth=4,
@@ -540,21 +604,48 @@ def check_dynamic_capacity() -> dict[str, object]:
     )
     require(protocol_role_scope_mismatch.allowed is False and protocol_role_scope_mismatch.reason_codes == ("approved_budget_scope_mismatch",), "protocol admitted an unapproved role")
     non_prefix_approved = select_wave(
-        useful_roles=("gongbu", "menxia"), host_capacity=4, host_active=1,
+        useful_roles=("gongbu", "xingbu"), host_capacity=4, host_active=1,
         user_agent_budget=None, provider_launch_budget=None, host_retained=0, next_depth=1,
-        budget_lease=active_budget(1, approved_roles=("menxia",)),
+        budget_lease=active_budget(1, approved_roles=("xingbu",)),
         task_id="dispatch-policy-check", calling_office="shangshu", direct_superior="taizi",
     )
     require(
-        non_prefix_approved.selected_roles == ("menxia",)
+        non_prefix_approved.selected_roles == ("xingbu",)
         and non_prefix_approved.deferred_roles == ("gongbu",),
         "dispatch did not select only the non-prefix instance approved by the lease",
     )
     protocol_duplicate_instances = admit_roles(
         host_capacity=4, active_threads=1, retained_threads=0,
         requested_roles=("gongbu", "gongbu"), max_threads=32, next_depth=1, max_depth=4,
-        budget_lease=active_budget(2, approved_roles=("gongbu", "gongbu")),
-        task_id="dispatch-policy-check", calling_office="shangshu", direct_superior="taizi",
+        budget_lease=active_budget(
+            2,
+            approved_roles=("gongbu", "gongbu"),
+            calling_office="gongbu",
+            direct_superior="shangshu",
+        ),
+        task_id="dispatch-policy-check", calling_office="gongbu", direct_superior="shangshu",
+        binding_overrides={
+            0: {
+                "instance_kind": "office_worker_instance",
+                "canonical_authority": False,
+                "owner_role": "gongbu",
+                "direct_superior": "gongbu",
+                "child_profile": _bounded_child_profile(
+                    office_instance_id="gongbu#0001",
+                    ordinal=1,
+                ),
+            },
+            1: {
+                "instance_kind": "office_worker_instance",
+                "canonical_authority": False,
+                "owner_role": "gongbu",
+                "direct_superior": "gongbu",
+                "child_profile": _bounded_child_profile(
+                    office_instance_id="gongbu#0002",
+                    ordinal=2,
+                ),
+            },
+        },
     )
     require(
         protocol_duplicate_instances.allowed is True
@@ -562,15 +653,27 @@ def check_dynamic_capacity() -> dict[str, object]:
         "protocol deduplicated distinct approved instances that share one role",
     )
     worker_owner_not_ministry = select_wave(
-        useful_roles=("build-worker",), host_capacity=4, host_active=1,
+        useful_roles=("gongbu",), host_capacity=4, host_active=1,
         user_agent_budget=None, provider_launch_budget=None, host_retained=0, next_depth=1,
-        budget_lease=active_budget(1),
-        binding_overrides={0: {"instance_kind": "worker", "owner_role": "menxia", "direct_superior": "menxia"}},
-        task_id="dispatch-policy-check", calling_office="gongbu", direct_superior="shangshu",
+        budget_lease=active_budget(
+            1,
+            calling_office="menxia",
+            direct_superior="taizi",
+        ),
+        binding_overrides={
+            0: {
+                "instance_kind": "worker",
+                "canonical_authority": False,
+                "owner_role": "menxia",
+                "direct_superior": "menxia",
+                "child_profile": _bounded_child_profile(owner_role="menxia"),
+            }
+        },
+        task_id="dispatch-policy-check", calling_office="menxia", direct_superior="taizi",
     )
     require(
         worker_owner_not_ministry.selected_roles == ()
-        and worker_owner_not_ministry.reason == "approved_budget_hierarchy_mismatch",
+        and worker_owner_not_ministry.reason == "dispatch_hierarchy_child_owner_mismatch",
         "worker owner outside the six ministries was admitted",
     )
 
@@ -626,10 +729,14 @@ def check_dynamic_capacity() -> dict[str, object]:
         user_agent_budget=None,
         provider_launch_budget=None,
         next_depth=1,
-        budget_lease=active_budget(3),
+        budget_lease=active_budget(
+            3,
+            calling_office="taizi",
+            direct_superior="user",
+        ),
         task_id="dispatch-policy-check",
-        calling_office="shangshu",
-        direct_superior="taizi",
+        calling_office="taizi",
+        direct_superior="user",
     )
     require(
         unknown_reclamation.selected_roles == ()
@@ -645,10 +752,14 @@ def check_dynamic_capacity() -> dict[str, object]:
         user_agent_budget=None,
         provider_launch_budget=None,
         next_depth=1,
-        budget_lease=active_budget(3),
+        budget_lease=active_budget(
+            3,
+            calling_office="taizi",
+            direct_superior="user",
+        ),
         task_id="dispatch-policy-check",
-        calling_office="shangshu",
-        direct_superior="taizi",
+        calling_office="taizi",
+        direct_superior="user",
     )
     require(
         retained_not_reclaimed.selected_roles == ()
@@ -664,10 +775,14 @@ def check_dynamic_capacity() -> dict[str, object]:
         user_agent_budget=None,
         provider_launch_budget=None,
         next_depth=1,
-        budget_lease=active_budget(3),
+        budget_lease=active_budget(
+            3,
+            calling_office="taizi",
+            direct_superior="user",
+        ),
         task_id="dispatch-policy-check",
-        calling_office="shangshu",
-        direct_superior="taizi",
+        calling_office="taizi",
+        direct_superior="user",
     )
     require(
         retained_reclaimed.selected_roles == ("zhongshu", "menxia", "shangshu"),
@@ -819,7 +934,7 @@ def check_dispatch_plan() -> dict[str, object]:
 
 
 def check_parallel_limit_authorization() -> dict[str, object]:
-    roles = tuple("gongbu" for _ in range(17))
+    roles = tuple(f"role-{index:02d}" for index in range(1, 18))
     common = {
         "useful_roles": roles,
         "host_capacity": 48,
@@ -1028,7 +1143,7 @@ def check_repository_relative_access_paths() -> None:
 
 
 def check_same_role_instance_admission() -> None:
-    roles = ("gongbu", "gongbu", "gongbu")
+    roles = ("gongbu", "gongbu")
     decision = admit_roles(
         host_capacity=8,
         active_threads=1,
@@ -1038,25 +1153,39 @@ def check_same_role_instance_admission() -> None:
         max_threads=16,
         next_depth=2,
         max_depth=4,
-        budget_lease=active_budget(3, approved_roles=roles),
+        budget_lease=active_budget(
+            2,
+            calling_office="gongbu",
+            direct_superior="shangshu",
+            approved_roles=roles,
+        ),
         task_id="dispatch-policy-check",
-        calling_office="shangshu",
-        direct_superior="taizi",
+        calling_office="gongbu",
+        direct_superior="shangshu",
         binding_overrides={
-            0: {"instance_kind": "office", "direct_superior": "shangshu"},
+            0: {
+                "instance_kind": "office_worker_instance",
+                "canonical_authority": False,
+                "owner_role": "gongbu",
+                "direct_superior": "gongbu",
+                "child_profile": _bounded_child_profile(
+                    office_instance_id="gongbu#0001",
+                    ordinal=1,
+                ),
+            },
             1: {
                 "instance_kind": "office_worker_instance",
+                "canonical_authority": False,
                 "owner_role": "gongbu",
                 "direct_superior": "gongbu",
-            },
-            2: {
-                "instance_kind": "office_worker_instance",
-                "owner_role": "gongbu",
-                "direct_superior": "gongbu",
+                "child_profile": _bounded_child_profile(
+                    office_instance_id="gongbu#0002",
+                    ordinal=2,
+                ),
             },
         },
     )
-    require(decision.allowed is True, f"three distinct Gongbu instances were rejected: {decision.reason_codes!r}")
+    require(decision.allowed is True, f"two bounded Gongbu workers were rejected: {decision.reason_codes!r}")
     require(decision.selected_roles == roles, "same-role instance selection collapsed by role")
 
 
@@ -1212,6 +1341,387 @@ def check_taizi_root_mainline_cannot_dispatch_ministries() -> dict[str, object]:
     return evidence
 
 
+def check_ministry_profile_mismatch_denied_before_capacity() -> dict[str, object]:
+    task_id = "dispatch-policy-ministry-superior-mismatch"
+    lease = active_budget(
+        1,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+        approved_roles=("gongbu",),
+    )
+    binding_overrides = {0: {"direct_superior": "taizi"}}
+    wave = select_wave(
+        useful_roles=("gongbu",),
+        host_capacity=4,
+        host_active=1,
+        host_retained=0,
+        host_reclamation_verified=True,
+        user_agent_budget=None,
+        provider_launch_budget=None,
+        next_depth=1,
+        max_threads=16,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+        binding_overrides=binding_overrides,
+    )
+    admission = admit_roles(
+        host_capacity=4,
+        active_threads=1,
+        retained_threads=0,
+        terminal_reclamation_verified=True,
+        requested_roles=("gongbu",),
+        max_threads=16,
+        next_depth=1,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+        binding_overrides=binding_overrides,
+    )
+    require(
+        wave.selected_roles == ()
+        and wave.deferred_roles == ("gongbu",)
+        and wave.reason == "dispatch_hierarchy_target_superior_mismatch",
+        "select_wave admitted a ministry with a forged direct superior",
+    )
+    require(
+        admission.allowed is False
+        and admission.selected_roles == ()
+        and admission.deferred_roles == ("gongbu",)
+        and admission.reason_codes
+        == ("dispatch_hierarchy_target_superior_mismatch",),
+        "admit_roles admitted a ministry with a forged direct superior",
+    )
+    return {
+        "select_wave": wave.__dict__,
+        "admit_roles": admission.__dict__,
+    }
+
+
+def check_three_department_requires_taizi_caller() -> dict[str, object]:
+    task_id = "dispatch-policy-three-department-caller"
+    lease = active_budget(
+        1,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+        approved_roles=("menxia",),
+    )
+    wave = select_wave(
+        useful_roles=("menxia",),
+        host_capacity=4,
+        host_active=1,
+        host_retained=0,
+        host_reclamation_verified=True,
+        user_agent_budget=None,
+        provider_launch_budget=None,
+        next_depth=1,
+        max_threads=16,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+    )
+    admission = admit_roles(
+        host_capacity=4,
+        active_threads=1,
+        retained_threads=0,
+        terminal_reclamation_verified=True,
+        requested_roles=("menxia",),
+        max_threads=16,
+        next_depth=1,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+    )
+    require(
+        wave.selected_roles == ()
+        and wave.deferred_roles == ("menxia",)
+        and wave.reason == "dispatch_hierarchy_edge_forbidden",
+        "select_wave allowed Shangshu to dispatch Menxia",
+    )
+    require(
+        admission.allowed is False
+        and admission.selected_roles == ()
+        and admission.deferred_roles == ("menxia",)
+        and admission.reason_codes == ("dispatch_hierarchy_edge_forbidden",),
+        "admit_roles allowed Shangshu to dispatch Menxia",
+    )
+    return {
+        "select_wave": wave.__dict__,
+        "admit_roles": admission.__dict__,
+    }
+
+
+def check_formal_dispatch_requires_target_binding() -> dict[str, object]:
+    task_id = "dispatch-policy-target-binding-required"
+    scoped = _approved_scope_kwargs(
+        ("gongbu",),
+        active_budget(
+            1,
+            task_id=task_id,
+            calling_office="shangshu",
+            direct_superior="taizi",
+            approved_roles=("gongbu",),
+        ),
+        integration_domain="dispatch-policy",
+        authority="super",
+        binding_overrides=None,
+    )
+    lease = scoped["budget_lease"]
+    assert isinstance(lease, Mapping)
+    wave = _select_wave(
+        ("gongbu",),
+        4,
+        1,
+        None,
+        None,
+        host_retained=0,
+        host_reclamation_verified=True,
+        next_depth=1,
+        max_threads=16,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+        requested_bindings=None,
+        integration_domain="dispatch-policy",
+        authority="super",
+    )
+    admission = _admit_roles(
+        host_capacity=4,
+        active_threads=1,
+        retained_threads=0,
+        terminal_reclamation_verified=True,
+        requested_roles=("gongbu",),
+        max_threads=16,
+        next_depth=1,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+        requested_bindings=None,
+        integration_domain="dispatch-policy",
+        authority="super",
+    )
+    require(
+        wave.selected_roles == ()
+        and wave.deferred_roles == ("gongbu",)
+        and wave.reason == "dispatch_hierarchy_target_profile_required",
+        "select_wave reached capacity/budget without a formal target binding",
+    )
+    require(
+        admission.allowed is False
+        and admission.selected_roles == ()
+        and admission.deferred_roles == ("gongbu",)
+        and admission.reason_codes
+        == ("dispatch_hierarchy_target_profile_required",),
+        "admit_roles reached capacity/budget without a formal target binding",
+    )
+    return {
+        "select_wave": wave.__dict__,
+        "admit_roles": admission.__dict__,
+    }
+
+
+def check_worker_requires_bounded_child_profile() -> dict[str, object]:
+    task_id = "dispatch-policy-bounded-child-profile"
+    lease = active_budget(
+        1,
+        task_id=task_id,
+        calling_office="gongbu",
+        direct_superior="shangshu",
+        approved_roles=("gongbu",),
+    )
+    worker_shape = {
+        0: {
+            "instance_kind": "office_worker_instance",
+            "canonical_authority": False,
+            "owner_role": "gongbu",
+            "direct_superior": "gongbu",
+        }
+    }
+    missing = select_wave(
+        useful_roles=("gongbu",),
+        host_capacity=4,
+        host_active=1,
+        host_retained=0,
+        host_reclamation_verified=True,
+        user_agent_budget=None,
+        provider_launch_budget=None,
+        next_depth=2,
+        max_threads=16,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="gongbu",
+        direct_superior="shangshu",
+        binding_overrides=worker_shape,
+    )
+    missing_admission = admit_roles(
+        host_capacity=4,
+        active_threads=1,
+        retained_threads=0,
+        terminal_reclamation_verified=True,
+        requested_roles=("gongbu",),
+        max_threads=16,
+        next_depth=2,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="gongbu",
+        direct_superior="shangshu",
+        binding_overrides=worker_shape,
+    )
+    require(
+        missing.selected_roles == ()
+        and missing.deferred_roles == ("gongbu",)
+        and missing.reason == "dispatch_hierarchy_child_profile_required",
+        "select_wave admitted a worker without a bounded child profile",
+    )
+    require(
+        missing_admission.allowed is False
+        and missing_admission.selected_roles == ()
+        and missing_admission.deferred_roles == ("gongbu",)
+        and missing_admission.reason_codes
+        == ("dispatch_hierarchy_child_profile_required",),
+        "admit_roles admitted a worker without a bounded child profile",
+    )
+
+    bounded_shape = {
+        0: {
+            **worker_shape[0],
+            "child_profile": _bounded_child_profile(),
+        }
+    }
+    allowed = select_wave(
+        useful_roles=("gongbu",),
+        host_capacity=4,
+        host_active=1,
+        host_retained=0,
+        host_reclamation_verified=True,
+        user_agent_budget=None,
+        provider_launch_budget=None,
+        next_depth=2,
+        max_threads=16,
+        max_depth=4,
+        budget_lease=lease,
+        task_id=task_id,
+        calling_office="gongbu",
+        direct_superior="shangshu",
+        binding_overrides=bounded_shape,
+    )
+    require(
+        allowed.selected_roles == ("gongbu",)
+        and allowed.deferred_roles == (),
+        "same-owner bounded child profile was rejected",
+    )
+    return {
+        "missing_profile": missing.__dict__,
+        "missing_profile_admission": missing_admission.__dict__,
+        "bounded_profile": allowed.__dict__,
+    }
+
+
+def check_child_profile_binding_digest_is_immutable_before_capacity() -> dict[str, object]:
+    task_id = "dispatch-policy-child-profile-binding-digest"
+    roles = ("gongbu",)
+    scoped = _approved_scope_kwargs(
+        roles,
+        active_budget(
+            1,
+            task_id=task_id,
+            calling_office="gongbu",
+            direct_superior="shangshu",
+            approved_roles=roles,
+        ),
+        integration_domain="dispatch-policy",
+        authority="super",
+        binding_overrides={
+            0: {
+                "instance_kind": "office_worker_instance",
+                "canonical_authority": False,
+                "owner_role": "gongbu",
+                "direct_superior": "gongbu",
+                "child_profile": _bounded_child_profile(),
+            }
+        },
+    )
+    lease = scoped["budget_lease"]
+    bindings = scoped["requested_bindings"]
+    assert isinstance(lease, Mapping)
+    assert isinstance(bindings, Sequence)
+    original_binding = bindings[0]
+    assert isinstance(original_binding, Mapping)
+    digest_map = lease.get("approved_binding_sha256s")
+    require(
+        isinstance(digest_map, Mapping)
+        and digest_map.get("gongbu#0001")
+        == canonical_child_office_binding_sha256(original_binding),
+        "child binding digest was not frozen into the approved lease",
+    )
+
+    common = {
+        "useful_roles": roles,
+        "host_capacity": 4,
+        "host_active": 1,
+        "host_retained": 0,
+        "host_reclamation_verified": True,
+        "user_agent_budget": None,
+        "provider_launch_budget": None,
+        "next_depth": 2,
+        "max_threads": 16,
+        "max_depth": 4,
+        "task_id": task_id,
+        "calling_office": "gongbu",
+        "direct_superior": "shangshu",
+        "integration_domain": "dispatch-policy",
+        "authority": "super",
+    }
+    allowed = _select_wave(
+        **common,
+        budget_lease=lease,
+        requested_bindings=bindings,
+    )
+    require(
+        allowed.selected_roles == roles and allowed.deferred_roles == (),
+        "lease-bound child profile was rejected",
+    )
+
+    tampered_bindings = deepcopy(bindings)
+    tampered_profile = tampered_bindings[0]["child_profile"]
+    assert isinstance(tampered_profile, dict)
+    tampered_profile["bounded_mandate"] = (
+        "silently widened but still schema-valid child mandate"
+    )
+    tampered = _select_wave(
+        **common,
+        budget_lease=lease,
+        requested_bindings=tampered_bindings,
+    )
+    require(
+        tampered.selected_roles == ()
+        and tampered.deferred_roles == roles
+        and tampered.reason == "approved_budget_binding_digest_mismatch",
+        "synchronized child-profile tamper bypassed the immutable lease digest",
+    )
+    return {
+        "allowed": allowed.__dict__,
+        "tampered": tampered.__dict__,
+        "approved_binding_sha256": digest_map["gongbu#0001"],
+    }
+
+
 def main() -> int:
     with TemporaryDirectory(prefix="court-dispatch-preload-") as temp_dir:
         _initialize_dispatch_preload(Path(temp_dir))
@@ -1220,6 +1730,13 @@ def main() -> int:
         check_same_role_instance_admission()
         check_public_admission_canonical_shape()
         hierarchy_entrypoints = check_taizi_root_mainline_cannot_dispatch_ministries()
+        hierarchy_profile_mismatch = check_ministry_profile_mismatch_denied_before_capacity()
+        three_department_caller = check_three_department_requires_taizi_caller()
+        target_binding_required = check_formal_dispatch_requires_target_binding()
+        bounded_child_profile = check_worker_requires_bounded_child_profile()
+        child_profile_binding_digest = (
+            check_child_profile_binding_digest_is_immutable_before_capacity()
+        )
         result = {
             "ok": True,
             "admission_facade": check_admission_facade(),
@@ -1232,6 +1749,11 @@ def main() -> int:
             "same_role_instance_admission": "PASSED",
             "public_admission_canonical_shape": "PASSED",
             "hierarchy_entrypoints": hierarchy_entrypoints,
+            "hierarchy_profile_mismatch": hierarchy_profile_mismatch,
+            "three_department_caller": three_department_caller,
+            "target_binding_required": target_binding_required,
+            "bounded_child_profile": bounded_child_profile,
+            "child_profile_binding_digest": child_profile_binding_digest,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return 0

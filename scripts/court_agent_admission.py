@@ -57,6 +57,9 @@ _OFFICE_DIRECT_SUPERIORS = {
     "shiguan": "taizi/menxia",
 }
 _SIX_MINISTRY_ROLES = frozenset({"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"})
+_FORMAL_HIERARCHY_ROLES = frozenset(
+    {"taizi", "zhongshu", "menxia", "shangshu", *_SIX_MINISTRY_ROLES}
+)
 _WORKER_INSTANCE_KINDS = frozenset({"worker", "craftsman", "office_worker_instance"})
 _CANONICAL_INSTANCE_KINDS = frozenset({"office", "canonical_authority"})
 
@@ -74,14 +77,37 @@ def _first_scoped_hierarchy_denial(
         or isinstance(requested_bindings, (str, bytes))
         or len(requested_bindings) != len(requested_roles)
     ):
+        for raw_role in requested_roles:
+            role = str(raw_role or "").strip().lower()
+            if role in _FORMAL_HIERARCHY_ROLES:
+                return validate_dispatch_hierarchy(
+                    action="dispatch",
+                    calling_office=calling_office,
+                    target_role=role,
+                    target_direct_superior=_OFFICE_DIRECT_SUPERIORS[role],
+                    instance_kind=None,
+                    canonical_authority=None,
+                    owner_role=None,
+                    child_profile=None,
+                )
         return None
     for role, binding in zip(requested_roles, requested_bindings):
         if not isinstance(binding, Mapping):
             continue
         canonical_authority = binding.get("canonical_authority")
         child_profile = binding.get("child_profile")
+        instance_kind = (
+            binding.get("instance_kind") or binding.get("office_instance_kind")
+        )
+        owner_role = binding.get("owner_role")
+        child_shape = (
+            canonical_authority is False
+            or str(instance_kind or "").strip().lower() in _WORKER_INSTANCE_KINDS
+            or owner_role not in {None, ""}
+        )
         if not (
-            (role in _SIX_MINISTRY_ROLES and canonical_authority is True)
+            (role in _FORMAL_HIERARCHY_ROLES and canonical_authority is True)
+            or child_shape
             or child_profile is not None
         ):
             continue
@@ -90,25 +116,12 @@ def _first_scoped_hierarchy_denial(
             calling_office=calling_office,
             target_role=role,
             target_direct_superior=binding.get("direct_superior"),
-            instance_kind=(
-                binding.get("instance_kind")
-                or binding.get("office_instance_kind")
-            ),
+            instance_kind=instance_kind,
             canonical_authority=canonical_authority,
-            owner_role=binding.get("owner_role"),
+            owner_role=owner_role,
             child_profile=child_profile,
         )
-        if (
-            not decision.allowed
-            and (
-                child_profile is not None
-                or decision.reason_codes
-                in {
-                    ("dispatch_hierarchy_edge_forbidden",),
-                    ("dispatch_hierarchy_manifest_invalid",),
-                }
-            )
-        ):
+        if not decision.allowed:
             return decision
     return None
 
@@ -117,6 +130,7 @@ def validate_admission_instance_shape(
     bindings: Sequence[Mapping[str, object]],
     *,
     allow_taizi_singleton: bool,
+    allow_worker_only: bool = False,
 ) -> None:
     """Validate the one-canonical/many-worker shape shared by plan and admission."""
 
@@ -150,7 +164,11 @@ def validate_admission_instance_shape(
             if not allow_taizi_singleton or len(instances) != 1 or canonical_count != 1:
                 raise ValueError("single_taizi_gate: taizi is the only singleton office")
             continue
-        if canonical_count > 1 or (len(instances) > 1 and canonical_count != 1):
+        if canonical_count > 1 or (
+            len(instances) > 1
+            and canonical_count == 0
+            and not allow_worker_only
+        ):
             raise ValueError(
                 "canonical_authority_uniqueness_gate: exactly one canonical authority is required"
             )
@@ -230,6 +248,104 @@ def _normalized_access_contract(binding: Mapping[str, object]) -> tuple[object, 
     return access_mode, write_set, read_scope, mutation_allowed, integration_authority
 
 
+def budget_lease_access_contract_error(
+    budget_lease: Mapping[str, object] | None,
+    bindings: Sequence[Mapping[str, object]],
+) -> str | None:
+    """Return a stable reason when current bindings escape the admitted lease access scope."""
+
+    if not isinstance(budget_lease, Mapping):
+        return "approved_budget_access_contract_invalid"
+    if str(budget_lease.get("status") or "").strip().upper() != "ACTIVE":
+        return "approved_budget_access_contract_invalid"
+    approved_instances_raw = budget_lease.get("approved_instance_ids")
+    approved_write_sets_raw = budget_lease.get("approved_write_sets")
+    approved_access_raw = budget_lease.get("approved_access_contracts")
+    if (
+        not isinstance(approved_instances_raw, (list, tuple))
+        or not isinstance(approved_write_sets_raw, Mapping)
+        or (
+            approved_access_raw is not None
+            and not isinstance(approved_access_raw, Mapping)
+        )
+    ):
+        return "approved_budget_access_contract_invalid"
+
+    approved_instances = tuple(
+        str(value or "").strip().lower() for value in approved_instances_raw
+    )
+    if (
+        not approved_instances
+        or any(not value for value in approved_instances)
+        or len(set(approved_instances)) != len(approved_instances)
+    ):
+        return "approved_budget_access_contract_invalid"
+
+    def normalized_mapping(value: Mapping[object, object]) -> dict[str, object] | None:
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            instance_id = str(key or "").strip().lower()
+            if not instance_id or instance_id in normalized:
+                return None
+            normalized[instance_id] = item
+        return normalized
+
+    approved_write_sets = normalized_mapping(approved_write_sets_raw)
+    approved_access_contracts = (
+        normalized_mapping(approved_access_raw)
+        if isinstance(approved_access_raw, Mapping)
+        else None
+    )
+    if (
+        approved_write_sets is None
+        or set(approved_write_sets) != set(approved_instances)
+        or (
+            approved_access_contracts is not None
+            and set(approved_access_contracts) != set(approved_instances)
+        )
+    ):
+        return "approved_budget_access_contract_invalid"
+
+    current_bindings: dict[str, Mapping[str, object]] = {}
+    for binding in bindings:
+        if not isinstance(binding, Mapping):
+            return "approved_budget_access_contract_invalid"
+        instance_id = str(binding.get("instance_id") or "").strip().lower()
+        if not instance_id or instance_id in current_bindings:
+            return "approved_budget_access_contract_invalid"
+        current_bindings[instance_id] = binding
+    if not current_bindings or not set(current_bindings).issubset(approved_instances):
+        return "approved_budget_access_contract_mismatch"
+
+    for instance_id, current_binding in current_bindings.items():
+        current_contract = _normalized_access_contract(current_binding)
+        approved_access = (
+            approved_access_contracts.get(instance_id)
+            if approved_access_contracts is not None
+            else None
+        )
+        if approved_access is None:
+            approved_access = {
+                "access_mode": "read_write",
+                "read_scope": approved_write_sets[instance_id],
+                "mutation_allowed": True,
+                "integration_authority": False,
+            }
+        if not isinstance(approved_access, Mapping):
+            return "approved_budget_access_contract_invalid"
+        approved_contract = _normalized_access_contract(
+            {
+                **approved_access,
+                "write_set": approved_write_sets[instance_id],
+            }
+        )
+        if current_contract is None or approved_contract is None:
+            return "approved_budget_access_contract_invalid"
+        if current_contract != approved_contract:
+            return "approved_budget_access_contract_mismatch"
+    return None
+
+
 def _approved_scope_selection(
     budget_lease: Mapping[str, object],
     *,
@@ -258,7 +374,11 @@ def _approved_scope_selection(
     ):
         return None, "approved_budget_scope_mismatch"
     try:
-        validate_admission_instance_shape(bindings, allow_taizi_singleton=False)
+        validate_admission_instance_shape(
+            bindings,
+            allow_taizi_singleton=False,
+            allow_worker_only=True,
+        )
     except ValueError:
         return None, "approved_budget_instance_shape_mismatch"
 
@@ -398,6 +518,7 @@ def _approved_scope_selection(
                 for role, instance_id in zip(approved_roles, approved_instances)
             ],
             allow_taizi_singleton=False,
+            allow_worker_only=True,
         )
     except ValueError:
         return None, "approved_budget_instance_shape_mismatch"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -12,6 +13,7 @@ from typing import get_type_hints
 sys.dont_write_bytecode = True
 
 import court_office_bootstrap
+import court_dispatch_hierarchy
 
 
 CANONICAL_OFFICES = (
@@ -39,6 +41,17 @@ EXACT_TASK_NAME_STATEMENT = "task_name is routing metadata; name_binding does no
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def canonical_json_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def write_profile(root: Path, role: str, *, role_key: str | None = None, office_zh: str = "官署", direct_superior: str = "shangshu") -> Path:
@@ -225,6 +238,188 @@ def check_public_signatures() -> None:
     assert get_type_hints(validate)["requirements"] == list[dict[str, str]]
     build = court_office_bootstrap.build_office_assignment_binding
     assert get_type_hints(build)["skill_requirements"] == list[dict[str, str]]
+    digest = court_office_bootstrap.canonical_child_office_binding_sha256
+    digest_signature = inspect.signature(digest)
+    assert list(digest_signature.parameters) == ["binding"]
+    assert get_type_hints(digest)["return"] is str
+
+
+def check_child_office_profile_builder() -> None:
+    build = getattr(court_office_bootstrap, "build_child_office_profile", None)
+    assert callable(build), "build_child_office_profile is missing"
+    binding = {
+        "role": "gongbu",
+        "instance_id": "gongbu-worker-0001",
+        "instance_kind": "office_worker_instance",
+        "canonical_authority": False,
+        "owner_role": "gongbu",
+        "direct_superior": "gongbu",
+        "bounded_mandate": "implement one bounded Gongbu shard",
+        "expected_result": "return one structured implementation receipt",
+        "read_scope": ["work/gongbu/input.txt"],
+        "write_set": ["work/gongbu/worker-0001.txt"],
+        "task_id": "child-profile-builder-check",
+        "dispatch_uid": "DSP-CHILD-PROFILE-BUILDER-0001",
+        "shard_id": "gongbu-worker-0001",
+        "attempt": 1,
+        "terminal_condition": "stop after the bounded receipt is accepted",
+    }
+    build_kwargs = {
+        "child_role": "GongBu-GongJiang",
+        "profile_sha256": "A" * 64,
+        "dossier_sha256": "B" * 64,
+        "skill_sha256": "C" * 64,
+        "dispatch_context_packet_sha256": "D" * 64,
+        "semantic_receipt_sha256": "E" * 64,
+        "invariant_capsule_sha256": "F" * 64,
+        "expires_at_utc": "2099-01-01T00:00:00Z",
+    }
+    profile = build(binding, **build_kwargs)
+    required_fields = {
+        "schema",
+        "child_role",
+        "role_key",
+        "office_instance_id",
+        "owner_role",
+        "direct_superior",
+        "canonical_authority",
+        "instance_kind",
+        "bounded_mandate",
+        "expected_result",
+        "read_scope",
+        "write_set",
+        "task_id",
+        "dispatch_uid",
+        "shard_id",
+        "attempt",
+        "profile_sha256",
+        "dossier_sha256",
+        "skill_sha256",
+        "expires_at_utc",
+        "terminal_condition",
+        "dispatch_context_packet_schema",
+        "dispatch_context_packet_sha256",
+        "semantic_receipt_sha256",
+        "invariant_capsule_schema",
+        "invariant_capsule_sha256",
+    }
+    assert required_fields == set(profile)
+    assert all(
+        profile[field] == expected
+        for field, expected in (
+            ("profile_sha256", "a" * 64),
+            ("dossier_sha256", "b" * 64),
+            ("skill_sha256", "c" * 64),
+            ("dispatch_context_packet_sha256", "d" * 64),
+            ("semantic_receipt_sha256", "e" * 64),
+            ("invariant_capsule_sha256", "f" * 64),
+        )
+    )
+    canonical_digest = canonical_json_sha256(profile)
+    reordered_binding = {
+        key: binding[key]
+        for key in reversed(tuple(binding))
+    }
+    reordered_binding["read_scope"] = tuple(binding["read_scope"])
+    reordered_binding["write_set"] = tuple(binding["write_set"])
+    rebuilt = build(reordered_binding, **build_kwargs)
+    assert rebuilt == profile
+    assert canonical_json_sha256(rebuilt) == canonical_digest
+    full_binding = {
+        **reordered_binding,
+        "access_mode": "write",
+        "mutation_allowed": True,
+        "integration_authority": False,
+        "worktree": ".",
+        "child_profile": profile,
+    }
+    digest_binding = court_office_bootstrap.canonical_child_office_binding_sha256
+    full_binding_digest = digest_binding(full_binding)
+    assert full_binding_digest == canonical_json_sha256(full_binding)
+    assert digest_binding(dict(reversed(tuple(full_binding.items())))) == full_binding_digest
+    persisted_round_trip = json.loads(json.dumps(full_binding, ensure_ascii=False))
+    assert digest_binding(persisted_round_trip) == full_binding_digest
+
+    binding["bounded_mandate"] = "silently widened after profile generation"
+    binding["read_scope"][0] = "work/gongbu/widened-input.txt"
+    binding["write_set"].append("work/gongbu/widened-output.txt")
+    assert profile["bounded_mandate"] == "implement one bounded Gongbu shard"
+    assert profile["read_scope"] == ["work/gongbu/input.txt"]
+    assert profile["write_set"] == ["work/gongbu/worker-0001.txt"]
+    assert canonical_json_sha256(profile) == canonical_digest
+
+    tampered = dict(profile)
+    tampered["write_set"] = ["work/gongbu/widened-output.txt"]
+    assert canonical_json_sha256(tampered) != canonical_digest
+    synchronized_tamper = dict(full_binding)
+    synchronized_tamper["write_set"] = ["work/gongbu/widened-output.txt"]
+    synchronized_tamper["child_profile"] = tampered
+    assert digest_binding(synchronized_tamper) != full_binding_digest
+    future_field = dict(full_binding)
+    future_field["future_bound_evidence"] = {"sequence": 1}
+    assert digest_binding(future_field) != full_binding_digest
+    missing_profile = dict(full_binding)
+    missing_profile.pop("child_profile")
+    assert_reason(
+        lambda: digest_binding(missing_profile),
+        "child_office_binding_digest_child_profile_required",
+    )
+    non_canonical_value = dict(full_binding)
+    non_canonical_value["unsupported"] = object()
+    assert_reason(
+        lambda: digest_binding(non_canonical_value),
+        "child_office_binding_digest_non_canonical_value",
+    )
+
+    nul_scope = dict(reordered_binding)
+    nul_scope["read_scope"] = ["work/gongbu/input\x00.txt"]
+    assert_reason(
+        lambda: build(nul_scope, **build_kwargs),
+        "read_scope_unbounded",
+    )
+    semantic_override = dict(reordered_binding)
+    semantic_override["child_charter"] = "second authority"
+    assert_reason(
+        lambda: build(semantic_override, **build_kwargs),
+        "child_profile_semantic_authority_override",
+    )
+    cross_owner = dict(reordered_binding)
+    cross_owner["owner_role"] = "hubu"
+    assert_reason(
+        lambda: build(cross_owner, **build_kwargs),
+        "child_profile_owner_mismatch",
+    )
+
+    profile = build(
+        reordered_binding,
+        child_role="GongBu-GongJiang",
+        profile_sha256="1" * 64,
+        dossier_sha256="2" * 64,
+        skill_sha256="3" * 64,
+        dispatch_context_packet_sha256="4" * 64,
+        semantic_receipt_sha256="5" * 64,
+        invariant_capsule_sha256="6" * 64,
+        expires_at_utc="2099-01-01T00:00:00Z",
+    )
+    assert profile["schema"] == "court.child_office_profile.v1"
+    assert profile["child_role"] == "GongBu-GongJiang"
+    assert profile["role_key"] == "gongbu"
+    assert profile["owner_role"] == "gongbu"
+    assert profile["direct_superior"] == "gongbu"
+    assert profile["canonical_authority"] is False
+    assert profile["dispatch_context_packet_schema"] == "court.semantic.dispatch_context_packet.v1"
+    assert profile["invariant_capsule_schema"] == "court.semantic.invariant_capsule.v1"
+    decision = court_dispatch_hierarchy.validate_dispatch_hierarchy(
+        action="dispatch",
+        calling_office="gongbu",
+        target_role="gongbu",
+        target_direct_superior="gongbu",
+        instance_kind="office_worker_instance",
+        canonical_authority=False,
+        owner_role="gongbu",
+        child_profile=profile,
+    )
+    assert decision.allowed is True, decision.reason_codes
 
 
 def check_governing_references() -> None:
@@ -248,6 +443,7 @@ def run_office_assignment_binding_checks() -> None:
     check_governing_references()
     build = getattr(court_office_bootstrap, "build_office_assignment_binding", None)
     assert callable(build), "build_office_assignment_binding is missing"
+    check_child_office_profile_builder()
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         profiles = root / "profiles"; profiles.mkdir()

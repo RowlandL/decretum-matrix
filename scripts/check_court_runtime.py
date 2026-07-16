@@ -13,6 +13,10 @@ import uuid
 sys.dont_write_bytecode = True
 
 import court_runtime
+from court_office_bootstrap import (
+    build_child_office_profile,
+    canonical_child_office_binding_sha256,
+)
 from court_multi_agent_protocol import (
     ProtocolRequirements,
     QuiescenceSnapshot,
@@ -25,7 +29,11 @@ from court_multi_agent_protocol import (
     validate_protocol_config,
 )
 from court_codex_protocol_launcher import ProtocolSwitchLedger, SwitchInProgress, execute_switch
-from check_court_agent_lifecycle import run_agent_lifecycle_checks
+from check_court_agent_lifecycle import (
+    context_budget_pool,
+    dispatch_context_packet,
+    run_agent_lifecycle_checks,
+)
 import report_office_startup_latency as startup_latency
 
 
@@ -119,6 +127,27 @@ def _bind_admission_args(args: Namespace, task: dict[str, object]) -> Namespace:
     args.expected_charter_sha256 = task["charter_sha256"]
     args.expected_invariant_capsule_sha256 = task["invariant_capsule_sha256"]
     args.expected_checkpoint_id = receipt["checkpoint_id"]
+    bindings = json.loads(args.requested_bindings_json)
+    for binding in bindings:
+        if binding.pop("child_profile", None) is None:
+            continue
+        role = str(binding["role"])
+        binding.update(
+            child_role="GongBu-GongJiang" if role == "gongbu" else f"{role}-worker",
+            bounded_mandate="execute one synthetic runtime admission shard",
+            expected_result="return one bounded runtime admission receipt",
+            terminal_condition="stop after the synthetic admission is evaluated",
+        )
+    lease = json.loads(args.budget_lease_json)
+    lease.pop("approved_binding_sha256s", None)
+    args.requested_bindings_json = json.dumps(bindings, ensure_ascii=False)
+    args.budget_lease_json = json.dumps(lease, ensure_ascii=False)
+    args.dispatch_context_packet = dispatch_context_packet(task, args.wave_id)
+    args.context_budget_pool = context_budget_pool(str(task["task_id"]), args.wave_id)
+    args.context_result_mode = "bounded_structured_receipt"
+    args.context_tool_output_mode = "pointer"
+    args.context_override_source = None
+    args._context_contract_required = True
     return args
 
 
@@ -128,6 +157,8 @@ def _public_admission_fixture(
     roles: tuple[str, ...],
     integration_domain: str,
     approved_count: int | None = None,
+    calling_office: str = "shangshu",
+    worker_only: bool = False,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     normalized_roles = court_runtime.parse_requested_roles(roles, len(roles))
     count = len(normalized_roles) if approved_count is None else approved_count
@@ -153,31 +184,52 @@ def _public_admission_fixture(
         role_counts[role] = role_counts.get(role, 0) + 1
         role_number = role_counts[role]
         instance_id = f"{role}#{role_number:04d}"
-        worker = role_number > 1 and role in ministry_roles
-        bindings.append(
-            {
-                "role": role,
-                "instance_id": instance_id,
-                "shard_id": f"{role}-shard-{role_number:04d}",
-                "direct_superior": role if worker else direct_superiors.get(role, "shangshu"),
-                "instance_kind": "office_worker_instance" if worker else "office",
-                "canonical_authority": role_number == 1,
-                "owner_role": role if worker else None,
-                "write_set": [f"work/{role}/{role_number:04d}.txt"],
-                "access_mode": "read_write",
-                "read_scope": [f"work/{role}/{role_number:04d}.txt"],
-                "mutation_allowed": True,
-                "integration_authority": False,
-            }
-        )
+        worker = role in ministry_roles and (worker_only or role_number > 1)
+        binding: dict[str, object] = {
+            "role": role,
+            "instance_id": instance_id,
+            "shard_id": f"{role}-shard-{role_number:04d}",
+            "direct_superior": role if worker else direct_superiors.get(role, "shangshu"),
+            "instance_kind": "office_worker_instance" if worker else "office",
+            "canonical_authority": False if worker else role_number == 1,
+            "owner_role": role if worker else None,
+            "write_set": [f"work/{role}/{role_number:04d}.txt"],
+            "access_mode": "read_write",
+            "read_scope": [f"work/{role}/{role_number:04d}.txt"],
+            "mutation_allowed": True,
+            "integration_authority": False,
+        }
+        if worker:
+            binding["child_profile"] = dict(
+                build_child_office_profile(
+                    {
+                        **binding,
+                        "task_id": task_id,
+                        "dispatch_uid": f"DSP-{task_id}-{role_number:04d}",
+                        "attempt": 1,
+                        "bounded_mandate": "execute one synthetic runtime admission shard",
+                        "expected_result": "return one bounded runtime admission receipt",
+                        "terminal_condition": "stop after the synthetic admission is evaluated",
+                    },
+                    child_role="GongBu-GongJiang" if role == "gongbu" else f"{role}-worker",
+                    profile_sha256="1" * 64,
+                    dossier_sha256="2" * 64,
+                    skill_sha256="3" * 64,
+                    dispatch_context_packet_sha256="4" * 64,
+                    semantic_receipt_sha256="5" * 64,
+                    invariant_capsule_sha256="6" * 64,
+                    expires_at_utc="2099-01-01T00:00:00Z",
+                )
+            )
+        bindings.append(binding)
     approved = bindings[:count]
     lease: dict[str, object] = {
         "status": "ACTIVE",
         "lease_id": f"{task_id}-lease-{count}",
         "approved_count": count,
         "task_id": task_id,
-        "calling_office": "shangshu",
-        "direct_superior": "taizi",
+        "calling_office": calling_office,
+        "direct_superior": direct_superiors.get(calling_office, "taizi"),
         "integration_domain": integration_domain,
         "authority": "super",
         "approved_roles": [binding["role"] for binding in approved],
@@ -204,6 +256,13 @@ def _public_admission_fixture(
             }
             for binding in approved
         },
+        "approved_binding_sha256s": {
+            str(binding["instance_id"]): canonical_child_office_binding_sha256(
+                binding
+            )
+            for binding in approved
+            if isinstance(binding.get("child_profile"), dict)
+        },
     }
     return lease, bindings
 
@@ -214,20 +273,22 @@ def _public_admission_fields(
     roles: tuple[str, ...],
     integration_domain: str,
     approved_count: int | None = None,
+    calling_office: str = "shangshu",
 ) -> dict[str, object]:
     lease, bindings = _public_admission_fixture(
         task_id=task_id,
         roles=roles,
         integration_domain=integration_domain,
         approved_count=approved_count,
+        calling_office=calling_office,
     )
     return {
         "budget_lease_json": json.dumps(lease, ensure_ascii=False),
         "requested_bindings_json": json.dumps(bindings, ensure_ascii=False),
         "integration_domain": integration_domain,
         "authority": "super",
-        "calling_office": "shangshu",
-        "direct_superior": "taizi",
+        "calling_office": lease["calling_office"],
+        "direct_superior": lease["direct_superior"],
     }
 
 
@@ -237,6 +298,8 @@ def _cardinality_fixture(*, approved_count: int = 17) -> tuple[dict[str, object]
         roles=tuple("gongbu" for _ in range(17)),
         integration_domain="runtime-cardinality",
         approved_count=approved_count,
+        calling_office="gongbu",
+        worker_only=True,
     )
 
 
@@ -272,8 +335,8 @@ def _cardinality_args(
         "--requested-bindings-json", json.dumps(bindings, ensure_ascii=False),
         "--integration-domain", "runtime-cardinality",
         "--authority", "super",
-        "--calling-office", "shangshu",
-        "--direct-superior", "taizi",
+        "--calling-office", "gongbu",
+        "--direct-superior", "shangshu",
         "--assignment", "cardinality tracer",
         "--task-focus", "runtime admission",
         "--complexity", "medium",
@@ -416,6 +479,19 @@ def _instance_start_args(
     )
     for field in court_runtime.AGENT_SEMANTIC_ARG_FIELDS:
         setattr(args, field, binding[field])
+    args.dispatch_context_packet = dispatch_context_packet(
+        task,
+        "runtime-cardinality-wave",
+    )
+    args.context_budget_pool = context_budget_pool(
+        str(task["task_id"]),
+        "runtime-cardinality-wave",
+    )
+    args.context_result_mode = binding["context_result_mode"]
+    args.context_tool_output_mode = binding["context_tool_output_mode"]
+    args.context_override_source = binding["context_override_source"]
+    args.system_memory_percent = binding["context_system_memory_percent"]
+    args._context_contract_required = True
     return args
 
 
@@ -1060,6 +1136,12 @@ def main() -> int:
     assert "capacity_clamped" in capacity.reason_codes
     assert "approved_budget_clamped" not in capacity.reason_codes
 
+    runtime_bound_lease, runtime_bound_bindings = _public_admission_fixture(
+        task_id="runtime-bound-check",
+        roles=("menxia",),
+        integration_domain="runtime-bound",
+        calling_office="taizi",
+    )
     depth_rejected = admit_roles(
         host_capacity=64,
         active_threads=1,
@@ -1068,6 +1150,13 @@ def main() -> int:
         max_threads=16,
         next_depth=5,
         max_depth=4,
+        budget_lease=runtime_bound_lease,
+        task_id="runtime-bound-check",
+        calling_office="taizi",
+        direct_superior="user",
+        requested_bindings=runtime_bound_bindings,
+        integration_domain="runtime-bound",
+        authority="super",
     )
     assert depth_rejected.allowed is False
     assert depth_rejected.selected_roles == ()
@@ -1082,6 +1171,13 @@ def main() -> int:
             requested_roles=["menxia"],
             max_threads=16,
             max_depth=4,
+            budget_lease=runtime_bound_lease,
+            task_id="runtime-bound-check",
+            calling_office="taizi",
+            direct_superior="user",
+            requested_bindings=runtime_bound_bindings,
+            integration_domain="runtime-bound",
+            authority="super",
             **unknown,
         )
         assert denied.allowed is False
@@ -1631,6 +1727,7 @@ max_threads = 6
                         task_id="dynamic-four",
                         roles=("zhongshu", "menxia", "shangshu", "shiguan"),
                         integration_domain="runtime-dynamic-four",
+                        calling_office="taizi",
                     ),
                 ),
             )
@@ -1684,6 +1781,11 @@ max_threads = 6
                     requested_fork_turns="none",
                     execution_topology="parallel",
                     active_session_protocol="v2",
+                    **_public_admission_fields(
+                        task_id="depth-five",
+                        roles=("xingbu",),
+                        integration_domain="runtime-depth-five",
+                    ),
                 ),
             )
             assert depth_five["allowed"] is False

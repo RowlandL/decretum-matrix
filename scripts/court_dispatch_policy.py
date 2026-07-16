@@ -21,6 +21,7 @@ from court_multi_agent_protocol import (
     approved_budget_selection,
     validate_admission_instance_shape,
 )
+from court_office_bootstrap import canonical_child_office_binding_sha256
 
 
 MAX_AGENT_TREE_DEPTH = 4
@@ -119,6 +120,9 @@ OFFICE_SPECS = {
 }
 VISIBLE_CORE_ROLES = {"taizi", "zhongshu", "menxia", "shangshu"}
 VISIBILITIES = {"non_visible", "visible_core", "bounded_visible_diagnostic"}
+WORKER_INSTANCE_KINDS = frozenset(
+    {"worker", "craftsman", "office_worker_instance"}
+)
 
 
 def _first_scoped_hierarchy_denial(
@@ -129,22 +133,57 @@ def _first_scoped_hierarchy_denial(
 ) -> DispatchHierarchyDecision | None:
     """Validate hierarchy-scoped requests before capacity or lease selection."""
 
-    ministry_roles = frozenset(
-        {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
+    formal_roles = frozenset(
+        {
+            "taizi",
+            "zhongshu",
+            "menxia",
+            "shangshu",
+            "libu-hr",
+            "hubu",
+            "libu",
+            "bingbu",
+            "xingbu",
+            "gongbu",
+        }
     )
     if (
         requested_bindings is None
         or isinstance(requested_bindings, (str, bytes))
         or len(requested_bindings) != len(requested_roles)
     ):
+        for raw_role in requested_roles:
+            role = str(raw_role or "").strip().lower()
+            if role in formal_roles:
+                return validate_dispatch_hierarchy(
+                    action="dispatch",
+                    calling_office=calling_office,
+                    target_role=role,
+                    target_direct_superior=OFFICE_SPECS[role][1],
+                    instance_kind=None,
+                    canonical_authority=None,
+                    owner_role=None,
+                    child_profile=None,
+                )
         return None
     for role, binding in zip(requested_roles, requested_bindings):
         if not isinstance(binding, Mapping):
             continue
         canonical_authority = binding.get("canonical_authority")
         child_profile = binding.get("child_profile")
+        instance_kind = (
+            binding.get("instance_kind") or binding.get("office_instance_kind")
+        )
+        owner_role = binding.get("owner_role")
+        child_shape = (
+            canonical_authority is False
+            or str(instance_kind or "").strip().lower()
+            in WORKER_INSTANCE_KINDS
+            or owner_role not in {None, ""}
+        )
         if not (
-            (role in ministry_roles and canonical_authority is True)
+            (role in formal_roles and canonical_authority is True)
+            or child_shape
             or child_profile is not None
         ):
             continue
@@ -153,26 +192,99 @@ def _first_scoped_hierarchy_denial(
             calling_office=calling_office,
             target_role=role,
             target_direct_superior=binding.get("direct_superior"),
-            instance_kind=(
-                binding.get("instance_kind")
-                or binding.get("office_instance_kind")
-            ),
+            instance_kind=instance_kind,
             canonical_authority=canonical_authority,
-            owner_role=binding.get("owner_role"),
+            owner_role=owner_role,
             child_profile=child_profile,
         )
-        if (
-            not decision.allowed
-            and (
-                child_profile is not None
-                or decision.reason_codes
-                in {
-                    ("dispatch_hierarchy_edge_forbidden",),
-                    ("dispatch_hierarchy_manifest_invalid",),
-                }
-            )
-        ):
+        if not decision.allowed:
             return decision
+    return None
+
+
+def _approved_binding_digest_error(
+    *,
+    budget_lease: Mapping[str, object] | None,
+    requested_bindings: Sequence[Mapping[str, object]] | None,
+    approved_indices: Sequence[int],
+) -> str | None:
+    """Bind every lease-approved child request to its immutable full binding."""
+
+    if not isinstance(budget_lease, Mapping):
+        return None
+    if (
+        requested_bindings is None
+        or isinstance(requested_bindings, (str, bytes))
+    ):
+        return None
+
+    approved_child_bindings: dict[str, Mapping[str, object]] = {}
+    for index in approved_indices:
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(requested_bindings)
+        ):
+            return "approved_budget_binding_digest_invalid"
+        binding = requested_bindings[index]
+        if not isinstance(binding, Mapping):
+            return "approved_budget_binding_digest_invalid"
+        instance_kind = str(
+            binding.get("instance_kind")
+            or binding.get("office_instance_kind")
+            or ""
+        ).strip().lower()
+        child_shape = (
+            binding.get("canonical_authority") is False
+            or instance_kind in WORKER_INSTANCE_KINDS
+            or binding.get("owner_role") not in {None, ""}
+            or binding.get("child_profile") is not None
+        )
+        if not child_shape:
+            continue
+        instance_id = str(binding.get("instance_id") or "").strip().lower()
+        if not instance_id or instance_id in approved_child_bindings:
+            return "approved_budget_binding_digest_invalid"
+        approved_child_bindings[instance_id] = binding
+
+    raw_digests = budget_lease.get("approved_binding_sha256s")
+    if not approved_child_bindings:
+        if raw_digests is None:
+            return None
+        if isinstance(raw_digests, Mapping) and not raw_digests:
+            return None
+        return "approved_budget_binding_digest_invalid"
+    if raw_digests is None:
+        return "approved_budget_binding_digest_missing"
+    if not isinstance(raw_digests, Mapping):
+        return "approved_budget_binding_digest_invalid"
+
+    normalized_digests: dict[str, str] = {}
+    for raw_instance_id, raw_digest in raw_digests.items():
+        instance_id = str(raw_instance_id or "").strip().lower()
+        digest = str(raw_digest or "").strip()
+        if (
+            not instance_id
+            or instance_id in normalized_digests
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            return "approved_budget_binding_digest_invalid"
+        normalized_digests[instance_id] = digest
+
+    approved_ids = set(approved_child_bindings)
+    digest_ids = set(normalized_digests)
+    if approved_ids - digest_ids:
+        return "approved_budget_binding_digest_missing"
+    if digest_ids != approved_ids:
+        return "approved_budget_binding_digest_invalid"
+    for instance_id, binding in approved_child_bindings.items():
+        try:
+            actual_digest = canonical_child_office_binding_sha256(binding)
+        except ValueError:
+            return "approved_budget_binding_digest_invalid"
+        if actual_digest != normalized_digests[instance_id]:
+            return "approved_budget_binding_digest_mismatch"
     return None
 
 
@@ -302,6 +414,23 @@ def select_wave(
             budget_error,
         )
     assert approved_indices is not None
+    binding_digest_error = _approved_binding_digest_error(
+        budget_lease=budget_lease,
+        requested_bindings=requested_bindings,
+        approved_indices=approved_indices,
+    )
+    if binding_digest_error is not None:
+        return DispatchDecision(
+            (),
+            roles,
+            available,
+            effective_capacity,
+            configured_threads,
+            resolved_depth,
+            configured_depth,
+            None,
+            binding_digest_error,
+        )
     approved_count = len(approved_indices)
     limits = [
         (available, "runtime_capacity"),

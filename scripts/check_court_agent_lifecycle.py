@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -27,8 +28,10 @@ os.environ["COURT_SHARED_SHIGUAN_ROOT"] = str(_IMPORT_SHIGUAN_ROOT)
 os.environ["SHIGUAN_SHARED_ROOT"] = str(_IMPORT_SHIGUAN_ROOT)
 
 import court_runtime
+from court_agent_admission import budget_lease_access_contract_error
 from court_complexity_budget import normalize_budget_pool
 from check_court_office_assignment_binding import run_office_assignment_binding_checks
+from court_office_bootstrap import canonical_child_office_binding_sha256
 
 
 ROUTE = {
@@ -228,6 +231,7 @@ def create_task(task_id: str) -> None:
 def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object) -> dict[str, object]:
     office_api = bool(overrides.pop("office_api", False))
     return_namespace = bool(overrides.pop("return_namespace", False))
+    child_worker = bool(overrides.pop("child_worker", False))
     office_write_set = overrides.pop("office_write_set", None)
     task = court_runtime.load_tasks()[task_id]
     receipt = task["semantic_receipt"]
@@ -252,11 +256,40 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
     requested_roles = [item.strip() for item in requested_roles_text.split(",") if item.strip()]
     requested_count = int(overrides.get("requested_agents", len(requested_roles)) or 0)
     approved_roles = requested_roles[:requested_count]
+    default_calling_office = (
+        approved_roles[0]
+        if child_worker and len(set(approved_roles)) == 1
+        else "taizi"
+        if approved_roles
+        and all(item in {"zhongshu", "menxia", "shangshu"} for item in approved_roles)
+        else "shangshu"
+    )
+    calling_office = str(
+        overrides.get("calling_office", default_calling_office)
+        or default_calling_office
+    )
+    caller_direct_superior = str(
+        overrides.get(
+            "direct_superior",
+            "user" if calling_office == "taizi" else "taizi",
+        )
+        or ""
+    )
     bindings: list[dict[str, object]] = []
     for index, binding_role in enumerate(approved_roles, start=1):
-        instance_id = str(overrides.get("office_instance_id", binding_role) or binding_role)
+        default_instance_id = (
+            f"{binding_role}-worker-{index:04d}"
+            if child_worker
+            else binding_role
+        )
+        instance_id = str(
+            overrides.get("office_instance_id", default_instance_id)
+            or default_instance_id
+        )
         direct_superior = (
-            "shangshu"
+            binding_role
+            if child_worker
+            else "shangshu"
             if binding_role in {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
             else "taizi"
         )
@@ -265,9 +298,9 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             "instance_id": instance_id,
             "shard_id": f"{wave_id}-{binding_role}-{index:04d}",
             "direct_superior": direct_superior,
-            "instance_kind": "office",
-            "canonical_authority": True,
-            "owner_role": None,
+            "instance_kind": "office_worker_instance" if child_worker else "office",
+            "canonical_authority": not child_worker,
+            "owner_role": binding_role if child_worker else None,
             "worktree": ".",
             "write_set": list(office_write_set)
             if isinstance(office_write_set, (list, tuple))
@@ -279,14 +312,34 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             "mutation_allowed": True,
             "integration_authority": False,
         }
+        if child_worker:
+            binding.update(
+                child_role=(
+                    "GongBu-GongJiang"
+                    if binding_role == "gongbu"
+                    else f"{binding_role}-worker"
+                ),
+                bounded_mandate=str(
+                    overrides.get("bounded_mandate")
+                    or "execute one bounded child-office assignment"
+                ),
+                expected_result=str(
+                    overrides.get("expected_result")
+                    or "return one bounded structured receipt"
+                ),
+                terminal_condition=str(
+                    overrides.get("terminal_condition")
+                    or "stop after the bounded receipt is accepted"
+                ),
+            )
         bindings.append(binding)
     lease = {
         "status": "ACTIVE",
         "lease_id": f"{task_id}-{wave_id}-lease",
         "approved_count": len(bindings),
         "task_id": task_id,
-        "calling_office": "shangshu",
-        "direct_superior": "taizi",
+        "calling_office": calling_office,
+        "direct_superior": caller_direct_superior,
         "integration_domain": "agent-lifecycle",
         "authority": "super",
         "approved_roles": [binding["role"] for binding in bindings],
@@ -346,8 +399,8 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
         "requested_bindings_json": json.dumps(bindings, ensure_ascii=False),
         "integration_domain": "agent-lifecycle",
         "authority": "super",
-        "calling_office": "shangshu",
-        "direct_superior": "taizi",
+        "calling_office": calling_office,
+        "direct_superior": caller_direct_superior,
         **ROUTE,
         "actor": "shangshu",
         "evidence": f"admit {role} for {wave_id}",
@@ -588,6 +641,18 @@ def check_admission_binding() -> None:
     create_task(task_id)
     route = admit(task_id, "route-wave")
     route_id = route["model_routes"]["gongbu"]["model_route_id"]
+    stored_route = court_runtime.load_tasks()[task_id]["agent_admissions"]["route-wave"]
+    for hierarchy_record in (route, stored_route):
+        assert hierarchy_record["hierarchy_gate"] == "PASSED"
+        assert hierarchy_record["hierarchy_schema"] == "court.dispatch_hierarchy.v1"
+        assert re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(hierarchy_record["hierarchy_manifest_sha256"]),
+        )
+        assert hierarchy_record["hierarchy_edge_class"] == "ministry_execution_dispatch"
+        assert hierarchy_record["hierarchy_calling_office"] == "shangshu"
+        assert hierarchy_record["hierarchy_target_role"] == "gongbu"
+        assert hierarchy_record["hierarchy_owner_role"] is None
 
     reject_unchanged(
         task_id,
@@ -686,6 +751,16 @@ def check_admission_binding() -> None:
     started = court_runtime.agent_start(start_args(route, task_id, "route-wave", "gongbu-agent-1"))
     agent = started.task["agents"]["gongbu-agent-1"]
     assert agent["model_route"]["model_route_id"] == route_id
+    for field in (
+        "hierarchy_gate",
+        "hierarchy_schema",
+        "hierarchy_manifest_sha256",
+        "hierarchy_edge_class",
+        "hierarchy_calling_office",
+        "hierarchy_target_role",
+        "hierarchy_owner_role",
+    ):
+        assert started.event[field] == agent[field]
     assert started.task["agent_admissions"]["route-wave"]["consumed_instances"]["gongbu"] == "gongbu-agent-1"
     reject_unchanged(
         task_id,
@@ -752,6 +827,207 @@ def check_admission_binding() -> None:
             start_args(prestart_admission, prestart_task, "prestart-wave", "menxia-late-1", role="menxia")
         ),
         "capacity-failed role started after the wave was blocked",
+    )
+
+
+def check_runtime_generates_bounded_child_profile() -> None:
+    task_id = "runtime-generated-bounded-child-profile"
+    wave_id = "runtime-generated-bounded-child-profile-wave"
+    create_task(task_id)
+    admission = admit(
+        task_id,
+        wave_id,
+        role="gongbu",
+        child_worker=True,
+        office_instance_id="gongbu-worker-0001",
+        office_write_set=["work/gongbu/worker-0001.txt"],
+    )
+    assert admission["allowed"] is True
+    binding = admission["selected_bindings"][0]
+    profile = binding["child_profile"]
+    assert profile["schema"] == "court.child_office_profile.v1"
+    assert profile["child_role"] == "GongBu-GongJiang"
+    assert profile["owner_role"] == "gongbu"
+    assert profile["direct_superior"] == "gongbu"
+    assert profile["canonical_authority"] is False
+    assert profile["read_scope"] == ["work/gongbu/worker-0001.txt"]
+    assert profile["write_set"] == ["work/gongbu/worker-0001.txt"]
+    assert profile["dispatch_context_packet_sha256"] == admission["dispatch_context_packet_sha256"]
+    assert profile["semantic_receipt_sha256"] == admission["semantic_receipt_sha256"]
+    assert profile["invariant_capsule_sha256"] == admission["invariant_capsule_sha256"]
+    assert binding["hierarchy_edge_class"] == "bounded_child_office"
+    assert binding["hierarchy_calling_office"] == "gongbu"
+    assert binding["hierarchy_owner_role"] == "gongbu"
+    request_binding = admission["requested_bindings"][0]
+    approved_binding_sha256s = admission["budget_lease"][
+        "approved_binding_sha256s"
+    ]
+    assert approved_binding_sha256s == {
+        "gongbu-worker-0001": canonical_child_office_binding_sha256(
+            request_binding
+        )
+    }
+    admission_binding_sha256s = admission["admission_binding_sha256s"]
+    assert admission_binding_sha256s == {
+        "gongbu-worker-0001": canonical_child_office_binding_sha256(binding)
+    }
+    stored = court_runtime.load_tasks()[task_id]["agent_admissions"][wave_id]
+    assert stored["selected_bindings"][0]["child_profile"] == profile
+    assert stored["admission_binding_sha256s"] == admission_binding_sha256s
+
+
+def check_caller_child_binding_digest_rejected_before_admission_write() -> None:
+    cases = (
+        (
+            "mismatch",
+            {"gongbu-worker-caller-digest-0001": "0" * 64},
+            "approved_budget_binding_digest_mismatch",
+        ),
+        (
+            "partial",
+            {},
+            "approved_budget_binding_digest_missing",
+        ),
+    )
+    for suffix, supplied_digests, expected_reason in cases:
+        task_id = f"caller-child-binding-digest-{suffix}"
+        wave_id = f"caller-child-binding-digest-{suffix}-wave"
+        create_task(task_id)
+        namespace = admit(
+            task_id,
+            wave_id,
+            role="gongbu",
+            child_worker=True,
+            office_instance_id="gongbu-worker-caller-digest-0001",
+            office_write_set=[
+                f"work/gongbu/worker-caller-digest-{suffix}-0001.txt"
+            ],
+            return_namespace=True,
+        )
+        lease = json.loads(namespace.budget_lease_json)
+        lease["approved_binding_sha256s"] = supplied_digests
+        namespace.budget_lease_json = json.dumps(lease, ensure_ascii=False)
+        reject_runtime_bytes_unchanged(
+            lambda: court_runtime.agent_admit(namespace),
+            f"caller {suffix} child binding digest reached admission persistence",
+            expected_reason,
+        )
+
+
+def check_child_profile_tamper_rejected_before_start_write() -> None:
+    task_id = "child-profile-start-tamper"
+    wave_id = "child-profile-start-tamper-wave"
+    create_task(task_id)
+    admission = admit(
+        task_id,
+        wave_id,
+        role="gongbu",
+        child_worker=True,
+        office_instance_id="gongbu-worker-tamper-0001",
+        office_write_set=["work/gongbu/worker-tamper-0001.txt"],
+    )
+
+    def tamper_profile(task: dict[str, object]) -> None:
+        widened_mandate = "silently widened but still non-empty mandate"
+        binding = task["agent_admissions"][wave_id]["selected_bindings"][0]
+        binding["bounded_mandate"] = widened_mandate
+        binding["child_profile"]["bounded_mandate"] = widened_mandate
+        task["agent_admissions"][wave_id]["admission_binding_sha256s"][
+            "gongbu-worker-tamper-0001"
+        ] = canonical_child_office_binding_sha256(binding)
+
+    set_task_field(task_id, tamper_profile)
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.agent_start(
+            start_args(
+                admission,
+                task_id,
+                wave_id,
+                "gongbu-gongjiang-tamper-1",
+                collaboration_task_name="gongbu_gongjiang_tamper",
+                requires_gongjiang=True,
+            )
+        ),
+        "synchronized binding and child-profile tamper reached agent start persistence",
+        "agent_start_admission_binding_integrity_mismatch",
+    )
+
+
+def check_budget_lease_access_contract_allows_approved_subset() -> None:
+    approved_bindings = [
+        {
+            "instance_id": f"gongbu-worker-subset-{index:04d}",
+            "write_set": [f"work/gongbu/subset-{index:04d}.txt"],
+            "access_mode": "read_write",
+            "read_scope": [f"work/gongbu/subset-{index:04d}.txt"],
+            "mutation_allowed": True,
+            "integration_authority": False,
+        }
+        for index in (1, 2)
+    ]
+    lease = {
+        "status": "ACTIVE",
+        "approved_instance_ids": [
+            binding["instance_id"] for binding in approved_bindings
+        ],
+        "approved_write_sets": {
+            binding["instance_id"]: list(binding["write_set"])
+            for binding in approved_bindings
+        },
+        "approved_access_contracts": {
+            binding["instance_id"]: {
+                "access_mode": binding["access_mode"],
+                "read_scope": list(binding["read_scope"]),
+                "mutation_allowed": binding["mutation_allowed"],
+                "integration_authority": binding["integration_authority"],
+            }
+            for binding in approved_bindings
+        },
+    }
+    assert budget_lease_access_contract_error(lease, approved_bindings[:1]) is None
+    unknown = dict(approved_bindings[0])
+    unknown["instance_id"] = "gongbu-worker-subset-unknown"
+    assert (
+        budget_lease_access_contract_error(lease, [unknown])
+        == "approved_budget_access_contract_mismatch"
+    )
+
+
+def check_child_access_contract_tamper_rejected_before_start_write() -> None:
+    task_id = "child-access-contract-start-tamper"
+    wave_id = "child-access-contract-start-tamper-wave"
+    create_task(task_id)
+    admission = admit(
+        task_id,
+        wave_id,
+        role="gongbu",
+        child_worker=True,
+        office_instance_id="gongbu-worker-access-tamper-0001",
+        office_write_set=["work/gongbu/worker-access-tamper-0001.txt"],
+    )
+
+    def tamper_access_contract(task: dict[str, object]) -> None:
+        widened_scope = ["work/gongbu/unleased-output.txt"]
+        binding = task["agent_admissions"][wave_id]["selected_bindings"][0]
+        binding["write_set"] = widened_scope
+        binding["read_scope"] = widened_scope
+        binding["child_profile"]["write_set"] = widened_scope
+        binding["child_profile"]["read_scope"] = widened_scope
+
+    set_task_field(task_id, tamper_access_contract)
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.agent_start(
+            start_args(
+                admission,
+                task_id,
+                wave_id,
+                "gongbu-gongjiang-access-tamper-1",
+                collaboration_task_name="gongbu_gongjiang_access_tamper",
+                requires_gongjiang=True,
+            )
+        ),
+        "synchronized child access-contract tamper reached agent start persistence",
+        "agent_start_budget_lease_access_contract_mismatch",
     )
 
 
@@ -1350,6 +1626,81 @@ def check_assignment_binding_toctou_rejected() -> None:
             court_runtime.build_office_assignment_binding = original_builder
 
 
+def check_dispatch_hierarchy_revalidated_before_start_write() -> None:
+    task_id = "dispatch-hierarchy-start-revalidation"
+    wave_id = "dispatch-hierarchy-start-revalidation-wave"
+    create_task(task_id)
+    admission = admit(task_id, wave_id, role="gongbu")
+
+    def tamper_caller(task: dict[str, object]) -> None:
+        task["agent_admissions"][wave_id]["calling_office"] = "taizi"
+
+    set_task_field(task_id, tamper_caller)
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.agent_start(
+            start_args(
+                admission,
+                task_id,
+                wave_id,
+                "gongbu-hierarchy-tamper-1",
+            )
+        ),
+        "tampered dispatch hierarchy reached agent start persistence",
+        "dispatch_hierarchy_edge_forbidden",
+    )
+
+
+def check_three_department_hierarchy_revalidated_before_start_write() -> None:
+    task_id = "three-department-hierarchy-start-revalidation"
+    wave_id = "three-department-hierarchy-start-revalidation-wave"
+    create_task(task_id)
+    admission = admit(task_id, wave_id, role="menxia")
+
+    def tamper_caller(task: dict[str, object]) -> None:
+        task["agent_admissions"][wave_id]["calling_office"] = "shangshu"
+
+    set_task_field(task_id, tamper_caller)
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.agent_start(
+            start_args(
+                admission,
+                task_id,
+                wave_id,
+                "menxia-hierarchy-tamper-1",
+                role="menxia",
+            )
+        ),
+        "tampered three-department hierarchy reached agent start persistence",
+        "dispatch_hierarchy_edge_forbidden",
+    )
+
+
+def check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write() -> None:
+    task_id = "dispatch-hierarchy-receipt-tamper"
+    wave_id = "dispatch-hierarchy-receipt-tamper-wave"
+    create_task(task_id)
+    admission = admit(task_id, wave_id, role="gongbu")
+
+    def tamper_manifest_hash(task: dict[str, object]) -> None:
+        task["agent_admissions"][wave_id]["selected_bindings"][0][
+            "hierarchy_manifest_sha256"
+        ] = "0" * 64
+
+    set_task_field(task_id, tamper_manifest_hash)
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.agent_start(
+            start_args(
+                admission,
+                task_id,
+                wave_id,
+                "gongbu-hierarchy-receipt-tamper-1",
+            )
+        ),
+        "tampered hierarchy receipt reached agent start persistence",
+        "dispatch_hierarchy_manifest_invalid",
+    )
+
+
 def open_decree(task_id: str) -> dict[str, object]:
     task = court_runtime.load_tasks()[task_id]
     operation_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"court-rc4:{task_id}"))
@@ -1489,6 +1840,15 @@ def check_unified_office_instance_lifecycle() -> None:
         "context_economy_receipt_sha256",
         "context_budget_pool_sha256",
     }
+    hierarchy_fields = {
+        "hierarchy_gate",
+        "hierarchy_schema",
+        "hierarchy_manifest_sha256",
+        "hierarchy_edge_class",
+        "hierarchy_calling_office",
+        "hierarchy_target_role",
+        "hierarchy_owner_role",
+    }
     for index, (kind, instance_id, carrier_proof) in enumerate(cases, start=1):
         wave_id = f"office-instance-wave-{index:02d}"
         task_name = f"gongbu_rc4_{index:02d}"
@@ -1504,6 +1864,7 @@ def check_unified_office_instance_lifecycle() -> None:
         assert admission["receipt"]["action"] == "admit"
         assert admission["receipt"]["office_instance_kind"] == kind
         assert context_hash_fields.issubset(admission["receipt"])
+        assert hierarchy_fields.issubset(admission["receipt"])
         internal_id = str(carrier_proof.get("agent_id") or instance_id)
         start = start_args(
             admission,
@@ -2454,7 +2815,15 @@ def run_agent_lifecycle_checks() -> None:
         try:
             check_office_name_identity_binding()
             check_assignment_binding_toctou_rejected()
+            check_dispatch_hierarchy_revalidated_before_start_write()
+            check_three_department_hierarchy_revalidated_before_start_write()
+            check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write()
             check_admission_binding()
+            check_runtime_generates_bounded_child_profile()
+            check_caller_child_binding_digest_rejected_before_admission_write()
+            check_child_profile_tamper_rejected_before_start_write()
+            check_budget_lease_access_contract_allows_approved_subset()
+            check_child_access_contract_tamper_rejected_before_start_write()
             check_dispatch_context_economy_contract()
             check_terminal_and_identity()
             check_unified_office_instance_lifecycle()

@@ -11,7 +11,7 @@ import base64
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -22,10 +22,12 @@ import sys
 import uuid
 
 sys.dont_write_bytecode = True
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
+from court_agent_admission import budget_lease_access_contract_error
 from court_complexity_budget import evaluate_context_economy
 from court_dispatch_policy import MAX_AGENT_TREE_DEPTH, MAX_AGENT_TREE_THREADS, select_wave
+from court_dispatch_hierarchy import validate_dispatch_hierarchy
 from court_intake_gate import (
     INTAKE_SCHEMA,
     WORK_KINDS,
@@ -35,8 +37,10 @@ from court_intake_gate import (
     validate_conversation_gate,
 )
 from court_office_bootstrap import (
+    build_child_office_profile,
     build_office_assignment_binding,
     build_preload_manifest,
+    canonical_child_office_binding_sha256,
     validate_preload_ack,
 )
 from court_model_router import (
@@ -867,6 +871,72 @@ def _revalidate_context_economy_start(
     return revalidated
 
 
+_HIERARCHY_FORMAL_ROLES = frozenset(
+    {
+        "taizi",
+        "zhongshu",
+        "menxia",
+        "shangshu",
+        "libu-hr",
+        "hubu",
+        "libu",
+        "bingbu",
+        "xingbu",
+        "gongbu",
+    }
+)
+_HIERARCHY_EVIDENCE_FIELDS = (
+    "hierarchy_gate",
+    "hierarchy_schema",
+    "hierarchy_manifest_sha256",
+    "hierarchy_edge_class",
+    "hierarchy_calling_office",
+    "hierarchy_target_role",
+    "hierarchy_owner_role",
+)
+
+
+def _dispatch_hierarchy_evidence(
+    calling_office: object,
+    binding: Mapping[str, object],
+) -> dict[str, object] | None:
+    role = str(binding.get("role") or "").strip().lower()
+    canonical_authority = binding.get("canonical_authority")
+    child_profile = binding.get("child_profile")
+    if not (
+        (role in _HIERARCHY_FORMAL_ROLES and canonical_authority is True)
+        or child_profile is not None
+    ):
+        return None
+    decision = validate_dispatch_hierarchy(
+        action="dispatch",
+        calling_office=calling_office,
+        target_role=binding.get("role"),
+        target_direct_superior=binding.get("direct_superior"),
+        instance_kind=(
+            binding.get("instance_kind") or binding.get("office_instance_kind")
+        ),
+        canonical_authority=canonical_authority,
+        owner_role=binding.get("owner_role"),
+        child_profile=child_profile,
+    )
+    if not decision.allowed:
+        raise ValueError(
+            decision.reason_codes[0]
+            if decision.reason_codes
+            else "dispatch_hierarchy_edge_forbidden"
+        )
+    return {
+        "hierarchy_gate": "PASSED",
+        "hierarchy_schema": decision.hierarchy_schema,
+        "hierarchy_manifest_sha256": decision.hierarchy_manifest_sha256,
+        "hierarchy_edge_class": decision.edge_class,
+        "hierarchy_calling_office": decision.normalized_caller,
+        "hierarchy_target_role": decision.normalized_target,
+        "hierarchy_owner_role": decision.normalized_owner,
+    }
+
+
 def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     dispatch_requested_at = now_text()
     wave_id = str(getattr(args, "wave_id", "") or "wave-default")
@@ -955,6 +1025,19 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
         for index in wave.selected_indices
         if requested_bindings is not None and 0 <= index < len(requested_bindings)
     )
+    hierarchy_receipts: list[dict[str, object]] = []
+    hierarchy_bound_bindings: list[dict[str, object]] = []
+    for selected_binding in selected_bindings:
+        hierarchy_evidence = _dispatch_hierarchy_evidence(
+            calling_office,
+            selected_binding,
+        )
+        bound_binding = dict(selected_binding)
+        if hierarchy_evidence is not None:
+            bound_binding.update(hierarchy_evidence)
+            hierarchy_receipts.append(hierarchy_evidence)
+        hierarchy_bound_bindings.append(bound_binding)
+    selected_bindings = tuple(hierarchy_bound_bindings)
     selected_instance_ids = tuple(
         str(binding.get("instance_id") or "").strip().lower()
         for binding in selected_bindings
@@ -1013,11 +1096,14 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
         "calling_office": calling_office,
         "direct_superior": direct_superior,
         "requested_agents": requested_agents,
+        "hierarchy_receipts": tuple(hierarchy_receipts),
         "deadline_seconds": AGENT_DEFAULT_DEADLINE_SECONDS,
         "tool_call_budget": AGENT_DEFAULT_TOOL_CALL_BUDGET,
         "reuse_errored_agents": False,
         **message_budget,
     }
+    if len(hierarchy_receipts) == 1:
+        result.update(hierarchy_receipts[0])
 
     def deny(decision: str, dispatch: str = "runtime_degraded") -> dict[str, Any]:
         result.update(
@@ -1525,6 +1611,10 @@ def _office_lifecycle_receipt(
         "metadata_record_pointer": record.get("metadata_record_pointer") or "",
         **{
             field: record.get(field)
+            for field in _HIERARCHY_EVIDENCE_FIELDS
+        },
+        **{
+            field: record.get(field)
             for field in CONTEXT_ECONOMY_BINDING_FIELDS
         },
     }
@@ -1585,6 +1675,425 @@ def _semantic_preload_hashes(role: str) -> dict[str, str]:
         "dossier_hash": manifest.dossier_hash,
         "court_skill_hash": manifest.court_skill_hash,
     }
+
+
+def _generate_missing_child_office_profiles(
+    args: argparse.Namespace,
+    *,
+    task_id: str,
+    dispatch_uid: str,
+    attempt: int,
+    generated_at: str,
+    semantic_expectations: Mapping[str, object],
+    context_economy: Mapping[str, object] | None,
+) -> tuple[str, ...]:
+    bindings = _optional_json_array(
+        getattr(args, "requested_bindings_json", ""),
+        "requested-bindings-json",
+    )
+    if bindings is None:
+        return ()
+    changed = False
+    generated_instance_ids: list[str] = []
+    generated_time = datetime.fromisoformat(generated_at).astimezone(timezone.utc)
+    deadline_seconds = max(
+        1,
+        int(
+            getattr(args, "deadline_seconds", AGENT_DEFAULT_DEADLINE_SECONDS)
+            or AGENT_DEFAULT_DEADLINE_SECONDS
+        ),
+    )
+    expires_at_utc = (generated_time + timedelta(seconds=deadline_seconds)).isoformat(
+        timespec="seconds"
+    )
+    for binding in bindings:
+        role = str(binding.get("role") or "").strip().lower()
+        instance_kind = str(
+            binding.get("instance_kind")
+            or binding.get("office_instance_kind")
+            or ""
+        ).strip().lower()
+        child_shape = (
+            binding.get("canonical_authority") is False
+            or instance_kind in {"worker", "craftsman", "office_worker_instance"}
+            or binding.get("owner_role") not in {None, ""}
+        )
+        if not child_shape or binding.get("child_profile") is not None:
+            continue
+        if context_economy is None:
+            raise ValueError("dispatch_context_packet_required")
+        profile_input = dict(binding)
+        profile_input.update(
+            task_id=task_id,
+            dispatch_uid=dispatch_uid,
+            attempt=attempt,
+            bounded_mandate=str(
+                binding.get("bounded_mandate")
+                or getattr(args, "assignment", "")
+                or ""
+            ),
+            expected_result=str(
+                binding.get("expected_result")
+                or getattr(args, "context_result_mode", "")
+                or "bounded_structured_receipt"
+            ),
+            terminal_condition=str(
+                binding.get("terminal_condition")
+                or "stop after the bounded result is accepted"
+            ),
+        )
+        preload_hashes = _semantic_preload_hashes(role)
+        child_role = str(
+            binding.get("child_role")
+            or ("GongBu-GongJiang" if role == "gongbu" else f"{role}-worker")
+        )
+        binding.update(
+            {
+                field: profile_input[field]
+                for field in (
+                    "task_id",
+                    "dispatch_uid",
+                    "attempt",
+                    "bounded_mandate",
+                    "expected_result",
+                    "terminal_condition",
+                )
+            },
+            child_role=child_role,
+            expires_at_utc=expires_at_utc,
+        )
+        binding["child_profile"] = build_child_office_profile(
+            profile_input,
+            child_role=child_role,
+            profile_sha256=preload_hashes["profile_hash"],
+            dossier_sha256=preload_hashes["dossier_hash"],
+            skill_sha256=preload_hashes["court_skill_hash"],
+            dispatch_context_packet_sha256=str(
+                context_economy.get("dispatch_context_packet_sha256") or ""
+            ),
+            semantic_receipt_sha256=str(
+                context_economy.get("semantic_receipt_sha256") or ""
+            ),
+            invariant_capsule_sha256=str(
+                semantic_expectations.get("invariant_capsule_sha256") or ""
+            ),
+            expires_at_utc=expires_at_utc,
+        )
+        generated_instance_ids.append(
+            str(binding.get("instance_id") or "").strip().lower()
+        )
+        changed = True
+    if changed:
+        args.requested_bindings_json = json.dumps(bindings, ensure_ascii=False)
+    return tuple(generated_instance_ids)
+
+
+def _synchronize_approved_child_binding_digests(
+    args: argparse.Namespace,
+    generated_instance_ids: Sequence[str],
+) -> None:
+    bindings = _optional_json_array(
+        getattr(args, "requested_bindings_json", ""),
+        "requested-bindings-json",
+    )
+    budget_lease = _optional_json_object(
+        getattr(args, "budget_lease_json", ""),
+        "budget-lease-json",
+    )
+    if bindings is None or budget_lease is None:
+        return
+    approved_ids_raw = budget_lease.get("approved_instance_ids")
+    if not isinstance(approved_ids_raw, (list, tuple)):
+        return
+    approved_ids = tuple(
+        str(value or "").strip().lower() for value in approved_ids_raw
+    )
+    if (
+        not approved_ids
+        or any(not value for value in approved_ids)
+        or len(set(approved_ids)) != len(approved_ids)
+    ):
+        return
+    bindings_by_id: dict[str, Mapping[str, object]] = {}
+    for binding in bindings:
+        if not isinstance(binding, Mapping):
+            return
+        instance_id = str(binding.get("instance_id") or "").strip().lower()
+        if not instance_id or instance_id in bindings_by_id:
+            return
+        bindings_by_id[instance_id] = binding
+    if any(instance_id not in bindings_by_id for instance_id in approved_ids):
+        return
+
+    worker_kinds = {"worker", "craftsman", "office_worker_instance"}
+    approved_child_bindings: dict[str, Mapping[str, object]] = {}
+    for instance_id in approved_ids:
+        binding = bindings_by_id[instance_id]
+        instance_kind = str(
+            binding.get("instance_kind")
+            or binding.get("office_instance_kind")
+            or ""
+        ).strip().lower()
+        child_shape = (
+            binding.get("canonical_authority") is False
+            or instance_kind in worker_kinds
+            or binding.get("owner_role") not in {None, ""}
+            or binding.get("child_profile") is not None
+        )
+        if child_shape:
+            approved_child_bindings[instance_id] = binding
+
+    raw_digests = budget_lease.get("approved_binding_sha256s")
+    if not approved_child_bindings:
+        if raw_digests is None or (
+            isinstance(raw_digests, Mapping) and not raw_digests
+        ):
+            return
+        raise ValueError("approved_budget_binding_digest_invalid")
+
+    computed: dict[str, str] = {}
+    for instance_id, binding in approved_child_bindings.items():
+        try:
+            computed[instance_id] = canonical_child_office_binding_sha256(binding)
+        except ValueError as exc:
+            raise ValueError("approved_budget_binding_digest_invalid") from exc
+
+    if raw_digests is None:
+        generated_ids = {
+            str(value or "").strip().lower() for value in generated_instance_ids
+        }
+        if not set(computed).issubset(generated_ids):
+            raise ValueError("approved_budget_binding_digest_missing")
+        budget_lease["approved_binding_sha256s"] = computed
+        args.budget_lease_json = json.dumps(budget_lease, ensure_ascii=False)
+        return
+    if not isinstance(raw_digests, Mapping):
+        raise ValueError("approved_budget_binding_digest_invalid")
+
+    supplied: dict[str, str] = {}
+    for raw_instance_id, raw_digest in raw_digests.items():
+        instance_id = str(raw_instance_id or "").strip().lower()
+        digest = str(raw_digest or "").strip()
+        if (
+            not instance_id
+            or instance_id in supplied
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise ValueError("approved_budget_binding_digest_invalid")
+        supplied[instance_id] = digest
+    if set(computed) - set(supplied):
+        raise ValueError("approved_budget_binding_digest_missing")
+    if set(supplied) != set(computed):
+        raise ValueError("approved_budget_binding_digest_invalid")
+    if any(supplied[key] != digest for key, digest in computed.items()):
+        raise ValueError("approved_budget_binding_digest_mismatch")
+
+
+def _expected_child_office_profile(
+    binding: Mapping[str, object],
+) -> dict[str, object] | None:
+    child_profile = binding.get("child_profile")
+    if not isinstance(child_profile, Mapping):
+        return None
+    role = str(binding.get("role") or "").strip().lower()
+    preload_hashes = _semantic_preload_hashes(role)
+    try:
+        return build_child_office_profile(
+            binding,
+            child_role=str(binding.get("child_role") or ""),
+            profile_sha256=preload_hashes["profile_hash"],
+            dossier_sha256=preload_hashes["dossier_hash"],
+            skill_sha256=preload_hashes["court_skill_hash"],
+            dispatch_context_packet_sha256=str(
+                binding.get("dispatch_context_packet_sha256") or ""
+            ),
+            semantic_receipt_sha256=str(
+                binding.get("semantic_receipt_sha256") or ""
+            ),
+            invariant_capsule_sha256=str(
+                binding.get("invariant_capsule_sha256") or ""
+            ),
+            expires_at_utc=str(binding.get("expires_at_utc") or ""),
+        )
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            "dispatch_hierarchy_child_semantic_authority_mismatch"
+        ) from exc
+
+
+def _validate_admission_binding_integrity(
+    admission: Mapping[str, object],
+    bindings: Sequence[Mapping[str, object]],
+) -> None:
+    child_bindings = [
+        binding
+        for binding in bindings
+        if isinstance(binding.get("child_profile"), Mapping)
+    ]
+    if not child_bindings:
+        return
+    raw_digests = admission.get("admission_binding_sha256s")
+    if not isinstance(raw_digests, Mapping):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    digests: dict[str, object] = {}
+    for key, value in raw_digests.items():
+        instance_id = str(key or "").strip().lower()
+        if not instance_id or instance_id in digests:
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        digests[instance_id] = value
+    child_instance_ids = {
+        str(binding.get("instance_id") or "").strip().lower()
+        for binding in child_bindings
+    }
+    if "" in child_instance_ids or set(digests) != child_instance_ids:
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    for binding in child_bindings:
+        instance_id = str(binding.get("instance_id") or "").strip().lower()
+        expected = digests[instance_id]
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        try:
+            actual = canonical_child_office_binding_sha256(binding)
+        except ValueError as exc:
+            raise ValueError(
+                "agent_start_admission_binding_integrity_mismatch"
+            ) from exc
+        if actual != expected:
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+
+
+def _validated_lease_child_request_bindings(
+    admission: Mapping[str, object],
+) -> dict[str, Mapping[str, object]]:
+    budget_lease = admission.get("budget_lease")
+    requested_bindings = admission.get("requested_bindings")
+    if not isinstance(budget_lease, Mapping) or not isinstance(
+        requested_bindings, (list, tuple)
+    ):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    approved_ids_raw = budget_lease.get("approved_instance_ids")
+    if not isinstance(approved_ids_raw, (list, tuple)):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    approved_ids = tuple(
+        str(value or "").strip().lower() for value in approved_ids_raw
+    )
+    if (
+        not approved_ids
+        or any(not value for value in approved_ids)
+        or len(set(approved_ids)) != len(approved_ids)
+    ):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    requested_by_id: dict[str, Mapping[str, object]] = {}
+    for binding in requested_bindings:
+        if not isinstance(binding, Mapping):
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        instance_id = str(binding.get("instance_id") or "").strip().lower()
+        if not instance_id or instance_id in requested_by_id:
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        requested_by_id[instance_id] = binding
+    if any(instance_id not in requested_by_id for instance_id in approved_ids):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+
+    worker_kinds = {"worker", "craftsman", "office_worker_instance"}
+    child_bindings: dict[str, Mapping[str, object]] = {}
+    for instance_id in approved_ids:
+        binding = requested_by_id[instance_id]
+        instance_kind = str(
+            binding.get("instance_kind")
+            or binding.get("office_instance_kind")
+            or ""
+        ).strip().lower()
+        if (
+            binding.get("canonical_authority") is False
+            or instance_kind in worker_kinds
+            or binding.get("owner_role") not in {None, ""}
+            or binding.get("child_profile") is not None
+        ):
+            child_bindings[instance_id] = binding
+
+    raw_digests = budget_lease.get("approved_binding_sha256s")
+    if not child_bindings:
+        if raw_digests is None or (
+            isinstance(raw_digests, Mapping) and not raw_digests
+        ):
+            return {}
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    if not isinstance(raw_digests, Mapping):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    digests: dict[str, str] = {}
+    for raw_instance_id, raw_digest in raw_digests.items():
+        instance_id = str(raw_instance_id or "").strip().lower()
+        digest = str(raw_digest or "").strip()
+        if (
+            not instance_id
+            or instance_id in digests
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        digests[instance_id] = digest
+    if set(digests) != set(child_bindings):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    for instance_id, binding in child_bindings.items():
+        try:
+            actual = canonical_child_office_binding_sha256(binding)
+        except ValueError as exc:
+            raise ValueError(
+                "agent_start_admission_binding_integrity_mismatch"
+            ) from exc
+        if digests[instance_id] != actual:
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    return child_bindings
+
+
+def _validate_admission_request_binding_anchors(
+    admission: Mapping[str, object],
+    bindings: Sequence[Mapping[str, object]],
+) -> None:
+    request_bindings = _validated_lease_child_request_bindings(admission)
+    for binding in bindings:
+        if not isinstance(binding.get("child_profile"), Mapping):
+            continue
+        instance_id = str(binding.get("instance_id") or "").strip().lower()
+        request_binding = request_bindings.get(instance_id)
+        if request_binding is None:
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        for field, expected in request_binding.items():
+            if field in {"write_set", "read_scope"}:
+                continue
+            if field not in binding or binding.get(field) != expected:
+                raise ValueError("agent_start_admission_binding_integrity_mismatch")
+
+
+def _validate_admission_semantic_receipt_anchors(
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+    bindings: Sequence[Mapping[str, object]],
+) -> None:
+    receipt = task.get("semantic_receipt")
+    if not isinstance(receipt, Mapping):
+        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+    expected = {
+        "task_id": task.get("task_id"),
+        "semantic_epoch": task.get("semantic_epoch"),
+        "charter_sha256": task.get("charter_sha256"),
+        "invariant_capsule_sha256": task.get("invariant_capsule_sha256"),
+        "checkpoint_id": receipt.get("checkpoint_id"),
+    }
+    preimages = (admission, *bindings)
+    if any(preimage.get("semantic_receipt_sha256") is not None for preimage in preimages):
+        expected["semantic_receipt_sha256"] = receipt.get("receipt_sha256")
+    for preimage in preimages:
+        for field, value in expected.items():
+            if preimage.get(field) != value:
+                raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        if (
+            preimage is not admission
+            and (
+                preimage.get("dispatch_uid") != admission.get("dispatch_uid")
+                or preimage.get("attempt") != admission.get("attempt")
+            )
+        ):
+            raise ValueError("agent_start_admission_binding_integrity_mismatch")
 
 
 def _validate_agent_semantic_args(
@@ -4780,6 +5289,43 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             if _context_contract_required(args)
             else None
         )
+        now = now_text()
+        attempt: int | None = None
+        dispatch_uid: str | None = None
+        if semantic_expectations is not None:
+            try:
+                attempt = int(task.get("next_semantic_dispatch_attempt") or 1)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("semantic_dispatch_attempt_corrupt") from exc
+            if attempt < 1:
+                raise ValueError("semantic_dispatch_attempt_corrupt")
+            prior_dispatches = task.get("semantic_dispatch_attempts")
+            if prior_dispatches is not None and not isinstance(prior_dispatches, list):
+                raise ValueError("semantic_dispatch_attempts_corrupt")
+            if any(
+                isinstance(item, dict) and item.get("attempt") == attempt
+                for item in prior_dispatches or ()
+            ):
+                raise ValueError("semantic_dispatch_attempt_conflict")
+            dispatch_uid = "DSP-" + hashlib.sha256(
+                (
+                    f"{args.task_id}|{semantic_expectations['semantic_epoch']}|"
+                    f"{wave_id}|{attempt}|{now}"
+                ).encode("utf-8")
+            ).hexdigest()[:24].upper()
+            generated_child_instance_ids = _generate_missing_child_office_profiles(
+                args,
+                task_id=str(args.task_id),
+                dispatch_uid=dispatch_uid,
+                attempt=attempt,
+                generated_at=now,
+                semantic_expectations=semantic_expectations,
+                context_economy=context_economy,
+            )
+            _synchronize_approved_child_binding_digests(
+                args,
+                generated_child_instance_ids,
+            )
         result = evaluate_agent_admission(task, args)
         if context_economy is not None:
             result.update(context_economy)
@@ -4807,29 +5353,11 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             "selected_protocol": result.get("selected_protocol"),
         }
         result["model_routes"] = model_routes
-        now = now_text()
         result["generated_at"] = now
+        result["admission_binding_sha256s"] = {}
         if semantic_expectations is not None:
-            try:
-                attempt = int(task.get("next_semantic_dispatch_attempt") or 1)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("semantic_dispatch_attempt_corrupt") from exc
-            if attempt < 1:
-                raise ValueError("semantic_dispatch_attempt_corrupt")
-            prior_dispatches = task.get("semantic_dispatch_attempts")
-            if prior_dispatches is not None and not isinstance(prior_dispatches, list):
-                raise ValueError("semantic_dispatch_attempts_corrupt")
-            if any(
-                isinstance(item, dict) and item.get("attempt") == attempt
-                for item in prior_dispatches or ()
-            ):
-                raise ValueError("semantic_dispatch_attempt_conflict")
-            dispatch_uid = "DSP-" + hashlib.sha256(
-                (
-                    f"{args.task_id}|{semantic_expectations['semantic_epoch']}|"
-                    f"{result['wave_id']}|{attempt}|{now}"
-                ).encode("utf-8")
-            ).hexdigest()[:24].upper()
+            if attempt is None or dispatch_uid is None:
+                raise ValueError("semantic_dispatch_identity_missing")
             enriched_bindings: list[dict[str, object]] = []
             reserved_write_claims: set[str] = set()
             for raw_binding in result.get("selected_bindings", ()):
@@ -4862,8 +5390,15 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                         }
                     )
                 enriched_bindings.append(binding)
+            admission_binding_sha256s = {
+                str(binding.get("instance_id") or "").strip().lower():
+                canonical_child_office_binding_sha256(binding)
+                for binding in enriched_bindings
+                if isinstance(binding.get("child_profile"), Mapping)
+            }
             result.update(
                 selected_bindings=tuple(enriched_bindings),
+                admission_binding_sha256s=admission_binding_sha256s,
                 dispatch_uid=dispatch_uid,
                 attempt=attempt,
                 **semantic_expectations,
@@ -4887,6 +5422,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             for key in (
                 "dispatch_requested_at",
                 "generated_at",
+                "task_id",
                 "wave_id",
                 "allowed",
                 "decision",
@@ -4900,6 +5436,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 "useful_roles",
                 "selected_roles",
                 "selected_bindings",
+                "admission_binding_sha256s",
                 "selected_instance_ids",
                 "deferred_roles",
                 "host_capacity",
@@ -4917,6 +5454,12 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 "authority",
                 "calling_office",
                 "direct_superior",
+                "hierarchy_receipts",
+                *(
+                    _HIERARCHY_EVIDENCE_FIELDS
+                    if result.get("hierarchy_gate") == "PASSED"
+                    else ()
+                ),
                 "deadline_seconds",
                 "tool_call_budget",
                 *AGENT_MESSAGE_BUDGET_FIELDS,
@@ -5364,6 +5907,7 @@ def agent_event(
         start_instance_id: str | None = None
         start_office_kind = "child_agent"
         start_context_economy: dict[str, object] | None = None
+        start_hierarchy_evidence: dict[str, object] | None = None
         if lifecycle_action == "agent_start":
             if agent_id in agents:
                 raise ValueError(f"agent already exists: {agent_id}")
@@ -5377,6 +5921,25 @@ def agent_event(
             selected_bindings = admission.get("selected_bindings")
             if not isinstance(selected_bindings, (list, tuple)):
                 raise ValueError("agent start admission is missing instance bindings")
+            lease_access_error = budget_lease_access_contract_error(
+                admission.get("budget_lease"),
+                selected_bindings,
+            )
+            if lease_access_error is not None:
+                raise ValueError(
+                    "agent_start_budget_lease_access_contract_mismatch:"
+                    f"{lease_access_error}"
+                )
+            _validate_admission_request_binding_anchors(
+                admission,
+                selected_bindings,
+            )
+            _validate_admission_semantic_receipt_anchors(
+                task,
+                admission,
+                selected_bindings,
+            )
+            _validate_admission_binding_integrity(admission, selected_bindings)
             role_bindings = [
                 binding
                 for binding in selected_bindings
@@ -5395,6 +5958,40 @@ def agent_event(
                 matching_bindings = role_bindings
             if len(matching_bindings) != 1:
                 raise ValueError("agent start requires one admitted instance-id")
+            matched_binding = matching_bindings[0]
+            expected_child_profile = _expected_child_office_profile(matched_binding)
+            if (
+                expected_child_profile is not None
+                and matched_binding.get("child_profile") != expected_child_profile
+            ):
+                raise ValueError(
+                    "dispatch_hierarchy_child_semantic_authority_mismatch"
+                )
+            start_hierarchy_evidence = _dispatch_hierarchy_evidence(
+                admission.get("calling_office"),
+                matched_binding,
+            )
+            if start_hierarchy_evidence is not None:
+                hierarchy_preimages: list[Mapping[str, object]] = [matched_binding]
+                if admission.get("hierarchy_gate") == "PASSED":
+                    hierarchy_preimages.append(admission)
+                for hierarchy_preimage in hierarchy_preimages:
+                    for field in _HIERARCHY_EVIDENCE_FIELDS:
+                        if (
+                            field not in hierarchy_preimage
+                            or hierarchy_preimage.get(field)
+                            != start_hierarchy_evidence.get(field)
+                        ):
+                            raise ValueError(
+                                "dispatch_hierarchy_manifest_invalid"
+                                if field
+                                in {
+                                    "hierarchy_gate",
+                                    "hierarchy_schema",
+                                    "hierarchy_manifest_sha256",
+                                }
+                                else "dispatch_hierarchy_edge_forbidden"
+                            )
             if isinstance(matching_bindings[0], dict):
                 _validate_agent_semantic_args(args, matching_bindings[0])
                 start_context_economy = _revalidate_context_economy_start(
@@ -5694,6 +6291,8 @@ def agent_event(
             current.update(deepcopy(assignment_binding))
             if isinstance(matching_bindings[0], dict) and matching_bindings[0].get("dispatch_uid"):
                 current.update(deepcopy(matching_bindings[0]))
+            if start_hierarchy_evidence is not None:
+                current.update(start_hierarchy_evidence)
             current["assignment_binding_ready"] = bool(
                 assignment_binding.get("office_execution_ready")
             )
@@ -5741,6 +6340,13 @@ def agent_event(
                 {
                     field: current.get(field)
                     for field in CONTEXT_ECONOMY_BINDING_FIELDS
+                }
+            )
+        if current.get("hierarchy_gate") == "PASSED":
+            event.update(
+                {
+                    field: current.get(field)
+                    for field in _HIERARCHY_EVIDENCE_FIELDS
                 }
             )
         event["event_id"] = _office_event_id(

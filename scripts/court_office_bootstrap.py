@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
+import json
 from pathlib import Path, PurePosixPath
 import re
 import sys
 from types import MappingProxyType
+from typing import Mapping
 
 sys.dont_write_bytecode = True
 
@@ -166,6 +168,171 @@ def validate_skill_requirements(requirements: list[dict[str, str]]) -> list[dict
     if court["sha256"] != authoritative_hash or court["ack_sha256"] != authoritative_hash:
         raise ValueError("required_skill_hash_mismatch")
     return validated
+
+
+def _bounded_profile_paths(value: object, field: str) -> list[str]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError(f"{field}_unbounded")
+    normalized: list[str] = []
+    for raw in value:
+        if not isinstance(raw, str) or raw != raw.strip() or not raw:
+            raise ValueError(f"{field}_unbounded")
+        if (
+            "\\" in raw
+            or "\x00" in raw
+            or raw.startswith("/")
+            or re.match(r"^[A-Za-z]:", raw)
+        ):
+            raise ValueError(f"{field}_unbounded")
+        parts = PurePosixPath(raw).parts
+        if not parts or any(part in {"", ".", ".."} or ":" in part for part in parts):
+            raise ValueError(f"{field}_unbounded")
+        normalized.append("/".join(parts))
+    if len({item.casefold() for item in normalized}) != len(normalized):
+        raise ValueError(f"{field}_unbounded")
+    return normalized
+
+
+def _canonical_child_binding_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError("child_office_binding_digest_non_canonical_value")
+            normalized[key] = _canonical_child_binding_value(item)
+        return normalized
+    if isinstance(value, (list, tuple)):
+        return [_canonical_child_binding_value(item) for item in value]
+    raise ValueError("child_office_binding_digest_non_canonical_value")
+
+
+def canonical_child_office_binding_sha256(binding: Mapping[str, object]) -> str:
+    """Hash every field of one complete child-office binding as canonical JSON."""
+
+    if not isinstance(binding, Mapping) or not binding:
+        raise ValueError("child_office_binding_digest_binding_required")
+    child_profile = binding.get("child_profile")
+    if (
+        not isinstance(child_profile, Mapping)
+        or child_profile.get("schema") != "court.child_office_profile.v1"
+    ):
+        raise ValueError("child_office_binding_digest_child_profile_required")
+    normalized = _canonical_child_binding_value(binding)
+    try:
+        payload = json.dumps(
+            normalized,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "child_office_binding_digest_non_canonical_value"
+        ) from exc
+    return hashlib.sha256(payload).hexdigest()
+
+
+def build_child_office_profile(
+    binding: Mapping[str, object],
+    *,
+    child_role: str,
+    profile_sha256: str,
+    dossier_sha256: str,
+    skill_sha256: str,
+    dispatch_context_packet_sha256: str,
+    semantic_receipt_sha256: str,
+    invariant_capsule_sha256: str,
+    expires_at_utc: str,
+) -> dict[str, object]:
+    """Generate one bounded non-canonical ministry child profile."""
+
+    if not isinstance(binding, Mapping):
+        raise ValueError("child_profile_binding_required")
+    forbidden = {
+        "second_invariant_capsule",
+        "second_semantic_receipt",
+        "child_charter",
+        "charter_override",
+        "semantic_authority_override",
+    }
+    if forbidden.intersection(str(key) for key in binding):
+        raise ValueError("child_profile_semantic_authority_override")
+    role = str(binding.get("role") or "").strip().lower()
+    owner = str(binding.get("owner_role") or "").strip().lower()
+    superior = str(binding.get("direct_superior") or "").strip().lower()
+    instance_kind = str(binding.get("instance_kind") or "").strip().lower()
+    if role not in MINISTRY_ROLES or owner != role or superior != owner:
+        raise ValueError("child_profile_owner_mismatch")
+    if binding.get("canonical_authority") is not False:
+        raise ValueError("child_profile_canonical_authority_forbidden")
+    if instance_kind not in {"worker", "craftsman", "office_worker_instance"}:
+        raise ValueError("child_profile_instance_kind_invalid")
+    normalized_child_role = str(child_role or "").strip()
+    if (
+        not normalized_child_role
+        or normalized_child_role.casefold() in OFFICE_ASSIGNMENT_IDENTITIES
+        or normalized_child_role.casefold() == "user"
+    ):
+        raise ValueError("child_profile_role_invalid")
+    text_fields = {
+        "office_instance_id": binding.get("office_instance_id")
+        or binding.get("instance_id"),
+        "bounded_mandate": binding.get("bounded_mandate"),
+        "expected_result": binding.get("expected_result"),
+        "task_id": binding.get("task_id"),
+        "dispatch_uid": binding.get("dispatch_uid"),
+        "shard_id": binding.get("shard_id"),
+        "terminal_condition": binding.get("terminal_condition"),
+        "expires_at_utc": expires_at_utc,
+    }
+    normalized_text: dict[str, str] = {}
+    for field, raw in text_fields.items():
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"child_profile_{field}_required")
+        normalized_text[field] = raw.strip()
+    attempt = binding.get("attempt")
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        raise ValueError("child_profile_attempt_invalid")
+    return {
+        "schema": "court.child_office_profile.v1",
+        "child_role": normalized_child_role,
+        "role_key": role,
+        "office_instance_id": normalized_text["office_instance_id"],
+        "owner_role": owner,
+        "direct_superior": superior,
+        "canonical_authority": False,
+        "instance_kind": instance_kind,
+        "bounded_mandate": normalized_text["bounded_mandate"],
+        "expected_result": normalized_text["expected_result"],
+        "read_scope": _bounded_profile_paths(binding.get("read_scope"), "read_scope"),
+        "write_set": _bounded_profile_paths(binding.get("write_set"), "write_set"),
+        "task_id": normalized_text["task_id"],
+        "dispatch_uid": normalized_text["dispatch_uid"],
+        "shard_id": normalized_text["shard_id"],
+        "attempt": attempt,
+        "profile_sha256": _canonical_sha256(profile_sha256, "profile_sha256"),
+        "dossier_sha256": _canonical_sha256(dossier_sha256, "dossier_sha256"),
+        "skill_sha256": _canonical_sha256(skill_sha256, "skill_sha256"),
+        "expires_at_utc": normalized_text["expires_at_utc"],
+        "terminal_condition": normalized_text["terminal_condition"],
+        "dispatch_context_packet_schema": "court.semantic.dispatch_context_packet.v1",
+        "dispatch_context_packet_sha256": _canonical_sha256(
+            dispatch_context_packet_sha256,
+            "dispatch_context_packet_sha256",
+        ),
+        "semantic_receipt_sha256": _canonical_sha256(
+            semantic_receipt_sha256,
+            "semantic_receipt_sha256",
+        ),
+        "invariant_capsule_schema": "court.semantic.invariant_capsule.v1",
+        "invariant_capsule_sha256": _canonical_sha256(
+            invariant_capsule_sha256,
+            "invariant_capsule_sha256",
+        ),
+    }
 
 
 def build_office_assignment_binding(
