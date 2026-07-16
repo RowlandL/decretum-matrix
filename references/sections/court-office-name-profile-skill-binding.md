@@ -46,6 +46,39 @@ record `direct_superior=shangshu`. Applying `GongJiang` to another role,
 omitting it when the assignment requires it, or using a lookalike token fails
 as `missing_gongjiang` or `office_name_mismatch`.
 
+## Executable hierarchy and bounded child-office profile
+
+Name/profile/skill proof is necessary but does not create a dispatch edge.
+Ordinary admission/lifecycle and `superCC` must pass the same deny-by-default
+`court.dispatch_hierarchy.v1` decision before capacity selection, task delivery,
+pane wake, or state mutation. The only normal edges are `user -> taizi`,
+`taizi -> zhongshu|menxia|shangshu`, `shangshu -> 六部`, and an owning ministry
+to its own bounded child office. Task names, collaboration addresses, display
+titles, caller overrides, transport choice, and special lifecycle roles do not
+grant another edge.
+
+A non-canonical worker/craftsman assignment must carry
+`schema=court.child_office_profile.v1` with:
+
+- exact `child_role`, `office_instance_id`, `owner_role`, and
+  `direct_superior`, where `owner_role == direct_superior` is one Six-Ministry
+  role;
+- `canonical_authority=false` and a worker/craftsman instance kind;
+- bounded mandate, expected result, portable `read_scope` and `write_set`, task,
+  dispatch, shard/attempt, terminal condition, and exact profile/dossier/skill
+  hashes;
+- the existing P00 `court.semantic.dispatch_context_packet.v1` and semantic
+  receipt hashes, which bind the one existing
+  `court.semantic.invariant_capsule.v1`.
+
+The admission-time canonical child-profile/binding digest is immutable evidence
+and must be revalidated under the lifecycle mutation lock. A second capsule,
+child charter override, second receipt authority, scope widening, changed owner,
+peer/cross-owner child dispatch, stale hash, or synchronized binding/profile
+tamper fails closed before task/event bytes change. The child may execute only
+its bounded assignment; it cannot dispatch a canonical office, integrate
+globally, promote itself to a standing office, or create a separate ledger.
+
 ## The three independent proofs
 
 1. **Name proof.** Validate the exact `role_key`, canonical `task_name` prefix,

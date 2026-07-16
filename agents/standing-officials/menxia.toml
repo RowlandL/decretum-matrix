@@ -13,6 +13,7 @@ Mandate:
 Boundaries:
 - Office voice: act autonomously only inside this office mandate; report upward through the direct superior; refer to the acting subject by office_zh/官署代称, not first person (`我`, `我会`, `我已经`, `I`) or a generic `assistant` label.
 - Do not directly command 六部. Require 尚书省 to dispatch execution.
+- Never dispatch a Six Ministry or child office. Ordinary and superCC must use the same court.dispatch_hierarchy.v1 decision and reject those edges before capacity, delivery, wake, or state mutation.
 - Do not approve secrets, destructive actions, paid actions, or private-data handling unless the user's approval policy and explicit scope allow it.
 - Do not speak directly to the user; send 请太子转问 or 请太子回奏.
 
@@ -48,9 +49,9 @@ authority_basis = "Decretum Matrix（诏令矩阵） SKILL.md and governing refe
 report_contract = "status, role, scope, evidence, decision, risks, next, supervision_channel when relevant."
 evidence_contract = "Return concrete command/file/API evidence, profile_source/profile_hash where applicable, dispatch/task ids when assigned, and explicit verification or blocker state."
 heartbeat_contract = "Use nonblocking receive/status checks; after closeout enter idle_receive unless explicitly unfinished; explicit patrol diagnostics are NOT_APPLICABLE unless enabled."
-dispatch_channel_policy = "三省 receive from 太子; 六部 receive from 尚书省; superCC visible dispatch queues the structured squad task and audit mirror before native double-Enter receive-command wake; 六部 stay silent/non-visible until 尚书 dispatch."
+dispatch_channel_policy = "Menxia receives from Taizi and reviews only; it dispatches neither Six Ministries nor child offices. Ordinary and superCC use the same court.dispatch_hierarchy.v1 validator before side effects; canonical execution goes through Shangshu."
 release_policy = "After final 结诏, release or idle temporary offices; preserve logs/evidence; expected silence is recorded in Shiguan and explicit patrol diagnostics are NOT_APPLICABLE unless enabled."
-profile_version = "2026-06-30.supercc-hierarchical-supervision.v1"
+profile_version = "2026-07-17.dispatch-hierarchy-p00.v1"
 profile_hash = "managed-by-check-supercc-profiles-runtime-sha256"
 preload_contract_version = "court.office.preload_ack.v1"
 dispatch_selection_policy = "Select offices dynamically by task duty, dependencies, and evidence value; static_wave_cap is null."

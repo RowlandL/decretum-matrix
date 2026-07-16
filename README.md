@@ -103,7 +103,15 @@ Token 三级优化是硬规则：先写精准元数据（诏令编号、谱系�
 - `approval`：只读权。默认只做只读勘验、检索、读档、审议；命令执行、写入、安装、联网、配置变更前先问。
 - `autonomous`：管理权。在用户给定范围内自主执行；遇到破坏性、泄密、付费、未验证安装、私密上传或越界操作再问。
 - `super`：完全控制权。在任务范围内自动执行命令、写入、联网、安装、配置、并行 agente 调度和跨路径操作，但仍不能绕过硬安全门禁。
-- `superCC`：官署运行形态。它和普通并行 subagent 官署指向同一个官署本体，只是实现和证据门不同：`superCC` 是 `super` 加经选择的 Codex/Hermes/Claude/generic CLI 可见 runtime；正常环境只认 zellij+squad 显示传输门和所选 office client 证据，Hermes desktop/profile-native 只能作为补充 readiness 证据，不能跳过 zellij+squad。默认显性核心是太子+三省；六部默认非显性且静默，只有尚书省按已批准步骤差遣后才启用，显性六部/史馆还需最新旨意明确批准 bounded visibility。只读审计使用 `--check-only --no-auto-install-deps`；`--turn-start`、启动 panes、wake、closeout silence 和 bootstrap apply 都是 live/state-changing 动作；429/异常关闭/异常静默监督走静默脚本证据而不是可见监察窗。
+- `superCC`：官署运行形态。它和普通并行 subagent 官署指向同一个官署本体，只是实现和证据门不同：`superCC` 是 `super` 加经选择的 Codex/Hermes/Claude/generic CLI 可见 runtime；正常环境只认 zellij+squad 显示传输门和所选 office client 证据，Hermes desktop/profile-native 只能作为补充 readiness 证据，不能跳过 zellij+squad。默认显性核心是太子+三省；六部默认非显性且静默，只有尚书省按已批准步骤差遣后才启用。史馆、监察使和早朝同样不是默认显性官署，但须分别遵循下方角色专属启动矩阵；任何 bounded visibility 都需最新旨意明确批准。只读审计使用 `--check-only --no-auto-install-deps`；`--turn-start`、启动 panes、wake、closeout silence 和 bootstrap apply 都是 live/state-changing 动作；429/异常关闭/异常静默监督走静默脚本证据而不是可见监察窗。
+
+`superCC` 的 bounded visible startup authority 按角色固定为：
+`six_ministry_visible_start_authority=shangshu`；
+`shiguan_visible_start_authority=taizi|menxia`，适用于
+`shiguan|shiguan-hermes`；
+`patrol_inspector_visible_start_authority=taizi`；以及
+`zaochao_visible_start_authority=taizi`。该矩阵约束 visible office 的
+create/reuse/launch/wake，不得从共享 visibility 标志推断启动权。
 
 #### 3. 三省六部责任模型
 
@@ -121,6 +129,16 @@ Token 三级优化是硬规则：先写精准元数据（诏令编号、谱系�
 - 工部：工程实现、构建、测试、部署、浏览器/GUI/外部应用操作。
 - 史馆：三省共监、门下主审，记录实录、记忆裁定和考课证据。
 
+可执行层级不是运行模式各自解释的提示语。普通调度与 `superCC` 在容量选择、
+任务投递、pane wake 或状态写入前调用同一个 `court.dispatch_hierarchy.v1`
+裁决：`user -> taizi`、`taizi -> zhongshu|menxia|shangshu`、
+`shangshu -> 六部`，以及每个六部官署只能差遣本部的 bounded child office。
+中书省和门下省只拟旨/复核，不调六部；太子不直调六部；尚书省不越过所属六部
+直调工坊。bounded child 必须携带 `court.child_office_profile.v1`，其中
+`owner_role == direct_superior`、`canonical_authority=false`、read/write scope
+有界，并复用现有 P00 dispatch packet、semantic receipt 与唯一 invariant
+capsule，不建立第二套语义 authority。
+
 #### 4. 官籍与能力路由
 
 skill 会维护本地能力目录，按“官籍 -> 铨选 -> 差遣 -> 考课”选择能力。能力可以来自：
@@ -134,7 +152,7 @@ skill 会维护本地能力目录，按“官籍 -> 铨选 -> 差遣 -> 考课�
 
 #### 5. 并行 agente 与递归调度
 
-正式任务默认尝试并行或多 agente 调度。运行时支持时，三省和六部可以成为独立 agente；这些普通 spawned subagent 与 `superCC` 可见官署/Hermes readiness 证据是同一官署抽象的不同物化方式。普通并行不自动开启 `superCC`，Hermes profile-native 或 Claude 普通会话也不自动成为 normal `superCC`；只有 zellij+squad 环境门通过后才算正常 superCC。只要保留角色、直辖上级、dossier/profile、任务和回奏证据，普通并行仍是真官署办差。运行时不支持时，skill 会明确记录 `runtime_degraded`，并由太子代摄官署流程。
+正式任务默认尝试并行或多 agente 调度。运行时支持时，三省和六部可以成为独立 agente；这些普通 spawned subagent 与 `superCC` 可见官署/Hermes readiness 证据是同一官署抽象的不同物化方式。普通并行不自动开启 `superCC`，Hermes profile-native 或 Claude 普通会话也不自动成为 normal `superCC`；只有 zellij+squad 环境门通过后才算正常 superCC。只要保留角色、直辖上级、dossier/profile、任务和回奏证据，普通并行仍是真官署办差。运行时不支持时，skill 会明确记录 `runtime_degraded`；太子可继续收旨、转问和综合证据，但降级不得把太子改写成六部 dispatcher、绕过 shared hierarchy validator，或伪报六部已执行。
 
 用户明确要求串行时不得派生或复用 child agente。普通并行先执行 `court_cli.py agent-admit`，默认 `fork_turns=none`，并按职责、依赖和证据价值动态选角。V2 整棵会话树共 16 槽且根计槽，故最多 15 个 child；这是容量门禁而非并发目标，容量、占用、终态节点保留/回收或深度未知时 fail closed。
 
@@ -381,7 +399,7 @@ python -B scripts/ensure_court_agent_config.py --write
 
 新增 standing official templates 和 Codex-only agente 语义，支持三省、六部、史馆等独立 agente 的调度、汇报、关闭、日志和递归限制。并行是正式任务的默认姿态，但必须有明确证据价值。
 
-`superCC` terminal-visible 官署必须在当前 zellij 中显性显示，不能只依赖 `squad agents` 里的身份。默认 visible core 是太子+三省；三省用 `ensure_supercc_court.py --launch-visible-core --reclaim-existing` 修复，每个中间回合入口用 `ensure_supercc_court.py --turn-start --reclaim-existing` 检查当前 zellij 复用、简单响应、非当前静止官署释放和缺失官署重开。需要六部/史馆显性显示时，由尚书差遣上下文使用 bounded `--launch-offices <roles>`，并用 `zellij action list-panes` 记录 pane 标题和 id。批量启动时子 Codex 使用异步错峰和退避重试，避免同一秒并发打出 429；六部默认写入 `supercc-office-state.json` 为 `silent`，由尚书省 `--wake-offices` 差遣后工作，结诏后 `--closeout-silence` 静默非未完成官署；同步到 Codex、Agent Skills、Claude、Hermes 安装副本后再打包。Hermes CLI 复刻使用 `--office-client hermescli --hermescli-command <path>`；Claude 使用 `--office-client claude`；未知 CLI 可直接 `--office-client <tool>` 或 per-office map，必须记录 `cli_probe`，命令不可用时标记 runtime_degraded。`supercc_watchdog.py --daemon --quiet` 是静默监督路径，关闭时用 `--stop-daemon` 记录证据。
+`superCC` terminal-visible 官署必须在当前 zellij 中显性显示，不能只依赖 `squad agents` 里的身份。默认 visible core 是太子+三省；三省用 `ensure_supercc_court.py --launch-visible-core --reclaim-existing` 修复，每个中间回合入口用 `ensure_supercc_court.py --turn-start --reclaim-existing` 检查当前 zellij 复用、简单响应、非当前静止官署释放和缺失官署重开。需要 bounded 官署显性显示时，六部由尚书差遣上下文、`shiguan|shiguan-hermes` 由太子或门下省上下文、`patrol-inspector|zaochao` 由太子上下文使用 `--launch-offices <roles>`，并用 `zellij action list-panes` 记录 pane 标题和 id。批量启动时子 Codex 使用异步错峰和退避重试，避免同一秒并发打出 429；六部默认写入 `supercc-office-state.json` 为 `silent`，由尚书省 `--wake-offices` 差遣后工作，结诏后 `--closeout-silence` 静默非未完成官署；同步到 Codex、Agent Skills、Claude、Hermes 安装副本后再打包。Hermes CLI 复刻使用 `--office-client hermescli --hermescli-command <path>`；Claude 使用 `--office-client claude`；未知 CLI 可直接 `--office-client <tool>` 或 per-office map，必须记录 `cli_probe`，命令不可用时标记 runtime_degraded。`supercc_watchdog.py --daemon --quiet` 是静默监督路径，关闭时用 `--stop-daemon` 记录证据。
 
 #### 7. 增加 court runtime 状态机
 
@@ -528,6 +546,11 @@ The court supports three authority levels:
 - `autonomous`: management authority. The court may execute inside the user-approved scope, but asks before destructive actions, secret handling, paid actions, unverified installs, private uploads, or scope expansion.
 - `super`: full-control authority inside the task boundary. It may run commands, write files, use the network, install tools, change configuration, dispatch parallel agents, and work across approved paths, but it still cannot bypass hard safety gates.
 
+For bounded terminal-visible `superCC` startup, Shangshu alone starts the Six
+Ministries; Taizi or Menxia starts `shiguan|shiguan-hermes`; and Taizi alone
+starts `patrol-inspector|zaochao`. This role-specific matrix governs visible
+create/reuse/launch/wake authority and does not change task-reporting hierarchy.
+
 #### 3. Three Departments and Six Ministries Responsibility Model
 
 The skill uses explicit office responsibilities:
@@ -543,6 +566,19 @@ The skill uses explicit office responsibilities:
 - Xingbu: security, privacy, destructive actions, unverified installs, and rollback risk.
 - Gongbu: engineering implementation, builds, tests, deployment, browser/GUI/external app work.
 - Shiguan: audit records, memory decisions, evidence chain, and capability performance records.
+
+The executable hierarchy is not reinterpreted by each runtime mode. Ordinary
+dispatch and `superCC` call the same `court.dispatch_hierarchy.v1` decision
+before capacity selection, task delivery, pane wake, or state mutation. The
+exact normal edges are `user -> taizi`,
+`taizi -> zhongshu|menxia|shangshu`, `shangshu -> Six Ministries`, and a
+ministry only to its own bounded child office. Zhongshu and Menxia draft/review
+but never dispatch a ministry; Taizi never dispatches a ministry; Shangshu does
+not bypass the owning ministry to dispatch its child. A bounded child carries
+`court.child_office_profile.v1` with `owner_role == direct_superior`,
+`canonical_authority=false`, bounded read/write scope, and the existing P00
+dispatch packet, semantic receipt, and single invariant capsule. It creates no
+second semantic authority.
 
 #### 4. Capability Registry and Routing
 
@@ -563,7 +599,7 @@ A light catalog refresh checks whether skill, agent, MCP, CLI, or script roots c
 
 #### 5. Parallel Agents and Recursive Dispatch
 
-Formal tasks default to attempting useful parallel or multi-agent dispatch. When the runtime supports it, the Three Departments and Six Ministries can be separate agents. Ordinary spawned subagents, `superCC` visible offices, and Hermes readiness evidence are different materializations of the same office abstraction. Ordinary parallelism, Hermes profile-native readiness, and ordinary Claude Code sessions do not automatically open normal `superCC`; zellij+squad is the normal environment gate. The work is still real office work when role, direct superior, dossier/profile, task, and report evidence are preserved. When the runtime does not support it, the skill records `runtime_degraded` and Taizi temporarily acts on behalf of the offices.
+Formal tasks default to attempting useful parallel or multi-agent dispatch. When the runtime supports it, the Three Departments and Six Ministries can be separate agents. Ordinary spawned subagents, `superCC` visible offices, and Hermes readiness evidence are different materializations of the same office abstraction. Ordinary parallelism, Hermes profile-native readiness, and ordinary Claude Code sessions do not automatically open normal `superCC`; zellij+squad is the normal environment gate. The work is still real office work when role, direct superior, dossier/profile, task, and report evidence are preserved. When the runtime does not support it, the skill records `runtime_degraded`; Taizi may continue intake, relay, and synthesis, but degradation never turns Taizi into a ministry dispatcher, bypasses the shared hierarchy validator, or proves ministry execution.
 
 An explicit serial instruction disables child spawn/reuse. Ordinary parallel work first runs `court_cli.py agent-admit` and selects useful roles dynamically. V2 has 16 slots for the whole tree including the root, so at most 15 children; this is a capacity gate, not a target, and unknown capacity, occupancy, retained/reclaimed state, or depth fails closed.
 

@@ -31,7 +31,10 @@ dispatch/task ids when assigned, and explicit verification or blocker state.
 
 ## Hierarchy
 
-太子 -> 尚书省 -> 六部 -> ministry-owned workshop/craftsman.
+太子 -> 尚书省 -> 六部. 尚书省 is the only canonical Six-Ministry dispatcher,
+and every ministry target records `direct_superior=shangshu`. 尚书省 does not
+bypass the owning ministry to dispatch a child. All runtime carriers use the
+same `court.dispatch_hierarchy.v1` validator before side effects.
 
 ## Stop Conditions
 

@@ -107,6 +107,26 @@ authority, durable store, daemon, or second state machine.
   full prompts, full diffs, full files, transcripts, or private bodies into the
   child trace.
 
+### Mode-neutral executable hierarchy and bounded children
+
+- Ordinary admission/lifecycle and `superCC` transport call the same
+  `court.dispatch_hierarchy.v1` validator before capacity selection, task
+  delivery, pane wake, or state mutation. The normal graph is exactly
+  `user -> taizi`, `taizi -> zhongshu|menxia|shangshu`, `shangshu -> 六部`, and
+  `owning_ministry -> same_owner_bounded_child_office`; every other normal edge
+  is denied with the same schema/hash/reason in both modes.
+- A non-canonical worker carries `court.child_office_profile.v1` with
+  `owner_role == direct_superior`, `canonical_authority=false`, bounded portable
+  mandate/read/write scope, terminal condition, and bound task/dispatch/profile/
+  dossier/skill evidence. The admission-time child-profile/binding digest is
+  immutable evidence and is revalidated under the lifecycle mutation lock.
+- The child profile binds the existing P00
+  `court.semantic.dispatch_context_packet.v1`, semantic receipt, and one
+  `court.semantic.invariant_capsule.v1`; it never introduces a second capsule,
+  charter, receipt authority, canonical office authority, or durable ledger.
+  Scope widening, cross-owner dispatch, second-authority fields, stale receipts,
+  or profile/binding drift rejects before runtime bytes change.
+
 ## State Machine
 
 Use this state flow for non-trivial work. User-facing updates should use Chinese
@@ -414,6 +434,14 @@ Codex, Hermes CLI, Claude Code, or a configured generic CLI. It does not replace
 the hierarchy above; it makes the hierarchy visible and message-addressable on
 the local machine.
 
+Bounded visible startup is role-specific:
+`six_ministry_visible_start_authority=shangshu`;
+`shiguan_visible_start_authority=taizi|menxia` for
+`shiguan|shiguan-hermes`;
+`patrol_inspector_visible_start_authority=taizi`; and
+`zaochao_visible_start_authority=taizi`. This matrix governs visible
+create/reuse/launch/wake authority and does not alter task-reporting hierarchy.
+
 Parallel dispatch is not `superCC`. Ordinary `/court` parallelism, 六部并行,
 recursive subagente, and multi-agent review/execution remain on the existing
 subagente/runtime path under the active authority. Only a newest decree that
@@ -424,6 +452,12 @@ Environment gate:
 
 - 太子/户部 must verify zellij, `squad`, the selected office client, current pane identity, and bounded
   recursive agent settings before claiming terminal-visible `superCC`.
+- Before uniqueness checks or any squad/native-enter/pane/state action,
+  `enter_dispatch` resolves the caller and target profile and applies the same
+  `court.dispatch_hierarchy.v1` decision as ordinary admission. An explicit
+  caller option may narrow or accurately state authority but cannot make
+  `taizi -> 六部` or a cross-owner child edge legal. Denial returns the shared
+  schema/hash/edge/reason evidence with zero delivery and zero state mutation.
 - The standard probe is `python -B scripts/ensure_supercc_court.py --check-only`
   from this skill root. The complete record must preserve
   `visible_display_gate: PASSED | runtime_degraded | authority_blocked`,
@@ -459,9 +493,11 @@ Environment gate:
   `last_seen` freshness; active canonical ids that are not visible in the
   current zellij session and fail the simple responsiveness check are
   released/archived before visible-core offices are reopened. The superCC
-  visible core is 太子 in the current pane plus 三省; 六部/史馆 remain
-  non-visible/silent until 尚书省 dispatches a planned step or the newest decree
-  explicitly asks for bounded visibility.
+  visible core is 太子 in the current pane plus 三省. 六部、史馆、监察使和早朝
+  remain non-visible/silent unless the newest decree explicitly asks for bounded
+  visibility; the starter must then follow the role-specific matrix above:
+  尚书省 for 六部, 太子或门下省 for `shiguan|shiguan-hermes`, and 太子 for
+  `patrol-inspector|zaochao`.
   If the previous turn ended with final `结诏` resource saving, the same
   turn-start path must write `turn_start_open_decree=PASSED` and restore
   太子/三省 from `idle_receive` to `awake_no_silence` before any new dispatch;
@@ -627,7 +663,8 @@ mistaken for the definition of 官署 itself.
   visible panes; when the decree explicitly asks for bounded visible offices,
   record `BHR Libu-HR #0001`, `BHB Hubu #0001`, `BLB Libu #0001`,
   `BBB Bingbu #0001`, `BXB Xingbu #0001`, `BGB Gongbu #0001`, or
-  `ASH Shiguan #0001` only for those requested roles.
+  `ASH Shiguan #0001` only for those requested roles and only after the
+  role-specific visible-start authority above is established.
 - Visible assembly must be idempotent. Reuse a canonical pane that is already
   visible and has an active matching `squad` identity; do not create a second
   pane with the same title. Duplicate canonical titles, or visible panes whose
@@ -728,13 +765,15 @@ Six-ministry lifecycle:
   to 工部、礼部、刑部, or another ministry. If 尚书省 cannot wake or reach the
   assigned ministry, record the failed dispatch/repair evidence and report
   `taizi_substitution=runtime_degraded` rather than fabricating 六部 execution.
-- When the newest decree asks that 六部 or 史馆 be visible in the current zellij
-  UI, materialize them with `ensure_supercc_court.py --launch-offices` or the
-  per-turn `--turn-start` command from a 尚书-bound dispatch context and record
-  both `squad agents --all --json` and `zellij action list-panes` evidence.
-  Starting all 六部 for superCC visibility does not wake them for work: their
-  default mode is `silent`, and they must stay idle until 尚书省 sends an
-  explicit `WAKE_DISPATCH`/context packet.
+- When the newest decree asks that a bounded non-core role be visible in the
+  current zellij UI, materialize it with `ensure_supercc_court.py
+  --launch-offices` or the per-turn `--turn-start` command from its authorized
+  context: 尚书省 for 六部, 太子或门下省 for `shiguan|shiguan-hermes`, and 太子
+  for `patrol-inspector|zaochao`. Record both `squad agents --all --json` and
+  `zellij action list-panes` evidence. Visibility alone does not wake work:
+  六部 remain `silent` until 尚书省 sends an explicit
+  `WAKE_DISPATCH`/context packet, while the other bounded roles require the
+  corresponding starter from the role-specific matrix.
 - For design tasks, the corresponding 六部 must receive a complete but bounded
   context packet before acting: latest decree, semantic charter, target
   project/path, relevant files or screenshots, audience, brand/visual

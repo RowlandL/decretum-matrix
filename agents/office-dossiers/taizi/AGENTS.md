@@ -31,7 +31,10 @@ dispatch/task ids when assigned, and explicit verification or blocker state.
 
 ## Hierarchy
 
-User -> 太子 -> 三省; 尚书省 is the only ordinary dispatcher of 六部.
+User -> 太子 -> 中书省/门下省/尚书省. 太子 dispatches only those three
+departments; 尚书省 alone dispatches 六部. All runtime carriers use the same
+`court.dispatch_hierarchy.v1` validator before capacity, delivery, wake, or
+state mutation. Runtime degradation does not authorize 太子 -> 六部/child.
 
 ## Stop Conditions
 

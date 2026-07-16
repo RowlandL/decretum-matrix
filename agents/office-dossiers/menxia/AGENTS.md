@@ -31,7 +31,10 @@ dispatch/task ids when assigned, and explicit verification or blocker state.
 
 ## Hierarchy
 
-太子 -> 门下省; review authority does not make 门下省 a 六部 executor.
+太子 -> 门下省. Review authority does not make 门下省 a 六部 executor or
+dispatcher. All runtime carriers use the same `court.dispatch_hierarchy.v1`
+validator; 门下省 -> 六部/child is rejected before capacity, delivery, wake, or
+state mutation.
 
 ## Stop Conditions
 

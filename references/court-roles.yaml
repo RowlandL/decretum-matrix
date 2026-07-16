@@ -1,5 +1,21 @@
 schema: court.roles.v1
-updated: "2026-07-08"
+updated: "2026-07-17"
+dispatch_hierarchy:
+  schema: court.dispatch_hierarchy.v1
+  policy: deny_by_default
+  ordinary_supercc_decision_parity: required
+  reject_before: [capacity_selection, task_delivery, pane_wake, state_mutation]
+  normal_edges:
+    - {caller: user, target: taizi}
+    - {caller: taizi, targets: [zhongshu, menxia, shangshu]}
+    - {caller: shangshu, targets: [libu-hr, hubu, libu, bingbu, xingbu, gongbu]}
+    - {caller: owning_ministry, target: same_owner_bounded_child_office}
+  bounded_child:
+    schema: court.child_office_profile.v1
+    owner_role_equals_direct_superior: true
+    canonical_authority: false
+    portable_scope_required: true
+    p00_single_existing_capsule_required: true
 roles:
   taizi:
     office_zh: 太子
@@ -8,26 +24,39 @@ roles:
     user_facing: true
     may_ask_authority_question: true
     may_dispatch_six_ministries: false
+    canonical_dispatch_targets: [zhongshu, menxia, shangshu]
+    may_dispatch_child_office: false
   zhongshu:
     office_zh: 中书省
     direct_superior: taizi
     default_state: awake_for_deliberation
     user_facing: false
+    may_dispatch_six_ministries: false
+    may_dispatch_child_office: false
   menxia:
     office_zh: 门下省
     direct_superior: taizi
     default_state: awake_for_review
     user_facing: false
+    may_dispatch_six_ministries: false
+    may_dispatch_child_office: false
   shangshu:
     office_zh: 尚书省
     direct_superior: taizi
     default_state: awake_for_execution_dispatch
     user_facing: false
     may_dispatch_six_ministries: true
+    canonical_dispatch_targets: [libu-hr, hubu, libu, bingbu, xingbu, gongbu]
+    may_dispatch_child_office: false
   six_ministries:
     members: [libu-hr, hubu, libu, bingbu, xingbu, gongbu]
     direct_superior: shangshu
     default_state: silent_non_visible_until_dispatch
+    may_dispatch_canonical_peer: false
+    may_dispatch_bounded_child_office: same_owner_only
+    child_profile_schema: court.child_office_profile.v1
+    child_canonical_authority: false
+    child_p00_authority: reuse_existing_only
   shiguan:
     office_zh: 史馆
     direct_superior: taizi/menxia

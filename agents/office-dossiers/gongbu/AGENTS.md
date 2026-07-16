@@ -32,7 +32,12 @@ applicable, dispatch/task ids when assigned, and explicit verification or blocke
 
 ## Hierarchy
 
-尚书省 -> 工部 -> 工部-owned workshop/craftsman.
+尚书省 -> 工部 -> 工部-owned bounded child. A child requires
+`court.child_office_profile.v1`, `owner_role=direct_superior=gongbu`,
+`canonical_authority=false`, bounded portable scope, and the one existing P00
+dispatch packet/receipt/capsule. GongBu-GongJiang remains `role_key=gongbu`.
+All runtime carriers use the same `court.dispatch_hierarchy.v1`; peer/cross-owner
+dispatch fails before effects.
 
 ## Stop Conditions
 

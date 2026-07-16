@@ -34,6 +34,15 @@ planning, review, and implementation labels.
 ### Canonical hierarchy and exact office preload
 
 This is the single governing office-chain contract for every runtime carrier.
+Ordinary admission/lifecycle and `superCC` transport call the same shared
+`court.dispatch_hierarchy.v1` validator before capacity selection, task
+delivery, pane wake, or state mutation. The deny-by-default normal graph is
+`user -> taizi`, `taizi -> zhongshu|menxia|shangshu`, `shangshu -> 六部`, and
+`owning_ministry -> same_owner_bounded_child_office`. A task/thread name,
+display title, `--calling-office` override, special lifecycle role, or transport
+mode never creates another edge. Rejections preserve the shared hierarchy
+schema/hash/reason and leave delivery/runtime bytes unchanged.
+
 `shangshu_six_ministries_hierarchy_gate` requires every ministry assignment to
 record `direct_superior=shangshu`. `ministry_craftsman_hierarchy_gate` requires
 each workshop, worker, or craftsman assignment to record
@@ -41,6 +50,17 @@ each workshop, worker, or craftsman assignment to record
 尚书省、三省, or 太子. The complete execution chain is therefore 太子 -> 三省,
 尚书省 -> 六部, and each ministry -> its own 工坊/工匠. 中书省 and 门下省 remain
 peer review offices and never acquire 六部 dispatch authority.
+
+Every non-canonical worker/craftsman also carries
+`schema=court.child_office_profile.v1`, `owner_role == direct_superior`,
+`canonical_authority=false`, bounded portable `read_scope`/`write_set`, terminal
+conditions, and bound profile/dossier/skill hashes. It reuses the existing
+`court.semantic.dispatch_context_packet.v1`, semantic receipt, and single
+`court.semantic.invariant_capsule.v1` under P00. A child charter override,
+second capsule/receipt authority, widened scope, peer/cross-owner dispatch, or
+child-owned durable ledger fails closed before side effects. GongBu-GongJiang
+remains the compatibility example: canonical role `gongbu`, owner/direct
+superior `gongbu`, and no canonical authority.
 
 Before any of the 14 official roles performs named-office work, the dispatcher
 and child must prove the exact role binding: canonical role key, standing
@@ -98,11 +118,12 @@ Historical basis and adaptation boundary:
   charter, decides whether to enter 三省 deliberation, asks only approved
   one-by-one questions, reports execution gates, and returns final memorials.
   太子 is not a mere `奉诏` executor; `奉诏` is only a receipt formula. 太子 does
-  not directly command 六部 except in explicitly reported runtime-degraded 代摄,
-  and under `superCC` it must never perform 三省 deliberation, 尚书 dispatch, or
-  六部 execution for a reachable healthy office. It only routes, dispatches to
-  direct superiors, monitors 三省 liveness, synthesizes reports, and asks the
-  user when required.
+  never dispatches 六部, including during runtime degradation, and under
+  `superCC` it must never perform 三省 deliberation, 尚书 dispatch, or 六部
+  execution for a reachable healthy office. A degraded fallback may preserve
+  intake, relay, or synthesis, but it cannot create a forbidden hierarchy edge
+  or be reported as 六部 execution. 太子 only routes to its direct reports,
+  monitors 三省 liveness, synthesizes reports, and asks the user when required.
 - `中书省` answers "what is the decree asking for?" It drafts intent,
   decomposes work, researches facts, names missing decisions, and defines
   acceptance criteria. It may propose questions or plans upward, but it does not
@@ -148,6 +169,15 @@ Default `superCC` supervision channels:
 - A dedicated 监察使/patrol-inspector pane is not part of routine startup. If
   explicitly invoked with `--patrol`, it is a read-only diagnostic mirror and
   does not replace the direct-superior correction duties above.
+
+Bounded terminal-visible startup uses a role-specific authority matrix:
+`six_ministry_visible_start_authority=shangshu`;
+`shiguan_visible_start_authority=taizi|menxia` for
+`shiguan|shiguan-hermes`;
+`patrol_inspector_visible_start_authority=taizi`; and
+`zaochao_visible_start_authority=taizi`. These values govern visible
+create/reuse/launch/wake authority without changing each office's reporting
+hierarchy.
 
 六部 semantics under 尚书省:
 
@@ -709,9 +739,12 @@ clarification request and the user's answers as 实录 checkpoints.
   duty as completed by that office.
 - Sender defaults must follow the hierarchy: 三省 and 史馆 diagnostic dispatch
   defaults to `calling_office=taizi`; 六部/workshop wake or execution dispatch
-  defaults to `calling_office=shangshu`. A CLI/script may override this only by
-  an explicit `--calling-office` mandate, and evidence must preserve both
-  `calling_office` and the assigned office's `direct_superior_source`.
+  defaults to `calling_office=shangshu`. An explicit `--calling-office` may
+  accurately state or narrow the caller but cannot replace the canonical graph;
+  for example `calling_office=taizi` with a 六部 target remains
+  `dispatch_hierarchy_edge_forbidden`. Evidence preserves `calling_office`, the
+  shared hierarchy decision, and the assigned office's
+  `direct_superior_source`.
 - Office skill calls have their own mandate. Before or while invoking a skill,
   the calling office must bind the skill call to `calling_office`, `skill_name`,
   `purpose`, `input_boundary`, `allowed_actions`, `forbidden_actions`,
@@ -844,13 +877,15 @@ clarification request and the user's answers as 实录 checkpoints.
   尚书省. 尚书省 must aggregate, reconcile, and decide whether each ministry result
   is complete, partial, blocked, or needs re-dispatch; only then does 尚书省
   上奏太子 for synthesis and 门下省复核.
-- Under `superCC`, a visible 六部/史馆 decree requires actual current zellij panes,
-  not only archived or active `squad` identities, and only after the newest
-  decree explicitly asks for that visibility. Use `scripts/ensure_supercc_court.py
-  --launch-offices <bounded-role-set>` from a 尚书-bound dispatch context, then
-  record `zellij action list-panes` titles and `squad agents --all --json`
-  status in the complete Shiguan memorial. If the pane cannot be seen in the
-  current zellij session, mark that office `runtime_degraded`.
+- Under `superCC`, a bounded visible-role decree requires actual current zellij
+  panes, not only archived or active `squad` identities, and only after the
+  newest decree explicitly asks for that visibility. Use
+  `scripts/ensure_supercc_court.py --launch-offices <bounded-role-set>` from
+  the authorized context: 尚书省 for 六部, 太子或门下省 for
+  `shiguan|shiguan-hermes`, and 太子 for `patrol-inspector|zaochao`. Then record
+  `zellij action list-panes` titles and `squad agents --all --json` status in the
+  complete Shiguan memorial. If the pane cannot be seen in the current zellij
+  session, mark that office `runtime_degraded`.
 - For design tasks, "complete context" means the relevant bounded design record:
   user goal, target product/page/screen, audience, brand or style constraints,
   existing design system, files/components/routes/assets, responsive viewports,

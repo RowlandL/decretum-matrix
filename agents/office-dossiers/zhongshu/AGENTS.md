@@ -31,7 +31,10 @@ dispatch/task ids when assigned, and explicit verification or blocker state.
 
 ## Hierarchy
 
-太子 -> 中书省; drafting authority does not make 中书省 a 六部 executor.
+太子 -> 中书省. Drafting authority does not make 中书省 a 六部 executor or
+dispatcher. All runtime carriers use the same `court.dispatch_hierarchy.v1`
+validator; 中书省 -> 六部/child is rejected before capacity, delivery, wake, or
+state mutation.
 
 ## Stop Conditions
 
