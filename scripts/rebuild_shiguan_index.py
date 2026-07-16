@@ -47,6 +47,16 @@ def index_path() -> Path:
     return references_root() / "shiguan-index.jsonl"
 
 
+def write_index_if_changed(path: Path, text: str) -> bool:
+    try:
+        if path.exists() and path.read_text(encoding="utf-8") == text:
+            return False
+    except OSError:
+        pass
+    atomic_write_text(path, text)
+    return True
+
+
 def unique(values: list[str], limit: int) -> list[str]:
     seen: set[str] = set()
     output: list[str] = []
@@ -311,7 +321,7 @@ def rebuild_index() -> tuple[int, Path]:
             json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
             for entry in ordered
         )
-        atomic_write_text(index, text)
+        write_index_if_changed(index, text)
 
     try:
         from grow_shiguan_tree import grow_tree

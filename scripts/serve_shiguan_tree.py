@@ -19,6 +19,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import traceback
 import zipfile
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urlparse
@@ -845,11 +846,13 @@ def agent_presence_statuses() -> list[dict[str, object]]:
         ttl = int(value.get("ttl_seconds") or 180)
         age = int((now - last_seen).total_seconds()) if last_seen else None
         online = age is not None and age <= max(30, ttl)
+        if not online:
+            continue
         statuses.append(
             {
                 "agent_id": str(value.get("agent_id") or value.get("source_agent") or path.stem),
                 "label": str(value.get("label") or value.get("source_agent_label") or path.stem),
-                "status": "online" if online else "offline",
+                "status": "online",
                 "last_seen": str(value.get("last_seen") or value.get("updated_at") or ""),
                 "age_seconds": age,
                 "event": str(value.get("event") or ""),
@@ -858,7 +861,7 @@ def agent_presence_statuses() -> list[dict[str, object]]:
                 "skill_root": str(value.get("source_agent_skill_root") or ""),
             }
         )
-    statuses.sort(key=lambda item: (str(item.get("status")) != "online", str(item.get("label")).lower()))
+    statuses.sort(key=lambda item: str(item.get("label")).lower())
     return statuses
 
 
@@ -1076,45 +1079,29 @@ def normalize_obsidian_search_results(value: object, limit: int) -> list[str]:
     return paths[:limit]
 
 
-def obsidian_sync_status() -> dict[str, object]:
-    config = obsidian_sync_config(include_secret=False)
-    autosync = autosync_public_status()
-    rest: dict[str, object] = {
-        "configured": bool(config.get("has_api_key")),
-        "ok": False,
-    }
-    if rest["configured"]:
-        try:
-            status, body, _ = obsidian_api_request("/", timeout=2.5)
-            rest.update(
-                {
-                    "ok": 200 <= status < 300,
-                    "status": status,
-                    "message": body.decode("utf-8", errors="replace")[:240],
-                }
-            )
-        except Exception as exc:
-            rest["message"] = str(exc)
-    else:
-        rest["message"] = "REST 通道未配置（可选）"
-
+def compose_obsidian_sync_status(
+    config: dict[str, object],
+    autosync: dict[str, object],
+    rest: dict[str, object],
+) -> dict[str, object]:
     filesystem_mode = config.get("sync_mode") == "filesystem_preserve_only"
     if filesystem_mode:
         ok = bool(autosync.get("ok"))
         message = "filesystem preserve-only autosync 正常" if ok else str(
             autosync.get("message") or "filesystem preserve-only autosync 异常"
         )
-        if rest["configured"]:
-            rest_message = (
-                "REST 通道已连接"
-                if rest["ok"]
-                else f"REST 通道异常（非阻塞）：{rest.get('message') or '未知错误'}"
-            )
+        if rest.get("configured"):
+            if not rest.get("checked"):
+                rest_message = "REST 通道已配置（尚未测试，非阻塞）"
+            elif rest.get("ok"):
+                rest_message = "REST 通道已连接"
+            else:
+                rest_message = f"REST 通道异常（非阻塞）：{rest.get('message') or '未知错误'}"
         else:
-            rest_message = str(rest["message"])
+            rest_message = str(rest.get("message") or "REST 通道未配置（可选）")
         message = f"{message}；{rest_message}"
     else:
-        ok = bool(rest["ok"])
+        ok = bool(rest.get("ok"))
         message = str(rest.get("message") or "REST 通道状态未知")
 
     result: dict[str, object] = {
@@ -1129,10 +1116,49 @@ def obsidian_sync_status() -> dict[str, object]:
     return result
 
 
+def obsidian_sync_status() -> dict[str, object]:
+    config = obsidian_sync_config(include_secret=False)
+    autosync = autosync_public_status()
+    rest: dict[str, object] = {
+        "configured": bool(config.get("has_api_key")),
+        "checked": False,
+        "ok": False,
+    }
+    if rest["configured"]:
+        rest["checked"] = True
+        try:
+            status, body, _ = obsidian_api_request("/", timeout=2.5)
+            rest.update(
+                {
+                    "ok": 200 <= status < 300,
+                    "status": status,
+                    "message": body.decode("utf-8", errors="replace")[:240],
+                }
+            )
+        except Exception as exc:
+            rest["message"] = str(exc)
+    else:
+        rest["message"] = "REST 通道未配置（可选）"
+    return compose_obsidian_sync_status(config, autosync, rest)
+
+
 def autosync_public_status() -> dict[str, object]:
     status = read_json_file(autosync_status_path(), {})
     if isinstance(status, dict) and status:
-        return {key: value for key, value in status.items() if key != "snapshot"}
+        public = {key: value for key, value in status.items() if key != "snapshot"}
+        if public.get("mode") == "daemon":
+            from ensure_shiguan_autosync import status_is_fresh
+
+            interval = bounded_int(public.get("interval_seconds"), 30, 5, 3600)
+            if not status_is_fresh(public, interval):
+                public.update(
+                    {
+                        "ok": False,
+                        "phase": "stale",
+                        "message": "autosync daemon 状态已过期；请检查本机守护进程",
+                    }
+                )
+        return public
     return {
         "ok": False,
         "message": "autosync daemon 尚未运行",
@@ -1143,12 +1169,17 @@ def autosync_public_status() -> dict[str, object]:
 
 def obsidian_sync_public_state() -> dict[str, object]:
     config = obsidian_sync_config(False)
-    return {
+    rest: dict[str, object] = {
+        "configured": bool(config.get("has_api_key")),
+        "checked": False,
         "ok": False,
-        "message": "未测试连接",
-        "config": config,
-        "autosync": autosync_public_status(),
+        "message": (
+            "REST 通道已配置（尚未测试）"
+            if config.get("has_api_key")
+            else "REST 通道未配置（可选）"
+        ),
     }
+    return compose_obsidian_sync_status(config, autosync_public_status(), rest)
 
 
 def read_obsidian_note(path: str) -> dict[str, str]:
@@ -1268,6 +1299,31 @@ def default_obsidian_vault_path() -> Path:
     return Path(os.environ.get("OBSIDIAN_VAULT_PATH") or str(config.get("vault_path") or default_obsidian_cache_vault())).expanduser().resolve()
 
 
+def obsidian_refresh_request_path() -> Path:
+    return obsidian_sync_root() / "refresh-request.json"
+
+
+def autosync_daemon_health(interval: int) -> dict[str, object]:
+    from ensure_shiguan_autosync import ensure
+
+    return ensure(max(5, interval), check_only=True)
+
+
+def request_obsidian_autosync_refresh(reason: str = "webui_file_sync") -> dict[str, object]:
+    requested_at = datetime.now().isoformat(timespec="seconds")
+    target = obsidian_refresh_request_path()
+    write_json_file(
+        target,
+        {
+            "requested_at": requested_at,
+            "reason": reason,
+            "mode": "async",
+            "shared_shiguan_root": str(references_root()),
+        },
+    )
+    return {"requested_at": requested_at, "path": str(target)}
+
+
 def obsidian_filesystem_sync(payload: dict[str, object] | None = None) -> dict[str, object]:
     payload = payload or {}
     vault = validate_local_content_root(
@@ -1307,17 +1363,65 @@ def obsidian_filesystem_sync(payload: dict[str, object] | None = None) -> dict[s
         "api_key": api_key,
         "rest_api_note": "Independent autosync daemon is active. Obsidian Local REST API is optional for push/pull.",
     }
-    config_result = patch_obsidian_sync_config(config, base_snapshot=base)
-    if config_result.get("conflict"):
-        raise ValueError("Obsidian 同步配置并发冲突：" + ", ".join(config_result.get("conflict_fields", [])))
-    if not autosync_script.exists():
-        raise ValueError(f"autosync script missing: {autosync_script}")
-    timeout = bounded_int(payload.get("timeout_seconds"), 240, 30, 600)
+    interval = int(config["autosync_interval_seconds"])
+    daemon_health = autosync_daemon_health(interval)
+    daemon_status = str(daemon_health.get("status") or "")
+    if daemon_status in {"RUNNING_UNHEALTHY", "PROCESS_DISCOVERY_UNAVAILABLE"}:
+        reason = str(daemon_health.get("reason") or daemon_status)
+        raise TimeoutError(f"Obsidian autosync daemon 正在运行但健康状态异常：{reason}")
+
+    save_config = truthy(payload.get("save_config"))
+    if save_config:
+        config_result = patch_obsidian_sync_config(config, base_snapshot=base)
+        if config_result.get("conflict"):
+            raise ValueError("Obsidian 同步配置并发冲突：" + ", ".join(config_result.get("conflict_fields", [])))
+    else:
+        config_result = {
+            "skipped": True,
+            "reason": "save_config_false",
+            "committed_revision": current.get("revision"),
+            "transaction_id": current.get("transaction_id"),
+            "post_write_verified": True,
+        }
+
+    if daemon_status == "REUSED":
+        refresh = request_obsidian_autosync_refresh()
+        queued = {
+            "ok": True,
+            "queued": True,
+            "refresh_requested": True,
+            "reason": "daemon_refresh_requested",
+            "requested_at": refresh["requested_at"],
+            "preserve_only": True,
+            "removed": 0,
+        }
+        return {
+            "config": obsidian_sync_config(False),
+            "config_transaction": {
+                "revision": config_result.get("committed_revision"),
+                "transaction_id": config_result.get("transaction_id"),
+                "post_write_verified": config_result.get("post_write_verified"),
+                "skipped": config_result.get("skipped", False),
+            },
+            "autosync": autosync_public_status(),
+            "filesystem_sync": queued,
+        }
+
+    timeout = bounded_int(payload.get("timeout_seconds"), 660, 30, 900)
     with tempfile.NamedTemporaryFile(prefix="shiguan-autosync-result-", suffix=".json", delete=False) as handle:
         result_path = Path(handle.name)
     try:
         proc = subprocess.run(
-            [background_python(), str(autosync_script), "--once", "--result-json", str(result_path)],
+            [
+                background_python(),
+                str(autosync_script),
+                "--once",
+                "--force-sync",
+                "--lock-timeout",
+                "0",
+                "--result-json",
+                str(result_path),
+            ],
             cwd=str(skill_root()),
             text=True,
             stdout=subprocess.DEVNULL,
@@ -1328,6 +1432,8 @@ def obsidian_filesystem_sync(payload: dict[str, object] | None = None) -> dict[s
         if proc.returncode != 0:
             raise ValueError((proc.stderr or "autosync failed")[-1200:])
         result = json.loads(result_path.read_text(encoding="utf-8"))
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError(f"Obsidian autosync 操作在 {timeout} 秒后超时") from exc
     except json.JSONDecodeError as exc:
         raise ValueError("autosync returned non-JSON output") from exc
     finally:
@@ -1345,6 +1451,15 @@ def obsidian_filesystem_sync(payload: dict[str, object] | None = None) -> dict[s
         "autosync": result,
         "filesystem_sync": result.get("filesystem_sync", result),
     }
+
+
+def log_local_exception(context: str) -> None:
+    print(f"SHIGUAN_WEB_ERROR {context}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    try:
+        sys.stderr.flush()
+    except OSError:
+        pass
 
 
 def role_allows(actual: str, required: str) -> bool:
@@ -2582,9 +2697,17 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(404)
         except PermissionError as exc:
             self.send_safe_error(403, str(exc), "AUTH_REQUIRED")
+        except TimeoutError:
+            log_local_exception(f"POST {path}")
+            self.send_safe_error(
+                503,
+                "管理操作繁忙或超时，请稍后重试；详细信息已写入本机服务日志。",
+                "OPERATION_BUSY",
+            )
         except ValueError as exc:
             self.send_safe_error(400, str(exc), "BAD_REQUEST")
         except Exception:
+            log_local_exception(f"POST {path}")
             self.send_safe_error(500, "管理操作失败；详细信息仅保留在本机服务日志。", "SERVER_ERROR")
 
     def do_OPTIONS(self) -> None:

@@ -570,16 +570,14 @@ function renderPeerStatusBar() {
   const peers = Array.isArray(state.peers) ? state.peers : [];
   const agents = Array.isArray(state.agentPresence) ? state.agentPresence : [];
   el.peerStatusBar.replaceChildren();
-  const agentOnline = agents.filter((agent) => agent.status === "online").length;
+  const activeAgents = agents.filter((agent) => agent.status === "online");
   const agentSummary = document.createElement("span");
   agentSummary.className = "peer-status-chip summary";
-  agentSummary.textContent = agents.length
-    ? `AI ${agents.length} 个 · 在线 ${agentOnline}`
-    : "AI 0 个";
+  agentSummary.textContent = `AI 心跳 ${activeAgents.length}`;
   el.peerStatusBar.append(agentSummary);
-  for (const agent of agents.slice(0, 4)) {
+  for (const agent of activeAgents.slice(0, 4)) {
     const chip = document.createElement("span");
-    chip.className = `peer-status-chip ${agent.status === "online" ? "online" : "offline"}`;
+    chip.className = "peer-status-chip online";
     chip.title = [
       agent.label || agent.agent_id || "AI",
       `状态：${agentStatusLabel(agent.status)}`,
@@ -3933,14 +3931,18 @@ async function loadState() {
   refreshControlledOptionsFromEntries(state.entries);
   renderPeerStatusBar();
   const peerShown = Number(data.peer_count || 0);
-  const peerTotal = state.peers.length;
   const localShown = Number(data.shown || 0);
   const queue = state.importQueue || {};
   const queueText = queue.pending_count
     ? `；待处理导入 ${queue.pending_count} 份，新增 ${queue.new_count || 0} 份，约 ${queue.estimated_tokens || 0} tokens，新增约 ${queue.new_estimated_tokens || 0} tokens`
     : "";
   const rootText = data.shared_shiguan_root ? `；权威库 ${truncate(String(data.shared_shiguan_root), 72)}` : "";
-  el.meta.textContent = `本机 ${data.local_count || data.count || 0} 条，当前显示 ${localShown} 条；共享机器 ${peerTotal} 台${state.activePeerId ? `，已展开 ${peerMachineName(peerForId(state.activePeerId) || {})}：${peerShown} 条` : "，图谱默认折叠"}${queueText}${rootText}；${serviceAccessText(data)}`;
+  const graphText = state.activePeerId
+    ? `已展开 ${peerMachineName(peerForId(state.activePeerId) || {})}：${peerShown} 条`
+    : "图谱默认折叠";
+  const metaText = `本机 ${data.local_count || data.count || 0} 条，当前显示 ${localShown} 条；${graphText}${queueText}${rootText}；${serviceAccessText(data)}`;
+  el.meta.textContent = metaText;
+  el.meta.title = metaText;
   renderEntries();
   renderGraph();
   setStatus(`已载入：${data.index_path}`);
@@ -4224,7 +4226,7 @@ function obsidianConfigPayload() {
     auto_enabled: Boolean(el.obsidianAutoEnabled?.checked),
     sync_mode: syncMode,
     verify_ssl: Boolean(el.obsidianVerifySsl?.checked),
-    save_config: true,
+    save_config: false,
   };
 }
 
@@ -4252,7 +4254,8 @@ function renderObsidianSyncStatus(status = {}) {
   }
   setObsidianMode(config.sync_mode === "auto" || config.auto_enabled ? "auto" : "manual");
   const prefix = status.ok ? "同步正常" : "同步异常";
-  const message = status.message || (config.has_api_key ? "等待同步状态" : "REST 通道未配置（可选）");
+  const message = status.message
+    || (status.rest?.configured === false ? "REST 通道未配置（可选）" : "等待同步状态");
   const daemonState = autosync.status || autosync.mode || (autosync.ok ? "running" : "not running");
   const detail = [
     `权威库 ${truncate(config.source_vault_path || config.shared_shiguan_root || "", 68)}`,
@@ -4282,9 +4285,33 @@ function chooseFiles(input) {
   return true;
 }
 
+function setObsidianActionResult(message, warn = false) {
+  if (!el.obsidianSyncResult) return;
+  el.obsidianSyncResult.textContent = message;
+  el.obsidianSyncResult.classList.toggle("warn", warn);
+}
+
+function setObsidianActionBusy(busy, action = "") {
+  const labels = {
+    save: "保存连接",
+    test: "测试连接",
+    preview: "预览导入",
+    import: "同步导入",
+    export: "REST 导出",
+    filesystem: "文件同步",
+  };
+  for (const button of el.obsidianSyncForm?.querySelectorAll("button[value]") || []) {
+    button.disabled = Boolean(busy);
+  }
+  if (busy) {
+    setObsidianActionResult(`执行中：${labels[action] || action || "同步操作"}...`);
+  }
+}
+
 async function importObsidianFiles(files) {
   const candidates = [...(files || [])].filter((file) => /\.(md|txt|zip)$/i.test(file.name || ""));
   if (!candidates.length) {
+    setObsidianActionResult("请选择 .md、.txt 或 .zip 文件", true);
     setStatus("请选择 .md、.txt 或 .zip 文件", true);
     return;
   }
@@ -4292,6 +4319,7 @@ async function importObsidianFiles(files) {
     const payloadFiles = [];
     for (const file of candidates) {
       if (/\.zip$/i.test(file.name || "")) {
+        setObsidianActionResult("zip 文件仍需使用 Obsidian 同步 API 或本机路径导入；本轮未直接解包浏览器 zip。", true);
         setStatus("zip 文件仍需使用 Obsidian 同步 API 或本机路径导入；本轮未直接解包浏览器 zip。", true);
         continue;
       }
@@ -4308,8 +4336,10 @@ async function importObsidianFiles(files) {
     });
     await loadState();
     const queue = data.queue || {};
+    setObsidianActionResult(`文件已进入待处理队列：新增 ${data.new || 0} 份；队列共 ${queue.pending_count || 0} 份。`);
     setStatus(`Obsidian 文件已进入待处理队列：新增 ${data.new || 0} 份；队列共 ${queue.pending_count || 0} 份，约 ${queue.estimated_tokens || 0} tokens。`);
   } catch (error) {
+    setObsidianActionResult(`文件导入失败：${error.message}`, true);
     setStatus(`Obsidian 文件导入失败：${error.message}`, true);
   }
 }
@@ -4334,13 +4364,19 @@ async function openObsidianSyncDialog() {
   }
   return new Promise((resolve) => {
     let submittedAction = "";
+    let actionBusy = false;
     const cleanup = () => {
+      setObsidianActionBusy(false);
       el.obsidianSyncForm.removeEventListener("click", handleButtonClick, true);
       el.obsidianSyncForm.removeEventListener("submit", handleSubmit);
       el.obsidianSyncDialog.removeEventListener("cancel", handleCancel);
       el.obsidianSyncDialog.removeEventListener("close", handleClose);
     };
     const handleButtonClick = (event) => {
+      if (actionBusy) {
+        event.preventDefault();
+        return;
+      }
       const modeButton = event.target?.closest?.("#obsidianManualMode, #obsidianAutoMode");
       if (modeButton === el.obsidianManualMode) {
         event.preventDefault();
@@ -4361,6 +4397,8 @@ async function openObsidianSyncDialog() {
       event.preventDefault();
       const submitter = event.submitter;
       const action = submitter instanceof HTMLButtonElement ? submitter.value : submittedAction;
+      submittedAction = "";
+      if (actionBusy) return;
       if (!action || action === "close") {
         cleanup();
         el.obsidianSyncDialog.close("close");
@@ -4369,21 +4407,22 @@ async function openObsidianSyncDialog() {
       }
       if (action === "choose") {
         chooseFiles(el.obsidianFileInput);
-        resolve(null);
         return;
       }
       const payload = obsidianConfigPayload();
+      const persistedPayload = { ...payload, save_config: true };
+      actionBusy = true;
+      setObsidianActionBusy(true, action);
       try {
         if (action === "save") {
-          await api("/api/obsidian-sync/config", { method: "POST", body: JSON.stringify(payload) });
+          await api("/api/obsidian-sync/config", { method: "POST", body: JSON.stringify(persistedPayload) });
           await loadObsidianSyncStatus();
           setStatus("Obsidian 同步配置已保存");
         } else if (action === "test") {
-          await api("/api/obsidian-sync/config", { method: "POST", body: JSON.stringify(payload) });
+          await api("/api/obsidian-sync/config", { method: "POST", body: JSON.stringify(persistedPayload) });
           const status = await loadObsidianSyncStatus();
           const restOk = Boolean(status.rest?.ok);
-          const restMessage = status.rest?.message || status.message;
-          setStatus(restOk ? "Obsidian API 连接成功" : `Obsidian API 未连接：${restMessage}`);
+          setStatus(restOk ? "Obsidian REST API 连接成功" : `Obsidian REST API 未连接：${status.rest?.message || status.message}`);
         } else if (action === "preview") {
           const preview = await api("/api/obsidian-sync/preview", { method: "POST", body: JSON.stringify(payload) });
           if (el.obsidianSyncResult) {
@@ -4396,17 +4435,25 @@ async function openObsidianSyncDialog() {
           const data = await api("/api/obsidian-sync/import", { method: "POST", body: JSON.stringify(payload) });
           await loadState();
           const queue = data.queue?.queue || {};
+          setObsidianActionResult(`同步导入完成：新增 ${data.queue?.new || 0} 份；队列共 ${queue.pending_count || 0} 份。`);
           setStatus(`Obsidian 同步导入已预处理入队：新增 ${data.queue?.new || 0} 份；队列共 ${queue.pending_count || 0} 份。`);
         } else if (action === "export") {
           const data = await api("/api/obsidian-sync/export", { method: "POST", body: JSON.stringify(payload) });
+          setObsidianActionResult(`REST 导出完成：写入 ${data.written || 0} 个文件到 ${data.target_folder || "Court Shiguan"}。`);
           setStatus(`Obsidian REST 导出完成：写入 ${data.written || 0} 个文件到 ${data.target_folder || "Court Shiguan"}。`);
         } else if (action === "filesystem") {
           const data = await api("/api/obsidian-sync/filesystem", { method: "POST", body: JSON.stringify(payload) });
           await loadState();
           const result = data.filesystem_sync || {};
           const autosync = data.autosync || {};
+          if (result.refresh_requested) {
+            setObsidianActionResult("文件同步请求已提交；现有 autosync daemon 将在下一轮执行 preserve-only 同步。");
+            setStatus("Obsidian 文件同步请求已提交；后台 daemon 将异步完成。", false);
+            return;
+          }
           const removed = result.removed || 0;
           const preserveText = result.preserve_only ? "preserve-only" : "非 preserve-only";
+          setObsidianActionResult(`文件同步完成：${preserveText}，新增 ${result.copied || 0}，更新 ${result.updated || 0}，保留 ${result.preserved || 0}，删除 ${removed}。`, Boolean(removed));
           setStatus(`Obsidian autosync 单次循环完成：${preserveText}，新增 ${result.copied || 0}，更新 ${result.updated || 0}，保留 ${result.preserved || 0}，删除 ${removed}，回传入队 ${autosync.queued_count || 0}。`, Boolean(removed));
         }
       } catch (error) {
@@ -4415,10 +4462,16 @@ async function openObsidianSyncDialog() {
           el.obsidianSyncResult.classList.add("warn");
         }
         setStatus(`Obsidian 同步失败：${error.message}`, true);
+      } finally {
+        actionBusy = false;
+        setObsidianActionBusy(false);
       }
-      resolve(null);
     };
-    const handleCancel = () => {
+    const handleCancel = (event) => {
+      if (actionBusy) {
+        event.preventDefault();
+        return;
+      }
       cleanup();
       resolve(null);
     };

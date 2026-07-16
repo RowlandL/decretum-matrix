@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 import importlib
+import io
 import json
 import os
 from pathlib import Path
@@ -167,6 +169,7 @@ def run_static_regressions() -> dict[str, object]:
             autosync = importlib.import_module("shiguan_autosync_daemon")
             filesystem_sync = importlib.import_module("sync_shiguan_obsidian_vault")
             autosync_ensure = importlib.import_module("ensure_shiguan_autosync")
+            index_rebuild = importlib.import_module("rebuild_shiguan_index")
 
             healthy_filesystem_config = {
                 "has_api_key": False,
@@ -179,19 +182,224 @@ def run_static_regressions() -> dict[str, object]:
                 mock.patch.object(server, "autosync_public_status", return_value=healthy_autosync),
             ):
                 healthy_filesystem_status = server.obsidian_sync_status()
+                healthy_filesystem_public_state = server.obsidian_sync_public_state()
             if healthy_filesystem_status.get("ok") is not True:
                 raise AssertionError("healthy filesystem autosync was reported as overall disconnected")
+            if healthy_filesystem_public_state.get("ok") is not True:
+                raise AssertionError("healthy filesystem autosync was reported as disconnected in public state")
             status_message = str(healthy_filesystem_status.get("message") or "")
             if "尚未保存 API key" in status_message or "REST" not in status_message or "可选" not in status_message:
                 raise AssertionError("optional unconfigured REST channel was not reported as non-blocking")
+            public_message = str(healthy_filesystem_public_state.get("message") or "")
+            if "尚未保存 API key" in public_message or "REST" not in public_message or "可选" not in public_message:
+                raise AssertionError("public state did not preserve the optional REST explanation")
             rest_status = healthy_filesystem_status.get("rest")
             if not isinstance(rest_status, dict) or rest_status.get("configured") is not False:
                 raise AssertionError("REST channel configuration state was not separated from overall sync health")
+
+            long_cycle_status = {
+                "ok": True,
+                "mode": "daemon",
+                "phase": "running",
+                "updated_at": (datetime.now() - timedelta(minutes=5)).isoformat(timespec="seconds"),
+                "fresh_for_seconds": 1260,
+            }
+            if not autosync_ensure.status_is_fresh(long_cycle_status, 30):
+                raise AssertionError("a bounded in-progress autosync cycle was reported as stale")
+            idle_status = {**long_cycle_status, "phase": "idle"}
+            if autosync_ensure.status_is_fresh(idle_status, 30):
+                raise AssertionError("an actually stale idle autosync status was reported as fresh")
+
+            unchanged_index = temp / "unchanged-index.jsonl"
+            unchanged_index.write_text("same\n", encoding="utf-8")
+            unchanged_mtime = unchanged_index.stat().st_mtime_ns
+            if index_rebuild.write_index_if_changed(unchanged_index, "same\n") is not False:
+                raise AssertionError("unchanged Shiguan index was rewritten")
+            if unchanged_index.stat().st_mtime_ns != unchanged_mtime:
+                raise AssertionError("unchanged Shiguan index mtime drifted and would trigger autosync")
+            if index_rebuild.write_index_if_changed(unchanged_index, "changed\n") is not True:
+                raise AssertionError("changed Shiguan index was not written")
+
+            before_refresh = {"refresh_request": {"mtime_ns": 1}}
+            during_refresh = {"refresh_request": {"mtime_ns": 2}}
+            with (
+                mock.patch.object(autosync, "ensure_shared_seed"),
+                mock.patch.object(autosync, "sync_config", return_value={}),
+                mock.patch.object(autosync, "configured_watch_roots", return_value=[]),
+                mock.patch.object(
+                    autosync,
+                    "read_json",
+                    return_value={"snapshot": {"seed": {}}, "source_signature": {"old": {}}},
+                ),
+                mock.patch.object(autosync, "source_signature", side_effect=[before_refresh, during_refresh]) as signature,
+                mock.patch.object(autosync, "configured_cache_vault", return_value=temp / "cache"),
+                mock.patch.object(autosync, "managed_sync_hashes", return_value={}),
+                mock.patch.object(autosync, "snapshot_roots", side_effect=[{}, {}]),
+                mock.patch.object(autosync, "queue_vault_changes", return_value=[]),
+                mock.patch.object(autosync, "run_filesystem_sync", return_value={"ok": True, "removed": 0}),
+                mock.patch.object(autosync, "write_json"),
+            ):
+                concurrent_refresh_report = autosync._run_once_unlocked()
+            if signature.call_count != 1 or concurrent_refresh_report.get("source_signature") != before_refresh:
+                raise AssertionError("a refresh requested during sync could be swallowed by the completed cycle")
+
+            lock_events: list[str] = []
+
+            class TrackingLock:
+                def __init__(self, label: str):
+                    self.label = label
+
+                def __enter__(self):
+                    lock_events.append(f"enter:{self.label}")
+
+                def __exit__(self, _kind, _value, _traceback):
+                    lock_events.append(f"exit:{self.label}")
+
+            def tracking_lock(path, **_kwargs):
+                return TrackingLock(Path(path).name)
+
+            def tracked_cycle(**_kwargs):
+                lock_events.append("run:cycle")
+                return {"ok": True}
+
+            with (
+                mock.patch.object(autosync, "file_lock", side_effect=tracking_lock),
+                mock.patch.object(autosync, "sync_config", return_value={}),
+                mock.patch.object(autosync, "_run_once_unlocked", side_effect=tracked_cycle),
+            ):
+                autosync.run_once(lock_timeout=0)
+            config_exit = f"exit:{autosync.config_lock_path().name}"
+            if config_exit not in lock_events or lock_events.index(config_exit) > lock_events.index("run:cycle"):
+                raise AssertionError("autosync held the config transaction lock during the full filesystem cycle")
+
+            daemon_source = (scripts / "shiguan_autosync_daemon.py").read_text(encoding="utf-8")
+            for marker in ('"phase": "running"', '"fresh_for_seconds":'):
+                if marker not in daemon_source:
+                    raise AssertionError(f"autosync in-progress heartbeat contract missing: {marker}")
+
+            presence = temp / "presence"
+            presence.mkdir()
+            (presence / "fresh.json").write_text(
+                json.dumps(
+                    {
+                        "agent_id": "fresh",
+                        "label": "Fresh",
+                        "last_seen": datetime.now().isoformat(timespec="seconds"),
+                        "ttl_seconds": 180,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (presence / "stale.json").write_text(
+                json.dumps(
+                    {
+                        "agent_id": "stale",
+                        "label": "Stale",
+                        "last_seen": (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds"),
+                        "ttl_seconds": 180,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(server, "agent_presence_root", return_value=presence):
+                presence_statuses = server.agent_presence_statuses()
+            if [item.get("agent_id") for item in presence_statuses] != ["fresh"]:
+                raise AssertionError("stale agent presence was exposed as current WebUI status")
+
+            timeout_vault = temp / "timeout-vault"
+            timeout_vault.mkdir()
+            timeout_config = {
+                "endpoint": "https://127.0.0.1:27124",
+                "verify_ssl": False,
+                "sync_mode": "filesystem_preserve_only",
+                "autosync_interval_seconds": 20,
+                "vault_path": str(timeout_vault),
+                "cache_vault_path": str(timeout_vault),
+                "source_vault_path": str(temp / "source"),
+                "parent_vault_path": str(temp / "parent"),
+            }
+            with (
+                mock.patch.object(server, "read_obsidian_sync_config_snapshot", return_value={}),
+                mock.patch.object(server, "obsidian_sync_config", return_value=timeout_config),
+                mock.patch.object(server, "default_obsidian_inbox", return_value=temp / "inbox"),
+                mock.patch.object(server, "autosync_daemon_health", return_value={"status": "REUSED", "pid": 5100}),
+                mock.patch.object(
+                    server,
+                    "request_obsidian_autosync_refresh",
+                    return_value={"requested_at": "2026-07-17T03:00:00", "path": str(temp / "refresh.json")},
+                ),
+                mock.patch.object(server, "patch_obsidian_sync_config") as patch_config,
+                mock.patch.object(server.subprocess, "run") as run_subprocess,
+            ):
+                queued_sync = server.obsidian_filesystem_sync(
+                    {"vault_path": str(timeout_vault), "save_config": False}
+                )
+            if patch_config.called or run_subprocess.called:
+                raise AssertionError("a healthy daemon refresh mutated config or launched a competing forced cycle")
+            if queued_sync.get("filesystem_sync", {}).get("reason") != "daemon_refresh_requested":
+                raise AssertionError("the WebUI file sync action did not enqueue the existing daemon")
+
+            with (
+                mock.patch.object(server, "read_obsidian_sync_config_snapshot", return_value={}),
+                mock.patch.object(server, "obsidian_sync_config", return_value=timeout_config),
+                mock.patch.object(server, "default_obsidian_inbox", return_value=temp / "inbox"),
+                mock.patch.object(server, "autosync_daemon_health", return_value={"status": "NOT_RUNNING", "pid": 0}),
+                mock.patch.object(
+                    server,
+                    "patch_obsidian_sync_config",
+                    return_value={"conflict": False, "committed_revision": 1, "transaction_id": "fixture", "post_write_verified": True},
+                ),
+                mock.patch.object(
+                    server.subprocess,
+                    "run",
+                    side_effect=server.subprocess.TimeoutExpired(cmd="autosync", timeout=30),
+                ),
+            ):
+                try:
+                    server.obsidian_filesystem_sync(
+                        {"vault_path": str(timeout_vault), "timeout_seconds": 30, "save_config": True}
+                    )
+                except TimeoutError as exc:
+                    if "30" not in str(exc) or "超时" not in str(exc):
+                        raise AssertionError("autosync timeout was not actionable") from exc
+                except server.subprocess.TimeoutExpired as exc:
+                    raise AssertionError("raw subprocess timeout escaped the Web orchestration boundary") from exc
+                else:
+                    raise AssertionError("autosync timeout did not fail")
+
+            local_exception_logger = getattr(server, "log_local_exception", None)
+            if not callable(local_exception_logger):
+                raise AssertionError("generic Web management failures are not written to the promised local log")
+            with (
+                mock.patch.object(server.traceback, "print_exc") as print_exc,
+                mock.patch.object(server.sys, "stderr", io.StringIO()),
+            ):
+                try:
+                    raise RuntimeError("fixture")
+                except RuntimeError:
+                    local_exception_logger("fixture")
+            if print_exc.call_count != 1:
+                raise AssertionError("local exception logger did not preserve a traceback")
+
             app_source = (root / "web" / "shiguan-tree" / "app.js").read_text(encoding="utf-8")
-            if 'const prefix = status.ok ? "已连接" : "未连接";' in app_source:
-                raise AssertionError("frontend still renders overall sync health as REST connection state")
-            if "status.rest?.ok" not in app_source:
-                raise AssertionError("frontend REST connection test still consumes overall sync health")
+            dialog_start = app_source.index("async function openObsidianSyncDialog")
+            dialog_end = app_source.index("async function pushCurrentShiguanToObsidianRest")
+            dialog_source = app_source[dialog_start:dialog_end]
+            for marker in (
+                "let actionBusy = false;",
+                "setObsidianActionBusy",
+                "执行中：",
+                "status.rest?.ok",
+                "save_config: false",
+                "AI 心跳",
+                "文件同步请求已提交",
+            ):
+                if marker not in app_source:
+                    raise AssertionError(f"WebUI interaction/status contract missing: {marker}")
+            if dialog_source.count("resolve(null);") != 4:
+                raise AssertionError("Obsidian dialog resolves before it is actually closed")
+            if '共享机器 ${peerTotal} 台' in app_source:
+                raise AssertionError("top status duplicates the peer summary already shown in status chips")
 
             if server.DEFAULT_BIND_HOST != "127.0.0.1":
                 raise AssertionError("serve_shiguan_tree default bind is not loopback")
@@ -906,7 +1114,7 @@ def run_static_regressions() -> dict[str, object]:
         "browser_token_session_only": True,
         "loopback_bind_defaults": True,
         "peer_endpoint_policy": True,
-        "obsidian_filesystem_status_nonblocking": True,
+        "obsidian_webui_status_and_actions": True,
     }
 
 

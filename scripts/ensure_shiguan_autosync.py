@@ -144,7 +144,11 @@ def status_is_fresh(value: object, interval: int) -> bool:
         return False
     now = datetime.now(stamp.tzinfo) if stamp.tzinfo is not None else datetime.now()
     age = (now - stamp).total_seconds()
-    return -5.0 <= age <= max(60.0, float(interval) * 3.0)
+    fresh_for = max(60.0, float(interval) * 3.0)
+    if str(value.get("phase") or "") == "running":
+        declared = max(0, safe_int(value.get("fresh_for_seconds"), 0))
+        fresh_for = max(fresh_for, float(min(declared, 3600)))
+    return -5.0 <= age <= fresh_for
 
 
 def safe_int(value: object, default: int = 0) -> int:

@@ -35,6 +35,7 @@ MAX_WATCH_ROOTS = 8
 SYNC_MANIFEST_NAME = ".court-shiguan-sync-manifest.json"
 SYNC_MANIFEST_SCHEMA = "court.shiguan.sync-manifest.v1"
 PENDING_METADATA_SUFFIX = ".metadata.json"
+MAX_CYCLE_FRESH_SECONDS = 1260
 
 
 def now_text() -> str:
@@ -389,9 +390,13 @@ def run_filesystem_sync(config: dict[str, object], timeout: int = 600) -> dict[s
             pass
 
 
-def _run_once_unlocked(snapshot_only: bool = False, force_sync: bool = False) -> dict[str, object]:
+def _run_once_unlocked(
+    snapshot_only: bool = False,
+    force_sync: bool = False,
+    config_snapshot: dict[str, object] | None = None,
+) -> dict[str, object]:
     ensure_shared_seed()
-    config = sync_config()
+    config = dict(config_snapshot) if isinstance(config_snapshot, dict) else sync_config()
     watch_roots = configured_watch_roots(config)
     previous_state = read_json(state_path(), {})
     previous_snapshot = previous_state.get("snapshot") if isinstance(previous_state, dict) else {}
@@ -434,7 +439,6 @@ def _run_once_unlocked(snapshot_only: bool = False, force_sync: bool = False) ->
         sync_result = run_filesystem_sync(config)
         sync_result["source_changed"] = source_changed
         sync_result["force_sync"] = bool(force_sync)
-        current_source_signature = source_signature()
     after = snapshot_roots(watch_roots)
     if defer_cache_bootstrap:
         generated_hashes = managed_sync_hashes(cache_vault)
@@ -513,36 +517,71 @@ def run_once(
 ) -> dict[str, object]:
     with file_lock(autosync_cycle_lock_path(), timeout=max(0.0, lock_timeout)):
         with file_lock(config_lock_path(), timeout=max(0.0, lock_timeout)):
-            return _run_once_unlocked(snapshot_only=snapshot_only, force_sync=force_sync)
+            config = sync_config()
+        return _run_once_unlocked(
+            snapshot_only=snapshot_only,
+            force_sync=force_sync,
+            config_snapshot=config,
+        )
 
 
 def daemon_loop(interval: int) -> int:
     ensure_shared_seed()
+    started_at = now_text()
     write_json(
         status_path(),
         {
             "ok": True,
             "mode": "daemon",
+            "phase": "starting",
             "pid": os.getpid(),
-            "started_at": now_text(),
+            "started_at": started_at,
+            "updated_at": started_at,
             "interval_seconds": interval,
+            "fresh_for_seconds": MAX_CYCLE_FRESH_SECONDS,
             "shared_shiguan_root": str(references_root()),
         },
     )
     while True:
+        cycle_started_at = now_text()
+        previous = read_json(status_path(), {})
+        write_json(
+            status_path(),
+            {
+                **(previous if isinstance(previous, dict) else {}),
+                "ok": True,
+                "mode": "daemon",
+                "phase": "running",
+                "message": "autosync 正在执行 preserve-only 同步",
+                "pid": os.getpid(),
+                "interval_seconds": interval,
+                "cycle_started_at": cycle_started_at,
+                "updated_at": cycle_started_at,
+                "fresh_for_seconds": MAX_CYCLE_FRESH_SECONDS,
+            },
+        )
         try:
             report = run_once(force_sync=False)
             report["mode"] = "daemon"
+            report["phase"] = "idle"
             report["pid"] = os.getpid()
             report["interval_seconds"] = interval
+            report["cycle_started_at"] = cycle_started_at
+            report["cycle_completed_at"] = report.get("updated_at") or now_text()
+            report["fresh_for_seconds"] = MAX_CYCLE_FRESH_SECONDS
             write_json(status_path(), report)
             print(json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
         except Exception as exc:
             error = {
                 "ok": False,
                 "mode": "daemon",
+                "phase": "failed",
+                "pid": os.getpid(),
+                "interval_seconds": interval,
+                "cycle_started_at": cycle_started_at,
                 "error": str(exc),
                 "updated_at": now_text(),
+                "fresh_for_seconds": MAX_CYCLE_FRESH_SECONDS,
                 "shared_shiguan_root": str(references_root()),
             }
             write_json(status_path(), error)
