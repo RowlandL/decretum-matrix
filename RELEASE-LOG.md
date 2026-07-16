@@ -2,6 +2,23 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta0.5.11 — 2026-07-16（进行中）
+
+### 当前结论
+
+`release/beta0.5.11` 已从已发布的 `beta0.5.10` 精确提交顺延创建，当前仅完成
+版本身份与治理计划落点。该版本仍须完成差遣层级 RED/GREEN、SPEC、QUALITY、
+确定性候选包与本机安装闭环；`beta0.5.11` 的 tag、push、GitHub Release、资产
+上传和安装均不得从本节推定为已执行。
+
+### 当前强制门禁
+
+- 太子/主线程正常执行差遣只到三省；尚书省是六部唯一差遣者。
+- 六部只能在当前尚书授权、部属 profile、P00 semantic capsule、lease、write set
+  与 stop conditions 同时有效时派生本部有界子官署。
+- ordinary 与 superCC 必须使用同一 hierarchy validator；最终
+  `NEXT_RELEASE_PREPUBLICATION_GATE=PASS` 前不得发布 `beta0.5.11`。
+
 ## beta0.5.10 — 2026-07-16
 
 ### 发布结论

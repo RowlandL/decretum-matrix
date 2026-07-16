@@ -1,7 +1,7 @@
 {
   "archive_root": "court-capability-router/",
-  "artifact_name": "decretum-matrix-beta0.5.10.zip",
-  "attestation_name": "decretum-matrix-beta0.5.10.release-attestation.json",
+  "artifact_name": "decretum-matrix-beta0.5.11.zip",
+  "attestation_name": "decretum-matrix-beta0.5.11.release-attestation.json",
   "authors": "AUTHORS.md",
   "build": {
     "atomic_publish": "same_directory_hard_link_no_replace",
@@ -16,7 +16,7 @@
   "contributing": "CONTRIBUTING.md",
   "contributor_license_agreement": "CLA.md",
   "display_name": "Decretum Matrix（诏令矩阵）",
-  "expected_final_tag": "refs/tags/beta0.5.10",
+  "expected_final_tag": "refs/tags/beta0.5.11",
   "files": [
     {
       "mode": "100644",
@@ -33,8 +33,8 @@
     {
       "mode": "100644",
       "path": "CHANGELOG.md",
-      "sha256": "b4df2d964948a230a4d6123b70ce0ba6f665978cadde414ab1b48129b84a7e20",
-      "size": 6210
+      "sha256": "a372895ebfff1e771137f5433f8dfd2931857bd8b1d439adad71bec538540dc6",
+      "size": 6725
     },
     {
       "mode": "100644",
@@ -87,14 +87,14 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "6947d3135c3ba619ea8feecf3b7df6ca0e0f9b500b642022c777699c4513cf73",
-      "size": 52711
+      "sha256": "75d1d37dce46607b6b18b13ed98849f7229c70e8b0681c5ed9b0d077fdaa8c25",
+      "size": 52993
     },
     {
       "mode": "100644",
       "path": "RELEASE-LOG.md",
-      "sha256": "3d72d3377224aabfeeb9a5215a438e7f4b5c8cc0b6f2c0527fc7f62776cc84bc",
-      "size": 12680
+      "sha256": "a2e8cc266ef68e4443ece09133863a707b2dad3fed202838e9b547c946d1cdb8",
+      "size": 13513
     },
     {
       "mode": "100644",
@@ -129,7 +129,7 @@
     {
       "mode": "100644",
       "path": "VERSION",
-      "sha256": "9c8e8d3de076a50865987b49c7a6e47b4c8b36fe60963c89d63a25e054027ea2",
+      "sha256": "2a9f70fabf82640df7fa7b451b4a6759dde27d548db01c5c52fc6f0b016501ac",
       "size": 11
     },
     {
@@ -1005,7 +1005,7 @@
     {
       "mode": "100644",
       "path": "scripts/check_release_manifest.py",
-      "sha256": "41ffe7985dd2c9ec75b01a9566ad02db70e52d6fd95b8c5bb270437b654497db",
+      "sha256": "f58bd4093e281d4270118e019985bb0ad738af33d87ce6add89752c0de1b47ec",
       "size": 16098
     },
     {
@@ -1437,7 +1437,7 @@
     {
       "mode": "100644",
       "path": "scripts/release_payload_manifest.py",
-      "sha256": "1b86c750dad990d70056ba39ff4f8f408959eac75fe36294303dd487f8c5e2ee",
+      "sha256": "4e6a434d2aa853b69cc4cfa719278f2d910537ea0632ff9cb417c91a5d0e0775",
       "size": 29070
     },
     {
@@ -1648,12 +1648,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 5493314,
+    "payload_bytes": 5494944,
     "payload_file_count": 269,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "12788746d3db09dd010c92d7f0c0e7ae92cfffea2e02a161face4fbe04d8b6b7",
+    "payload_index_sha256": "e840ade83e62ddc330f570207bf7d1db3a2307e26e7f66b8bdec4f2873ed3460",
     "source_packaged_tracked_file_count": 261,
-    "source_tracked_file_count": 269
+    "source_tracked_file_count": 270
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1663,7 +1663,7 @@
   "package_name": "decretum-matrix",
   "privacy_policy": "PRIVACY.md",
   "provenance": "PROVENANCE.md",
-  "release_label": "beta0.5.10",
+  "release_label": "beta0.5.11",
   "repository_only_files": [
     ".github/CODEOWNERS",
     "docs/legal/2026-07-16-cft0808-edict-bounded-similarity-and-rights-review.md",
@@ -1672,13 +1672,14 @@
     "docs/plans/2026-07-14-court-capability-router-shiguan-install-remediation-plan.md",
     "docs/plans/2026-07-15-court-office-selective-loading-remediation-plan.md",
     "docs/plans/2026-07-16-decretum-matrix-dual-license-rights-and-provenance-plan.md",
-    "docs/plans/2026-07-16-decretum-matrix-office-identity-pack-dlc-and-scope-plan.md"
+    "docs/plans/2026-07-16-decretum-matrix-office-identity-pack-dlc-and-scope-plan.md",
+    "docs/plans/2026-07-16-decretum-matrix-taizi-three-departments-and-shangshu-six-ministries-dispatch-plan.md"
   ],
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
   "security_policy": "SECURITY.md",
-  "sidecar_name": "decretum-matrix-beta0.5.10.zip.sha256",
+  "sidecar_name": "decretum-matrix-beta0.5.11.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
-  "version_core": "0.5.10"
+  "version_core": "0.5.11"
 }

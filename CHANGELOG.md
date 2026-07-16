@@ -1,5 +1,17 @@
 # Changelog
 
+## beta0.5.11 — Unreleased
+
+### Changed
+
+- Opened the `release/beta0.5.11` iteration from the accepted and published
+  `beta0.5.10` commit. This entry records local development state only; no
+  beta0.5.11 tag, push, GitHub Release, package upload, or installation is
+  implied.
+- Added the prepublication implementation plan for enforcing Taizi-to-Three-
+  Departments and Shangshu-to-Six-Ministries dispatch authority. The behavior
+  remains gated on RED/GREEN, SPEC, and QUALITY acceptance before publication.
+
 ## beta0.5.10 — 2026-07-16
 
 ### Added

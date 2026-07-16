@@ -10,6 +10,11 @@
 `Decretum Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix`。
 项目主页：[github.com/RowlandL/decretum-matrix](https://github.com/RowlandL/decretum-matrix)。
 
+当前开发迭代为 `release/beta0.5.11` / `beta0.5.11`。该版本仍在本地
+RED/GREEN/SPEC/QUALITY 阶段，tag、GitHub Release 与线上资产均未创建；
+已发布的上一版本为
+[`beta0.5.10`](https://github.com/RowlandL/decretum-matrix/releases/tag/beta0.5.10)。
+
 当前源码与发行版本以 `VERSION` 为准；正式线上状态只由对应 annotated tag、
 GitHub Release 与资产回执证明，不从仓库说明文字推断。规范发行产物使用
 `decretum-matrix-<version>.zip`。以下旧名只保留为不可变的 `beta0.5.9`
