@@ -47,6 +47,7 @@ BRAND_REQUIRED = {
 PACKAGE_IDENTITY_REQUIRED = {
     f"{ROOT_NAME}/release-manifest.json",
     f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
+    f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",
     f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
 }
 
@@ -1032,6 +1033,17 @@ class SourceTreePrivacyTests(unittest.TestCase):
             with self.subTest(path=value):
                 self.assertTrue(package_skill.should_skip(Path(value), is_dir=False))
 
+    def test_exact_npm_harness_paths_are_repository_only_case_insensitive(self) -> None:
+        cases = (
+            "package.json",
+            "PACKAGE-LOCK.JSON",
+            "Scripts/Build_NPM_Package.MJS",
+            "scripts/CHECK_NPM_PACKAGE.mjs",
+        )
+        for value in cases:
+            with self.subTest(path=value):
+                self.assertTrue(package_skill.should_skip(Path(value), is_dir=False))
+
     def test_sensitive_directories_are_pruned_without_copying_their_files(self) -> None:
         with tempfile.TemporaryDirectory(prefix="court-package-source-") as tmp_text:
             tmp = Path(tmp_text)
@@ -1127,6 +1139,23 @@ class ZipStructurePrivacyTests(unittest.TestCase):
             f"expected {needle!r} in validation problems, got {problems[:12]!r}",
         )
 
+    def test_repository_only_npm_members_are_rejected_explicitly(self) -> None:
+        cases = (
+            "package.json",
+            "PACKAGE-LOCK.JSON",
+            "Scripts/Build_NPM_Package.MJS",
+            "scripts/CHECK_NPM_PACKAGE.mjs",
+        )
+        for relative in cases:
+            with self.subTest(path=relative):
+                self.assertEqual(
+                    package_skill.archive_member_policy_problem(
+                        f"{ROOT_NAME}/{relative}",
+                        is_dir=False,
+                    ),
+                    "repository-only-file",
+                )
+
     def test_zip_slip_member_is_rejected(self) -> None:
         problems = validation_problems([("../escape.md", b"escape\n")])
         self.assert_problem(problems, "unsafe-member-path")
@@ -1207,7 +1236,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
     def test_root_release_allowlist_accepts_known_files_and_rejects_unknown(self) -> None:
         allowed = validation_problems(
             [
-                (f"{ROOT_NAME}/VERSION", b"beta0.5.10\n"),
+                (f"{ROOT_NAME}/VERSION", b"beta0.5.11\n"),
                 (f"{ROOT_NAME}/CHANGELOG.md", b"# Changelog\n"),
                 (f"{ROOT_NAME}/RELEASE-LOG.md", b"# Release log\n"),
                 (
@@ -1215,7 +1244,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                     (
                         b'{"name":"decretum-matrix","display_name":"Decretum Matrix'
                         b'\\uff08\\u8bcf\\u4ee4\\u77e9\\u9635\\uff09","package_name":"decretum-matrix",'
-                        b'"release_label":"beta0.5.10","artifact_name":"decretum-matrix-beta0.5.10.zip",'
+                        b'"release_label":"beta0.5.11","artifact_name":"decretum-matrix-beta0.5.11.zip",'
                         b'"archive_root":"court-capability-router/","license":{"declared":"AGPL-3.0-only",'
                         b'"file":"LICENSE"}}\n'
                     ),
@@ -1235,7 +1264,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta0.5.10","licenseDeclared":"AGPL-3.0-only"}]}\n',
+                    b'"versionInfo":"beta0.5.11","licenseDeclared":"AGPL-3.0-only"}]}\n',
                 ),
             ]
         )
@@ -1268,7 +1297,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta0.5.10","licenseDeclared":"Apache-2.0"}]}\n',
+                    b'"versionInfo":"beta0.5.11","licenseDeclared":"Apache-2.0"}]}\n',
                 )
             ]
         )
@@ -1301,10 +1330,10 @@ class PackageBuildTests(unittest.TestCase):
             getattr(package_skill, "DISPLAY_NAME", None),
             "Decretum Matrix（诏令矩阵）",
         )
-        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.10")
+        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.11")
         self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")
         self.assertEqual(package_skill.ROOT_NAME, "court-capability-router")
-        self.assertEqual(package_skill.default_out().name, "decretum-matrix-beta0.5.10.zip")
+        self.assertEqual(package_skill.default_out().name, "decretum-matrix-beta0.5.11.zip")
         self.assertTrue(package_skill.should_skip(Path(".github"), is_dir=True))
 
     def test_legal_governance_files_are_mandatory_package_members(self) -> None:
@@ -1325,6 +1354,7 @@ class PackageBuildTests(unittest.TestCase):
         for index, missing_member in enumerate(
             (
                 sorted(BRAND_REQUIRED)[0],
+                f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",
                 f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
             )
         ):

@@ -35,12 +35,13 @@ EXPECTED_UPSTREAM_LICENSE_BLOB_SHA1 = "69499c3250cbecc6079c69dc0e5a0f7a4be716da"
 EXPECTED_UPSTREAM_LICENSE_SHA256 = "5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c"
 EXPECTED_UPSTREAM_COPYRIGHT = "Copyright (c) 2026 openclaw-sansheng-liubu contributors"
 EXPECTED_UPSTREAM_REPOSITORY = "https://github.com/cft0808/edict"
-EXPECTED_RELEASE = "beta0.5.10"
+EXPECTED_RELEASE = "beta0.5.11"
 EXPECTED_PACKAGE_NAME = "decretum-matrix"
 EXPECTED_LICENSE = "AGPL-3.0-only"
 EXPECTED_AGPL_SHA256 = "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
-EXPECTED_SBOM_NAME = "decretum-matrix-beta0.5.10"
-EXPECTED_SBOM_NAMESPACE = "https://spdx.org/spdxdocs/decretum-matrix-beta0.5.10-20260716"
+EXPECTED_SBOM_NAME = "decretum-matrix-beta0.5.11"
+EXPECTED_SBOM_CREATED = "2026-07-17T00:00:00Z"
+EXPECTED_SBOM_NAMESPACE = "https://spdx.org/spdxdocs/decretum-matrix-beta0.5.11-20260717"
 EXPECTED_COPYRIGHT = "Copyright 2026 孙华清"
 EXPECTED_OWNER = "孙华清"
 EXPECTED_MAINTAINER = "@RowlandL"
@@ -176,6 +177,9 @@ def evaluate(root: Path) -> dict[str, object]:
     except json.JSONDecodeError:
         sbom = {}
         problems.append("sbom:invalid-json")
+    if not isinstance(sbom, dict):
+        problems.append("sbom:not-object")
+        sbom = {}
     packages = sbom.get("packages") if isinstance(sbom, dict) else None
     package = packages[0] if isinstance(packages, list) and packages and isinstance(packages[0], dict) else {}
     relationships = sbom.get("relationships") if isinstance(sbom, dict) else None
@@ -196,6 +200,9 @@ def evaluate(root: Path) -> dict[str, object]:
     for key, expected in expected_sbom.items():
         if sbom.get(key) != expected:
             problems.append(f"sbom:{key}:expected:{expected}")
+    creation_info = sbom.get("creationInfo") if isinstance(sbom, dict) else None
+    if not isinstance(creation_info, dict) or creation_info.get("created") != EXPECTED_SBOM_CREATED:
+        problems.append(f"sbom:creationInfo.created:expected:{EXPECTED_SBOM_CREATED}")
     if package.get("name") != EXPECTED_PACKAGE_NAME:
         problems.append("sbom:package-name")
     if package.get("versionInfo") != EXPECTED_RELEASE:
@@ -469,6 +476,10 @@ def run_self_test(root: Path) -> dict[str, object]:
         assertions["unsupported_beta058_apache_claim_fails"] = evaluate(fixture)["ok"] is False
         shutil.copy2(root / "README.md", fixture / "README.md")
 
+        (fixture / "SBOM.spdx.json").write_text("[]\n", encoding="utf-8")
+        assertions["non_object_sbom_fails_without_exception"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "SBOM.spdx.json", fixture / "SBOM.spdx.json")
+
         sbom = json.loads((fixture / "SBOM.spdx.json").read_text(encoding="utf-8"))
         sbom["spdxVersion"] = "SPDX-2.2"
         (fixture / "SBOM.spdx.json").write_text(json.dumps(sbom), encoding="utf-8")
@@ -479,6 +490,12 @@ def run_self_test(root: Path) -> dict[str, object]:
         sbom["documentNamespace"] = "https://example.invalid/wrong"
         (fixture / "SBOM.spdx.json").write_text(json.dumps(sbom), encoding="utf-8")
         assertions["wrong_sbom_namespace_fails"] = evaluate(fixture)["ok"] is False
+        shutil.copy2(root / "SBOM.spdx.json", fixture / "SBOM.spdx.json")
+
+        sbom = json.loads((fixture / "SBOM.spdx.json").read_text(encoding="utf-8"))
+        sbom["creationInfo"]["created"] = "2026-07-16T00:00:00Z"
+        (fixture / "SBOM.spdx.json").write_text(json.dumps(sbom), encoding="utf-8")
+        assertions["wrong_sbom_created_fails"] = evaluate(fixture)["ok"] is False
         shutil.copy2(root / "SBOM.spdx.json", fixture / "SBOM.spdx.json")
 
         sbom = json.loads((fixture / "SBOM.spdx.json").read_text(encoding="utf-8"))

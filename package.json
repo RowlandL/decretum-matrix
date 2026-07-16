@@ -1,0 +1,16 @@
+{
+  "name": "decretum-matrix-npm-release-harness",
+  "version": "0.0.0-private",
+  "private": true,
+  "description": "Private version-neutral harness for building and checking Decretum Matrix npm release candidates.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build_npm_package.mjs",
+    "check": "node scripts/check_npm_package.mjs",
+    "test": "node scripts/check_npm_package.mjs --self-test"
+  }
+}

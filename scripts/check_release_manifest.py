@@ -20,8 +20,12 @@ from release_gate_manifest import (
 )
 import build_release_artifacts
 import check_release_gate
+import check_release_legal
 import package_skill
 import release_payload_manifest
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def expect_invalid(manifest: dict[str, object], expected_text: str) -> None:
@@ -123,6 +127,81 @@ def release_surface_contract() -> dict[str, bool]:
         "stable_locator": (
             package_skill.ROOT_NAME == "court-capability-router"
             and release_payload_manifest.ARCHIVE_ROOT == "court-capability-router/"
+        ),
+    }
+
+
+def release_identity_parity_contract(root: Path = ROOT) -> dict[str, bool]:
+    try:
+        version = (root / "VERSION").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        version = ""
+    try:
+        raw_sbom = json.loads((root / "SBOM.spdx.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raw_sbom = None
+    sbom_is_object = isinstance(raw_sbom, dict)
+    sbom = raw_sbom if sbom_is_object else {}
+
+    packages = sbom.get("packages") if isinstance(sbom, dict) else None
+    package = packages[0] if isinstance(packages, list) and packages and isinstance(packages[0], dict) else {}
+    creation_info = sbom.get("creationInfo") if isinstance(sbom, dict) else None
+    created = creation_info.get("created") if isinstance(creation_info, dict) else None
+    legal_created = getattr(check_release_legal, "EXPECTED_SBOM_CREATED", None)
+    date_compact = (
+        legal_created[:10].replace("-", "")
+        if isinstance(legal_created, str) and len(legal_created) >= 10
+        else ""
+    )
+    expected_artifact = f"{release_payload_manifest.NAME}-{version}.zip"
+    expected_sbom_name = f"{release_payload_manifest.NAME}-{version}"
+    expected_sbom_namespace = (
+        f"https://spdx.org/spdxdocs/{expected_sbom_name}-{date_compact}"
+        if version and date_compact
+        else ""
+    )
+    return {
+        "version_readable": bool(version),
+        "sbom_is_object": sbom_is_object,
+        "payload_release_matches_version": release_payload_manifest.RELEASE_LABEL == version,
+        "payload_artifact_matches_version": release_payload_manifest.ARTIFACT_NAME == expected_artifact,
+        "package_release_matches_version": package_skill.RELEASE_LABEL == version,
+        "package_artifact_matches_version": package_skill.default_out().name == expected_artifact,
+        "legal_release_matches_version": check_release_legal.EXPECTED_RELEASE == version,
+        "legal_sbom_name_matches_version": check_release_legal.EXPECTED_SBOM_NAME == expected_sbom_name,
+        "legal_sbom_namespace_matches_version_and_date": (
+            check_release_legal.EXPECTED_SBOM_NAMESPACE == expected_sbom_namespace
+        ),
+        "sbom_name_matches_version": sbom.get("name") == expected_sbom_name,
+        "sbom_package_name_matches_payload": (
+            package.get("name")
+            == release_payload_manifest.NAME
+            == check_release_legal.EXPECTED_PACKAGE_NAME
+        ),
+        "sbom_package_version_matches_version": package.get("versionInfo") == version,
+        "sbom_namespace_matches_version_and_date": (
+            sbom.get("documentNamespace") == expected_sbom_namespace
+        ),
+        "sbom_created_matches_legal_release_date": bool(legal_created) and created == legal_created,
+        "release_license_matches_across_surfaces": (
+            release_payload_manifest.LICENSE_ID
+            == package_skill.LICENSE_ID
+            == check_release_legal.EXPECTED_LICENSE
+            == package.get("licenseDeclared")
+        ),
+    }
+
+
+def release_identity_parity_fixture_contract() -> dict[str, bool]:
+    expected_keys = set(release_identity_parity_contract())
+    with tempfile.TemporaryDirectory(prefix="decretum-release-identity-parity-") as tmp_text:
+        fixture = Path(tmp_text)
+        (fixture / "VERSION").write_bytes((ROOT / "VERSION").read_bytes())
+        (fixture / "SBOM.spdx.json").write_text("[]\n", encoding="utf-8")
+        malformed = release_identity_parity_contract(fixture)
+    return {
+        "non_object_sbom_returns_complete_failed_contract": (
+            set(malformed) == expected_keys and not all(malformed.values())
         ),
     }
 
@@ -284,6 +363,7 @@ def install_receipt_gate_fixture_contract() -> dict[str, bool]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     try:
@@ -294,6 +374,20 @@ def main() -> int:
             raise AssertionError(
                 "release surface contract failed: "
                 + ",".join(name for name, passed in surface_contract.items() if not passed)
+            )
+        identity_parity = release_identity_parity_contract(args.root)
+        if not all(identity_parity.values()):
+            raise AssertionError(
+                "release identity parity failed: "
+                + ",".join(name for name, passed in identity_parity.items() if not passed)
+            )
+        identity_parity_fixture = release_identity_parity_fixture_contract()
+        if not all(identity_parity_fixture.values()):
+            raise AssertionError(
+                "release identity parity fixture failed: "
+                + ",".join(
+                    name for name, passed in identity_parity_fixture.items() if not passed
+                )
             )
         install_receipt_contract = install_receipt_gate_fixture_contract()
         if not all(install_receipt_contract.values()):
@@ -368,6 +462,8 @@ def main() -> int:
             "release_artifact_builder",
         ],
         "release_surface_contract": surface_contract,
+        "release_identity_parity_contract": identity_parity,
+        "release_identity_parity_fixture_contract": identity_parity_fixture,
         "install_receipt_gate_fixture_contract": install_receipt_contract,
         "candidate_preinstall_step_count": len(candidate_steps),
         "post_install_step_count": len(post_install_steps),

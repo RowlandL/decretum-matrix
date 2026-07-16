@@ -523,9 +523,9 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         "canonical_release_product_name_required": NAME == "decretum-matrix",
         "canonical_display_name_required": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
-        "canonical_beta_0_5_10_artifact_required": (
-            release_payload_manifest.RELEASE_LABEL == "beta0.5.10"
-            and release_payload_manifest.ARTIFACT_NAME == "decretum-matrix-beta0.5.10.zip"
+        "canonical_beta_0_5_11_artifact_required": (
+            release_payload_manifest.RELEASE_LABEL == "beta0.5.11"
+            and release_payload_manifest.ARTIFACT_NAME == "decretum-matrix-beta0.5.11.zip"
         ),
         "agpl_only_release_required": getattr(release_payload_manifest, "LICENSE_ID", None)
         == "AGPL-3.0-only",

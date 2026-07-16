@@ -31,7 +31,7 @@ sys.dont_write_bytecode = True
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
-RELEASE_LABEL = "beta0.5.10"
+RELEASE_LABEL = "beta0.5.11"
 LICENSE_ID = "AGPL-3.0-only"
 # Stable install/archive locator retained for compatibility with existing hosts.
 ROOT_NAME = "court-capability-router"
@@ -255,6 +255,14 @@ REQUIRED_PACKAGED_README_TERMS = [
 DEPRECATED_PACKAGE_TEXT_PATTERNS = [
     re.compile(b"Court" + rb"\s+OS", re.IGNORECASE),
 ]
+REPOSITORY_ONLY_PATHS = frozenset(
+    {
+        "package-lock.json",
+        "package.json",
+        "scripts/build_npm_package.mjs",
+        "scripts/check_npm_package.mjs",
+    }
+)
 EXCLUDE_DIRS = {
     "__pycache__",
     ".github",
@@ -500,6 +508,8 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
     lower_parts = {part.casefold() for part in relative.parts}
     lower_name = relative.name.casefold()
     key = relative_key(relative)
+    if key in REPOSITORY_ONLY_PATHS:
+        return True
     if has_sensitive_directory(relative):
         return True
     if lower_parts & {part.casefold() for part in EXCLUDE_DIRS}:
@@ -1031,6 +1041,8 @@ def archive_member_policy_problem(normalized: str, is_dir: bool) -> str | None:
     relative = "/".join(relative_parts)
     lower_relative = relative.casefold()
     lower_parts = [part.casefold() for part in relative_parts]
+    if not is_dir and lower_relative in REPOSITORY_ONLY_PATHS:
+        return "repository-only-file"
     if any(part in SENSITIVE_DIR_NAMES for part in lower_parts[:-1] if not is_dir) or any(
         part in SENSITIVE_DIR_NAMES for part in lower_parts if is_dir
     ):
