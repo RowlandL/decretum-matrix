@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
+import importlib
 import json
 from pathlib import Path
 import sys
@@ -16,6 +18,7 @@ P00_HEADING = "## P00 Highest-Priority Semantic Dispatch And Resume Contract"
 NEXT_HEADING = "## Unified Dynamic Dispatch Semantics"
 REF_RELATIVE_PATH = Path("references/court-state-runtime-agents.md")
 REF_HEADING = "## P00 Semantic Dispatch And Resume Unification"
+HIERARCHY_MODULE_RELATIVE_PATH = Path("scripts/court_dispatch_hierarchy.py")
 
 
 def _check_skill(root: Path, errors: list[str]) -> None:
@@ -102,11 +105,110 @@ def _check_production_api(root: Path, errors: list[str]) -> dict[str, object]:
     }
 
 
+def _check_hierarchy_child_binding(root: Path, errors: list[str]) -> dict[str, object]:
+    """Behaviorally require one existing P00 capsule for a bounded child."""
+
+    scripts_path = str(root / "scripts")
+    if scripts_path not in sys.path:
+        sys.path.insert(0, scripts_path)
+    try:
+        hierarchy = importlib.import_module("court_dispatch_hierarchy")
+    except ModuleNotFoundError:
+        errors.append("P00_HIERARCHY_CHILD_BINDING_API_MISSING:scripts/court_dispatch_hierarchy.py")
+        return {
+            "path": HIERARCHY_MODULE_RELATIVE_PATH.as_posix(),
+            "status": "MISSING",
+        }
+    except Exception as exc:
+        errors.append(f"P00_HIERARCHY_CHILD_BINDING_API_UNREADABLE:{type(exc).__name__}:{exc}")
+        return {
+            "path": HIERARCHY_MODULE_RELATIVE_PATH.as_posix(),
+            "status": "UNREADABLE",
+        }
+    validate = getattr(hierarchy, "validate_dispatch_hierarchy", None)
+    if not callable(validate):
+        errors.append("P00_HIERARCHY_CHILD_BINDING_PUBLIC_API_MISSING")
+        return {
+            "path": HIERARCHY_MODULE_RELATIVE_PATH.as_posix(),
+            "status": "API_MISSING",
+        }
+
+    child_profile: dict[str, object] = {
+        "schema": "court.child_office_profile.v1",
+        "child_role": "GongBu-GongJiang",
+        "role_key": "gongbu",
+        "office_instance_id": "gongbu#worker-0001",
+        "owner_role": "gongbu",
+        "direct_superior": "gongbu",
+        "canonical_authority": False,
+        "instance_kind": "office_worker_instance",
+        "bounded_mandate": "perform one bounded P00 hierarchy fixture",
+        "expected_result": "return structured evidence to Gongbu",
+        "read_scope": ["work/gongbu/input.txt"],
+        "write_set": ["work/gongbu/worker-0001.txt"],
+        "task_id": "p00-hierarchy-child-task",
+        "dispatch_uid": "p00-hierarchy-child-dispatch",
+        "shard_id": "gongbu-worker-0001",
+        "attempt": 1,
+        "profile_sha256": "b" * 64,
+        "dossier_sha256": "c" * 64,
+        "skill_sha256": "d" * 64,
+        "expires_at_utc": "2099-01-01T00:00:00Z",
+        "terminal_condition": "stop after the expected result is returned",
+        "dispatch_context_packet_schema": "court.semantic.dispatch_context_packet.v1",
+        "dispatch_context_packet_sha256": "e" * 64,
+        "semantic_receipt_sha256": "f" * 64,
+        "invariant_capsule_schema": "court.semantic.invariant_capsule.v1",
+        "invariant_capsule_sha256": "a" * 64,
+    }
+    kwargs = {
+        "action": "dispatch",
+        "calling_office": "gongbu",
+        "target_role": "gongbu",
+        "target_direct_superior": "gongbu",
+        "instance_kind": "office_worker_instance",
+        "canonical_authority": False,
+        "owner_role": "gongbu",
+    }
+    try:
+        allowed = validate(**kwargs, child_profile=deepcopy(child_profile))
+        second_capsule_profile = deepcopy(child_profile)
+        second_capsule_profile["second_invariant_capsule"] = {
+            "schema": "court.semantic.invariant_capsule.v1",
+            "sha256": "1" * 64,
+        }
+        denied = validate(**kwargs, child_profile=second_capsule_profile)
+    except Exception as exc:
+        errors.append(f"P00_HIERARCHY_CHILD_BINDING_BEHAVIOR_FAILED:{type(exc).__name__}:{exc}")
+        return {
+            "path": HIERARCHY_MODULE_RELATIVE_PATH.as_posix(),
+            "status": "BEHAVIOR_ERROR",
+        }
+    allowed_reasons = tuple(getattr(allowed, "reason_codes", ()) or ())
+    denied_reasons = tuple(getattr(denied, "reason_codes", ()) or ())
+    if getattr(allowed, "allowed", None) is not True:
+        errors.append(
+            "P00_HIERARCHY_VALID_SAME_OWNER_CHILD_REJECTED:" + ",".join(map(str, allowed_reasons))
+        )
+    if getattr(denied, "allowed", None) is not False:
+        errors.append("P00_SECOND_CAPSULE_CHILD_PROFILE_ACCEPTED")
+    return {
+        "path": HIERARCHY_MODULE_RELATIVE_PATH.as_posix(),
+        "status": "BEHAVIOR_CHECKED",
+        "valid_same_owner_child_allowed": getattr(allowed, "allowed", None),
+        "valid_reason_codes": list(allowed_reasons),
+        "second_capsule_child_rejected": getattr(denied, "allowed", None) is False,
+        "second_capsule_reason_codes": list(denied_reasons),
+        "single_capsule_sha256": child_profile["invariant_capsule_sha256"],
+    }
+
+
 def evaluate(root: Path) -> dict[str, object]:
     errors: list[str] = []
     _check_skill(root, errors)
     _check_reference(root, errors)
     evidence = _check_production_api(root, errors)
+    evidence["hierarchy_child_binding"] = _check_hierarchy_child_binding(root, errors)
     return {
         "schema": SCHEMA,
         "status": "PASSED" if not errors else "FAILED",

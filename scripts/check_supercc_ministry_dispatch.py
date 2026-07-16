@@ -516,10 +516,148 @@ def check_dispatch_evidence() -> None:
         ensure_supercc_court.create_squad_task_assignment = original_create_task  # type: ignore[assignment]
 
 
+def check_taizi_to_gongbu_rejected_before_side_effects() -> None:
+    """Future contract: a forbidden explicit caller stops before every adapter."""
+
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    counters = {
+        "structured_task_creation": 0,
+        "squad_send_mirror": 0,
+        "pane_launch": 0,
+        "pane_wake": 0,
+        "native_enter_command": 0,
+        "office_state_write": 0,
+    }
+
+    def fake_check(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "supercc_env_gate": "PASSED",
+            "visible_display_gate": "PASSED",
+            "display_transport_gate": "PASSED",
+            "office_client_gate": "PASSED",
+            "zellij": {
+                "env": {"ZELLIJ_SESSION_NAME": "hierarchy-red", "ZELLIJ_PANE_ID": "0"},
+                "panes_list": [
+                    {
+                        "pane_id": "terminal_gongbu",
+                        "type": "terminal",
+                        "title": ensure_supercc_court.OFFICES["gongbu"]["title"],
+                    }
+                ],
+            },
+            "squad": {
+                "agents_json": [
+                    {
+                        "id": "gongbu",
+                        "role": "gongbu",
+                        "status": "active",
+                        "supports_task_commands": True,
+                        "supports_json_receive": True,
+                    }
+                ]
+            },
+        }
+
+    def fake_create_task(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["structured_task_creation"] += 1
+        return {
+            "ok": True,
+            "task_id": "hierarchy-red-task",
+            "task_id_parse_ok": True,
+        }
+
+    def fake_send(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["squad_send_mirror"] += 1
+        return {"ok": True, "task_id": "hierarchy-red-task"}
+
+    def fake_run(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["native_enter_command"] += 1
+        return {"ok": True, "returncode": 0, "stdout": "", "stderr": ""}
+
+    def fake_launch(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["pane_launch"] += 1
+        return {"ok": True}
+
+    def fake_wake(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["pane_wake"] += 1
+        return {"ok": True, "skipped": True, "reason": "spy"}
+
+    def fake_state_write(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["office_state_write"] += 1
+        return {"ok": True}
+
+    originals = {
+        "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+        "create_squad_task_assignment": ensure_supercc_court.create_squad_task_assignment,
+        "send_squad_notice": ensure_supercc_court.send_squad_notice,
+        "run_command": ensure_supercc_court.run_command,
+        "launch_offices": ensure_supercc_court.launch_offices,
+        "maybe_send_inspector_wake_cc": ensure_supercc_court.maybe_send_inspector_wake_cc,
+        "write_office_state": ensure_supercc_court.write_office_state,
+        "sleep": ensure_supercc_court.time.sleep,
+    }
+    try:
+        ensure_supercc_court.supercc_check_for_args = fake_check  # type: ignore[assignment]
+        ensure_supercc_court.create_squad_task_assignment = fake_create_task  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = fake_send  # type: ignore[assignment]
+        ensure_supercc_court.run_command = fake_run  # type: ignore[assignment]
+        ensure_supercc_court.launch_offices = fake_launch  # type: ignore[assignment]
+        ensure_supercc_court.maybe_send_inspector_wake_cc = fake_wake  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = fake_state_write  # type: ignore[assignment]
+        ensure_supercc_court.time.sleep = lambda _seconds: None  # type: ignore[assignment]
+        payload = ensure_supercc_court.enter_dispatch(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                role="gongbu",
+                message="future hierarchy rejection probe",
+                dispatch_uid="HIERARCHY-RED-TAIZI-GONGBU",
+                calling_office="taizi",
+                dry_run=False,
+                allow_squad_only_fallback=False,
+                enable_inspector=False,
+                skip_inspector=False,
+            )
+        )
+    finally:
+        ensure_supercc_court.supercc_check_for_args = originals["supercc_check_for_args"]  # type: ignore[assignment]
+        ensure_supercc_court.create_squad_task_assignment = originals["create_squad_task_assignment"]  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = originals["send_squad_notice"]  # type: ignore[assignment]
+        ensure_supercc_court.run_command = originals["run_command"]  # type: ignore[assignment]
+        ensure_supercc_court.launch_offices = originals["launch_offices"]  # type: ignore[assignment]
+        ensure_supercc_court.maybe_send_inspector_wake_cc = originals["maybe_send_inspector_wake_cc"]  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = originals["write_office_state"]  # type: ignore[assignment]
+        ensure_supercc_court.time.sleep = originals["sleep"]  # type: ignore[assignment]
+
+    reason = (
+        payload.get("dispatch_hierarchy_reason")
+        or payload.get("dispatch_block_reason")
+        or payload.get("reason")
+    )
+    violations: list[str] = []
+    if payload.get("ok") is not False or payload.get("dispatch_blocked") is not True:
+        violations.append(
+            f"explicit taizi->gongbu was accepted: ok={payload.get('ok')!r} "
+            f"dispatch_blocked={payload.get('dispatch_blocked')!r}"
+        )
+    if reason != "dispatch_hierarchy_edge_forbidden":
+        violations.append(f"wrong rejection reason: {reason!r}")
+    for boundary, count in counters.items():
+        if count != 0:
+            violations.append(f"{boundary} expected=0 actual={count}")
+    if violations:
+        raise AssertionError(
+            "missing superCC dispatch hierarchy rejection before side effects: "
+            + "; ".join(violations)
+        )
+
+
 def main() -> int:
     check_source_rules()
     check_supercc_launcher_shape()
     check_dispatch_evidence()
+    check_taizi_to_gongbu_rejected_before_side_effects()
     print("SUPERCC_MINISTRY_DISPATCH_OK")
     return 0
 

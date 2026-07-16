@@ -37,6 +37,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None  # type: ignore[assignment]
 
 from court_file_lock import atomic_write_text
+from court_dispatch_hierarchy import (
+    DispatchHierarchyDecision,
+    validate_dispatch_hierarchy,
+)
 from supercc_client_selection import (
     OFFICE_CLIENT_CHOICES,
     current_process_chain_signals,
@@ -4285,7 +4289,14 @@ def build_native_receive_command_prompt(
     return commands["native"]
 
 
-def build_dispatch_payload(args: argparse.Namespace, role: str, pane: dict[str, str] | None, profile: dict[str, Any], calling_office: str | None = None) -> str:
+def build_dispatch_payload(
+    args: argparse.Namespace,
+    role: str,
+    pane: dict[str, str] | None,
+    profile: dict[str, Any],
+    calling_office: str | None = None,
+    hierarchy: DispatchHierarchyDecision | None = None,
+) -> str:
     dispatch_uid = args.dispatch_uid or f"manual-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{role}"
     superior = direct_superior_metadata(role)
     calling_office = calling_office or resolved_calling_office(args, role)
@@ -4311,9 +4322,20 @@ def build_dispatch_payload(args: argparse.Namespace, role: str, pane: dict[str, 
         f"office_dossier_hash={sha256_file(office_dossier_path(role)) or 'missing'}",
         f"light_bootstrap_policy={SUPERCC_LIGHT_BOOTSTRAP_POLICY}",
         f"six_ministry_step_plan_required={'true' if role in MINISTRY_OFFICES else 'false'}",
-        "message:",
-        args.message,
     ]
+    if hierarchy is not None:
+        lines.extend(
+            [
+                "hierarchy_gate=PASSED",
+                f"hierarchy_schema={hierarchy.hierarchy_schema}",
+                f"hierarchy_manifest_sha256={hierarchy.hierarchy_manifest_sha256}",
+                f"hierarchy_edge_class={hierarchy.edge_class}",
+                f"hierarchy_calling_office={hierarchy.normalized_caller}",
+                f"hierarchy_target_role={hierarchy.normalized_target}",
+                f"hierarchy_owner_role={hierarchy.normalized_owner or ''}",
+            ]
+        )
+    lines.extend(["message:", args.message])
     return "\n".join(lines)
 
 
@@ -4324,6 +4346,81 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(f"unknown role for --enter-dispatch: {role}")
     if not args.message:
         raise ValueError("--enter-dispatch requires --message")
+
+    profile = profile_metadata(role)
+    superior = direct_superior_metadata(role)
+    calling_office = resolved_calling_office(args, role)
+    hierarchy = (
+        validate_dispatch_hierarchy(
+            action="dispatch",
+            calling_office=calling_office,
+            target_role=role,
+            target_direct_superior=superior["direct_superior"],
+            instance_kind="office",
+            canonical_authority=True,
+            owner_role=None,
+            child_profile=None,
+        )
+        if role in (*THREE_OFFICES, *MINISTRY_OFFICES)
+        else None
+    )
+    if hierarchy is not None and not hierarchy.allowed:
+        reason = (
+            hierarchy.reason_codes[0]
+            if hierarchy.reason_codes
+            else "dispatch_hierarchy_edge_forbidden"
+        )
+        skipped = {
+            "ok": False,
+            "skipped": True,
+            "reason": reason,
+        }
+        return {
+            "ok": False,
+            "dispatch_uid": getattr(args, "dispatch_uid", None),
+            "role": role,
+            "calling_office": calling_office,
+            "calling_office_source": (
+                "explicit" if getattr(args, "calling_office", None) else "role_default"
+            ),
+            "direct_superior": superior["direct_superior"],
+            "direct_superior_source": superior["direct_superior_source"],
+            "dispatch_blocked": True,
+            "dispatch_block_reason": reason,
+            "dispatch_hierarchy_reason": reason,
+            "hierarchy_gate": "REJECTED",
+            "hierarchy_schema": hierarchy.hierarchy_schema,
+            "hierarchy_manifest_sha256": hierarchy.hierarchy_manifest_sha256,
+            "hierarchy_edge_class": hierarchy.edge_class,
+            "hierarchy_calling_office": hierarchy.normalized_caller,
+            "hierarchy_target_role": hierarchy.normalized_target,
+            "hierarchy_owner_role": hierarchy.normalized_owner,
+            "task_evidence": dict(skipped),
+            "squad_evidence": dict(skipped),
+            "native_enter_dispatch": dict(skipped),
+            "state": dict(skipped),
+        }
+    hierarchy_evidence = (
+        {
+            "hierarchy_gate": "PASSED",
+            "hierarchy_schema": hierarchy.hierarchy_schema,
+            "hierarchy_manifest_sha256": hierarchy.hierarchy_manifest_sha256,
+            "hierarchy_edge_class": hierarchy.edge_class,
+            "hierarchy_calling_office": hierarchy.normalized_caller,
+            "hierarchy_target_role": hierarchy.normalized_target,
+            "hierarchy_owner_role": hierarchy.normalized_owner,
+        }
+        if hierarchy is not None
+        else {
+            "hierarchy_gate": "NOT_APPLICABLE_SPECIAL_LIFECYCLE",
+            "hierarchy_schema": None,
+            "hierarchy_manifest_sha256": None,
+            "hierarchy_edge_class": None,
+            "hierarchy_calling_office": calling_office,
+            "hierarchy_target_role": role,
+            "hierarchy_owner_role": None,
+        }
+    )
 
     check = supercc_check_for_args(args, workspace)
     zellij_session = current_zellij_session(check)
@@ -4349,10 +4446,14 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         and len(active_ids_for_role) <= 1
         and not duplicate_ids_for_role
     )
-    profile = profile_metadata(role)
-    superior = direct_superior_metadata(role)
-    calling_office = resolved_calling_office(args, role)
-    payload_text = build_dispatch_payload(args, role, pane, profile, calling_office)
+    payload_text = build_dispatch_payload(
+        args,
+        role,
+        pane,
+        profile,
+        calling_office,
+        hierarchy,
+    )
     dispatch_uid = args.dispatch_uid or payload_text.splitlines()[0].split("=", 1)[1]
     native_commands: list[list[str]] = []
     native_enter_dispatch: dict[str, Any]
@@ -4568,6 +4669,7 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
                 "calling_office_source": "explicit" if args.calling_office else "role_default",
                 "direct_superior": superior["direct_superior"],
                 "direct_superior_source": superior["direct_superior_source"],
+                **hierarchy_evidence,
                 "native_enter_dispatch": native_enter_dispatch,
                 "physical_enter_byte": PHYSICAL_ENTER_BYTE,
                 "post_dispatch_physical_enter_delay_seconds": POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS,
@@ -4589,6 +4691,7 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         "calling_office_source": "explicit" if args.calling_office else "role_default",
         "direct_superior": superior["direct_superior"],
         "direct_superior_source": superior["direct_superior_source"],
+        **hierarchy_evidence,
         "office_uniqueness_gate": uniqueness,
         "dispatch_blocked": dispatch_blocked,
         "dispatch_block_reason": dispatch_block_reason,

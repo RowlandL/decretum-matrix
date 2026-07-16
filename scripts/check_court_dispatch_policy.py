@@ -30,6 +30,7 @@ TARGET_SUPERIORS = {
     "gongbu": "shangshu",
     "shiguan": "taizi/menxia",
 }
+MINISTRY_ROLES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 DISPATCH_PRELOAD_BY_ROLE: dict[str, dict[str, str]] = {}
 
 
@@ -1122,6 +1123,95 @@ def check_public_admission_canonical_shape() -> None:
     )
 
 
+def check_taizi_root_mainline_cannot_dispatch_ministries() -> dict[str, object]:
+    """Future contract: root/mainline Taizi cannot select or admit a ministry."""
+
+    evidence: dict[str, object] = {
+        "caller_surface": "root/mainline",
+        "calling_office": "taizi",
+        "targets": {},
+    }
+    violations: list[str] = []
+    for role in MINISTRY_ROLES:
+        task_id = f"dispatch-policy-root-mainline-taizi-{role}"
+        lease = active_budget(
+            1,
+            task_id=task_id,
+            calling_office="taizi",
+            direct_superior="user",
+            approved_roles=(role,),
+        )
+        wave = select_wave(
+            useful_roles=(role,),
+            host_capacity=4,
+            host_active=1,
+            host_retained=0,
+            host_reclamation_verified=True,
+            user_agent_budget=None,
+            provider_launch_budget=None,
+            next_depth=1,
+            max_threads=16,
+            max_depth=4,
+            budget_lease=lease,
+            task_id=task_id,
+            calling_office="taizi",
+            direct_superior="user",
+        )
+        admission = admit_roles(
+            host_capacity=4,
+            active_threads=1,
+            retained_threads=0,
+            terminal_reclamation_verified=True,
+            requested_roles=(role,),
+            max_threads=16,
+            next_depth=1,
+            max_depth=4,
+            budget_lease=lease,
+            task_id=task_id,
+            calling_office="taizi",
+            direct_superior="user",
+        )
+        evidence["targets"][role] = {
+            "select_wave": {
+                "selected_roles": list(wave.selected_roles),
+                "deferred_roles": list(wave.deferred_roles),
+                "reason": wave.reason,
+            },
+            "admit_roles": {
+                "allowed": admission.allowed,
+                "selected_roles": list(admission.selected_roles),
+                "deferred_roles": list(admission.deferred_roles),
+                "reason_codes": list(admission.reason_codes),
+            },
+        }
+        if (
+            wave.selected_roles
+            or wave.deferred_roles != (role,)
+            or wave.reason != "dispatch_hierarchy_edge_forbidden"
+        ):
+            violations.append(
+                f"select_wave taizi->{role} selected={wave.selected_roles!r} "
+                f"deferred={wave.deferred_roles!r} reason={wave.reason!r}"
+            )
+        if (
+            admission.allowed
+            or admission.selected_roles
+            or admission.deferred_roles != (role,)
+            or admission.reason_codes != ("dispatch_hierarchy_edge_forbidden",)
+        ):
+            violations.append(
+                f"admit_roles taizi->{role} allowed={admission.allowed!r} "
+                f"selected={admission.selected_roles!r} deferred={admission.deferred_roles!r} "
+                f"reasons={admission.reason_codes!r}"
+            )
+    require(
+        not violations,
+        "missing shared dispatch hierarchy enforcement at ordinary entry points: "
+        + "; ".join(violations),
+    )
+    return evidence
+
+
 def main() -> int:
     with TemporaryDirectory(prefix="court-dispatch-preload-") as temp_dir:
         _initialize_dispatch_preload(Path(temp_dir))
@@ -1129,6 +1219,7 @@ def main() -> int:
         check_repository_relative_access_paths()
         check_same_role_instance_admission()
         check_public_admission_canonical_shape()
+        hierarchy_entrypoints = check_taizi_root_mainline_cannot_dispatch_ministries()
         result = {
             "ok": True,
             "admission_facade": check_admission_facade(),
@@ -1140,6 +1231,7 @@ def main() -> int:
             "repository_relative_access_paths": "PASSED",
             "same_role_instance_admission": "PASSED",
             "public_admission_canonical_shape": "PASSED",
+            "hierarchy_entrypoints": hierarchy_entrypoints,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return 0

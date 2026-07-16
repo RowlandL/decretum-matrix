@@ -1,0 +1,219 @@
+{
+  "schema": "court.dispatch_hierarchy.v1",
+  "deny_by_default": true,
+  "role_sets": {
+    "taizi": [
+      "taizi"
+    ],
+    "three_departments": [
+      "zhongshu",
+      "menxia",
+      "shangshu"
+    ],
+    "six_ministries": [
+      "libu-hr",
+      "hubu",
+      "libu",
+      "bingbu",
+      "xingbu",
+      "gongbu"
+    ],
+    "special_lifecycle": [
+      "shiguan",
+      "shiguan-hermes",
+      "zaochao",
+      "patrol-inspector"
+    ]
+  },
+  "canonical_roles": {
+    "taizi": {
+      "direct_superior": "user"
+    },
+    "zhongshu": {
+      "direct_superior": "taizi"
+    },
+    "menxia": {
+      "direct_superior": "taizi"
+    },
+    "shangshu": {
+      "direct_superior": "taizi"
+    },
+    "libu-hr": {
+      "direct_superior": "shangshu"
+    },
+    "hubu": {
+      "direct_superior": "shangshu"
+    },
+    "libu": {
+      "direct_superior": "shangshu"
+    },
+    "bingbu": {
+      "direct_superior": "shangshu"
+    },
+    "xingbu": {
+      "direct_superior": "shangshu"
+    },
+    "gongbu": {
+      "direct_superior": "shangshu"
+    },
+    "shiguan": {
+      "direct_superior": "taizi/menxia"
+    },
+    "shiguan-hermes": {
+      "direct_superior": "taizi/menxia"
+    },
+    "zaochao": {
+      "direct_superior": "taizi"
+    },
+    "patrol-inspector": {
+      "direct_superior": "taizi"
+    }
+  },
+  "allowed_edges": [
+    {
+      "edge_class": "court_entry",
+      "action": "dispatch",
+      "caller": "user",
+      "target": "taizi",
+      "target_direct_superior": "user"
+    },
+    {
+      "edge_class": "deliberation_dispatch",
+      "action": "dispatch",
+      "caller": "taizi",
+      "target": "zhongshu",
+      "target_direct_superior": "taizi"
+    },
+    {
+      "edge_class": "deliberation_dispatch",
+      "action": "dispatch",
+      "caller": "taizi",
+      "target": "menxia",
+      "target_direct_superior": "taizi"
+    },
+    {
+      "edge_class": "deliberation_dispatch",
+      "action": "dispatch",
+      "caller": "taizi",
+      "target": "shangshu",
+      "target_direct_superior": "taizi"
+    },
+    {
+      "edge_class": "ministry_execution_dispatch",
+      "action": "dispatch",
+      "caller": "shangshu",
+      "target": "libu-hr",
+      "target_direct_superior": "shangshu"
+    },
+    {
+      "edge_class": "ministry_execution_dispatch",
+      "action": "dispatch",
+      "caller": "shangshu",
+      "target": "hubu",
+      "target_direct_superior": "shangshu"
+    },
+    {
+      "edge_class": "ministry_execution_dispatch",
+      "action": "dispatch",
+      "caller": "shangshu",
+      "target": "libu",
+      "target_direct_superior": "shangshu"
+    },
+    {
+      "edge_class": "ministry_execution_dispatch",
+      "action": "dispatch",
+      "caller": "shangshu",
+      "target": "bingbu",
+      "target_direct_superior": "shangshu"
+    },
+    {
+      "edge_class": "ministry_execution_dispatch",
+      "action": "dispatch",
+      "caller": "shangshu",
+      "target": "xingbu",
+      "target_direct_superior": "shangshu"
+    },
+    {
+      "edge_class": "ministry_execution_dispatch",
+      "action": "dispatch",
+      "caller": "shangshu",
+      "target": "gongbu",
+      "target_direct_superior": "shangshu"
+    }
+  ],
+  "child_office_constraints": {
+    "edge_class": "bounded_child_office",
+    "action": "dispatch",
+    "profile_schema": "court.child_office_profile.v1",
+    "owner_roles": [
+      "libu-hr",
+      "hubu",
+      "libu",
+      "bingbu",
+      "xingbu",
+      "gongbu"
+    ],
+    "allowed_instance_kinds": [
+      "worker",
+      "craftsman",
+      "office_worker_instance"
+    ],
+    "required_fields": [
+      "child_role",
+      "role_key",
+      "office_instance_id",
+      "owner_role",
+      "direct_superior",
+      "canonical_authority",
+      "instance_kind",
+      "bounded_mandate",
+      "expected_result",
+      "read_scope",
+      "write_set",
+      "task_id",
+      "dispatch_uid",
+      "shard_id",
+      "attempt",
+      "profile_sha256",
+      "dossier_sha256",
+      "skill_sha256",
+      "expires_at_utc",
+      "terminal_condition",
+      "dispatch_context_packet_schema",
+      "dispatch_context_packet_sha256",
+      "semantic_receipt_sha256",
+      "invariant_capsule_schema",
+      "invariant_capsule_sha256"
+    ],
+    "portable_scope_fields": [
+      "read_scope",
+      "write_set"
+    ],
+    "dispatch_context_packet_schema": "court.semantic.dispatch_context_packet.v1",
+    "invariant_capsule_schema": "court.semantic.invariant_capsule.v1",
+    "forbidden_semantic_authority_fields": [
+      "second_invariant_capsule",
+      "second_semantic_receipt",
+      "child_charter",
+      "charter_override",
+      "semantic_authority_override"
+    ],
+    "canonical_child_role_forbidden": true
+  },
+  "rejection_reason_codes": [
+    "dispatch_hierarchy_action_required",
+    "dispatch_hierarchy_unknown_action",
+    "dispatch_hierarchy_caller_required",
+    "dispatch_hierarchy_target_required",
+    "dispatch_hierarchy_unknown_caller",
+    "dispatch_hierarchy_unknown_target",
+    "dispatch_hierarchy_edge_forbidden",
+    "dispatch_hierarchy_target_superior_mismatch",
+    "dispatch_hierarchy_target_profile_required",
+    "dispatch_hierarchy_child_profile_required",
+    "dispatch_hierarchy_child_owner_mismatch",
+    "dispatch_hierarchy_child_scope_unbounded",
+    "dispatch_hierarchy_child_semantic_authority_mismatch",
+    "dispatch_hierarchy_manifest_invalid"
+  ]
+}

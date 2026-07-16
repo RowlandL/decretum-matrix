@@ -13,6 +13,10 @@ from court_complexity_budget import (
     DEFAULT_NORMAL_PARALLEL_LIMIT,
     resolve_parallel_limit,
 )
+from court_dispatch_hierarchy import (
+    DispatchHierarchyDecision,
+    validate_dispatch_hierarchy,
+)
 
 HARD_MAX_DEPTH = 4
 DEFAULT_HIGH_PARALLEL_THREADS = DEFAULT_NORMAL_PARALLEL_LIMIT
@@ -55,6 +59,58 @@ _OFFICE_DIRECT_SUPERIORS = {
 _SIX_MINISTRY_ROLES = frozenset({"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"})
 _WORKER_INSTANCE_KINDS = frozenset({"worker", "craftsman", "office_worker_instance"})
 _CANONICAL_INSTANCE_KINDS = frozenset({"office", "canonical_authority"})
+
+
+def _first_scoped_hierarchy_denial(
+    *,
+    calling_office: object,
+    requested_roles: Sequence[str],
+    requested_bindings: Sequence[Mapping[str, object]] | None,
+) -> DispatchHierarchyDecision | None:
+    """Validate hierarchy-scoped requests before capacity or lease selection."""
+
+    if (
+        requested_bindings is None
+        or isinstance(requested_bindings, (str, bytes))
+        or len(requested_bindings) != len(requested_roles)
+    ):
+        return None
+    for role, binding in zip(requested_roles, requested_bindings):
+        if not isinstance(binding, Mapping):
+            continue
+        canonical_authority = binding.get("canonical_authority")
+        child_profile = binding.get("child_profile")
+        if not (
+            (role in _SIX_MINISTRY_ROLES and canonical_authority is True)
+            or child_profile is not None
+        ):
+            continue
+        decision = validate_dispatch_hierarchy(
+            action="dispatch",
+            calling_office=calling_office,
+            target_role=role,
+            target_direct_superior=binding.get("direct_superior"),
+            instance_kind=(
+                binding.get("instance_kind")
+                or binding.get("office_instance_kind")
+            ),
+            canonical_authority=canonical_authority,
+            owner_role=binding.get("owner_role"),
+            child_profile=child_profile,
+        )
+        if (
+            not decision.allowed
+            and (
+                child_profile is not None
+                or decision.reason_codes
+                in {
+                    ("dispatch_hierarchy_edge_forbidden",),
+                    ("dispatch_hierarchy_manifest_invalid",),
+                }
+            )
+        ):
+            return decision
+    return None
 
 
 def validate_admission_instance_shape(
@@ -479,6 +535,22 @@ def admit_roles(
     """Admit a bounded role prefix; any unknown runtime bound fails closed."""
 
     roles = _normalized_roles(requested_roles)
+    hierarchy_denial = _first_scoped_hierarchy_denial(
+        calling_office=calling_office,
+        requested_roles=roles,
+        requested_bindings=requested_bindings,
+    )
+    if hierarchy_denial is not None:
+        return RoleAdmissionDecision(
+            False,
+            (),
+            roles,
+            hierarchy_denial.reason_codes,
+            None,
+            None,
+            None,
+            None,
+        )
     unknown = any(
         value is None
         for value in (host_capacity, active_threads, retained_threads, max_threads, next_depth, max_depth)

@@ -13,6 +13,10 @@ from court_complexity_budget import (
     DEFAULT_NORMAL_PARALLEL_LIMIT,
     resolve_parallel_limit,
 )
+from court_dispatch_hierarchy import (
+    DispatchHierarchyDecision,
+    validate_dispatch_hierarchy,
+)
 from court_multi_agent_protocol import (
     approved_budget_selection,
     validate_admission_instance_shape,
@@ -117,6 +121,61 @@ VISIBLE_CORE_ROLES = {"taizi", "zhongshu", "menxia", "shangshu"}
 VISIBILITIES = {"non_visible", "visible_core", "bounded_visible_diagnostic"}
 
 
+def _first_scoped_hierarchy_denial(
+    *,
+    calling_office: object,
+    requested_roles: Sequence[str],
+    requested_bindings: Sequence[Mapping[str, object]] | None,
+) -> DispatchHierarchyDecision | None:
+    """Validate hierarchy-scoped requests before capacity or lease selection."""
+
+    ministry_roles = frozenset(
+        {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
+    )
+    if (
+        requested_bindings is None
+        or isinstance(requested_bindings, (str, bytes))
+        or len(requested_bindings) != len(requested_roles)
+    ):
+        return None
+    for role, binding in zip(requested_roles, requested_bindings):
+        if not isinstance(binding, Mapping):
+            continue
+        canonical_authority = binding.get("canonical_authority")
+        child_profile = binding.get("child_profile")
+        if not (
+            (role in ministry_roles and canonical_authority is True)
+            or child_profile is not None
+        ):
+            continue
+        decision = validate_dispatch_hierarchy(
+            action="dispatch",
+            calling_office=calling_office,
+            target_role=role,
+            target_direct_superior=binding.get("direct_superior"),
+            instance_kind=(
+                binding.get("instance_kind")
+                or binding.get("office_instance_kind")
+            ),
+            canonical_authority=canonical_authority,
+            owner_role=binding.get("owner_role"),
+            child_profile=child_profile,
+        )
+        if (
+            not decision.allowed
+            and (
+                child_profile is not None
+                or decision.reason_codes
+                in {
+                    ("dispatch_hierarchy_edge_forbidden",),
+                    ("dispatch_hierarchy_manifest_invalid",),
+                }
+            )
+        ):
+            return decision
+    return None
+
+
 def normalize_mode(text: str) -> CourtMode:
     normalized = " ".join(str(text).strip().casefold().replace("_", " ").split())
     if "supercc" in normalized:
@@ -153,6 +212,23 @@ def select_wave(
     authority: str | None = None,
 ) -> DispatchDecision:
     roles = tuple(str(role).strip() for role in useful_roles if str(role).strip())
+    hierarchy_denial = _first_scoped_hierarchy_denial(
+        calling_office=calling_office,
+        requested_roles=roles,
+        requested_bindings=requested_bindings,
+    )
+    if hierarchy_denial is not None:
+        return DispatchDecision(
+            (),
+            roles,
+            0,
+            0,
+            int(max_threads) if isinstance(max_threads, int) and not isinstance(max_threads, bool) else 0,
+            next_depth,
+            int(max_depth) if isinstance(max_depth, int) and not isinstance(max_depth, bool) else 0,
+            None,
+            hierarchy_denial.reason_codes[0],
+        )
     if max_threads is None or int(max_threads) <= 0:
         return DispatchDecision((), roles, 0, 0, 0, next_depth, int(max_depth or 0), None, "max_threads_unknown")
     configured_capacity = int(max_threads)
