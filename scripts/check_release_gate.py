@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -19,12 +20,96 @@ from release_gate_manifest import (
     expand_step_command,
     load_release_manifest,
     selected_release_steps,
+    validate_release_manifest,
 )
 
 INSTALL_RECEIPT_SCHEMA = "court.install_current_agent_copy.result.v1"
 
 
 ROOT = Path(__file__).resolve().parents[1]
+HIERARCHY_RELEASE_GATE_NAME = "court_dispatch_hierarchy"
+HIERARCHY_RELEASE_GATE_CLASS = "source"
+HIERARCHY_RELEASE_GATE_COMMAND = ["$PYTHON", "scripts/check_court_dispatch_hierarchy.py"]
+HIERARCHY_RELEASE_GATE_CONDITION = "always"
+
+
+def _expect_manifest_invalid(manifest: dict[str, object], expected_text: str) -> None:
+    try:
+        validate_release_manifest(manifest)
+    except ReleaseGateManifestError as exc:
+        if expected_text not in str(exc):
+            raise AssertionError(
+                f"expected {expected_text!r} in manifest validation error, got {exc!r}"
+            ) from exc
+    else:
+        raise AssertionError(f"tampered hierarchy release gate unexpectedly passed: {expected_text}")
+
+
+def run_hierarchy_release_gate_self_test(manifest: dict[str, object]) -> list[str]:
+    steps = manifest.get("steps")
+    if not isinstance(steps, list):
+        raise AssertionError("release manifest steps are unavailable for hierarchy self-test")
+    matching = [
+        (index, step)
+        for index, step in enumerate(steps)
+        if isinstance(step, dict) and step.get("name") == HIERARCHY_RELEASE_GATE_NAME
+    ]
+    if len(matching) != 1:
+        raise AssertionError(
+            "mandatory court_dispatch_hierarchy release step must exist exactly once"
+        )
+    hierarchy_index, hierarchy_step = matching[0]
+    expected_contract = {
+        "name": HIERARCHY_RELEASE_GATE_NAME,
+        "gate_class": HIERARCHY_RELEASE_GATE_CLASS,
+        "command": HIERARCHY_RELEASE_GATE_COMMAND,
+        "condition": HIERARCHY_RELEASE_GATE_CONDITION,
+        "allowed_returncodes": [0],
+    }
+    for field, expected in expected_contract.items():
+        if hierarchy_step.get(field) != expected:
+            raise AssertionError(
+                f"mandatory court_dispatch_hierarchy release step {field} drifted: "
+                f"expected {expected!r}, got {hierarchy_step.get(field)!r}"
+            )
+
+    cases: list[tuple[str, dict[str, object], str]] = []
+
+    missing = deepcopy(manifest)
+    missing["steps"].pop(hierarchy_index)  # type: ignore[index,union-attr]
+    cases.append(("missing", missing, "external required-step policy"))
+
+    renamed = deepcopy(manifest)
+    renamed["steps"][hierarchy_index]["name"] = "court_dispatch_hierarchy_renamed"  # type: ignore[index]
+    cases.append(("renamed", renamed, "external required-step policy"))
+
+    reordered = deepcopy(manifest)
+    reordered_steps = reordered["steps"]  # type: ignore[index]
+    assert isinstance(reordered_steps, list)
+    moved = reordered_steps.pop(hierarchy_index)
+    reordered_steps.insert(max(0, hierarchy_index - 1), moved)
+    cases.append(("reordered", reordered, "external required-step policy"))
+
+    outside_source_phase = deepcopy(manifest)
+    outside_source_phase["steps"][hierarchy_index]["gate_class"] = "installation"  # type: ignore[index]
+    cases.append(("outside_source_phase", outside_source_phase, "gate_class drifted"))
+
+    conditionalized = deepcopy(manifest)
+    conditionalized["steps"][hierarchy_index]["condition"] = "active_copies_enabled"  # type: ignore[index]
+    cases.append(("conditionalized", conditionalized, "condition drifted"))
+
+    wrong_command = deepcopy(manifest)
+    wrong_command["steps"][hierarchy_index]["command"] = [  # type: ignore[index]
+        "$PYTHON",
+        "scripts/check_court_dispatch_policy.py",
+    ]
+    cases.append(("wrong_command", wrong_command, "command drifted"))
+
+    passed: list[str] = []
+    for name, value, expected in cases:
+        _expect_manifest_invalid(value, expected)
+        passed.append(name)
+    return passed
 
 
 def run_step(
@@ -221,6 +306,11 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Print JSON instead of text.")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run only the mandatory hierarchy release-gate manifest tamper checks.",
+    )
     parser.add_argument("--package", type=Path, help="Optional package zip to validate without building a new package.")
     parser.add_argument("--require-package", action="store_true", help="Fail if --package is not supplied.")
     parser.add_argument(
@@ -248,7 +338,8 @@ def main() -> int:
 
     try:
         manifest = load_release_manifest()
-    except ReleaseGateManifestError as exc:
+        manifest_self_test_cases = run_hierarchy_release_gate_self_test(manifest)
+    except (ReleaseGateManifestError, AssertionError) as exc:
         failure = {
             "name": "release_manifest_policy",
             "gate_class": "source",
@@ -291,6 +382,26 @@ def main() -> int:
             print(f"RELEASE_GATE_FAILED steps=0 failed=1 package_gate=NOT_EVALUATED")
             print(f"FAILED {failure['name']}: {failure['output']}")
         return 2
+    manifest_self_test = {
+        "status": "PASSED",
+        "cases": manifest_self_test_cases,
+        "case_count": len(manifest_self_test_cases),
+    }
+    if args.self_test:
+        result = {
+            "ok": True,
+            "schema": "court.release_gate.self_test.v1",
+            "manifest_self_test": manifest_self_test,
+        }
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(
+                "RELEASE_GATE_SELF_TEST_PASSED "
+                f"cases={len(manifest_self_test_cases)} "
+                f"names={','.join(manifest_self_test_cases)}"
+            )
+        return 0
     manifest_steps = selected_release_steps(
         manifest,
         include_active_copies=phase != "pre-install" and not args.skip_active_copies,
@@ -379,6 +490,7 @@ def main() -> int:
             if phase == "pre-install"
             else ("runtime_not_selected" if args.skip_runtime else "runtime_selected")
         ),
+        "manifest_self_test": manifest_self_test,
         "package_gate": package_gate,
         "install_receipt_gate": install_receipt_gate,
         "steps": steps,
@@ -390,7 +502,8 @@ def main() -> int:
         print(
             f"RELEASE_GATE_{result['release_gate']} "
             f"steps={len(steps)} failed={len(failed)} package_gate={package_gate['status']} "
-            f"install_receipt_gate={install_receipt_gate['status']}"
+            f"install_receipt_gate={install_receipt_gate['status']} "
+            f"manifest_self_test={manifest_self_test['status']}"
         )
         for item in failed:
             print(f"FAILED {item['name']}: {item.get('output') or item.get('problems')}")

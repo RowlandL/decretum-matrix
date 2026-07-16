@@ -63,6 +63,12 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         ("$PYTHON", "scripts/check_source_state_budget.py", "--self-test", "--json"),
         "always",
     ),
+    (
+        "court_dispatch_hierarchy",
+        "source",
+        ("$PYTHON", "scripts/check_court_dispatch_hierarchy.py"),
+        "always",
+    ),
     ("supercc_profiles", "source", ("$PYTHON", "scripts/check_supercc_profiles.py"), "always"),
     ("supercc_truth_gates", "source", ("$PYTHON", "scripts/check_supercc_truth_gates.py"), "always"),
     (

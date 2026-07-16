@@ -337,6 +337,7 @@ BRAND_REQUIRED_MEMBERS = {
 PACKAGE_IDENTITY_REQUIRED_MEMBERS = {
     f"{ROOT_NAME}/release-manifest.json",
     f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
+    f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",
     f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
 }
 
@@ -400,6 +401,8 @@ REQUIRED_COURT_SCRIPTS = [
     "court_runtime.py",
     "court_cli.py",
     "court_agent_admission.py",
+    "court_dispatch_hierarchy.py",
+    "check_court_dispatch_hierarchy.py",
     "court_multi_agent_protocol.py",
     "court_codex_protocol_launcher.py",
     "court_codex_office_worker.py",

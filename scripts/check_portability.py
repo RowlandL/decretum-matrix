@@ -161,6 +161,34 @@ def run() -> dict[str, object]:
         }
     )
 
+    hierarchy_scripts = {
+        "court_dispatch_hierarchy.py",
+        "check_court_dispatch_hierarchy.py",
+    }
+    hierarchy_manifest_member = (
+        f"{package_skill.ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json"
+    )
+    hierarchy_paths = (
+        Path("scripts/court_dispatch_hierarchy.py"),
+        Path("scripts/check_court_dispatch_hierarchy.py"),
+        Path("references/manifests/court-dispatch-hierarchy.v1.json"),
+    )
+    checks.append(
+        {
+            "name": "dispatch hierarchy checker module and manifest are mandatory portable members",
+            "ok": (
+                hierarchy_scripts.issubset(set(package_skill.REQUIRED_COURT_SCRIPTS))
+                and hierarchy_manifest_member in package_skill.PACKAGE_IDENTITY_REQUIRED_MEMBERS
+                and all((ROOT / path).is_file() for path in hierarchy_paths)
+                and all(not package_skill.should_skip(path, False) for path in hierarchy_paths)
+            ),
+            "details": {
+                "required_scripts": sorted(hierarchy_scripts),
+                "required_manifest": hierarchy_manifest_member,
+            },
+        }
+    )
+
     leaked = sorted(str(path.relative_to(ROOT)).replace("\\", "/") for path in source_candidates() if contains_host_path(path))
     checks.append(
         {

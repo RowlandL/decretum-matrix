@@ -24,6 +24,7 @@ source_release_gates:
   - release_payload_manifest
   - package_privacy_regressions
   - release_artifact_builder
+  - court_dispatch_hierarchy
   - supercc_profiles
   - supercc_truth_gates
   - supercc_ministry_dispatch

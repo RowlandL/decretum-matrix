@@ -87,6 +87,14 @@
       "condition": "always"
     },
     {
+      "name": "court_dispatch_hierarchy",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_dispatch_hierarchy.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "supercc_profiles",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_supercc_profiles.py"],

@@ -314,7 +314,7 @@ def main() -> int:
             if step.get("gate_class") == "source" and step.get("name") != "catalog_strict"
         ]
         candidate_names = {str(step["name"]) for step in candidate_steps}
-        if len(candidate_steps) != 34:
+        if len(candidate_steps) != 35:
             raise AssertionError(f"candidate pre-install step count drifted: {len(candidate_steps)}")
         if not {"release_payload_manifest", "court_agent_config", "court_codex_host_resolution"}.issubset(
             candidate_names
