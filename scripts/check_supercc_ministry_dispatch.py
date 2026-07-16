@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
@@ -161,7 +163,8 @@ def check_supercc_launcher_shape() -> None:
     inspection_roles = {"patrol-inspector"}
     ministry_roles = {"hubu", "libu", "bingbu", "xingbu", "gongbu", "libu-hr"}
     special_roles = {"shiguan"}
-    expected_offices = expected_standing | inspection_roles | ministry_roles | special_roles
+    non_visible_special_roles = {"shiguan-hermes", "zaochao"}
+    expected_offices = expected_standing | inspection_roles | ministry_roles | special_roles | non_visible_special_roles
     if set(ensure_supercc_court.OFFICES) != expected_offices:
         raise AssertionError(f"superCC launcher OFFICES drifted: {ensure_supercc_court.OFFICES!r}")
     if set(ensure_supercc_court.THREE_OFFICES) != expected_standing:
@@ -176,8 +179,32 @@ def check_supercc_launcher_shape() -> None:
         raise AssertionError("legacy inspection identity must not be in routine visible offices")
     if set(ensure_supercc_court.SPECIAL_OFFICES) != special_roles:
         raise AssertionError(f"SPECIAL_OFFICES drifted: {ensure_supercc_court.SPECIAL_OFFICES!r}")
+    if set(ensure_supercc_court.SPECIAL_LIFECYCLE_OFFICES) != special_roles | inspection_roles | non_visible_special_roles:
+        raise AssertionError(
+            f"SPECIAL_LIFECYCLE_OFFICES drifted: {ensure_supercc_court.SPECIAL_LIFECYCLE_OFFICES!r}"
+        )
     if set(ensure_supercc_court.NON_VISIBLE_DEFAULT_SILENT_OFFICES) != ministry_roles | special_roles:
         raise AssertionError(f"NON_VISIBLE_DEFAULT_SILENT_OFFICES drifted: {ensure_supercc_court.NON_VISIBLE_DEFAULT_SILENT_OFFICES!r}")
+    gongbu_dossier = ensure_supercc_court.office_dossier_text("gongbu")
+    required_hierarchy_terms = (
+        "court.dispatch_hierarchy.v1",
+        "ordinary and superCC use the same validator",
+        "court.child_office_profile.v1",
+        "canonical_authority=false",
+        "court.semantic.dispatch_context_packet.v1",
+        "court.semantic.invariant_capsule.v1",
+        "loaded_skills including decretum-matrix",
+    )
+    missing_hierarchy_terms = [
+        term for term in required_hierarchy_terms if term not in gongbu_dossier
+    ]
+    if missing_hierarchy_terms:
+        raise AssertionError(
+            "generated superCC dossier hierarchy/P00 contract drifted: "
+            f"missing={missing_hierarchy_terms}"
+        )
+    if "loaded_skills including court-capability-router" in gongbu_dossier:
+        raise AssertionError("generated superCC dossier retained the legacy skill identity")
     if tuple(ensure_supercc_court.CORE_IDS) != ("taizi", *ensure_supercc_court.ALL_VISIBLE_OFFICES, *ensure_supercc_court.INSPECTION_OFFICES):
         raise AssertionError(f"CORE_IDS drifted: {ensure_supercc_court.CORE_IDS!r}")
     if tuple(ensure_supercc_court.STATUS_OFFICES) != ("taizi", *ensure_supercc_court.ALL_VISIBLE_OFFICES):
@@ -419,6 +446,36 @@ def check_dispatch_evidence() -> None:
             raise AssertionError(f"dry-run dispatch should pass: {dispatch_payload}")
         if dispatch_payload.get("calling_office") != "shangshu":
             raise AssertionError("ministry dispatch must preserve shangshu caller")
+        profile_gate = dispatch_payload.get("target_profile_gate")
+        if not isinstance(profile_gate, dict) or profile_gate.get("ok") is not True:
+            raise AssertionError(f"ministry dispatch target profile gate failed: {dispatch_payload}")
+        expected_hierarchy = ensure_supercc_court.validate_dispatch_hierarchy(
+            action="dispatch",
+            calling_office="shangshu",
+            target_role="gongbu",
+            target_direct_superior="shangshu",
+            instance_kind="office",
+            canonical_authority=True,
+            owner_role=None,
+            child_profile=None,
+        )
+        expected_hierarchy_fields = {
+            "hierarchy_gate": "PASSED",
+            "hierarchy_schema": expected_hierarchy.hierarchy_schema,
+            "hierarchy_manifest_sha256": expected_hierarchy.hierarchy_manifest_sha256,
+            "hierarchy_edge_class": expected_hierarchy.edge_class,
+            "hierarchy_calling_office": expected_hierarchy.normalized_caller,
+            "hierarchy_target_role": expected_hierarchy.normalized_target,
+            "hierarchy_owner_role": expected_hierarchy.normalized_owner,
+        }
+        actual_hierarchy_fields = {
+            key: dispatch_payload.get(key) for key in expected_hierarchy_fields
+        }
+        if actual_hierarchy_fields != expected_hierarchy_fields:
+            raise AssertionError(
+                "ordinary/shared validator and superCC hierarchy evidence diverged: "
+                f"expected={expected_hierarchy_fields} actual={actual_hierarchy_fields}"
+            )
         direct_source = str(dispatch_payload.get("direct_superior_source") or "")
         if not direct_source.startswith("standing_profile:") or not direct_source.endswith("gongbu.toml"):
             raise AssertionError(f"direct superior source drifted: {dispatch_payload}")
@@ -653,11 +710,495 @@ def check_taizi_to_gongbu_rejected_before_side_effects() -> None:
         )
 
 
+def check_missing_target_profile_rejected_before_side_effects() -> None:
+    """A canonical dispatch requires the target's exact standing profile."""
+
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    counters = {
+        "environment_probe": 0,
+        "structured_task_creation": 0,
+        "squad_send_mirror": 0,
+        "native_enter_command": 0,
+        "office_state_write": 0,
+    }
+
+    def missing_profile(_role: str) -> dict[str, object]:
+        return {
+            "office_profile_loaded": False,
+            "profile_source": str(ROOT / "agents" / "standing-officials" / "gongbu.toml"),
+            "profile_hash": None,
+            "profile_version": None,
+            "profile_fields": {},
+            "profile_missing_fields": ["role_key", "direct_superior"],
+        }
+
+    def fake_check(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["environment_probe"] += 1
+        return {}
+
+    def fake_create_task(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["structured_task_creation"] += 1
+        return {"ok": True, "task_id": "unexpected-task"}
+
+    def fake_send(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["squad_send_mirror"] += 1
+        return {"ok": True}
+
+    def fake_run(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["native_enter_command"] += 1
+        return {"ok": True}
+
+    def fake_state_write(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["office_state_write"] += 1
+        return {"ok": True}
+
+    originals = {
+        "profile_metadata": ensure_supercc_court.profile_metadata,
+        "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+        "create_squad_task_assignment": ensure_supercc_court.create_squad_task_assignment,
+        "send_squad_notice": ensure_supercc_court.send_squad_notice,
+        "run_command": ensure_supercc_court.run_command,
+        "write_office_state": ensure_supercc_court.write_office_state,
+    }
+    try:
+        ensure_supercc_court.profile_metadata = missing_profile  # type: ignore[assignment]
+        ensure_supercc_court.supercc_check_for_args = fake_check  # type: ignore[assignment]
+        ensure_supercc_court.create_squad_task_assignment = fake_create_task  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = fake_send  # type: ignore[assignment]
+        ensure_supercc_court.run_command = fake_run  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = fake_state_write  # type: ignore[assignment]
+        payload = ensure_supercc_court.enter_dispatch(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                role="gongbu",
+                message="missing standing profile must fail closed",
+                dispatch_uid="HIERARCHY-RED-MISSING-PROFILE",
+                calling_office="shangshu",
+                dry_run=False,
+                allow_squad_only_fallback=False,
+                enable_inspector=False,
+                skip_inspector=False,
+            )
+        )
+    finally:
+        ensure_supercc_court.profile_metadata = originals["profile_metadata"]  # type: ignore[assignment]
+        ensure_supercc_court.supercc_check_for_args = originals["supercc_check_for_args"]  # type: ignore[assignment]
+        ensure_supercc_court.create_squad_task_assignment = originals["create_squad_task_assignment"]  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = originals["send_squad_notice"]  # type: ignore[assignment]
+        ensure_supercc_court.run_command = originals["run_command"]  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = originals["write_office_state"]  # type: ignore[assignment]
+
+    violations: list[str] = []
+    if payload.get("ok") is not False or payload.get("dispatch_blocked") is not True:
+        violations.append(f"missing target profile was accepted: {payload}")
+    if payload.get("dispatch_hierarchy_reason") != "dispatch_hierarchy_target_profile_required":
+        violations.append(
+            "wrong missing-profile reason: "
+            f"{payload.get('dispatch_hierarchy_reason')!r}"
+        )
+    for boundary, count in counters.items():
+        if count != 0:
+            violations.append(f"{boundary} expected=0 actual={count}")
+    if violations:
+        raise AssertionError(
+            "missing superCC target-profile rejection before side effects: "
+            + "; ".join(violations)
+        )
+
+
+def check_special_lifecycle_dispatch_edges() -> None:
+    """Special lifecycle roles keep explicit callers and deny ministry bypass."""
+
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    legal_cases = (
+        ("shiguan", "taizi", "archive_evidence_dispatch", "taizi/menxia"),
+        ("shiguan", "menxia", "archive_evidence_dispatch", "taizi/menxia"),
+        ("shiguan-hermes", "menxia", "hermes_archive_evidence_dispatch", "taizi/menxia"),
+        ("patrol-inspector", "taizi", "bounded_diagnostic_dispatch", "taizi"),
+        ("zaochao", "taizi", "briefing_dispatch", "taizi"),
+    )
+
+    original_check = ensure_supercc_court.supercc_check_for_args
+    try:
+        ensure_supercc_court.supercc_check_for_args = lambda *_args, **_kwargs: {  # type: ignore[assignment]
+            "supercc_env_gate": "PASSED",
+            "visible_display_gate": "PASSED",
+            "display_transport_gate": "PASSED",
+            "office_client_gate": "PASSED",
+            "zellij": {
+                "env": {"ZELLIJ_SESSION_NAME": "special-lifecycle", "ZELLIJ_PANE_ID": "0"},
+                "panes_list": [],
+            },
+            "squad": {"agents_json": []},
+        }
+        for role, caller, action, superior in legal_cases:
+            try:
+                payload = ensure_supercc_court.enter_dispatch(
+                    argparse.Namespace(
+                        workspace=str(ROOT),
+                        role=role,
+                        message=f"bounded {action} fixture",
+                        dispatch_uid=f"SPECIAL-POSITIVE-{role}-{caller}",
+                        calling_office=caller,
+                        dry_run=True,
+                        allow_squad_only_fallback=False,
+                        enable_inspector=False,
+                        skip_inspector=False,
+                    )
+                )
+            except ValueError as exc:
+                raise AssertionError(
+                    f"legal special lifecycle edge raised instead of dispatching: role={role} caller={caller} error={exc}"
+                ) from exc
+            if payload.get("ok") is not True:
+                raise AssertionError(f"legal special lifecycle edge was rejected: {payload}")
+            if payload.get("hierarchy_gate") != "PASSED":
+                raise AssertionError(f"special lifecycle hierarchy gate missing: {payload}")
+            if payload.get("hierarchy_edge_class") != "special_lifecycle_dispatch":
+                raise AssertionError(f"special lifecycle edge class drifted: {payload}")
+            if payload.get("special_lifecycle_action") != action:
+                raise AssertionError(f"special lifecycle action drifted: {payload}")
+            if payload.get("direct_superior") != superior:
+                raise AssertionError(f"special lifecycle direct superior drifted: {payload}")
+            if payload.get("dispatch_delivery_channel") != ensure_supercc_court.NON_VISIBLE_SPECIAL_LIFECYCLE_DISPATCH_CHANNEL:
+                raise AssertionError(f"special lifecycle must stay non-visible by default: {payload}")
+            native = payload.get("native_enter_dispatch")
+            if not isinstance(native, dict) or native.get("skipped") is not True or native.get("commands") != []:
+                raise AssertionError(f"special lifecycle non-visible dispatch planned native input: {payload}")
+    finally:
+        ensure_supercc_court.supercc_check_for_args = original_check  # type: ignore[assignment]
+
+    for role, _caller, _action, _superior in legal_cases:
+        counters = {
+            "environment_probe": 0,
+            "structured_task_creation": 0,
+            "squad_send_mirror": 0,
+            "native_enter_command": 0,
+            "office_state_write": 0,
+        }
+
+        def fake_check(*_args: object, **_kwargs: object) -> dict[str, object]:
+            counters["environment_probe"] += 1
+            return {}
+
+        def fake_create_task(*_args: object, **_kwargs: object) -> dict[str, object]:
+            counters["structured_task_creation"] += 1
+            return {"ok": True, "task_id": "unexpected-task"}
+
+        def fake_send(*_args: object, **_kwargs: object) -> dict[str, object]:
+            counters["squad_send_mirror"] += 1
+            return {"ok": True}
+
+        def fake_run(*_args: object, **_kwargs: object) -> dict[str, object]:
+            counters["native_enter_command"] += 1
+            return {"ok": True}
+
+        def fake_state_write(*_args: object, **_kwargs: object) -> dict[str, object]:
+            counters["office_state_write"] += 1
+            return {"ok": True}
+
+        originals = {
+            "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+            "create_squad_task_assignment": ensure_supercc_court.create_squad_task_assignment,
+            "send_squad_notice": ensure_supercc_court.send_squad_notice,
+            "run_command": ensure_supercc_court.run_command,
+            "write_office_state": ensure_supercc_court.write_office_state,
+        }
+        try:
+            ensure_supercc_court.supercc_check_for_args = fake_check  # type: ignore[assignment]
+            ensure_supercc_court.create_squad_task_assignment = fake_create_task  # type: ignore[assignment]
+            ensure_supercc_court.send_squad_notice = fake_send  # type: ignore[assignment]
+            ensure_supercc_court.run_command = fake_run  # type: ignore[assignment]
+            ensure_supercc_court.write_office_state = fake_state_write  # type: ignore[assignment]
+            try:
+                payload = ensure_supercc_court.enter_dispatch(
+                    argparse.Namespace(
+                        workspace=str(ROOT),
+                        role=role,
+                        message="ministry must not dispatch special lifecycle roles",
+                        dispatch_uid=f"SPECIAL-NEGATIVE-GONGBU-{role}",
+                        calling_office="gongbu",
+                        dry_run=False,
+                        allow_squad_only_fallback=False,
+                        enable_inspector=False,
+                        skip_inspector=False,
+                    )
+                )
+            except ValueError as exc:
+                raise AssertionError(
+                    f"illegal ministry->special edge raised without structured hierarchy evidence: role={role} error={exc}"
+                ) from exc
+        finally:
+            ensure_supercc_court.supercc_check_for_args = originals["supercc_check_for_args"]  # type: ignore[assignment]
+            ensure_supercc_court.create_squad_task_assignment = originals["create_squad_task_assignment"]  # type: ignore[assignment]
+            ensure_supercc_court.send_squad_notice = originals["send_squad_notice"]  # type: ignore[assignment]
+            ensure_supercc_court.run_command = originals["run_command"]  # type: ignore[assignment]
+            ensure_supercc_court.write_office_state = originals["write_office_state"]  # type: ignore[assignment]
+
+        violations: list[str] = []
+        if payload.get("ok") is not False or payload.get("dispatch_blocked") is not True:
+            violations.append(f"gongbu->{role} was accepted: {payload}")
+        if payload.get("dispatch_hierarchy_reason") != "dispatch_hierarchy_edge_forbidden":
+            violations.append(f"gongbu->{role} wrong reason: {payload.get('dispatch_hierarchy_reason')!r}")
+        for boundary, count in counters.items():
+            if count != 0:
+                violations.append(f"gongbu->{role} {boundary} expected=0 actual={count}")
+        if violations:
+            raise AssertionError(
+                "special lifecycle hierarchy bypass remains: " + "; ".join(violations)
+            )
+
+    wake_counters = {
+        "environment_probe": 0,
+        "squad_send": 0,
+        "office_state_write": 0,
+    }
+
+    def wake_check(*_args: object, **_kwargs: object) -> dict[str, object]:
+        wake_counters["environment_probe"] += 1
+        return {"squad": {"agents_json": []}, "zellij": {"panes_list": []}}
+
+    def wake_send(*_args: object, **_kwargs: object) -> dict[str, object]:
+        wake_counters["squad_send"] += 1
+        return {"ok": True}
+
+    def wake_state(*_args: object, **_kwargs: object) -> dict[str, object]:
+        wake_counters["office_state_write"] += 1
+        return {"ok": True}
+
+    wake_originals = {
+        "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+        "send_squad_notice": ensure_supercc_court.send_squad_notice,
+        "write_office_state": ensure_supercc_court.write_office_state,
+    }
+    try:
+        ensure_supercc_court.supercc_check_for_args = wake_check  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = wake_send  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = wake_state  # type: ignore[assignment]
+        try:
+            wake_payload = ensure_supercc_court.wake_roles(
+                argparse.Namespace(
+                    workspace=str(ROOT),
+                    dry_run=False,
+                    calling_office="gongbu",
+                    enable_inspector=False,
+                    skip_inspector=False,
+                ),
+                ("shiguan",),
+                reason="forbidden ministry special-role wake",
+                sender="gongbu",
+            )
+        except (KeyError, NameError, ValueError) as exc:
+            raise AssertionError(
+                f"illegal ministry special-role wake raised without structured hierarchy evidence: {exc}"
+            ) from exc
+    finally:
+        ensure_supercc_court.supercc_check_for_args = wake_originals["supercc_check_for_args"]  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = wake_originals["send_squad_notice"]  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = wake_originals["write_office_state"]  # type: ignore[assignment]
+
+    wake_violations: list[str] = []
+    if wake_payload.get("ok") is not False or wake_payload.get("dispatch_blocked") is not True:
+        wake_violations.append(f"gongbu->shiguan wake was accepted: {wake_payload}")
+    if wake_payload.get("dispatch_hierarchy_reason") != "dispatch_hierarchy_edge_forbidden":
+        wake_violations.append(
+            f"gongbu->shiguan wake wrong reason: {wake_payload.get('dispatch_hierarchy_reason')!r}"
+        )
+    for boundary, count in wake_counters.items():
+        if count != 0:
+            wake_violations.append(f"wake {boundary} expected=0 actual={count}")
+    if wake_violations:
+        raise AssertionError(
+            "special lifecycle wake bypass remains: " + "; ".join(wake_violations)
+        )
+
+
+def check_cli_special_lifecycle_preflight_before_bootstrap() -> None:
+    """CLI LAUNCH/WAKE must reject illegal special edges before all runtime setup."""
+
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+    import supercc_client_selection  # noqa: PLC0415
+
+    special_roles = (
+        "shiguan",
+        "shiguan-hermes",
+        "patrol-inspector",
+        "zaochao",
+    )
+    actions = (
+        ("launch", "--launch-offices"),
+        ("wake", "--wake-offices"),
+    )
+    violations: list[str] = []
+
+    for action_name, action_flag in actions:
+        for role in special_roles:
+            counters = {
+                "office_client_resolve": 0,
+                "office_client_maps": 0,
+                "cli_source_signals": 0,
+                "dependency_bootstrap": 0,
+                "environment_probe": 0,
+                "task_create": 0,
+                "squad_send": 0,
+                "native_command": 0,
+                "office_state_write": 0,
+            }
+
+            original_resolve = ensure_supercc_court.resolve_office_client_args
+            original_maps = ensure_supercc_court.normalize_office_client_maps
+            original_cli_source_signals = supercc_client_selection.cli_source_signals
+
+            def spy_resolve(*args: object, **kwargs: object) -> object:
+                counters["office_client_resolve"] += 1
+                return original_resolve(*args, **kwargs)
+
+            def spy_maps(*args: object, **kwargs: object) -> object:
+                counters["office_client_maps"] += 1
+                return original_maps(*args, **kwargs)
+
+            def spy_cli_source_signals() -> dict[str, object]:
+                counters["cli_source_signals"] += 1
+                return {
+                    "office_client": "codex",
+                    "source": "test_cli_source_signal",
+                    "command": None,
+                    "signals": ["test"],
+                }
+
+            def fake_bootstrap(*_args: object, **_kwargs: object) -> dict[str, object]:
+                counters["dependency_bootstrap"] += 1
+                return {"ok": True, "skipped": True, "reason": "test_stub"}
+
+            def fake_environment(*_args: object, **_kwargs: object) -> dict[str, object]:
+                counters["environment_probe"] += 1
+                return {
+                    "passed": True,
+                    "ok": True,
+                    "supercc_env_gate": "PASSED",
+                    "visible_display_gate": "PASSED",
+                    "display_transport_gate": "PASSED",
+                    "office_client_gate": "PASSED",
+                    "squad": {"agents_json": []},
+                    "zellij": {"panes_list": [], "env": {}},
+                    "codex": {},
+                }
+
+            def fake_task(*_args: object, **_kwargs: object) -> dict[str, object]:
+                counters["task_create"] += 1
+                return {"ok": True, "task_id": "test-task"}
+
+            def fake_squad(*_args: object, **_kwargs: object) -> dict[str, object]:
+                counters["squad_send"] += 1
+                return {"ok": True}
+
+            def fake_native(*_args: object, **_kwargs: object) -> dict[str, object]:
+                counters["native_command"] += 1
+                return {"ok": True, "returncode": 0, "stdout": "", "stderr": ""}
+
+            def fake_state(*_args: object, **_kwargs: object) -> dict[str, object]:
+                counters["office_state_write"] += 1
+                return {"ok": True}
+
+            originals = {
+                "resolve_office_client_args": original_resolve,
+                "normalize_office_client_maps": original_maps,
+                "maybe_bootstrap_supercc_dependencies": ensure_supercc_court.maybe_bootstrap_supercc_dependencies,
+                "check_office_client": ensure_supercc_court.check_office_client,
+                "check_office_clients_for_roles": ensure_supercc_court.check_office_clients_for_roles,
+                "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+                "create_squad_task_assignment": ensure_supercc_court.create_squad_task_assignment,
+                "send_squad_notice": ensure_supercc_court.send_squad_notice,
+                "run_command": ensure_supercc_court.run_command,
+                "write_office_state": ensure_supercc_court.write_office_state,
+            }
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code: int | None = None
+            raised: BaseException | None = None
+            try:
+                ensure_supercc_court.resolve_office_client_args = spy_resolve  # type: ignore[assignment]
+                ensure_supercc_court.normalize_office_client_maps = spy_maps  # type: ignore[assignment]
+                supercc_client_selection.cli_source_signals = spy_cli_source_signals  # type: ignore[assignment]
+                ensure_supercc_court.maybe_bootstrap_supercc_dependencies = fake_bootstrap  # type: ignore[assignment]
+                ensure_supercc_court.check_office_client = fake_environment  # type: ignore[assignment]
+                ensure_supercc_court.check_office_clients_for_roles = fake_environment  # type: ignore[assignment]
+                ensure_supercc_court.supercc_check_for_args = fake_environment  # type: ignore[assignment]
+                ensure_supercc_court.create_squad_task_assignment = fake_task  # type: ignore[assignment]
+                ensure_supercc_court.send_squad_notice = fake_squad  # type: ignore[assignment]
+                ensure_supercc_court.run_command = fake_native  # type: ignore[assignment]
+                ensure_supercc_court.write_office_state = fake_state  # type: ignore[assignment]
+                try:
+                    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        exit_code = ensure_supercc_court.main(
+                            [
+                                "--workspace",
+                                str(ROOT),
+                                action_flag,
+                                role,
+                                "--calling-office",
+                                "gongbu",
+                                "--office-client",
+                                "auto",
+                                "--dry-run",
+                                "--no-auto-install-deps",
+                                "--format",
+                                "json",
+                            ]
+                        )
+                except BaseException as exc:  # argparse raises SystemExit on an entry-contract failure.
+                    raised = exc
+            finally:
+                for name, original in originals.items():
+                    setattr(ensure_supercc_court, name, original)
+                supercc_client_selection.cli_source_signals = original_cli_source_signals  # type: ignore[assignment]
+
+            case = f"gongbu->{role} {action_name}"
+            if raised is not None:
+                violations.append(
+                    f"{case} raised {type(raised).__name__}: {raised}; stderr={stderr.getvalue().strip()!r}"
+                )
+                continue
+            if exit_code != 2:
+                violations.append(f"{case} exit expected=2 actual={exit_code}")
+            try:
+                payload = json.loads(stdout.getvalue())
+            except json.JSONDecodeError as exc:
+                violations.append(f"{case} did not emit structured JSON: {exc}; stdout={stdout.getvalue()!r}")
+                continue
+            if payload.get("ok") is not False or payload.get("dispatch_blocked") is not True:
+                violations.append(f"{case} was accepted: {payload}")
+            if payload.get("dispatch_hierarchy_reason") != "dispatch_hierarchy_edge_forbidden":
+                violations.append(
+                    f"{case} wrong hierarchy reason: {payload.get('dispatch_hierarchy_reason')!r}"
+                )
+            bootstrap = payload.get("dependency_bootstrap") or {}
+            if bootstrap.get("skipped") is not True:
+                violations.append(f"{case} missing skipped bootstrap evidence: {bootstrap}")
+            for boundary, count in counters.items():
+                if count != 0:
+                    violations.append(f"{case} {boundary} expected=0 actual={count}")
+
+    if violations:
+        raise AssertionError(
+            "CLI special lifecycle preflight must precede all client/bootstrap/runtime boundaries: "
+            + "; ".join(violations)
+        )
+
+
 def main() -> int:
     check_source_rules()
     check_supercc_launcher_shape()
     check_dispatch_evidence()
     check_taizi_to_gongbu_rejected_before_side_effects()
+    check_missing_target_profile_rejected_before_side_effects()
+    check_special_lifecycle_dispatch_edges()
+    check_cli_special_lifecycle_preflight_before_bootstrap()
     print("SUPERCC_MINISTRY_DISPATCH_OK")
     return 0
 

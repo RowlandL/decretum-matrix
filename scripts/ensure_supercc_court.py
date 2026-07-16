@@ -140,6 +140,18 @@ OFFICES: dict[str, dict[str, str]] = {
         "lineage": "ASH",
         "duty": "三省共监、门下主审的实录、索引、记忆候选、考课与证据归档。",
     },
+    "shiguan-hermes": {
+        "title": "ASH Shiguan-Hermes #0001",
+        "office_zh": "史馆",
+        "lineage": "ASHH",
+        "duty": "Hermes-compatible 史馆候补；仅在太子/门下省有界差遣下记录证据与兼容性说明。",
+    },
+    "zaochao": {
+        "title": "AZC Zaochao #0001",
+        "office_zh": "早朝",
+        "lineage": "AZC",
+        "duty": "向太子提供有界健康、状态、回顾与下一步简报；不批准或差遣执行。",
+    },
 }
 
 TAIZI_PANE_TITLE = "S Taizi #0001"
@@ -148,6 +160,18 @@ THREE_OFFICES = ("zhongshu", "menxia", "shangshu")
 MINISTRY_OFFICES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 INSPECTION_OFFICES = ("patrol-inspector",)
 SPECIAL_OFFICES = ("shiguan",)
+SPECIAL_LIFECYCLE_OFFICES = (
+    "shiguan",
+    "shiguan-hermes",
+    "zaochao",
+    "patrol-inspector",
+)
+SPECIAL_LIFECYCLE_ACTIONS = {
+    "shiguan": "archive_evidence_dispatch",
+    "shiguan-hermes": "hermes_archive_evidence_dispatch",
+    "zaochao": "briefing_dispatch",
+    "patrol-inspector": "bounded_diagnostic_dispatch",
+}
 SUPERCC_VISIBLE_CORE_OFFICES = THREE_OFFICES
 ALL_VISIBLE_OFFICES = (*SUPERCC_VISIBLE_CORE_OFFICES, *MINISTRY_OFFICES, *SPECIAL_OFFICES)
 AGENT_DOSSIER_ROLES = ("taizi", *ALL_VISIBLE_OFFICES, *INSPECTION_OFFICES, "shiguan-hermes", "zaochao")
@@ -200,6 +224,7 @@ NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND = "SUPERCC_SQUAD_RECEIVE_COMMAND"
 SQUAD_NOTICE_BEFORE_NATIVE_ENTER = "SQUAD_NOTICE_BEFORE_NATIVE_ENTER"
 SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER = "SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER"
 NON_VISIBLE_MINISTRY_DISPATCH_CHANNEL = "SQUAD_STRUCTURED_TASK_WITH_AUDIT_MIRROR_NON_VISIBLE_MINISTRY"
+NON_VISIBLE_SPECIAL_LIFECYCLE_DISPATCH_CHANNEL = "SQUAD_STRUCTURED_TASK_WITH_AUDIT_MIRROR_NON_VISIBLE_SPECIAL_LIFECYCLE"
 SILENT_SUPERVISOR_POLICY = "routine superCC visible offices exclude 监察; legacy visible monitor startup is disabled and scripts/supercc_watchdog.py owns 429/close/silence supervision as silent JSON/JSONL evidence."
 SUPERCC_VISIBLE_LAYOUT_POLICY = "terminal-visible superCC keeps the current 太子 pane as the left column; every other visible office opens in the right-side column. The first office launch uses zellij --direction right from 太子, then later office launches focus the latest right-column pane and use --direction down."
 SIX_MINISTRY_STEP_PLAN_POLICY = "六部 execution is a 尚书省 bounded step plan: dispatch real 六部 agents with bounded context; open-agent count is not capped, but model-triggering launches/dispatches must obey <=20 requests/minute and any explicit total request budget."
@@ -635,19 +660,29 @@ def office_hierarchy_rules(role: str, ministry_mode: str = "silent") -> dict[str
             "superior": "用户",
             "superior_agent": "user",
             "report_rule": "Report only to the user-facing final channel; relay subordinate questions as 太子转问 rather than exposing raw office debate.",
-            "hierarchy_rule": "You receive the newest decree, convene 三省 when non-trivial, synthesize 太子回奏, and never let another office address the user directly.",
+            "hierarchy_rule": (
+                "You receive the newest decree, convene 三省 when non-trivial, synthesize 太子回奏, "
+                "and never let another office address the user directly. Under court.dispatch_hierarchy.v1, "
+                "normal execution dispatch is only taizi -> zhongshu|menxia|shangshu; never dispatch a Six Ministry directly."
+            ),
             "default_state_rule": "Default state: AWAKE_NO_SILENCE while a decree is open; after closeout enter idle_receive.",
         }
     if role in THREE_OFFICES:
+        hierarchy_rule = (
+            "六部/workshop creation is only a 尚书省差遣 after approved 太子回奏. Under court.dispatch_hierarchy.v1, "
+            "尚书省 alone dispatches the Six Ministries; "
+            "each ministry may then dispatch only its own bounded child office. Require direct_superior=尚书省, "
+            "context/evidence/heartbeat/release metadata, and never refresh or attach 六部 creation to the Taizi/main pane/menu. "
+            f"{SIX_MINISTRY_STEP_PLAN_POLICY}"
+            if role == "shangshu"
+            else "Under court.dispatch_hierarchy.v1, this Three Department reports to 太子 and never dispatches a Six Ministry; "
+            "only 尚书省 may do so after approved 太子回奏."
+        )
         return {
             "superior": "太子",
             "superior_agent": "taizi",
             "report_rule": "Report only to 太子 through squad unless 尚书省 has an approved execution dispatch.",
-            "hierarchy_rule": (
-                "六部/workshop creation is only a 尚书省差遣 after approved 太子回奏: "
-                "require direct_superior=尚书省, context/evidence/heartbeat/release metadata, "
-                f"and never refresh or attach 六部 creation to the Taizi/main pane/menu. {SIX_MINISTRY_STEP_PLAN_POLICY}"
-            ),
+            "hierarchy_rule": hierarchy_rule,
             "default_state_rule": "Default state: AWAKE for deliberation, but do not perform implementation work without an approved gate.",
         }
     if role in MINISTRY_OFFICES:
@@ -662,7 +697,11 @@ def office_hierarchy_rules(role: str, ministry_mode: str = "silent") -> dict[str
             "report_rule": "Report only to 尚书省 through squad, and do not address 太子 or the user directly unless an emergency sealed memorial is required.",
             "hierarchy_rule": (
                 "You are a temporary 六部 pane under 尚书省 for this decree; preserve evidence, "
-                f"obey the context packet, and release or idle after 结诏 unless the user separately approves standing duty. {SIX_MINISTRY_STEP_PLAN_POLICY}"
+                "obey the context packet, and release or idle after 结诏 unless the user separately approves standing duty. "
+                "Under court.dispatch_hierarchy.v1, you may dispatch only your own bounded child office. That child uses "
+                "court.child_office_profile.v1 with canonical_authority=false and reuses the existing "
+                "court.semantic.dispatch_context_packet.v1 plus court.semantic.invariant_capsule.v1; it never creates a second semantic authority. "
+                f"{SIX_MINISTRY_STEP_PLAN_POLICY}"
             ),
             "default_state_rule": default_state_rule,
         }
@@ -745,7 +784,7 @@ def office_dossier_text(role: str) -> str:
         f"""
         # Mode-neutral Office Dossier: {office['office_zh']} ({role})
 
-        This per-office `{SUPERCC_DOSSIER_FILE_NAME}` is the long standing mandate for ordinary spawned agents and terminal-visible superCC panes. A collaboration address such as `/root/{role}_wave` is only routing metadata; office identity exists only after profile/dossier/court-skill hashes match and preload ack passes.
+        This per-office `{SUPERCC_DOSSIER_FILE_NAME}` is the long standing mandate for terminal-visible superCC panes and explicitly selected superCC carriers. Ordinary spawned offices use `agents/office-dossiers/<role>/AGENTS.md`, not this superCC dossier. A collaboration address such as `/root/{role}_wave` is only routing metadata; office identity exists only after profile/dossier/court-skill hashes match and preload ack passes.
 
         ## Identity
 
@@ -755,7 +794,7 @@ def office_dossier_text(role: str) -> str:
         - lineage: {office['lineage']}
         - direct_superior: {rules['superior']}
         - preload_contract_version: {OFFICE_PRELOAD_ACK_SCHEMA}
-        - preload_ack: first report must include preload_status=PASSED, role_key={role}, matching profile_hash/dossier_hash/court_skill_hash, agent_dossier_loaded=YES, and loaded_skills including court-capability-router.
+        - preload_ack: first report must include preload_status=PASSED, role_key={role}, matching profile_hash/dossier_hash/court_skill_hash, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix.
         - light_bootstrap_policy: {SUPERCC_LIGHT_BOOTSTRAP_POLICY}
 
         ## Standing Mandate
@@ -768,6 +807,7 @@ def office_dossier_text(role: str) -> str:
         - {office_clarify_rule(role)}
         - Do not expand scope, spawn descendants, install tools, expose services, spend money, handle secrets, or perform destructive work without an approved 太子回奏 and matching court gate.
         - Treat superCC as super authority plus zellij/squad visible display and the selected runtime client, not as a higher safety authority or a different court-office essence from ordinary spawned office agents.
+        - Hierarchy parity: ordinary and superCC use the same validator, `validate_dispatch_hierarchy`, under `court.dispatch_hierarchy.v1`; transport evidence may add pane/squad/native-enter fields but may not reinterpret the decision.
         - {rules['hierarchy_rule']}
         - Design-task 六部 dispatch requires a complete but bounded context packet; exclude secrets, credentials, private vaults, unrelated logs, and unrelated projects.
         - {SUPERCC_VISIBLE_LAYOUT_POLICY}
@@ -780,7 +820,7 @@ def office_dossier_text(role: str) -> str:
 
         ## Fast Dispatch Protocol
 
-        1. Before duty work, load this dossier, the referenced standing profile, and court-capability-router SKILL.md; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
+        1. Before duty work, load this dossier, the referenced standing profile, and Decretum Matrix `SKILL.md`; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
         2. Your squad identity has already been joined by the launcher. Do not run squad join again unless Taizi explicitly sends REPAIR_IDENTITY.
         3. On wake, run exactly one non-blocking inbox check. Use the receive command from Shell Contract that matches your active shell and this role. Use `--wait` only when your direct superior explicitly asks you to wait.
         4. If a structured task exists, ack it first through the same wrapper, do only the bounded task, preserve evidence, then complete it through the same wrapper.
@@ -2939,6 +2979,27 @@ def expand_status_selection(selection: str | None) -> tuple[str, ...]:
     return tuple(ordered)
 
 
+def expand_transport_office_selection(selection: str | None) -> tuple[str, ...]:
+    """Expand CLI transport roles, including non-visible lifecycle identities."""
+
+    if not selection:
+        return expand_office_selection(selection)
+    roles: list[str] = []
+    for raw in re.split(r"[,;，；\s]+", selection):
+        token = raw.strip()
+        if not token:
+            continue
+        if token in SPECIAL_LIFECYCLE_OFFICES:
+            roles.append(token)
+            continue
+        roles.extend(expand_office_selection(token))
+    ordered: list[str] = []
+    for role in roles:
+        if role not in ordered:
+            ordered.append(role)
+    return tuple(ordered)
+
+
 def role_superior(role: str) -> str:
     return direct_superior_metadata(role)["direct_superior"]
 
@@ -2948,7 +3009,7 @@ def fallback_direct_superior(role: str) -> str:
         return "user"
     if role in MINISTRY_OFFICES:
         return "shangshu"
-    if role == "shiguan":
+    if role in {"shiguan", "shiguan-hermes"}:
         return "taizi/menxia"
     return "taizi"
 
@@ -3004,6 +3065,13 @@ def build_mode_records(
 
 
 def launch_offices(args: argparse.Namespace, roles: tuple[str, ...]) -> dict[str, Any]:
+    special_preflight = special_lifecycle_transport_preflight(
+        args,
+        roles,
+        transport_action="launch_offices",
+    )
+    if not special_preflight["ok"]:
+        return special_preflight
     if getattr(args, "skip_inspector", False):
         roles = tuple(role for role in roles if role not in INSPECTION_OFFICES)
     if any(role in INSPECTION_OFFICES for role in roles):
@@ -3408,6 +3476,7 @@ def launch_offices(args: argparse.Namespace, roles: tuple[str, ...]) -> dict[str
         "estimated_model_request_units_per_batch": request_budget.get("estimated_model_request_units_per_batch"),
         "codex_batch_gap_seconds": request_budget.get("codex_batch_gap_seconds"),
         "visible_offices_requested": list(roles),
+        "special_lifecycle_preflight": special_preflight["special_lifecycle_preflight"],
         "visible_offices_reused": reused,
         "visible_offices_to_launch": roles_to_launch,
         "visible_office_degraded": degraded,
@@ -3582,12 +3651,26 @@ def silence_roles(
 
 
 def wake_roles(args: argparse.Namespace, roles: tuple[str, ...], *, reason: str, sender: str = "shangshu") -> dict[str, Any]:
+    special_preflight = special_lifecycle_transport_preflight(
+        args,
+        roles,
+        transport_action="wake_roles",
+        sender=sender,
+    )
+    if not special_preflight["ok"]:
+        return special_preflight
     workspace = Path(args.workspace).resolve()
     check = supercc_check_for_args(args, workspace)
     active_ids = active_agent_ids(check["squad"].get("agents_json", []))
     visible = visible_office_panes(check)
     notices: list[dict[str, Any]] = []
     ministry_non_visible_dispatch = bool(set(roles) & set(MINISTRY_OFFICES))
+    special_lifecycle_non_visible_dispatch = bool(
+        set(roles) & set(SPECIAL_LIFECYCLE_OFFICES)
+    )
+    non_visible_structured_dispatch = (
+        ministry_non_visible_dispatch or special_lifecycle_non_visible_dispatch
+    )
     for role in roles:
         if role not in active_ids:
             notices.append({"role": role, "skipped": True, "reason": "no_active_squad_identity"})
@@ -3596,7 +3679,7 @@ def wake_roles(args: argparse.Namespace, roles: tuple[str, ...], *, reason: str,
             check,
             visible,
             role,
-            require_visible=role not in MINISTRY_OFFICES,
+            require_visible=role not in (*MINISTRY_OFFICES, *SPECIAL_LIFECYCLE_OFFICES),
         )
         if not uniqueness.get("ok"):
             notices.append(
@@ -3617,7 +3700,7 @@ def wake_roles(args: argparse.Namespace, roles: tuple[str, ...], *, reason: str,
         sender,
         roles,
         reason=reason,
-        expected_mode="task_queued_non_visible" if ministry_non_visible_dispatch else "awake",
+        expected_mode="task_queued_non_visible" if non_visible_structured_dispatch else "awake",
     )
     state_records = build_mode_records(roles, default_mode="awake", reason=reason)
     for role in state_records:
@@ -3629,6 +3712,7 @@ def wake_roles(args: argparse.Namespace, roles: tuple[str, ...], *, reason: str,
                 "wake_cc_to_patrol_inspector": inspector_enabled(args),
                 "supervision_channel": SUPERVISION_CHANNEL,
                 "supervision_evidence": "PASSED",
+                "special_lifecycle_preflight": special_preflight["special_lifecycle_preflight"],
             }
         )
     state = write_office_state(
@@ -3647,6 +3731,7 @@ def wake_roles(args: argparse.Namespace, roles: tuple[str, ...], *, reason: str,
         "wake_cc_to_patrol_inspector": inspector_enabled(args),
         "supervision_channel": SUPERVISION_CHANNEL,
         "supervision_evidence": "PASSED",
+        "special_lifecycle_preflight": special_preflight["special_lifecycle_preflight"],
         "notices": notices,
         "state": state,
     }
@@ -3993,7 +4078,7 @@ def closeout_silence(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def wake_offices(args: argparse.Namespace) -> dict[str, Any]:
-    roles = expand_office_selection(args.wake_offices)
+    roles = expand_transport_office_selection(args.wake_offices)
     return wake_roles(args, roles, reason=args.wake_reason, sender=args.calling_office or "shangshu")
 
 
@@ -4278,6 +4363,213 @@ def resolved_calling_office(args: argparse.Namespace, role: str) -> str:
     return explicit.strip() if isinstance(explicit, str) and explicit.strip() else default_dispatch_calling_office(role)
 
 
+def dispatch_target_profile_gate(role: str, profile: dict[str, Any]) -> dict[str, Any]:
+    """Prove the canonical target profile/dossier before transport probing."""
+
+    fields = profile.get("profile_fields")
+    fields = fields if isinstance(fields, dict) else {}
+    profile_hash = profile.get("profile_hash")
+    dossier_hash = sha256_file(office_dossier_path(role))
+    reasons: list[str] = []
+    if profile.get("office_profile_loaded") is not True:
+        reasons.append("standing_profile_not_loaded")
+    if fields.get("role_key") != role:
+        reasons.append("standing_profile_role_mismatch")
+    if fields.get("direct_superior") != fallback_direct_superior(role):
+        reasons.append("standing_profile_direct_superior_mismatch")
+    if not isinstance(profile_hash, str) or re.fullmatch(r"[0-9a-f]{64}", profile_hash) is None:
+        reasons.append("standing_profile_hash_missing")
+    if not isinstance(dossier_hash, str) or re.fullmatch(r"[0-9a-f]{64}", dossier_hash) is None:
+        reasons.append("supercc_dossier_hash_missing")
+    return {
+        "ok": not reasons,
+        "role": role,
+        "profile_source": profile.get("profile_source"),
+        "profile_hash": profile_hash,
+        "office_dossier_path": str(office_dossier_path(role)),
+        "office_dossier_hash": dossier_hash,
+        "reason": "ok" if not reasons else ",".join(reasons),
+        "reason_codes": reasons,
+    }
+
+
+def special_lifecycle_dispatch_authority(
+    role: str,
+    calling_office: str,
+    superior: dict[str, str],
+    profile: dict[str, Any],
+    target_profile_gate: dict[str, Any],
+) -> tuple[DispatchHierarchyDecision, dict[str, Any]]:
+    """Resolve explicit special-role authority on top of the shared deny graph."""
+
+    shared = validate_dispatch_hierarchy(
+        action="dispatch",
+        calling_office=calling_office,
+        target_role=role,
+        target_direct_superior=superior["direct_superior"],
+        instance_kind="office",
+        canonical_authority=True if target_profile_gate["ok"] else None,
+        owner_role=None,
+        child_profile=None,
+    )
+    manifest_path = skill_root() / "references" / "manifests" / "court-dispatch-hierarchy.v1.json"
+    roles_path = skill_root() / "references" / "court-roles.yaml"
+    action = SPECIAL_LIFECYCLE_ACTIONS.get(role)
+    profile_fields = profile.get("profile_fields")
+    profile_fields = profile_fields if isinstance(profile_fields, dict) else {}
+    authority: dict[str, Any] = {
+        "schema": "court.supercc.special_lifecycle_authority.v1",
+        "role": role,
+        "action": action,
+        "calling_office": calling_office,
+        "direct_superior": superior["direct_superior"],
+        "allowed_callers": [],
+        "hierarchy_manifest_path": str(manifest_path),
+        "hierarchy_manifest_sha256": shared.hierarchy_manifest_sha256,
+        "court_roles_path": str(roles_path),
+        "court_roles_sha256": sha256_file(roles_path),
+        "standing_profile_path": profile.get("profile_source"),
+        "standing_profile_sha256": profile.get("profile_hash"),
+        "court_roles_entry": "unknown",
+        "gate": "FAILED",
+    }
+    if shared.reason_codes == ("dispatch_hierarchy_manifest_invalid",):
+        authority["reason"] = "dispatch_hierarchy_manifest_invalid"
+        return shared, authority
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        roles_text = roles_path.read_text(encoding="utf-8")
+    except (OSError, json.JSONDecodeError):
+        decision = DispatchHierarchyDecision(
+            allowed=False,
+            edge_class=None,
+            normalized_caller=calling_office,
+            normalized_target=role,
+            normalized_owner=None,
+            reason_codes=("dispatch_hierarchy_manifest_invalid",),
+            hierarchy_schema=shared.hierarchy_schema,
+            hierarchy_manifest_sha256=shared.hierarchy_manifest_sha256,
+        )
+        authority["reason"] = "dispatch_hierarchy_manifest_invalid"
+        return decision, authority
+    role_sets = manifest.get("role_sets") if isinstance(manifest, dict) else None
+    special_roles = role_sets.get("special_lifecycle") if isinstance(role_sets, dict) else None
+    canonical_roles = manifest.get("canonical_roles") if isinstance(manifest, dict) else None
+    canonical_target = canonical_roles.get(role) if isinstance(canonical_roles, dict) else None
+    manifest_superior = canonical_target.get("direct_superior") if isinstance(canonical_target, dict) else None
+    authority["court_roles_entry"] = "present" if f"  {role}:" in roles_text else "absent_uses_manifest_and_profile"
+    if (
+        not isinstance(special_roles, list)
+        or role not in special_roles
+        or action is None
+        or manifest_superior != superior["direct_superior"]
+        or profile_fields.get("direct_superior") != manifest_superior
+    ):
+        decision = DispatchHierarchyDecision(
+            allowed=False,
+            edge_class=None,
+            normalized_caller=calling_office,
+            normalized_target=role,
+            normalized_owner=None,
+            reason_codes=("dispatch_hierarchy_manifest_invalid",),
+            hierarchy_schema=shared.hierarchy_schema,
+            hierarchy_manifest_sha256=shared.hierarchy_manifest_sha256,
+        )
+        authority["reason"] = "special_lifecycle_authority_mismatch"
+        return decision, authority
+    allowed_callers = tuple(
+        part for part in str(manifest_superior).split("/") if part
+    )
+    authority["allowed_callers"] = list(allowed_callers)
+    if not target_profile_gate["ok"]:
+        authority["reason"] = "dispatch_hierarchy_target_profile_required"
+        return shared, authority
+    if calling_office not in allowed_callers:
+        authority["reason"] = "dispatch_hierarchy_edge_forbidden"
+        return shared, authority
+    decision = DispatchHierarchyDecision(
+        allowed=True,
+        edge_class="special_lifecycle_dispatch",
+        normalized_caller=calling_office,
+        normalized_target=role,
+        normalized_owner=None,
+        reason_codes=(),
+        hierarchy_schema=shared.hierarchy_schema,
+        hierarchy_manifest_sha256=shared.hierarchy_manifest_sha256,
+    )
+    authority["gate"] = "PASSED"
+    authority["reason"] = "ok"
+    return decision, authority
+
+
+def special_lifecycle_transport_preflight(
+    args: argparse.Namespace,
+    roles: tuple[str, ...] | list[str],
+    *,
+    transport_action: str,
+    sender: str | None = None,
+) -> dict[str, Any]:
+    """Fail closed before any superCC environment or transport side effect."""
+
+    entries: list[dict[str, Any]] = []
+    for role in roles:
+        if role not in SPECIAL_LIFECYCLE_OFFICES:
+            continue
+        profile = profile_metadata(role)
+        profile_gate = dispatch_target_profile_gate(role, profile)
+        superior = direct_superior_metadata(role)
+        calling_office = sender or resolved_calling_office(args, role)
+        decision, authority = special_lifecycle_dispatch_authority(
+            role,
+            calling_office,
+            superior,
+            profile,
+            profile_gate,
+        )
+        entry = {
+            "role": role,
+            "transport_action": transport_action,
+            "calling_office": calling_office,
+            "direct_superior": superior["direct_superior"],
+            "target_profile_gate": profile_gate,
+            "special_lifecycle_action": SPECIAL_LIFECYCLE_ACTIONS[role],
+            "special_lifecycle_authority": authority,
+            "hierarchy_gate": "PASSED" if decision.allowed else "REJECTED",
+            "hierarchy_schema": decision.hierarchy_schema,
+            "hierarchy_manifest_sha256": decision.hierarchy_manifest_sha256,
+            "hierarchy_edge_class": decision.edge_class,
+            "hierarchy_calling_office": decision.normalized_caller,
+            "hierarchy_target_role": decision.normalized_target,
+            "hierarchy_owner_role": decision.normalized_owner,
+        }
+        entries.append(entry)
+        if not decision.allowed:
+            reason = (
+                decision.reason_codes[0]
+                if decision.reason_codes
+                else "dispatch_hierarchy_edge_forbidden"
+            )
+            skipped = {"ok": False, "skipped": True, "reason": reason}
+            return {
+                "ok": False,
+                "dispatch_blocked": True,
+                "dispatch_block_reason": reason,
+                "dispatch_hierarchy_reason": reason,
+                "transport_action": transport_action,
+                **entry,
+                "special_lifecycle_preflight": entries,
+                "task_evidence": dict(skipped),
+                "squad_evidence": dict(skipped),
+                "native_enter_dispatch": dict(skipped),
+                "state": dict(skipped),
+            }
+    return {
+        "ok": True,
+        "transport_action": transport_action,
+        "special_lifecycle_preflight": entries,
+    }
+
+
 def build_native_receive_command_prompt(
     role: str,
     *,
@@ -4313,8 +4605,8 @@ def build_dispatch_payload(
         f"squad_delivery_order={SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER}",
         f"native_enter_payload_kind={NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND}",
         f"physical_enter_sequence=squad_task_and_send_then_write_receive_command_then_enter_then_sleep_{POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS:g}s_then_enter",
-        f"expected_pane_title={OFFICES[role]['title'] if role not in MINISTRY_OFFICES else 'NON_VISIBLE_MINISTRY_BY_CONTRACT'}",
-        f"expected_pane_id={(pane or {}).get('pane_id', 'non_visible_ministry' if role in MINISTRY_OFFICES else 'missing')}",
+        f"expected_pane_title={OFFICES[role]['title'] if role not in (*MINISTRY_OFFICES, *SPECIAL_LIFECYCLE_OFFICES) else ('NON_VISIBLE_MINISTRY_BY_CONTRACT' if role in MINISTRY_OFFICES else 'NON_VISIBLE_SPECIAL_LIFECYCLE_BY_CONTRACT')}",
+        f"expected_pane_id={(pane or {}).get('pane_id', 'non_visible_structured_dispatch' if role in (*MINISTRY_OFFICES, *SPECIAL_LIFECYCLE_OFFICES) else 'missing')}",
         f"profile_source={profile['profile_source']}",
         f"profile_hash={profile.get('profile_hash') or 'missing'}",
         f"profile_version={profile.get('profile_version')}",
@@ -4335,6 +4627,13 @@ def build_dispatch_payload(
                 f"hierarchy_owner_role={hierarchy.normalized_owner or ''}",
             ]
         )
+    if role in SPECIAL_LIFECYCLE_OFFICES:
+        lines.extend(
+            [
+                f"special_lifecycle_action={SPECIAL_LIFECYCLE_ACTIONS[role]}",
+                "special_lifecycle_visibility=non_visible_by_default",
+            ]
+        )
     lines.extend(["message:", args.message])
     return "\n".join(lines)
 
@@ -4348,22 +4647,31 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("--enter-dispatch requires --message")
 
     profile = profile_metadata(role)
+    target_profile_gate = dispatch_target_profile_gate(role, profile)
     superior = direct_superior_metadata(role)
     calling_office = resolved_calling_office(args, role)
-    hierarchy = (
-        validate_dispatch_hierarchy(
+    special_lifecycle_authority: dict[str, Any] | None = None
+    if role in (*THREE_OFFICES, *MINISTRY_OFFICES):
+        hierarchy = validate_dispatch_hierarchy(
             action="dispatch",
             calling_office=calling_office,
             target_role=role,
             target_direct_superior=superior["direct_superior"],
             instance_kind="office",
-            canonical_authority=True,
+            canonical_authority=True if target_profile_gate["ok"] else None,
             owner_role=None,
             child_profile=None,
         )
-        if role in (*THREE_OFFICES, *MINISTRY_OFFICES)
-        else None
-    )
+    elif role in SPECIAL_LIFECYCLE_OFFICES:
+        hierarchy, special_lifecycle_authority = special_lifecycle_dispatch_authority(
+            role,
+            calling_office,
+            superior,
+            profile,
+            target_profile_gate,
+        )
+    else:
+        hierarchy = None
     if hierarchy is not None and not hierarchy.allowed:
         reason = (
             hierarchy.reason_codes[0]
@@ -4385,6 +4693,9 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
             ),
             "direct_superior": superior["direct_superior"],
             "direct_superior_source": superior["direct_superior_source"],
+            "target_profile_gate": target_profile_gate,
+            "special_lifecycle_action": SPECIAL_LIFECYCLE_ACTIONS.get(role),
+            "special_lifecycle_authority": special_lifecycle_authority,
             "dispatch_blocked": True,
             "dispatch_block_reason": reason,
             "dispatch_hierarchy_reason": reason,
@@ -4421,6 +4732,10 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
             "hierarchy_owner_role": None,
         }
     )
+    special_lifecycle_evidence = {
+        "special_lifecycle_action": SPECIAL_LIFECYCLE_ACTIONS.get(role),
+        "special_lifecycle_authority": special_lifecycle_authority,
+    }
 
     check = supercc_check_for_args(args, workspace)
     zellij_session = current_zellij_session(check)
@@ -4429,22 +4744,28 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         check,
         visible,
         role,
-        require_visible=role not in MINISTRY_OFFICES,
+        require_visible=role not in (*MINISTRY_OFFICES, *SPECIAL_LIFECYCLE_OFFICES),
     )
     pane_selection = uniqueness["visible_pane_selection"]
     pane = pane_selection.get("pane") if pane_selection.get("ok") else None
-    # Ministries are non-visible by default under superCC. A ministry dispatch may
-    # therefore be valid as a structured squad task plus direct-superior supervision even when no
+    # Ministries and special lifecycle roles are non-visible by default under superCC.
+    # Their dispatch may therefore be valid as a structured squad task even when no
     # visible pane or active canonical squad identity exists yet, provided there
     # are no duplicate visible panes or duplicate active identities for that role.
     active_ids_for_role = uniqueness.get("active_squad_ids_for_role") or []
     duplicate_ids_for_role = uniqueness.get("duplicate_identity_ids") or []
     visible_pane_count_for_role = int(uniqueness.get("visible_pane_count") or 0)
-    ministry_non_visible_dispatch = bool(
-        role in MINISTRY_OFFICES
+    non_visible_structured_dispatch = bool(
+        role in (*MINISTRY_OFFICES, *SPECIAL_LIFECYCLE_OFFICES)
         and visible_pane_count_for_role == 0
         and len(active_ids_for_role) <= 1
         and not duplicate_ids_for_role
+    )
+    ministry_non_visible_dispatch = bool(
+        role in MINISTRY_OFFICES and non_visible_structured_dispatch
+    )
+    special_lifecycle_non_visible_dispatch = bool(
+        role in SPECIAL_LIFECYCLE_OFFICES and non_visible_structured_dispatch
     )
     payload_text = build_dispatch_payload(
         args,
@@ -4460,7 +4781,7 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
     delivery_channel = "NATIVE_DOUBLE_ENTER_VISIBLE"
     dispatch_blocked = False
     dispatch_block_reason: str | None = None
-    if not uniqueness.get("ok") and not ministry_non_visible_dispatch:
+    if not uniqueness.get("ok") and not non_visible_structured_dispatch:
         dispatch_blocked = True
         dispatch_block_reason = uniqueness.get("reason") or "office_uniqueness_gate_failed"
         delivery_channel = "FAILED_OFFICE_UNIQUENESS_GATE"
@@ -4481,6 +4802,18 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
             "visible_pane_selection": pane_selection,
             "office_uniqueness_gate": uniqueness,
             "visible_window_contract": "six_ministries_must_not_be_visible_by_default",
+            "squad_delivery_order": SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER,
+        }
+    elif special_lifecycle_non_visible_dispatch:
+        delivery_channel = NON_VISIBLE_SPECIAL_LIFECYCLE_DISPATCH_CHANNEL
+        native_enter_dispatch = {
+            "ok": False,
+            "skipped": True,
+            "reason": "special_lifecycle_non_visible_by_contract; structured squad task plus direct-superior review is the dispatch channel",
+            "commands": [],
+            "visible_pane_selection": pane_selection,
+            "office_uniqueness_gate": uniqueness,
+            "visible_window_contract": "special_lifecycle_roles_must_not_be_visible_by_default",
             "squad_delivery_order": SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER,
         }
     elif not pane:
@@ -4632,13 +4965,17 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         task_id=task_id_for_cc,
     )
 
-    state_mode = "runtime_degraded" if dispatch_blocked else ("task_queued_non_visible" if ministry_non_visible_dispatch else "awake")
-    state_reason = f"enter_dispatch_blocked:{dispatch_block_reason}" if dispatch_blocked else ("enter_dispatch_non_visible_structured_task" if ministry_non_visible_dispatch else "enter_dispatch")
-    native_enter_role = "not_used_non_visible_ministry" if ministry_non_visible_dispatch else "receive_command_wake_after_squad_task_and_send"
-    dispatch_route_policy = [NON_VISIBLE_MINISTRY_DISPATCH_CHANNEL] if ministry_non_visible_dispatch else ["SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER", "NATIVE_DOUBLE_ENTER_VISIBLE receive-command wake", "HERMES_PROFILE_NATIVE_READINESS_SUPPLEMENT if Hermes"]
+    state_mode = "runtime_degraded" if dispatch_blocked else ("task_queued_non_visible" if non_visible_structured_dispatch else "awake")
+    state_reason = f"enter_dispatch_blocked:{dispatch_block_reason}" if dispatch_blocked else ("enter_dispatch_non_visible_structured_task" if non_visible_structured_dispatch else "enter_dispatch")
+    native_enter_role = "not_used_non_visible_structured_dispatch" if non_visible_structured_dispatch else "receive_command_wake_after_squad_task_and_send"
+    dispatch_route_policy = (
+        [delivery_channel]
+        if non_visible_structured_dispatch
+        else ["SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER", "NATIVE_DOUBLE_ENTER_VISIBLE receive-command wake", "HERMES_PROFILE_NATIVE_READINESS_SUPPLEMENT if Hermes"]
+    )
     dispatch_ok = (not dispatch_blocked) and (
         squad_delivery_ok
-        if ministry_non_visible_dispatch or delivery_channel.startswith("SQUAD_ONLY")
+        if non_visible_structured_dispatch or delivery_channel.startswith("SQUAD_ONLY")
         else (squad_delivery_ok and bool(native_enter_dispatch.get("ok")))
     )
     state = {"ok": True, "skipped": True, "reason": "dry-run"} if args.dry_run else write_office_state(
@@ -4653,7 +4990,9 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
                 "squad_delivery_order": SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER if not dispatch_blocked else None,
                 "native_enter_payload_kind": NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND if pane else None,
                 "ministry_non_visible_dispatch": ministry_non_visible_dispatch,
-                "visible_window_contract": "visible_windows_only_taizi_three_departments; six_ministries_non_visible_by_default",
+                "special_lifecycle_non_visible_dispatch": special_lifecycle_non_visible_dispatch,
+                "non_visible_structured_dispatch": non_visible_structured_dispatch,
+                "visible_window_contract": "visible_windows_only_taizi_three_departments; six_ministries_and_special_lifecycle_roles_non_visible_by_default",
                 "supercc_phase_cycle": phase_cycle,
                 "inspector_wake_cc_policy": INSPECTOR_WAKE_CC_POLICY,
                 "inspector_wake_cc": inspector_wake_cc,
@@ -4669,7 +5008,9 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
                 "calling_office_source": "explicit" if args.calling_office else "role_default",
                 "direct_superior": superior["direct_superior"],
                 "direct_superior_source": superior["direct_superior_source"],
+                "target_profile_gate": target_profile_gate,
                 **hierarchy_evidence,
+                **special_lifecycle_evidence,
                 "native_enter_dispatch": native_enter_dispatch,
                 "physical_enter_byte": PHYSICAL_ENTER_BYTE,
                 "post_dispatch_physical_enter_delay_seconds": POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS,
@@ -4691,7 +5032,9 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         "calling_office_source": "explicit" if args.calling_office else "role_default",
         "direct_superior": superior["direct_superior"],
         "direct_superior_source": superior["direct_superior_source"],
+        "target_profile_gate": target_profile_gate,
         **hierarchy_evidence,
+        **special_lifecycle_evidence,
         "office_uniqueness_gate": uniqueness,
         "dispatch_blocked": dispatch_blocked,
         "dispatch_block_reason": dispatch_block_reason,
@@ -4700,7 +5043,9 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         "squad_delivery_order": SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER if not dispatch_blocked else None,
         "native_enter_payload_kind": NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND if pane else None,
         "ministry_non_visible_dispatch": ministry_non_visible_dispatch,
-        "visible_window_contract": "visible_windows_only_taizi_three_departments; six_ministries_non_visible_by_default",
+        "special_lifecycle_non_visible_dispatch": special_lifecycle_non_visible_dispatch,
+        "non_visible_structured_dispatch": non_visible_structured_dispatch,
+        "visible_window_contract": "visible_windows_only_taizi_three_departments; six_ministries_and_special_lifecycle_roles_non_visible_by_default",
         "supercc_phase_cycle": phase_cycle,
         "supercc_request_limit_policy": SUPERCC_REQUEST_LIMIT_POLICY,
         "request_rate_limit_per_minute": SUPERCC_REQUEST_RATE_LIMIT_PER_MINUTE,
@@ -4715,8 +5060,16 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         "native_enter_role": native_enter_role,
         "hermes_profile_native_policy": "supplemental_readiness_only_for_Hermes; normal_superCC_requires_zellij_squad_visible_route; readiness_only_is_not_dispatch_success",
         "dispatch_route_policy_phase1": dispatch_route_policy,
-        "expected_pane_title": OFFICES[role]["title"] if role not in MINISTRY_OFFICES else "NON_VISIBLE_MINISTRY_BY_CONTRACT",
-        "expected_pane_id": (pane or {}).get("pane_id") if role not in MINISTRY_OFFICES else None,
+        "expected_pane_title": (
+            "NON_VISIBLE_MINISTRY_BY_CONTRACT"
+            if ministry_non_visible_dispatch
+            else (
+                "NON_VISIBLE_SPECIAL_LIFECYCLE_BY_CONTRACT"
+                if special_lifecycle_non_visible_dispatch
+                else OFFICES[role]["title"]
+            )
+        ),
+        "expected_pane_id": None if non_visible_structured_dispatch else (pane or {}).get("pane_id"),
         "office_profile_loaded": profile["office_profile_loaded"],
         "profile_source": profile["profile_source"],
         "profile_hash": profile["profile_hash"],
@@ -4794,9 +5147,16 @@ def dispatch_router_dry_run(args: argparse.Namespace) -> dict[str, Any]:
     enter_result = enter_dispatch(enter_args)
 
     non_visible_ministry = bool(enter_result.get("ministry_non_visible_dispatch"))
-    route_order = (
-        [NON_VISIBLE_MINISTRY_DISPATCH_CHANNEL]
+    non_visible_special = bool(enter_result.get("special_lifecycle_non_visible_dispatch"))
+    non_visible_structured = non_visible_ministry or non_visible_special
+    non_visible_channel = (
+        NON_VISIBLE_MINISTRY_DISPATCH_CHANNEL
         if non_visible_ministry
+        else NON_VISIBLE_SPECIAL_LIFECYCLE_DISPATCH_CHANNEL
+    )
+    route_order = (
+        [non_visible_channel]
+        if non_visible_structured
         else (
             ["SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER_DRY_RUN", "NATIVE_DOUBLE_ENTER_VISIBLE_RECEIVE_COMMAND_DRY_RUN", "HERMES_PROFILE_NATIVE_READINESS_SUPPLEMENT_DRY_RUN"]
             if is_hermes_source
@@ -4805,12 +5165,12 @@ def dispatch_router_dry_run(args: argparse.Namespace) -> dict[str, Any]:
     )
     native_ok = bool((enter_result.get("native_enter_dispatch") or {}).get("ok"))
     hermes_ready = bool(hermes_native.get("readiness_probe_ok")) if is_hermes_source else False
-    selected_primary_wake_channel = NON_VISIBLE_MINISTRY_DISPATCH_CHANNEL if non_visible_ministry else "NATIVE_DOUBLE_ENTER_VISIBLE_DRY_RUN"
+    selected_primary_wake_channel = non_visible_channel if non_visible_structured else "NATIVE_DOUBLE_ENTER_VISIBLE_DRY_RUN"
     if is_hermes_source and not hermes_ready:
         hermes_native["fast_fallback_triggered"] = True
         hermes_native["fallback_reason"] = "HERMES_PROFILE_NATIVE_SUPPLEMENT_TIMEOUT_OR_UNREADY"
     return {
-        "ok": bool(enter_result.get("ok")) if non_visible_ministry else native_ok,
+        "ok": bool(enter_result.get("ok")) if non_visible_structured else native_ok,
         "dispatch_router_phase": "phase2_dry_run_fast_route_selection",
         "source_agent_label": source_agent_label,
         "runtime_client": runtime_client,
@@ -4819,9 +5179,10 @@ def dispatch_router_dry_run(args: argparse.Namespace) -> dict[str, Any]:
         "route_order": route_order,
         "selected_primary_wake_channel": selected_primary_wake_channel,
         "non_visible_ministry_dispatch": non_visible_ministry,
+        "non_visible_special_lifecycle_dispatch": non_visible_special,
         "hermes_profile_native": hermes_native,
         "native_double_enter": {
-            "enabled": not non_visible_ministry,
+            "enabled": not non_visible_structured,
             "role": "receive_command_wake_after_squad_task_and_send_for_visible_offices",
             "dry_run": True,
             "ok": bool((enter_result.get("native_enter_dispatch") or {}).get("ok")),
@@ -5109,11 +5470,6 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = build_parser()
     args = parser.parse_args(argv)
-    resolve_office_client_args(args)
-    try:
-        normalize_office_client_maps(args)
-    except ValueError as exc:
-        parser.error(str(exc))
     selected_actions = (
         args.super_entry,
         args.check_only,
@@ -5138,7 +5494,48 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     workspace = Path(args.workspace).resolve()
-    dependency_bootstrap = {"ok": True, "skipped": True, "reason": "--write-agent-dossiers"} if args.write_agent_dossiers else maybe_bootstrap_supercc_dependencies(args, workspace)
+    transport_roles: tuple[str, ...] | None = None
+    transport_preflight: dict[str, Any] | None = None
+    try:
+        if args.launch_offices:
+            transport_roles = expand_transport_office_selection(args.launch_offices)
+            candidate = special_lifecycle_transport_preflight(
+                args,
+                transport_roles,
+                transport_action="launch_offices",
+            )
+            if not candidate["ok"]:
+                transport_preflight = candidate
+        elif args.wake_offices:
+            transport_roles = expand_transport_office_selection(args.wake_offices)
+            candidate = special_lifecycle_transport_preflight(
+                args,
+                transport_roles,
+                transport_action="wake_offices",
+                sender=args.calling_office or "shangshu",
+            )
+            if not candidate["ok"]:
+                transport_preflight = candidate
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    if transport_preflight is None:
+        resolve_office_client_args(args)
+        try:
+            normalize_office_client_maps(args)
+        except ValueError as exc:
+            parser.error(str(exc))
+
+    if transport_preflight is not None:
+        dependency_bootstrap = {
+            "ok": True,
+            "skipped": True,
+            "reason": "special_lifecycle_authority_rejected_before_dependency_bootstrap",
+        }
+    elif args.write_agent_dossiers:
+        dependency_bootstrap = {"ok": True, "skipped": True, "reason": "--write-agent-dossiers"}
+    else:
+        dependency_bootstrap = maybe_bootstrap_supercc_dependencies(args, workspace)
     if args.super_entry:
         try:
             payload = super_entry(args)
@@ -5153,11 +5550,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.launch_visible_core:
         payload = launch_visible_core(args)
     elif args.launch_offices:
-        try:
-            roles = expand_office_selection(args.launch_offices)
-        except ValueError as exc:
-            parser.error(str(exc))
-        payload = launch_offices(args, roles)
+        if transport_preflight is not None:
+            payload = transport_preflight
+        else:
+            payload = launch_offices(args, transport_roles or ())
     elif args.turn_start:
         try:
             payload = turn_start(args)
@@ -5174,10 +5570,15 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             parser.error(str(exc))
     elif args.wake_offices:
-        try:
-            payload = wake_offices(args)
-        except ValueError as exc:
-            parser.error(str(exc))
+        if transport_preflight is not None:
+            payload = transport_preflight
+        else:
+            payload = wake_roles(
+                args,
+                transport_roles or (),
+                reason=args.wake_reason,
+                sender=args.calling_office or "shangshu",
+            )
     elif args.patrol:
         try:
             payload = watchdog_compat(args)

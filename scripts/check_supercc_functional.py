@@ -109,6 +109,14 @@ def run_watchdog(workspace: Path) -> dict[str, object]:
 
 
 def assert_dispatch(payload: dict[str, object]) -> None:
+    require(payload.get("hierarchy_gate") == "PASSED", "dispatch missing passed hierarchy gate")
+    require(payload.get("hierarchy_schema") == "court.dispatch_hierarchy.v1", "dispatch hierarchy schema drifted")
+    hierarchy_hash = payload.get("hierarchy_manifest_sha256")
+    require(isinstance(hierarchy_hash, str) and len(hierarchy_hash) == 64, "dispatch hierarchy manifest hash missing")
+    require(payload.get("hierarchy_calling_office") == payload.get("calling_office"), "dispatch hierarchy caller diverged from transport caller")
+    require(payload.get("hierarchy_target_role") == payload.get("role"), "dispatch hierarchy target diverged from transport target")
+    target_profile_gate = payload.get("target_profile_gate")
+    require(isinstance(target_profile_gate, dict) and target_profile_gate.get("ok") is True, "dispatch target profile gate failed")
     require(
         payload.get("dispatch_delivery_channel") in SUCCESS_DISPATCH_CHANNELS,
         "dispatch did not use native double-enter visible channel or legacy alias",
@@ -274,6 +282,56 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
         require(dispatch.get("dispatch_blocked") is True, "failed dry-run dispatch must be explicitly blocked")
         require(isinstance(dispatch.get("office_uniqueness_gate"), dict), "failed dry-run dispatch must preserve uniqueness-gate evidence")
 
+    special_dispatch = run_json(
+        workspace,
+        [
+            "--enter-dispatch",
+            "--role",
+            "shiguan",
+            "--calling-office",
+            "menxia",
+            "--dispatch-uid",
+            "SUPERCC-FUNCTIONAL-SHIGUAN",
+            "--message",
+            "bounded archive evidence fixture",
+            "--dry-run",
+        ],
+    )
+    special_side_effects = special_dispatch.get("side_effects") or {}
+    require(special_side_effects.get("mutates_runtime") is False, "special lifecycle dry-run must be non-mutating")
+    require(special_dispatch.get("ok") is True, "legal Menxia-to-Shiguan dispatch was rejected")
+    require(special_dispatch.get("hierarchy_edge_class") == "special_lifecycle_dispatch", "special lifecycle edge class missing")
+    require(special_dispatch.get("special_lifecycle_action") == "archive_evidence_dispatch", "special lifecycle action missing")
+    require(
+        special_dispatch.get("dispatch_delivery_channel")
+        == "SQUAD_STRUCTURED_TASK_WITH_AUDIT_MIRROR_NON_VISIBLE_SPECIAL_LIFECYCLE",
+        "special lifecycle dispatch must stay non-visible by default",
+    )
+
+    blocked_special = run_json(
+        workspace,
+        [
+            "--enter-dispatch",
+            "--role",
+            "shiguan",
+            "--calling-office",
+            "gongbu",
+            "--dispatch-uid",
+            "SUPERCC-FUNCTIONAL-BLOCK-SHIGUAN",
+            "--message",
+            "forbidden ministry special-role fixture",
+            "--dry-run",
+        ],
+        allowed_returncodes={2},
+    )
+    blocked_special_side_effects = blocked_special.get("side_effects") or {}
+    require(blocked_special_side_effects.get("mutates_runtime") is False, "blocked special lifecycle dispatch mutated runtime")
+    require(blocked_special.get("ok") is False and blocked_special.get("dispatch_blocked") is True, "ministry-to-special dispatch was not blocked")
+    require(blocked_special.get("dispatch_hierarchy_reason") == "dispatch_hierarchy_edge_forbidden", "ministry-to-special rejection reason drifted")
+    for evidence_key in ("task_evidence", "squad_evidence", "native_enter_dispatch", "state"):
+        evidence = blocked_special.get(evidence_key)
+        require(isinstance(evidence, dict) and evidence.get("skipped") is True, f"blocked special lifecycle {evidence_key} was not skipped")
+
     return {
         "mode": "read_only_audit",
         "check_passed": check_result.get("passed"),
@@ -290,6 +348,11 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
             "channel": dispatch.get("dispatch_delivery_channel"),
             "blocked": dispatch.get("dispatch_blocked"),
             "post_enter_delay": dispatch.get("post_dispatch_physical_enter_delay_seconds"),
+        },
+        "special_lifecycle": {
+            "legal_ok": special_dispatch.get("ok"),
+            "legal_action": special_dispatch.get("special_lifecycle_action"),
+            "illegal_reason": blocked_special.get("dispatch_hierarchy_reason"),
         },
     }
 

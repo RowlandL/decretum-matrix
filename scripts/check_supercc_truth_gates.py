@@ -68,6 +68,55 @@ def main() -> int:
     assert mismatch["ok"] is False
     assert mismatch["reason"] == "active_squad_identity_client_mismatch"
 
+    profile = ensure_supercc_court.profile_metadata("zhongshu")
+    profile_gate = ensure_supercc_court.dispatch_target_profile_gate("zhongshu", profile)
+    assert profile_gate["ok"] is True
+    wrong_role_profile = dict(profile)
+    wrong_role_profile["profile_fields"] = {
+        **dict(profile.get("profile_fields") or {}),
+        "role_key": "menxia",
+    }
+    wrong_role_gate = ensure_supercc_court.dispatch_target_profile_gate(
+        "zhongshu", wrong_role_profile
+    )
+    assert wrong_role_gate["ok"] is False
+    assert "standing_profile_role_mismatch" in wrong_role_gate["reason_codes"]
+
+    special_cases = (
+        ("shiguan", "menxia", "archive_evidence_dispatch", "taizi/menxia"),
+        ("shiguan-hermes", "taizi", "hermes_archive_evidence_dispatch", "taizi/menxia"),
+        ("patrol-inspector", "taizi", "bounded_diagnostic_dispatch", "taizi"),
+        ("zaochao", "taizi", "briefing_dispatch", "taizi"),
+    )
+    for role, caller, action, direct_superior in special_cases:
+        role_profile = ensure_supercc_court.profile_metadata(role)
+        role_profile_gate = ensure_supercc_court.dispatch_target_profile_gate(
+            role, role_profile
+        )
+        superior = ensure_supercc_court.direct_superior_metadata(role)
+        assert superior["direct_superior"] == direct_superior
+        decision, authority = ensure_supercc_court.special_lifecycle_dispatch_authority(
+            role,
+            caller,
+            superior,
+            role_profile,
+            role_profile_gate,
+        )
+        assert decision.allowed is True
+        assert decision.edge_class == "special_lifecycle_dispatch"
+        assert authority["gate"] == "PASSED"
+        assert authority["action"] == action
+        denied, denied_authority = ensure_supercc_court.special_lifecycle_dispatch_authority(
+            role,
+            "gongbu",
+            superior,
+            role_profile,
+            role_profile_gate,
+        )
+        assert denied.allowed is False
+        assert denied.reason_codes == ("dispatch_hierarchy_edge_forbidden",)
+        assert denied_authority["reason"] == "dispatch_hierarchy_edge_forbidden"
+
     for signal in ensure_supercc_court.current_process_chain_signals():
         assert ";cmd=" not in signal.lower()
 
