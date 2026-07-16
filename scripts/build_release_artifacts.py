@@ -26,6 +26,7 @@ LICENSE_ID = "AGPL-3.0-only"
 ATTESTATION_SCHEMA = "court.release_attestation.v1"
 CANDIDATE_RECEIPT_SCHEMA = "court.release_candidate_receipt.v1"
 RELEASE_RE = re.compile(r"^beta(?P<core>0\.[0-9]+\.[0-9]+)$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TAG_SIGNATURE_MARKERS = (
     "-----BEGIN PGP SIGNATURE-----",
     "-----BEGIN SSH SIGNATURE-----",
@@ -39,6 +40,30 @@ class ArtifactBuildError(RuntimeError):
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def normalize_candidate_sha256(expected_candidate_sha256: str) -> str:
+    expected = expected_candidate_sha256.strip().lower()
+    if not SHA256_RE.fullmatch(expected):
+        raise ArtifactBuildError("expected candidate SHA-256 must be exactly 64 hexadecimal characters")
+    return expected
+
+
+def candidate_promotion_gate(
+    zip_bytes: bytes,
+    expected_candidate_sha256: str,
+) -> dict[str, str]:
+    expected = normalize_candidate_sha256(expected_candidate_sha256)
+    actual = sha256_bytes(zip_bytes)
+    if actual != expected:
+        raise ArtifactBuildError(
+            f"candidate ZIP SHA-256 mismatch: expected {expected}, got {actual}"
+        )
+    return {
+        "status": "PASSED",
+        "expected_sha256": expected,
+        "actual_sha256": actual,
+    }
 
 
 def read_release_label(root: Path = ROOT) -> str:
@@ -460,6 +485,7 @@ def publish_candidate(
     manifest: Mapping[str, object],
     source: Mapping[str, str],
     artifacts: Mapping[str, bytes],
+    expected_candidate_sha256: str,
     root: Path = ROOT,
 ) -> tuple[Path, dict[str, object]]:
     release_label = str(manifest.get("release_label"))
@@ -467,6 +493,12 @@ def publish_candidate(
     if final.exists():
         raise ArtifactBuildError(f"final version directory already exists: {final}")
     validation = validate_candidate_artifacts(artifacts, manifest=manifest, source=source, root=root)
+    zip_name = str(manifest["artifact_name"])
+    promotion = candidate_promotion_gate(
+        artifacts[zip_name],
+        expected_candidate_sha256,
+    )
+    validation["candidate_promotion"] = promotion
     final = create_final_directory(out_root, release_label)
     for name in sorted(artifacts, key=lambda value: value.encode("utf-8")):
         exclusive_write(final / name, artifacts[name])
@@ -571,6 +603,79 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         tests["candidate_and_release_zip_are_byte_identical"] = (
             tagless[zip_name] == artifacts[zip_name]
         )
+        expected_candidate_sha256 = sha256_bytes(artifacts[zip_name])
+        promotion = candidate_promotion_gate(
+            artifacts[zip_name],
+            expected_candidate_sha256.upper(),
+        )
+        tests["candidate_sha256_gate_accepts_exact_hash"] = (
+            promotion["status"] == "PASSED"
+            and promotion["expected_sha256"] == expected_candidate_sha256
+            and promotion["actual_sha256"] == expected_candidate_sha256
+        )
+        try:
+            candidate_promotion_gate(artifacts[zip_name], "0" * 64)
+        except ArtifactBuildError:
+            tests["candidate_sha256_gate_rejects_mismatch"] = True
+        else:
+            tests["candidate_sha256_gate_rejects_mismatch"] = False
+        try:
+            candidate_promotion_gate(artifacts[zip_name], "not-a-sha256")
+        except ArtifactBuildError:
+            tests["candidate_sha256_gate_rejects_invalid_value"] = True
+        else:
+            tests["candidate_sha256_gate_rejects_invalid_value"] = False
+
+        promotion_root = temp_root / "promotion-root"
+        promotion_root.mkdir()
+        promoted_final, promoted_validation = publish_candidate(
+            promotion_root,
+            manifest=manifest,
+            source=source,
+            artifacts=artifacts,
+            expected_candidate_sha256=expected_candidate_sha256,
+            root=root,
+        )
+        tests["exact_candidate_sha_is_checked_before_final_publish"] = (
+            promoted_final.is_dir()
+            and promoted_validation.get("candidate_promotion", {}).get("status") == "PASSED"
+        )
+
+        mismatch_root = temp_root / "mismatch-root"
+        mismatch_root.mkdir()
+        try:
+            publish_candidate(
+                mismatch_root,
+                manifest=manifest,
+                source=source,
+                artifacts=artifacts,
+                expected_candidate_sha256="0" * 64,
+                root=root,
+            )
+        except ArtifactBuildError:
+            tests["candidate_sha_mismatch_does_not_create_final_directory"] = not (
+                mismatch_root / release_label
+            ).exists()
+        else:
+            tests["candidate_sha_mismatch_does_not_create_final_directory"] = False
+
+        invalid_root = temp_root / "invalid-root"
+        invalid_root.mkdir()
+        try:
+            publish_candidate(
+                invalid_root,
+                manifest=manifest,
+                source=source,
+                artifacts=artifacts,
+                expected_candidate_sha256="not-a-sha256",
+                root=root,
+            )
+        except ArtifactBuildError:
+            tests["invalid_candidate_sha_does_not_create_final_directory"] = not (
+                invalid_root / release_label
+            ).exists()
+        else:
+            tests["invalid_candidate_sha_does_not_create_final_directory"] = False
 
         existing_root = temp_root / "existing-root"
         existing_root.mkdir()
@@ -579,7 +684,14 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         sentinel = existing_final / "sentinel.txt"
         sentinel.write_bytes(b"preserve")
         try:
-            publish_candidate(existing_root, manifest=manifest, source=source, artifacts=artifacts, root=root)
+            publish_candidate(
+                existing_root,
+                manifest=manifest,
+                source=source,
+                artifacts=artifacts,
+                expected_candidate_sha256=expected_candidate_sha256,
+                root=root,
+            )
         except ArtifactBuildError:
             tests["existing_version_directory_is_rejected"] = sentinel.read_bytes() == b"preserve"
         else:
@@ -599,7 +711,14 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         broken = dict(artifacts)
         broken[str(manifest["sidecar_name"])] = b"wrong\n"
         try:
-            publish_candidate(failure_root, manifest=manifest, source=source, artifacts=broken, root=root)
+            publish_candidate(
+                failure_root,
+                manifest=manifest,
+                source=source,
+                artifacts=broken,
+                expected_candidate_sha256=expected_candidate_sha256,
+                root=root,
+            )
         except ArtifactBuildError:
             tests["failure_does_not_create_a_final_version_directory"] = not (failure_root / release_label).exists()
         else:
@@ -691,7 +810,15 @@ def build_candidate(out_root: Path, root: Path = ROOT) -> dict[str, object]:
     }
 
 
-def build_release(out_root: Path, root: Path = ROOT) -> dict[str, object]:
+def build_release(
+    out_root: Path,
+    *,
+    expected_candidate_sha256: str,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    expected_candidate_sha256 = normalize_candidate_sha256(
+        expected_candidate_sha256
+    )
     manifest = load_payload_manifest(root)
     release_label = read_release_label(root)
     if manifest.get("release_label") != release_label:
@@ -715,6 +842,7 @@ def build_release(out_root: Path, root: Path = ROOT) -> dict[str, object]:
             manifest=manifest,
             source=source,
             artifacts=artifacts,
+            expected_candidate_sha256=expected_candidate_sha256,
             root=root,
         )
     return {
@@ -731,6 +859,7 @@ def build_release(out_root: Path, root: Path = ROOT) -> dict[str, object]:
             for path in sorted(final.iterdir(), key=lambda value: value.name.encode("utf-8"))
         ],
         "zip_sha256": validation["zip_sha256"],
+        "candidate_promotion": validation["candidate_promotion"],
         "source": source,
     }
 
@@ -739,6 +868,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("candidate", "release"))
     parser.add_argument("--out-root", type=Path)
+    parser.add_argument("--expected-candidate-sha256")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -750,11 +880,21 @@ def main() -> int:
             raise ArtifactBuildError("--mode candidate|release is required for a real build")
         else:
             out_root = args.out_root or default_out_root(args.mode)
-            result = (
-                build_candidate(out_root)
-                if args.mode == "candidate"
-                else build_release(out_root)
-            )
+            if args.mode == "candidate":
+                if args.expected_candidate_sha256 is not None:
+                    raise ArtifactBuildError(
+                        "--expected-candidate-sha256 is release-only"
+                    )
+                result = build_candidate(out_root)
+            else:
+                if args.expected_candidate_sha256 is None:
+                    raise ArtifactBuildError(
+                        "--expected-candidate-sha256 is required for release mode"
+                    )
+                result = build_release(
+                    out_root,
+                    expected_candidate_sha256=args.expected_candidate_sha256,
+                )
     except (ArtifactBuildError, FileExistsError, OSError, subprocess.SubprocessError) as exc:
         result = {"ok": False, "error": f"{type(exc).__name__}:{exc}"}
     if args.json:
