@@ -1135,3 +1135,10 @@ Git index empty
 - 排队游标：`A02_ACCEPTED_COMMIT -> CLEAN_PACKAGE -> PER_RELEASE_LOCAL_INSTALL/MIGRATION/INDEX -> NEXT_RELEASE_HANDOFF_ACCEPTED -> MAINLINE_ACCEPTED_BASELINE_GATE -> POST_MAINLINE_REBASE/P0 -> OFFICE_PACK_Q0`。
 - Acceptance：P0 必须以最终 accepted baseline 重采 preimage；当前仅计划，不实施 pack/DLC/scope/knowledge promotion。
 - Acceptance gate：当前 A02 与下一 release 交接完成前只允许保留计划；不得实现 pack/DLC/`.decretum`/promotion/office architect，不得建立第二 shared-config repo、ledger 或行为权威，pending body access 必须保持 `NO`。
+
+### 2026-07-16 beta0.5.10 完成与 beta0.5.11 差遣层级指针
+
+- 完成标记：beta0.5.10 已发布并完成本机安装及下一分支交接；release=https://github.com/RowlandL/decretum-matrix/releases/tag/beta0.5.10，publication_receipt=libu-beta0.5.10-publication-355183007，publication_receipt_sha256=b57602c20e514c9b7c77889591e2cd8d661ad8944efc66915946691ac2d867ae，install_receipt_sha256=df2a25519555265b0d657fe1aecfd61eee2a430571b015924b7fcdc8481bbf1a，next_branch=release/beta0.5.11，next_head=d79b083fc202d9dc8c89834460191b4da69ad082，handoff_index=0。
+- 详细执行权威：docs/plans/2026-07-16-decretum-matrix-taizi-three-departments-and-shangshu-six-ministries-dispatch-plan.md；本执行书不复制正文。
+- 游标：PLAN_LANDING_GATE=PASS -> VERSION_ALIGNMENT_GATE -> HIERARCHY_RED/GREEN -> ORDINARY_HIERARCHY -> CHILD_OFFICE_P00 -> SUPERCC_HIERARCHY -> SPEC -> QUALITY -> NEXT_RELEASE_PREPUBLICATION_GATE。
+- Acceptance：beta0.5.11 发布前必须证明太子/主线程只向三省进行正常执行差遣、尚书省是六部唯一差遣者、六部仅能派生本部有界子官署；ordinary 与 superCC 使用同一 validator，子官署绑定 profile 与现有 P00 semantic capsule，且 NEXT_RELEASE_PREPUBLICATION_GATE=PASS。

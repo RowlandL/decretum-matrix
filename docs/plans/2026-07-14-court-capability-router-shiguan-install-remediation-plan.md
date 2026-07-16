@@ -1043,3 +1043,10 @@ remote publication not run
 - Cursor: `A02_ACCEPTED_COMMIT -> CLEAN_PACKAGE -> PER_RELEASE_LOCAL_INSTALL/MIGRATION/INDEX -> NEXT_RELEASE_HANDOFF_ACCEPTED -> MAINLINE_ACCEPTED_BASELINE_GATE -> POST_MAINLINE_REBASE/P0 -> OFFICE_PACK_Q0`.
 - Acceptance: P0 must rebase every path/schema/topology assumption onto the final accepted baseline; this queue is plan-only and does not implement pack/DLC/scope/knowledge promotion now.
 - Acceptance: plan-only until the cursor is reached. Shared global defaults may later reuse the one shared Shiguan Git manifest domain, but must not create a second repo/ledger/authority or override the Decree Kernel; no implementation or pending-body access is authorized in the current A02 release.
+
+## 2026-07-16 beta0.5.10 completion and beta0.5.11 dispatch-hierarchy pointer
+
+- Completion marker: beta0.5.10 publication, local installation, and next-branch handoff are complete; release=https://github.com/RowlandL/decretum-matrix/releases/tag/beta0.5.10, publication_receipt=libu-beta0.5.10-publication-355183007, publication_receipt_sha256=b57602c20e514c9b7c77889591e2cd8d661ad8944efc66915946691ac2d867ae, install_receipt_sha256=df2a25519555265b0d657fe1aecfd61eee2a430571b015924b7fcdc8481bbf1a, next_branch=release/beta0.5.11, next_head=d79b083fc202d9dc8c89834460191b4da69ad082, handoff_index=0.
+- Governing plan: docs/plans/2026-07-16-decretum-matrix-taizi-three-departments-and-shangshu-six-ministries-dispatch-plan.md; do not duplicate its body here.
+- Cursor: PLAN_LANDING_GATE=PASS -> VERSION_ALIGNMENT_GATE -> HIERARCHY_RED/GREEN -> ORDINARY_HIERARCHY -> CHILD_OFFICE_P00 -> SUPERCC_HIERARCHY -> SPEC -> QUALITY -> NEXT_RELEASE_PREPUBLICATION_GATE.
+- Acceptance: before beta0.5.11 publication, Taizi/main dispatches normal execution only to the Three Departments, Shangshu is the sole Six-Ministry dispatcher, and each ministry may create only its own bounded child office; ordinary and superCC use the same validator, the child carries its profile plus the existing P00 semantic capsule, and NEXT_RELEASE_PREPUBLICATION_GATE must pass.
