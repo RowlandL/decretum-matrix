@@ -1,7 +1,7 @@
-# Decretum Matrix Brand Assets
+# Dercretum-Matrix Brand Assets
 
 This directory contains the canonical repository filenames for the selected
-Decretum Matrix（诏令矩阵） v2 icon artwork:
+Dercretum-Matrix（诏令矩阵） v2 icon artwork:
 
 - `decretum-matrix-icon.svg`
 - `decretum-matrix-icon-256.png`

@@ -877,7 +877,7 @@ def office_dossier_text(role: str) -> str:
 
         ## Fast Dispatch Protocol
 
-        1. Before duty work, load this dossier, the referenced standing profile, and Decretum Matrix `SKILL.md`; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
+        1. Before duty work, load this dossier, the referenced standing profile, and Dercretum-Matrix `SKILL.md`; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
         2. Your squad identity has already been joined by the launcher. Do not run squad join again unless Taizi explicitly sends REPAIR_IDENTITY.
         3. On wake, run exactly one non-blocking inbox check. Use the receive command from Shell Contract that matches your active shell and this role. Use `--wait` only when your direct superior explicitly asks you to wait.
         4. If a structured task exists, ack it first through the same wrapper, do only the bounded task, preserve evidence, then complete it through the same wrapper.

@@ -1,8 +1,8 @@
-# Decretum Matrix（诏令矩阵）使用手册
+# Dercretum-Matrix（诏令矩阵）使用手册
 
 ## 1. 这是什么
 
-Decretum Matrix（诏令矩阵）是一个面向 CLI Agent 的任务路由与协作编排
+Dercretum-Matrix（诏令矩阵）是一个面向 CLI Agent 的任务路由与协作编排
 skill，规范 skill 名与调用为 `decretum-matrix` / `$decretum-matrix`。它把复杂
 任务拆成可管理的职责区：太子总领目标，中书省起草与规划，门下省审查与驳正，
 尚书省执行与分派，六部承担不同专业方向。
@@ -199,7 +199,7 @@ python -B scripts/check_supercc_ministry_dispatch.py
 
 ### 泛 CLI 选择
 
-Decretum Matrix 的三省六部协作能力不应只绑定 Codex、Claude、Hermes。
+Dercretum-Matrix 的三省六部协作能力不应只绑定 Codex、Claude、Hermes。
 它应支持泛 CLI Agent：
 
 - 当前 CLI 可识别时，默认使用当前 CLI。

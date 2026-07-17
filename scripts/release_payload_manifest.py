@@ -1,4 +1,4 @@
-"""Generate and strictly validate the Decretum Matrix beta0.5.11 payload manifest."""
+"""Generate and strictly validate the Dercretum-Matrix beta0.5.11 payload manifest."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import package_skill
 
 SCHEMA = "court.release_manifest.v2"
 NAME = "decretum-matrix"
-DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
+DISPLAY_NAME = "Dercretum-Matrix"
 PACKAGE_NAME = NAME
 LICENSE_ID = "AGPL-3.0-only"
 RELEASE_LABEL = "beta0.5.11"
@@ -501,7 +501,7 @@ def self_tests() -> dict[str, bool]:
         "valid_shape_passes": shape_problems(base) == [],
         "canonical_product_identity_required": (
             NAME == "decretum-matrix"
-            and globals().get("DISPLAY_NAME") == "Decretum Matrix（诏令矩阵）"
+            and globals().get("DISPLAY_NAME") == "Dercretum-Matrix"
         ),
         "beta_0_5_11_artifact_identity_required": (
             RELEASE_LABEL == "beta0.5.11"

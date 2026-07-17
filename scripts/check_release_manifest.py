@@ -1,4 +1,4 @@
-"""Validate release-gate policy plus Decretum Matrix package identity."""
+"""Validate release-gate policy plus Dercretum-Matrix package identity."""
 
 from __future__ import annotations
 
@@ -277,7 +277,7 @@ def release_surface_contract() -> dict[str, bool]:
     return {
         "canonical_product_name": release_payload_manifest.NAME == "decretum-matrix",
         "canonical_display_name": getattr(release_payload_manifest, "DISPLAY_NAME", None)
-        == "Decretum Matrix（诏令矩阵）",
+        == "Dercretum-Matrix",
         "canonical_artifact_name": release_payload_manifest.ARTIFACT_NAME
         == "decretum-matrix-beta0.5.11.zip",
         "canonical_release_label": release_payload_manifest.RELEASE_LABEL == "beta0.5.11",

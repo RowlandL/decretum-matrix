@@ -1242,8 +1242,8 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/release-manifest.json",
                     (
-                        b'{"name":"decretum-matrix","display_name":"Decretum Matrix'
-                        b'\\uff08\\u8bcf\\u4ee4\\u77e9\\u9635\\uff09","package_name":"decretum-matrix",'
+                        b'{"name":"decretum-matrix","display_name":"Dercretum-Matrix",'
+                        b'"package_name":"decretum-matrix",'
                         b'"release_label":"beta0.5.11","artifact_name":"decretum-matrix-beta0.5.11.zip",'
                         b'"archive_root":"court-capability-router/","license":{"declared":"AGPL-3.0-only",'
                         b'"file":"LICENSE"}}\n'
@@ -1251,7 +1251,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 ),
                 (f"{ROOT_NAME}/.gitignore", b"dist/\n"),
                 (f"{ROOT_NAME}/LICENSE", b"GNU AFFERO GENERAL PUBLIC LICENSE\n"),
-                (f"{ROOT_NAME}/NOTICE", b"Decretum Matrix\n"),
+                (f"{ROOT_NAME}/NOTICE", b"Dercretum-Matrix\n"),
                 (f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md", b"# Third-party notices\n"),
                 (f"{ROOT_NAME}/PROVENANCE.md", b"# Provenance\n"),
                 (f"{ROOT_NAME}/COMMERCIAL-LICENSE.md", b"# Commercial license notice\n"),
@@ -1328,7 +1328,7 @@ class PackageBuildTests(unittest.TestCase):
         self.assertEqual(getattr(package_skill, "PRODUCT_NAME", None), "decretum-matrix")
         self.assertEqual(
             getattr(package_skill, "DISPLAY_NAME", None),
-            "Decretum Matrix（诏令矩阵）",
+            "Dercretum-Matrix",
         )
         self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.11")
         self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")

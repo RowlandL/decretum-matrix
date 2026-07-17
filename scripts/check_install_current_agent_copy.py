@@ -102,7 +102,7 @@ ARTIFACT_PORTABILITY_RED_INTERFACE = {
 }
 
 LOADED_IDENTITY_EXPECTED = {
-    "display_name": "Decretum Matrix（诏令矩阵）",
+    "display_name": "Dercretum-Matrix",
     "canonical_skill_name": "decretum-matrix",
     "canonical_invocation": "$decretum-matrix",
     "community_license": "AGPL-3.0-only",

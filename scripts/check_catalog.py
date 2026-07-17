@@ -1,4 +1,4 @@
-"""Check whether the Decretum Matrix catalog and portable court assets are usable."""
+"""Check whether the Dercretum-Matrix catalog and portable court assets are usable."""
 
 from __future__ import annotations
 

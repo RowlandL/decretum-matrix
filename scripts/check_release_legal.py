@@ -119,7 +119,7 @@ def evaluate(root: Path) -> dict[str, object]:
 
     notice_text = read_text(root / "NOTICE") if (root / "NOTICE").is_file() else ""
     for marker in (
-        "Decretum Matrix（诏令矩阵）",
+        "Dercretum-Matrix（诏令矩阵）",
         f"Copyright 2026 {EXPECTED_OWNER}",
         f"Community edition: {EXPECTED_LICENSE}",
         f"GitHub: {EXPECTED_MAINTAINER}",
@@ -275,7 +275,7 @@ def evaluate(root: Path) -> dict[str, object]:
     trademarks = read_text(root / "TRADEMARKS.md") if (root / "TRADEMARKS.md").is_file() else ""
     for marker in (
         EXPECTED_TRADEMARK_POLICY_OWNER,
-        "Decretum Matrix（诏令矩阵）",
+        "Dercretum-Matrix（诏令矩阵）",
         "decretum-matrix",
         "nominative",
         "no affiliation",

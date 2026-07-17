@@ -309,7 +309,7 @@ function buildPackageReadmeForContract(contract) {
   return `${[
     `# ${contract.packageName}`,
     "",
-    `Immutable legal-v2 npm carrier for Decretum Matrix ${contract.releaseLabel}.`,
+    `Immutable legal-v2 npm carrier for Dercretum-Matrix ${contract.releaseLabel}.`,
     "",
     `- Source commit: \`${contract.sourceCommit}\``,
     `- Release tag: \`${contract.releaseLabel}\``,
@@ -1097,7 +1097,7 @@ export async function runSyntheticSelfTest() {
     };
     manifest.name = "decretum-matrix";
     manifest.package_name = "decretum-matrix";
-    manifest.display_name = "Decretum Matrix（诏令矩阵）";
+    manifest.display_name = "Dercretum-Matrix";
     manifest.archive_root = "court-capability-router/";
     manifest.license = { declared: LICENSE, file: "LICENSE" };
     manifest.provenance = "PROVENANCE.md";
@@ -1988,7 +1988,7 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
   return {
     name: contract.packageName,
     version: contract.packageVersion,
-    description: `Immutable Decretum Matrix ${contract.releaseLabel} release assets and provenance.`,
+    description: `Immutable Dercretum-Matrix ${contract.releaseLabel} release assets and provenance.`,
     license: contract.license,
     repository: contract.repositoryUrl,
     homepage: contract.releaseUrl,
@@ -2058,7 +2058,7 @@ function expectedHarnessPackageJson() {
     version: "0.0.0-private",
     private: true,
     description:
-      "Private version-neutral harness for building and checking Decretum Matrix npm release candidates.",
+      "Private version-neutral harness for building and checking Dercretum-Matrix npm release candidates.",
     license: LICENSE,
     type: "module",
     engines: {

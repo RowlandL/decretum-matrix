@@ -1,6 +1,6 @@
-# Decretum Matrix Standard Skill Installation
+# Dercretum-Matrix Standard Skill Installation
 
-Decretum Matrix（诏令矩阵） uses the canonical skill name `decretum-matrix` and
+Dercretum-Matrix（诏令矩阵） uses the canonical skill name `decretum-matrix` and
 invocation `$decretum-matrix`. Its package and repository identifier is
 `decretum-matrix`.
 
@@ -201,7 +201,7 @@ restart the current task.
 1. Copy the physical `court-capability-router` package root into the canonical
    `.agents` skill root under the same protected locator, then project the same
    verified bytes to the current agent tool only. The loader must expose
-   `Decretum Matrix（诏令矩阵）` / `decretum-matrix`; do not create a second alias
+   `Dercretum-Matrix（诏令矩阵）` / `decretum-matrix`; do not create a second alias
    skill directory. This Codex example does not detect or modify Claude Code,
    Hermes, or other tools:
 
@@ -405,7 +405,7 @@ The root `release-manifest.json` describes this artifact. `references/manifests/
 
 ## License, Commercial Terms, And Provenance
 
-The current Decretum Matrix community license is `AGPL-3.0-only`; see
+The current Dercretum-Matrix community license is `AGPL-3.0-only`; see
 `LICENSE`. Commercial rights are available only through a separate written
 agreement signed by 孙华清; `COMMERCIAL-LICENSE.md` does not itself grant those
 rights. Contributions require DCO plus the CLA gate described in `CLA.md` and
@@ -547,7 +547,7 @@ This merged skill replaces the need to invoke `installed-skill-selector`,
 refresh scripts, standing-official templates, and an empty portable Shiguan
 seed. Local catalogs and stage archives are generated on the host.
 
-- `decretum-matrix`: the single Decretum Matrix skill that reads the catalog and applies the
+- `decretum-matrix`: the single Dercretum-Matrix skill that reads the catalog and applies the
   default court workflow, including the three execution authorities, light/full
   catalog refresh, court roles, 三省上奏/太子回奏 dispatch gates, stage archives,
   Shiguan bilingual keyword/key-behavior recall, built-in growth tree, macro

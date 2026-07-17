@@ -13,7 +13,7 @@ Status: `ACTIVE / LEGAL_REVIEW_REQUIRED`
 
 The project is recorded as an engineering-semantic benchmark. This package
 contains no upstream runtime dependency and accepts no governing authority
-from that repository. Decretum Matrix is upstream-inspired at the semantic and
+from that repository. Dercretum-Matrix is upstream-inspired at the semantic and
 structural level; a bounded comparison found no identical whole file, but that
 does not prove the absence of rewritten fragments, structural influence or
 other borrowing. This notice is therefore preserved permanently. The projects

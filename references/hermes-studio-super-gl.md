@@ -37,7 +37,7 @@ super_gl_squad_gate: NOT_APPLICABLE
 
 在房间内开朝时：
 
-1. 太子加载 Decretum Matrix（诏令矩阵）（`decretum-matrix` / `$decretum-matrix`）后，检查 `super_gl_room_gate`。
+1. 太子加载 Dercretum-Matrix（诏令矩阵）（`decretum-matrix` / `$decretum-matrix`）后，检查 `super_gl_room_gate`。
 2. 若 `PASSED`，记录 `super_gl_enabled=true`，默认采用同房间 `@profile` bounded wake/dispatch 作为优先多-agent 协同路径。
 3. 三省初始官署创建不再需要用户手工改配置：房间成员中存在 `zhongshu`、`menxia`、`shangshu` 时，可用一次 bounded wake 实证确认在线性；没有实际回复不得声称该 office 已履职。
 4. 六部与史馆仍遵循尚书省差遣、任务边界、证据契约与释放规则；不得因 `super GL` 默认启用而无限 @all 或循环催促。

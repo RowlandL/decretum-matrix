@@ -1,4 +1,4 @@
-"""Build a portable Decretum Matrix skill package.
+"""Build a portable Dercretum-Matrix skill package.
 
 The package is staged from the local skill directory but intentionally excludes
 host-local Shiguan record bodies, plan archives, memory decisions, generated
@@ -30,7 +30,7 @@ sys.dont_write_bytecode = True
 
 
 PRODUCT_NAME = "decretum-matrix"
-DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
+DISPLAY_NAME = "Dercretum-Matrix"
 RELEASE_LABEL = "beta0.5.11"
 LICENSE_ID = "AGPL-3.0-only"
 # Stable install/archive locator retained for compatibility with existing hosts.

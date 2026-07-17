@@ -48,7 +48,7 @@ Shell contract:
 
 ## Fast Dispatch Protocol
 
-1. Before duty work, load this dossier, the referenced standing profile, and Decretum Matrix `SKILL.md`; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
+1. Before duty work, load this dossier, the referenced standing profile, and Dercretum-Matrix `SKILL.md`; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
 2. Your squad identity has already been joined by the launcher. Do not run squad join again unless Taizi explicitly sends REPAIR_IDENTITY.
 3. On wake, run exactly one non-blocking inbox check. Use the receive command from Shell Contract that matches your active shell and this role. Use `--wait` only when your direct superior explicitly asks you to wait.
 4. If a structured task exists, ack it first through the same wrapper, do only the bounded task, preserve evidence, then complete it through the same wrapper.
@@ -60,7 +60,7 @@ Shell contract:
 
 Office profile:
 - profile_source: agents/standing-officials/taizi.toml
-- profile_hash: 1d5525751c54faa15e3239feba73a8ff6f443575e9e15483871e397b8f4224d5
+- profile_hash: 0c82be9b22a1520b816809fe8c6fa5b1321ff694f63dc02d49116551271d2285
 - profile_version: 2026-07-17.dispatch-hierarchy-p00.v1
 - office_profile_loaded: True
 - role_key: taizi

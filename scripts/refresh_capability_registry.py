@@ -1104,7 +1104,7 @@ def run_self_test() -> dict[str, object]:
         identity_skill = root / "identity-skills" / "court-capability-router" / "SKILL.md"
         identity_skill.parent.mkdir(parents=True)
         identity_skill.write_text(
-            "---\nname: decretum-matrix\ndescription: Decretum Matrix fixture.\n---\n",
+            "---\nname: decretum-matrix\ndescription: Dercretum-Matrix fixture.\n---\n",
             encoding="utf-8",
         )
         effects = {"network_calls": 0, "subprocess_calls": 0, "write_calls": 0, "cache_write_calls": 0}
