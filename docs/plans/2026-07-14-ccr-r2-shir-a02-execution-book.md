@@ -1155,16 +1155,14 @@ Git index empty
 - 游标：PLAN_LANDING_GATE=PASS -> VERSION_ALIGNMENT_GATE -> HIERARCHY_RED/GREEN -> ORDINARY_HIERARCHY -> CHILD_OFFICE_P00 -> SUPERCC_HIERARCHY -> SPEC -> QUALITY -> NEXT_RELEASE_PREPUBLICATION_GATE。
 - Acceptance：beta0.5.11 发布前必须证明太子/主线程只向三省进行正常执行差遣、尚书省是六部唯一差遣者、六部仅能派生本部有界子官署；ordinary 与 superCC 使用同一 validator，子官署绑定 profile 与现有 P00 semantic capsule，且 NEXT_RELEASE_PREPUBLICATION_GATE=PASS。
 
-### DEFERRED — 普通任务 UI 的任务协议元数据误显修复计划
+### beta0.5.11 IMPLEMENTED / VERIFIED — 正式结诏编号与内容谱系修复
 
-> 状态：`DEFERRED / PLAN_ONLY / NOT_IMPLEMENTED`。当前现象是普通任务 UI 错误显示 `诏令编号` 与 `古制谱系`；本阶段只记录后续修复计划，绝不实现、试改或部署该行为。
+> 状态：`IMPLEMENTED / VERIFIED`。截图中的 `CCR-R2-SHIR-20260714-A02-RB3-20260717` 与 `总体执行书→Phase 2-3→RB3→autosync 残余复核` 来自结诏输出内容，不是应被 Web 隐藏的普通任务元数据；本整改修复输出源校验，不修改 `web/app.js` 或隐藏字段。
 
-- **当前阶段隔离：** 本补充不改变 A02 当前阶段游标、验收或写集。当前唯一内容写集仍是本 execution book；不得修改 UI、任务服务、checker、任务状态、配置、安装根、release manifest、root/mainline 或其他 writer worktree。未来修复必须使用从已验收基线创建的独立 child worktree、独立分支和单一 writer，且不得与任何 A02 写集重叠。
-- **后续游标：** `A02_CURRENT_STAGE_ACCEPTED -> NEXT_RELEASE_HANDOFF_ACCEPTED -> TASK_PROTOCOL_METADATA_UI_Q0 -> Q1_ROOT_CAUSE -> Q2_CHECKER_RED -> Q3_MINIMAL_GREEN -> Q4_REGRESSION_ACCEPTANCE`。在进入 `TASK_PROTOCOL_METADATA_UI_Q0` 前，本项始终保持 `DEFERRED`，不得借本计划提前落地。
-- **恢复条件：** 只有 A02 当前阶段和下一 release 交接均有 accepted receipt、精确 accepted commit/plan hash/cursor 可回读，专用 child worktree 的 branch/common-dir 匹配、root/child index 均为 `0`、无第二 writer、exact skill/dossier 已重新加载且 `pending_body_access=NO` 时才可恢复。任一条件缺失、UI 源码归属不明或真实 owner 位于本阶段授权写集之外时 fail closed，保留游标并重新上奏，不得直接修改生成 bundle、controller 数据或宿主任务库。
-- **Q1 根因调查（先只读）：** 从普通任务的持久化任务记录、host/task projection、前端 view-model 与最终渲染组件反向追踪 `诏令编号`/`古制谱系` 的字段来源和展示判定，区分“普通任务被误分类为 receipt/court closeout”“历史协议元数据被无条件投影”“仅凭文本/项目/分支名称触发”三类根因，并保存最小 preimage、调用链和 owner/path 证据。不得以隐藏 CSS 或字符串删除掩盖根因。
-- **Q2 checker-first RED：** 在生产实现前先加入最小 checker/fixture，证明普通任务在没有显式 receipt 或 court closeout 展示请求时仍会误显，并使测试稳定失败。RED 必须同时覆盖普通项目任务、`D:\project` project-scoped worktree 任务、标题含中文或竖线、技术 root ref、正文偶然出现同名文本、历史 receipt 存在但当前 surface 非 closeout 等负例；显式 receipt 与正式 court closeout 是保留展示的正例。
-- **Q3 最小 GREEN：** 复用现有明确的 receipt/court-closeout surface discriminator 建立单一展示门；默认、缺失、未知或格式错误的状态全部隐藏任务协议元数据，仅在调用方显式选择 receipt 或 court closeout 展示时呈现。不得从任务标题、项目 id/归属、branch/ref、正文字符串、历史 archive/lineage 是否存在或目录名称推断展示许可，也不得新建第二任务协议或第二元数据权威。
-- **Q4 项目回归：** 验证 `<area>｜<task>` 标题原字节不变，saved project id 仍精确为 `D:\project`，project `worktree` 归属、sidebar grouping、root task ref、`attached/<project-id>` 映射及 child repository identity 均不退化；修复不得通过重命名、改归属、降级为 projectless/local task 或隐藏整个任务头部来达成。
-- **对话保护硬门：** 根因调查、测试、修复与验收均不得删除或归档任何对话，不得以清理旧任务、重建对话、迁移会话或归档当前任务作为 workaround。验证只使用合成 fixture、只读现有记录或不破坏既有对话的新测试载体，并须证明 delete/archive action count 为 `0`。
-- **验收与停止门：** 只有 checker 先 RED 后 GREEN、普通任务默认不显示两项元数据、显式 receipt/court closeout 仍按合同显示、项目标题/归属/映射无回归、对话 delete/archive=`0`、未读取 pending body、批准写集内仅有预期文件、`git diff --check` 通过且最终 index=`0`，才可签发 `TASK_PROTOCOL_METADATA_UI_GATE=PASS`。本阶段不得声称该 gate 已实现或通过。
+- **根因：** `scripts/check_response_draft_fixtures.py` 只拒绝空值、`未生成` 等占位符，没有验证正式 shape；因此内部 task/protocol 路径可作为非空 `诏令编号`/`古制谱系` 穿过 fixture gate。旧 `implementation_closeout` fixture 的谱系也只有四层，未能证明七层内容分类合同。
+- **实现：** checker 现在要求 `诏令编号` 为 `层级码串-YYYYMMDD-日内36进制序号-四字码`，验证真实日期、uppercase base36 与四字码；`古制谱系` 必须为 `史馆总纪·<志>志·<门>门·<纲>纲·<目>目·<条>条·<诏>诏`，并拒绝箭头、`Phase`、`RB`、`task_id` 与 `CCR-*` 协议痕迹。fixture 与 `references/sections/court-closeout-memorial-format.md` 同步为同一规则。
+- **RED：** 只加强 checker、保留旧 fixture 后运行 `python -B scripts/check_response_draft_fixtures.py --json`，稳定得到 `response_draft_fixture_gate=FAILED` 与 `implementation_closeout:content_lineage_shape`。
+- **GREEN：** 更新 fixture 后，同一命令得到 `response_draft_fixture_gate=PASSED`、`identifier_contract_gate=PASSED`、`identifier_contract_cases=7` 与 `errors=[]`；并复跑 `python -B scripts/check_response_fewshot_format.py`、`python -B scripts/quick_validate.py .`、`git diff --check` 与全树 `.pyc=0`。
+- **负例：** `诏令编号=CCR-R2-SHIR-20260714-A02-RB3-20260717`；`古制谱系=总体执行书→Phase 2-3→RB3→autosync 残余复核`。两者均被正式 shape 门禁拒绝。
+- **正例：** `诏令编号=SCGSDYJM-20260606-1Z-DAAA`；`古制谱系=史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`。两者通过 checker。
+- **边界与保护：** 不批量改写历史 `court_code`，不隐藏 Web 字段，不修改 host/install/publish/root/mainline/manifest，不读取、哈希、移动、删除或标记 pending 正文；未调用宿主对话写入、删除或归档，只读 task 定位调用超时后终止且无状态改变，conversation delete/archive/write count=`0`，visible task 保持未归档。

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 import re
@@ -39,6 +40,42 @@ CLOSEOUT_LABELS = [
 
 REQUIRED_CLOSEOUT_IDENTIFIERS = ("诏令编号：", "古制谱系：")
 FORBIDDEN_IDENTIFIER_VALUES = {"", "...", "…", "未生成", "pending_archive_assignment", "NOT_APPLICABLE"}
+COURT_CODE_PATTERN = re.compile(
+    r"^(?P<lineage_code>[0-9A-Z]{7,})-"
+    r"(?P<date>[0-9]{8})-"
+    r"(?P<daily_sequence>[0-9A-Z]+)-"
+    r"(?P<status_grades>[0-9A-Z][SABCDEF]{3})$"
+)
+LINEAGE_LAYER_SUFFIXES = ("志", "门", "纲", "目", "条", "诏")
+FORBIDDEN_LINEAGE_PROTOCOL_PATTERNS = (
+    re.compile(r"(?:→|←|↔|->|=>)"),
+    re.compile(
+        r"(?:^|[^0-9A-Z])PHASE(?:[-_\s]*[0-9A-Z]+)?(?:$|[^0-9A-Z])",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(r"(?:^|[^0-9A-Z])RB(?:[-_]?[0-9A-Z]+)?(?:$|[^0-9A-Z])", flags=re.IGNORECASE),
+    re.compile(r"(?:^|[^0-9A-Z])task(?:[_\s-]?id)?(?:$|[^0-9A-Z])", flags=re.IGNORECASE),
+    re.compile(r"(?:^|[^0-9A-Z])CCR(?:-[0-9A-Z]+)+(?:$|[^0-9A-Z])", flags=re.IGNORECASE),
+)
+IDENTIFIER_CONTRACT_CASES = (
+    ("internal_task_code", "court_code", "CCR-R2-SHIR-20260714-A02-RB3-20260717", False),
+    ("invalid_calendar_date", "court_code", "SCGSDYJM-20260230-1Z-DAAA", False),
+    ("lowercase_base36_sequence", "court_code", "SCGSDYJM-20260606-1z-DAAA", False),
+    ("formal_court_code", "court_code", "SCGSDYJM-20260606-1Z-DAAA", True),
+    ("protocol_path_lineage", "content_lineage", "总体执行书→Phase 2-3→RB3→autosync 残余复核", False),
+    (
+        "formal_content_lineage",
+        "content_lineage",
+        "史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏",
+        True,
+    ),
+    (
+        "content_word_with_phase_substring",
+        "content_lineage",
+        "史馆总纪·Metaphase研究志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏",
+        True,
+    ),
+)
 
 FAMILY_LINE_PREFIXES = {
     "direct_answer": ["太子回奏：", "证据：", "下一步："],
@@ -161,6 +198,11 @@ def _check_closeout(lines: list[str], errors: list[str]) -> None:
         value = matching[len(label):].strip() if matching else ""
         if _is_forbidden_identifier_value(value):
             errors.append(f"implementation_closeout:identifier_required:{label}")
+            continue
+        if label == "诏令编号：" and not _is_formal_court_code(value):
+            errors.append("implementation_closeout:court_code_shape")
+        if label == "古制谱系：" and not _is_formal_content_lineage(value):
+            errors.append("implementation_closeout:content_lineage_shape")
 
 
 def _is_forbidden_identifier_value(value: str) -> bool:
@@ -170,6 +212,47 @@ def _is_forbidden_identifier_value(value: str) -> bool:
     if folded.startswith("未生成"):
         return True
     return any(token.casefold() in folded for token in ("pending_archive_assignment", "not_applicable"))
+
+
+def _is_formal_court_code(value: str) -> bool:
+    match = COURT_CODE_PATTERN.fullmatch(value.strip())
+    if match is None:
+        return False
+    try:
+        datetime.strptime(match.group("date"), "%Y%m%d")
+    except ValueError:
+        return False
+    return True
+
+
+def _is_formal_content_lineage(value: str) -> bool:
+    candidate = value.strip()
+    if any(pattern.search(candidate) for pattern in FORBIDDEN_LINEAGE_PROTOCOL_PATTERNS):
+        return False
+    parts = candidate.split("·")
+    if len(parts) != 7 or parts[0] != "史馆总纪":
+        return False
+    for part, suffix in zip(parts[1:], LINEAGE_LAYER_SUFFIXES):
+        if not part.endswith(suffix):
+            return False
+        name = part[: -len(suffix)].strip()
+        if not name or name + suffix != part:
+            return False
+    return True
+
+
+def _identifier_contract_errors() -> list[str]:
+    errors: list[str] = []
+    validators = {
+        "court_code": _is_formal_court_code,
+        "content_lineage": _is_formal_content_lineage,
+    }
+    for case_name, value_kind, value, expected in IDENTIFIER_CONTRACT_CASES:
+        validator = validators[value_kind]
+        actual = validator(value)
+        if actual != expected:
+            errors.append(f"identifier_contract:{case_name}:{actual}!={expected}")
+    return errors
 
 
 def _check_partial_status(lines: list[str], errors: list[str]) -> None:
@@ -218,14 +301,19 @@ def _check_voice_and_length(family: str, lines: list[str], errors: list[str]) ->
 
 def evaluate(root: Path | None = None) -> dict[str, object]:
     errors: list[str] = []
+    identifier_contract_errors = _identifier_contract_errors()
+    errors.extend(identifier_contract_errors)
     path = fixture_path(root)
     data, load_error = _load_json(path)
     if load_error:
+        errors.append(load_error)
         return {
             "response_draft_fixture_gate": "FAILED",
+            "identifier_contract_gate": "FAILED" if identifier_contract_errors else "PASSED",
+            "identifier_contract_cases": len(IDENTIFIER_CONTRACT_CASES),
             "path": str(path),
             "families": 0,
-            "errors": [load_error],
+            "errors": errors,
         }
     assert data is not None
     if data.get("schema") != "court_response_draft_fixtures.v1":
@@ -299,6 +387,8 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
     gate = "PASSED" if not errors else "FAILED"
     return {
         "response_draft_fixture_gate": gate,
+        "identifier_contract_gate": "FAILED" if identifier_contract_errors else "PASSED",
+        "identifier_contract_cases": len(IDENTIFIER_CONTRACT_CASES),
         "path": str(path),
         "families": len(fixtures),
         "closeout_labels": len(CLOSEOUT_LABELS),

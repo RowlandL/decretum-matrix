@@ -66,6 +66,26 @@ the closeout is an intermediate snapshot, allocate a snapshot identifier and
 ancient lineage before sending. Never write `未生成`, empty, `...`, `…`,
 `pending_archive_assignment`, or `NOT_APPLICABLE` in these two lines.
 
+Formal identifier shapes are mandatory, not merely non-placeholder:
+
+- `诏令编号` uses `层级码串-YYYYMMDD-日内36进制序号-四字码`. The layer-code
+  segment is the uppercase base36 concatenation for the seven official lineage
+  layers, the date must be a real calendar date, the daily sequence is uppercase
+  base36, and the four-character suffix is one status character followed by the
+  three `S/A/B/C/D/E/F` grades. Example:
+  `SCGSDYJM-20260606-1Z-DAAA`.
+- `古制谱系` is exactly the seven-layer content classification
+  `史馆总纪·<志>志·<门>门·<纲>纲·<目>目·<条>条·<诏>诏`, with a meaningful
+  content name at every layer. Example:
+  `史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`.
+  Workflow arrows and internal protocol paths are not classification: reject
+  `→`/`->`, `Phase`, `RB`, task ids such as `CCR-*`, and `task_id` tokens.
+  `总体执行书→Phase 2-3→RB3→autosync 残余复核` is therefore invalid.
+
+These shape rules govern future closeouts and fixtures. Historical archived
+`court_code` values remain append-only evidence and are not bulk-renumbered by
+this validation correction.
+
 `作业AI` is the runtime writer label from `archive_checkpoint.py`. The first
 `诏令编号` line is the user-facing Shiguan record anchor. The `史馆` line must show
 only the usable Shiguan Web address from `scripts/ensure_shiguan_web.py`
