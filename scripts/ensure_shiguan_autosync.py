@@ -158,6 +158,64 @@ def safe_int(value: object, default: int = 0) -> int:
         return default
 
 
+def autosync_public_status(
+    *,
+    read_status=read_json,
+    status_file=status_path,
+) -> dict[str, object]:
+    """Return the normalized public once/daemon autosync health projection."""
+
+    status = read_status(status_file(), {})
+    if isinstance(status, dict) and status:
+        public = {key: value for key, value in status.items() if key != "snapshot"}
+        if public.get("mode") == "once":
+            last_cycle_ok = bool(
+                public.get("last_cycle_ok", public.get("ok") is True)
+            )
+            public.update(
+                {
+                    "ok": False,
+                    "last_cycle_ok": last_cycle_ok,
+                    "phase": "stopped",
+                    "message": (
+                        "最近一次单次同步成功；当前没有常驻 autosync 健康保证"
+                        if last_cycle_ok
+                        else "最近一次单次同步失败；当前没有常驻 autosync 健康保证"
+                    ),
+                }
+            )
+            return public
+        if public.get("mode") == "daemon":
+            interval = max(
+                5,
+                min(safe_int(public.get("interval_seconds"), 30), 3600),
+            )
+            if public.get("phase") in {"starting", "running"}:
+                public.update(
+                    {
+                        "ok": False,
+                        "cycle_ok": False,
+                        "health": "IN_PROGRESS",
+                        "message": "autosync 正在执行 preserve-only 同步；尚未完成健康确认",
+                    }
+                )
+            if not status_is_fresh(public, interval):
+                public.update(
+                    {
+                        "ok": False,
+                        "phase": "stale",
+                        "message": "autosync daemon 状态已过期；请检查本机守护进程",
+                    }
+                )
+        return public
+    return {
+        "ok": False,
+        "message": "autosync daemon 尚未运行",
+        "status_path": str(status_file()),
+        "shared_shiguan_root": str(references_root()),
+    }
+
+
 def normalized_process_path(value: object) -> str:
     text = str(value or "").strip().strip('"')
     if not text:

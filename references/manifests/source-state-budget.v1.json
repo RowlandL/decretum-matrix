@@ -93,18 +93,22 @@
   "hard_limits": {
     "portable_source": {
       "max_files": 275,
-      "max_bytes": 6000000
+      "max_bytes": 6200000
     },
     "source_lines": {
       "scripts/ensure_supercc_court.py": 5700,
+      "scripts/supercc_dispatch_contract.py": 500,
+      "scripts/supercc_dispatch_delivery.py": 1100,
       "scripts/supercc_client_selection.py": 400,
       "scripts/serve_shiguan_tree.py": 2800,
+      "scripts/ensure_shiguan_autosync.py": 600,
       "scripts/shiguan_peer_downloads.py": 420,
       "scripts/shiguan_peer_state.py": 320,
       "scripts/shiguan_web_pending.py": 260,
       "scripts/supercc_office_state.py": 320,
       "scripts/court_multi_agent_protocol.py": 600,
       "scripts/court_agent_admission.py": 850,
+      "scripts/court_agent_admission_contract.py": 300,
       "scripts/court_codex_protocol_launcher.py": 450,
       "scripts/court_codex_office_worker.py": 450,
       "scripts/check_court_codex_office_worker.py": 220,

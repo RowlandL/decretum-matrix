@@ -28,6 +28,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 sys.dont_write_bytecode = True
 
 from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
+from ensure_shiguan_autosync import autosync_public_status as _autosync_public_status
 from obsidian_config_state import (
     patch_config as patch_obsidian_sync_config,
     read_config_snapshot as read_obsidian_sync_config_snapshot,
@@ -1178,55 +1179,6 @@ def obsidian_sync_status() -> dict[str, object]:
     return compose_obsidian_sync_status(config, autosync, rest)
 
 
-def autosync_public_status() -> dict[str, object]:
-    status = read_json_file(autosync_status_path(), {})
-    if isinstance(status, dict) and status:
-        public = {key: value for key, value in status.items() if key != "snapshot"}
-        if public.get("mode") == "once":
-            last_cycle_ok = bool(public.get("last_cycle_ok", public.get("ok") is True))
-            public.update(
-                {
-                    "ok": False,
-                    "last_cycle_ok": last_cycle_ok,
-                    "phase": "stopped",
-                    "message": (
-                        "最近一次单次同步成功；当前没有常驻 autosync 健康保证"
-                        if last_cycle_ok
-                        else "最近一次单次同步失败；当前没有常驻 autosync 健康保证"
-                    ),
-                }
-            )
-            return public
-        if public.get("mode") == "daemon":
-            from ensure_shiguan_autosync import status_is_fresh
-
-            interval = bounded_int(public.get("interval_seconds"), 30, 5, 3600)
-            if public.get("phase") in {"starting", "running"}:
-                public.update(
-                    {
-                        "ok": False,
-                        "cycle_ok": False,
-                        "health": "IN_PROGRESS",
-                        "message": "autosync 正在执行 preserve-only 同步；尚未完成健康确认",
-                    }
-                )
-            if not status_is_fresh(public, interval):
-                public.update(
-                    {
-                        "ok": False,
-                        "phase": "stale",
-                        "message": "autosync daemon 状态已过期；请检查本机守护进程",
-                    }
-                )
-        return public
-    return {
-        "ok": False,
-        "message": "autosync daemon 尚未运行",
-        "status_path": str(autosync_status_path()),
-        "shared_shiguan_root": str(references_root()),
-    }
-
-
 def obsidian_sync_public_state() -> dict[str, object]:
     config = obsidian_sync_config(False)
     rest: dict[str, object] = {
@@ -1539,6 +1491,12 @@ def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
     except (TypeError, ValueError):
         number = default
     return max(minimum, min(number, maximum))
+
+
+autosync_public_status = lambda: _autosync_public_status(
+    read_status=read_json_file,
+    status_file=autosync_status_path,
+)
 
 
 def verify_peer_access(headers, required_role: str) -> dict[str, object]:

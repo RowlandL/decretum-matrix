@@ -56,3 +56,22 @@ surface into `court_agent_admission.py`, measured at 611 lines with a 650-line
 limit. `agent_runtime_probe.py` is measured at 1,106 lines; its narrow ceiling
 is 1,120. Future admission or probe growth must be split or justified by a new
 measured revision rather than silently raising these limits.
+
+## 2026-07-17 Measured Revision
+
+The RB2 source-budget split measures the portable tree at 273 files and
+6,128,217 bytes. The aggregate ceiling is therefore 275 files / 6,200,000
+bytes; it is a bounded measured allowance, not a general growth entitlement.
+The existing monolith ceilings remain unchanged at 5,700 lines for
+`ensure_supercc_court.py`, 850 for `court_agent_admission.py`, and 2,800 for
+`serve_shiguan_tree.py`.
+
+Dispatch context, identity generation/fingerprints, and preload ACK validation
+now live in `supercc_dispatch_contract.py` with a 500-line ceiling. The atomic
+transport/preflight/delivery/state chain lives in
+`supercc_dispatch_delivery.py` with a 1,100-line ceiling. Hierarchy, special
+roles, preload hashes, child-profile binding, and instance-shape validation
+live in `court_agent_admission_contract.py` with a 300-line ceiling. The
+existing `ensure_shiguan_autosync.py` owns the normalized public autosync
+projection and has an independent 600-line ceiling. Future growth belongs in
+these owning modules rather than raising the unchanged monolith limits.
