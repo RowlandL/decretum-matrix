@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import random
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -41,12 +42,10 @@ from court_dispatch_hierarchy import (
     DispatchHierarchyDecision,
     validate_dispatch_hierarchy,
 )
+import court_runtime
 from court_semantic_continuity import (
-    DISPATCH_CONTEXT_PACKET_MAX_BYTES,
-    DISPATCH_CONTEXT_PACKET_OPTIONAL_FIELDS,
-    DISPATCH_CONTEXT_PACKET_REQUIRED_FIELDS,
-    DISPATCH_CONTEXT_PACKET_SCHEMA,
     canonical_json_bytes,
+    validate_dispatch_context_packet,
 )
 from supercc_client_selection import (
     OFFICE_CLIENT_CHOICES,
@@ -244,6 +243,7 @@ OFFICE_PRELOAD_ACK_REQUIRED_FIELDS = {
     "schema",
     "preload_status",
     "identity_id",
+    "identity_generation",
     "identity_fingerprint",
     "role_key",
     "direct_superior",
@@ -1089,7 +1089,41 @@ def native_pane_enter_sequence(
             "post_dispatch_physical_enter": "planned",
         }
     write_result = run_command(commands[0], cwd=workspace, timeout=10, stdout_limit=4000, stderr_limit=4000)
+    if not write_result.get("ok"):
+        return {
+            "ok": False,
+            "reason": "native_write_chars_failed_before_enter",
+            "write": write_result,
+            "enter": {"ok": False, "skipped": True, "reason": "write_chars_failed"},
+            "native_enter_payload_kind": payload_kind,
+            "squad_delivery_order": squad_delivery_order,
+            "physical_enter_byte": PHYSICAL_ENTER_BYTE,
+            "post_dispatch_physical_enter_delay_seconds": POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS,
+            "post_dispatch_physical_enter": {
+                "ok": False,
+                "skipped": True,
+                "reason": "write_chars_failed",
+            },
+            "commands": commands,
+        }
     enter_result = run_command(commands[1], cwd=workspace, timeout=10, stdout_limit=4000, stderr_limit=4000)
+    if not enter_result.get("ok"):
+        return {
+            "ok": False,
+            "reason": "native_first_enter_failed_before_delay",
+            "write": write_result,
+            "enter": enter_result,
+            "native_enter_payload_kind": payload_kind,
+            "squad_delivery_order": squad_delivery_order,
+            "physical_enter_byte": PHYSICAL_ENTER_BYTE,
+            "post_dispatch_physical_enter_delay_seconds": POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS,
+            "post_dispatch_physical_enter": {
+                "ok": False,
+                "skipped": True,
+                "reason": "first_enter_failed",
+            },
+            "commands": commands,
+        }
     time.sleep(max(0.0, POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS))
     post_enter_result = run_command(commands[3], cwd=workspace, timeout=10, stdout_limit=4000, stderr_limit=4000)
     return {
@@ -1826,11 +1860,43 @@ def simple_response_status(row: dict[str, Any] | None, *, inactive_age_seconds: 
     }
 
 
-def archive_agent(agent_id: str, workspace: Path, dry_run: bool) -> dict[str, Any]:
+def archive_agent(
+    agent_id: str,
+    workspace: Path,
+    dry_run: bool,
+    *,
+    zellij_session: str | None = None,
+) -> dict[str, Any]:
     args = ["squad", "leave", agent_id]
     if dry_run:
         return {"ok": True, "dry_run": True, "args": args}
-    return run_command(args, cwd=workspace)
+    result = run_command(args, cwd=workspace)
+    if result.get("ok") and agent_id in ("taizi", *OFFICES):
+        reset_record = build_mode_records(
+            (agent_id,),
+            default_mode="preload_pending",
+            reason="identity_archived_preload_ack_invalidated",
+        )[agent_id]
+        reset_record.update(
+            {
+                "preload_status": "PRELOAD_PENDING",
+                "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
+                "identity_id": None,
+                "identity_generation": _new_identity_generation_challenge(),
+                "preload_ack": None,
+            }
+        )
+        reset = write_office_state(
+            workspace,
+            {agent_id: reset_record},
+            zellij_session=zellij_session,
+            dry_run=False,
+        )
+        result["preload_state_reset"] = reset
+        if not reset.get("ok"):
+            result["ok"] = False
+            result["reason"] = "identity_archived_but_preload_state_reset_failed"
+    return result
 
 
 def maybe_archive_existing(
@@ -1840,12 +1906,18 @@ def maybe_archive_existing(
     *,
     reclaim_existing: bool,
     dry_run: bool,
+    zellij_session: str | None = None,
 ) -> dict[str, Any] | None:
     if not reclaim_existing:
         return None
     if agent_id not in active_agent_ids(agents_json):
         return None
-    return archive_agent(agent_id, workspace, dry_run)
+    return archive_agent(
+        agent_id,
+        workspace,
+        dry_run,
+        zellij_session=zellij_session,
+    )
 
 
 def archive_test_agents(
@@ -3280,6 +3352,7 @@ def launch_offices(args: argparse.Namespace, roles: tuple[str, ...]) -> dict[str
             agents_json,
             reclaim_existing=True,
             dry_run=args.dry_run,
+            zellij_session=zellij_session,
         )
         if archived:
             actions.append({"archive_existing": agent_id, "result": archived})
@@ -3295,10 +3368,19 @@ def launch_offices(args: argparse.Namespace, roles: tuple[str, ...]) -> dict[str
             )
         }
     )
-    if "taizi" in active_ids:
-        actions.append({"join_taizi": {"ok": True, "reused": True, "actual_id": "taizi"}})
-    else:
-        actions.append({"join_taizi": join_agent("taizi", "taizi", workspace, args.dry_run, office_client=office_client_for_role(args, "taizi"))})
+    taizi_joined_new = "taizi" not in active_ids
+    taizi_join = (
+        join_agent(
+            "taizi",
+            "taizi",
+            workspace,
+            args.dry_run,
+            office_client=office_client_for_role(args, "taizi"),
+        )
+        if taizi_joined_new
+        else {"ok": True, "reused": True, "actual_id": "taizi"}
+    )
+    actions.append({"join_taizi": taizi_join})
 
     roles_to_launch = list(prioritize_supercc_startup_roles(roles_to_launch))
     if any(office_client_for_role(args, role) == "claude" for role in roles_to_launch):
@@ -3455,16 +3537,32 @@ def launch_offices(args: argparse.Namespace, roles: tuple[str, ...]) -> dict[str
         for role, launch in zip(roles_to_launch, launches)
         if launch.get("ok")
     )
+    preload_pending_roles = (
+        *(("taizi",) if taizi_joined_new and taizi_join.get("ok") else ()),
+        *successful_launch_roles,
+    )
     launch_state_records = build_mode_records(
-        successful_launch_roles,
+        preload_pending_roles,
         default_mode="preload_pending",
         reason="launch_succeeded_waiting_for_current_identity_preload_ack",
     )
+    preflight_by_role = {
+        str(entry["role"]): entry
+        for entry in transport_preflight["transport_preflight"]
+    }
     for role in launch_state_records:
+        ack_gate = preflight_by_role.get(role, {}).get(
+            "active_office_preload_ack_gate"
+        ) or {}
+        challenge = ack_gate.get("identity_generation_challenge")
+        if not isinstance(challenge, str):
+            challenge = _new_identity_generation_challenge()
         launch_state_records[role].update(
             {
-                "preload_status": "PENDING",
+                "preload_status": "PRELOAD_PENDING",
                 "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
+                "identity_id": None,
+                "identity_generation": challenge,
                 "preload_ack": None,
             }
         )
@@ -3499,7 +3597,13 @@ def launch_offices(args: argparse.Namespace, roles: tuple[str, ...]) -> dict[str
     else:
         standing_officials = "REUSED"
     return {
-        "ok": launched_ok and not degraded and not duplicate_visible_panes and check["passed"],
+        "ok": (
+            launched_ok
+            and not degraded
+            and not duplicate_visible_panes
+            and check["passed"]
+            and bool(launch_state.get("ok"))
+        ),
         "supercc_env_gate": check["supercc_env_gate"],
         "visible_display_gate": check["visible_display_gate"],
         "display_transport_gate": check["display_transport_gate"],
@@ -3596,6 +3700,7 @@ def rename_taizi_only(args: argparse.Namespace) -> dict[str, Any]:
         agents_json,
         reclaim_existing=args.reclaim_existing,
         dry_run=args.dry_run,
+        zellij_session=current_zellij_session(check),
     )
     if archived:
         actions.append({"archive_existing": "taizi", "result": archived})
@@ -3790,6 +3895,10 @@ def wake_roles(args: argparse.Namespace, roles: tuple[str, ...], *, reason: str,
             {
                 "preload_status": "PASSED",
                 "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
+                "identity_id": (ack_gate.get("identity") or {}).get("identity_id"),
+                "identity_generation": (ack_gate.get("identity") or {}).get(
+                    "identity_generation"
+                ),
                 "preload_ack": ack_gate.get("preload_ack"),
                 "supercc_phase_cycle": phase_cycle,
                 "inspector_wake_cc_policy": INSPECTOR_WAKE_CC_POLICY,
@@ -3864,7 +3973,25 @@ def mark_turn_start_open_decree(args: argparse.Namespace, check: dict[str, Any],
             sender = "zhongshu" if "zhongshu" in active_ids else "taizi"
         else:
             sender = "taizi"
-        notices.append({"role": role, "result": send_squad_notice(workspace, sender, role, message, args.dry_run)})
+        notice_result = send_squad_notice(
+            workspace,
+            sender,
+            role,
+            message,
+            args.dry_run,
+        )
+        notices.append({"role": role, "result": notice_result})
+        if not notice_result.get("ok"):
+            native_wakes.append(
+                {
+                    "role": role,
+                    "ok": False,
+                    "skipped": True,
+                    "reason": "squad_notice_failed_before_native_turn_start_wake",
+                    "squad_notice": notice_result,
+                }
+            )
+            continue
         pane_selection = select_unique_visible_pane(visible, role)
         pane = pane_selection.get("pane") if pane_selection.get("ok") else None
         if not native_wake:
@@ -3959,6 +4086,12 @@ def mark_turn_start_open_decree(args: argparse.Namespace, check: dict[str, Any],
                 {
                     "preload_status": "PASSED",
                     "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
+                    "identity_id": (ack_gate.get("identity") or {}).get(
+                        "identity_id"
+                    ),
+                    "identity_generation": (ack_gate.get("identity") or {}).get(
+                        "identity_generation"
+                    ),
                     "preload_ack": ack_gate.get("preload_ack"),
                 }
             )
@@ -4029,7 +4162,12 @@ def release_noncurrent_inactive(
             "reusable": reusable,
         }
         if role in eligible_roles:
-            result = archive_agent(role, workspace, dry_run)
+            result = archive_agent(
+                role,
+                workspace,
+                dry_run,
+                zellij_session=current_zellij_session(check),
+            )
             health_row["released_as_noncurrent_inactive"] = True
             released.append({"role": role, "agent_id": role, "result": result})
         health.append(health_row)
@@ -4228,7 +4366,17 @@ def restart_offices(args: argparse.Namespace) -> dict[str, Any]:
     archived: list[dict[str, Any]] = []
     for role in roles:
         if role in active_ids:
-            archived.append({"role": role, "result": archive_agent(role, workspace, args.dry_run)})
+            archived.append(
+                {
+                    "role": role,
+                    "result": archive_agent(
+                        role,
+                        workspace,
+                        args.dry_run,
+                        zellij_session=zellij_session,
+                    ),
+                }
+            )
     actions.append({"archive_restarted_squad_identities": archived})
     if not args.dry_run and close_results:
         time.sleep(1.0)
@@ -4633,10 +4781,6 @@ def _sha256_json(value: object) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
-def _is_sha256(value: object) -> bool:
-    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
-
-
 def _portable_repo_path(value: object) -> str | None:
     if not isinstance(value, str):
         return None
@@ -4655,10 +4799,9 @@ def _portable_repo_path(value: object) -> str | None:
 def _nonempty_string_list(value: object) -> list[str] | None:
     if not isinstance(value, list) or not value:
         return None
-    normalized = [str(item).strip() for item in value]
-    if any(not item for item in normalized):
+    if any(not isinstance(item, str) or not item.strip() for item in value):
         return None
-    return normalized
+    return [item.strip() for item in value]
 
 
 def validate_enter_dispatch_context(
@@ -4700,77 +4843,36 @@ def validate_enter_dispatch_context(
     semantic = packet.get("semantic_packet")
     if not isinstance(semantic, dict):
         return {"ok": False, "reason": "enter_dispatch_semantic_packet_required"}
-    semantic_keys = set(semantic)
-    if (
-        semantic.get("schema") != DISPATCH_CONTEXT_PACKET_SCHEMA
-        or not DISPATCH_CONTEXT_PACKET_REQUIRED_FIELDS.issubset(semantic_keys)
-        or semantic_keys
-        - DISPATCH_CONTEXT_PACKET_REQUIRED_FIELDS
-        - DISPATCH_CONTEXT_PACKET_OPTIONAL_FIELDS
-        or semantic.get("task_id") != task_id
-        or semantic.get("sub_id") != dispatch_uid
-        or isinstance(semantic.get("semantic_epoch"), bool)
-        or not isinstance(semantic.get("semantic_epoch"), int)
-        or int(semantic["semantic_epoch"]) < 1
-        or semantic.get("fork_context") not in {"none", "minimal"}
-        or semantic.get("context_mode") != "bounded"
-        or "full_context" in semantic
-        or "budget_override" in semantic
-    ):
-        return {"ok": False, "reason": "enter_dispatch_semantic_packet_invalid"}
-    for field in (
-        "invariant_capsule_sha256",
-        "semantic_receipt_sha256",
-        "authority_sha256",
-        "plan_sha256",
-    ):
-        if not _is_sha256(semantic.get(field)):
-            return {
-                "ok": False,
-                "reason": f"enter_dispatch_semantic_packet_invalid:{field}",
-            }
-    for field in ("semantic_receipt_id", "plan_cursor"):
-        if not isinstance(semantic.get(field), str) or not str(semantic[field]).strip():
-            return {
-                "ok": False,
-                "reason": f"enter_dispatch_semantic_packet_invalid:{field}",
-            }
-    pointers = semantic.get("pointers")
-    if not isinstance(pointers, list) or not pointers:
-        return {"ok": False, "reason": "enter_dispatch_semantic_pointers_invalid"}
-    pointer_hashes: set[str] = set()
-    pointer_paths: set[str] = set()
-    for pointer in pointers:
-        if (
-            not isinstance(pointer, dict)
-            or set(pointer) != {"path", "sha256"}
-            or _portable_repo_path(pointer.get("path")) is None
-            or not _is_sha256(pointer.get("sha256"))
-        ):
-            return {"ok": False, "reason": "enter_dispatch_semantic_pointers_invalid"}
-        normalized_pointer_path = str(_portable_repo_path(pointer["path"]))
-        if normalized_pointer_path in pointer_paths:
-            return {"ok": False, "reason": "enter_dispatch_semantic_pointers_invalid"}
-        pointer_paths.add(normalized_pointer_path)
-        pointer_hashes.add(str(pointer["sha256"]))
-    if not {
-        str(semantic["authority_sha256"]),
-        str(semantic["plan_sha256"]),
-    }.issubset(pointer_hashes):
-        return {"ok": False, "reason": "enter_dispatch_semantic_pointer_anchor_missing"}
-    if len(canonical_json_bytes(semantic)) > DISPATCH_CONTEXT_PACKET_MAX_BYTES:
-        return {"ok": False, "reason": "enter_dispatch_semantic_packet_exceeds_2kib"}
-    summary = semantic.get("summary")
-    if summary is not None and (
-        not isinstance(summary, dict)
-        or set(summary) != {"text", "semantic_receipt_id", "semantic_receipt_sha256"}
-        or not isinstance(summary.get("text"), str)
-        or not str(summary["text"]).strip()
-        or summary.get("semantic_receipt_id") != semantic.get("semantic_receipt_id")
-        or summary.get("semantic_receipt_sha256")
-        != semantic.get("semantic_receipt_sha256")
-    ):
-        return {"ok": False, "reason": "enter_dispatch_semantic_summary_invalid"}
+    if semantic.get("task_id") != task_id or semantic.get("sub_id") != dispatch_uid:
+        return {"ok": False, "reason": "enter_dispatch_semantic_packet_binding_mismatch"}
+    try:
+        current_task = court_runtime.load_tasks().get(task_id)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "reason": "enter_dispatch_runtime_task_unavailable",
+            "error": str(exc),
+        }
+    if not isinstance(current_task, dict):
+        return {"ok": False, "reason": "enter_dispatch_runtime_task_not_found"}
+    current_receipt = current_task.get("semantic_receipt")
+    try:
+        semantic_validation = validate_dispatch_context_packet(
+            current_task,
+            current_receipt,
+            semantic,
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "reason": "enter_dispatch_semantic_authority_invalid",
+            "semantic_authority_error": str(exc),
+        }
+    normalized_semantic = semantic_validation.get("packet")
+    if not isinstance(normalized_semantic, dict):
+        return {"ok": False, "reason": "enter_dispatch_semantic_authority_invalid"}
+    if normalized_semantic.get("context_mode") != "bounded":
+        return {"ok": False, "reason": "enter_dispatch_semantic_packet_not_bounded"}
 
     scope = packet.get("scope")
     if not isinstance(scope, dict) or set(scope) != ENTER_DISPATCH_SCOPE_FIELDS:
@@ -4794,7 +4896,7 @@ def validate_enter_dispatch_context(
     ):
         return {"ok": False, "reason": "enter_dispatch_scope_action_conflict"}
     normalized_packet = dict(packet)
-    normalized_packet["semantic_packet"] = dict(semantic)
+    normalized_packet["semantic_packet"] = normalized_semantic
     normalized_packet["scope"] = normalized_scope
     packet_bytes = len(canonical_json_bytes(normalized_packet))
     if packet_bytes > ENTER_DISPATCH_CONTEXT_MAX_BYTES:
@@ -4805,12 +4907,16 @@ def validate_enter_dispatch_context(
         "packet": normalized_packet,
         "packet_sha256": _sha256_json(normalized_packet),
         "packet_bytes": packet_bytes,
-        "semantic_packet_sha256": _sha256_json(semantic),
+        "semantic_packet_sha256": _sha256_json(normalized_semantic),
         "scope_sha256": _sha256_json(normalized_scope),
         "task_id": task_id,
         "allowed_paths": portable_paths,
-        "validation_scope": "structural_dispatch_binding_and_hash_anchors",
+        "validation_scope": "current_runtime_task_and_semantic_receipt",
     }
+
+
+def _new_identity_generation_challenge() -> str:
+    return secrets.token_hex(32)
 
 
 def active_office_identity_fingerprint(
@@ -4818,6 +4924,7 @@ def active_office_identity_fingerprint(
     role: str,
     *,
     require_visible: bool,
+    workspace: Path | None = None,
 ) -> dict[str, Any]:
     row = active_canonical_agent_row(check, role)
     visible = visible_office_panes(check)
@@ -4838,6 +4945,38 @@ def active_office_identity_fingerprint(
             "reason": "active_office_visible_identity_binding_missing",
             "visible_pane_selection": pane_selection,
         }
+    persisted_role: dict[str, Any] = {}
+    if workspace is not None:
+        persisted = read_office_state(workspace, current_zellij_session(check))
+        persisted_roles = persisted.get("roles") if isinstance(persisted, dict) else None
+        candidate = (
+            persisted_roles.get(role)
+            if isinstance(persisted_roles, dict)
+            else None
+        )
+        if isinstance(candidate, dict):
+            persisted_role = candidate
+    identity_generation = persisted_role.get("identity_generation")
+    if (
+        not isinstance(identity_generation, str)
+        or re.fullmatch(r"[0-9a-f]{64}", identity_generation) is None
+    ):
+        return {
+            "ok": False,
+            "role": role,
+            "identity_id": row.get("id"),
+            "reason": "active_office_identity_generation_required",
+            "visible_pane_selection": pane_selection,
+        }
+    persisted_identity_id = persisted_role.get("identity_id")
+    if persisted_identity_id is not None and persisted_identity_id != row.get("id"):
+        return {
+            "ok": False,
+            "role": role,
+            "identity_id": row.get("id"),
+            "reason": "active_office_identity_generation_binding_mismatch",
+            "visible_pane_selection": pane_selection,
+        }
     row_binding = {
         key: row.get(key)
         for key in (
@@ -4855,6 +4994,7 @@ def active_office_identity_fingerprint(
     identity = {
         "schema": "court.supercc.active_office_identity.v1",
         "role": role,
+        "identity_generation": identity_generation,
         "zellij_session": current_zellij_session(check),
         "squad_identity": row_binding,
         "pane": (
@@ -4867,6 +5007,7 @@ def active_office_identity_fingerprint(
         "ok": True,
         "role": role,
         "identity_id": row.get("id"),
+        "identity_generation": identity_generation,
         "identity_fingerprint": _sha256_json(identity),
         "identity": identity,
         "visible_pane_selection": pane_selection,
@@ -4902,15 +5043,23 @@ def active_office_preload_ack_gate(
         check,
         role,
         require_visible=require_visible,
+        workspace=Path(args.workspace).resolve(),
     )
     if not identity.get("ok"):
-        if allow_missing_identity and identity.get("reason") == "active_office_identity_missing":
+        pending_reason = identity.get("reason")
+        new_identity_allowed = pending_reason == "active_office_identity_missing" or (
+            pending_reason == "active_office_identity_generation_required"
+            and bool(getattr(args, "reclaim_existing", False))
+        )
+        if allow_missing_identity and new_identity_allowed:
+            challenge = _new_identity_generation_challenge()
             return {
                 "ok": True,
                 "role": role,
-                "gate": "PENDING_NEW_IDENTITY",
-                "reason": "active_office_identity_not_yet_created",
+                "gate": "PRELOAD_PENDING",
+                "reason": "new_identity_requires_office_preload_ack",
                 "identity": identity,
+                "identity_generation_challenge": challenge,
                 "preload_ack": None,
             }
         return {
@@ -4950,6 +5099,7 @@ def active_office_preload_ack_gate(
         "schema": OFFICE_PRELOAD_ACK_SCHEMA,
         "preload_status": "PASSED",
         "identity_id": identity.get("identity_id"),
+        "identity_generation": identity.get("identity_generation"),
         "identity_fingerprint": identity.get("identity_fingerprint"),
         "role_key": role,
         "direct_superior": direct_superior_metadata(role)["direct_superior"],
@@ -5670,32 +5820,25 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
                 "squad_evidence": squad_evidence,
             }
         elif args.dry_run:
-            native_enter_dispatch = {
-                "ok": True,
-                "dry_run": True,
-                "commands": native_commands,
-                "native_enter_payload_kind": NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND,
-                "squad_delivery_order": SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER,
-                "physical_enter_byte": PHYSICAL_ENTER_BYTE,
-                "post_dispatch_physical_enter_delay_seconds": POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS,
-                "post_dispatch_physical_enter": "planned",
-            }
+            native_enter_dispatch = native_pane_enter_sequence(
+                workspace,
+                pane_id,
+                command_prompt,
+                dry_run=True,
+                zellij_session=zellij_session,
+                payload_kind=NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND,
+                squad_delivery_order=SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER,
+            )
         else:
-            write_result = run_command(native_commands[0], cwd=workspace, timeout=10, stdout_limit=4000, stderr_limit=4000)
-            enter_result = run_command(native_commands[1], cwd=workspace, timeout=10, stdout_limit=4000, stderr_limit=4000)
-            time.sleep(max(0.0, POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS))
-            post_enter_result = run_command(native_commands[3], cwd=workspace, timeout=10, stdout_limit=4000, stderr_limit=4000)
-            native_enter_dispatch = {
-                "ok": bool(write_result.get("ok")) and bool(enter_result.get("ok")) and bool(post_enter_result.get("ok")),
-                "write": write_result,
-                "enter": enter_result,
-                "commands": native_commands,
-                "native_enter_payload_kind": NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND,
-                "squad_delivery_order": SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER,
-                "physical_enter_byte": PHYSICAL_ENTER_BYTE,
-                "post_dispatch_physical_enter_delay_seconds": POST_DISPATCH_PHYSICAL_ENTER_DELAY_SECONDS,
-                "post_dispatch_physical_enter": post_enter_result,
-            }
+            native_enter_dispatch = native_pane_enter_sequence(
+                workspace,
+                pane_id,
+                command_prompt,
+                dry_run=False,
+                zellij_session=zellij_session,
+                payload_kind=NATIVE_ENTER_PAYLOAD_KIND_RECEIVE_COMMAND,
+                squad_delivery_order=SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER,
+            )
     dispatch_ok = (not dispatch_blocked) and (
         squad_delivery_ok
         if non_visible_structured_dispatch or delivery_channel.startswith("SQUAD_ONLY")
@@ -5743,6 +5886,10 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
                     else "NOT_APPLICABLE_NO_ACTIVE_IDENTITY"
                 ),
                 "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
+                "identity_id": (ack_gate.get("identity") or {}).get("identity_id"),
+                "identity_generation": (ack_gate.get("identity") or {}).get(
+                    "identity_generation"
+                ),
                 "preload_ack": ack_gate.get("preload_ack"),
                 "dispatch_uid": dispatch_uid,
                 "dispatch_context_packet_schema": dispatch_context["schema"],
@@ -6334,6 +6481,24 @@ def main(argv: list[str] | None = None) -> int:
             )
             if not candidate["ok"]:
                 transport_preflight = candidate
+        elif args.super_entry in {"launch", "turn-start", "restart"}:
+            transport_roles = expand_office_selection(
+                args.super_entry_offices or "visible-core"
+            )
+            if args.super_entry == "turn-start":
+                transport_roles = tuple(
+                    role
+                    for role in transport_roles
+                    if role in SUPERCC_VISIBLE_CORE_OFFICES
+                ) or SUPERCC_VISIBLE_CORE_OFFICES
+            candidate = supercc_transport_preflight(
+                args,
+                transport_roles,
+                transport_action=f"super_entry_{args.super_entry.replace('-', '_')}",
+                validate_active_preload=False,
+            )
+            if not candidate["ok"]:
+                transport_preflight = candidate
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -6341,6 +6506,39 @@ def main(argv: list[str] | None = None) -> int:
         resolve_office_client_args(args)
         try:
             normalize_office_client_maps(args)
+        except ValueError as exc:
+            parser.error(str(exc))
+
+    if transport_preflight is None:
+        try:
+            candidate = None
+            if args.wake_offices:
+                candidate = supercc_transport_preflight(
+                    args,
+                    transport_roles or (),
+                    transport_action="wake_offices",
+                    sender=args.calling_office or "shangshu",
+                )
+            elif args.turn_start:
+                candidate = supercc_transport_preflight(
+                    args,
+                    transport_roles or (),
+                    transport_action="turn_start",
+                )
+            elif args.restart_offices:
+                candidate = supercc_transport_preflight(
+                    args,
+                    transport_roles or (),
+                    transport_action="restart_offices",
+                )
+            elif args.super_entry in {"turn-start", "restart"}:
+                candidate = supercc_transport_preflight(
+                    args,
+                    transport_roles or (),
+                    transport_action=f"super_entry_{args.super_entry.replace('-', '_')}",
+                )
+            if candidate is not None and not candidate["ok"]:
+                transport_preflight = candidate
         except ValueError as exc:
             parser.error(str(exc))
 
@@ -6355,10 +6553,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         dependency_bootstrap = maybe_bootstrap_supercc_dependencies(args, workspace)
     if args.super_entry:
-        try:
-            payload = super_entry(args)
-        except ValueError as exc:
-            parser.error(str(exc))
+        if transport_preflight is not None:
+            payload = transport_preflight
+        else:
+            try:
+                payload = super_entry(args)
+            except ValueError as exc:
+                parser.error(str(exc))
     elif args.check_only:
         payload = check_only(args)
     elif args.write_agent_dossiers:

@@ -11,9 +11,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,11 +42,109 @@ STRUCTURED_BLOCK_CHANNELS = {
     "FAILED_OFFICE_UNIQUENESS_GATE",
     "FAILED_VISIBLE_PANE_GATE",
 }
+FUNCTIONAL_RUNTIME_ROOT: Path | None = None
+FUNCTIONAL_TASK: dict[str, object] | None = None
+
+
+def prepare_functional_runtime_fixture(runtime_root: Path) -> None:
+    global FUNCTIONAL_RUNTIME_ROOT, FUNCTIONAL_TASK
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import court_runtime  # noqa: PLC0415
+
+    task_id = "supercc-functional"
+    charter = "isolated superCC functional semantic authority"
+    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
+    invariant_capsule = {
+        "schema": "court.semantic.invariant_capsule.v1",
+        "latest_decree_anchor": charter,
+        "latest_decree_sha256": charter_sha256,
+        "non_goals": ["no live runtime writes"],
+        "boundaries": ["TemporaryDirectory runtime only"],
+        "allowed_actions": ["dry-run functional validation"],
+        "forbidden_actions": ["live runtime mutation"],
+        "acceptance": ["shared dispatch validator passes"],
+        "evidence_requirements": ["structured JSON"],
+        "stop_gates": ["semantic drift"],
+        "write_set": ["scripts/check_supercc_functional.py"],
+        "governing_hashes": {
+            "functional": hashlib.sha256(b"supercc-functional").hexdigest()
+        },
+        "charter_sha256": charter_sha256,
+    }
+    intake_gate = {
+        "schema": "court.conversation_gate.v1",
+        "active_decree": False,
+        "active_decree_state": "NONE",
+        "message_class": "FORMAL_TASK",
+        "confidence": "HIGH",
+        "relation_to_active_decree": "NONE",
+        "taskization_consent": "EXPLICIT",
+        "requires_tools": True,
+        "mutates_state": True,
+        "risk_present": False,
+        "next_route": "THREE_DEPARTMENTS",
+        "question": "",
+        "rationale": "isolated functional fixture",
+    }
+    previous_root = os.environ.get("COURT_RUNTIME_ROOT")
+    os.environ["COURT_RUNTIME_ROOT"] = str(runtime_root)
+    try:
+        court_runtime.create_task(
+            argparse.Namespace(
+                title=task_id,
+                charter=charter,
+                task_id=task_id,
+                owner="taizi",
+                report_tier="brief",
+                evidence="create isolated functional task",
+                note="functional fixture",
+                work_kind="implementation",
+                intake_gate=intake_gate,
+                intake_file=None,
+                invariant_capsule=invariant_capsule,
+                invariant_capsule_file=None,
+            )
+        )
+        FUNCTIONAL_TASK = court_runtime.semantic_checkpoint_task(
+            argparse.Namespace(
+                task_id=task_id,
+                semantic_context={
+                    "authority_revision": 1,
+                    "authority_sha256": hashlib.sha256(b"functional-authority").hexdigest(),
+                    "plan_revision": 1,
+                    "plan_sha256": hashlib.sha256(b"functional-plan").hexdigest(),
+                    "plan_cursor": "ENTER_DISPATCH",
+                    "git_fingerprint": "functional-git",
+                    "recovery_checkpoint_id": "functional-recovery",
+                    "shiguan_revision": 0,
+                    "shiguan_fingerprint": hashlib.sha256(b"functional-shiguan").hexdigest(),
+                },
+                semantic_context_file=None,
+                trigger="checkpoint",
+                actor="taizi",
+                evidence="functional semantic checkpoint",
+                note="functional semantic checkpoint",
+            )
+        ).task
+    finally:
+        if previous_root is None:
+            os.environ.pop("COURT_RUNTIME_ROOT", None)
+        else:
+            os.environ["COURT_RUNTIME_ROOT"] = previous_root
+    FUNCTIONAL_RUNTIME_ROOT = runtime_root
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def functional_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    if FUNCTIONAL_RUNTIME_ROOT is not None:
+        env["COURT_RUNTIME_ROOT"] = str(FUNCTIONAL_RUNTIME_ROOT)
+    return env
 
 
 def dispatch_context_fixture(
@@ -54,19 +154,22 @@ def dispatch_context_fixture(
     dispatch_uid: str,
     message: str,
 ) -> str:
-    authority_sha256 = "a" * 64
-    plan_sha256 = "b" * 64
+    require(isinstance(FUNCTIONAL_TASK, dict), "functional runtime fixture missing")
+    receipt = FUNCTIONAL_TASK.get("semantic_receipt")
+    require(isinstance(receipt, dict), "functional semantic receipt missing")
+    authority_sha256 = receipt["authority_sha256"]
+    plan_sha256 = receipt["plan_sha256"]
     semantic = {
         "schema": "court.semantic.dispatch_context_packet.v1",
-        "task_id": "supercc-functional",
+        "task_id": FUNCTIONAL_TASK["task_id"],
         "sub_id": dispatch_uid,
-        "semantic_epoch": 1,
-        "invariant_capsule_sha256": "c" * 64,
-        "semantic_receipt_id": "SR-SUPERCC-FUNCTIONAL",
-        "semantic_receipt_sha256": "d" * 64,
+        "semantic_epoch": FUNCTIONAL_TASK["semantic_epoch"],
+        "invariant_capsule_sha256": FUNCTIONAL_TASK["invariant_capsule_sha256"],
+        "semantic_receipt_id": receipt["receipt_id"],
+        "semantic_receipt_sha256": receipt["receipt_sha256"],
         "authority_sha256": authority_sha256,
         "plan_sha256": plan_sha256,
-        "plan_cursor": "ENTER_DISPATCH",
+        "plan_cursor": receipt["plan_cursor"],
         "fork_context": "none",
         "context_mode": "bounded",
         "pointers": [
@@ -116,6 +219,7 @@ def run_json(workspace: Path, args: list[str], *, timeout: int = 180, allowed_re
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        env=functional_subprocess_env(),
     )
     allowed = allowed_returncodes or {0}
     if result.returncode not in allowed:
@@ -153,6 +257,7 @@ def run_watchdog(workspace: Path) -> dict[str, object]:
         encoding="utf-8",
         errors="replace",
         timeout=120,
+        env=functional_subprocess_env(),
     )
     if result.returncode not in {0, 2}:
         raise AssertionError(f"watchdog command failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}")
@@ -459,10 +564,12 @@ def main() -> int:
     mode.add_argument("--strict", action="store_true", help="Strict mode: return nonzero unless the superCC environment and dry-run dispatch gates are fully ready.")
     args = parser.parse_args()
     try:
-        rounds = max(1, args.rounds)
-        runner = run_functional if args.live_mutating else run_read_only_audit
-        summaries = [runner(Path(args.workspace).resolve()) for _ in range(rounds)]
-        summary = {"rounds": rounds, "runs": summaries, **summaries[-1]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            prepare_functional_runtime_fixture(Path(temp_dir))
+            rounds = max(1, args.rounds)
+            runner = run_functional if args.live_mutating else run_read_only_audit
+            summaries = [runner(Path(args.workspace).resolve()) for _ in range(rounds)]
+            summary = {"rounds": rounds, "runs": summaries, **summaries[-1]}
     except (AssertionError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
         print(f"SUPERCC_FUNCTIONAL_FAILED {exc}")
         return 1

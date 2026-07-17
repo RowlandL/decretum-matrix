@@ -15,6 +15,8 @@ sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
+OFFICE_STATE_FIXTURES: dict[str, dict[str, object]] = {}
+RUNTIME_TASK_FIXTURES: dict[str, dict[str, object]] = {}
 
 
 def legacy_term(*parts: str) -> str:
@@ -1227,19 +1229,71 @@ def dispatch_context_fixture(
     dispatch_uid: str,
     message: str,
 ) -> str:
-    authority_sha256 = "a" * 64
-    plan_sha256 = "b" * 64
+    import court_semantic_continuity  # noqa: PLC0415
+
+    task_id = "supercc-dispatch-fixture"
+    charter = "bounded superCC dispatch fixture charter"
+    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
+    capsule = court_semantic_continuity.build_invariant_capsule(
+        charter,
+        charter_sha256,
+    )
+    for field in (
+        "non_goals",
+        "boundaries",
+        "allowed_actions",
+        "forbidden_actions",
+        "acceptance",
+        "evidence_requirements",
+        "stop_gates",
+        "write_set",
+    ):
+        capsule[field] = [f"fixture-{field}"]
+    capsule["governing_hashes"] = {"fixture": hashlib.sha256(b"fixture").hexdigest()}
+    task: dict[str, object] = {
+        "task_id": task_id,
+        "charter": charter,
+        "charter_revision": 1,
+        "semantic_epoch": 1,
+        "charter_sha256": charter_sha256,
+        "invariant_capsule": capsule,
+        "invariant_capsule_sha256": court_semantic_continuity.canonical_json_sha256(
+            capsule
+        ),
+    }
+    authority_sha256 = hashlib.sha256(b"fixture-authority").hexdigest()
+    plan_sha256 = hashlib.sha256(b"fixture-plan").hexdigest()
+    receipt = court_semantic_continuity.build_semantic_receipt(
+        task,
+        {
+            "authority_revision": 1,
+            "authority_sha256": authority_sha256,
+            "plan_revision": 1,
+            "plan_sha256": plan_sha256,
+            "plan_cursor": "ENTER_DISPATCH",
+            "git_fingerprint": "fixture-git",
+            "recovery_checkpoint_id": "fixture-recovery",
+            "shiguan_revision": 0,
+            "shiguan_fingerprint": hashlib.sha256(b"fixture-shiguan").hexdigest(),
+        },
+        event_head_sha256=hashlib.sha256(b"fixture-event-head").hexdigest(),
+        event_head_bytes=0,
+        trigger="checkpoint",
+        created_at="2026-07-17T00:00:00+00:00",
+    )
+    task["semantic_receipt"] = receipt
+    RUNTIME_TASK_FIXTURES[task_id] = task
     semantic_packet = {
         "schema": "court.semantic.dispatch_context_packet.v1",
-        "task_id": "supercc-dispatch-fixture",
+        "task_id": task_id,
         "sub_id": dispatch_uid,
         "semantic_epoch": 1,
-        "invariant_capsule_sha256": "c" * 64,
-        "semantic_receipt_id": "SR-SUPERCC-DISPATCH-FIXTURE",
-        "semantic_receipt_sha256": "d" * 64,
+        "invariant_capsule_sha256": task["invariant_capsule_sha256"],
+        "semantic_receipt_id": receipt["receipt_id"],
+        "semantic_receipt_sha256": receipt["receipt_sha256"],
         "authority_sha256": authority_sha256,
         "plan_sha256": plan_sha256,
-        "plan_cursor": "ENTER_DISPATCH",
+        "plan_cursor": receipt["plan_cursor"],
         "fork_context": "none",
         "context_mode": "bounded",
         "pointers": [
@@ -1280,10 +1334,31 @@ def preload_ack_fixture(
     role: str,
 ) -> str:
     require_visible = role in {"taizi", "zhongshu", "menxia", "shangshu"}
+    pending_check = {
+        "zellij": check.get("zellij", {}),
+        "squad": {"agents_json": []},
+    }
+    pending = ensure_supercc_court.active_office_preload_ack_gate(  # type: ignore[attr-defined]
+        argparse.Namespace(workspace=str(ROOT), reclaim_existing=False),
+        pending_check,
+        role,
+        require_visible=require_visible,
+        allow_missing_identity=True,
+    )
+    generation = pending.get("identity_generation_challenge")
+    if pending.get("gate") != "PRELOAD_PENDING" or not isinstance(generation, str):
+        raise AssertionError(f"cannot enter PRELOAD_PENDING fixture phase: {pending}")
+    OFFICE_STATE_FIXTURES[role] = {
+        "preload_status": "PRELOAD_PENDING",
+        "identity_id": None,
+        "identity_generation": generation,
+        "preload_ack": None,
+    }
     identity = ensure_supercc_court.active_office_identity_fingerprint(  # type: ignore[attr-defined]
         check,
         role,
         require_visible=require_visible,
+        workspace=ROOT,
     )
     if identity.get("ok") is not True:
         raise AssertionError(f"cannot build preload ACK fixture: {identity}")
@@ -1292,6 +1367,7 @@ def preload_ack_fixture(
         "schema": ensure_supercc_court.OFFICE_PRELOAD_ACK_SCHEMA,  # type: ignore[attr-defined]
         "preload_status": "PASSED",
         "identity_id": identity["identity_id"],
+        "identity_generation": identity["identity_generation"],
         "identity_fingerprint": identity["identity_fingerprint"],
         "role_key": role,
         "direct_superior": ensure_supercc_court.direct_superior_metadata(role)[  # type: ignore[attr-defined]
@@ -1431,7 +1507,7 @@ def check_active_identity_preload_ack_required() -> None:
             reason="preload ack red",
             sender="taizi",
         )
-        if payload.get("ok") is not False or payload.get("dispatch_block_reason") != "active_office_preload_ack_required":
+        if payload.get("ok") is not False or payload.get("dispatch_block_reason") != "active_office_identity_generation_required":
             raise AssertionError(f"active disk-only office was accepted without current identity preload ACK: {payload}")
         if counters != {"send": 0, "state": 0}:
             raise AssertionError(f"preload ACK rejection reached delivery/state: {counters}")
@@ -1571,17 +1647,658 @@ def check_enter_dispatch_context_and_delivery_state_atomicity() -> None:
         raise AssertionError(f"failed squad delivery wrote queued/awake state: {counters}")
 
 
+def check_menxia_reject_correction_red_matrix() -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    failures: dict[str, list[str]] = {
+        "preflight_current_authority": [],
+        "identity_generation": [],
+        "native_short_circuit": [],
+        "exact_string_scope": [],
+        "launch_state_persistence": [],
+    }
+
+    active_check = {
+        "passed": True,
+        "supercc_env_gate": "PASSED",
+        "visible_display_gate": "PASSED",
+        "display_transport_gate": "PASSED",
+        "office_client_gate": "PASSED",
+        "zellij": {
+            "selected_session": "menxia-correction-red",
+            "env": {"ZELLIJ_SESSION_NAME": "menxia-correction-red"},
+            "panes_list": [
+                {
+                    "pane_id": "terminal_zhongshu",
+                    "title": ensure_supercc_court.OFFICES["zhongshu"]["title"],
+                }
+            ],
+        },
+        "squad": {
+            "agents_json": [
+                {
+                    "id": "zhongshu",
+                    "role": "zhongshu",
+                    "status": "active",
+                    "effective_client_type": "codex",
+                }
+            ]
+        },
+    }
+
+    bootstrap_calls: list[str] = []
+    original_bootstrap = ensure_supercc_court.maybe_bootstrap_supercc_dependencies
+    original_check = ensure_supercc_court.supercc_check_for_args
+    original_launch = ensure_supercc_court.launch_offices
+    try:
+        ensure_supercc_court.maybe_bootstrap_supercc_dependencies = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: bootstrap_calls.append("bootstrap")
+            or {"ok": True, "skipped": False}
+        )
+        ensure_supercc_court.supercc_check_for_args = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: active_check
+        )
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            ensure_supercc_court.main(
+                [
+                    "--workspace",
+                    str(ROOT),
+                    "--turn-start",
+                    "zhongshu",
+                    "--format",
+                    "json",
+                ]
+            )
+        if bootstrap_calls:
+            failures["preflight_current_authority"].append(
+                "turn-start reached dependency bootstrap before full identity/ACK preflight"
+            )
+
+        bootstrap_calls.clear()
+        ensure_supercc_court.launch_offices = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {"ok": True}
+        )
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            ensure_supercc_court.main(
+                [
+                    "--workspace",
+                    str(ROOT),
+                    "--launch-offices",
+                    "zhongshu",
+                    "--format",
+                    "json",
+                ]
+            )
+        if bootstrap_calls != ["bootstrap"]:
+            failures["preflight_current_authority"].append(
+                f"new-identity launch bootstrap exception was not explicit/usable: {bootstrap_calls}"
+            )
+    finally:
+        ensure_supercc_court.maybe_bootstrap_supercc_dependencies = original_bootstrap  # type: ignore[assignment]
+        ensure_supercc_court.supercc_check_for_args = original_check  # type: ignore[assignment]
+        ensure_supercc_court.launch_offices = original_launch  # type: ignore[assignment]
+
+    fake_message = "bounded dispatch"
+    fake_packet = dispatch_context_fixture(
+        "gongbu",
+        "shangshu",
+        "DISPATCH-CURRENT-AUTHORITY-RED",
+        fake_message,
+    )
+    fake_task_id = json.loads(fake_packet)["task_id"]
+    current_task = RUNTIME_TASK_FIXTURES.pop(fake_task_id)
+    fake_authority = ensure_supercc_court.validate_enter_dispatch_context(
+        argparse.Namespace(
+            dispatch_context_packet_json=fake_packet,
+            dispatch_uid="DISPATCH-CURRENT-AUTHORITY-RED",
+            message=fake_message,
+        ),
+        "gongbu",
+        "shangshu",
+        "shangshu",
+    )
+    if fake_authority.get("ok") is not False:
+        failures["preflight_current_authority"].append(
+            "self-consistent fake SHA/P00 packet passed without a current runtime task/receipt"
+        )
+    RUNTIME_TASK_FIXTURES[fake_task_id] = current_task
+    forged_packet = json.loads(fake_packet)
+    forged_packet["semantic_packet"]["invariant_capsule_sha256"] = "f" * 64
+    forged_authority = ensure_supercc_court.validate_enter_dispatch_context(
+        argparse.Namespace(
+            dispatch_context_packet_json=json.dumps(forged_packet),
+            dispatch_uid="DISPATCH-CURRENT-AUTHORITY-RED",
+            message=fake_message,
+        ),
+        "gongbu",
+        "shangshu",
+        "shangshu",
+    )
+    if (
+        forged_authority.get("ok") is not False
+        or forged_authority.get("reason")
+        != "enter_dispatch_semantic_authority_invalid"
+    ):
+        failures["preflight_current_authority"].append(
+            "forged capsule hash was not rejected by the shared current-authority validator"
+        )
+
+    non_visible_check = {
+        "zellij": {
+            "selected_session": "generation-red",
+            "env": {"ZELLIJ_SESSION_NAME": "generation-red"},
+            "panes_list": [],
+        },
+        "squad": {
+            "agents_json": [
+                {
+                    "id": "gongbu",
+                    "role": "gongbu",
+                    "status": "active",
+                    "effective_client_type": "codex",
+                }
+            ]
+        },
+    }
+    OFFICE_STATE_FIXTURES.pop("gongbu", None)
+    generationless = ensure_supercc_court.active_office_identity_fingerprint(
+        non_visible_check,
+        "gongbu",
+        require_visible=False,
+    )
+    if generationless.get("ok") is not False:
+        failures["identity_generation"].append(
+            "non-visible active identity fingerprint accepted no incarnation/challenge"
+        )
+    pending = ensure_supercc_court.active_office_preload_ack_gate(
+        argparse.Namespace(workspace=str(ROOT)),
+        {"zellij": {"panes_list": []}, "squad": {"agents_json": []}},
+        "gongbu",
+        require_visible=False,
+        allow_missing_identity=True,
+    )
+    if (
+        pending.get("gate") != "PRELOAD_PENDING"
+        or not isinstance(pending.get("identity_generation_challenge"), str)
+        or pending.get("preload_ack") is not None
+        or (pending.get("identity") or {}).get("identity_fingerprint") is not None
+    ):
+        failures["identity_generation"].append(
+            "new identity did not expose PRELOAD_PENDING challenge without controller-synthesized fingerprint/ACK"
+        )
+    else:
+        generation = pending["identity_generation_challenge"]
+        OFFICE_STATE_FIXTURES["gongbu"] = {
+            "preload_status": "PRELOAD_PENDING",
+            "identity_id": None,
+            "identity_generation": generation,
+            "preload_ack": None,
+        }
+        identity = ensure_supercc_court.active_office_identity_fingerprint(
+            non_visible_check,
+            "gongbu",
+            require_visible=False,
+            workspace=ROOT,
+        )
+        profile = ensure_supercc_court.profile_metadata("gongbu")
+        office_ack = {
+            "schema": ensure_supercc_court.OFFICE_PRELOAD_ACK_SCHEMA,
+            "preload_status": "PASSED",
+            "identity_id": identity.get("identity_id"),
+            "identity_generation": identity.get("identity_generation"),
+            "identity_fingerprint": identity.get("identity_fingerprint"),
+            "role_key": "gongbu",
+            "direct_superior": "shangshu",
+            "profile_hash": profile.get("profile_hash"),
+            "dossier_hash": ensure_supercc_court.sha256_file(
+                ensure_supercc_court.office_dossier_path("gongbu")
+            ),
+            "court_skill_hash": ensure_supercc_court.sha256_file(
+                ensure_supercc_court.skill_root() / "SKILL.md"
+            ),
+            "agent_dossier_loaded": "YES",
+            "loaded_skills": ["decretum-matrix"],
+        }
+        ack_args = argparse.Namespace(
+            workspace=str(ROOT),
+            office_preload_acks_json=json.dumps({"gongbu": office_ack}),
+        )
+        ack_gate = ensure_supercc_court.active_office_preload_ack_gate(
+            ack_args,
+            non_visible_check,
+            "gongbu",
+            require_visible=False,
+            allow_missing_identity=False,
+        )
+        if ack_gate.get("gate") != "PASSED":
+            failures["identity_generation"].append(
+                f"PRELOAD_PENDING challenge did not accept office ACK: {ack_gate.get('reason')}"
+            )
+        else:
+            OFFICE_STATE_FIXTURES["gongbu"] = {
+                "preload_status": "PASSED",
+                "identity_id": identity.get("identity_id"),
+                "identity_generation": identity.get("identity_generation"),
+                "preload_ack": office_ack,
+            }
+            resumed = ensure_supercc_court.active_office_preload_ack_gate(
+                argparse.Namespace(workspace=str(ROOT)),
+                non_visible_check,
+                "gongbu",
+                require_visible=False,
+                allow_missing_identity=False,
+            )
+            if resumed.get("gate") != "PASSED":
+                failures["identity_generation"].append(
+                    f"office ACK could not resume from persisted current generation: {resumed.get('reason')}"
+                )
+
+            old_generation = identity.get("identity_generation")
+            original_archive_run = ensure_supercc_court.run_command
+            original_archive_write = ensure_supercc_court.write_office_state
+            try:
+                ensure_supercc_court.run_command = (  # type: ignore[assignment]
+                    lambda *_args, **_kwargs: {"ok": True}
+                )
+
+                def record_archive_state(
+                    _workspace: object,
+                    modes: dict[str, dict[str, object]],
+                    **_kwargs: object,
+                ) -> dict[str, object]:
+                    OFFICE_STATE_FIXTURES.update(modes)
+                    return {"ok": True}
+
+                ensure_supercc_court.write_office_state = record_archive_state  # type: ignore[assignment]
+                archived = ensure_supercc_court.archive_agent(
+                    "gongbu",
+                    ROOT,
+                    False,
+                    zellij_session="generation-red",
+                )
+            finally:
+                ensure_supercc_court.run_command = original_archive_run  # type: ignore[assignment]
+                ensure_supercc_court.write_office_state = original_archive_write  # type: ignore[assignment]
+            reset = OFFICE_STATE_FIXTURES.get("gongbu", {})
+            if (
+                archived.get("ok") is not True
+                or reset.get("preload_status") != "PRELOAD_PENDING"
+                or reset.get("preload_ack") is not None
+                or reset.get("identity_generation") == old_generation
+            ):
+                failures["identity_generation"].append(
+                    "archive did not rotate generation and clear the old preload ACK"
+                )
+            stale_ack = ensure_supercc_court.active_office_preload_ack_gate(
+                ack_args,
+                non_visible_check,
+                "gongbu",
+                require_visible=False,
+                allow_missing_identity=False,
+            )
+            if stale_ack.get("gate") != "FAILED":
+                failures["identity_generation"].append(
+                    "same-session same-id rejoin reused the archived generation's old ACK"
+                )
+
+    original_run = ensure_supercc_court.run_command
+    original_sleep = ensure_supercc_court.time.sleep
+    try:
+        calls: list[list[str]] = []
+        sleeps: list[float] = []
+
+        def first_write_fails(command: list[str], **_kwargs: object) -> dict[str, object]:
+            calls.append(command)
+            return {"ok": False, "reason": "write_chars_failed"}
+
+        ensure_supercc_court.run_command = first_write_fails  # type: ignore[assignment]
+        ensure_supercc_court.time.sleep = lambda seconds: sleeps.append(seconds)  # type: ignore[assignment]
+        ensure_supercc_court.native_pane_enter_sequence(
+            ROOT,
+            "terminal-red",
+            "receive",
+            dry_run=False,
+        )
+        if len(calls) != 1 or sleeps:
+            failures["native_short_circuit"].append(
+                f"write-chars failure continued to Enter/sleep: calls={len(calls)} sleeps={sleeps}"
+            )
+
+        calls.clear()
+        sleeps.clear()
+        results = iter((True, False, True))
+
+        def first_enter_fails(command: list[str], **_kwargs: object) -> dict[str, object]:
+            calls.append(command)
+            return {"ok": next(results)}
+
+        ensure_supercc_court.run_command = first_enter_fails  # type: ignore[assignment]
+        ensure_supercc_court.native_pane_enter_sequence(
+            ROOT,
+            "terminal-red",
+            "receive",
+            dry_run=False,
+        )
+        if len(calls) != 2 or sleeps:
+            failures["native_short_circuit"].append(
+                f"first Enter failure continued to sleep/second Enter: calls={len(calls)} sleeps={sleeps}"
+            )
+    finally:
+        ensure_supercc_court.run_command = original_run  # type: ignore[assignment]
+        ensure_supercc_court.time.sleep = original_sleep  # type: ignore[assignment]
+
+    visible_check = {
+        "passed": True,
+        "supercc_env_gate": "PASSED",
+        "visible_display_gate": "PASSED",
+        "display_transport_gate": "PASSED",
+        "office_client_gate": "PASSED",
+        "zellij": {
+            "selected_session": "enter-live-red",
+            "env": {"ZELLIJ_SESSION_NAME": "enter-live-red"},
+            "panes_list": [
+                {
+                    "pane_id": "terminal_zhongshu",
+                    "title": ensure_supercc_court.OFFICES["zhongshu"]["title"],
+                }
+            ],
+        },
+        "squad": {
+            "agents_json": [
+                {
+                    "id": "zhongshu",
+                    "role": "zhongshu",
+                    "status": "active",
+                    "effective_client_type": "codex",
+                }
+            ]
+        },
+    }
+    visible_ack = preload_ack_fixture(
+        ensure_supercc_court,
+        visible_check,
+        "zhongshu",
+    )
+    original_enter_check = ensure_supercc_court.supercc_check_for_args
+    original_enter_task = ensure_supercc_court.create_squad_task_assignment
+    original_enter_send = ensure_supercc_court.send_squad_notice
+    original_enter_run = ensure_supercc_court.run_command
+    original_enter_sleep = ensure_supercc_court.time.sleep
+    original_enter_state = ensure_supercc_court.write_office_state
+    try:
+        ensure_supercc_court.supercc_check_for_args = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: visible_check
+        )
+        ensure_supercc_court.create_squad_task_assignment = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {
+                "ok": True,
+                "task_id": "11111111-1111-1111-1111-111111111111",
+                "task_id_parse_ok": True,
+            }
+        )
+        ensure_supercc_court.send_squad_notice = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {"ok": True}
+        )
+        state_writes: list[object] = []
+        ensure_supercc_court.write_office_state = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: state_writes.append(True) or {"ok": True}
+        )
+
+        def run_visible_failure(outcomes: tuple[bool, ...], dispatch_uid: str) -> tuple[dict[str, object], list[list[str]], list[float]]:
+            commands: list[list[str]] = []
+            sleeps: list[float] = []
+            values = iter(outcomes)
+
+            def command_result(command: list[str], **_kwargs: object) -> dict[str, object]:
+                commands.append(command)
+                return {"ok": next(values)}
+
+            ensure_supercc_court.run_command = command_result  # type: ignore[assignment]
+            ensure_supercc_court.time.sleep = lambda seconds: sleeps.append(seconds)  # type: ignore[assignment]
+            message = "visible sequential dispatch"
+            payload = ensure_supercc_court.enter_dispatch(
+                argparse.Namespace(
+                    workspace=str(ROOT),
+                    role="zhongshu",
+                    message=message,
+                    dispatch_uid=dispatch_uid,
+                    dispatch_context_packet_json=dispatch_context_fixture(
+                        "zhongshu", "taizi", dispatch_uid, message
+                    ),
+                    office_preload_acks_json=visible_ack,
+                    calling_office="taizi",
+                    dry_run=False,
+                    allow_squad_only_fallback=False,
+                    enable_inspector=False,
+                    skip_inspector=False,
+                )
+            )
+            return payload, commands, sleeps
+
+        write_failed, commands, sleeps = run_visible_failure(
+            (False,),
+            "ENTER-LIVE-WRITE-FAIL",
+        )
+        if (
+            write_failed.get("ok") is not False
+            or (write_failed.get("native_enter_dispatch") or {}).get("reason")
+            != "native_write_chars_failed_before_enter"
+            or len(commands) != 1
+            or sleeps
+            or state_writes
+        ):
+            failures["native_short_circuit"].append(
+                "enter_dispatch live write-chars failure did not short-circuit before Enter/sleep/state"
+            )
+
+        state_writes.clear()
+        enter_failed, commands, sleeps = run_visible_failure(
+            (True, False),
+            "ENTER-LIVE-FIRST-ENTER-FAIL",
+        )
+        if (
+            enter_failed.get("ok") is not False
+            or (enter_failed.get("native_enter_dispatch") or {}).get("reason")
+            != "native_first_enter_failed_before_delay"
+            or len(commands) != 2
+            or sleeps
+            or state_writes
+        ):
+            failures["native_short_circuit"].append(
+                "enter_dispatch live first-Enter failure did not short-circuit before delay/second Enter/state"
+            )
+    finally:
+        ensure_supercc_court.supercc_check_for_args = original_enter_check  # type: ignore[assignment]
+        ensure_supercc_court.create_squad_task_assignment = original_enter_task  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = original_enter_send  # type: ignore[assignment]
+        ensure_supercc_court.run_command = original_enter_run  # type: ignore[assignment]
+        ensure_supercc_court.time.sleep = original_enter_sleep  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = original_enter_state  # type: ignore[assignment]
+
+    native_wake_calls: list[str] = []
+    original_preflight = ensure_supercc_court.supercc_transport_preflight
+    original_send = ensure_supercc_court.send_squad_notice
+    original_native = ensure_supercc_court.native_pane_enter_sequence
+    try:
+        ensure_supercc_court.supercc_transport_preflight = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {
+                "ok": True,
+                "transport_preflight": [
+                    {"role": role, "active_office_preload_ack_gate": {"gate": "PASSED"}}
+                    for role in ensure_supercc_court.NO_SILENCE_ROLES
+                ],
+            }
+        )
+        ensure_supercc_court.send_squad_notice = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {"ok": False, "reason": "squad_send_failed"}
+        )
+        ensure_supercc_court.native_pane_enter_sequence = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: native_wake_calls.append("native") or {"ok": True}
+        )
+        ensure_supercc_court.mark_turn_start_open_decree(
+            argparse.Namespace(workspace=str(ROOT), dry_run=False),
+            active_check,
+        )
+        if native_wake_calls:
+            failures["native_short_circuit"].append(
+                "turn-start squad-send failure still reached native double-enter"
+            )
+    finally:
+        ensure_supercc_court.supercc_transport_preflight = original_preflight  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = original_send  # type: ignore[assignment]
+        ensure_supercc_court.native_pane_enter_sequence = original_native  # type: ignore[assignment]
+
+    launch_check = {
+        "passed": True,
+        "supercc_env_gate": "PASSED",
+        "visible_display_gate": "PASSED",
+        "display_transport_gate": "PASSED",
+        "office_client_gate": "PASSED",
+        "zellij": {
+            "selected_session": "launch-state-red",
+            "env": {"ZELLIJ_SESSION_NAME": "launch-state-red"},
+            "panes_list": [],
+        },
+        "squad": {"agents_json": []},
+    }
+    launch_originals = {
+        "supercc_transport_preflight": ensure_supercc_court.supercc_transport_preflight,
+        "check_office_client": ensure_supercc_court.check_office_client,
+        "check_office_clients_for_roles": ensure_supercc_court.check_office_clients_for_roles,
+        "rename_taizi_pane": ensure_supercc_court.rename_taizi_pane,
+        "join_agent": ensure_supercc_court.join_agent,
+        "request_budget_summary": ensure_supercc_court.request_budget_summary,
+        "write_office_state": ensure_supercc_court.write_office_state,
+    }
+    try:
+        ensure_supercc_court.supercc_transport_preflight = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {
+                "ok": True,
+                "transport_preflight": [
+                    {
+                        "role": "taizi",
+                        "active_office_preload_ack_gate": {
+                            "gate": "PRELOAD_PENDING",
+                            "identity_generation_challenge": "a" * 64,
+                        },
+                    }
+                ],
+                "special_lifecycle_preflight": [],
+                "check": launch_check,
+            }
+        )
+        ensure_supercc_court.check_office_client = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {"available": True}
+        )
+        ensure_supercc_court.check_office_clients_for_roles = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {"available": True, "roles": {}}
+        )
+        ensure_supercc_court.rename_taizi_pane = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {"ok": True}
+        )
+        ensure_supercc_court.join_agent = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {"ok": True, "actual_id": "taizi"}
+        )
+        ensure_supercc_court.request_budget_summary = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {
+                "ok": True,
+                "request_rate_limit_per_minute": 10,
+                "request_interval_seconds": 6.0,
+                "office_show_delay": {
+                    "jitter_requested_seconds": 0.0,
+                    "base_seconds": 0.0,
+                },
+                "provider_launch_queue": [],
+            }
+        )
+        ensure_supercc_court.write_office_state = (  # type: ignore[assignment]
+            lambda *_args, **_kwargs: {
+                "ok": False,
+                "reason": "simulated_launch_state_write_failure",
+            }
+        )
+        launch_payload = ensure_supercc_court.launch_offices(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                dry_run=True,
+                force=False,
+                skip_inspector=False,
+                archive_test_agents=False,
+                reclaim_existing=False,
+                ministry_mode="independent",
+                office_client="codex",
+                enable_inspector=False,
+            ),
+            (),
+        )
+        if launch_payload.get("ok") is not False:
+            failures["launch_state_persistence"].append(
+                "launch_offices reported success after PRELOAD_PENDING state persistence failed"
+            )
+    finally:
+        for name, original in launch_originals.items():
+            setattr(ensure_supercc_court, name, original)
+
+    invalid_scope_values: tuple[object, ...] = (True, 1, None, {"x": "y"}, ["nested"])
+    for invalid in invalid_scope_values:
+        packet = json.loads(fake_packet)
+        packet["scope"]["allowed_actions"] = [invalid]
+        scoped = ensure_supercc_court.validate_enter_dispatch_context(
+            argparse.Namespace(
+                dispatch_context_packet_json=json.dumps(packet, ensure_ascii=False),
+                dispatch_uid="DISPATCH-CURRENT-AUTHORITY-RED",
+                message=fake_message,
+            ),
+            "gongbu",
+            "shangshu",
+            "shangshu",
+        )
+        if scoped.get("reason") != "enter_dispatch_scope_invalid:allowed_actions":
+            failures["exact_string_scope"].append(
+                f"non-string scope element was not rejected exactly: {invalid!r} -> {scoped.get('reason')!r}"
+            )
+
+    failed_groups = {
+        group: reasons for group, reasons in failures.items() if reasons
+    }
+    if failed_groups:
+        raise AssertionError(
+            "MENXIA_REJECT_CORRECTION_RED="
+            + json.dumps(failed_groups, ensure_ascii=False, sort_keys=True)
+        )
+
+
 def main() -> int:
-    check_source_rules()
-    check_supercc_launcher_shape()
-    check_dispatch_evidence()
-    check_taizi_to_gongbu_rejected_before_side_effects()
-    check_missing_target_profile_rejected_before_side_effects()
-    check_special_lifecycle_dispatch_edges()
-    check_cli_special_lifecycle_preflight_before_bootstrap()
-    check_normal_role_transport_preflight_precedes_mutation()
-    check_active_identity_preload_ack_required()
-    check_enter_dispatch_context_and_delivery_state_atomicity()
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    original_read_office_state = ensure_supercc_court.read_office_state
+    original_load_tasks = ensure_supercc_court.court_runtime.load_tasks
+    ensure_supercc_court.read_office_state = (  # type: ignore[assignment]
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "roles": OFFICE_STATE_FIXTURES,
+        }
+    )
+    ensure_supercc_court.court_runtime.load_tasks = (  # type: ignore[assignment]
+        lambda: dict(RUNTIME_TASK_FIXTURES)
+    )
+    try:
+        check_source_rules()
+        check_supercc_launcher_shape()
+        check_dispatch_evidence()
+        check_taizi_to_gongbu_rejected_before_side_effects()
+        check_missing_target_profile_rejected_before_side_effects()
+        check_special_lifecycle_dispatch_edges()
+        check_cli_special_lifecycle_preflight_before_bootstrap()
+        check_normal_role_transport_preflight_precedes_mutation()
+        check_active_identity_preload_ack_required()
+        check_enter_dispatch_context_and_delivery_state_atomicity()
+        check_menxia_reject_correction_red_matrix()
+    finally:
+        ensure_supercc_court.read_office_state = original_read_office_state  # type: ignore[assignment]
+        ensure_supercc_court.court_runtime.load_tasks = original_load_tasks  # type: ignore[assignment]
     print("SUPERCC_MINISTRY_DISPATCH_OK")
     return 0
 
