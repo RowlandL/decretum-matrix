@@ -3,21 +3,26 @@
 ## beta0.5.11 — 2026-07-17
 
 ### Added
-- Added the data-backed `court.dispatch_hierarchy.v1` manifest and shared validator for Taizi-to-Three-Departments, Shangshu-to-Six-Ministries, and ministry-owned bounded child dispatch.
-- Added immutable lease-bound child profiles and canonical binding digests covering the bounded dispatch body, access scope, expiry, and P00/profile/dossier/skill hashes.
-- Added a version-neutral private npm release harness with dynamic package identity, strict pack allowlists, nested-ZIP privacy checks, deterministic double-pack proof, and offline install verification.
+- RB1 added atomic admission around the shared hierarchy/profile gate, rejects zero-mutation denials without state writes, and binds v2 lease/preload evidence to an append-only admission event anchor.
+- RB2 added the normal `superCC` shared delivery preflight, identity ACK, `preload_pending -> delivery success`, `ENTER_DISPATCH` P00 context, and an atomic delivery/state chain with correction-gap coverage.
+- Added formal closeout identifier validation: `SCGSDYJM-20260606-1Z-DAAA` is the positive decree-code example, and lineage is exactly `史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`; `CCR`, `Phase`, `RB`, task ids, and workflow paths are rejected as lineage.
+- Added the bounded source split for dispatch contract, delivery, admission contract, and autosync projection modules, plus a live source-state focused checker.
 
 ### Changed
-- Made ordinary dispatch and `superCC` use the same hierarchy decision before capacity selection, task delivery, pane wake, native transport, or runtime mutation.
-- Made filesystem preserve-only autosync the primary Shiguan/Obsidian health signal; Local REST API is optional and non-blocking, while an existing daemon receives asynchronous refresh requests.
-- Expanded the release policy to 41 manifest steps: 36 source, 4 installation, and 1 conditional runtime step; candidate pre-install selects 35 and normal post-install selects 5.
+- The current display identity is exactly `Dercretum-Matrix`; `诏令矩阵` is explanatory only, while machine/package/invocation remain `decretum-matrix` / `$decretum-matrix`.
+- Shiguan Web/autosync uses atomic state transitions, a filesystem preserve-only primary channel, optional non-blocking REST, and asynchronous refresh requests for an existing daemon.
+- Expanded the release policy to 42 manifest steps: 37 source, 4 installation, and 1 conditional runtime step; candidate pre-install selects 36 source steps and normal post-install selects 5.
+- The canonical physical install authority is `skills/decretum-matrix`; the ZIP internal root remains `court-capability-router/`, any legacy install locator must resolve to the same authority, and host migration remains `NOT_RUN`.
+- The beta0.5.11 release source tree measures 273 portable files / 6,138,661 bytes against the unchanged ceiling of 275 files / 6,200,000 bytes.
 
 ### Fixed
-- Rejected lease, bounded-body, access-contract, profile, semantic-hash, hierarchy-receipt, and expiry drift before agent-start persistence, closing admission-to-start TOCTOU paths.
-- Repaired Shiguan WebUI autosync save/test/action controls, busy-state handling, local-only error reporting, daemon freshness, and asynchronous preserve-only refresh.
-- Kept `package.json`, `package-lock.json`, `scripts/build_npm_package.mjs`, and `scripts/check_npm_package.mjs` tracked as explicit repository-only authority while rejecting them from portable ZIPs.
+- Aligned the intervention baseline with production caller/direct-superior edges, bounded child ownership/write scopes, serial no-mutation behavior, canonical preloads, and the 16-slot tree cap.
+- Closed admission-to-start and `superCC` delivery TOCTOU gaps before any persistent state transition.
+- Repaired Shiguan WebUI autosync controls, busy-state handling, local-only errors, daemon freshness, and preserve-only refresh transitions.
 
-### Release and compatibility notes
+### npm backfill and release boundaries
+- The public GitHub Packages `beta` dist-tag currently resolves to the immutable `0.5.10-beta.0` release-assets carrier. It has no dependencies or lifecycle scripts and does not modify skill directories.
+- `0.5.11-beta.0` npm publication is `NOT_RUN`; after release, the dist-tag and online install must be verified before that state changes. Any required authentication is limited to `read:packages` through process-scoped `NODE_AUTH_TOKEN` and a temporary npmrc, with no token persistence.
 - `pending_body_access=NO`; no pending body was opened, hashed, moved, deleted, or marked seen.
 - `beta0.5.10` remains immutable historical release/lineage evidence.
 - Candidate, installation, tag, push, GitHub Release, npm publication, and asset success require their own later receipts and are not asserted here.

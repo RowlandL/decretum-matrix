@@ -157,16 +157,27 @@ def main() -> int:
             + repr(sorted(REQUIRED_PACKAGE_SCRIPTS - packaged))
         )
     source_state = evaluate(ROOT, manifest)
+    if source_state.get("ok") is not True:
+        errors.append(f"source_state_ok:{source_state.get('ok')!r}")
+    hard_fail = source_state.get("hard_fail")
+    if hard_fail != []:
+        errors.append(f"source_state_hard_fail:{hard_fail!r}")
+    inspection_contract = source_state.get("inspection_contract")
+    pending_body_reads = (
+        inspection_contract.get("pending_body_reads")
+        if isinstance(inspection_contract, dict)
+        else None
+    )
+    if pending_body_reads != 0:
+        errors.append(f"source_state_pending_body_reads:{pending_body_reads!r}")
     measured = source_state["categories"]["portable_source"]
-    expected_measured = {"files": 273, "bytes": 6128217}
-    if measured != expected_measured:
-        errors.append(f"portable_source_measurement:{measured!r}!={expected_measured!r}")
 
     complexity = (ROOT / "references/complexity-budget.md").read_text(encoding="utf-8")
     revision = re.search(
         r"## 2026-07-17 Measured Revision\s+"
-        r"The RB2 source-budget split measures the portable tree at "
-        r"([\d,]+) files and\s+([\d,]+) bytes\.",
+        r"The beta0\.5\.11 release source tree measures "
+        r"([\d,]+) portable files / ([\d,]+) bytes "
+        r"against the unchanged ceiling of 275 files / 6,200,000 bytes\.",
         complexity,
     )
     if revision is None:
@@ -183,6 +194,12 @@ def main() -> int:
         "schema": "court.source_budget_refactor.check.v1",
         "ok": not errors,
         "errors": errors,
+        "portable_source": measured,
+        "source_state_contract": {
+            "ok": source_state.get("ok"),
+            "hard_fail": hard_fail,
+            "pending_body_reads": pending_body_reads,
+        },
     }
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1

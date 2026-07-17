@@ -1,13 +1,26 @@
-# Decretum Matrix（诏令矩阵）
+# Dercretum-Matrix
 
 <p align="center">
-  <img src="assets/brand/decretum-matrix-icon.svg" alt="Decretum Matrix icon" width="160">
+  <img src="assets/brand/decretum-matrix-icon.svg" alt="Dercretum-Matrix icon" width="160">
 </p>
+
+```powershell
+npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
+```
+
+该命令当前解析到公开的 `0.5.10-beta.0` 不可变 release-assets carrier；它没有
+dependencies 或 lifecycle scripts，不会安装、更新或修改任何 skill 目录。
+`beta0.5.11` 的 npm 发布仍为 `NOT_RUN`。只有本次发布完成后实际验证 `beta`
+dist-tag 指向 `0.5.11-beta.0`，并通过 online install smoke，才可更新上述状态。
+若 GitHub Packages 客户端要求认证，只授予最小 `read:packages`，通过进程内
+`NODE_AUTH_TOKEN` 与临时 npmrc 使用；不得把 token 写入命令行、仓库、项目
+`.npmrc`、日志或其他持久化配置，用后立即移除临时 npmrc 和进程变量。
 
 ## 发布 / Release
 
-规范产品名、repository/skill/package 标识与调用分别为
-`Decretum Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix`。
+规范显示名逐字为 `Dercretum-Matrix`；`诏令矩阵` 仅是中文解释。
+repository/skill/package machine 标识与调用保持为 `decretum-matrix`、
+`$decretum-matrix`。
 项目主页：[github.com/RowlandL/decretum-matrix](https://github.com/RowlandL/decretum-matrix)。
 
 当前源码发布身份为 `release/beta0.5.11` / `beta0.5.11`，本节记录
@@ -41,13 +54,17 @@ Apache-2.0 历史证据与兼容 locator：
 
 ### beta0.5.11 更新、修复与新增
 
-- 层级：普通调度与 `superCC` 共用 `court.dispatch_hierarchy.v1`；正常链固定为 `user -> taizi -> 三省`、`shangshu -> 六部`、六部仅差遣本部 bounded child。
-- TOCTOU：approved lease 冻结差遣 body、read/write access contract、child profile、profile/dossier/skill/P00 hashes、expiry 与 canonical binding SHA-256；admission 与 agent-start 在写状态前复核。
-- `superCC`：pane/squad/native-enter 只增加 transport evidence，不得重解释 shared validator；非法层级在 bootstrap、投递、wake 与状态变更前 fail closed。
-- 史馆：WebUI 以 filesystem preserve-only autosync 为主健康状态；Obsidian REST 为可选、失败非阻塞；复用既有 daemon 时只提交异步 refresh request，避免重复同步循环。
-- NPM：version-neutral 私有 harness 动态推导 `@rowlandl/decretum-matrix@0.5.11-beta.0`；source harness exact four 明确 repository-only，不进入 portable ZIP；验证 nested-ZIP privacy、双次 pack 确定性和 strict offline install。
-- 门禁：发布策略共 41 步（source 36、installation 4、runtime 1）；candidate pre-install 选择 35 步，正常 post-install 选择 5 步。
+- RB1：admission atomicity 统一 shared hierarchy/profile gate；零 mutation 拒绝保持状态不变，v2 lease 绑定 preload，admission event anchor 只追加不改写。
+- RB2：正常 `superCC` lifecycle 共用 delivery preflight；identity ACK、`preload_pending -> delivery success`、`ENTER_DISPATCH` P00 context 与 delivery/state atomic chain 全部 fail closed，并补齐 correction gaps。
+- 史馆：WebUI 与 autosync 状态转换保持原子；filesystem preserve-only daemon 是主通道，Obsidian REST 可选且失败非阻塞，既有 daemon 只接收异步 refresh request。
+- 正式结诏：`诏令编号` 格式为 `层级码串-YYYYMMDD-日内 uppercase base36 序号-四字码`，正例 `SCGSDYJM-20260606-1Z-DAAA`；`古制谱系` 必须精确七层 `史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`。`CCR`、`Phase`、`RB`、task id 或 workflow path 均不得充当内容谱系。
+- Source split：dispatch contract、delivery、admission contract 与 autosync public projection 分属独立模块和既有 line ceilings；focused checker 读取实时 source-state，不再固定 measured bytes。
+- Intervention baseline：caller/direct-superior、bounded child ownership/write scope、serial no-mutation、canonical preload 与 16-slot tree cap fixtures 已与 production admission contract 对齐。
+- npm：公开 `beta` 仍是 `0.5.10-beta.0` backfill carrier；`0.5.11-beta.0` 仅是本地 version-neutral harness 推导的候选身份，npm publish 为 `NOT_RUN`。
+- 安装：canonical physical authority 是 `skills/decretum-matrix`；旧 `skills/court-capability-router` 只能缺省不存在或作为同一 authority 的兼容 locator/junction/router。ZIP internal root 仍为 `court-capability-router/`，本机迁移为 `NOT_RUN`。
+- 门禁：发布策略共 42 步（source 37、installation 4、runtime 1）；candidate pre-install 选择 36 个 source steps，正常 post-install 选择 5 步。
 - 隐私：本轮 `pending_body_access=NO`；pending 正文不读、不哈希、不搬移、不删除。
+- The beta0.5.11 release source tree measures 273 portable files / 6,138,661 bytes against the unchanged ceiling of 275 files / 6,200,000 bytes.
 
 ### 能做什么
 
@@ -72,7 +89,7 @@ Apache-2.0 历史证据与兼容 locator：
 
 ### 这是什么
 
-Decretum Matrix（诏令矩阵）是一个规范名为 `decretum-matrix` 的 Codex skill，
+Dercretum-Matrix（中文解释：诏令矩阵）是一个规范名为 `decretum-matrix` 的 Codex skill，
 用来把本机 Codex 的任务执行、能力选择、并行 agente、脚本工具、史馆记录和最终
 复核统一到一套“三省六部”工作流里。它不是单纯的输出风格模板，而是一个语义
 路由器：当用户点名 `$decretum-matrix` 或任务需要能力分派时，它会把请求转成
@@ -311,10 +328,15 @@ python -B scripts/check_codex_agent_roles.py
 
 正式任务完成、暂停、阻塞、取消或交接前，skill 会重载核心语义章节并做门下复核。用户侧最终报告固定为十四行短结诏，包含跟随实际办差运行时的 `作业AI` 标签；史馆侧保留完整结诏。这样可以避免长上下文后输出变成普通项目总结而丢失朝廷责任链。
 
+正式 `诏令编号` 必须符合 `层级码串-YYYYMMDD-日内 uppercase base36 序号-四字码`，
+例如 `SCGSDYJM-20260606-1Z-DAAA`。`古制谱系` 必须是七层内容分类：
+`史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`。
+`CCR`、`Phase`、`RB`、task id 和 workflow path 都是内部协议或执行路径，不能作为谱系。
+
 ### 这个 ZIP 包包含什么
 
 典型结构如下。ZIP 内根 `court-capability-router/` 是受保护的兼容 locator，
-加载后的规范身份仍是 `Decretum Matrix（诏令矩阵）` / `decretum-matrix`：
+加载后的规范身份仍是 `Dercretum-Matrix` / `decretum-matrix`：
 
 ```text
 court-capability-router/
@@ -339,8 +361,10 @@ court-capability-router/
 
 ### 安装方式概览
 
-解压后把物理包根 `court-capability-router` 复制到 Codex skills 目录的同名兼容
-locator；不得创建第二份 `decretum-matrix` alias 目录，loader 必须暴露规范身份：
+ZIP 内物理包根继续是受保护的 `court-capability-router/`，但 canonical physical
+安装目标是 `skills/decretum-matrix`。旧 `skills/court-capability-router` 只能不存在，
+或作为解析到同一物理 authority 的兼容 locator/junction/router，不能形成第二副本。
+以下是空白主机的 no-clobber 示例；本机 beta0.5.11 路径迁移仍为 `NOT_RUN`：
 
 ```python
 from pathlib import Path
@@ -349,7 +373,7 @@ import shutil
 
 src = Path("court-capability-router")
 skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
-dst = skills_root / "court-capability-router"
+dst = skills_root / "decretum-matrix"
 if dst.exists():
     raise SystemExit(f"refusing to overwrite existing install: {dst}")
 shutil.copytree(src, dst)
@@ -511,8 +535,9 @@ python -B scripts/memory_decision.py --topic "topic" --decision "SKIP" --content
 
 ### What This Is
 
-Decretum Matrix（诏令矩阵） is a Codex skill whose canonical name and invocation
-are `decretum-matrix` and `$decretum-matrix`. It routes local Codex work through
+Dercretum-Matrix (`诏令矩阵` is an explanatory Chinese label) is a Codex skill
+whose canonical name and invocation are `decretum-matrix` and `$decretum-matrix`.
+It routes local Codex work through
 a structured Three Departments and Six Ministries court workflow, coordinating
 task interpretation, capability selection, parallel agents, local scripts,
 audit records, memory decisions, and final review.
@@ -777,10 +802,12 @@ If a template is copied directly into `.codex/agents`, the check reports `TEMPLA
 
 Before a formal task is completed, paused, blocked, cancelled, or handed off, the skill reloads its core semantic sections and performs Menxia review. The user-facing final answer uses a fixed fourteen-line short memorial with a runtime `作业AI` label, while the Shiguan side keeps the complete memorial. This prevents long-context drift into a generic project-manager summary.
 
+A formal decree identifier follows `layer-code-string-YYYYMMDD-daily uppercase base36 sequence-four-character code`; `SCGSDYJM-20260606-1Z-DAAA` is the positive example. Ancient lineage is exactly the seven-layer content classification `史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`. `CCR`, `Phase`, `RB`, task ids, and workflow paths are internal protocol terms, not lineage.
+
 ### What This ZIP Contains
 
 Typical structure follows. The `court-capability-router/` ZIP root is a protected
-compatibility locator; the loaded identity remains Decretum Matrix / `decretum-matrix`:
+compatibility locator; the loaded identity remains Dercretum-Matrix / `decretum-matrix`:
 
 ```text
 court-capability-router/
@@ -805,10 +832,12 @@ This is a portable core package. It includes the skill semantics, standing-offic
 
 ### Installation Overview
 
-After extracting the ZIP, copy the physical `court-capability-router` package
-root to the same protected locator in the Codex skills directory. Do not create
-a second `decretum-matrix` alias directory; the loader must expose the canonical
-identity:
+The extracted ZIP root remains the protected `court-capability-router/` locator,
+while the canonical physical install target is `skills/decretum-matrix`.
+Legacy `skills/court-capability-router` must be absent or resolve through a
+locator, junction, or router to that same physical authority; it must not be a
+second copy. This no-clobber example is for a blank host. The beta0.5.11 host
+path migration remains `NOT_RUN`:
 
 ```python
 from pathlib import Path
@@ -817,7 +846,7 @@ import shutil
 
 src = Path("court-capability-router")
 skills_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
-dst = skills_root / "court-capability-router"
+dst = skills_root / "decretum-matrix"
 if dst.exists():
     raise SystemExit(f"refusing to overwrite existing install: {dst}")
 shutil.copytree(src, dst)

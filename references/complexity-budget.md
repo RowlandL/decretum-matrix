@@ -59,9 +59,8 @@ measured revision rather than silently raising these limits.
 
 ## 2026-07-17 Measured Revision
 
-The RB2 source-budget split measures the portable tree at 273 files and
-6,128,217 bytes. The aggregate ceiling is therefore 275 files / 6,200,000
-bytes; it is a bounded measured allowance, not a general growth entitlement.
+The beta0.5.11 release source tree measures 273 portable files / 6,138,661 bytes against the unchanged ceiling of 275 files / 6,200,000 bytes.
+This is a bounded measured allowance, not a general growth entitlement.
 The existing monolith ceilings remain unchanged at 5,700 lines for
 `ensure_supercc_court.py`, 850 for `court_agent_admission.py`, and 2,800 for
 `serve_shiguan_tree.py`.

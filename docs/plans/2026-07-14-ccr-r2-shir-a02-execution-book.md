@@ -1166,3 +1166,9 @@ Git index empty
 - **负例：** `诏令编号=CCR-R2-SHIR-20260714-A02-RB3-20260717`；`古制谱系=总体执行书→Phase 2-3→RB3→autosync 残余复核`。两者均被正式 shape 门禁拒绝。
 - **正例：** `诏令编号=SCGSDYJM-20260606-1Z-DAAA`；`古制谱系=史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`。两者通过 checker。
 - **边界与保护：** 不批量改写历史 `court_code`，不隐藏 Web 字段，不修改 host/install/publish/root/mainline/manifest，不读取、哈希、移动、删除或标记 pending 正文；未调用宿主对话写入、删除或归档，只读 task 定位调用超时后终止且无状态改变，conversation delete/archive/write count=`0`，visible task 保持未归档。
+
+### 2026-07-17 当前身份 superseding note
+
+- 从 `release/beta0.5.11` 当前源码身份起，正式显示名逐字为 `Dercretum-Matrix`；`诏令矩阵` 仅作中文解释。machine/package/canonical skill name 与调用保持 `decretum-matrix` / `$decretum-matrix`。
+- 本 note supersede 本执行书内所有面向当前产品状态的早期 display 拼写；既有日期化计划、历史 release/receipt、路径、兼容说明和审计证据保持原字节与原语境，不作追溯改写。
+- Canonical physical install authority 是 `skills/decretum-matrix`，ZIP internal root 仍为 `court-capability-router/`；旧安装 locator 只可不存在或解析到同一物理 authority。本机 beta0.5.11 路径迁移仍为 `NOT_RUN`，本 note 不授权安装、迁移、candidate、build、publish 或任何 pending/史馆数据动作。
