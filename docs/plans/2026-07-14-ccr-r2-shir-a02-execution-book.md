@@ -1131,12 +1131,15 @@ Git index empty
 - 每路必须先做可回滚备份/preimage，随后只安装已验收包、执行该版本声明的有界迁移与索引，再回读 loader/runtime、版本、identity manifest 和逐文件 SHA-256。旧版本制品、旧 state/events、protected Shiguan 四文件与 pending body 均不得改写或读取。
 - 只有 `PER_RELEASE_LOCAL_INSTALL=PASS`、`AFFECTED_DATA_MIGRATION=PASS|NOT_APPLICABLE`、`CAPABILITY_AND_SHIGUAN_INDEX=PASS|NOT_APPLICABLE`、五根/批准根 hash 等价、全部 index=0 后，才允许签发该版本 release closeout、上一版本上传终态和下一 release 分支交接。
 
-#### FINAL_SKILL_INSTALL_PATH_RENAME_GATE（最新旨意，PLAN_ONLY）
+#### FINAL_SKILL_INSTALL_PATH_RENAME_GATE（最新安装授权；当前提交 PLAN_ONLY）
 
-- 本 gate supersede 本执行书中任何把 `skills/court-capability-router` 视为最终 physical install authority 的旧表述；canonical final install dir 一律为每个授权安装根的 `skills/decretum-matrix`，folder 与 machine name 对齐为 `decretum-matrix`。
-- 未来执行必须复用统一 updater 的 `backup -> staged atomic rename/move -> native loader reread -> five-root path/hash/identity proof -> rollback(on failure)`；成功后最多一个物理 authority，旧路径仅可为 deprecated compatibility locator/junction/router，失败必须恢复 preimage 且不得留下双物理 authority。
-- 本 gate 不自动改名或迁移 shared Shiguan runtime data locator。任何 `court-shiguan/court-capability-router` namespace 变更均需独立最新授权、preimage、lineage 与 pending-body 门禁；Skill path rename 不能推定 Shiguan path rename。
-- 当前仅落计划：宿主热迁移、root/mainline、release manifest、安装根、shared Shiguan 与 `pending/**` 均为 `NOT_RUN`，待未来独立 write set、clean worktree、single writer 和 checker-first RED/GREEN 后恢复。
+- **授权生效游标：** `3.1A/steps-1-5=PASS -> TAGLESS_CANDIDATE_GATE=PASS -> CANDIDATE_REUSE_GATE=PASS -> check_release_gate(--phase pre-install)=PASS -> FINAL_SKILL_INSTALL_PATH_RENAME_GATE=AUTHORIZED_TO_EXECUTE`。只有 source/write-set/manifest/legal/SPEC/QUALITY、accepted commit、唯一候选包及安装前门禁全部有匹配 receipt 后，本机安装迁移授权才生效；届时按既有 `尚书 -> 工部 -> 安装工匠` 层级和已批准整体 install write set 直接执行，无需再逐文件询问。该授权不绕过阶段顺位、single writer、clean worktree/index、preimage、验收或首错停止门禁；任一前置项不为 PASS 时保持 `NOT_YET_EFFECTIVE`。
+- **授权写集：** 覆盖全部 Decretum Matrix 安装代码、package/install metadata、native loader 与 path references、deprecated compatibility entrypoints、文件夹名称及五根受控投影。每个授权安装根的 canonical physical path 固定为 `skills/decretum-matrix`，folder、machine name 与 canonical skill name 均为 `decretum-matrix`，且必须证明 `physical_authority_count=1`；旧 `skills/court-capability-router` 仅可缺省不存在或作为指向同一 authority 的 deprecated compatibility locator/junction/router，禁止旧/新双物理 authority。
+- **唯一排除面：史馆数据本身。** Shared Shiguan 的 `pending/body/index/evidence/data bytes` 一律 `NO_READ | NO_WRITE | NO_MOVE | NO_REWRITE`；本授权不给现有 Shiguan index/data branch 写权。安装代码只可更新并验证 locator/junction/router 本身，使其继续指向既有共享史馆数据，不得打开数据正文或改变数据字节。品牌迁移、Skill 目录迁移或 compatibility path cutover 均不得推定、夹带或触发 Shiguan 数据迁移。
+- **强制事务：** 统一 updater 必须执行 `backup -> staged atomic rename/move/apply -> native loader reread -> five-root hash/path/identity proof -> rollback on any failure`。任何失败都必须恢复完整 preimage、移除不完整的新物理 authority、恢复受控 compatibility locator，并再次证明没有旧/新双物理 authority；禁止先复制后长期并存、静默覆盖、只改 manifest/path string 或跳过 native reread。
+- **终态与恢复：** 成功终态为 `LOCAL_SKILL_PATH_MIGRATION=PASS`，随后游标进入 `check_release_gate(--phase post-install)=PASS -> PER_RELEASE_LOCAL_INSTALL=PASS`；事务失败但完整回滚为 `LOCAL_SKILL_PATH_MIGRATION=ROLLED_BACK`，游标退回首个失败的 source/candidate/pre-install gate；无法证明 preimage 恢复、残留清除或单物理 authority 时为 `LOCAL_SKILL_PATH_MIGRATION=BLOCKED_MANUAL_RECOVERY`，立即停止 post-install、release closeout 与下一分支交接，不得伪报 PASS。
+- **外部动作边界：** 本授权只覆盖上述本机安装迁移，不新增或推定 remote、push、tag、PR、GitHub release、asset upload 或 publish 权限；这些动作继续为 `NOT_RUN`，除非另有独立、逐动作的最新明确授权。
+- **当前提交边界：** 本次只在 updater branch 以 docs-only commit 记录授权，`AUTHORIZATION_RECORDED=YES`、`HOST_INSTALL_MUTATION=NOT_RUN`；root/mainline、release manifest、host install roots、shared Shiguan data 与 `pending/**` 均不得触碰。本提交不声称候选、pre-install 或迁移 gate 已实际通过。
 
 ### Post-A02 Office Identity Pack / DLC / Scope queue
 
