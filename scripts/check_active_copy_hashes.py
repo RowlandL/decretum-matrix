@@ -1,4 +1,4 @@
-"""Verify active court-capability-router skill copies have matching source hashes."""
+"""Verify active Decretum Matrix skill copies have matching source hashes."""
 
 from __future__ import annotations
 
@@ -11,6 +11,10 @@ import sys
 sys.dont_write_bytecode = True
 
 from court_platform import user_data_base
+
+
+CANONICAL_INSTALL_DIRECTORY_NAME = "decretum-matrix"
+LEGACY_INSTALL_DIRECTORY_NAME = "court-capability-router"
 
 
 EXCLUDED_DIRS = {
@@ -52,12 +56,23 @@ FORBIDDEN_GENERATED_EXACT = {
 def active_roots() -> list[Path]:
     home = Path.home()
     return [
-        home / ".agents" / "skills" / "court-capability-router",
-        home / ".codex" / "skills" / "court-capability-router",
-        home / ".claude" / "skills" / "court-capability-router",
-        home / ".hermes" / "skills" / "court-capability-router",
-        user_data_base() / "hermes" / "skills" / "court-capability-router",
+        home / ".agents" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME,
+        home / ".codex" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME,
+        home / ".claude" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME,
+        home / ".hermes" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME,
+        user_data_base() / "hermes" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME,
     ]
+
+
+def legacy_locator_conflicts(roots: list[Path]) -> list[str]:
+    conflicts: list[str] = []
+    for root in roots:
+        legacy = root.with_name(LEGACY_INSTALL_DIRECTORY_NAME)
+        if (legacy.exists() or legacy.is_symlink()) and (
+            legacy.resolve(strict=False) != root.resolve(strict=False)
+        ):
+            conflicts.append(str(legacy))
+    return conflicts
 
 
 def should_skip(path: Path, root: Path) -> bool:
@@ -142,6 +157,7 @@ def sha256(path: Path) -> str:
 
 def check(files: list[str] | None = None) -> dict[str, object]:
     roots = active_roots()
+    legacy_conflicts = legacy_locator_conflicts(roots)
     missing_roots = [str(root) for root in roots if not root.exists()]
     forbidden_generated: dict[str, list[str]] = {}
     for root in roots:
@@ -174,12 +190,13 @@ def check(files: list[str] | None = None) -> dict[str, object]:
                 }
             )
     return {
-        "ok": not missing_roots and not drift and not forbidden_generated,
+        "ok": not missing_roots and not drift and not forbidden_generated and not legacy_conflicts,
         "roots": [str(root) for root in roots],
         "missing_roots": missing_roots,
         "checked_files": len(relatives),
         "drift": drift,
         "forbidden_generated": forbidden_generated,
+        "legacy_locator_conflicts": legacy_conflicts,
     }
 
 
@@ -200,6 +217,8 @@ def main() -> int:
             print(json.dumps(item, ensure_ascii=False, sort_keys=True))
         if result["missing_roots"]:
             print("MISSING_ROOTS " + ", ".join(result["missing_roots"]))
+        if result["legacy_locator_conflicts"]:
+            print("LEGACY_LOCATOR_CONFLICTS " + ", ".join(result["legacy_locator_conflicts"]))
         for root, paths in result["forbidden_generated"].items():
             print(f"FORBIDDEN_GENERATED {root} " + ", ".join(paths[:50]))
     return 0 if result["ok"] else 2

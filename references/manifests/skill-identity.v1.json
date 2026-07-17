@@ -25,12 +25,14 @@
   ],
   "locator_policy": {
     "repository_id": "decretum-matrix",
-    "install_directory_name": "court-capability-router",
+    "install_directory_name": "decretum-matrix",
+    "legacy_install_directory_name": "court-capability-router",
+    "legacy_install_locator_policy": "absent_or_same_physical_authority",
     "shiguan_namespace": "court-capability-router",
     "python_locator_pattern": "court.*",
     "environment_locator_pattern": "COURT_*",
     "service_name": "CourtShiguanDaemon",
-    "directory_basename_may_differ_from_skill_name": true,
-    "rename_policy": "rename_repository_preserve_install_and_shiguan_locators"
+    "directory_basename_may_differ_from_skill_name": false,
+    "rename_policy": "rename_install_directory_preserve_shiguan_namespace"
   }
 }

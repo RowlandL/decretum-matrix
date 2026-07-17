@@ -4,7 +4,7 @@
 The public entry point is dependency-injected.  It does not discover or mutate
 real host configuration by itself; configuration work is possible only through
 the adapter supplied by the caller.  This keeps tests and blank-host planning
-safe while preserving the stable ``court-capability-router`` install locator.
+safe while using the canonical ``decretum-matrix`` physical install directory.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 import sys
 import tempfile
 from typing import Any
+import uuid
 
 
 sys.dont_write_bytecode = True
@@ -42,9 +43,14 @@ LOADED_IDENTITY_EXPECTED = {
     "maintainer_github_id": 42199880,
 }
 LOCATOR_POLICY_EXPECTED = {
-    "install_directory_name": "court-capability-router",
+    "install_directory_name": "decretum-matrix",
+    "legacy_install_directory_name": "court-capability-router",
+    "legacy_install_locator_policy": "absent_or_same_physical_authority",
     "shiguan_namespace": "court-capability-router",
+    "directory_basename_may_differ_from_skill_name": False,
+    "rename_policy": "rename_install_directory_preserve_shiguan_namespace",
 }
+LEGACY_INSTALL_DIRECTORY_NAME = "court-capability-router"
 FORBIDDEN_PROJECTION_PREFIXES = (
     ("references", "agente-logs"),
     ("references", "court-runtime"),
@@ -230,7 +236,7 @@ def _select_targets(
     selected: list[tuple[str, Path, str]] = [
         (
             "shared_agents",
-            home_root / ".agents" / "skills" / "court-capability-router",
+            home_root / ".agents" / "skills" / "decretum-matrix",
             "shared_agents",
         )
     ]
@@ -258,6 +264,61 @@ def _select_targets(
         if target.name != LOCATOR_POLICY_EXPECTED["install_directory_name"]:
             raise _InstallContractError("physical_install_locator_drift", str(target))
     return selected
+
+
+def _is_junction(path: Path) -> bool:
+    probe = getattr(path, "is_junction", None)
+    return bool(callable(probe) and probe())
+
+
+def _install_root_transition_candidates(
+    selected: list[tuple[str, Path, str]],
+) -> list[dict[str, object]]:
+    transitions: list[dict[str, object]] = []
+    for _label, target, _projection in selected:
+        legacy = target.with_name(LEGACY_INSTALL_DIRECTORY_NAME)
+        legacy_present = legacy.exists() or legacy.is_symlink() or _is_junction(legacy)
+        target_present = target.exists() or target.is_symlink() or _is_junction(target)
+        if legacy_present and legacy.resolve(strict=False) != target.resolve(strict=False):
+            if target_present:
+                raise _InstallContractError("dual_physical_authority", str(legacy))
+            if legacy.is_symlink() or _is_junction(legacy) or not legacy.is_dir():
+                raise _InstallContractError("legacy_locator_conflict", str(legacy))
+            transitions.append(
+                {
+                    "mode": "LEGACY_MIGRATION",
+                    "source_root": legacy,
+                    "restore_root": legacy,
+                    "canonical_root": target,
+                }
+            )
+            continue
+        if target_present:
+            if target.is_symlink() or _is_junction(target) or not target.is_dir():
+                raise _InstallContractError("canonical_physical_root_invalid", str(target))
+            transitions.append(
+                {
+                    "mode": "CANONICAL_UPDATE",
+                    "source_root": target,
+                    "restore_root": target,
+                    "canonical_root": target,
+                }
+            )
+    return transitions
+
+
+def _required_root_transitions(
+    candidates: list[dict[str, object]],
+    operations: list[tuple[Path, bytes, bytes | None]],
+) -> list[dict[str, object]]:
+    required: list[dict[str, object]] = []
+    for candidate in candidates:
+        canonical = Path(str(candidate["canonical_root"]))
+        if candidate.get("mode") == "LEGACY_MIGRATION" or any(
+            _within(path, canonical) for path, _payload, _previous in operations
+        ):
+            required.append(candidate)
+    return required
 
 
 def _expand_projection(
@@ -340,38 +401,52 @@ def _plan_projection_writes(
     source_root: Path,
     manifest: dict[str, object],
     selected: list[tuple[str, Path, str]],
-) -> tuple[list[tuple[Path, bytes]], dict[str, int]]:
+    migration_sources: dict[Path, Path] | None = None,
+) -> tuple[list[tuple[Path, bytes, bytes | None]], dict[str, int]]:
     projections = manifest["projections"]
     assert isinstance(projections, dict)
     expanded: dict[str, list[tuple[PurePosixPath, bytes]]] = {}
-    operations: list[tuple[Path, bytes]] = []
+    operations: list[tuple[Path, bytes, bytes | None]] = []
     identical = 0
+    replacements = 0
     for _label, target, projection_name in selected:
+        migration_source = (migration_sources or {}).get(target.resolve(strict=False))
+        inspection_root = migration_source or target
         if projection_name not in expanded:
             values = projections[projection_name]
             assert isinstance(values, list)
             expanded[projection_name] = _expand_projection(source_root, values)
         for relative, payload in expanded[projection_name]:
             destination = target / Path(relative.as_posix())
+            existing = inspection_root / Path(relative.as_posix())
             if not _within(destination, target) or not _parent_chain_is_directory(
                 destination, target
             ):
                 raise _InstallContractError(
                     "target_path_escape", str(destination)
                 )
-            if destination.exists() or destination.is_symlink():
-                if (
-                    destination.is_symlink()
-                    or not destination.is_file()
-                    or destination.read_bytes() != payload
-                ):
+            if existing.exists() or existing.is_symlink():
+                if existing.is_symlink() or not existing.is_file():
                     raise _InstallContractError(
-                        "target_conflict", destination.as_posix()
+                        "target_conflict", existing.as_posix()
                     )
+                previous = existing.read_bytes()
+                if previous != payload:
+                    if migration_source is None:
+                        raise _InstallContractError(
+                            "target_conflict", existing.as_posix()
+                        )
+                    operations.append((destination, payload, previous))
+                    replacements += 1
+                    continue
                 identical += 1
                 continue
-            operations.append((destination, payload))
-    return operations, {"create": len(operations), "identical": identical}
+            operations.append((destination, payload, None))
+    return operations, {
+        "create": len(operations) - replacements,
+        "replace": replacements,
+        "identical": identical,
+    }
 
 
 def _atomic_create(path: Path, payload: bytes) -> None:
@@ -396,28 +471,249 @@ def _atomic_create(path: Path, payload: bytes) -> None:
             temp_path.unlink()
 
 
-def _apply_projection_writes(
-    operations: list[tuple[Path, bytes]],
+def _atomic_replace_file(path: Path, payload: bytes) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise _InstallContractError("target_conflict", path.as_posix())
+    handle = tempfile.NamedTemporaryFile(
+        mode="wb",
+        prefix=f".{path.name}.install-",
+        dir=path.parent,
+        delete=False,
+    )
+    temp_path = Path(handle.name)
+    try:
+        with handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def _transaction_checkpoint(
+    adapter: object | None,
+    step: str,
+    **evidence: object,
+) -> None:
+    if adapter is None:
+        return
+    checkpoint = getattr(adapter, "checkpoint", None)
+    if not callable(checkpoint):
+        raise _InstallContractError("install_transaction_adapter_invalid")
+    checkpoint(step, evidence)
+
+
+def _rollback_projection_writes(
+    applied: list[tuple[Path, bytes | None]],
     selected: list[tuple[str, Path, str]],
 ) -> None:
-    created: list[Path] = []
     target_roots = [target.resolve(strict=False) for _label, target, _kind in selected]
-    try:
-        for path, payload in operations:
-            _atomic_create(path, payload)
-            created.append(path)
-    except Exception:
-        for path in reversed(created):
+    for path, previous in reversed(applied):
+        if previous is None:
             if path.is_file() and not path.is_symlink():
                 path.unlink()
-            parent = path.parent
-            while parent.resolve(strict=False) not in target_roots:
-                try:
-                    parent.rmdir()
-                except OSError:
-                    break
-                parent = parent.parent
+        else:
+            _atomic_replace_file(path, previous)
+        parent = path.parent
+        while previous is None and parent.resolve(strict=False) not in target_roots:
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+
+
+def _apply_projection_writes(
+    operations: list[tuple[Path, bytes, bytes | None]],
+    selected: list[tuple[str, Path, str]],
+    install_transaction_adapter: object | None = None,
+) -> list[tuple[Path, bytes | None]]:
+    applied: list[tuple[Path, bytes | None]] = []
+    try:
+        for path, payload, previous in operations:
+            if previous is None:
+                _atomic_create(path, payload)
+            else:
+                _atomic_replace_file(path, payload)
+            applied.append((path, previous))
+            if path.read_bytes() != payload:
+                raise RuntimeError(f"projection verification failed: {path}")
+            _transaction_checkpoint(
+                install_transaction_adapter,
+                "projection_file_applied",
+                path=str(path),
+            )
+    except Exception:
+        _rollback_projection_writes(applied, selected)
         raise
+    return applied
+
+
+def _unpublish_root_transitions(records: list[dict[str, object]]) -> None:
+    for record in reversed(records):
+        canonical = Path(str(record["canonical_root"]))
+        stage = Path(str(record["stage_root"]))
+        if (canonical.exists() or canonical.is_symlink()) and not (
+            stage.exists() or stage.is_symlink()
+        ):
+            os.replace(canonical, stage)
+
+
+def _restore_root_transitions(records: list[dict[str, object]]) -> None:
+    for record in reversed(records):
+        restore_root = Path(str(record["restore_root"]))
+        stage = Path(str(record["stage_root"]))
+        if stage.exists() or stage.is_symlink():
+            if restore_root.exists() or restore_root.is_symlink():
+                raise RuntimeError(
+                    f"install rollback destination occupied: {restore_root}"
+                )
+            os.replace(stage, restore_root)
+
+
+def _staged_selected(
+    selected: list[tuple[str, Path, str]],
+    records: list[dict[str, object]],
+) -> list[tuple[str, Path, str]]:
+    stages = {
+        Path(str(record["canonical_root"])): Path(str(record["stage_root"]))
+        for record in records
+    }
+    return [
+        (label, stages.get(target, target), projection)
+        for label, target, projection in selected
+    ]
+
+
+def _staged_operations(
+    operations: list[tuple[Path, bytes, bytes | None]],
+    records: list[dict[str, object]],
+) -> list[tuple[Path, bytes, bytes | None]]:
+    roots = [
+        (Path(str(record["canonical_root"])), Path(str(record["stage_root"])))
+        for record in records
+    ]
+    staged: list[tuple[Path, bytes, bytes | None]] = []
+    for path, payload, previous in operations:
+        destination = path
+        for canonical, stage in roots:
+            try:
+                relative = path.relative_to(canonical)
+            except ValueError:
+                continue
+            destination = stage / relative
+            break
+        staged.append((destination, payload, previous))
+    return staged
+
+
+def _apply_install_transaction(
+    *,
+    operations: list[tuple[Path, bytes, bytes | None]],
+    selected: list[tuple[str, Path, str]],
+    transitions: list[dict[str, object]],
+    install_transaction_adapter: object | None,
+) -> list[dict[str, object]]:
+    if install_transaction_adapter is not None and not callable(
+        getattr(install_transaction_adapter, "checkpoint", None)
+    ):
+        raise _InstallContractError("install_transaction_adapter_invalid")
+    records: list[dict[str, object]] = []
+    applied: list[tuple[Path, bytes | None]] = []
+    transaction_selected = selected
+    try:
+        for transition in transitions:
+            source_root = Path(str(transition["source_root"]))
+            restore_root = Path(str(transition["restore_root"]))
+            canonical = Path(str(transition["canonical_root"]))
+            stage = canonical.parent / (
+                f".{canonical.name}.install-migration-{uuid.uuid4().hex}"
+            )
+            if stage.exists() or stage.is_symlink():
+                raise _InstallContractError("install_migration_stage_conflict", str(stage))
+            if (canonical.exists() or canonical.is_symlink()) and canonical != source_root:
+                raise _InstallContractError(
+                    "dual_physical_authority",
+                    str(canonical),
+                )
+            os.replace(source_root, stage)
+            record: dict[str, object] = {
+                "mode": str(transition["mode"]),
+                "source_root": str(source_root),
+                "restore_root": str(restore_root),
+                "canonical_root": str(canonical),
+                "stage_root": str(stage),
+                "status": "BACKED_UP",
+            }
+            records.append(record)
+            _transaction_checkpoint(
+                install_transaction_adapter,
+                "source_root_backed_up",
+                source_root=str(source_root),
+                restore_root=str(restore_root),
+                stage_root=str(stage),
+            )
+        transaction_selected = _staged_selected(selected, records)
+        applied = _apply_projection_writes(
+            _staged_operations(operations, records),
+            transaction_selected,
+            install_transaction_adapter,
+        )
+        _transaction_checkpoint(
+            install_transaction_adapter,
+            "before_commit",
+            migration_count=len(records),
+            created_count=sum(1 for _path, previous in applied if previous is None),
+        )
+        for record in records:
+            canonical = Path(str(record["canonical_root"]))
+            stage = Path(str(record["stage_root"]))
+            if canonical.exists() or canonical.is_symlink():
+                raise _InstallContractError(
+                    "dual_physical_authority",
+                    str(canonical),
+                )
+            os.replace(stage, canonical)
+            record["status"] = "PUBLISHED"
+            _transaction_checkpoint(
+                install_transaction_adapter,
+                "canonical_published",
+                canonical_root=str(canonical),
+            )
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        try:
+            _unpublish_root_transitions(records)
+        except Exception as rollback_exc:
+            rollback_errors.append(
+                f"unpublish:{type(rollback_exc).__name__}:{rollback_exc}"
+            )
+        try:
+            _rollback_projection_writes(applied, transaction_selected)
+        except Exception as rollback_exc:
+            rollback_errors.append(
+                f"projection:{type(rollback_exc).__name__}:{rollback_exc}"
+            )
+        try:
+            _restore_root_transitions(records)
+        except Exception as rollback_exc:
+            rollback_errors.append(
+                f"restore:{type(rollback_exc).__name__}:{rollback_exc}"
+            )
+        if rollback_errors:
+            raise _InstallContractError(
+                "install_rollback_failed",
+                f"{type(exc).__name__}:{exc};rollback:{'|'.join(rollback_errors)}",
+            ) from exc
+        raise _InstallContractError(
+            "install_transaction_failed",
+            f"{type(exc).__name__}:{exc}",
+        ) from exc
+    for record in records:
+        record["status"] = "APPLIED"
+    return records
 
 
 def _nested_get(data: object, dotted_key: str) -> object:
@@ -964,6 +1260,7 @@ def install_current_agent_copy(
     fanout: bool = False,
     blank_host_configuration: dict[str, object] | None = None,
     configuration_adapter: object | None = None,
+    install_transaction_adapter: object | None = None,
     platform_context: dict[str, object] | None = None,
     source_package_sha256: str | None = None,
 ) -> dict[str, object]:
@@ -987,13 +1284,41 @@ def install_current_agent_copy(
             explicit_tools=list(explicit_tools),
             tool_roots={key: Path(value) for key, value in tool_roots.items()},
         )
+        transition_candidates = _install_root_transition_candidates(selected)
         operations, projection_counts = _plan_projection_writes(
             source_root=source,
             manifest=manifest,
             selected=selected,
+            migration_sources={
+                Path(str(item["canonical_root"])).resolve(strict=False): Path(
+                    str(item["source_root"])
+                )
+                for item in transition_candidates
+            },
+        )
+        transitions = _required_root_transitions(
+            transition_candidates,
+            operations,
         )
         if write:
-            _apply_projection_writes(operations, selected)
+            transition_receipts = _apply_install_transaction(
+                operations=operations,
+                selected=selected,
+                transitions=transitions,
+                install_transaction_adapter=install_transaction_adapter,
+            )
+        else:
+            transition_receipts = [
+                {
+                    "mode": str(item["mode"]),
+                    "source_root": str(item["source_root"]),
+                    "restore_root": str(item["restore_root"]),
+                    "canonical_root": str(item["canonical_root"]),
+                    "stage_root": None,
+                    "status": "PLANNED",
+                }
+                for item in transitions
+            ]
     except _InstallContractError as exc:
         return _failure(exc.reason, detail=exc.detail)
     except Exception as exc:
@@ -1016,6 +1341,12 @@ def install_current_agent_copy(
         ],
         "protected_shiguan_locator": LOCATOR_POLICY_EXPECTED[
             "shiguan_namespace"
+        ],
+        "install_root_transitions": transition_receipts,
+        "legacy_migrations": [
+            {**item, "legacy_root": item["source_root"]}
+            for item in transition_receipts
+            if item.get("mode") == "LEGACY_MIGRATION"
         ],
         "pending_body_accessed": False,
         "real_host_configuration_accessed": False,

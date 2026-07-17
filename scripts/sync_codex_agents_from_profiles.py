@@ -113,11 +113,11 @@ def skill_root() -> Path:
 
 
 def codex_skill_root() -> Path:
-    return codex_home() / "skills" / "court-capability-router"
+    return codex_home() / "skills" / "decretum-matrix"
 
 
 def agent_template_skill_root() -> Path:
-    normative = Path.home() / ".agents" / "skills" / "court-capability-router"
+    normative = Path.home() / ".agents" / "skills" / "decretum-matrix"
     return normative if (normative / "agents" / "standing-officials").exists() else skill_root()
 
 
@@ -168,7 +168,7 @@ def render_agent_dossier_block(role: str) -> list[str]:
         f"- court_skill_hash: {sha256_file(skill) if skill.exists() else 'missing'}",
         "- preload_ack: required before the office lifecycle may enter running.",
         "- agent_dossier_loaded: report exactly YES or NO; only YES with matching hashes passes preload.",
-        "- loaded_skills: must include court-capability-router in the preload ack.",
+        "- loaded_skills: must include decretum-matrix in the preload ack.",
         f"- ordinary_super_agent_md_policy: {AGENT_DOSSIER_POLICY}",
         f"- office_voice_policy: {OFFICE_VOICE_POLICY}",
         "- superCC: terminal-visible Codex offices start with this dossier directory as cwd, so AGENTS.md is auto-loaded.",

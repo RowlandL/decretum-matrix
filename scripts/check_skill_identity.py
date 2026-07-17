@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Validate the canonical skill identity contract.
 
-The checker separates the canonical repository/product identity from protected
-install and Shiguan directory locators. The manifest owns both boundaries.
+The checker separates the canonical repository/product/install identity from the
+protected Shiguan namespace and compatibility locator policy.
 """
 
 from __future__ import annotations
@@ -37,13 +37,15 @@ EXPECTED_IDENTITY = {
 }
 EXPECTED_LOCATORS = {
     "repository_id": "decretum-matrix",
-    "install_directory_name": "court-capability-router",
+    "install_directory_name": "decretum-matrix",
+    "legacy_install_directory_name": "court-capability-router",
+    "legacy_install_locator_policy": "absent_or_same_physical_authority",
     "shiguan_namespace": "court-capability-router",
     "python_locator_pattern": "court.*",
     "environment_locator_pattern": "COURT_*",
     "service_name": "CourtShiguanDaemon",
-    "directory_basename_may_differ_from_skill_name": True,
-    "rename_policy": "rename_repository_preserve_install_and_shiguan_locators",
+    "directory_basename_may_differ_from_skill_name": False,
+    "rename_policy": "rename_install_directory_preserve_shiguan_namespace",
 }
 EXPECTED_ROLES = (
     "bingbu",
@@ -424,7 +426,7 @@ def _check_registry_surfaces(root: Path, findings: list[dict[str, str]]) -> None
         "kind": "skill",
         "source": "local_skill",
         "name": CANONICAL_NAME,
-        "relative_path": "court-capability-router/SKILL.md",
+        "relative_path": "decretum-matrix/SKILL.md",
     }
     passing = evaluator([canonical_record], manifest)
     duplicate_alias = evaluator(
@@ -445,7 +447,7 @@ def _check_registry_surfaces(root: Path, findings: list[dict[str, str]]) -> None
             code="IDENTITY_REGISTRY_OLD_LOCATOR_REJECTED",
             surface="registry_api",
             path=generator_relative,
-            message="one canonical record pointing to the stable old locator must pass",
+            message="one canonical record pointing to the canonical install directory must pass",
         )
     duplicate_codes = {
         item.get("code")

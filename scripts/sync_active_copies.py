@@ -16,7 +16,12 @@ import sys
 
 sys.dont_write_bytecode = True
 
-from check_active_copy_hashes import active_roots, iter_source_files
+from check_active_copy_hashes import (
+    CANONICAL_INSTALL_DIRECTORY_NAME,
+    active_roots,
+    iter_source_files,
+    legacy_locator_conflicts,
+)
 
 
 def sha256(path: Path) -> str:
@@ -30,16 +35,19 @@ def sha256(path: Path) -> str:
 def validate_roots(source: Path, targets: list[Path]) -> None:
     home = Path.home().resolve()
     expected = {
-        (home / ".codex" / "skills" / "court-capability-router").resolve(strict=False),
-        (home / ".claude" / "skills" / "court-capability-router").resolve(strict=False),
-        (home / ".hermes" / "skills" / "court-capability-router").resolve(strict=False),
+        (home / ".codex" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME).resolve(strict=False),
+        (home / ".claude" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME).resolve(strict=False),
+        (home / ".hermes" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME).resolve(strict=False),
         (active_roots()[-1]).resolve(strict=False),
     }
-    if source.resolve() != (home / ".agents" / "skills" / "court-capability-router").resolve(strict=False):
+    if source.resolve() != (home / ".agents" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME).resolve(strict=False):
         raise ValueError(f"unexpected canonical source: {source}")
     actual = {target.resolve(strict=False) for target in targets}
     if actual != expected:
         raise ValueError("active target set does not match the fixed court installation roots")
+    conflicts = legacy_locator_conflicts([source, *targets])
+    if conflicts:
+        raise ValueError(f"legacy install locator conflicts with canonical authority: {conflicts}")
 
 
 def target_source_files(target: Path) -> set[Path]:
