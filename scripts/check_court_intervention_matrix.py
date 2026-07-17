@@ -210,7 +210,12 @@ def context_economy_args(task_id: str, wave_id: str) -> list[str]:
     ]
 
 
-def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
+def role_budget_args(
+    task_id: str,
+    requested_roles: str,
+    *,
+    next_depth: int = 1,
+) -> list[str]:
     roles = [item.strip() for item in requested_roles.split(",") if item.strip()]
     if not roles:
         return []
@@ -244,6 +249,7 @@ def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
         number = counts[role]
         instance_id = f"{role}#{number:04d}"
         worker = pure_child_owner == role or (number > 1 and role in ministry_roles)
+        preload = build_preload_manifest(role)
         bindings.append(
             {
                 "role": role,
@@ -258,11 +264,27 @@ def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
                 "read_scope": [f"work/{role}/{number:04d}.txt"],
                 "mutation_allowed": worker,
                 "integration_authority": False,
+                "preload_hashes": {
+                    "profile_hash": preload.profile_hash,
+                    "dossier_hash": preload.dossier_hash,
+                    "court_skill_hash": preload.court_skill_hash,
+                },
             }
         )
+    budget_id = f"budget:{task_id}:phase:wave"
     lease = {
+        "schema": "court.agent.admission_lease.v2",
+        "budget_id": budget_id,
         "status": "ACTIVE",
         "lease_id": f"{task_id}-lease-{len(bindings)}",
+        "parent_budget_id": f"{budget_id}:{caller_direct_superior}",
+        "parent_id": caller_direct_superior,
+        "approved_by": caller_direct_superior,
+        "grantee_role": caller_role,
+        "lease_depth": max(0, next_depth - 1),
+        "approved_next_depth": next_depth,
+        "expires_at_utc": "2099-01-01T00:00:00+00:00",
+        "parent_write_scope": ["work"],
         "approved_count": len(bindings),
         "task_id": task_id,
         "calling_office": caller_role,
@@ -291,6 +313,10 @@ def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
                 "owner_role": binding["owner_role"],
                 "direct_superior": binding["direct_superior"],
             }
+            for binding in bindings
+        },
+        "approved_preload_hashes": {
+            str(binding["instance_id"]): dict(binding["preload_hashes"])
             for binding in bindings
         },
     }
@@ -449,6 +475,7 @@ def admit(
     message_chars: int | None = None,
     message_required_chars: int | None = None,
     message_optional_chars: int | None = None,
+    expected_error: str | None = None,
 ) -> dict[str, object]:
     args = [
         "agent-admit",
@@ -489,7 +516,13 @@ def admit(
     ]
     if requested_roles:
         args.extend(("--requested-roles", requested_roles))
-        args.extend(role_budget_args(task_id, requested_roles))
+        args.extend(
+            role_budget_args(
+                task_id,
+                requested_roles,
+                next_depth=next_depth,
+            )
+        )
     if message_chars is not None:
         args.extend(("--message-chars", str(message_chars)))
     if message_required_chars is not None:
@@ -500,6 +533,10 @@ def admit(
         args.extend(("--user-agent-budget", str(user_budget)))
     if provider_budget is not None:
         args.extend(("--provider-launch-budget", str(provider_budget)))
+    if expected_error is not None:
+        failed = run_cli(cli, env, "--format", "json", *args, expect=1)
+        assert expected_error in failed.stderr, failed.stderr
+        return {"expected_error": expected_error}
     return json_cli(
         cli,
         env,
@@ -652,10 +689,28 @@ def main() -> int:
             "--evidence",
             "create",
         )
+        runtime_root = Path(env["COURT_RUNTIME_ROOT"])
+        serial_state_before = {
+            path.relative_to(runtime_root).as_posix(): (
+                path.stat().st_mtime_ns,
+                path.read_bytes(),
+            )
+            for path in runtime_root.rglob("*")
+            if path.is_file()
+        }
         serial_admission = admit(cli, env, "serial-policy", "serial-wave", evidence="serial override check")
         assert serial_admission["allowed"] is False
         assert serial_admission["decision"] == "user_serial_override"
         assert serial_admission["parallel_dispatch"] == "NOT_APPLICABLE/user_serial_override"
+        serial_state_after = {
+            path.relative_to(runtime_root).as_posix(): (
+                path.stat().st_mtime_ns,
+                path.read_bytes(),
+            )
+            for path in runtime_root.rglob("*")
+            if path.is_file()
+        }
+        assert serial_state_after == serial_state_before
 
         create_formal_task(
             cli,
@@ -670,7 +725,25 @@ def main() -> int:
             "--evidence",
             "create",
         )
-        unbounded = admit(cli, env, "agent-policy", "wave-1", "all", 100000, "long context fork check")
+        missing_preload = admit(
+            cli,
+            env,
+            "agent-policy",
+            "missing-preload-wave",
+            evidence="nonserial missing preload rejection",
+            expected_error="agent_admission_canonical_preload_mismatch",
+        )
+        assert missing_preload["expected_error"] == "agent_admission_canonical_preload_mismatch"
+        unbounded = admit(
+            cli,
+            env,
+            "agent-policy",
+            "wave-1",
+            "all",
+            100000,
+            "long context fork check",
+            requested_roles="menxia",
+        )
         assert unbounded["allowed"] is False
         assert unbounded["decision"] == "unbounded_context_fork"
         assert unbounded["recommended_fork_turns"] == "none"
@@ -752,7 +825,7 @@ def main() -> int:
             env,
             "dynamic-capacity",
             "security-route-wave",
-            requested_roles="xingbu,shiguan",
+            requested_roles="xingbu,gongbu",
             task_focus="security privacy and destructive-operation risk",
             risk="high",
         )
@@ -768,11 +841,11 @@ def main() -> int:
         assert four_slots["selection_basis"] == "runtime_capacity"
         tree_cap = admit(
             cli, env, "dynamic-capacity", "tree-cap-wave",
-            requested_roles=",".join("gongbu" for _ in range(20)),
+            requested_roles=",".join("gongbu" for _ in range(16)),
             host_capacity=64, host_active=1, next_depth=1,
         )
         assert len(tree_cap["selected_roles"]) == 15
-        assert len(tree_cap["deferred_roles"]) == 5
+        assert len(tree_cap["deferred_roles"]) == 1
         assert tree_cap["effective_host_capacity"] == 16
         assert tree_cap["calling_office"] == "gongbu"
         assert tree_cap["direct_superior"] == "shangshu"
@@ -818,7 +891,14 @@ def main() -> int:
         assert "provider.invalid" not in reconciled["agent"]["result"]
         assert "req-sensitive" not in reconciled["agent"]["result"]
         assert "-0.05" not in reconciled["agent"]["result"]
-        blocked_after_fatal = admit(cli, env, "agent-policy", "wave-2", evidence="circuit breaker check")
+        blocked_after_fatal = admit(
+            cli,
+            env,
+            "agent-policy",
+            "wave-2",
+            evidence="circuit breaker check",
+            requested_roles="menxia",
+        )
         assert blocked_after_fatal["allowed"] is False
         assert blocked_after_fatal["decision"] == "fatal_provider_circuit_open"
 

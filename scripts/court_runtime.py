@@ -5409,11 +5409,16 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             if _context_contract_required(args)
             else None
         )
-        _validate_canonical_admission_preloads(args)
+        execution_topology = str(
+            getattr(args, "execution_topology", "auto") or "auto"
+        ).lower()
+        serial_override = task_serial_override(task, execution_topology)
+        if not serial_override:
+            _validate_canonical_admission_preloads(args)
         now = now_text()
         attempt: int | None = None
         dispatch_uid: str | None = None
-        if semantic_expectations is not None:
+        if semantic_expectations is not None and not serial_override:
             try:
                 attempt = int(task.get("next_semantic_dispatch_attempt") or 1)
             except (TypeError, ValueError) as exc:

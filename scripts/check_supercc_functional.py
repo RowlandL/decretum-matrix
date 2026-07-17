@@ -8,13 +8,16 @@ the older live turn-start/launch/closeout smoke.
 
 from __future__ import annotations
 
+import sys
+
+sys.dont_write_bytecode = True
+
 import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 
 
