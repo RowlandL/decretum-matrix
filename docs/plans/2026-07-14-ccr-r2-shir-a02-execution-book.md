@@ -1172,3 +1172,7 @@ Git index empty
 - 从 `release/beta0.5.11` 当前源码身份起，正式显示名逐字为 `Dercretum-Matrix`；`诏令矩阵` 仅作中文解释。machine/package/canonical skill name 与调用保持 `decretum-matrix` / `$decretum-matrix`。
 - 本 note supersede 本执行书内所有面向当前产品状态的早期 display 拼写；既有日期化计划、历史 release/receipt、路径、兼容说明和审计证据保持原字节与原语境，不作追溯改写。
 - Canonical physical install authority 是 `skills/decretum-matrix`，ZIP internal root 仍为 `court-capability-router/`；旧安装 locator 只可不存在或解析到同一物理 authority。本机 beta0.5.11 路径迁移仍为 `NOT_RUN`，本 note 不授权安装、迁移、candidate、build、publish 或任何 pending/史馆数据动作。
+
+### Current-stage host messaging reliability blocker
+
+- 状态：`CURRENT_STAGE_PASS`。重启前旧线程携带陈旧 `WorkspaceWrite` 权限枚举，向旧线程发送时被当前宿主枚举校验拒绝；磁盘 `managed_config.toml` 已是合法 `danger-full-access`。未修改宿主配置或 SQLite，改用当前项目线程创建链完成真实跨对话烟测，thread=`019f7193-52ec-7a22-80e2-196e8f6aa014` 返回 `MESSAGE_SMOKE_PASS`。旧线程保留为证据，不再阻断 beta0.5.11 handoff。
