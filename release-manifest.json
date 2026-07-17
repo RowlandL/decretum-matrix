@@ -441,8 +441,8 @@
     {
       "mode": "100644",
       "path": "references/complexity-budget.md",
-      "sha256": "1a250cf04e4a9a567706d978b80ad4ff20def299d57c6c03e625b8c778debd93",
-      "size": 4408
+      "sha256": "177f116af39c05332dd13daadc574890d8d43ea61fff46912573d8070bb67e3f",
+      "size": 4508
     },
     {
       "mode": "100644",
@@ -609,7 +609,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "ef15efd278bd5701eab95ca6eafd2bb3d6dacf8c492f7eecf93c6146c76ead61",
+      "sha256": "aa867133b2daf734937a49d00e9c926c395560706dccf9c8d2cbdbc278a8213d",
       "size": 3837
     },
     {
@@ -771,8 +771,8 @@
     {
       "mode": "100644",
       "path": "scripts/agente_terminal.py",
-      "sha256": "4c128f621d6d2dfcb3c6c8f3cd825f9512d89df22bd50a35d1cd68e0523e641a",
-      "size": 17743
+      "sha256": "f73f11223884a5122bb4ca37f359f5d4acedcba3fd298b61026349a89a956a97",
+      "size": 21374
     },
     {
       "mode": "100644",
@@ -807,8 +807,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_agente_terminal.py",
-      "sha256": "42c3426fb972915b08bbd7bcf21cace97d7767ff40d265b807fdc9c29376ff32",
-      "size": 15369
+      "sha256": "ced735c2dfa322b970b15299686af0faf8c8bedc6c60a6f0d145806570135dd3",
+      "size": 20965
     },
     {
       "mode": "100644",
@@ -843,8 +843,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_agent_lifecycle.py",
-      "sha256": "fadae388a8b57c0ef1691ee12ed2c4f300175c0b388e0c7abdcf1a85643d4a66",
-      "size": 111278
+      "sha256": "9b5c744a863df6df474ff8cada79ea65dbd694e73aea2acb0c87c162fb0e5fcb",
+      "size": 112499
     },
     {
       "mode": "100644",
@@ -885,14 +885,14 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_intake_gate.py",
-      "sha256": "4c0b4204a7b8e8b478cc3be0e0c1dac3eeedc244c157c4637fd23e26dd85923e",
-      "size": 15190
+      "sha256": "2941ed69e28679072e82fc4b20953174530b154b5fb90dc6211fceda5f9c3051",
+      "size": 18685
     },
     {
       "mode": "100644",
       "path": "scripts/check_court_intervention_matrix.py",
-      "sha256": "82d9d64acde57c23a602830e1a40f8188975749614f8019aee1c17092f05477f",
-      "size": 46973
+      "sha256": "62ba269f0babfdf227bc7c2147ce81b00a4afb15b17d4a1a40469ec552fb67a3",
+      "size": 47095
     },
     {
       "mode": "100644",
@@ -939,8 +939,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_runtime.py",
-      "sha256": "0bc0355efd49aa292ae789fdfae3f097d01387fb3fb8bf6abc5ad2070ed4462b",
-      "size": 96021
+      "sha256": "3a3d1b3f0a193daf6e55db95b1876abf7c5bcdbede790d7efc71bcecd379fbae",
+      "size": 107412
     },
     {
       "mode": "100644",
@@ -1035,8 +1035,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_semantic_continuity.py",
-      "sha256": "b5d23ee82a6e614081abc13617537ce381175ecbd8aff0024e02f4d5c9e2a1a6",
-      "size": 126502
+      "sha256": "8a4987307e50f495bbd55a0baa5a75f7fee82ecab5a951461d3e8e02be0a3bdd",
+      "size": 129527
     },
     {
       "mode": "100644",
@@ -1245,8 +1245,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_intake_gate.py",
-      "sha256": "ba064dbf2448ae6fb4606437e6f356ca986fa78753d755aaefed8c13083a73b9",
-      "size": 11078
+      "sha256": "cfc22d195e025ae03a2a6c12b35286104e5de857ba1aa7d397557ea152cebeef",
+      "size": 15092
     },
     {
       "mode": "100644",
@@ -1287,8 +1287,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "c3404825e2b6844b925db4315aed989d40db917ad96f59c580a19e0530b9ea52",
-      "size": 335844
+      "sha256": "7ccc83147950cc067c8e6301da7cba236ff04e0a50df101a70df59ee418c1a16",
+      "size": 367610
     },
     {
       "mode": "100644",
@@ -1305,8 +1305,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_semantic_continuity.py",
-      "sha256": "ca93e68c1d58a67bf9e3175943b1662439601dd8de78fbbc70cbd27e9429424b",
-      "size": 33757
+      "sha256": "2549f4fce255d4816903f887391e1ae4ae59214b40f1e11a1155eecbc3c52f2a",
+      "size": 36057
     },
     {
       "mode": "100644",
@@ -1690,10 +1690,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 5954721,
+    "payload_bytes": 6021382,
     "payload_file_count": 276,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "63a8fdd91d8a8441cac3d6ec16d7ac7d95544eb2920e1278fae2811e5bb28f44",
+    "payload_index_sha256": "c903c2c00ddfba64459ae42d915e5f7c4f3281c51e2055640265bebc15e64096",
     "source_packaged_tracked_file_count": 268,
     "source_tracked_file_count": 281
   },
