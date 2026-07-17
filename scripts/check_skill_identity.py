@@ -25,7 +25,7 @@ MANIFEST_RELATIVE_PATH = Path("references/manifests/skill-identity.v1.json")
 EXPECTED_IDENTITY = {
     "schema": "court.skill_identity.v1",
     "schema_version": 1,
-    "display_name": "Decretum Matrix（诏令矩阵）",
+    "display_name": "Dercretum-Matrix",
     "canonical_skill_name": "decretum-matrix",
     "canonical_invocation": "$decretum-matrix",
     "community_license": "AGPL-3.0-only",

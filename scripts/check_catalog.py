@@ -623,7 +623,7 @@ def main() -> int:
     print("Court scripts: " + ", ".join(REQUIRED_COURT_SCRIPTS))
     print("Court web: " + ", ".join(str(path) for path in REQUIRED_COURT_WEB))
     print("Court references: " + ", ".join(str(path) for path in REQUIRED_COURT_REFERENCES))
-    print("Skill identity: Decretum Matrix（诏令矩阵） / decretum-matrix")
+    print("Skill identity: Dercretum-Matrix（诏令矩阵） / decretum-matrix")
     print(f"Shared Shiguan root: {shared_references_root()}")
     print("Shiguan state: " + ", ".join(str(path) for path in REQUIRED_SHIGUAN_STATE))
     print("Agent capability access: " + ", ".join(REQUIRED_AGENT_ACCESS_TERMS))

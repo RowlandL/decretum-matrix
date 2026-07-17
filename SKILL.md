@@ -1,9 +1,9 @@
 ---
 name: decretum-matrix
-description: Decretum Matrix（诏令矩阵） routes tasks through local skills, MCP servers, agents, CLI tools, and the Codex/Hermes Edict 三省六部 court workflow. Use when the user invokes /court or $decretum-matrix, asks to select capabilities, dispatch sub-agents, inspect Shiguan records, edit this skill, or apply court approval modes such as approval, autonomous, super, or superCC.
+description: Dercretum-Matrix（诏令矩阵） routes tasks through local skills, MCP servers, agents, CLI tools, and the Codex/Hermes Edict 三省六部 court workflow. Use when the user invokes /court or $decretum-matrix, asks to select capabilities, dispatch sub-agents, inspect Shiguan records, edit this skill, or apply court approval modes such as approval, autonomous, super, or superCC.
 ---
 
-# Decretum Matrix（诏令矩阵）
+# Dercretum-Matrix
 
 ## P00 Highest-Priority Semantic Dispatch And Resume Contract
 

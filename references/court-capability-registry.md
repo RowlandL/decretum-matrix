@@ -23,8 +23,8 @@ governs: zero network calls, zero external writes, no capability mutation,
 
 The authoritative identity contract is
 [`manifests/skill-identity.v1.json`](manifests/skill-identity.v1.json).
-The current display name is `Decretum Matrix（诏令矩阵）`; the only canonical
-skill record and invocation are `decretum-matrix` and `$decretum-matrix`.
+The current display name is `Dercretum-Matrix`; `诏令矩阵` is its Chinese
+explanation. The only canonical skill record and invocation are `decretum-matrix` and `$decretum-matrix`.
 
 `court-capability-router` remains an allowlisted repository, install-directory,
 Shiguan-namespace, Python/environment, and service locator. A canonical registry

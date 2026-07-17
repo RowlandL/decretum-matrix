@@ -2,7 +2,7 @@
 
 This is a lightweight 吏部/户部 registry pass. It reads skill frontmatter and
 standing-agent files, classifies each capability into likely court offices, and
-rewrites the local catalogs used by Decretum Matrix（诏令矩阵）.
+rewrites the local catalogs used by Dercretum-Matrix（诏令矩阵）.
 """
 
 from __future__ import annotations
@@ -900,7 +900,7 @@ def write_capability_index(records: list[dict[str, object]]) -> Path:
     (root / "README.md").write_text(
         "\n".join(
             [
-                "# Decretum Matrix（诏令矩阵） capability index",
+                "# Dercretum-Matrix（诏令矩阵） capability index",
                 "",
                 f"generated_at: {generated_at}",
                 "source_skill: current installed `decretum-matrix`",

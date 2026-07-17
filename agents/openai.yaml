@@ -1,6 +1,6 @@
 ﻿interface:
-  display_name: "Decretum Matrix（诏令矩阵）"
-  short_description: "Route local skills through 三省六部."
+  display_name: "Dercretum-Matrix"
+  short_description: "Dercretum-Matrix（诏令矩阵） routes local skills through 三省六部."
   icon_small: "./assets/brand/decretum-matrix-icon.svg"
   icon_large: "./assets/brand/decretum-matrix-icon-256.png"
-  default_prompt: "Use $decretum-matrix to route this task through the local capability catalog and 三省六部 workflow."
+  default_prompt: "Use $decretum-matrix (Dercretum-Matrix, 诏令矩阵) to route this task through the local capability catalog and 三省六部 workflow."
