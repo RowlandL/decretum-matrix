@@ -228,13 +228,22 @@ def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
         "shiguan": "taizi/menxia",
     }
     ministry_roles = {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
+    pure_child_owner = (
+        roles[0]
+        if len(roles) > 1 and len(set(roles)) == 1 and roles[0] in ministry_roles
+        else None
+    )
+    caller_role = pure_child_owner or (
+        "shangshu" if any(role in ministry_roles for role in roles) else "taizi"
+    )
+    caller_direct_superior = direct_superiors[caller_role]
     counts: dict[str, int] = {}
     bindings: list[dict[str, object]] = []
     for role in roles:
         counts[role] = counts.get(role, 0) + 1
         number = counts[role]
         instance_id = f"{role}#{number:04d}"
-        worker = number > 1 and role in ministry_roles
+        worker = pure_child_owner == role or (number > 1 and role in ministry_roles)
         bindings.append(
             {
                 "role": role,
@@ -242,12 +251,12 @@ def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
                 "shard_id": f"{role}-shard-{number:04d}",
                 "direct_superior": role if worker else direct_superiors.get(role, "shangshu"),
                 "instance_kind": "office_worker_instance" if worker else "office",
-                "canonical_authority": number == 1,
+                "canonical_authority": not worker,
                 "owner_role": role if worker else None,
-                "write_set": [],
-                "access_mode": "read_only",
+                "write_set": [f"work/{role}/{number:04d}.txt"] if worker else [],
+                "access_mode": "read_write" if worker else "read_only",
                 "read_scope": [f"work/{role}/{number:04d}.txt"],
-                "mutation_allowed": False,
+                "mutation_allowed": worker,
                 "integration_authority": False,
             }
         )
@@ -256,8 +265,8 @@ def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
         "lease_id": f"{task_id}-lease-{len(bindings)}",
         "approved_count": len(bindings),
         "task_id": task_id,
-        "calling_office": "shangshu",
-        "direct_superior": "taizi",
+        "calling_office": caller_role,
+        "direct_superior": caller_direct_superior,
         "integration_domain": "intervention-matrix",
         "authority": "super",
         "approved_roles": [binding["role"] for binding in bindings],
@@ -295,9 +304,9 @@ def role_budget_args(task_id: str, requested_roles: str) -> list[str]:
         "--authority",
         "super",
         "--calling-office",
-        "shangshu",
+        caller_role,
         "--direct-superior",
-        "taizi",
+        caller_direct_superior,
     ]
 
 
@@ -536,6 +545,68 @@ def preload_ack(cli: Path, env: dict[str, str], task_id: str, agent_id: str, rol
 
 
 def main() -> int:
+    menxia_role_args = role_budget_args("caller-contract-menxia", "menxia")
+    menxia_lease = json.loads(menxia_role_args[menxia_role_args.index("--budget-lease-json") + 1])
+    menxia_bindings = json.loads(menxia_role_args[menxia_role_args.index("--requested-bindings-json") + 1])
+    gongbu_role_args = role_budget_args("caller-contract-gongbu", "gongbu")
+    gongbu_lease = json.loads(gongbu_role_args[gongbu_role_args.index("--budget-lease-json") + 1])
+    gongbu_bindings = json.loads(gongbu_role_args[gongbu_role_args.index("--requested-bindings-json") + 1])
+    actual_caller_contract = {
+        "menxia_cli_caller": menxia_role_args[menxia_role_args.index("--calling-office") + 1],
+        "menxia_cli_direct_superior": menxia_role_args[menxia_role_args.index("--direct-superior") + 1],
+        "menxia_lease_caller": menxia_lease["calling_office"],
+        "menxia_lease_direct_superior": menxia_lease["direct_superior"],
+        "menxia_binding_direct_superior": menxia_bindings[0]["direct_superior"],
+        "gongbu_cli_caller": gongbu_role_args[gongbu_role_args.index("--calling-office") + 1],
+        "gongbu_cli_direct_superior": gongbu_role_args[gongbu_role_args.index("--direct-superior") + 1],
+        "gongbu_lease_caller": gongbu_lease["calling_office"],
+        "gongbu_lease_direct_superior": gongbu_lease["direct_superior"],
+        "gongbu_binding_direct_superior": gongbu_bindings[0]["direct_superior"],
+    }
+    expected_caller_contract = {
+        "menxia_cli_caller": "taizi",
+        "menxia_cli_direct_superior": "user",
+        "menxia_lease_caller": "taizi",
+        "menxia_lease_direct_superior": "user",
+        "menxia_binding_direct_superior": "taizi",
+        "gongbu_cli_caller": "shangshu",
+        "gongbu_cli_direct_superior": "taizi",
+        "gongbu_lease_caller": "shangshu",
+        "gongbu_lease_direct_superior": "taizi",
+        "gongbu_binding_direct_superior": "shangshu",
+    }
+    assert actual_caller_contract == expected_caller_contract, actual_caller_contract
+    pure_child_role_args = role_budget_args(
+        "caller-contract-gongbu-children",
+        "gongbu,gongbu",
+    )
+    pure_child_lease = json.loads(
+        pure_child_role_args[pure_child_role_args.index("--budget-lease-json") + 1]
+    )
+    pure_child_bindings = json.loads(
+        pure_child_role_args[pure_child_role_args.index("--requested-bindings-json") + 1]
+    )
+    actual_pure_child_contract = {
+        "cli_caller": pure_child_role_args[pure_child_role_args.index("--calling-office") + 1],
+        "cli_direct_superior": pure_child_role_args[pure_child_role_args.index("--direct-superior") + 1],
+        "lease_caller": pure_child_lease["calling_office"],
+        "lease_direct_superior": pure_child_lease["direct_superior"],
+        "binding_direct_superiors": [binding["direct_superior"] for binding in pure_child_bindings],
+        "binding_canonical_authorities": [binding["canonical_authority"] for binding in pure_child_bindings],
+        "binding_owner_roles": [binding["owner_role"] for binding in pure_child_bindings],
+        "binding_write_sets": [binding["write_set"] for binding in pure_child_bindings],
+    }
+    expected_pure_child_contract = {
+        "cli_caller": "gongbu",
+        "cli_direct_superior": "shangshu",
+        "lease_caller": "gongbu",
+        "lease_direct_superior": "shangshu",
+        "binding_direct_superiors": ["gongbu", "gongbu"],
+        "binding_canonical_authorities": [False, False],
+        "binding_owner_roles": ["gongbu", "gongbu"],
+        "binding_write_sets": [["work/gongbu/0001.txt"], ["work/gongbu/0002.txt"]],
+    }
+    assert actual_pure_child_contract == expected_pure_child_contract, actual_pure_child_contract
     scripts = Path(__file__).resolve().parent
     cli = scripts / "court_cli.py"
     watch = scripts / "court_heartbeat_watch.py"
@@ -703,6 +774,17 @@ def main() -> int:
         assert len(tree_cap["selected_roles"]) == 15
         assert len(tree_cap["deferred_roles"]) == 5
         assert tree_cap["effective_host_capacity"] == 16
+        assert tree_cap["calling_office"] == "gongbu"
+        assert tree_cap["direct_superior"] == "shangshu"
+        assert len(tree_cap["hierarchy_receipts"]) == 15
+        assert all(
+            receipt["hierarchy_gate"] == "PASSED"
+            and receipt["hierarchy_edge_class"] == "bounded_child_office"
+            and receipt["hierarchy_calling_office"] == "gongbu"
+            and receipt["hierarchy_target_role"] == "gongbu"
+            and receipt["hierarchy_owner_role"] == "gongbu"
+            for receipt in tree_cap["hierarchy_receipts"]
+        )
         depth_five = admit(
             cli, env, "dynamic-capacity", "depth-five-wave",
             requested_roles="xingbu", host_capacity=16, host_active=1, next_depth=5,
