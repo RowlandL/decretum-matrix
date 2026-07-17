@@ -394,6 +394,7 @@ def _run_once_unlocked(
     snapshot_only: bool = False,
     force_sync: bool = False,
     config_snapshot: dict[str, object] | None = None,
+    publish_status: bool = True,
 ) -> dict[str, object]:
     ensure_shared_seed()
     config = dict(config_snapshot) if isinstance(config_snapshot, dict) else sync_config()
@@ -506,18 +507,19 @@ def _run_once_unlocked(
         "watch_roots": [str(root) for root in watch_roots],
         "updated_at": now_text(),
     }
-    write_json(
-        status_path(),
-        {
-            **report,
-            "ok": False,
-            "last_cycle_ok": report.get("ok") is True,
-            "pid": None,
-            "mode": "once",
-            "phase": "stopped",
-            "message": "单次 preserve-only 同步已完成；未声明常驻 daemon 健康",
-        },
-    )
+    if publish_status:
+        write_json(
+            status_path(),
+            {
+                **report,
+                "ok": False,
+                "last_cycle_ok": report.get("ok") is True,
+                "pid": None,
+                "mode": "once",
+                "phase": "stopped",
+                "message": "单次 preserve-only 同步已完成；未声明常驻 daemon 健康",
+            },
+        )
     return report
 
 
@@ -525,6 +527,7 @@ def run_once(
     snapshot_only: bool = False,
     force_sync: bool = False,
     lock_timeout: float = 600.0,
+    publish_status: bool = True,
 ) -> dict[str, object]:
     with file_lock(autosync_cycle_lock_path(), timeout=max(0.0, lock_timeout)):
         with file_lock(config_lock_path(), timeout=max(0.0, lock_timeout)):
@@ -533,6 +536,7 @@ def run_once(
                 snapshot_only=snapshot_only,
                 force_sync=force_sync,
                 config_snapshot=config,
+                publish_status=publish_status,
             )
 
 
@@ -573,7 +577,7 @@ def daemon_loop(interval: int) -> int:
             },
         )
         try:
-            report = run_once(force_sync=False)
+            report = run_once(force_sync=False, publish_status=False)
             report["mode"] = "daemon"
             report["phase"] = "idle"
             report["pid"] = os.getpid()

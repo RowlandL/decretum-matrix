@@ -303,6 +303,44 @@ def run_static_regressions() -> dict[str, object]:
                         f"autosync daemon pre-declared the {phase} phase healthy before a cycle completed"
                     )
 
+            daemon_cycle_writes: list[dict[str, object]] = []
+
+            def capture_daemon_cycle_status(_path, value):
+                daemon_cycle_writes.append(dict(value))
+
+            def simulated_daemon_cycle(**kwargs):
+                if kwargs.get("publish_status", True):
+                    autosync.write_json(
+                        autosync.status_path(),
+                        {"ok": False, "mode": "once", "phase": "stopped"},
+                    )
+                return {"ok": True, "updated_at": autosync.now_text()}
+
+            with (
+                mock.patch.object(autosync, "ensure_shared_seed"),
+                mock.patch.object(autosync, "write_json", side_effect=capture_daemon_cycle_status),
+                mock.patch.object(autosync, "run_once", side_effect=simulated_daemon_cycle) as daemon_run_once,
+                mock.patch.object(autosync.time, "sleep", side_effect=KeyboardInterrupt),
+            ):
+                try:
+                    autosync.daemon_loop(20)
+                except KeyboardInterrupt:
+                    pass
+            if daemon_run_once.call_args.kwargs.get("publish_status") is not False:
+                raise AssertionError("daemon cycle did not suppress one-shot public status")
+            if any(
+                item.get("mode") == "once" or item.get("phase") == "stopped"
+                for item in daemon_cycle_writes
+            ):
+                raise AssertionError("active daemon briefly published stopped one-shot status")
+            completed_daemon_status = daemon_cycle_writes[-1]
+            if (
+                completed_daemon_status.get("ok") is not True
+                or completed_daemon_status.get("mode") != "daemon"
+                or completed_daemon_status.get("phase") != "idle"
+            ):
+                raise AssertionError("completed daemon cycle did not publish daemon idle atomically")
+
             active_running_status = {
                 "ok": True,
                 "mode": "daemon",
@@ -390,7 +428,32 @@ def run_static_regressions() -> dict[str, object]:
             ):
                 raise AssertionError("mode=once status file claimed permanent daemon health")
 
+            with (
+                mock.patch.object(autosync, "ensure_shared_seed"),
+                mock.patch.object(autosync, "sync_config", return_value={}),
+                mock.patch.object(autosync, "configured_watch_roots", return_value=[]),
+                mock.patch.object(
+                    autosync,
+                    "read_json",
+                    return_value={"snapshot": {"seed": {}}, "source_signature": {"old": {}}},
+                ),
+                mock.patch.object(autosync, "source_signature", return_value=before_refresh),
+                mock.patch.object(autosync, "configured_cache_vault", return_value=temp / "cache"),
+                mock.patch.object(autosync, "managed_sync_hashes", return_value={}),
+                mock.patch.object(autosync, "snapshot_roots", side_effect=[{}, {}]),
+                mock.patch.object(autosync, "queue_vault_changes", return_value=[]),
+                mock.patch.object(autosync, "run_filesystem_sync", return_value={"ok": True, "removed": 0}),
+                mock.patch.object(autosync, "write_json") as suppressed_write_json,
+            ):
+                autosync._run_once_unlocked(publish_status=False)
+            if any(
+                isinstance(call.args[1], dict) and call.args[1].get("mode") == "once"
+                for call in suppressed_write_json.call_args_list
+            ):
+                raise AssertionError("publish_status=false still wrote a one-shot public receipt")
+
             lock_events: list[str] = []
+            tracked_cycle_args: dict[str, object] = {}
 
             class TrackingLock:
                 def __init__(self, label: str):
@@ -405,7 +468,8 @@ def run_static_regressions() -> dict[str, object]:
             def tracking_lock(path, **_kwargs):
                 return TrackingLock(Path(path).name)
 
-            def tracked_cycle(**_kwargs):
+            def tracked_cycle(**kwargs):
+                tracked_cycle_args.update(kwargs)
                 lock_events.append("run:cycle")
                 return {"ok": True}
 
@@ -414,7 +478,7 @@ def run_static_regressions() -> dict[str, object]:
                 mock.patch.object(autosync, "sync_config", return_value={}),
                 mock.patch.object(autosync, "_run_once_unlocked", side_effect=tracked_cycle),
             ):
-                autosync.run_once(lock_timeout=0)
+                autosync.run_once(lock_timeout=0, publish_status=False)
             config_enter = f"enter:{autosync.config_lock_path().name}"
             config_exit = f"exit:{autosync.config_lock_path().name}"
             cycle_event = "run:cycle"
@@ -426,6 +490,8 @@ def run_static_regressions() -> dict[str, object]:
                 < lock_events.index(config_exit)
             ):
                 raise AssertionError("autosync released the config lock before the filesystem cycle completed")
+            if tracked_cycle_args.get("publish_status") is not False:
+                raise AssertionError("run_once did not propagate daemon one-shot status suppression")
 
             daemon_source = (scripts / "shiguan_autosync_daemon.py").read_text(encoding="utf-8")
             for marker in ('"phase": "running"', '"fresh_for_seconds":'):
@@ -537,6 +603,9 @@ def run_static_regressions() -> dict[str, object]:
                 raise AssertionError("local exception logger did not preserve a traceback")
 
             app_source = (root / "web" / "shiguan-tree" / "app.js").read_text(encoding="utf-8")
+            sync_status_start = app_source.index("function renderObsidianSyncStatus")
+            sync_status_end = app_source.index("async function loadObsidianSyncStatus")
+            sync_status_source = app_source[sync_status_start:sync_status_end]
             dialog_start = app_source.index("async function openObsidianSyncDialog")
             dialog_end = app_source.index("async function pushCurrentShiguanToObsidianRest")
             dialog_source = app_source[dialog_start:dialog_end]
@@ -553,11 +622,32 @@ def run_static_regressions() -> dict[str, object]:
             ):
                 if marker not in app_source:
                     raise AssertionError(f"WebUI interaction/status contract missing: {marker}")
+            for marker in (
+                "const phaseStates = [",
+                "autosync.cycle_phase",
+                "autosync.phase",
+                "status.cycle_phase",
+                "status.phase",
+                'phaseStates.some((phase) => ["stale", "failed"].includes(phase))',
+                '|| ["STALE", "FAILED"].includes(health);',
+                "const inProgress = !terminalFailure",
+                'phaseStates.some((phase) => ["starting", "running"].includes(phase))',
+                'inProgress ? "同步进行中"',
+                'classList.toggle("warn", !inProgress && !status.ok);',
+            ):
+                if marker not in sync_status_source:
+                    raise AssertionError(f"WebUI in-progress DOM contract missing: {marker}")
             for forbidden in ('const syncMode =', 'sync_mode: "manual"', "sync_mode: syncMode"):
                 if forbidden in app_source:
                     raise AssertionError(
                         f"WebUI scheduling mode leaked into the preserve-only backend contract: {forbidden}"
                     )
+            for forbidden in (
+                'const prefix = status.ok ? "同步正常" : "同步异常";',
+                'classList.toggle("warn", !status.ok);',
+            ):
+                if forbidden in sync_status_source:
+                    raise AssertionError(f"WebUI in-progress status remained a false warning: {forbidden}")
             if dialog_source.count("resolve(null);") != 4:
                 raise AssertionError("Obsidian dialog resolves before it is actually closed")
             if '共享机器 ${peerTotal} 台' in app_source:
@@ -1280,7 +1370,9 @@ def run_static_regressions() -> dict[str, object]:
         "obsidian_mode_contract": True,
         "autosync_config_lock_full_cycle": True,
         "autosync_health_phase_contract": True,
+        "autosync_daemon_status_atomicity": True,
         "autosync_once_receipt_not_daemon_health": True,
+        "obsidian_in_progress_ui_contract": True,
     }
 
 

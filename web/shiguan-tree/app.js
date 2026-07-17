@@ -4254,7 +4254,19 @@ function renderObsidianSyncStatus(status = {}) {
     el.obsidianVerifySsl.checked = Boolean(config.verify_ssl);
   }
   setObsidianMode(config.auto_enabled || config.autosync_enabled ? "auto" : "manual");
-  const prefix = status.ok ? "同步正常" : "同步异常";
+  const health = String(autosync.health || status.health || "").toUpperCase();
+  const phaseStates = [
+    autosync.cycle_phase,
+    autosync.phase,
+    status.cycle_phase,
+    status.phase,
+  ].map((phase) => String(phase || "").toLowerCase()).filter(Boolean);
+  const terminalFailure = phaseStates.some((phase) => ["stale", "failed"].includes(phase))
+    || ["STALE", "FAILED"].includes(health);
+  const inProgress = !terminalFailure
+    && (health === "IN_PROGRESS"
+      || phaseStates.some((phase) => ["starting", "running"].includes(phase)));
+  const prefix = inProgress ? "同步进行中" : (status.ok ? "同步正常" : "同步异常");
   const message = status.message
     || (status.rest?.configured === false ? "REST 通道未配置（可选）" : "等待同步状态");
   const daemonState = autosync.status || autosync.mode || (autosync.ok ? "running" : "not running");
@@ -4265,7 +4277,7 @@ function renderObsidianSyncStatus(status = {}) {
   ].filter((item) => !item.endsWith(" "));
   if (el.obsidianSyncResult) {
     el.obsidianSyncResult.textContent = `${prefix}：${message}${detail.length ? `\n${detail.join("；")}` : ""}`;
-    el.obsidianSyncResult.classList.toggle("warn", !status.ok);
+    el.obsidianSyncResult.classList.toggle("warn", !inProgress && !status.ok);
   }
 }
 
