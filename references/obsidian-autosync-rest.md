@@ -51,6 +51,8 @@ official records.
 - 从旧 `.court-shiguan-managed.json` cache 迁移到 sync manifest 时，只可把有效 `autosync-state.json` 中与同一 cache 路径匹配的文本 snapshot hash 作为上一生成版本；JSON/JSONL 等非反向监听机器文件可从合法 managed cache 的当前 hash 建立基线。缺少这两类 provenance 的同路径文本仍按 conflict 保留，不能为避免首轮告警而盲目覆盖。
 - daemon、Web 手动 filesystem sync 与 CLI `--once` 必须共享 `court-runtime/obsidian-autosync-cycle.lock`，所有直接前向复制必须再共享 `court-runtime/obsidian-filesystem-sync.lock`；不得让两个 cycle 或两个 vault copy 同时改写 snapshot、manifest 与 cache。单文件更新先复制到目标同目录 staging 文件，替换前二次验证目标 hash 仍等于先前观察值，再用原子 `os.replace` 提交；若用户在 hash→replace 期间修改目标，则转为 `user_modified_conflict`，不得覆盖。
 - 所有 `obsidian-sync/config.json` 写入必须通过 `obsidian_config_state.py` 与固定 `court-runtime/obsidian-config.lock`。事务在锁内重读，按调用方 base snapshot 做字段级三方 CAS：互不相关字段合并，同字段并发漂移 fail closed；每次提交递增 revision、生成 transaction_id、原子替换后重读并核对 digest。公开投影只报告 `has_api_key`，绝不返回 key。autosync cycle 在读取配置至完成该轮期间持有配置锁，避免一轮同步使用混合配置。
+- WebUI 的 `auto` / `manual` 只表示 autosync 调度开关，分别映射到一致的 `auto_enabled` / `autosync_enabled` 布尔值；后端 `sync_mode` 始终为 `filesystem_preserve_only`。读取或保存旧版 `sync_mode=auto|manual` 时必须归一迁移，未知 mode fail closed，不得让 UI 调度词覆盖 preserve-only 数据契约。
+- daemon `starting` / `running` 只表示精确进程仍在执行一轮同步，必须报告 `ok=false`；`fresh_for_seconds` 只用于判定该进行中状态是否仍可复用，不是成功健康证明。仅完成的 daemon cycle 可报告 `ok=true`。`mode=once` 只保存 `last_cycle_ok` 回执，并以 `ok=false`、`phase=stopped` 明确不提供常驻健康保证。
 - 单文件 staging copy 必须在替换前 fsync staging 并验证其 hash；替换后重新验证目标 hash并尝试同步父目录。Windows 不支持目录 fsync 时应如实报告 best-effort，而不是伪称已经获得断电级目录耐久性。替换失败必须保留原目标。
 - 服务守护进程复用 autosync 子进程时，不得只信状态文件中的 PID。Windows PID 存活检查必须使用正确的 64 位 HANDLE/exit-code API；状态还必须在 `max(60s, 3×interval)` 内刷新。陈旧 PID 即使数值仍可打开，也不能报告 `REUSED`；先做一次精确脚本进程发现，找不到才启动新 daemon。
 - Obsidian -> Shiguan 的回传不得直接覆盖正式 `plan-archives` 或

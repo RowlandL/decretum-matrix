@@ -4216,15 +4216,16 @@ function obsidianConfigPayload() {
     .split(/\n|,|，/)
     .map((item) => item.trim())
     .filter(Boolean);
-  const syncMode = el.obsidianAutoEnabled?.checked ? "auto" : "manual";
+  const autosyncEnabled = Boolean(el.obsidianAutoEnabled?.checked);
   return {
     endpoint: el.obsidianEndpoint?.value.trim() || "https://127.0.0.1:27124",
     api_key: el.obsidianApiKey?.value.trim() || "",
     import_query: el.obsidianImportQuery?.value.trim() || "",
     import_paths: paths,
     output_folder: el.obsidianOutputFolder?.value.trim() || "Court Shiguan",
-    auto_enabled: Boolean(el.obsidianAutoEnabled?.checked),
-    sync_mode: syncMode,
+    auto_enabled: autosyncEnabled,
+    autosync_enabled: Boolean(el.obsidianAutoEnabled?.checked),
+    sync_mode: "filesystem_preserve_only",
     verify_ssl: Boolean(el.obsidianVerifySsl?.checked),
     save_config: false,
   };
@@ -4252,7 +4253,7 @@ function renderObsidianSyncStatus(status = {}) {
   if (el.obsidianVerifySsl) {
     el.obsidianVerifySsl.checked = Boolean(config.verify_ssl);
   }
-  setObsidianMode(config.sync_mode === "auto" || config.auto_enabled ? "auto" : "manual");
+  setObsidianMode(config.auto_enabled || config.autosync_enabled ? "auto" : "manual");
   const prefix = status.ok ? "同步正常" : "同步异常";
   const message = status.message
     || (status.rest?.configured === false ? "REST 通道未配置（可选）" : "等待同步状态");
@@ -4357,7 +4358,14 @@ async function openObsidianSyncDialog() {
     if (apiKey === null) return;
     await api("/api/obsidian-sync/config", {
       method: "POST",
-      body: JSON.stringify({ endpoint, api_key: apiKey, sync_mode: "manual", save_config: true }),
+      body: JSON.stringify({
+        endpoint,
+        api_key: apiKey,
+        sync_mode: "filesystem_preserve_only",
+        auto_enabled: false,
+        autosync_enabled: false,
+        save_config: true,
+      }),
     });
     setStatus("Obsidian 同步连接已保存");
     return;

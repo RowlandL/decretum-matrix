@@ -906,6 +906,16 @@ def obsidian_sync_config(
     stored_override: dict[str, object] | None = None,
 ) -> dict[str, object]:
     stored = stored_override if stored_override is not None else read_obsidian_sync_config_snapshot()
+    stored_mode = str(stored.get("sync_mode") or "filesystem_preserve_only").strip().lower()
+    if stored_mode not in {"filesystem_preserve_only", "auto", "manual"}:
+        raise ValueError(f"unsupported Obsidian sync_mode: {stored_mode}")
+    legacy_auto_default = stored_mode == "auto" if stored_mode in {"auto", "manual"} else True
+    auto_enabled = bool(
+        stored.get("auto_enabled", stored.get("autosync_enabled", legacy_auto_default))
+    )
+    autosync_enabled = bool(
+        stored.get("autosync_enabled", stored.get("auto_enabled", legacy_auto_default))
+    )
     cache_vault = str(stored.get("cache_vault_path") or stored.get("vault_path") or default_obsidian_cache_vault())
     watch_paths = stored.get("watch_paths")
     if not isinstance(watch_paths, list):
@@ -914,7 +924,7 @@ def obsidian_sync_config(
         "endpoint": str(stored.get("endpoint") or "https://127.0.0.1:27124").rstrip("/"),
         "has_api_key": bool(stored.get("api_key")),
         "verify_ssl": bool(stored.get("verify_ssl", False)),
-        "sync_mode": str(stored.get("sync_mode") or "filesystem_preserve_only"),
+        "sync_mode": "filesystem_preserve_only",
         "import_query": str(stored.get("import_query") or ""),
         "import_paths": (
             [str(item) for item in stored.get("import_paths", []) if str(item).strip()]
@@ -922,8 +932,8 @@ def obsidian_sync_config(
             else []
         )[:MAX_OBSIDIAN_CONFIG_IMPORT_PATHS],
         "output_folder": str(stored.get("output_folder") or "Court Shiguan"),
-        "auto_enabled": bool(stored.get("auto_enabled", stored.get("autosync_enabled", True))),
-        "autosync_enabled": bool(stored.get("autosync_enabled", stored.get("auto_enabled", True))),
+        "auto_enabled": auto_enabled,
+        "autosync_enabled": autosync_enabled,
         "autosync_interval_seconds": bounded_int(stored.get("autosync_interval_seconds"), 20, 5, 3600),
         "autosync_script": str(stored.get("autosync_script") or skill_root() / "scripts" / "shiguan_autosync_daemon.py"),
         "filesystem_sync_script": str(stored.get("filesystem_sync_script") or skill_root() / "scripts" / "sync_shiguan_obsidian_vault.py"),
@@ -964,8 +974,30 @@ def save_obsidian_sync_config(payload: dict[str, object]) -> dict[str, object]:
         raw_watch_paths,
         [cache_vault, str(default_obsidian_inbox())],
     )
-    auto_enabled = truthy(payload.get("auto_enabled")) if "auto_enabled" in payload else bool(current.get("auto_enabled", True))
-    autosync_enabled = truthy(payload.get("autosync_enabled")) if "autosync_enabled" in payload else auto_enabled
+    requested_mode = str(
+        payload.get("sync_mode") or current.get("sync_mode") or "filesystem_preserve_only"
+    ).strip().lower()
+    legacy_enabled: bool | None = None
+    if requested_mode in {"auto", "manual"}:
+        legacy_enabled = requested_mode == "auto"
+    elif requested_mode != "filesystem_preserve_only":
+        raise ValueError(f"unsupported Obsidian sync_mode: {requested_mode}")
+    if "auto_enabled" in payload:
+        auto_enabled = truthy(payload.get("auto_enabled"))
+    elif "autosync_enabled" in payload:
+        auto_enabled = truthy(payload.get("autosync_enabled"))
+    elif legacy_enabled is not None:
+        auto_enabled = legacy_enabled
+    else:
+        auto_enabled = bool(current.get("auto_enabled", True))
+    if "autosync_enabled" in payload:
+        autosync_enabled = truthy(payload.get("autosync_enabled"))
+    elif "auto_enabled" in payload:
+        autosync_enabled = auto_enabled
+    elif legacy_enabled is not None:
+        autosync_enabled = legacy_enabled
+    else:
+        autosync_enabled = bool(current.get("autosync_enabled", auto_enabled))
     verify_ssl = truthy(payload.get("verify_ssl")) if "verify_ssl" in payload else bool(current.get("verify_ssl", False))
     endpoint = validate_obsidian_endpoint(
         payload.get("endpoint") or current.get("endpoint") or "https://127.0.0.1:27124",
@@ -975,7 +1007,7 @@ def save_obsidian_sync_config(payload: dict[str, object]) -> dict[str, object]:
         "endpoint": endpoint,
         "api_key": api_key,
         "verify_ssl": verify_ssl,
-        "sync_mode": str(payload.get("sync_mode") or current.get("sync_mode") or "manual"),
+        "sync_mode": "filesystem_preserve_only",
         "import_query": str(payload.get("import_query", current.get("import_query", "")) or ""),
         "import_paths": import_paths,
         "output_folder": str(payload.get("output_folder") or current.get("output_folder") or "Court Shiguan").strip().strip("/") or "Court Shiguan",
@@ -1010,6 +1042,10 @@ def save_obsidian_sync_config(payload: dict[str, object]) -> dict[str, object]:
         requested_fields.update({"cache_vault_path", "vault_path", "watch_paths"})
     if "auto_enabled" in payload and "autosync_enabled" not in payload:
         requested_fields.add("autosync_enabled")
+    if "autosync_enabled" in payload and "auto_enabled" not in payload:
+        requested_fields.add("auto_enabled")
+    if requested_mode in {"auto", "manual"}:
+        requested_fields.update({"auto_enabled", "autosync_enabled"})
     if "verify_ssl" in payload or "endpoint" in payload:
         requested_fields.update({"verify_ssl", "endpoint"})
     for invariant in ("shared_shiguan_root", "autosync_script", "filesystem_sync_script"):
@@ -1146,10 +1182,34 @@ def autosync_public_status() -> dict[str, object]:
     status = read_json_file(autosync_status_path(), {})
     if isinstance(status, dict) and status:
         public = {key: value for key, value in status.items() if key != "snapshot"}
+        if public.get("mode") == "once":
+            last_cycle_ok = bool(public.get("last_cycle_ok", public.get("ok") is True))
+            public.update(
+                {
+                    "ok": False,
+                    "last_cycle_ok": last_cycle_ok,
+                    "phase": "stopped",
+                    "message": (
+                        "最近一次单次同步成功；当前没有常驻 autosync 健康保证"
+                        if last_cycle_ok
+                        else "最近一次单次同步失败；当前没有常驻 autosync 健康保证"
+                    ),
+                }
+            )
+            return public
         if public.get("mode") == "daemon":
             from ensure_shiguan_autosync import status_is_fresh
 
             interval = bounded_int(public.get("interval_seconds"), 30, 5, 3600)
+            if public.get("phase") in {"starting", "running"}:
+                public.update(
+                    {
+                        "ok": False,
+                        "cycle_ok": False,
+                        "health": "IN_PROGRESS",
+                        "message": "autosync 正在执行 preserve-only 同步；尚未完成健康确认",
+                    }
+                )
             if not status_is_fresh(public, interval):
                 public.update(
                     {

@@ -197,6 +197,69 @@ def run_static_regressions() -> dict[str, object]:
             if not isinstance(rest_status, dict) or rest_status.get("configured") is not False:
                 raise AssertionError("REST channel configuration state was not separated from overall sync health")
 
+            for one_shot_record in (
+                {"ok": True, "mode": "once"},
+                {"ok": False, "last_cycle_ok": True, "mode": "once", "phase": "stopped"},
+            ):
+                one_shot_record["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                with mock.patch.object(server, "read_json_file", return_value=one_shot_record):
+                    one_shot_public = server.autosync_public_status()
+                if one_shot_public.get("ok") is not False:
+                    raise AssertionError("mode=once was exposed as permanently healthy autosync")
+                if one_shot_public.get("last_cycle_ok") is not True or one_shot_public.get("phase") != "stopped":
+                    raise AssertionError("mode=once lost its successful one-shot receipt while clearing daemon health")
+
+            for legacy_mode, expected_enabled in (("auto", True), ("manual", False)):
+                normalized = server.obsidian_sync_config(
+                    stored_override={"sync_mode": legacy_mode}
+                )
+                if normalized.get("sync_mode") != "filesystem_preserve_only":
+                    raise AssertionError(
+                        f"legacy {legacy_mode} scheduling mode escaped the preserve-only backend contract"
+                    )
+                if bool(normalized.get("autosync_enabled")) is not expected_enabled:
+                    raise AssertionError(
+                        f"legacy {legacy_mode} scheduling state was not preserved"
+                    )
+            try:
+                server.obsidian_sync_config(stored_override={"sync_mode": "unexpected"})
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("an unknown Obsidian backend sync mode did not fail closed")
+
+            legacy_base = {
+                "endpoint": "https://127.0.0.1:27124",
+                "verify_ssl": False,
+                "sync_mode": "filesystem_preserve_only",
+                "auto_enabled": True,
+                "autosync_enabled": True,
+                "vault_path": str(temp / "vault"),
+                "cache_vault_path": str(temp / "vault"),
+                "source_vault_path": str(temp / "source"),
+                "parent_vault_path": str(temp / "parent"),
+                "watch_paths": [str(temp / "vault")],
+            }
+            with (
+                mock.patch.object(server, "read_obsidian_sync_config_snapshot", return_value=legacy_base),
+                mock.patch.object(
+                    server,
+                    "patch_obsidian_sync_config",
+                    return_value={
+                        "conflict": False,
+                        "committed_revision": 1,
+                        "transaction_id": "legacy-mode-fixture",
+                        "post_write_verified": True,
+                    },
+                ) as patch_config,
+            ):
+                server.save_obsidian_sync_config({"sync_mode": "manual"})
+            legacy_changes = patch_config.call_args.args[0]
+            if legacy_changes.get("sync_mode") != "filesystem_preserve_only":
+                raise AssertionError("legacy manual save escaped the preserve-only backend contract")
+            if legacy_changes.get("auto_enabled") is not False or legacy_changes.get("autosync_enabled") is not False:
+                raise AssertionError("legacy manual save did not disable autosync scheduling consistently")
+
             long_cycle_status = {
                 "ok": True,
                 "mode": "daemon",
@@ -206,9 +269,79 @@ def run_static_regressions() -> dict[str, object]:
             }
             if not autosync_ensure.status_is_fresh(long_cycle_status, 30):
                 raise AssertionError("a bounded in-progress autosync cycle was reported as stale")
+            with mock.patch.object(server, "read_json_file", return_value=long_cycle_status):
+                legacy_running_public = server.autosync_public_status()
+            if legacy_running_public.get("ok") is not False or legacy_running_public.get("phase") != "running":
+                raise AssertionError("a legacy 1260-second running status remained false-green")
             idle_status = {**long_cycle_status, "phase": "idle"}
             if autosync_ensure.status_is_fresh(idle_status, 30):
                 raise AssertionError("an actually stale idle autosync status was reported as fresh")
+
+            daemon_status_writes: list[dict[str, object]] = []
+
+            def capture_daemon_status(_path, value):
+                daemon_status_writes.append(dict(value))
+
+            with (
+                mock.patch.object(autosync, "ensure_shared_seed"),
+                mock.patch.object(autosync, "write_json", side_effect=capture_daemon_status),
+                mock.patch.object(autosync, "run_once", side_effect=KeyboardInterrupt),
+            ):
+                try:
+                    autosync.daemon_loop(20)
+                except KeyboardInterrupt:
+                    pass
+            for phase in ("starting", "running"):
+                status = next(
+                    (item for item in daemon_status_writes if item.get("phase") == phase),
+                    None,
+                )
+                if not isinstance(status, dict):
+                    raise AssertionError(f"autosync daemon omitted its {phase} status")
+                if status.get("ok") is not False:
+                    raise AssertionError(
+                        f"autosync daemon pre-declared the {phase} phase healthy before a cycle completed"
+                    )
+
+            active_running_status = {
+                "ok": True,
+                "mode": "daemon",
+                "phase": "running",
+                "pid": 5100,
+                "interval_seconds": 30,
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+                "fresh_for_seconds": 1260,
+            }
+            with (
+                mock.patch.object(autosync_ensure, "read_json", return_value=active_running_status),
+                mock.patch.object(autosync_ensure, "pid_alive", return_value=True),
+                mock.patch.object(autosync_ensure, "find_running_daemon_pid", return_value=5100),
+            ):
+                running_probe = autosync_ensure._ensure_unlocked(30, check_only=True)
+            if running_probe.get("status") != "REUSED":
+                raise AssertionError("an exact, fresh running daemon was not reusable")
+            if running_probe.get("cycle_phase") != "running" or running_probe.get("cycle_ok") is not False:
+                raise AssertionError("running daemon reuse was reported as completed healthy work")
+
+            ensure_status_writes: list[dict[str, object]] = []
+            with (
+                mock.patch.object(autosync_ensure, "read_json", return_value={}),
+                mock.patch.object(autosync_ensure, "pid_alive", return_value=False),
+                mock.patch.object(autosync_ensure, "find_running_daemon_pid", return_value=0),
+                mock.patch.object(autosync_ensure, "ensure_shared_seed"),
+                mock.patch.object(autosync_ensure, "start_daemon", return_value=5200),
+                mock.patch.object(
+                    autosync_ensure,
+                    "write_json",
+                    side_effect=lambda _path, value: ensure_status_writes.append(dict(value)),
+                ),
+            ):
+                started_probe = autosync_ensure._ensure_unlocked(30, check_only=False)
+            if started_probe.get("status") != "STARTED" or len(ensure_status_writes) != 1:
+                raise AssertionError("autosync ensure did not expose the bounded starting transition")
+            started_status = ensure_status_writes[0]
+            if started_status.get("ok") is not False or started_status.get("phase") != "starting":
+                raise AssertionError("autosync ensure pre-declared a newly spawned daemon healthy")
 
             unchanged_index = temp / "unchanged-index.jsonl"
             unchanged_index.write_text("same\n", encoding="utf-8")
@@ -237,11 +370,25 @@ def run_static_regressions() -> dict[str, object]:
                 mock.patch.object(autosync, "snapshot_roots", side_effect=[{}, {}]),
                 mock.patch.object(autosync, "queue_vault_changes", return_value=[]),
                 mock.patch.object(autosync, "run_filesystem_sync", return_value={"ok": True, "removed": 0}),
-                mock.patch.object(autosync, "write_json"),
+                mock.patch.object(autosync, "write_json") as write_json,
             ):
                 concurrent_refresh_report = autosync._run_once_unlocked()
             if signature.call_count != 1 or concurrent_refresh_report.get("source_signature") != before_refresh:
                 raise AssertionError("a refresh requested during sync could be swallowed by the completed cycle")
+            one_shot_statuses = [
+                call.args[1]
+                for call in write_json.call_args_list
+                if isinstance(call.args[1], dict) and call.args[1].get("mode") == "once"
+            ]
+            if len(one_shot_statuses) != 1:
+                raise AssertionError("mode=once status receipt was not written exactly once")
+            one_shot_status = one_shot_statuses[0]
+            if (
+                one_shot_status.get("ok") is not False
+                or one_shot_status.get("last_cycle_ok") is not True
+                or one_shot_status.get("phase") != "stopped"
+            ):
+                raise AssertionError("mode=once status file claimed permanent daemon health")
 
             lock_events: list[str] = []
 
@@ -268,9 +415,17 @@ def run_static_regressions() -> dict[str, object]:
                 mock.patch.object(autosync, "_run_once_unlocked", side_effect=tracked_cycle),
             ):
                 autosync.run_once(lock_timeout=0)
+            config_enter = f"enter:{autosync.config_lock_path().name}"
             config_exit = f"exit:{autosync.config_lock_path().name}"
-            if config_exit not in lock_events or lock_events.index(config_exit) > lock_events.index("run:cycle"):
-                raise AssertionError("autosync held the config transaction lock during the full filesystem cycle")
+            cycle_event = "run:cycle"
+            if not all(event in lock_events for event in (config_enter, cycle_event, config_exit)):
+                raise AssertionError("autosync config lock lifecycle evidence is incomplete")
+            if not (
+                lock_events.index(config_enter)
+                < lock_events.index(cycle_event)
+                < lock_events.index(config_exit)
+            ):
+                raise AssertionError("autosync released the config lock before the filesystem cycle completed")
 
             daemon_source = (scripts / "shiguan_autosync_daemon.py").read_text(encoding="utf-8")
             for marker in ('"phase": "running"', '"fresh_for_seconds":'):
@@ -391,11 +546,18 @@ def run_static_regressions() -> dict[str, object]:
                 "执行中：",
                 "status.rest?.ok",
                 "save_config: false",
+                'sync_mode: "filesystem_preserve_only"',
+                "autosync_enabled: Boolean(el.obsidianAutoEnabled?.checked)",
                 "AI 心跳",
                 "文件同步请求已提交",
             ):
                 if marker not in app_source:
                     raise AssertionError(f"WebUI interaction/status contract missing: {marker}")
+            for forbidden in ('const syncMode =', 'sync_mode: "manual"', "sync_mode: syncMode"):
+                if forbidden in app_source:
+                    raise AssertionError(
+                        f"WebUI scheduling mode leaked into the preserve-only backend contract: {forbidden}"
+                    )
             if dialog_source.count("resolve(null);") != 4:
                 raise AssertionError("Obsidian dialog resolves before it is actually closed")
             if '共享机器 ${peerTotal} 台' in app_source:
@@ -1115,6 +1277,10 @@ def run_static_regressions() -> dict[str, object]:
         "loopback_bind_defaults": True,
         "peer_endpoint_policy": True,
         "obsidian_webui_status_and_actions": True,
+        "obsidian_mode_contract": True,
+        "autosync_config_lock_full_cycle": True,
+        "autosync_health_phase_contract": True,
+        "autosync_once_receipt_not_daemon_health": True,
     }
 
 

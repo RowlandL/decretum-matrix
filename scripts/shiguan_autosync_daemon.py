@@ -506,7 +506,18 @@ def _run_once_unlocked(
         "watch_roots": [str(root) for root in watch_roots],
         "updated_at": now_text(),
     }
-    write_json(status_path(), {**report, "pid": None, "mode": "once"})
+    write_json(
+        status_path(),
+        {
+            **report,
+            "ok": False,
+            "last_cycle_ok": report.get("ok") is True,
+            "pid": None,
+            "mode": "once",
+            "phase": "stopped",
+            "message": "单次 preserve-only 同步已完成；未声明常驻 daemon 健康",
+        },
+    )
     return report
 
 
@@ -518,11 +529,11 @@ def run_once(
     with file_lock(autosync_cycle_lock_path(), timeout=max(0.0, lock_timeout)):
         with file_lock(config_lock_path(), timeout=max(0.0, lock_timeout)):
             config = sync_config()
-        return _run_once_unlocked(
-            snapshot_only=snapshot_only,
-            force_sync=force_sync,
-            config_snapshot=config,
-        )
+            return _run_once_unlocked(
+                snapshot_only=snapshot_only,
+                force_sync=force_sync,
+                config_snapshot=config,
+            )
 
 
 def daemon_loop(interval: int) -> int:
@@ -531,9 +542,10 @@ def daemon_loop(interval: int) -> int:
     write_json(
         status_path(),
         {
-            "ok": True,
+            "ok": False,
             "mode": "daemon",
             "phase": "starting",
+            "message": "autosync daemon 已启动，尚未完成首轮 preserve-only 同步",
             "pid": os.getpid(),
             "started_at": started_at,
             "updated_at": started_at,
@@ -549,7 +561,7 @@ def daemon_loop(interval: int) -> int:
             status_path(),
             {
                 **(previous if isinstance(previous, dict) else {}),
-                "ok": True,
+                "ok": False,
                 "mode": "daemon",
                 "phase": "running",
                 "message": "autosync 正在执行 preserve-only 同步",

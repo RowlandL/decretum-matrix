@@ -397,10 +397,17 @@ def _ensure_unlocked(interval: int, check_only: bool = False) -> dict[str, objec
     recorded_interval = safe_int(current.get("interval_seconds"), interval) if isinstance(current, dict) else interval
     recorded_interval = max(5, recorded_interval)
     recorded_alive = pid_alive(recorded_pid)
-    recorded_status_valid = bool(
+    recorded_phase = str(current.get("phase") or "") if isinstance(current, dict) else ""
+    cycle_in_progress = recorded_phase in {"starting", "running"}
+    cycle_ok = bool(
         isinstance(current, dict)
         and current.get("ok") is True
+        and not cycle_in_progress
+    )
+    recorded_status_valid = bool(
+        isinstance(current, dict)
         and current.get("mode") == "daemon"
+        and (cycle_ok or cycle_in_progress)
     )
     recorded_fresh = recorded_status_valid and status_is_fresh(current, recorded_interval)
 
@@ -435,6 +442,9 @@ def _ensure_unlocked(interval: int, check_only: bool = False) -> dict[str, objec
             "status": "REUSED",
             "pid": recorded_pid,
             "interval_seconds": recorded_interval,
+            "cycle_phase": recorded_phase or "unknown",
+            "cycle_ok": cycle_ok,
+            "health": "HEALTHY" if cycle_ok else "IN_PROGRESS",
             "status_path": str(status_path()),
             "log_path": str(log_path()),
             "shared_shiguan_root": str(references_root()),
@@ -475,11 +485,23 @@ def _ensure_unlocked(interval: int, check_only: bool = False) -> dict[str, objec
         "pid": new_pid,
         "interval_seconds": interval,
         "started_at": datetime.now().isoformat(timespec="seconds"),
+        "cycle_phase": "starting",
+        "cycle_ok": False,
+        "health": "IN_PROGRESS",
         "status_path": str(status_path()),
         "log_path": str(log_path()),
         "shared_shiguan_root": str(references_root()),
     }
-    write_json(status_path(), {**report, "ok": True, "mode": "daemon"})
+    write_json(
+        status_path(),
+        {
+            **report,
+            "ok": False,
+            "mode": "daemon",
+            "phase": "starting",
+            "message": "autosync daemon 已启动，尚未完成首轮 preserve-only 同步",
+        },
+    )
     return report
 
 
