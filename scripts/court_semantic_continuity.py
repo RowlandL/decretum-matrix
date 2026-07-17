@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 
 
 INVARIANT_CAPSULE_SCHEMA = "court.semantic.invariant_capsule.v1"
@@ -295,20 +295,63 @@ def build_invariant_capsule(charter: str, charter_sha256: str) -> dict[str, Any]
         "schema": INVARIANT_CAPSULE_SCHEMA,
         "latest_decree_anchor": _utf8_prefix(charter, 256),
         "latest_decree_sha256": charter_sha256,
-        "non_goals": [],
-        "boundaries": [],
-        "allowed_actions": [],
-        "forbidden_actions": [],
-        "acceptance": [],
-        "evidence_requirements": [],
-        "stop_gates": [],
-        "write_set": [],
-        "governing_hashes": {},
+        "non_goals": ["no unstated scope expansion"],
+        "boundaries": ["exact charter only"],
+        "allowed_actions": ["no mutation until explicit authority is bound"],
+        "forbidden_actions": ["actions outside the exact charter"],
+        "acceptance": ["exact charter remains authoritative"],
+        "evidence_requirements": ["machine-readable runtime evidence"],
+        "stop_gates": ["authority or semantic drift"],
+        "write_set": ["NO_WRITES_DECLARED"],
+        "governing_hashes": {"charter_sha256": charter_sha256},
         "charter_sha256": charter_sha256,
     }
     if len(canonical_json_bytes(capsule)) > INVARIANT_CAPSULE_MAX_BYTES:
         raise ValueError("invariant_capsule_exceeds_2kib")
     return capsule
+
+
+def invariant_capsule_json_schema() -> dict[str, object]:
+    properties: dict[str, object] = {
+        "schema": {"type": "string", "const": INVARIANT_CAPSULE_SCHEMA},
+        "latest_decree_anchor": {"type": "string"},
+        "latest_decree_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "governing_hashes": {"type": "object", "additionalProperties": {"type": "string"}},
+        "charter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    }
+    for field in INVARIANT_CAPSULE_REQUIRED_FIELDS - set(properties):
+        properties[field] = {"type": "array", "items": {"type": "string"}}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": INVARIANT_CAPSULE_SCHEMA,
+        "type": "object",
+        "required": sorted(INVARIANT_CAPSULE_REQUIRED_FIELDS),
+        "optional": [],
+        "properties": properties,
+        "additionalProperties": False,
+        "anchor_rule": "UTF-8 prefix of exact charter, at most 256 bytes",
+        "hash_rule": "latest_decree_sha256 == charter_sha256 == sha256(exact UTF-8 charter)",
+        "canonical_max_bytes": INVARIANT_CAPSULE_MAX_BYTES,
+    }
+
+
+def invariant_capsule_template(
+    charter: str,
+    overrides: Mapping[str, object] | None = None,
+) -> dict[str, Any]:
+    digest = sha256_text(charter)
+    capsule = build_invariant_capsule(charter, digest)
+    for field, value in dict(overrides or {}).items():
+        if field not in INVARIANT_CAPSULE_REQUIRED_FIELDS:
+            raise ValueError(f"invariant_capsule_fields_unknown:{field}")
+        if field in {"schema", "latest_decree_anchor", "latest_decree_sha256", "charter_sha256"}:
+            raise ValueError(f"invariant_capsule_binding_field_not_customizable:{field}")
+        capsule[field] = value
+    return normalize_invariant_capsule(charter, digest, capsule)
+
+
+def validate_invariant_capsule(charter: str, value: object) -> dict[str, Any]:
+    return normalize_invariant_capsule(charter, sha256_text(charter), value)
 
 
 def normalize_invariant_capsule(

@@ -25,16 +25,19 @@ sys.dont_write_bytecode = True
 from typing import Any, Mapping, Sequence
 
 from court_agent_admission import budget_lease_access_contract_error
-from court_complexity_budget import evaluate_context_economy
+from court_complexity_budget import evaluate_context_economy, normalize_budget_pool
 from court_dispatch_policy import MAX_AGENT_TREE_DEPTH, MAX_AGENT_TREE_THREADS, select_wave
 from court_dispatch_hierarchy import validate_dispatch_hierarchy
 from court_intake_gate import (
     INTAKE_SCHEMA,
     WORK_KINDS,
+    conversation_gate_json_schema,
     legacy_conversation_gate,
+    minimal_formal_task_example,
     require_new_formal_task_gate,
     require_task_correction_gate,
     validate_conversation_gate,
+    validate_conversation_gate_diagnostics,
 )
 from court_office_bootstrap import (
     build_child_office_profile,
@@ -75,6 +78,8 @@ from court_semantic_continuity import (
     derive_semantic_receipt,
     finalize_semantic_receipt,
     initial_semantic_binding,
+    invariant_capsule_json_schema,
+    invariant_capsule_template,
     normalize_semantic_context,
     normalize_result_envelope,
     result_binding_problems,
@@ -84,6 +89,7 @@ from court_semantic_continuity import (
     semantic_binding_for_revision,
     semantic_receipt_integrity_problems,
     validate_dispatch_context_packet,
+    validate_invariant_capsule,
     verify_semantic_receipt,
 )
 from shiguan_paths import code_root, ensure_shared_seed, reference_path
@@ -224,6 +230,15 @@ CONTEXT_ECONOMY_BINDING_FIELDS = (
     "context_override_source",
     "context_system_memory_percent",
 )
+PUBLIC_CONTEXT_HARD_LIMITS = {
+    "ram_percent_max": 99.0,
+    "memory_mb_max": 2_048,
+    "context_tokens_max": 100_000,
+    "message_chars_max": 12_000,
+    "tool_calls_max": 8,
+    "time_seconds_max": 600.0,
+    "retained_agents_max": 15,
+}
 # Deprecated compatibility alias. New admission code uses the bounded V1 ceiling.
 AGENT_MAX_MESSAGE_CHARS = AGENT_MESSAGE_BUDGET_FLOOR_CHARS
 AGENT_MESSAGE_BUDGET_FIELDS = (
@@ -1631,6 +1646,40 @@ def _semantic_admission_expectations(
     return _expected_semantic_binding(task, args, require_dispatchable=True)
 
 
+def _validate_admission_capsule_write_scope(
+    task: Mapping[str, object],
+    bindings: object,
+) -> None:
+    capsule = task.get("invariant_capsule")
+    if not isinstance(capsule, Mapping):
+        raise ValueError("agent_admission_capsule_scope_missing")
+    allowed_raw = capsule.get("write_set")
+    allowed = canonical_repo_relative_paths(allowed_raw, allow_empty=True)
+    if allowed is None or not isinstance(bindings, (list, tuple)):
+        raise ValueError("agent_admission_capsule_scope_invalid")
+    no_writes_declared = any(
+        isinstance(path, str) and path.strip().casefold() == "no_writes_declared"
+        for path in allowed_raw
+    )
+    for binding in bindings:
+        if not isinstance(binding, Mapping):
+            raise ValueError("agent_admission_capsule_scope_invalid")
+        requested = canonical_repo_relative_paths(
+            binding.get("write_set"),
+            allow_empty=True,
+        )
+        if requested is None:
+            raise ValueError("agent_admission_capsule_scope_invalid")
+        mutates = binding.get("mutation_allowed") is True or bool(requested)
+        if no_writes_declared and mutates:
+            raise ValueError("agent_admission_write_scope_exceeds_capsule")
+        if any(
+            not any(path == parent or path.startswith(f"{parent}/") for parent in allowed)
+            for path in requested
+        ):
+            raise ValueError("agent_admission_write_scope_exceeds_capsule")
+
+
 def _expected_semantic_binding(
     task: dict[str, Any],
     args: argparse.Namespace,
@@ -2587,38 +2636,39 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
     work_kind = str(getattr(args, "work_kind", "") or "").strip()
     if work_kind not in WORK_KINDS:
         raise ValueError(f"invalid work kind: {work_kind}")
+    charter = require_exact_text(args.charter, "charter")
+    report_tier = args.report_tier or ("brief" if read_only_decree(charter) else "standard")
+    if report_tier not in REPORT_TIERS:
+        raise ValueError(f"invalid report tier: {report_tier}")
+    invariant_capsule = None
+    if getattr(args, "invariant_capsule", None) is not None or getattr(
+        args,
+        "invariant_capsule_file",
+        None,
+    ) is not None:
+        invariant_capsule = _json_object_from_args(
+            args,
+            "invariant_capsule",
+            "invariant_capsule_file",
+            "invariant capsule",
+        )
+    semantic_binding = initial_semantic_binding(charter, invariant_capsule)
     with runtime_lock():
         tasks = load_tasks()
         task_id = args.task_id or f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{slugify(args.title)}"
         if task_id in tasks:
             raise ValueError(f"task already exists: {task_id}")
-        report_tier = args.report_tier or ("brief" if read_only_decree(args.charter) else "standard")
-        if report_tier not in REPORT_TIERS:
-            raise ValueError(f"invalid report tier: {report_tier}")
-        invariant_capsule = None
-        if getattr(args, "invariant_capsule", None) is not None or getattr(
-            args,
-            "invariant_capsule_file",
-            None,
-        ) is not None:
-            invariant_capsule = _json_object_from_args(
-                args,
-                "invariant_capsule",
-                "invariant_capsule_file",
-                "invariant capsule",
-            )
-        semantic_binding = initial_semantic_binding(args.charter, invariant_capsule)
         task = normalize_task({
             "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
             "task_id": task_id,
             "title": args.title,
-            "charter": args.charter,
+            "charter": charter,
             **semantic_binding,
             "task_revision": 1,
             "state": "Pending",
             "owner": args.owner,
             "report_tier": report_tier,
-            "read_only": read_only_decree(args.charter),
+            "read_only": read_only_decree(charter),
             "created_at": now_text(),
             "updated_at": now_text(),
             "heartbeat": "created",
@@ -5295,6 +5345,12 @@ def require_text(value: str, name: str) -> str:
     return value
 
 
+def require_exact_text(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} is required")
+    return value
+
+
 def pause_task(args: argparse.Namespace) -> TransitionResult:
     reason = require_text(args.reason, "reason")
     evidence_preserved = require_text(args.evidence_preserved, "evidence-preserved")
@@ -5483,6 +5539,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         result["admission_binding_sha256s"] = {}
         if result.get("allowed") is not True:
             return result
+        _validate_admission_capsule_write_scope(task, result.get("selected_bindings"))
         if semantic_expectations is not None:
             if attempt is None or dispatch_uid is None:
                 raise ValueError("semantic_dispatch_identity_missing")
@@ -7106,6 +7163,495 @@ def probe_payload() -> dict[str, Any]:
     }
 
 
+def public_intake_contract_payload() -> dict[str, object]:
+    return {
+        "schema": "court.runtime.public_contract.v1",
+        "conversation_gate_schema": conversation_gate_json_schema(),
+        "invariant_capsule_schema": invariant_capsule_json_schema(),
+        "minimal_formal_task": minimal_formal_task_example(),
+        "workflow": [
+            {"step": 1, "command": "intake-template --charter <exact UTF-8 charter>"},
+            {"step": 2, "command": "create --charter <same charter> --intake-file <gate.json>"},
+            {"step": 3, "command": "semantic-context-template --task-id <task-id>"},
+            {"step": 4, "command": "semantic checkpoint --context-file <context.json>"},
+            {"step": 5, "command": "semantic verify --context-file <same context.json>"},
+            {"step": 6, "command": "admission-template --task-id <task-id> ..."},
+            {"step": 7, "command": "agent-admit <argv from admission-template>"},
+        ],
+    }
+
+
+def public_intake_template_payload(charter: str) -> dict[str, object]:
+    charter = require_exact_text(charter, "charter")
+    return {
+        "schema": "court.runtime.intake_template.v1",
+        "charter": charter,
+        "conversation_gate": minimal_formal_task_example(),
+        "invariant_capsule": invariant_capsule_template(charter),
+    }
+
+
+def _read_public_json_object(path: Path, label: str) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label}_invalid_json:{exc.msg}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{label}_must_be_object")
+    return value
+
+
+def public_capsule_validation_payload(charter: str, value: object) -> dict[str, object]:
+    try:
+        normalized = validate_invariant_capsule(require_exact_text(charter, "charter"), value)
+    except ValueError as exc:
+        return {
+            "schema": "court.semantic.invariant_capsule.validation.v1",
+            "ok": False,
+            "errors": [{"field": "invariant_capsule", "kind": "contract", "code": str(exc)}],
+        }
+    return {
+        "schema": "court.semantic.invariant_capsule.validation.v1",
+        "ok": True,
+        "errors": [],
+        "value": normalized,
+        "invariant_capsule_sha256": canonical_json_sha256(normalized),
+    }
+
+
+def public_intake_validation_payload(
+    charter: str,
+    intake_value: object,
+    capsule_value: object | None = None,
+) -> dict[str, object]:
+    gate = validate_conversation_gate_diagnostics(intake_value)
+    capsule = (
+        public_capsule_validation_payload(charter, capsule_value)
+        if capsule_value is not None
+        else public_capsule_validation_payload(charter, invariant_capsule_template(charter))
+    )
+    errors: list[dict[str, object]] = []
+    for scope, result in (("conversation_gate", gate), ("invariant_capsule", capsule)):
+        for error in result.get("errors", []):
+            if isinstance(error, dict):
+                errors.append({"scope": scope, **error})
+    return {
+        "schema": "court.runtime.intake_validation.v1",
+        "ok": not errors,
+        "errors": errors,
+        "conversation_gate": gate,
+        "invariant_capsule": capsule,
+    }
+
+
+def semantic_context_json_schema() -> dict[str, object]:
+    integer_fields = {"authority_revision", "plan_revision", "shiguan_revision"}
+    properties = {
+        field: {"type": "integer", "minimum": 0}
+        if field in integer_fields
+        else {"type": "string", "minLength": 1}
+        for field in (
+            "authority_revision",
+            "authority_sha256",
+            "plan_revision",
+            "plan_sha256",
+            "plan_cursor",
+            "git_fingerprint",
+            "recovery_checkpoint_id",
+            "shiguan_revision",
+            "shiguan_fingerprint",
+        )
+    }
+    for field in ("authority_sha256", "plan_sha256", "shiguan_fingerprint"):
+        properties[field]["pattern"] = "^[0-9a-f]{64}$"
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "court.semantic.context.v1",
+        "type": "object",
+        "required": sorted(properties),
+        "properties": properties,
+        "additionalProperties": False,
+    }
+
+
+def public_semantic_context_template_payload(task_id: str) -> dict[str, object]:
+    task_id = require_text(task_id, "task-id")
+    task = load_tasks().get(task_id)
+    if not isinstance(task, dict):
+        raise ValueError(f"task not found: {task_id}")
+    event_head_sha256 = _event_head_sha256()
+    event_head_bytes = _event_head_bytes()
+    revision = task.get("charter_revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        raise ValueError("charter_revision_invalid")
+    return {
+        "schema": "court.semantic.context_template.v1",
+        "context": {
+            "authority_revision": revision,
+            "authority_sha256": task.get("charter_sha256"),
+            "plan_revision": revision,
+            "plan_sha256": task.get("invariant_capsule_sha256"),
+            "plan_cursor": f"{task.get('state')}@revision-{revision}",
+            "git_fingerprint": event_head_sha256,
+            "recovery_checkpoint_id": f"event-head:{event_head_bytes}:{event_head_sha256[:16]}",
+            "shiguan_revision": len(events_for_task(task_id)),
+            "shiguan_fingerprint": event_head_sha256,
+        },
+    }
+
+
+def public_semantic_context_validation_payload(value: object) -> dict[str, object]:
+    try:
+        normalized = normalize_semantic_context(value)
+    except ValueError as exc:
+        return {
+            "schema": "court.semantic.context_validation.v1",
+            "ok": False,
+            "errors": [{"field": "semantic_context", "kind": "contract", "code": str(exc)}],
+        }
+    return {
+        "schema": "court.semantic.context_validation.v1",
+        "ok": True,
+        "errors": [],
+        "value": normalized,
+    }
+
+
+def public_dispatch_context_packet(
+    task: Mapping[str, object],
+    wave_id: str,
+) -> dict[str, object]:
+    receipt = task.get("semantic_receipt")
+    if not isinstance(receipt, Mapping):
+        raise ValueError("semantic_receipt_missing")
+    wave_id = require_text(wave_id, "wave-id")
+    return {
+        "schema": "court.semantic.dispatch_context_packet.v1",
+        "task_id": task.get("task_id"),
+        "sub_id": wave_id,
+        "semantic_epoch": receipt.get("semantic_epoch"),
+        "invariant_capsule_sha256": receipt.get("invariant_capsule_sha256"),
+        "semantic_receipt_id": receipt.get("receipt_id"),
+        "semantic_receipt_sha256": receipt.get("receipt_sha256"),
+        "authority_sha256": receipt.get("authority_sha256"),
+        "plan_sha256": receipt.get("plan_sha256"),
+        "plan_cursor": receipt.get("plan_cursor"),
+        "fork_context": "none",
+        "context_mode": "bounded",
+        "pointers": [
+            {"path": "authority/current.md", "sha256": receipt.get("authority_sha256")},
+            {"path": "plans/current.md", "sha256": receipt.get("plan_sha256")},
+        ],
+        "summary": {
+            "text": "bounded public CLI dispatch packet",
+            "semantic_receipt_id": receipt.get("receipt_id"),
+            "semantic_receipt_sha256": receipt.get("receipt_sha256"),
+        },
+    }
+
+
+def public_context_budget_pool(
+    task: Mapping[str, object],
+    wave_id: str,
+) -> dict[str, object]:
+    receipt = task.get("semantic_receipt")
+    if not isinstance(receipt, Mapping):
+        raise ValueError("semantic_receipt_missing")
+    return normalize_budget_pool(
+        total_share=100.0,
+        root_id="taizi",
+        reserve_share=10.0,
+        hard_limits=PUBLIC_CONTEXT_HARD_LIMITS,
+        task_id=require_text(str(task.get("task_id") or ""), "task-id"),
+        phase="P00-PUBLIC-ADMISSION",
+        wave_id=require_text(wave_id, "wave-id"),
+        approved_by="taizi",
+        approved_at=str(receipt.get("created_at") or now_text()),
+        expected_output="bounded structured dispatch receipt",
+        return_conditions=("COMPLETED", "FAILED_CLOSED", "CANCELLED"),
+    )
+
+
+PUBLIC_ADMISSION_REQUEST_FIELDS = frozenset(
+    {
+        "schema", "task_id", "expected_semantic_epoch", "expected_charter_sha256",
+        "expected_invariant_capsule_sha256", "expected_checkpoint_id", "wave_id",
+        "execution_topology", "protocol_mode", "active_session_protocol",
+        "needs_parallel_tree", "requested_fork_turns", "context_tokens",
+        "message_chars", "message_required_chars", "message_optional_chars",
+        "requested_agents", "requested_roles", "host_active_agents", "host_capacity",
+        "host_retained_agents", "host_reclamation_status", "next_depth", "max_depth",
+        "max_threads", "user_agent_budget", "provider_launch_budget", "budget_lease",
+        "requested_bindings", "integration_domain", "authority", "calling_office",
+        "direct_superior", "assignment", "task_focus", "complexity", "risk",
+        "ambiguity", "transport", "actor", "evidence", "dispatch_context_packet",
+        "context_budget_pool", "context_result_mode", "context_tool_output_mode",
+        "context_override_source", "system_memory_percent",
+    }
+)
+
+
+def public_admission_request_json_schema() -> dict[str, object]:
+    object_fields = {
+        "budget_lease", "dispatch_context_packet", "context_budget_pool"
+    }
+    array_fields = {"requested_roles", "requested_bindings"}
+    boolean_fields = {"needs_parallel_tree"}
+    integer_fields = {
+        "expected_semantic_epoch", "context_tokens", "message_chars",
+        "message_required_chars", "message_optional_chars", "requested_agents",
+        "host_active_agents", "host_capacity", "host_retained_agents", "next_depth",
+        "max_depth", "max_threads", "user_agent_budget", "provider_launch_budget",
+    }
+    properties: dict[str, object] = {}
+    for field in PUBLIC_ADMISSION_REQUEST_FIELDS:
+        if field in object_fields:
+            properties[field] = {"type": "object"}
+        elif field in array_fields:
+            properties[field] = {"type": "array"}
+        elif field in boolean_fields:
+            properties[field] = {"type": "boolean"}
+        elif field in integer_fields:
+            properties[field] = {"type": "integer"}
+        elif field == "system_memory_percent":
+            properties[field] = {"type": "number"}
+        elif field == "context_override_source":
+            properties[field] = {"type": ["string", "null"]}
+        else:
+            properties[field] = {"type": "string"}
+    properties["schema"] = {"type": "string", "const": "court.agent.admission_request.v1"}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "court.agent.admission_request.v1",
+        "type": "object",
+        "required": sorted(PUBLIC_ADMISSION_REQUEST_FIELDS),
+        "properties": properties,
+        "additionalProperties": False,
+    }
+
+
+def public_admission_request_argv(value: object) -> list[str]:
+    if not isinstance(value, dict):
+        raise ValueError("admission_request_must_be_object")
+    missing = sorted(PUBLIC_ADMISSION_REQUEST_FIELDS - set(value))
+    unknown = sorted(set(value) - PUBLIC_ADMISSION_REQUEST_FIELDS)
+    if missing:
+        raise ValueError("admission_request_fields_missing:" + ",".join(missing))
+    if unknown:
+        raise ValueError("admission_request_fields_unknown:" + ",".join(unknown))
+    if value.get("schema") != "court.agent.admission_request.v1":
+        raise ValueError("invalid_admission_request_schema")
+    roles = value.get("requested_roles")
+    if (
+        not isinstance(roles, list)
+        or not roles
+        or any(not isinstance(role, str) or not role.strip() for role in roles)
+    ):
+        raise ValueError("admission_request_roles_invalid")
+    if type(value.get("needs_parallel_tree")) is not bool:
+        raise ValueError("admission_request_parallel_flag_invalid")
+    scalar_fields = (
+        "task_id", "expected_semantic_epoch", "expected_charter_sha256",
+        "expected_invariant_capsule_sha256", "expected_checkpoint_id", "wave_id",
+        "execution_topology", "protocol_mode", "active_session_protocol",
+        "requested_fork_turns", "context_tokens", "message_chars",
+        "message_required_chars", "message_optional_chars", "requested_agents",
+        "host_active_agents", "host_capacity", "host_retained_agents",
+        "host_reclamation_status", "next_depth", "max_depth", "max_threads",
+        "user_agent_budget", "provider_launch_budget", "integration_domain",
+        "authority", "calling_office", "direct_superior", "assignment", "task_focus",
+        "complexity", "risk", "ambiguity", "transport", "actor", "evidence",
+        "context_result_mode", "context_tool_output_mode", "system_memory_percent",
+    )
+    argv = ["agent-admit"]
+    for field in scalar_fields:
+        argv.extend((f"--{field.replace('_', '-')}", str(value[field])))
+    argv.extend(("--requested-roles", ",".join(roles)))
+    for field in (
+        "budget_lease", "requested_bindings", "dispatch_context_packet",
+        "context_budget_pool",
+    ):
+        argv.extend(
+            (f"--{field.replace('_', '-')}-json", json.dumps(value[field], ensure_ascii=False))
+        )
+    argv.extend(("--format", "json"))
+    if value["needs_parallel_tree"]:
+        argv.append("--needs-parallel-tree")
+    override = value.get("context_override_source")
+    if override is not None:
+        argv.extend(("--context-override-source", str(override)))
+    return argv
+
+
+def public_admission_validation_payload(value: object) -> dict[str, object]:
+    try:
+        argv = public_admission_request_argv(value)
+        args = build_parser().parse_args(argv)
+        task = load_tasks().get(str(args.task_id))
+        if not isinstance(task, dict):
+            raise ValueError(f"task not found: {args.task_id}")
+        _semantic_admission_expectations(task, args)
+        if _context_contract_required(args):
+            _validate_context_economy_request(task, args, wave_id=str(args.wave_id))
+        _validate_canonical_admission_preloads(args)
+        decision = evaluate_agent_admission(task, args)
+        if decision.get("allowed") is not True:
+            raise ValueError(f"agent_admission_denied:{decision.get('decision')}")
+        _validate_admission_capsule_write_scope(task, decision.get("selected_bindings"))
+    except (CourtCliArgumentError, ValueError) as exc:
+        return {
+            "schema": "court.agent.admission_request.validation.v1",
+            "ok": False,
+            "errors": [{"field": "admission_request", "kind": "contract", "code": str(exc)}],
+        }
+    return {
+        "schema": "court.agent.admission_request.validation.v1",
+        "ok": True,
+        "errors": [],
+        "value": value,
+        "argv": argv,
+    }
+
+
+def public_admission_template_payload(args: argparse.Namespace) -> dict[str, object]:
+    task = load_tasks().get(str(args.task_id))
+    if not isinstance(task, dict):
+        raise ValueError(f"task not found: {args.task_id}")
+    role = require_text(args.role, "role").lower()
+    calling_office = require_text(args.calling_office, "calling-office").lower()
+    manifest = build_preload_manifest(role)
+    if manifest.direct_superior != calling_office:
+        raise ValueError("admission_template_hierarchy_mismatch")
+    caller_manifest = build_preload_manifest(calling_office)
+    normalized_write_set = canonical_repo_relative_paths([args.write_path])
+    if normalized_write_set is None or len(normalized_write_set) != 1:
+        raise ValueError("admission_template_write_path_invalid")
+    write_path = normalized_write_set[0]
+    instance_id = f"{role}#0001"
+    shard_id = f"{role}-shard-0001"
+    preload_hashes = _semantic_preload_hashes(role)
+    binding = {
+        "role": role,
+        "instance_id": instance_id,
+        "shard_id": shard_id,
+        "direct_superior": calling_office,
+        "instance_kind": "office",
+        "canonical_authority": True,
+        "owner_role": None,
+        "write_set": [write_path],
+        "access_mode": "read_write",
+        "read_scope": [write_path],
+        "mutation_allowed": True,
+        "integration_authority": False,
+        "preload_hashes": preload_hashes,
+    }
+    _validate_admission_capsule_write_scope(task, [binding])
+    next_depth = int(args.next_depth)
+    if next_depth < 1:
+        raise ValueError("admission_template_next_depth_invalid")
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
+    budget_id = f"budget:{args.task_id}:P00-PUBLIC-ADMISSION:{args.wave_id}"
+    direct_superior = caller_manifest.direct_superior
+    lease = {
+        "schema": "court.agent.admission_lease.v2",
+        "budget_id": budget_id,
+        "status": "ACTIVE",
+        "lease_id": f"{budget_id}:lease",
+        "parent_budget_id": f"{budget_id}:{direct_superior}",
+        "parent_id": direct_superior,
+        "approved_by": direct_superior,
+        "grantee_role": calling_office,
+        "lease_depth": next_depth - 1,
+        "approved_next_depth": next_depth,
+        "expires_at_utc": expires_at,
+        "parent_write_scope": [write_path.split("/", 1)[0]],
+        "approved_count": 1,
+        "task_id": str(args.task_id),
+        "calling_office": calling_office,
+        "direct_superior": direct_superior,
+        "integration_domain": require_text(args.integration_domain, "integration-domain"),
+        "authority": "super",
+        "approved_roles": [role],
+        "approved_instance_ids": [instance_id],
+        "approved_shards": [shard_id],
+        "approved_write_sets": {instance_id: [write_path]},
+        "approved_access_contracts": {
+            instance_id: {
+                "access_mode": "read_write", "read_scope": [write_path],
+                "mutation_allowed": True, "integration_authority": False,
+            }
+        },
+        "approved_instance_shapes": {
+            instance_id: {
+                "instance_kind": "office", "canonical_authority": True,
+                "owner_role": None, "direct_superior": calling_office,
+            }
+        },
+        "approved_binding_sha256s": {},
+        "approved_preload_hashes": {instance_id: preload_hashes},
+    }
+    receipt = task.get("semantic_receipt")
+    if not isinstance(receipt, Mapping):
+        raise ValueError("semantic_receipt_missing")
+    request = {
+        "schema": "court.agent.admission_request.v1",
+        "task_id": str(args.task_id),
+        "expected_semantic_epoch": task.get("semantic_epoch"),
+        "expected_charter_sha256": task.get("charter_sha256"),
+        "expected_invariant_capsule_sha256": task.get("invariant_capsule_sha256"),
+        "expected_checkpoint_id": receipt.get("checkpoint_id"),
+        "wave_id": require_text(args.wave_id, "wave-id"),
+        "execution_topology": "parallel",
+        "protocol_mode": "v2",
+        "active_session_protocol": "v2",
+        "needs_parallel_tree": True,
+        "requested_fork_turns": "none",
+        "context_tokens": int(args.context_tokens),
+        "message_chars": int(args.message_chars),
+        "message_required_chars": int(args.message_chars),
+        "message_optional_chars": 0,
+        "requested_agents": 1,
+        "requested_roles": [role],
+        "host_active_agents": int(args.host_active_agents),
+        "host_capacity": int(args.host_capacity),
+        "host_retained_agents": int(args.host_retained_agents),
+        "host_reclamation_status": str(args.host_reclamation_status),
+        "next_depth": next_depth,
+        "max_depth": MAX_AGENT_TREE_DEPTH,
+        "max_threads": MAX_AGENT_TREE_THREADS,
+        "user_agent_budget": int(args.user_agent_budget),
+        "provider_launch_budget": int(args.provider_launch_budget),
+        "budget_lease": lease,
+        "requested_bindings": [binding],
+        "integration_domain": str(args.integration_domain),
+        "authority": "super",
+        "calling_office": calling_office,
+        "direct_superior": direct_superior,
+        "assignment": require_text(args.assignment, "assignment"),
+        "task_focus": require_text(args.task_focus, "task-focus"),
+        "complexity": str(args.complexity),
+        "risk": str(args.risk),
+        "ambiguity": str(args.ambiguity),
+        "transport": str(args.transport),
+        "actor": calling_office,
+        "evidence": require_text(args.evidence, "evidence"),
+        "dispatch_context_packet": public_dispatch_context_packet(task, str(args.wave_id)),
+        "context_budget_pool": public_context_budget_pool(task, str(args.wave_id)),
+        "context_result_mode": "bounded_structured_receipt",
+        "context_tool_output_mode": "pointer",
+        "context_override_source": None,
+        "system_memory_percent": float(args.system_memory_percent),
+    }
+    validated = public_admission_validation_payload(request)
+    if validated.get("ok") is not True:
+        raise ValueError(str(validated.get("errors")))
+    return {
+        "schema": "court.agent.admission_request.template.v1",
+        "request": request,
+        "argv": validated["argv"],
+    }
+
+
 def output(value: Any, fmt: str) -> None:
     if fmt == "json":
         if isinstance(value, TransitionResult):
@@ -7291,19 +7837,151 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--context-tool-output-mode")
         command.add_argument("--context-override-source")
 
-    create = sub.add_parser("create", help="create a court task in Pending")
+    intake_schema = sub.add_parser(
+        "intake-schema",
+        help="print the machine-readable conversation and invariant-capsule schemas",
+    )
+    intake_schema.set_defaults(format="json")
+    accept_format_after_command(intake_schema)
+
+    intake_template = sub.add_parser(
+        "intake-template",
+        help="generate a minimal FORMAL_TASK gate and invariant capsule from an exact charter",
+    )
+    intake_template.set_defaults(format="json")
+    accept_format_after_command(intake_template)
+    intake_template.add_argument("--charter", required=True, help="required nonempty exact UTF-8 charter")
+
+    intake_validate = sub.add_parser(
+        "intake-validate",
+        help="validate intake JSON and optional invariant capsule without runtime mutation",
+    )
+    intake_validate.set_defaults(format="json")
+    accept_format_after_command(intake_validate)
+    intake_validate.add_argument("--charter", required=True, help="required nonempty exact UTF-8 charter")
+    intake_validate.add_argument("--intake-file", type=Path, required=True, help="court.conversation_gate.v1 JSON object")
+    intake_validate.add_argument("--invariant-capsule-file", type=Path)
+
+    capsule_template = sub.add_parser(
+        "capsule-template",
+        help="generate a 13-field court.semantic.invariant_capsule.v1 JSON object",
+    )
+    capsule_template.set_defaults(format="json")
+    accept_format_after_command(capsule_template)
+    capsule_template.add_argument("--charter", required=True, help="required nonempty exact UTF-8 charter")
+
+    capsule_validate = sub.add_parser(
+        "capsule-validate",
+        help="validate capsule hashes, UTF-8 anchor, fields, and 2048-byte canonical limit",
+    )
+    capsule_validate.set_defaults(format="json")
+    accept_format_after_command(capsule_validate)
+    capsule_validate.add_argument("--charter", required=True, help="required nonempty exact UTF-8 charter")
+    capsule_validate.add_argument("--invariant-capsule-file", type=Path, required=True)
+
+    semantic_context_schema = sub.add_parser(
+        "semantic-context-schema",
+        help="print the machine-readable semantic checkpoint context schema",
+    )
+    semantic_context_schema.set_defaults(format="json")
+    accept_format_after_command(semantic_context_schema)
+
+    semantic_context_template = sub.add_parser(
+        "semantic-context-template",
+        help="generate a complete semantic checkpoint context",
+    )
+    semantic_context_template.set_defaults(format="json")
+    accept_format_after_command(semantic_context_template)
+    semantic_context_template.add_argument("--task-id", required=True)
+
+    semantic_context_validate = sub.add_parser(
+        "semantic-context-validate",
+        help="validate semantic checkpoint context without runtime mutation",
+    )
+    semantic_context_validate.set_defaults(format="json")
+    accept_format_after_command(semantic_context_validate)
+    semantic_context_validate.add_argument("--context-file", type=Path, required=True)
+
+    admission_schema = sub.add_parser(
+        "admission-schema",
+        help="print the complete machine-readable agent admission request schema",
+    )
+    admission_schema.set_defaults(format="json")
+    accept_format_after_command(admission_schema)
+
+    admission_template = sub.add_parser(
+        "admission-template",
+        help="generate a complete executable single-office agent admission request",
+    )
+    admission_template.set_defaults(format="json")
+    accept_format_after_command(admission_template)
+    for name in (
+        "task-id", "wave-id", "integration-domain", "write-path", "assignment",
+        "task-focus", "evidence",
+    ):
+        admission_template.add_argument(f"--{name}", required=True)
+    for name in ("role", "calling-office"):
+        admission_template.add_argument(f"--{name}", required=True, choices=sorted(OFFICES))
+    for name in (
+        "host-active-agents", "host-capacity", "host-retained-agents", "next-depth",
+        "user-agent-budget", "provider-launch-budget",
+    ):
+        admission_template.add_argument(f"--{name}", type=int, required=True)
+    admission_template.add_argument(
+        "--host-reclamation-status",
+        required=True,
+        choices=["verified", "not-reclaimed", "unknown"],
+    )
+    admission_template.add_argument("--context-tokens", type=int, default=1000)
+    admission_template.add_argument("--message-chars", type=int, default=256)
+    admission_template.add_argument("--system-memory-percent", type=float, default=0.0)
+    for name in ("complexity", "risk", "ambiguity"):
+        admission_template.add_argument(
+            f"--{name}", required=True, choices=sorted(EVALUATION_LEVELS)
+        )
+    admission_template.add_argument("--transport", required=True, choices=sorted(TRANSPORTS))
+
+    admission_validate = sub.add_parser(
+        "admission-validate",
+        help="validate a complete admission request without ledger mutation",
+    )
+    admission_validate.set_defaults(format="json")
+    accept_format_after_command(admission_validate)
+    admission_validate.add_argument("--request-file", type=Path, required=True)
+
+    create = sub.add_parser(
+        "create",
+        help="create a court task in Pending from documented JSON intake",
+        description=(
+            "Create from court.conversation_gate.v1 JSON with a minimal FORMAL_TASK example from "
+            "intake-template. --charter is a required nonempty exact UTF-8 charter. An omitted "
+            "capsule is safely generated; a custom court.semantic.invariant_capsule.v1 has exactly "
+            "13 fields, latest_decree_sha256 == charter_sha256 == sha256(exact UTF-8 charter), "
+            "a 256-byte UTF-8 prefix anchor, and a 2048-byte canonical limit. Use intake-schema, "
+            "intake-validate, capsule-template, and capsule-validate for machine-readable contracts."
+        ),
+    )
     accept_format_after_command(create)
     create.add_argument("--title", required=True)
-    create.add_argument("--charter", default="")
+    create.add_argument("--charter", required=True, help="required nonempty exact UTF-8 charter")
     create.add_argument("--task-id", default="")
     create.add_argument("--owner", default="taizi", choices=sorted(OFFICES))
     create.add_argument("--report-tier", default="", choices=sorted(REPORT_TIERS) + [""])
     create.add_argument("--evidence", default="")
     create.add_argument("--note", default="")
     create.add_argument("--work-kind", required=True, choices=sorted(WORK_KINDS))
-    create.add_argument("--intake-file", type=Path, required=True)
+    create.add_argument(
+        "--intake-file",
+        type=Path,
+        required=True,
+        help="court.conversation_gate.v1 JSON; see intake-schema and intake-template",
+    )
     create_capsule = create.add_mutually_exclusive_group()
-    create_capsule.add_argument("--invariant-capsule-file", type=Path)
+    create_capsule.add_argument(
+        "--invariant-capsule-file",
+        type=Path,
+        help="optional documented 13-field capsule JSON; omitted means safe generation",
+    )
     create_capsule.add_argument(
         "--invariant-capsule-json",
         dest="invariant_capsule",
@@ -7841,7 +8519,54 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{parser.prog}: error: {exc}", file=sys.stderr)
         return 2
     try:
-        if args.command == "create":
+        if args.command == "intake-schema":
+            output(public_intake_contract_payload(), "json")
+        elif args.command == "intake-template":
+            output(public_intake_template_payload(args.charter), "json")
+        elif args.command == "intake-validate":
+            intake_value = _read_public_json_object(args.intake_file, "intake")
+            capsule_value = (
+                _read_public_json_object(args.invariant_capsule_file, "invariant_capsule")
+                if args.invariant_capsule_file
+                else None
+            )
+            result = public_intake_validation_payload(
+                args.charter,
+                intake_value,
+                capsule_value,
+            )
+            output(result, "json")
+            return 0 if result["ok"] else 2
+        elif args.command == "capsule-template":
+            output(invariant_capsule_template(require_exact_text(args.charter, "charter")), "json")
+        elif args.command == "capsule-validate":
+            result = public_capsule_validation_payload(
+                args.charter,
+                _read_public_json_object(args.invariant_capsule_file, "invariant_capsule"),
+            )
+            output(result, "json")
+            return 0 if result["ok"] else 2
+        elif args.command == "semantic-context-schema":
+            output(semantic_context_json_schema(), "json")
+        elif args.command == "semantic-context-template":
+            output(public_semantic_context_template_payload(args.task_id), "json")
+        elif args.command == "semantic-context-validate":
+            result = public_semantic_context_validation_payload(
+                _read_public_json_object(args.context_file, "semantic_context")
+            )
+            output(result, "json")
+            return 0 if result["ok"] else 2
+        elif args.command == "admission-schema":
+            output(public_admission_request_json_schema(), "json")
+        elif args.command == "admission-template":
+            output(public_admission_template_payload(args), "json")
+        elif args.command == "admission-validate":
+            result = public_admission_validation_payload(
+                _read_public_json_object(args.request_file, "admission_request")
+            )
+            output(result, "json")
+            return 0 if result["ok"] else 2
+        elif args.command == "create":
             output(create_task(args), args.format)
         elif args.command == "revise-charter":
             output(revise_charter_task(args), args.format)

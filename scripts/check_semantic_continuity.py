@@ -59,6 +59,52 @@ def _digest(label: str) -> str:
     return _sha256_text(label)
 
 
+def check_public_invariant_capsule_contract() -> None:
+    schema_factory = getattr(court_semantic_continuity, "invariant_capsule_json_schema", None)
+    template_factory = getattr(court_semantic_continuity, "invariant_capsule_template", None)
+    require_custom = getattr(court_semantic_continuity, "validate_invariant_capsule", None)
+    if not callable(schema_factory):
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_SCHEMA_MISSING")
+    if not callable(template_factory):
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_TEMPLATE_MISSING")
+    if not callable(require_custom):
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_VALIDATE_MISSING")
+
+    schema = schema_factory()
+    if set(schema.get("required", [])) != CAPSULE_REQUIRED_FIELDS:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_FIELDS_NOT_EXACT13")
+    if schema.get("additionalProperties") is not False:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_SCHEMA_NOT_CLOSED")
+
+    charter = "诏" * 200 + " exact UTF-8 charter suffix"
+    capsule = template_factory(charter, {"write_set": ["scripts/check_semantic_continuity.py"]})
+    expected_sha256 = _sha256_text(charter)
+    if capsule.get("latest_decree_sha256") != expected_sha256:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_DECREE_HASH_RULE_DRIFTED")
+    if capsule.get("charter_sha256") != expected_sha256:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_CHARTER_HASH_RULE_DRIFTED")
+    anchor = str(capsule.get("latest_decree_anchor", ""))
+    if len(anchor.encode("utf-8")) > 256 or not charter.startswith(anchor):
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_UTF8_PREFIX_RULE_DRIFTED")
+    normalized = require_custom(charter, capsule)
+    if normalized != capsule:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_CUSTOM_VALIDATE_DRIFTED")
+    canonical = json.dumps(capsule, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if len(canonical) > 2048:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_EXCEEDS_2KIB")
+
+    exact_charter = " \r\n诏令：保留前后空白与 CRLF。\r\n "
+    exact_digest = _sha256_text(exact_charter)
+    exact_capsule = template_factory(exact_charter)
+    if exact_capsule.get("latest_decree_sha256") != exact_digest:
+        raise AssertionError("EXACT_CHARTER_DECREE_HASH_REWRITTEN")
+    if exact_capsule.get("charter_sha256") != exact_digest:
+        raise AssertionError("EXACT_CHARTER_HASH_REWRITTEN")
+    exact_anchor = str(exact_capsule.get("latest_decree_anchor", ""))
+    if not exact_charter.startswith(exact_anchor):
+        raise AssertionError("EXACT_CHARTER_ANCHOR_REWRITTEN")
+
+
 def _formal_gate_fixture() -> dict[str, object]:
     return {
         "schema": "court.conversation_gate.v1",
@@ -1070,7 +1116,11 @@ def check_incomplete_capsule_and_multisource_drift_fail_closed() -> None:
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
             incomplete_args = _create_args(incomplete_task_id, "incomplete capsule charter")
-            incomplete_args.invariant_capsule = None
+            incomplete_capsule = dict(incomplete_args.invariant_capsule)
+            for field in ("non_goals", "forbidden_actions", "acceptance", "write_set"):
+                incomplete_capsule[field] = []
+            incomplete_capsule["governing_hashes"] = {}
+            incomplete_args.invariant_capsule = incomplete_capsule
             court_runtime.create_task(incomplete_args)
             before = court_runtime.tasks_path().read_bytes()
             try:
@@ -2788,6 +2838,7 @@ def check_p00_bounded_context_packet_preserves_semantic_continuity() -> None:
 
 def evaluate() -> dict[str, object]:
     checks = (
+        ("PUBLIC_INVARIANT_CAPSULE_CONTRACT", check_public_invariant_capsule_contract),
         ("F-RED-002_CREATE_BINDING", check_create_initializes_atomic_semantic_binding),
         ("F-RED-002_CORRECTION_BINDING", check_correction_requires_and_binds_charter_body),
         ("SEMANTIC_CHECKPOINT_VERIFY", check_checkpoint_verify_promotes_dispatchable),

@@ -9,6 +9,7 @@ sys.dont_write_bytecode = True
 
 INTAKE_SCHEMA = "court.conversation_gate.v1"
 LEGACY_INTAKE_SCHEMA = "court.conversation_gate.legacy.v1"
+INTAKE_VALIDATION_SCHEMA = "court.conversation_gate.validation.v1"
 
 WORK_KINDS = frozenset(
     {
@@ -71,6 +72,95 @@ _STRING_FIELDS = (
     "rationale",
 )
 _BOOLEAN_FIELDS = ("active_decree", "requires_tools", "mutates_state", "risk_present")
+
+
+def conversation_gate_json_schema() -> dict[str, object]:
+    properties: dict[str, dict[str, object]] = {
+        field: {"type": "string"} for field in _STRING_FIELDS
+    }
+    properties["schema"]["const"] = INTAKE_SCHEMA
+    for field in _BOOLEAN_FIELDS:
+        properties[field] = {"type": "boolean"}
+    properties["message_class"]["enum"] = sorted(MESSAGE_CLASSES)
+    properties["active_decree_state"]["enum"] = sorted(ACTIVE_DECREE_STATES)
+    properties["confidence"]["enum"] = sorted(CONFIDENCE_LEVELS)
+    properties["relation_to_active_decree"]["enum"] = sorted(RELATIONS)
+    properties["taskization_consent"]["enum"] = sorted(TASKIZATION_CONSENTS)
+    properties["next_route"]["enum"] = sorted(NEXT_ROUTES)
+    properties["target_task_id"] = {"type": "string", "minLength": 1}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": INTAKE_SCHEMA,
+        "type": "object",
+        "required": sorted(_REQUIRED_FIELDS),
+        "optional": ["target_task_id"],
+        "properties": properties,
+        "additionalProperties": False,
+    }
+
+
+def minimal_formal_task_example() -> dict[str, object]:
+    return {
+        "schema": INTAKE_SCHEMA,
+        "active_decree": False,
+        "active_decree_state": "NONE",
+        "message_class": "FORMAL_TASK",
+        "confidence": "HIGH",
+        "relation_to_active_decree": "NEW_TASK",
+        "taskization_consent": "EXPLICIT",
+        "requires_tools": True,
+        "mutates_state": True,
+        "risk_present": False,
+        "next_route": "THREE_DEPARTMENTS",
+        "question": "",
+        "rationale": "explicit formal task routed through Three Departments",
+    }
+
+
+def validate_conversation_gate_diagnostics(value: object) -> dict[str, object]:
+    errors: list[dict[str, str]] = []
+    if not isinstance(value, dict):
+        errors.append({"field": "$", "kind": "type", "code": "gate_type"})
+        return {"schema": INTAKE_VALIDATION_SCHEMA, "ok": False, "errors": errors}
+    raw = dict(value)
+    for field in sorted(_REQUIRED_FIELDS - raw.keys()):
+        errors.append({"field": field, "kind": "missing", "code": "required"})
+    for field in sorted(raw.keys() - _REQUIRED_FIELDS - _OPTIONAL_FIELDS, key=str):
+        errors.append({"field": str(field), "kind": "unknown", "code": "additional_property"})
+    for field in _STRING_FIELDS:
+        if field in raw and not isinstance(raw[field], str):
+            errors.append({"field": field, "kind": "type", "code": "string_required"})
+    for field in _BOOLEAN_FIELDS:
+        if field in raw and type(raw[field]) is not bool:
+            errors.append({"field": field, "kind": "type", "code": "boolean_required"})
+    if "target_task_id" in raw and not isinstance(raw["target_task_id"], str):
+        errors.append({"field": "target_task_id", "kind": "type", "code": "string_required"})
+    enum_fields = {
+        "schema": {INTAKE_SCHEMA},
+        "message_class": MESSAGE_CLASSES,
+        "active_decree_state": ACTIVE_DECREE_STATES,
+        "confidence": CONFIDENCE_LEVELS,
+        "relation_to_active_decree": RELATIONS,
+        "taskization_consent": TASKIZATION_CONSENTS,
+        "next_route": NEXT_ROUTES,
+    }
+    for field, allowed in enum_fields.items():
+        if field in raw and isinstance(raw[field], str) and raw[field].strip() not in allowed:
+            errors.append({"field": field, "kind": "enum", "code": "unsupported_value"})
+    if not errors:
+        try:
+            normalized = validate_conversation_gate(raw)
+        except ValueError as exc:
+            code = str(exc)
+            errors.append({"field": code.split("_", 1)[0], "kind": "coherence", "code": code})
+        else:
+            return {
+                "schema": INTAKE_VALIDATION_SCHEMA,
+                "ok": True,
+                "errors": [],
+                "value": normalized,
+            }
+    return {"schema": INTAKE_VALIDATION_SCHEMA, "ok": False, "errors": errors}
 
 
 def _require(condition: bool, code: str) -> None:

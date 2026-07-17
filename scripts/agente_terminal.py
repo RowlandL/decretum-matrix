@@ -78,7 +78,7 @@ def lineage_display(office: str) -> str:
 
 
 def next_sequence(court_code: str) -> int:
-    root = logs_root()
+    root = reference_path("agente-logs")
     if not root.exists():
         return 1
     prefix = f"{court_code}-"
@@ -277,21 +277,83 @@ def append_shiguan_summary(metadata: dict[str, object], log_path: Path, full_arc
     return entry
 
 
-def mirror_runtime_event(args: argparse.Namespace, metadata: dict[str, object], log_path: Path) -> dict[str, object]:
+def _semantic_binding_fields(source: dict[str, object]) -> dict[str, object]:
+    fields = (
+        "semantic_epoch",
+        "charter_sha256",
+        "invariant_capsule_sha256",
+        "checkpoint_id",
+        "dispatch_uid",
+        "attempt",
+    )
+    return {field: source.get(field) for field in fields}
+
+
+def _structured_result_envelope(
+    agent: dict[str, object],
+    *,
+    status: str,
+    summary: str,
+    evidence: str,
+) -> dict[str, object]:
+    return {
+        "schema": "court.office.result.v1",
+        "task_id": agent["task_id"],
+        "semantic_epoch": agent["semantic_epoch"],
+        "charter_sha256": agent["charter_sha256"],
+        "invariant_capsule_sha256": agent["invariant_capsule_sha256"],
+        "checkpoint_id": agent["checkpoint_id"],
+        "dispatch_uid": agent["dispatch_uid"],
+        "attempt": agent["attempt"],
+        "office_instance_id": agent["office_instance_id"],
+        "agent_id": agent["agent_id"],
+        "role": agent["role"],
+        "direct_superior": agent["direct_superior"],
+        "worktree": agent["worktree"],
+        "write_set_sha256": court_runtime.canonical_json_sha256(agent.get("write_set", [])),
+        "status": status,
+        "summary": summary,
+        "evidence": [evidence],
+        "produced_at": court_runtime.now_text(),
+    }
+
+
+def mirror_runtime_event(args: argparse.Namespace) -> dict[str, object]:
     if not args.runtime_task_id or args.runtime_action == "none":
         return {"runtime_mirror": "not_requested"}
-    evidence = redact(args.runtime_evidence or f"{args.runtime_action} {metadata['log_id']}; log_path={log_path}")
+    evidence = redact(
+        args.runtime_evidence
+        or f"{args.runtime_action} agente_terminal:{args.agent_id}"
+    )
+    task = court_runtime.load_tasks().get(args.runtime_task_id)
+    if not isinstance(task, dict):
+        raise ValueError(f"runtime task not found: {args.runtime_task_id}")
     start_fields: dict[str, object] = {}
+    lifecycle_fields: dict[str, object] = {}
     if args.runtime_action in {"start", "spawn"}:
         wave_id = str(args.runtime_wave_id or "wave-default")
-        task = court_runtime.load_tasks().get(args.runtime_task_id)
         admissions = task.get("agent_admissions") if isinstance(task, dict) else None
         admission = admissions.get(wave_id) if isinstance(admissions, dict) else None
         route_inputs = admission.get("model_route_inputs") if isinstance(admission, dict) else None
-        if not isinstance(admission, dict) or not isinstance(route_inputs, dict):
+        if (
+            not isinstance(admission, dict)
+            or admission.get("allowed") is not True
+            or not isinstance(route_inputs, dict)
+        ):
             raise ValueError(f"runtime admission not found for wave: {wave_id}")
+        selected = admission.get("selected_bindings")
+        matching = [
+            item
+            for item in selected or []
+            if isinstance(item, dict)
+            and str(item.get("role") or "").strip().lower()
+            == str(args.runtime_role or args.office).strip().lower()
+        ]
+        if len(matching) != 1:
+            raise ValueError("runtime admission requires one matching instance")
         start_fields = {
             "wave_id": wave_id,
+            "instance_id": matching[0].get("instance_id"),
             "dispatch_requested_at": admission.get("dispatch_requested_at"),
             "task_focus": route_inputs.get("task_focus"),
             "complexity": route_inputs.get("complexity"),
@@ -305,19 +367,49 @@ def mirror_runtime_event(args: argparse.Namespace, metadata: dict[str, object], 
             "collaboration_task_name": args.collaboration_task_name,
             "requires_gongjiang": args.requires_gongjiang,
             "skill_requirements_json": args.skill_requirements_json,
+            "dispatch_context_packet": court_runtime.public_dispatch_context_packet(
+                task, wave_id
+            ),
+            "context_budget_pool": court_runtime.public_context_budget_pool(task, wave_id),
+            "context_result_mode": admission.get("context_result_mode"),
+            "context_tool_output_mode": admission.get("context_tool_output_mode"),
+            "context_override_source": admission.get("context_override_source"),
+            "system_memory_percent": admission.get("context_system_memory_percent", 0.0),
+            **_semantic_binding_fields(admission),
         }
-    namespace = argparse.Namespace(
-        task_id=args.runtime_task_id,
-        agent_id=args.agent_id,
-        role=args.runtime_role or args.office,
-        scope=redact(args.scope or args.summary),
-        actor=args.actor,
-        evidence=evidence,
-        note=redact(args.note or "agente_terminal mirror"),
-        result=redact(args.result or str(metadata.get("agent_status") or "")),
-        status=args.agent_status if args.agent_status in {"completed", "failed", "cancelled"} else "failed",
-        **start_fields,
-    )
+    else:
+        agents = task.get("agents")
+        existing = agents.get(args.agent_id) if isinstance(agents, dict) else None
+        if not isinstance(existing, dict):
+            raise ValueError(f"runtime agent not found: {args.agent_id}")
+        lifecycle_fields = _semantic_binding_fields(existing)
+        if args.runtime_action == "finish":
+            status = args.agent_status if args.agent_status in {"completed", "failed", "cancelled"} else "failed"
+            lifecycle_fields.update(
+                result_envelope=_structured_result_envelope(
+                    existing,
+                    status=status,
+                    summary=redact(args.result or args.summary or status),
+                    evidence=evidence,
+                ),
+                result_envelope_file=None,
+            )
+    namespace_fields: dict[str, object] = {
+        "task_id": args.runtime_task_id,
+        "agent_id": args.agent_id,
+        "role": args.runtime_role or args.office,
+        "scope": redact(args.scope or args.summary),
+        "actor": args.actor,
+        "evidence": evidence,
+        "note": redact(args.note or "agente_terminal mirror"),
+        "result": "" if args.runtime_action == "finish" else redact(
+            args.result or str(args.agent_status or "")
+        ),
+        "status": args.agent_status if args.agent_status in {"completed", "failed", "cancelled"} else "failed",
+    }
+    namespace_fields.update(start_fields)
+    namespace_fields.update(lifecycle_fields)
+    namespace = argparse.Namespace(**namespace_fields)
     if args.runtime_action in {"start", "spawn"}:
         result = court_runtime.agent_start(namespace)
     elif args.runtime_action == "heartbeat":
@@ -414,6 +506,7 @@ def main() -> int:
     metadata.update(release_behavior(args.agent_status))
     metadata["redaction_enforced"] = True
     metadata["full_log_archive_requested"] = bool(args.full_log_archive)
+    runtime_mirror = mirror_runtime_event(args)
     log_path = write_log(metadata, body or "status: created", args.full_log_archive)
     terminal = (
         launch_terminal(metadata, log_path, args.dry_run, args.auto_close_seconds)
@@ -421,7 +514,6 @@ def main() -> int:
         else {"terminal_window": "not_requested"}
     )
     metadata.update(terminal)
-    runtime_mirror = mirror_runtime_event(args, metadata, log_path)
     entry = append_shiguan_summary(metadata, log_path, args.full_log_archive, args.summary)
     output = {
         "metadata": metadata,

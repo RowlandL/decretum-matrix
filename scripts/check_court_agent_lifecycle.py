@@ -52,6 +52,16 @@ CONTEXT_HARD_LIMITS = {
     "retained_agents_max": 15,
 }
 TASK_SPECIFIC_SKILL_PATH: Path | None = None
+FIXTURE_SLOT_COUNT = 32
+_FIXTURE_WAVE_SLOTS: dict[tuple[str, str], tuple[int, int]] = {}
+FIXTURE_EXPLICIT_WRITE_SET = (
+    "work/gongbu/worker-0001.txt",
+    "work/gongbu/worker-tamper-0001.txt",
+    "work/gongbu/worker-access-tamper-0001.txt",
+    "Fixture-Writes\\Writer",
+    "fixture-writes/independent-writer.py",
+    "fixture-writes/independent-attempt.py",
+)
 
 
 def check_import_root_isolation() -> None:
@@ -189,6 +199,9 @@ def context_budget_pool(task_id: str, wave_id: str) -> dict[str, object]:
 
 
 def create_task(task_id: str) -> None:
+    for key in tuple(_FIXTURE_WAVE_SLOTS):
+        if key[0] == task_id:
+            del _FIXTURE_WAVE_SLOTS[key]
     charter = "bounded ordinary parallel lifecycle fixture"
     charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
     invariant_capsule = {
@@ -202,7 +215,10 @@ def create_task(task_id: str) -> None:
         "acceptance": ["focused lifecycle checker passes"],
         "evidence_requirements": ["current semantic receipt"],
         "stop_gates": ["semantic drift"],
-        "write_set": ["scripts/check_court_agent_lifecycle.py"],
+        "write_set": [
+            *(f"f/{index:02d}" for index in range(1, FIXTURE_SLOT_COUNT + 1)),
+            *FIXTURE_EXPLICIT_WRITE_SET,
+        ],
         "governing_hashes": {
             "execution_plan": hashlib.sha256(b"rc4-execution-plan").hexdigest()
         },
@@ -256,6 +272,18 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
     requested_roles = [item.strip() for item in requested_roles_text.split(",") if item.strip()]
     requested_count = int(overrides.get("requested_agents", len(requested_roles)) or 0)
     approved_roles = requested_roles[:requested_count]
+    slot_key = (task_id, wave_id)
+    slot = _FIXTURE_WAVE_SLOTS.get(slot_key)
+    if slot is None:
+        next_slot = 1 + max(
+            (base + count - 1 for (bound_task, _), (base, count) in _FIXTURE_WAVE_SLOTS.items() if bound_task == task_id),
+            default=0,
+        )
+        slot = (next_slot, max(1, len(approved_roles)))
+        if slot[0] + slot[1] - 1 > FIXTURE_SLOT_COUNT:
+            raise AssertionError("lifecycle fixture write slots exhausted")
+        _FIXTURE_WAVE_SLOTS[slot_key] = slot
+    default_write_sets = [f"f/{slot[0] + index:02d}" for index in range(len(approved_roles))]
     default_calling_office = (
         approved_roles[0]
         if child_worker and len(set(approved_roles)) == 1
@@ -317,11 +345,11 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             "worktree": ".",
             "write_set": list(office_write_set)
             if isinstance(office_write_set, (list, tuple))
-            else [f"fixtures/{wave_id}/{binding_role}-{index:04d}.txt"],
+            else [default_write_sets[index - 1]],
             "access_mode": "read_write",
             "read_scope": list(office_write_set)
             if isinstance(office_write_set, (list, tuple))
-            else [f"fixtures/{wave_id}/{binding_role}-{index:04d}.txt"],
+            else [default_write_sets[index - 1]],
             "mutation_allowed": True,
             "integration_authority": False,
             "preload_hashes": preload_hashes,
@@ -2099,7 +2127,7 @@ def check_office_instance_proof_writer_and_attempt_guards() -> None:
         office_instance_id="gongbu-writer-01",
         collaboration_task_name="gongbu_writer_01",
         carrier_proof=first_proof,
-        office_write_set=["Scripts\\Shared"],
+        office_write_set=["Fixture-Writes\\Writer\\Shared"],
     )
     court_runtime.office_start(
         start_args(
@@ -2115,8 +2143,8 @@ def check_office_instance_proof_writer_and_attempt_guards() -> None:
         )
     )
     persisted_first = court_runtime.load_tasks()[writer_task]["agents"]["gongbu-writer-01"]
-    assert persisted_first["write_set"] == ["scripts/shared"]
-    assert persisted_first["read_scope"] == ["scripts/shared"]
+    assert persisted_first["write_set"] == ["fixture-writes/writer/shared"]
+    assert persisted_first["read_scope"] == ["fixture-writes/writer/shared"]
     reject_runtime_bytes_unchanged(
         lambda: admit(
             writer_task,
@@ -2126,7 +2154,7 @@ def check_office_instance_proof_writer_and_attempt_guards() -> None:
             office_instance_id="gongbu-writer-02",
             collaboration_task_name="gongbu_writer_02",
             carrier_proof={"agent_id": "gongbu-writer-02"},
-            office_write_set=["scripts/shared/child.py"],
+            office_write_set=["fixture-writes/writer/shared/child.py"],
         ),
         "descendant active writer was admitted",
         "office_writer_conflict",
@@ -2140,7 +2168,7 @@ def check_office_instance_proof_writer_and_attempt_guards() -> None:
             office_instance_id="gongbu-writer-04",
             collaboration_task_name="gongbu_writer_04",
             carrier_proof={"agent_id": "gongbu-writer-04"},
-            office_write_set=["SCRIPTS"],
+            office_write_set=["FIXTURE-WRITES\\WRITER"],
         ),
         "ancestor active writer was admitted",
         "office_writer_conflict",
@@ -2154,7 +2182,7 @@ def check_office_instance_proof_writer_and_attempt_guards() -> None:
             office_instance_id="gongbu-writer-01",
             collaboration_task_name="gongbu_writer_01",
             carrier_proof=first_proof,
-            office_write_set=["scripts/independent-writer.py"],
+            office_write_set=["fixture-writes/independent-writer.py"],
         ),
         "duplicate office instance was admitted",
         "office_instance_already_admitted",
@@ -2174,7 +2202,7 @@ def check_office_instance_proof_writer_and_attempt_guards() -> None:
             office_instance_id="gongbu-writer-03",
             collaboration_task_name="gongbu_writer_03",
             carrier_proof={"agent_id": "gongbu-writer-03"},
-            office_write_set=["scripts/independent-attempt.py"],
+            office_write_set=["fixture-writes/independent-attempt.py"],
         ),
         "duplicate semantic dispatch attempt was admitted",
         "semantic_dispatch_attempt_conflict",

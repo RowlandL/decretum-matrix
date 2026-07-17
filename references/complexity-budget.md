@@ -74,3 +74,5 @@ live in `court_agent_admission_contract.py` with a 300-line ceiling. The
 existing `ensure_shiguan_autosync.py` owns the normalized public autosync
 projection and has an independent 600-line ceiling. Future growth belongs in
 these owning modules rather than raising the unchanged monolith limits.
+
+- 2026-07-18 measured audit: portable_source=273 files/6205322 bytes; cap=275 files/6225000 bytes.

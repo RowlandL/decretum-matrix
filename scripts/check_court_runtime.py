@@ -6,6 +6,8 @@ from argparse import Namespace
 from copy import deepcopy
 import hashlib
 import json
+import os
+import subprocess
 import tempfile
 from pathlib import Path
 import sys
@@ -396,6 +398,17 @@ def _cardinality_args(
     return court_runtime.build_parser().parse_args(argv)
 
 
+def _cardinality_create_args() -> Namespace:
+    args = create_args(
+        "runtime-cardinality",
+        intake_gate=formal_gate_fixture(mutates_state=True),
+    )
+    args.invariant_capsule["write_set"] = [
+        f"work/gongbu/{index:04d}.txt" for index in range(1, 18)
+    ]
+    return args
+
+
 def check_runtime_parallel_cardinality() -> None:
     task = {"task_id": "runtime-cardinality", "agents": {}}
 
@@ -449,12 +462,7 @@ def check_runtime_instance_keyed_routes() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(
-                create_args(
-                    "runtime-cardinality",
-                    intake_gate=formal_gate_fixture(mutates_state=True),
-                )
-            )
+            court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             admission = court_runtime.agent_admit(
                 _bind_admission_args(_cardinality_args(approved_count=3), task)
@@ -557,12 +565,7 @@ def check_runtime_instance_keyed_spawn_failure() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(
-                create_args(
-                    "runtime-cardinality",
-                    intake_gate=formal_gate_fixture(mutates_state=True),
-                )
-            )
+            court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             court_runtime.agent_admit(
                 _bind_admission_args(_cardinality_args(approved_count=3), task)
@@ -598,12 +601,7 @@ def check_runtime_instance_keyed_spawn_failure() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(
-                create_args(
-                    "runtime-cardinality",
-                    intake_gate=formal_gate_fixture(mutates_state=True),
-                )
-            )
+            court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             court_runtime.agent_admit(
                 _bind_admission_args(_cardinality_args(approved_count=1), task)
@@ -621,12 +619,7 @@ def check_runtime_instance_keyed_consumption() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(
-                create_args(
-                    "runtime-cardinality",
-                    intake_gate=formal_gate_fixture(mutates_state=True),
-                )
-            )
+            court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             admission = court_runtime.agent_admit(
                 _bind_admission_args(_cardinality_args(approved_count=3), task)
@@ -1059,12 +1052,7 @@ def check_rejected_admission_has_zero_runtime_side_effects() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(
-                create_args(
-                    "runtime-cardinality",
-                    intake_gate=formal_gate_fixture(mutates_state=True),
-                )
-            )
+            court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             args = _bind_admission_args(_cardinality_args(approved_count=1), task)
             args.requested_fork_turns = "all"
@@ -1098,12 +1086,7 @@ def check_admission_immutable_event_anchor_rejects_coherent_rewrite() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(
-                create_args(
-                    "runtime-cardinality",
-                    intake_gate=formal_gate_fixture(mutates_state=True),
-                )
-            )
+            court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             admission = court_runtime.agent_admit(
                 _bind_admission_args(_cardinality_args(approved_count=1), task)
@@ -1157,12 +1140,7 @@ def check_canonical_preload_hashes_bound_before_admission() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(
-                create_args(
-                    "runtime-cardinality",
-                    intake_gate=formal_gate_fixture(mutates_state=True),
-                )
-            )
+            court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             args = _bind_admission_args(_cardinality_args(approved_count=1), task)
             bindings = json.loads(args.requested_bindings_json)
@@ -1186,7 +1164,261 @@ def check_canonical_preload_hashes_bound_before_admission() -> None:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
+def check_omitted_capsule_denies_mutable_admission() -> None:
+    original_runtime_root = court_runtime.runtime_root
+    with tempfile.TemporaryDirectory(prefix="court-runtime-capsule-scope-") as temp_dir:
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            create = create_args(
+                "runtime-cardinality",
+                intake_gate=formal_gate_fixture(mutates_state=True),
+                work_kind="implementation",
+            )
+            create.invariant_capsule = None
+            court_runtime.create_task(create)
+            task = _make_task_dispatchable("runtime-cardinality")
+            args = _bind_admission_args(
+                _cardinality_args(approved_count=1),
+                task,
+            )
+            before = {
+                path.name: path.read_bytes()
+                for path in Path(temp_dir).iterdir()
+                if path.is_file()
+            }
+            try:
+                court_runtime.agent_admit(args)
+            except ValueError as exc:
+                assert "agent_admission_write_scope_exceeds_capsule" in str(exc)
+            else:
+                raise AssertionError("OMITTED_CAPSULE_MUTABLE_ADMISSION_ALLOWED")
+            after = {
+                path.name: path.read_bytes()
+                for path in Path(temp_dir).iterdir()
+                if path.is_file()
+            }
+            assert after == before, "rejected capsule-scope admission mutated the ledger"
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_full_context_private_body_not_persisted() -> None:
+    original_runtime_root = court_runtime.runtime_root
+    with tempfile.TemporaryDirectory(prefix="court-runtime-private-context-") as temp_dir:
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(_cardinality_create_args())
+            task = _make_task_dispatchable("runtime-cardinality")
+            args = _bind_admission_args(
+                _cardinality_args(approved_count=1),
+                task,
+            )
+            private_sentinel = "PRIVATE-CONTEXT-BODY-MUST-NOT-PERSIST"
+            packet = dict(args.dispatch_context_packet)
+            packet.update(
+                context_mode="full",
+                full_context={"private_body": private_sentinel},
+                budget_override={"explicit": True, "granted_by": "taizi", "max_bytes": 8192},
+            )
+            args.dispatch_context_packet = packet
+            args.context_override_source = "taizi_explicit_budget"
+            result = court_runtime.agent_admit(args)
+            assert result["allowed"] is True
+            persisted = court_runtime.tasks_path().read_text(encoding="utf-8")
+            persisted += court_runtime.events_path().read_text(encoding="utf-8")
+            assert private_sentinel not in persisted, "FULL_CONTEXT_PRIVATE_BODY_PERSISTED"
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_public_create_help_contract() -> None:
+    cli = Path(__file__).with_name("court_cli.py")
+    with tempfile.TemporaryDirectory(prefix="court-runtime-public-help-") as temp_dir:
+        temp_root = Path(temp_dir)
+        runtime_root = temp_root / "runtime"
+        host_spawn_marker = temp_root / "host-spawn.marker"
+        env = dict(os.environ)
+        env["COURT_RUNTIME_ROOT"] = str(runtime_root)
+        env["COURT_TEST_HOST_SPAWN_MARKER"] = str(host_spawn_marker)
+
+        def run(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [sys.executable, "-B", str(cli), *args],
+                text=True,
+                capture_output=True,
+                env=env,
+                check=False,
+            )
+
+        top_help = run("--help")
+        assert top_help.returncode == 0, top_help.stderr
+        for command in (
+            "intake-schema",
+            "intake-template",
+            "intake-validate",
+            "capsule-template",
+            "capsule-validate",
+            "semantic-context-schema",
+            "semantic-context-template",
+            "semantic-context-validate",
+            "admission-schema",
+            "admission-template",
+            "admission-validate",
+        ):
+            assert command in top_help.stdout, f"PUBLIC_TOP_HELP_MISSING:{command}"
+
+        completed = run("create", "--help")
+        assert completed.returncode == 0, completed.stderr
+        help_text = completed.stdout
+        for fragment in (
+            "court.conversation_gate.v1",
+            "FORMAL_TASK",
+            "JSON",
+            "required nonempty exact UTF-8 charter",
+            "court.semantic.invariant_capsule.v1",
+            "sha256(exact UTF-8 charter)",
+            "13 fields",
+            "2048",
+        ):
+            assert fragment in help_text, f"PUBLIC_CREATE_HELP_MISSING:{fragment}"
+        for command in ("intake-schema", "intake-template", "intake-validate", "capsule-template", "capsule-validate"):
+            assert command in help_text, f"PUBLIC_CREATE_HELP_DISCOVERY_MISSING:{command}"
+        assert not runtime_root.exists(), "create --help mutated runtime state"
+
+        schema_result = run("intake-schema", "--format", "json")
+        assert schema_result.returncode == 0, schema_result.stderr
+        contract = json.loads(schema_result.stdout)
+        gate_schema = contract["conversation_gate_schema"]
+        capsule_schema = contract["invariant_capsule_schema"]
+        assert gate_schema["additionalProperties"] is False
+        assert capsule_schema["additionalProperties"] is False
+        assert gate_schema["optional"] == ["target_task_id"]
+        assert capsule_schema["optional"] == []
+        assert contract["minimal_formal_task"]["message_class"] == "FORMAL_TASK"
+        workflow = " ".join(str(step["command"]) for step in contract["workflow"])
+        for command in ("create", "semantic checkpoint", "semantic verify", "agent-admit"):
+            assert command in workflow, f"PUBLIC_WORKFLOW_STEP_MISSING:{command}"
+
+        invalid_intake = temp_root / "invalid-intake.json"
+        invalid_intake.write_text(
+            json.dumps(
+                {
+                    "schema": "court.conversation_gate.v0",
+                    "active_decree": "false",
+                    "message_class": "INVALID",
+                    "confidence": "VERY_HIGH",
+                    "unknown_field": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        invalid_result = run(
+            "intake-validate",
+            "--charter",
+            "invalid intake must not mutate",
+            "--intake-file",
+            str(invalid_intake),
+            "--format",
+            "json",
+        )
+        assert invalid_result.returncode == 2
+        invalid_payload = json.loads(invalid_result.stdout)
+        fields = {str(item["field"]) for item in invalid_payload["errors"]}
+        assert {"active_decree", "active_decree_state", "message_class", "confidence", "unknown_field"} <= fields
+        assert not runtime_root.exists(), "intake-validate mutated the runtime tree"
+        assert not host_spawn_marker.exists(), "intake-validate attempted a host spawn"
+
+        charter = "诏" * 200 + " exact UTF-8 public charter"
+        template_result = run("intake-template", "--charter", charter, "--format", "json")
+        assert template_result.returncode == 0, template_result.stderr
+        template = json.loads(template_result.stdout)
+        capsule = template["invariant_capsule"]
+        expected_digest = hashlib.sha256(charter.encode("utf-8")).hexdigest()
+        assert len(capsule) == 13
+        assert capsule["latest_decree_sha256"] == expected_digest == capsule["charter_sha256"]
+        anchor = capsule["latest_decree_anchor"]
+        assert charter.startswith(anchor) and len(anchor.encode("utf-8")) <= 256
+        assert len(json.dumps(capsule, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")) <= 2048
+
+        exact_charter = " \r\n诏令：保留前后空白、CRLF 与非 ASCII。\r\n "
+        exact_digest = hashlib.sha256(exact_charter.encode("utf-8")).hexdigest()
+        exact_template_result = run(
+            "intake-template", "--charter", exact_charter, "--format", "json"
+        )
+        assert exact_template_result.returncode == 0, exact_template_result.stderr
+        exact_template = json.loads(exact_template_result.stdout)
+        assert exact_template["charter"] == exact_charter, "PUBLIC_EXACT_CHARTER_REWRITTEN"
+        assert exact_template["invariant_capsule"]["charter_sha256"] == exact_digest
+        assert exact_template["invariant_capsule"]["latest_decree_anchor"] == exact_charter
+        exact_intake_file = temp_root / "exact-intake.json"
+        exact_intake_file.write_text(
+            json.dumps(exact_template["conversation_gate"]), encoding="utf-8"
+        )
+        exact_create = run(
+            "create", "--task-id", "exact-charter", "--title", "exact charter",
+            "--charter", exact_charter, "--work-kind", "audit",
+            "--intake-file", str(exact_intake_file), "--format", "json",
+        )
+        assert exact_create.returncode == 0, exact_create.stderr
+        exact_task = json.loads(exact_create.stdout)["task"]
+        assert exact_task["charter"] == exact_charter, "STORED_EXACT_CHARTER_REWRITTEN"
+        assert exact_task["charter_sha256"] == exact_digest
+        assert exact_task["invariant_capsule"]["charter_sha256"] == exact_digest
+
+        intake_file = temp_root / "intake.json"
+        intake_file.write_text(json.dumps(template["conversation_gate"]), encoding="utf-8")
+        wrong_capsule = dict(capsule)
+        wrong_capsule["charter_sha256"] = "0" * 64
+        wrong_capsule_file = temp_root / "wrong-capsule.json"
+        wrong_capsule_file.write_text(json.dumps(wrong_capsule), encoding="utf-8")
+        wrong_validate = run(
+            "capsule-validate", "--charter", charter,
+            "--invariant-capsule-file", str(wrong_capsule_file), "--format", "json",
+        )
+        assert wrong_validate.returncode == 2
+        assert "charter_sha256_mismatch" in wrong_validate.stdout
+        wrong_before = {
+            path.relative_to(runtime_root).as_posix(): path.read_bytes()
+            for path in runtime_root.rglob("*")
+            if path.is_file()
+        }
+        wrong_create = run(
+            "create", "--task-id", "wrong-capsule", "--title", "wrong capsule",
+            "--charter", charter, "--work-kind", "audit", "--intake-file", str(intake_file),
+            "--invariant-capsule-file", str(wrong_capsule_file), "--format", "json",
+        )
+        assert wrong_create.returncode != 0
+        wrong_after = {
+            path.relative_to(runtime_root).as_posix(): path.read_bytes()
+            for path in runtime_root.rglob("*")
+            if path.is_file()
+        }
+        assert wrong_after == wrong_before, "wrong capsule create mutated the runtime ledger"
+
+        omitted = run(
+            "create", "--task-id", "omitted-capsule", "--title", "omitted capsule",
+            "--charter", charter, "--work-kind", "audit", "--intake-file", str(intake_file),
+            "--format", "json",
+        )
+        assert omitted.returncode == 0, omitted.stderr
+        omitted_task = json.loads(omitted.stdout)["task"]
+        assert len(omitted_task["invariant_capsule"]) == 13
+        assert omitted_task["invariant_capsule"]["charter_sha256"] == expected_digest
+        omitted_canonical = json.dumps(
+            omitted_task["invariant_capsule"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        assert omitted_task["invariant_capsule_sha256"] == hashlib.sha256(
+            omitted_canonical
+        ).hexdigest()
+
+
 def main() -> int:
+    check_public_create_help_contract()
+    check_omitted_capsule_denies_mutable_admission()
+    check_full_context_private_body_not_persisted()
     check_runtime_parallel_cardinality()
     check_runtime_instance_keyed_routes()
     check_runtime_instance_keyed_spawn_failure()

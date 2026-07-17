@@ -9,6 +9,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
+import court_intake_gate
 from court_intake_gate import (
     INTAKE_SCHEMA,
     WORK_KINDS,
@@ -422,7 +423,79 @@ def check_legacy_and_work_kinds() -> None:
             raise AssertionError("legacy sentinel crossed a create/revise gate")
 
 
+def check_public_intake_contract() -> None:
+    schema_factory = getattr(court_intake_gate, "conversation_gate_json_schema", None)
+    example_factory = getattr(court_intake_gate, "minimal_formal_task_example", None)
+    diagnostics = getattr(court_intake_gate, "validate_conversation_gate_diagnostics", None)
+    require(callable(schema_factory), "PUBLIC_INTAKE_JSON_SCHEMA_MISSING")
+    require(callable(example_factory), "PUBLIC_FORMAL_TASK_EXAMPLE_MISSING")
+    require(callable(diagnostics), "PUBLIC_AGGREGATE_DIAGNOSTICS_MISSING")
+
+    schema = schema_factory()
+    required = set(schema.get("required", []))
+    properties = schema.get("properties")
+    require(schema.get("type") == "object", "public intake schema is not object-shaped")
+    require(schema.get("additionalProperties") is False, "public intake schema is not closed-world")
+    require(required == set(PASS_BY_NAME["formal_task"]), "public intake schema required fields drifted")
+    require(isinstance(properties, dict), "public intake schema properties missing")
+    require(set(properties) == required | {"target_task_id"}, "public intake optional fields drifted")
+    require(schema.get("optional") == ["target_task_id"], "public intake optional field list missing")
+    require(properties["schema"].get("const") == INTAKE_SCHEMA, "public intake schema id drifted")
+    for field in ("active_decree", "requires_tools", "mutates_state", "risk_present"):
+        require(properties[field].get("type") == "boolean", f"public intake type drifted:{field}")
+    for field in required - {"active_decree", "requires_tools", "mutates_state", "risk_present"}:
+        require(properties[field].get("type") == "string", f"public intake type drifted:{field}")
+    for field in (
+        "message_class",
+        "active_decree_state",
+        "confidence",
+        "relation_to_active_decree",
+        "taskization_consent",
+        "next_route",
+    ):
+        require(isinstance(properties[field].get("enum"), list), f"public intake enum missing:{field}")
+
+    example = example_factory()
+    require_new_formal_task_gate(example)
+    require(set(example) == required, "minimal FORMAL_TASK example is not schema-complete")
+
+    invalid = {
+        "schema": "court.conversation_gate.v0",
+        "active_decree": "false",
+        "message_class": "NOT_A_CLASS",
+        "confidence": "VERY_HIGH",
+        "unexpected": True,
+    }
+    result = diagnostics(invalid)
+    require(result.get("ok") is False, "aggregate diagnostics accepted invalid intake")
+    errors = result.get("errors")
+    require(isinstance(errors, list) and len(errors) >= 4, "aggregate diagnostics returned only a first error")
+    kinds = {str(item.get("kind")) for item in errors if isinstance(item, dict)}
+    require({"missing", "unknown", "type", "enum"} <= kinds, "aggregate diagnostics omitted an error class")
+    fields = {str(item.get("field")) for item in errors if isinstance(item, dict)}
+    require(
+        {
+            "active_decree",
+            "active_decree_state",
+            "confidence",
+            "message_class",
+            "mutates_state",
+            "next_route",
+            "question",
+            "rationale",
+            "relation_to_active_decree",
+            "requires_tools",
+            "risk_present",
+            "taskization_consent",
+            "unexpected",
+        }
+        <= fields,
+        "aggregate diagnostics omitted field names",
+    )
+
+
 def main() -> int:
+    check_public_intake_contract()
     check_matrix()
     check_generic_error_contract()
     check_confidence_validation_mutation()

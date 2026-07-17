@@ -67,7 +67,10 @@ def create_formal_task(
                 "acceptance": ["intervention matrix passes"],
                 "evidence_requirements": ["machine-readable receipt"],
                 "stop_gates": ["semantic drift"],
-                "write_set": ["scripts/check_court_intervention_matrix.py"],
+                "write_set": [
+                    "scripts/check_court_intervention_matrix.py",
+                    *(f"work/gongbu/{number:04d}.txt" for number in range(1, 17)),
+                ],
                 "governing_hashes": {"fixture": charter_sha256},
                 "charter_sha256": charter_sha256,
             },

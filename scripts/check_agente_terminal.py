@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 
+sys.dont_write_bytecode = True
 
 def run_cli(script: Path, env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
     result = subprocess.run([sys.executable, str(script), *args], text=True, capture_output=True, env=env, check=False)
@@ -24,16 +25,110 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def formal_gate() -> dict[str, object]:
-    return {
-        "schema": "court.conversation_gate.v1", "active_decree": False,
-        "active_decree_state": "NONE", "message_class": "FORMAL_TASK",
-        "confidence": "HIGH", "relation_to_active_decree": "NONE",
-        "taskization_consent": "EXPLICIT", "requires_tools": True,
-        "mutates_state": True, "risk_present": False,
-        "next_route": "THREE_DEPARTMENTS", "question": "",
-        "rationale": "isolated agente terminal integration fixture",
-    }
+def create_dispatchable_task(
+    cli: Path,
+    env: dict[str, str],
+    temp_root: Path,
+    *,
+    task_id: str,
+    title: str,
+    charter: str,
+    gate: dict[str, object],
+    capsule: dict[str, object],
+) -> dict[str, object]:
+    intake = temp_root / f"{task_id}-intake.json"
+    capsule_file = temp_root / f"{task_id}-capsule.json"
+    intake.write_text(json.dumps(gate), encoding="utf-8")
+    capsule_file.write_text(json.dumps(capsule), encoding="utf-8")
+    created = json.loads(
+        run_cli(
+            cli, env, "create", "--task-id", task_id, "--title", title,
+            "--charter", charter, "--evidence", "public CLI create",
+            "--work-kind", "implementation", "--intake-file", str(intake),
+            "--invariant-capsule-file", str(capsule_file), "--format", "json",
+        ).stdout
+    )
+    assert created["task"]["invariant_capsule"] == capsule
+    context_payload = json.loads(
+        run_cli(
+            cli, env, "semantic-context-template", "--task-id", task_id,
+            "--format", "json",
+        ).stdout
+    )
+    context_file = temp_root / f"{task_id}-context.json"
+    context_file.write_text(json.dumps(context_payload["context"]), encoding="utf-8")
+    validated = json.loads(
+        run_cli(
+            cli, env, "semantic-context-validate", "--context-file", str(context_file),
+            "--format", "json",
+        ).stdout
+    )
+    assert validated["ok"] is True
+    run_cli(
+        cli, env, "semantic", "checkpoint", "--task-id", task_id,
+        "--context-file", str(context_file), "--trigger", "checkpoint",
+        "--actor", "taizi", "--evidence", "public CLI semantic checkpoint",
+    )
+    verified = json.loads(
+        run_cli(
+            cli, env, "semantic", "verify", "--task-id", task_id,
+            "--context-file", str(context_file), "--trigger", "verify",
+            "--actor", "taizi", "--evidence", "public CLI semantic verify",
+        ).stdout
+    )
+    task = verified["result"]["task"]
+    assert task["semantic_state"] == "DISPATCHABLE"
+    return task
+
+
+def public_admission_template(
+    cli: Path,
+    env: dict[str, str],
+    temp_root: Path,
+    *,
+    task_id: str,
+    wave_id: str,
+    assignment: str,
+    task_focus: str,
+) -> dict[str, object]:
+    payload = json.loads(
+        run_cli(
+            cli, env,
+            "admission-template",
+            "--task-id", task_id,
+            "--wave-id", wave_id,
+            "--role", "hubu",
+            "--calling-office", "shangshu",
+            "--integration-domain", f"{task_id}-terminal-e2e",
+            "--write-path", "work/hubu/0001.txt",
+            "--assignment", assignment,
+            "--task-focus", task_focus,
+            "--evidence", "public CLI admission template",
+            "--host-active-agents", "1",
+            "--host-capacity", "4",
+            "--host-retained-agents", "0",
+            "--host-reclamation-status", "verified",
+            "--next-depth", "1",
+            "--user-agent-budget", "3",
+            "--provider-launch-budget", "3",
+            "--complexity", "low",
+            "--risk", "low",
+            "--ambiguity", "low",
+            "--transport", "codex",
+            "--format", "json",
+        ).stdout
+    )
+    request_file = temp_root / f"{task_id}-{wave_id}-admission.json"
+    request_file.write_text(json.dumps(payload["request"]), encoding="utf-8")
+    validated = json.loads(
+        run_cli(
+            cli, env, "admission-validate", "--request-file", str(request_file),
+            "--format", "json",
+        ).stdout
+    )
+    assert validated["ok"] is True
+    payload["argv"] = validated["argv"]
+    return payload
 
 
 def skill_requirements(repo_root: Path, root: Path) -> str:
@@ -42,7 +137,7 @@ def skill_requirements(repo_root: Path, root: Path) -> str:
     task_skill.write_text("# task-specific fixture\n", encoding="utf-8")
     court = repo_root / "SKILL.md"
     items = []
-    for name, source in (("court-capability-router", court), ("task-specific-fixture", task_skill)):
+    for name, source in (("decretum-matrix", court), ("task-specific-fixture", task_skill)):
         digest = hashlib.sha256(source.read_bytes()).hexdigest()
         items.append({"name": name, "source": str(source.resolve()), "sha256": digest,
                       "purpose": "agente terminal integration", "ack_name": name, "ack_sha256": digest})
@@ -63,63 +158,123 @@ def main() -> int:
         env["COURT_RUNTIME_ROOT"] = str(runtime_root)
         env["COURT_SHARED_SHIGUAN_ROOT"] = str(shared_root)
 
-        repo_root = scripts.parent
-        intake = temp_root / "intake.json"
-        intake.write_text(json.dumps(formal_gate()), encoding="utf-8")
-        requirements_json = skill_requirements(repo_root, temp_root)
-
-        run_cli(cli, env, "create", "--task-id", "terminal", "--title", "terminal", "--evidence", "create",
-                "--work-kind", "implementation", "--intake-file", str(intake))
-        admission = json.loads(
+        charter = "isolated public CLI agente terminal fixture"
+        host_spawn_marker = temp_root / "host-spawn.marker"
+        env["COURT_TEST_HOST_SPAWN_MARKER"] = str(host_spawn_marker)
+        invalid_intake = temp_root / "invalid-intake.json"
+        invalid_intake.write_text(
+            json.dumps({"message_class": "INVALID", "unknown_field": True}),
+            encoding="utf-8",
+        )
+        invalid = json.loads(
             run_cli(
-                cli,
-                env,
-                "agent-admit",
-                "--task-id", "terminal",
-                "--wave-id", "wave-default",
-                "--execution-topology", "parallel",
-                "--protocol-mode", "v2",
-                "--active-session-protocol", "v2",
-                "--needs-parallel-tree",
-                "--requested-fork-turns", "none",
-                "--context-tokens", "1000",
-                "--message-chars", "256",
-                "--message-required-chars", "256",
-                "--message-optional-chars", "0",
-                "--requested-agents", "1",
-                "--requested-roles", "hubu",
-                "--host-active-agents", "1",
-                "--host-capacity", "4",
-                "--host-retained-agents", "0",
-                "--host-reclamation-status", "verified",
-                "--next-depth", "1",
-                "--max-depth", "4",
-                "--max-threads", "16",
-                "--user-agent-budget", "3",
-                "--provider-launch-budget", "3",
-                "--assignment", "terminal test",
-                "--task-focus", "agente terminal regression",
-                "--complexity", "low",
-                "--risk", "low",
-                "--ambiguity", "low",
-                "--transport", "codex",
-                "--actor", "shangshu",
-                "--evidence", "terminal fixture admission",
-                "--format", "json",
+                cli, env, "intake-validate", "--charter", charter,
+                "--intake-file", str(invalid_intake), "--format", "json", expect=2,
             ).stdout
         )
-        runtime_before_invalid = {
-            path.name: path.read_bytes() for path in runtime_root.iterdir() if path.is_file()
-        }
-        run_cli(
-            terminal, env,
-            "--court-code", "COURT", "--agent-id", "hubu-invalid-1", "--office", "hubu",
-            "--agent-lineage-path", "zhongshu/hubu", "--runtime-task-id", "terminal",
-            "--runtime-action", "start", "--scope", "must fail before write", "--format", "json",
+        assert invalid["ok"] is False and len(invalid["errors"]) > 4
+        assert not runtime_root.exists()
+        assert not shared_root.exists()
+        assert not host_spawn_marker.exists()
+
+        public_template = json.loads(
+            run_cli(cli, env, "intake-template", "--charter", charter, "--format", "json").stdout
+        )
+        assert public_template["charter"] == charter
+        generated_gate = public_template["conversation_gate"]
+        generated_capsule = dict(public_template["invariant_capsule"])
+        generated_capsule["write_set"] = ["work/hubu/0001.txt"]
+        assert generated_gate["message_class"] == "FORMAL_TASK"
+        assert len(generated_capsule) == 13
+
+        repo_root = scripts.parent
+        requirements_json = skill_requirements(repo_root, temp_root)
+
+        def runtime_snapshot() -> dict[str, bytes]:
+            return {
+                path.relative_to(runtime_root).as_posix(): path.read_bytes()
+                for path in runtime_root.rglob("*")
+                if path.is_file()
+            }
+
+        for sequence, (action, agent_status) in enumerate(
+            (
+                ("start", "running"),
+                ("spawn", "running"),
+                ("heartbeat", "running"),
+                ("finish", "completed"),
+                ("close", "closed"),
+            ),
+            start=90,
+        ):
+            case_env = dict(env)
+            case_shared = temp_root / f"invalid-{action}-shared"
+            case_host_marker = temp_root / f"invalid-{action}-host.marker"
+            case_env["COURT_SHARED_SHIGUAN_ROOT"] = str(case_shared)
+            case_env["COURT_TEST_HOST_SPAWN_MARKER"] = str(case_host_marker)
+            command = [
+                "--court-code", "COURT",
+                "--agent-id", f"hubu-invalid-{action}",
+                "--office", "hubu",
+                "--agent-lineage-path", "zhongshu/hubu",
+                "--sequence", str(sequence),
+                "--runtime-task-id", f"missing-runtime-{action}",
+                "--runtime-action", action,
+                "--runtime-role", "hubu",
+                "--scope", f"invalid {action} must fail before write",
+                "--agent-status", agent_status,
+                "--launch", "--dry-run",
+                "--format", "json",
+            ]
+            if action in {"start", "spawn"}:
+                command.extend(
+                    [
+                        "--collaboration-task-name", f"hubu_invalid_{action}",
+                        "--skill-requirements-json", requirements_json,
+                    ]
+                )
+            before = runtime_snapshot()
+            run_cli(terminal, case_env, *command, expect=1)
+            assert runtime_snapshot() == before, f"invalid {action} mutated runtime"
+            assert not case_shared.exists(), f"invalid {action} wrote logs or Shiguan evidence"
+            assert not case_host_marker.exists(), f"invalid {action} attempted a host spawn"
+
+        create_dispatchable_task(
+            cli, env, temp_root, task_id="terminal", title="terminal", charter=charter,
+            gate=generated_gate, capsule=generated_capsule,
+        )
+        admission_payload = public_admission_template(
+            cli, env, temp_root,
+            task_id="terminal", wave_id="wave-default",
+            assignment="terminal test", task_focus="agente terminal regression",
+        )
+        admission = json.loads(run_cli(cli, env, *admission_payload["argv"]).stdout)
+        assert admission["allowed"] is True
+        missing_body_env = dict(env)
+        missing_body_shared = temp_root / "missing-body-shared"
+        missing_body_env["COURT_SHARED_SHIGUAN_ROOT"] = str(missing_body_shared)
+        before_missing_body = runtime_snapshot()
+        missing_body_result = run_cli(
+            terminal, missing_body_env,
+            "--court-code", "COURT",
+            "--agent-id", "hubu-missing-body",
+            "--office", "hubu",
+            "--agent-lineage-path", "zhongshu/hubu",
+            "--sequence", "89",
+            "--body-file", str(temp_root / "does-not-exist.log"),
+            "--runtime-task-id", "terminal",
+            "--runtime-action", "start",
+            "--runtime-role", "hubu",
+            "--collaboration-task-name", "hubu_missing_body",
+            "--skill-requirements-json", requirements_json,
+            "--scope", "terminal test",
+            "--launch", "--dry-run",
+            "--format", "json",
             expect=1,
         )
-        assert {path.name: path.read_bytes() for path in runtime_root.iterdir() if path.is_file()} == runtime_before_invalid
-        assert not shared_root.exists(), "invalid binding wrote logs or Shiguan evidence"
+        assert "does-not-exist.log" in missing_body_result.stderr, missing_body_result.stderr
+        assert runtime_snapshot() == before_missing_body, "missing body mutated runtime"
+        assert not missing_body_shared.exists(), "missing body wrote logs or Shiguan evidence"
         json_secret = "secret" + "-value"
         quoted_secret = "quoted" + "-secret"
         api_key_name = "api_" + "key"
@@ -184,23 +339,30 @@ def main() -> int:
         assert started_binding["role_key"] == "hubu"
         assert started_binding["office_zh"] == "户部"
         assert started_binding["direct_superior"] == "shangshu"
-        assert started_binding["required_skill_bindings"] == json.loads(requirements_json)
-
-        run_cli(cli, env, "create", "--task-id", "terminal-spawn", "--title", "terminal spawn", "--evidence", "create",
-                "--work-kind", "implementation", "--intake-file", str(intake))
-        run_cli(
-            cli, env, "agent-admit", "--task-id", "terminal-spawn", "--wave-id", "spawn-wave",
-            "--execution-topology", "parallel", "--protocol-mode", "v2", "--active-session-protocol", "v2",
-            "--needs-parallel-tree", "--requested-fork-turns", "none", "--context-tokens", "1000",
-            "--message-chars", "256", "--message-required-chars", "256", "--message-optional-chars", "0",
-            "--requested-agents", "1", "--requested-roles", "hubu", "--host-active-agents", "1",
-            "--host-capacity", "4", "--host-retained-agents", "0", "--host-reclamation-status", "verified",
-            "--next-depth", "1", "--max-depth", "4", "--max-threads", "16", "--user-agent-budget", "3",
-            "--provider-launch-budget", "3", "--assignment", "terminal spawn test",
-            "--task-focus", "agente terminal spawn regression", "--complexity", "low", "--risk", "low",
-            "--ambiguity", "low", "--transport", "codex", "--actor", "shangshu",
-            "--evidence", "terminal spawn fixture admission", "--format", "json",
+        expected_requirements = {
+            item["name"]: item["sha256"] for item in json.loads(requirements_json)
+        }
+        stored_requirements = {
+            item["name"]: item["sha256"]
+            for item in started_binding["required_skill_bindings"]
+        }
+        assert stored_requirements == expected_requirements, (
+            stored_requirements,
+            expected_requirements,
         )
+
+        create_dispatchable_task(
+            cli, env, temp_root, task_id="terminal-spawn", title="terminal spawn", charter=charter,
+            gate=generated_gate, capsule=generated_capsule,
+        )
+        spawn_payload = public_admission_template(
+            cli, env, temp_root,
+            task_id="terminal-spawn", wave_id="spawn-wave",
+            assignment="terminal spawn test",
+            task_focus="agente terminal spawn regression",
+        )
+        spawn_admission = json.loads(run_cli(cli, env, *spawn_payload["argv"]).stdout)
+        assert spawn_admission["allowed"] is True
         spawn = json.loads(run_cli(
             terminal, env, "--court-code", "COURT", "--agent-id", "hubu-spawn-1", "--office", "hubu",
             "--agent-lineage-path", "zhongshu/hubu", "--sequence", "4", "--summary", "户部 spawn 镜像",
@@ -216,7 +378,9 @@ def main() -> int:
         def sha256(path: Path) -> str:
             return hashlib.sha256(path.read_bytes()).hexdigest()
 
-        route_id = admission["model_routes"]["hubu"]["model_route_id"]
+        route_id = admission["model_routes"][
+            admission["selected_instance_ids"][0]
+        ]["model_route_id"]
         run_cli(
             cli,
             env,
@@ -227,9 +391,9 @@ def main() -> int:
             "--office-zh", "户部",
             "--direct-superior", "shangshu",
             "--profile-hash", sha256(repo_root / "agents" / "standing-officials" / "hubu.toml"),
-            "--dossier-hash", sha256(repo_root / "agents" / "supercc-dossiers" / "hubu" / "AGENTS.md"),
+            "--dossier-hash", sha256(repo_root / "agents" / "office-dossiers" / "hubu" / "AGENTS.md"),
             "--court-skill-hash", sha256(repo_root / "SKILL.md"),
-            "--loaded-skills", "court-capability-router",
+            "--loaded-skills", "decretum-matrix",
             "--agent-dossier-loaded", "YES",
             "--model-route-id", route_id,
             "--model-override-applied", "NO",
