@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -438,6 +439,12 @@ def check_dispatch_evidence() -> None:
                 role="gongbu",
                 message="probe",
                 dispatch_uid="TEST-DISPATCH",
+                dispatch_context_packet_json=dispatch_context_fixture(
+                    "gongbu", "shangshu", "TEST-DISPATCH", "probe"
+                ),
+                office_preload_acks_json=preload_ack_fixture(
+                    ensure_supercc_court, fake_check(), "gongbu"
+                ),
                 calling_office="shangshu",
                 dry_run=True,
             )
@@ -502,6 +509,12 @@ def check_dispatch_evidence() -> None:
                 role="gongbu",
                 message="probe",
                 dispatch_uid="TEST-DISPATCH-NONVISIBLE",
+                dispatch_context_packet_json=dispatch_context_fixture(
+                    "gongbu", "shangshu", "TEST-DISPATCH-NONVISIBLE", "probe"
+                ),
+                office_preload_acks_json=preload_ack_fixture(
+                    ensure_supercc_court, fake_check(visible=False), "gongbu"
+                ),
                 calling_office="shangshu",
                 dry_run=True,
             )
@@ -530,6 +543,12 @@ def check_dispatch_evidence() -> None:
                 role="gongbu",
                 message="probe",
                 dispatch_uid="TEST-DISPATCH-DUP",
+                dispatch_context_packet_json=dispatch_context_fixture(
+                    "gongbu", "shangshu", "TEST-DISPATCH-DUP", "probe"
+                ),
+                office_preload_acks_json=preload_ack_fixture(
+                    ensure_supercc_court, fake_check(duplicate=True), "gongbu"
+                ),
                 calling_office="shangshu",
                 dry_run=True,
             )
@@ -556,6 +575,12 @@ def check_dispatch_evidence() -> None:
                 role="gongbu",
                 message="probe",
                 dispatch_uid="TEST-DISPATCH-NO-TASK-ID",
+                dispatch_context_packet_json=dispatch_context_fixture(
+                    "gongbu", "shangshu", "TEST-DISPATCH-NO-TASK-ID", "probe"
+                ),
+                office_preload_acks_json=preload_ack_fixture(
+                    ensure_supercc_court, fake_check(), "gongbu"
+                ),
                 calling_office="shangshu",
                 dry_run=True,
             )
@@ -836,13 +861,18 @@ def check_special_lifecycle_dispatch_edges() -> None:
             "squad": {"agents_json": []},
         }
         for role, caller, action, superior in legal_cases:
+            message = f"bounded {action} fixture"
+            dispatch_uid = f"SPECIAL-POSITIVE-{role}-{caller}"
             try:
                 payload = ensure_supercc_court.enter_dispatch(
                     argparse.Namespace(
                         workspace=str(ROOT),
                         role=role,
-                        message=f"bounded {action} fixture",
-                        dispatch_uid=f"SPECIAL-POSITIVE-{role}-{caller}",
+                        message=message,
+                        dispatch_uid=dispatch_uid,
+                        dispatch_context_packet_json=dispatch_context_fixture(
+                            role, caller, dispatch_uid, message
+                        ),
                         calling_office=caller,
                         dry_run=True,
                         allow_squad_only_fallback=False,
@@ -1191,6 +1221,356 @@ def check_cli_special_lifecycle_preflight_before_bootstrap() -> None:
         )
 
 
+def dispatch_context_fixture(
+    role: str,
+    caller: str,
+    dispatch_uid: str,
+    message: str,
+) -> str:
+    authority_sha256 = "a" * 64
+    plan_sha256 = "b" * 64
+    semantic_packet = {
+        "schema": "court.semantic.dispatch_context_packet.v1",
+        "task_id": "supercc-dispatch-fixture",
+        "sub_id": dispatch_uid,
+        "semantic_epoch": 1,
+        "invariant_capsule_sha256": "c" * 64,
+        "semantic_receipt_id": "SR-SUPERCC-DISPATCH-FIXTURE",
+        "semantic_receipt_sha256": "d" * 64,
+        "authority_sha256": authority_sha256,
+        "plan_sha256": plan_sha256,
+        "plan_cursor": "ENTER_DISPATCH",
+        "fork_context": "none",
+        "context_mode": "bounded",
+        "pointers": [
+            {"path": "authority/current.json", "sha256": authority_sha256},
+            {"path": "plans/current.json", "sha256": plan_sha256},
+        ],
+    }
+    if role in {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}:
+        direct_superior = "shangshu"
+    elif role in {"shiguan", "shiguan-hermes"}:
+        direct_superior = "taizi/menxia"
+    else:
+        direct_superior = "taizi"
+    packet = {
+        "schema": "court.supercc.enter_dispatch_context.v1",
+        "dispatch_uid": dispatch_uid,
+        "task_id": semantic_packet["task_id"],
+        "role_key": role,
+        "calling_office": caller,
+        "direct_superior": direct_superior,
+        "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+        "semantic_packet": semantic_packet,
+        "scope": {
+            "allowed_paths": ["scripts/ensure_supercc_court.py"],
+            "allowed_actions": ["inspect", "edit", "test"],
+            "forbidden_actions": ["publish", "read_pending_body"],
+            "acceptance": ["return bounded evidence"],
+            "evidence_requirements": ["checker output"],
+            "stop_gates": ["stop on authority or delivery failure"],
+        },
+    }
+    return json.dumps(packet, ensure_ascii=False)
+
+
+def preload_ack_fixture(
+    ensure_supercc_court: object,
+    check: dict[str, object],
+    role: str,
+) -> str:
+    require_visible = role in {"taizi", "zhongshu", "menxia", "shangshu"}
+    identity = ensure_supercc_court.active_office_identity_fingerprint(  # type: ignore[attr-defined]
+        check,
+        role,
+        require_visible=require_visible,
+    )
+    if identity.get("ok") is not True:
+        raise AssertionError(f"cannot build preload ACK fixture: {identity}")
+    profile = ensure_supercc_court.profile_metadata(role)  # type: ignore[attr-defined]
+    ack = {
+        "schema": ensure_supercc_court.OFFICE_PRELOAD_ACK_SCHEMA,  # type: ignore[attr-defined]
+        "preload_status": "PASSED",
+        "identity_id": identity["identity_id"],
+        "identity_fingerprint": identity["identity_fingerprint"],
+        "role_key": role,
+        "direct_superior": ensure_supercc_court.direct_superior_metadata(role)[  # type: ignore[attr-defined]
+            "direct_superior"
+        ],
+        "profile_hash": profile["profile_hash"],
+        "dossier_hash": ensure_supercc_court.sha256_file(  # type: ignore[attr-defined]
+            ensure_supercc_court.office_dossier_path(role)  # type: ignore[attr-defined]
+        ),
+        "court_skill_hash": ensure_supercc_court.sha256_file(  # type: ignore[attr-defined]
+            ensure_supercc_court.skill_root() / "SKILL.md"  # type: ignore[attr-defined]
+        ),
+        "agent_dossier_loaded": "YES",
+        "loaded_skills": ["decretum-matrix"],
+    }
+    return json.dumps({role: ack}, ensure_ascii=False)
+
+
+def check_normal_role_transport_preflight_precedes_mutation() -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    class BoundaryReached(RuntimeError):
+        pass
+
+    def missing_profile(_role: str) -> dict[str, object]:
+        return {
+            "office_profile_loaded": False,
+            "profile_source": str(ROOT / "agents" / "standing-officials" / "zhongshu.toml"),
+            "profile_hash": None,
+            "profile_version": None,
+            "profile_fields": {},
+            "profile_missing_fields": ["role_key", "direct_superior"],
+        }
+
+    def boundary(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise BoundaryReached("runtime boundary reached before normal-role preflight")
+
+    originals = {
+        "profile_metadata": ensure_supercc_court.profile_metadata,
+        "check_office_client": ensure_supercc_court.check_office_client,
+        "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+    }
+    violations: list[str] = []
+    args = argparse.Namespace(
+        workspace=str(ROOT),
+        dry_run=False,
+        force=False,
+        skip_inspector=False,
+        calling_office="taizi",
+        restart_offices="zhongshu",
+        turn_start="zhongshu",
+    )
+    try:
+        ensure_supercc_court.profile_metadata = missing_profile  # type: ignore[assignment]
+        ensure_supercc_court.check_office_client = boundary  # type: ignore[assignment]
+        ensure_supercc_court.supercc_check_for_args = boundary  # type: ignore[assignment]
+        actions = (
+            ("launch", lambda: ensure_supercc_court.launch_offices(args, ("zhongshu",))),
+            ("wake", lambda: ensure_supercc_court.wake_roles(args, ("zhongshu",), reason="red", sender="taizi")),
+            ("restart", lambda: ensure_supercc_court.restart_offices(args)),
+            ("turn_start", lambda: ensure_supercc_court.turn_start(args)),
+        )
+        for name, action in actions:
+            try:
+                payload = action()
+            except BoundaryReached as exc:
+                violations.append(f"{name}:{exc}")
+                continue
+            if payload.get("ok") is not False or payload.get("dispatch_blocked") is not True:
+                violations.append(f"{name}:missing-profile preflight did not block: {payload}")
+    finally:
+        for name, original in originals.items():
+            setattr(ensure_supercc_court, name, original)
+    if violations:
+        raise AssertionError("normal-role mutation preceded shared preflight: " + "; ".join(violations))
+
+
+def check_active_identity_preload_ack_required() -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    counters = {"send": 0, "state": 0}
+    check = {
+        "supercc_env_gate": "PASSED",
+        "visible_display_gate": "PASSED",
+        "display_transport_gate": "PASSED",
+        "office_client_gate": "PASSED",
+        "zellij": {
+            "selected_session": "preload-red",
+            "env": {"ZELLIJ_SESSION_NAME": "preload-red"},
+            "panes_list": [
+                {
+                    "pane_id": "terminal_zhongshu",
+                    "title": ensure_supercc_court.OFFICES["zhongshu"]["title"],
+                }
+            ],
+        },
+        "squad": {
+            "agents_json": [
+                {
+                    "id": "zhongshu",
+                    "role": "zhongshu",
+                    "status": "active",
+                    "effective_client_type": "codex",
+                }
+            ]
+        },
+    }
+
+    def send(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["send"] += 1
+        return {"ok": True}
+
+    def state(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["state"] += 1
+        return {"ok": True}
+
+    originals = {
+        "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+        "send_squad_notice": ensure_supercc_court.send_squad_notice,
+        "write_office_state": ensure_supercc_court.write_office_state,
+    }
+    try:
+        ensure_supercc_court.supercc_check_for_args = lambda *_args, **_kwargs: check  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = send  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = state  # type: ignore[assignment]
+        payload = ensure_supercc_court.wake_roles(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                dry_run=False,
+                calling_office="taizi",
+                enable_inspector=False,
+                skip_inspector=False,
+            ),
+            ("zhongshu",),
+            reason="preload ack red",
+            sender="taizi",
+        )
+        if payload.get("ok") is not False or payload.get("dispatch_block_reason") != "active_office_preload_ack_required":
+            raise AssertionError(f"active disk-only office was accepted without current identity preload ACK: {payload}")
+        if counters != {"send": 0, "state": 0}:
+            raise AssertionError(f"preload ACK rejection reached delivery/state: {counters}")
+
+        allowed = ensure_supercc_court.wake_roles(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                dry_run=False,
+                calling_office="taizi",
+                office_preload_acks_json=preload_ack_fixture(
+                    ensure_supercc_court, check, "zhongshu"
+                ),
+                enable_inspector=False,
+                skip_inspector=False,
+            ),
+            ("zhongshu",),
+            reason="preload ack green",
+            sender="taizi",
+        )
+        if allowed.get("ok") is not True or allowed.get("woken") != ["zhongshu"]:
+            raise AssertionError(f"current identity-bound preload ACK was rejected: {allowed}")
+        if counters != {"send": 1, "state": 1}:
+            raise AssertionError(f"valid preload ACK did not reach one delivery/state write: {counters}")
+    finally:
+        for name, original in originals.items():
+            setattr(ensure_supercc_court, name, original)
+
+
+def check_enter_dispatch_context_and_delivery_state_atomicity() -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    counters = {"environment": 0, "task": 0, "send": 0, "state": 0}
+    empty_check = {
+        "supercc_env_gate": "PASSED",
+        "visible_display_gate": "PASSED",
+        "display_transport_gate": "PASSED",
+        "office_client_gate": "PASSED",
+        "zellij": {"env": {"ZELLIJ_SESSION_NAME": "dispatch-red"}, "panes_list": []},
+        "squad": {"agents_json": []},
+    }
+
+    def environment(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["environment"] += 1
+        return empty_check
+
+    def task(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["task"] += 1
+        return {"ok": True, "task_id": "dispatch-red-task", "task_id_parse_ok": True}
+
+    def send(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["send"] += 1
+        return {"ok": False, "reason": "simulated_delivery_failure"}
+
+    def state(*_args: object, **_kwargs: object) -> dict[str, object]:
+        counters["state"] += 1
+        return {"ok": True}
+
+    originals = {
+        "supercc_check_for_args": ensure_supercc_court.supercc_check_for_args,
+        "create_squad_task_assignment": ensure_supercc_court.create_squad_task_assignment,
+        "send_squad_notice": ensure_supercc_court.send_squad_notice,
+        "write_office_state": ensure_supercc_court.write_office_state,
+    }
+    try:
+        ensure_supercc_court.supercc_check_for_args = environment  # type: ignore[assignment]
+        ensure_supercc_court.create_squad_task_assignment = task  # type: ignore[assignment]
+        ensure_supercc_court.send_squad_notice = send  # type: ignore[assignment]
+        ensure_supercc_court.write_office_state = state  # type: ignore[assignment]
+        missing_context = ensure_supercc_court.enter_dispatch(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                role="gongbu",
+                message="bounded dispatch",
+                dispatch_uid="DISPATCH-CONTEXT-RED",
+                calling_office="shangshu",
+                dry_run=False,
+                allow_squad_only_fallback=False,
+                enable_inspector=False,
+                skip_inspector=False,
+            )
+        )
+        if missing_context.get("ok") is not False or missing_context.get("dispatch_block_reason") != "enter_dispatch_context_packet_required":
+            raise AssertionError(f"ENTER_DISPATCH accepted a missing bounded context/scope packet: {missing_context}")
+        if counters != {"environment": 0, "task": 0, "send": 0, "state": 0}:
+            raise AssertionError(f"missing context reached runtime boundary: {counters}")
+
+        escaped = json.loads(
+            dispatch_context_fixture(
+                "gongbu", "shangshu", "DISPATCH-SCOPE-RED", "bounded dispatch"
+            )
+        )
+        escaped["scope"]["allowed_paths"] = ["../pending/body"]
+        escaped_scope = ensure_supercc_court.enter_dispatch(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                role="gongbu",
+                message="bounded dispatch",
+                dispatch_uid="DISPATCH-SCOPE-RED",
+                dispatch_context_packet_json=json.dumps(escaped, ensure_ascii=False),
+                calling_office="shangshu",
+                dry_run=False,
+                allow_squad_only_fallback=False,
+                enable_inspector=False,
+                skip_inspector=False,
+            )
+        )
+        if escaped_scope.get("dispatch_block_reason") != "enter_dispatch_scope_invalid:allowed_paths":
+            raise AssertionError(f"escaping dispatch scope was not rejected: {escaped_scope}")
+        if counters != {"environment": 0, "task": 0, "send": 0, "state": 0}:
+            raise AssertionError(f"escaping scope reached runtime boundary: {counters}")
+
+        counters.update(environment=0, task=0, send=0, state=0)
+        message = "bounded dispatch"
+        failed_delivery = ensure_supercc_court.enter_dispatch(
+            argparse.Namespace(
+                workspace=str(ROOT),
+                role="gongbu",
+                message=message,
+                dispatch_uid="DISPATCH-DELIVERY-RED",
+                dispatch_context_packet_json=dispatch_context_fixture(
+                    "gongbu", "shangshu", "DISPATCH-DELIVERY-RED", message
+                ),
+                calling_office="shangshu",
+                dry_run=False,
+                allow_squad_only_fallback=False,
+                enable_inspector=False,
+                skip_inspector=False,
+            )
+        )
+    finally:
+        for name, original in originals.items():
+            setattr(ensure_supercc_court, name, original)
+    if failed_delivery.get("ok") is not False:
+        raise AssertionError(f"failed squad delivery was reported as successful: {failed_delivery}")
+    if counters["state"] != 0:
+        raise AssertionError(f"failed squad delivery wrote queued/awake state: {counters}")
+
+
 def main() -> int:
     check_source_rules()
     check_supercc_launcher_shape()
@@ -1199,6 +1579,9 @@ def main() -> int:
     check_missing_target_profile_rejected_before_side_effects()
     check_special_lifecycle_dispatch_edges()
     check_cli_special_lifecycle_preflight_before_bootstrap()
+    check_normal_role_transport_preflight_precedes_mutation()
+    check_active_identity_preload_ack_required()
+    check_enter_dispatch_context_and_delivery_state_atomicity()
     print("SUPERCC_MINISTRY_DISPATCH_OK")
     return 0
 

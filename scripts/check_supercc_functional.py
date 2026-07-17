@@ -9,6 +9,7 @@ the older live turn-start/launch/closeout smoke.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -44,6 +45,56 @@ STRUCTURED_BLOCK_CHANNELS = {
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def dispatch_context_fixture(
+    role: str,
+    caller: str,
+    direct_superior: str,
+    dispatch_uid: str,
+    message: str,
+) -> str:
+    authority_sha256 = "a" * 64
+    plan_sha256 = "b" * 64
+    semantic = {
+        "schema": "court.semantic.dispatch_context_packet.v1",
+        "task_id": "supercc-functional",
+        "sub_id": dispatch_uid,
+        "semantic_epoch": 1,
+        "invariant_capsule_sha256": "c" * 64,
+        "semantic_receipt_id": "SR-SUPERCC-FUNCTIONAL",
+        "semantic_receipt_sha256": "d" * 64,
+        "authority_sha256": authority_sha256,
+        "plan_sha256": plan_sha256,
+        "plan_cursor": "ENTER_DISPATCH",
+        "fork_context": "none",
+        "context_mode": "bounded",
+        "pointers": [
+            {"path": "authority/current.json", "sha256": authority_sha256},
+            {"path": "plans/current.json", "sha256": plan_sha256},
+        ],
+    }
+    return json.dumps(
+        {
+            "schema": "court.supercc.enter_dispatch_context.v1",
+            "dispatch_uid": dispatch_uid,
+            "task_id": semantic["task_id"],
+            "role_key": role,
+            "calling_office": caller,
+            "direct_superior": direct_superior,
+            "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            "semantic_packet": semantic,
+            "scope": {
+                "allowed_paths": ["scripts/ensure_supercc_court.py"],
+                "allowed_actions": ["inspect"],
+                "forbidden_actions": ["mutate", "publish"],
+                "acceptance": ["return dry-run evidence"],
+                "evidence_requirements": ["structured JSON"],
+                "stop_gates": ["stop on preflight failure"],
+            },
+        },
+        ensure_ascii=False,
+    )
 
 
 def run_json(workspace: Path, args: list[str], *, timeout: int = 180, allowed_returncodes: set[int] | None = None) -> dict[str, object]:
@@ -181,6 +232,8 @@ def run_functional(workspace: Path) -> dict[str, object]:
     for role in OPEN_DECREE_ROLES:
         require(any(isinstance(row, dict) and row.get("role") == role for row in rows), f"supervisor missing role {role}")
 
+    dispatch_uid = "SUPERCC-FUNCTIONAL-ZHONGSHU"
+    dispatch_message = "functional probe only; no work required; confirm ENTER_DISPATCH shape"
     dispatch = run_json(
         workspace,
         [
@@ -190,9 +243,13 @@ def run_functional(workspace: Path) -> dict[str, object]:
             "--calling-office",
             "taizi",
             "--dispatch-uid",
-            "SUPERCC-FUNCTIONAL-ZHONGSHU",
+            dispatch_uid,
             "--message",
-            "functional probe only; no work required; confirm ENTER_DISPATCH shape",
+            dispatch_message,
+            "--dispatch-context-packet-json",
+            dispatch_context_fixture(
+                "zhongshu", "taizi", "taizi", dispatch_uid, dispatch_message
+            ),
             "--dry-run",
         ],
     )
@@ -254,6 +311,8 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
     require(supervisor.get("legacy_patrol_visible_pane") == "disabled", "legacy visible monitor pane was not disabled")
     require(supervisor.get("watchdog_no_visible_window") is True, "supervisor must be non-popup/non-visible")
 
+    dispatch_uid = "SUPERCC-FUNCTIONAL-ZHONGSHU"
+    dispatch_message = "functional read-only probe only; no work required; confirm ENTER_DISPATCH shape"
     dispatch = run_json(
         workspace,
         [
@@ -263,9 +322,13 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
             "--calling-office",
             "taizi",
             "--dispatch-uid",
-            "SUPERCC-FUNCTIONAL-ZHONGSHU",
+            dispatch_uid,
             "--message",
-            "functional read-only probe only; no work required; confirm ENTER_DISPATCH shape",
+            dispatch_message,
+            "--dispatch-context-packet-json",
+            dispatch_context_fixture(
+                "zhongshu", "taizi", "taizi", dispatch_uid, dispatch_message
+            ),
             "--dry-run",
         ],
         allowed_returncodes={0, 2},
@@ -275,13 +338,20 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
     if dispatch.get("ok"):
         assert_dispatch(dispatch)
     else:
+        transport_blocked = isinstance(dispatch.get("transport_preflight"), list)
         require(
-            dispatch.get("dispatch_delivery_channel") in STRUCTURED_BLOCK_CHANNELS,
+            dispatch.get("dispatch_delivery_channel") in STRUCTURED_BLOCK_CHANNELS
+            or transport_blocked,
             "failed dry-run dispatch must preserve structured block evidence",
         )
         require(dispatch.get("dispatch_blocked") is True, "failed dry-run dispatch must be explicitly blocked")
-        require(isinstance(dispatch.get("office_uniqueness_gate"), dict), "failed dry-run dispatch must preserve uniqueness-gate evidence")
+        require(
+            isinstance(dispatch.get("office_uniqueness_gate"), dict) or transport_blocked,
+            "failed dry-run dispatch must preserve uniqueness/preflight evidence",
+        )
 
+    special_uid = "SUPERCC-FUNCTIONAL-SHIGUAN"
+    special_message = "bounded archive evidence fixture"
     special_dispatch = run_json(
         workspace,
         [
@@ -291,9 +361,13 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
             "--calling-office",
             "menxia",
             "--dispatch-uid",
-            "SUPERCC-FUNCTIONAL-SHIGUAN",
+            special_uid,
             "--message",
-            "bounded archive evidence fixture",
+            special_message,
+            "--dispatch-context-packet-json",
+            dispatch_context_fixture(
+                "shiguan", "menxia", "taizi/menxia", special_uid, special_message
+            ),
             "--dry-run",
         ],
     )
