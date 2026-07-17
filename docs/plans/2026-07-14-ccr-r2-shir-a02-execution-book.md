@@ -141,11 +141,11 @@ RESUME_AFTER: PASSED_A02_PHASE1_CONTINUATION_ACTIVE
 44. 主线审查采用 A-G 有界专项只读 fan-out，而不是单一宽泛 reviewer。每项 finding 必须用统一 schema 回报；门下是唯一去重/裁定 aggregator，尚书只派发 `ACCEPTED` repair clusters，同一文件/权威保持单写者。
 45. RED/GREEN/SPEC/QUALITY 以 repair cluster 为最小完整闭环：专项发现 -> 门下裁定 -> 最小可复现 RED -> 单 owner GREEN -> 对应专项复核 -> cluster SPEC/QUALITY -> 全局回归。不得为每条微问题重启完整三省，也不得用批量文本替换制造假 GREEN。
 46. 所有既定阶段、记忆裁定整改和平台验收完成后，必须执行一次全仓只读优先审查。若 `ACCEPTED findings=0`，输出 `FULL_AUDIT_PASS` 且不建空分支；若大于零，只在独立 child worktree/新分支修复并创建本地提交，报告 remaining findings，等待用户后续裁定。
-47. 最新最终安装旨意仅在全部整改与全仓审查通过后生效：单一集成 writer 将全部 accepted changes 落到本地最新版本分支 `release/beta0.5.13`，从该分支重建最终确定性包，并把同一最新版 portable skill 同步到本机固定五根：`~/.agents/skills`、`~/.codex/skills`、`~/.claude/skills`、`~/.hermes/skills`、`user_data_base()/hermes/skills`。五根逐文件 SHA-256/版本必须一致。该授权只覆盖 skill 安装/升级，不授权工具配置、memory enable/body write、remote/push/PR/tag/release publication，也不扩展到未知工具。
+47. 最新最终安装旨意仅在全部整改与全仓审查通过后生效：单一集成 writer 将全部 accepted changes 落到本地最新版本分支 `release/beta0.5.13`，从该分支重建最终确定性包，并把同一最新版 portable skill 同步到本机固定五个 canonical 物理目录：`~/.agents/skills/decretum-matrix`、`~/.codex/skills/decretum-matrix`、`~/.claude/skills/decretum-matrix`、`~/.hermes/skills/decretum-matrix`、`user_data_base()/hermes/skills/decretum-matrix`。目录 basename、machine name 与 canonical skill name 必须一致为 `decretum-matrix`，五根逐文件 SHA-256/版本必须一致。该授权只覆盖 skill 安装/升级，不授权工具配置、memory enable/body write、remote/push/PR/tag/release publication，也不扩展到未知工具。
 48. 最终 `SHIGUAN_LATEST_SYSTEM_GATE` 必须证明本机史馆系统已按最新版完整迁移/重构：唯一物理权威根在 `.agents`，旧 LocalAppData 仅为正确 junction；runtime/CLI/checkers/schema/index/bridge/daemon/service/Obsidian vault/shared Git/native-memory links/worktree records/recovery receipts 均来自并匹配最终版本 manifest，旧代码/旧 schema/第二物理库/脏 index/失配服务均为失败。该 gate 仍要求 pending-body 与静默门禁合法通过，不得读取或绕过当前 `pending_count=69`。
 49. 官署载体统一为 `child_agent|worktree_thread|supercc_cli_office`。`worktree_thread` 必须使用与 child agent 近似的 task/role/direct-superior/budget/lease/write-set/dossier/profile/SKILL/semantic receipt/dispatch/result/status/communication 合同，并通过根项目可见 task + `attached/<project>` 绑定项目级物理 worktree；worktree 是隔离载体，不是第二官署权威。不得让两个载体同时成为同一写集的 writer。
 50. `superCC` 是实验性 CLI-only 载体，不是三权之一。在三权/拓扑选择阶段必须先显式告知其实验性、CLI/zellij+squad 依赖与 ordinary super 差异；只有最新明确 `superCC` 启用才可加载其 annex/profile/scripts/daemon/visible-office 语义。普通 `approval|autonomous|super`、普通并行、历史记忆或配置均不得隐式启用；未启用时 superCC 全部按需内容必须保持未加载。
-51. 三省六部 skill 的正式用户侧品牌改为拉丁词根 `Decretum Matrix（诏令矩阵）`，规范 skill name/invocation 为 `decretum-matrix` / `$decretum-matrix`。本 A02 为避免破坏四个受保护文件、既有 Git/worktree/recovery 锚点及共享史馆 lineage，仓库 id、物理安装目录和史馆 namespace 可继续使用 `court-capability-router` 作为稳定技术 locator，但不得再把它展示为正式产品名。旧 `$court-capability-router` 只可作为明确标注 deprecated 的兼容输入；撤回草案 `DecreeMatri` 不得出现在当前身份面。若宿主没有可证明的 alias 机制，宁可报告不支持，也不得复制第二份权威 skill。最终 manifest 必须固定 `display_name`、`canonical_skill_name`、`legacy_names`、`locator_policy`，所有用户可见文档、官籍、profile/dossier、包元数据、安装收据、史馆/Obsidian 标题与 loader probe 一致；历史日志、技术路径和兼容说明中的旧名按 allowlist 保留，禁止盲目全局替换。
+51. 三省六部 skill 的正式用户侧品牌改为拉丁词根 `Decretum Matrix（诏令矩阵）`，规范 skill name/invocation 为 `decretum-matrix` / `$decretum-matrix`，最终授权安装根中的 canonical 物理目录统一为 `skills/decretum-matrix`。`court-capability-router` 可继续作为仓库 id、历史/恢复路径及 shared Shiguan runtime data namespace；旧 `skills/court-capability-router` 只可作为明确标注 deprecated、解析到同一物理 authority 的 compatibility locator/junction/router，不能成为第二 authority 或第二副本。旧 `$court-capability-router` 只可作为明确标注 deprecated 的兼容输入；撤回草案 `DecreeMatri` 不得出现在当前身份面。若宿主没有可证明的 alias 机制，宁可报告不支持，也不得复制第二份权威 skill。最终 manifest 必须固定 `display_name`、`canonical_skill_name`、`legacy_names`、`locator_policy`，所有用户可见文档、官籍、profile/dossier、包元数据、安装收据、史馆/Obsidian 标题与 loader probe 一致；历史日志、技术路径和兼容说明中的旧名按 allowlist 保留，禁止盲目全局替换。
 52. 史馆 CLI 必须以一个主诏令编号、冻结 lineage、幂等 `operation_id` 和可恢复 compound receipt 解决多对话/child/worktree 编号与谱系一致性。它复用现有 `tasks.json + court_events.jsonl + archive/index` 权威链，不改历史 `court_code`，不创建每-worktree ledger；通用 office lifecycle、三段 closeout saga、local authority-root fingerprint 和 exactly-once killpoint 验收按 §0.3 与 RC2/RC4/RC6 既有 cluster 顺位执行。
 53. 项目记忆与官署名称不得互相冒充权威：root project-memory 内容当前有效但 global index 尚待摄取；后续通过一个 append-only superseding note 修 current pointers。新官署使用 role-prefixed immutable task name，只在同 role 复用；最终 readiness 只认 ordinary dossier/profile/SKILL hash 与 preload ack。该整改并入 RC3/RC4/RC5 和 Phase 8 follow-up，不另建 cluster。
 
@@ -659,7 +659,7 @@ Phase 1 的编号/谱系 GREEN 继续沿既有 cluster 串行：
 - 每个 spawn 先读取 exact role `AGENTS.md`，验证 dossier/profile/SKILL 哈希并 ack；未 ack 不 running。
 - 统一 `carrier_kind=child_agent|worktree_thread|supercc_cli_office` dispatch envelope。`worktree_thread` 通过根项目可见 task、项目级 child worktree 与 `attached/<project>` 通信/交接，仍须 exact-role preload、semantic receipt、budget/lease/write-set、status/result ack 和独立 worktree 史馆实录；载体不是 authority，不得重复同一 integration owner。
 - 普通 `child_agent|worktree_thread` 的 exact-role `AGENTS.md` 固定来自 `agents/office-dossiers/<role>/AGENTS.md`；不得再把 `agents/supercc-dossiers` 当普通 dossier root。把 superCC 全部语义移到根 `SKILL.md` 直接按需链接的独立 annex 和 `supercc-dossiers`。三权/拓扑选择先报告 `supercc_experimental_cli_only=true`、依赖和差异；只有最新明确启用才加载/探测。ordinary super 路径不得 import/read/start superCC dossier/profile、annex、zellij/squad wrapper、watchdog/daemon 或 visible-office state。
-- 以单一 identity manifest 完成 `Decretum Matrix（诏令矩阵）` 品牌迁移：根 skill 的规范 name 为 `decretum-matrix`，所有当前用户可见/机器可验证身份面同步；撤回草案 `DecreeMatri` 不得作为当前身份，`court-capability-router` 仅留在批准的 repository/install/Shiguan locator、历史证据及 deprecated compatibility 输入中。兼容解析只转到同一物理 skill/authority，不创建别名副本；宿主不支持真实 alias 时返回明确迁移提示。更名逐簇修改并逐面测试，禁止无差别文本替换。
+- 以单一 identity manifest 完成 `Decretum Matrix（诏令矩阵）` 品牌迁移：根 skill 的规范 name 与最终物理安装目录 basename 均为 `decretum-matrix`，所有当前用户可见/机器可验证身份面同步；撤回草案 `DecreeMatri` 不得作为当前身份，`court-capability-router` 仅留在批准的 repository/Shiguan locator、历史证据、deprecated compatibility install locator 及兼容输入中。兼容解析只转到同一物理 skill/authority，不创建别名副本；宿主不支持真实 alias 时返回明确迁移提示。更名逐簇修改并逐面测试，禁止无差别文本替换。
 - preload/dispatch 只加载既有职责：太子/三省审议统筹，六部/工匠执行，不重写官制本体。
 - runtime task 创建时初始化 charter revision/hash； continuation/correction/resume 继续原 task、失效旧派生状态、回三省再执行。
 - 消费已在 Phase 1 GREEN、Phase 1.5 durability 通过的 Semantic Continuity Guard；本 Phase 只把 memory/task-point/install/Obsidian downstream apply/commit/closeout 接到 current receipt，不重复实现 core 或另建状态系统。
@@ -692,18 +692,20 @@ Phase 1 的编号/谱系 GREEN 继续沿既有 cluster 串行：
 
 本阶段只能在 Phase 2 史馆迁移与 Phase 3 shared-root 验收通过后进入，不改变 P00 最高优先级或“先迁移史馆”顺位。实现一个 mutation core、两个薄入口：源码 skill 可调用 `update|migrate`，跨平台 npm CLI/package 调用同一 core/plan/receipt；禁止复制两套更新逻辑、状态机或安装权威。
 
-- updater 识别 legacy `court-capability-router` 与 canonical `Decretum Matrix（诏令矩阵）`，将受控兼容入口解析到同一物理 skill/authority。流程固定为 `backup -> staged atomic apply -> native reread -> authorized-root/five-root verification -> rollback receipt`；任一步失败自动停止并按 receipt 恢复 preimage，不留下半更新状态。
+- updater 识别 legacy `court-capability-router` 与 canonical `Decretum Matrix（诏令矩阵）`，并把每个授权安装根的 canonical 最终物理目录固定为 `skills/decretum-matrix`，使 folder basename、machine name 与 canonical skill name 对齐。旧 `skills/court-capability-router` 只能成为 deprecated compatibility locator/junction/router 并解析到同一物理 skill/authority，不能保留为第二 authority 或第二副本。
+- 目录 cutover 与内容更新共用同一 mutation core，流程固定为 `backup -> staged atomic rename/move -> native loader reread -> five-root path/hash/identity proof -> rollback(on failure)`；任一步失败立即停止，按 receipt 原子恢复 preimage，并证明旧/新路径没有留下两个物理 authority。不得用先复制后长期并存、静默删旧目录或只改 manifest/path string 代替受检 rename/move。
 - Phase 6 的本机 `.agents + Codex` 预安装和 Phase 10 的最终五根收敛必须调用同一 updater；默认仍只更新 `.agents + current tool`，只有既有 Phase 10 明确授权才 fanout 五根。源码 skill 的 `update/migrate`、本地包验证和未来单条 `npm exec|npx` 都执行同一 target/provenance/backup/apply/verify/rollback 逻辑。
 - 新增 cross-platform npm CLI/package，但本轮 `npm publish`、remote、tag 和外部发布均为 `NOT_RUN`。先用 create-only local `.tgz` 做 Windows/macOS/Linux clean-home fixture，并证明 `npm exec --package <local.tgz>` / `npx --package <local.tgz>` 的显式命令入口；不得使用隐式或危险 `postinstall` 修改宿主。
-- updater 永不覆盖、迁移或打包 shared Shiguan、`pending/**`、private/raw evidence、native memory bodies、Obsidian private state 或未授权配置。controller/config 仍受既有 controller-first 与最新明确授权门禁；旧入口只作 deprecated compatibility router，不能产生第二份 skill、第二 updater 或第二 package authority。
+- updater 永不覆盖、迁移或打包 shared Shiguan、`pending/**`、private/raw evidence、native memory bodies、Obsidian private state 或未授权配置。Skill 物理目录更名不得盲目迁移 shared Shiguan runtime data locator；`court-shiguan/court-capability-router` namespace 继续受独立 preimage、迁移与 lineage 门禁。controller/config 仍受既有 controller-first 与最新明确授权门禁；旧入口只作 deprecated compatibility router，不能产生第二份 skill、第二 updater 或第二 package authority。
+- **本次增补状态：`PLAN_ONLY / NOT_IMPLEMENTED`。** 当前 updater branch 只允许更新本 execution book；不得热迁移任何宿主 skill 目录，不得触碰 root/mainline、release manifest、安装根、shared Shiguan 或 `pending/**`，也不得把本计划表述为 path cutover 已完成。
 
-**GREEN：** 单一 updater core 生成可回放 JSON plan/receipt，验证 legacy/canonical 检测、备份、staging、原子替换、native loader reread、逐文件 hash、current-tool/五根授权矩阵和失败回滚；源码入口与 npm CLI 对同一 fixture 产生语义等价 receipt。
+**GREEN：** 单一 updater core 生成可回放 JSON plan/receipt，验证 legacy/canonical 检测、备份、staged atomic rename/move、native loader reread、canonical `skills/decretum-matrix` 路径、逐文件 hash/identity、current-tool/五根授权矩阵、compatibility locator 单物理 authority 和失败回滚；源码入口与 npm CLI 对同一 fixture 产生语义等价 receipt。
 
 **SPEC：** update 与 migrate 只是同一 core 的受控模式；target selection 继续遵守 `.agents + current tool` 默认、显式额外工具授权、Decretum Matrix 单一 authority、protected/shared/private exclusions 和 P00 bounded receipt。npm 是分发/调用入口，不是新行为来源。
 
 **QUALITY：** 覆盖 Windows/macOS/Linux 路径、长路径/权限/文件占用、版本升降级/legacy migration、幂等重跑、killpoint rollback、损坏/错误包 hash、native reread 失败、五根部分失败和零危险 postinstall；local `.tgz` 与 ZIP privacy/no-clobber/determinism 门禁同时通过，index 为空、`.pyc=0`、remote/publish 未运行。
 
-**FINAL ACCEPTANCE：** 本机最终安装与 Phase 10 五根最终同步都必须由该 updater receipt 证明；五根逐文件 hash、native loader/version reread、rollback 可用性、shared Shiguan/pending/private/memory/config 不变和 legacy 入口受控兼容全部通过。未来才允许提供一条 `npm exec|npx` 更新命令，且它必须调用同一已验 core；本轮只保留 local `.tgz` 证据，不发布 npm。
+**FINAL ACCEPTANCE：** 本机最终安装与 Phase 10 五根最终同步都必须由该 updater receipt 证明；五根 canonical path 均精确为 `skills/decretum-matrix`，逐文件 hash、identity、native loader/version reread、rollback 可用性、`physical_authority_count=1`、shared Shiguan/pending/private/memory/config 不变和 legacy compatibility locator 受控解析全部通过。未来才允许提供一条 `npm exec|npx` 更新命令，且它必须调用同一已验 core；本轮只保留 local `.tgz` 证据，不发布 npm。
 
 ### Phase 6 — 本机 current-tool 预安装与整体验收
 
@@ -1110,14 +1112,14 @@ Git index empty
 
 1. 在 Phase 9 已验收 commit 对应的 clean child worktree 上，由单一集成 writer 确认全部 accepted changes 已按裁定顺位收敛，并逐项复跑 cluster/全局回归。不得把 dirty worktree 整体覆盖进分支，不得 remote/push/PR/tag/publish。
 2. 确认 README、CHANGELOG、RELEASE-LOG、docs/logs、release-manifest、LICENSE/COPYRIGHT/NOTICE 与实际代码/测试/版本一致；identity manifest 固定 `Decretum Matrix（诏令矩阵）` / `decretum-matrix` 以及旧 locator/兼容 allowlist；从该精确 commit 的 clean worktree 重建 no-clobber `run1b/run2b`，要求包字节相同、逐文件 manifest/包 SHA-256 通过、旧 run1/run2 与 beta0.5.12 原字节保留。包验证及 §3.2 上一版本上传终态完成后，才从同一 commit 创建下一顺位 `release/beta0.5.(x+1)` child branch/worktree、同步 root 映射并按 §3.3 自动交接。
-3. 用最终 staging payload 对固定五个技术 locator 执行可回滚 skill 安装/升级：`~/.agents/skills/court-capability-router`、`~/.codex/skills/court-capability-router`、`~/.claude/skills/court-capability-router`、`~/.hermes/skills/court-capability-router`、`user_data_base()/hermes/skills/court-capability-router`；每处加载出的规范 skill name/display 必须是 `decretum-matrix` / `Decretum Matrix（诏令矩阵）`。不得借此修改任一工具配置、启用 memory、写 memory body、复制第二份 alias skill 或扩装未知工具。
-4. 五根必须报告同一 `VERSION`、identity/release manifest 和 portable allowlist 的逐文件 SHA-256；`check_active_copy_hashes.py`、name-surface checker 与每工具实际 loader/runtime probe 均通过。缺根、陈旧根、额外非 allowlist body、版本/hash/identity 不同或只看目录存在均失败。
+3. 用最终 staging payload 通过 Phase 5.1 的统一 updater 对固定五个 canonical 物理目录执行可回滚 skill 安装/升级：`~/.agents/skills/decretum-matrix`、`~/.codex/skills/decretum-matrix`、`~/.claude/skills/decretum-matrix`、`~/.hermes/skills/decretum-matrix`、`user_data_base()/hermes/skills/decretum-matrix`。每处 folder basename/machine name、规范 skill name/display 必须分别是 `decretum-matrix`、`decretum-matrix` / `Decretum Matrix（诏令矩阵）`；旧 `skills/court-capability-router` 只能缺省不存在或作为 deprecated compatibility locator/junction/router 指向同一 authority。不得借此修改任一工具配置、启用 memory、写 memory body、复制第二份 alias skill 或扩装未知工具。
+4. 五根必须报告同一 canonical path policy、`VERSION`、identity/release manifest 和 portable allowlist 的逐文件 SHA-256；`check_active_copy_hashes.py`、name-surface checker 与每工具实际 loader/runtime probe 均通过，并证明 `physical_authority_count=1`。缺 canonical 根、陈旧根、旧/新双物理目录、compatibility locator 指错、额外非 allowlist body、版本/hash/identity 不同或只看目录存在均失败。
 5. 运行 `SHIGUAN_LATEST_SYSTEM_GATE`：唯一 `.agents` 物理史馆、LocalAppData junction、shared Git、schema/index、runtime/CLI/checkers、bridge/daemon/service、Obsidian、native-memory links、worktree records、recovery/paired receipts 均与最终 manifest/包匹配且可用；旧版本服务、第二物理库、脏 index、断链或迁移未完成均失败。
 6. 最终复核不得绕过 `pending_count=69`、会话静默、隐私或授权门禁。只有取得 `LATEST_BRANCH_CONVERGED`、`DECRETUM_MATRIX_IDENTITY_GATE=PASS`、`FINAL_PACKAGE_VERIFIED`、`FIVE_ROOTS_LATEST_HASH_EQUAL`、`SHIGUAN_LATEST_SYSTEM_GATE=PASS` 后才可整体验收、完整结诏和恢复父 Task 3。
 
 ### 2026-07-16 Decretum Matrix 法律、来源与本地更名 overlay
 
-- 详细执行权威：`docs/plans/2026-07-16-decretum-matrix-dual-license-rights-and-provenance-plan.md`。本指针 supersede 本执行书中“仓库/managed worktree/root mapping 永久保持 `court-capability-router`”的旧假设；受保护史馆/安装 locator、历史记录与 deprecated 兼容输入仍按 allowlist 保留。
+- 详细执行权威：`docs/plans/2026-07-16-decretum-matrix-dual-license-rights-and-provenance-plan.md`。本指针 supersede 本执行书中“仓库/managed worktree/root mapping 永久保持 `court-capability-router`”的旧假设；受保护史馆 locator、deprecated compatibility install locator、历史记录与 deprecated 兼容输入仍按 allowlist 保留。
 - 当前游标：`R0_LOCAL_RENAME_POST_FINGERPRINT -> P0_LEGAL_PREIMAGE_INVENTORY`；工作树为 `D:\project\decretum-matrix-beta0.5.10`，common-dir 为 `D:\project\decretum-matrix\.git`。
 - 强制 acceptance：`LOCAL_RENAME_AND_MAPPING_GATE`、`UPSTREAM_MIT_PROVENANCE_GATE`、`LEGAL_PROVENANCE_PACKAGE_ACCEPTANCE_GATE` 与 `NEW_NAME_STAGED_PUBLICATION_GATE` 全部通过后，方可进入相应 package/remote 动作；dirty worktree 的 remote/push/tag/PR/release 均为 `NOT_RUN`。
 
@@ -1128,6 +1130,13 @@ Git index empty
 - 受安装影响的数据/schema 迁移使用独立 `gongbu_gongjiang_migrate_<version-token>` 写集；能力官籍/安装索引刷新使用 `libu_hr_registry_index_<version-token>`；史馆 metadata/index 更新使用规范 `shiguan_<bounded-suffix>` 载体并继续受三省共监、门下主审约束。不得用 generic task 名、跨官署代工或同一写集双 writer。
 - 每路必须先做可回滚备份/preimage，随后只安装已验收包、执行该版本声明的有界迁移与索引，再回读 loader/runtime、版本、identity manifest 和逐文件 SHA-256。旧版本制品、旧 state/events、protected Shiguan 四文件与 pending body 均不得改写或读取。
 - 只有 `PER_RELEASE_LOCAL_INSTALL=PASS`、`AFFECTED_DATA_MIGRATION=PASS|NOT_APPLICABLE`、`CAPABILITY_AND_SHIGUAN_INDEX=PASS|NOT_APPLICABLE`、五根/批准根 hash 等价、全部 index=0 后，才允许签发该版本 release closeout、上一版本上传终态和下一 release 分支交接。
+
+#### FINAL_SKILL_INSTALL_PATH_RENAME_GATE（最新旨意，PLAN_ONLY）
+
+- 本 gate supersede 本执行书中任何把 `skills/court-capability-router` 视为最终 physical install authority 的旧表述；canonical final install dir 一律为每个授权安装根的 `skills/decretum-matrix`，folder 与 machine name 对齐为 `decretum-matrix`。
+- 未来执行必须复用统一 updater 的 `backup -> staged atomic rename/move -> native loader reread -> five-root path/hash/identity proof -> rollback(on failure)`；成功后最多一个物理 authority，旧路径仅可为 deprecated compatibility locator/junction/router，失败必须恢复 preimage 且不得留下双物理 authority。
+- 本 gate 不自动改名或迁移 shared Shiguan runtime data locator。任何 `court-shiguan/court-capability-router` namespace 变更均需独立最新授权、preimage、lineage 与 pending-body 门禁；Skill path rename 不能推定 Shiguan path rename。
+- 当前仅落计划：宿主热迁移、root/mainline、release manifest、安装根、shared Shiguan 与 `pending/**` 均为 `NOT_RUN`，待未来独立 write set、clean worktree、single writer 和 checker-first RED/GREEN 后恢复。
 
 ### Post-A02 Office Identity Pack / DLC / Scope queue
 
