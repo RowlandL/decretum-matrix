@@ -59,26 +59,82 @@ function gitText(...args) {
 
 function normalizeIndependentGitHubRemote(remote) {
   const value = remote.trim();
-  let match = /^https:\/\/github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?\/?$/i.exec(
+  const scpMatch = /^(?:git@)?github\.com:([^/]+)\/([^/?#]+?)(?:\.git)?$/i.exec(
     value,
   );
-  if (!match) {
-    match = /^ssh:\/\/(?:git@)?github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?\/?$/i.exec(
-      value,
-    );
+  let owner;
+  let repository;
+  if (scpMatch) {
+    [, owner, repository] = scpMatch;
+  } else {
+    let parsed;
+    try {
+      parsed = new URL(value);
+    } catch {
+      fail("origin is not an unambiguous GitHub repository URL");
+    }
+    if (
+      !["https:", "ssh:"].includes(parsed.protocol) ||
+      parsed.hostname.toLowerCase() !== "github.com" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      fail("origin is not an unambiguous GitHub repository URL");
+    }
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length !== 2) {
+      fail("origin is not an unambiguous GitHub repository URL");
+    }
+    [owner, repository] = parts;
+    repository = repository.replace(/\.git$/i, "");
   }
-  if (!match) {
-    match = /^(?:git@)?github\.com:([^/]+)\/([^/?#]+?)(?:\.git)?$/i.exec(
-      value,
-    );
-  }
-  if (!match) {
-    fail(`origin is not an unambiguous GitHub repository URL: ${value}`);
+  if (
+    !/^[A-Za-z0-9_.-]+$/.test(owner) ||
+    !/^[A-Za-z0-9_.-]+$/.test(repository)
+  ) {
+    fail("origin is not an unambiguous GitHub repository URL");
   }
   return {
-    owner: match[1],
-    repository: match[2],
-    canonicalUrl: `https://github.com/${match[1]}/${match[2]}.git`,
+    owner,
+    repository,
+    canonicalUrl: `https://github.com/${owner}/${repository}.git`,
+  };
+}
+
+function runCheckerIndependentOriginSelfTest() {
+  const canonical = normalizeIndependentGitHubRemote(
+    "https://github.com/RowlandL/decretum-matrix.git",
+  );
+  let userinfoRejected = true;
+  let userinfoRedacted = true;
+  for (const remote of [
+    "https://sensitive-user:sensitive-pass@github.com/RowlandL/decretum-matrix.git",
+    "ssh://sensitive-user@github.com/RowlandL/decretum-matrix.git",
+  ]) {
+    try {
+      normalizeIndependentGitHubRemote(remote);
+      userinfoRejected = false;
+    } catch (error) {
+      if (String(error?.message || error).includes("sensitive-")) {
+        userinfoRedacted = false;
+      }
+    }
+  }
+  if (!userinfoRejected || !userinfoRedacted) {
+    fail("checker-independent origin userinfo contract did not fail closed");
+  }
+  return {
+    evidence: {
+      canonical_url: canonical.canonicalUrl,
+      userinfo_rejected: userinfoRejected,
+      userinfo_redacted: userinfoRedacted,
+    },
+    validation: {
+      checker_independent_origin_userinfo_rejected: "PASS",
+      checker_independent_origin_userinfo_redacted: "PASS",
+    },
   };
 }
 
@@ -512,17 +568,33 @@ export async function selfTestNpmPackage() {
   if (typeof packageBuilder.runSyntheticSelfTest !== "function") {
     fail("build_npm_package.mjs does not expose the version-neutral synthetic self-test");
   }
+  if (typeof packageBuilder.pythonInvocationContract !== "function") {
+    fail("build_npm_package.mjs does not expose the immutable Python invocation contract");
+  }
   const builderReport = await packageBuilder.runSyntheticSelfTest();
+  const pythonContract = packageBuilder.pythonInvocationContract();
+  if (
+    pythonContract.command !== "$PYTHON" ||
+    pythonContract.bytecode_disabled !== true ||
+    pythonContract.shell !== false ||
+    !["override", "discovery"].includes(pythonContract.source)
+  ) {
+    fail("builder Python invocation contract is incomplete");
+  }
   const checkerTagTest = await runCheckerIndependentTagSelfTest();
+  const checkerOriginTest = runCheckerIndependentOriginSelfTest();
   const report = {
     ...builderReport,
     evidence: {
       ...builderReport.evidence,
+      python_invocation: pythonContract,
       checker_independent_tag_oracle: checkerTagTest.evidence,
+      checker_independent_origin_oracle: checkerOriginTest.evidence,
     },
     validation: {
       ...builderReport.validation,
       ...checkerTagTest.validation,
+      ...checkerOriginTest.validation,
     },
   };
   const requiredPasses = [
@@ -540,6 +612,9 @@ export async function selfTestNpmPackage() {
     "production_output_reuse_no_mutation",
     "production_output_collision_preserved",
     "repository_origin_oracle",
+    "origin_userinfo_rejected",
+    "origin_userinfo_redacted",
+    "receipt_canonical_origin_only",
     "wrong_origin_rejected",
     "full_fixture_noncurrent_release",
     "tracked_authority_clean",
@@ -550,6 +625,9 @@ export async function selfTestNpmPackage() {
     "checker_independent_annotated_tag_missing_rejected",
     "checker_independent_lightweight_tag_rejected",
     "checker_independent_wrong_target_tag_rejected",
+    "checker_independent_origin_userinfo_rejected",
+    "checker_independent_origin_userinfo_redacted",
+    "python_interpreter_contract",
   ];
   const missing = requiredPasses.filter(
     (name) => report.validation?.[name] !== "PASS",

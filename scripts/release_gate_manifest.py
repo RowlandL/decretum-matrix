@@ -22,6 +22,17 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
     ("portability", "source", ("$PYTHON", "scripts/check_portability.py"), "always"),
     ("release_manifest", "source", ("$PYTHON", "scripts/check_release_manifest.py", "--json"), "always"),
     (
+        "npm_release_harness",
+        "source",
+        (
+            "$PYTHON",
+            "scripts/check_release_manifest.py",
+            "--npm-harness-self-test",
+            "--json",
+        ),
+        "always",
+    ),
+    (
         "capability_index",
         "source",
         (

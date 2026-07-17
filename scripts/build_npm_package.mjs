@@ -49,20 +49,21 @@ export function normalizeRepositoryRemote(remote) {
     try {
       parsed = new URL(value);
     } catch {
-      throw new Error(`origin is not a supported GitHub URL: ${value}`);
+      throw new Error("origin is not a supported GitHub URL");
     }
     if (
       !["https:", "ssh:"].includes(parsed.protocol) ||
       parsed.hostname.toLowerCase() !== "github.com" ||
+      parsed.username ||
       parsed.password ||
       parsed.search ||
       parsed.hash
     ) {
-      throw new Error(`origin is not a supported GitHub URL: ${value}`);
+      throw new Error("origin is not a supported GitHub URL");
     }
     const parts = parsed.pathname.split("/").filter(Boolean);
     if (parts.length !== 2) {
-      throw new Error(`origin GitHub path is ambiguous: ${value}`);
+      throw new Error("origin GitHub path is ambiguous");
     }
     [owner, repository] = parts;
   }
@@ -71,13 +72,12 @@ export function normalizeRepositoryRemote(remote) {
     !/^[A-Za-z0-9_.-]+$/.test(owner) ||
     !/^[A-Za-z0-9_.-]+$/.test(repository)
   ) {
-    throw new Error(`origin owner/repository is invalid: ${value}`);
+    throw new Error("origin owner/repository is invalid");
   }
   return Object.freeze({
     owner,
     repository,
     canonicalUrl: `https://github.com/${owner}/${repository}.git`,
-    input: value,
   });
 }
 
@@ -642,6 +642,98 @@ function runFixtureCommand(command, args, options = {}) {
   return result;
 }
 
+let resolvedPythonInvocation;
+
+function pythonCandidates() {
+  const override = process.env.DECRETUM_PYTHON_EXECUTABLE?.trim();
+  if (override) {
+    return [{ command: override, prefixArgs: [], source: "override" }];
+  }
+  if (process.platform === "win32") {
+    return [
+      { command: "python", prefixArgs: [], source: "discovery" },
+      { command: "py", prefixArgs: ["-3"], source: "discovery" },
+      { command: "python3", prefixArgs: [], source: "discovery" },
+    ];
+  }
+  return [
+    { command: "python3", prefixArgs: [], source: "discovery" },
+    { command: "python", prefixArgs: [], source: "discovery" },
+  ];
+}
+
+function resolvePythonInvocation() {
+  if (resolvedPythonInvocation) {
+    return resolvedPythonInvocation;
+  }
+  const candidates = pythonCandidates();
+  for (const candidate of candidates) {
+    const probe = spawnSync(
+      candidate.command,
+      [
+        ...candidate.prefixArgs,
+        "-B",
+        "-c",
+        "import json,sys; print(json.dumps({'major':sys.version_info[0],'minor':sys.version_info[1]}))",
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        shell: false,
+        timeout: 30_000,
+        windowsHide: true,
+      },
+    );
+    if (!probe.error && probe.status === 0) {
+      let version;
+      try {
+        version = JSON.parse(probe.stdout.trim());
+      } catch {
+        continue;
+      }
+      if (
+        Number.isInteger(version.major) &&
+        version.major === 3 &&
+        Number.isInteger(version.minor)
+      ) {
+        resolvedPythonInvocation = Object.freeze({
+          command: candidate.command,
+          prefixArgs: Object.freeze([...candidate.prefixArgs]),
+          source: candidate.source,
+          version: Object.freeze({ major: version.major, minor: version.minor }),
+        });
+        return resolvedPythonInvocation;
+      }
+    }
+    if (candidate.source === "override") {
+      fail("configured Python interpreter failed the Python 3 probe");
+    }
+  }
+  fail("no compatible Python 3 interpreter was discovered");
+}
+
+function runPythonFixtureCommand(args, options = {}) {
+  const invocation = resolvePythonInvocation();
+  return runFixtureCommand(
+    invocation.command,
+    [...invocation.prefixArgs, "-B", ...args],
+    options,
+  );
+}
+
+export function pythonInvocationContract() {
+  const invocation = resolvePythonInvocation();
+  return Object.freeze({
+    command: "$PYTHON",
+    source: invocation.source,
+    python_major: invocation.version.major,
+    python_minor: invocation.version.minor,
+    bytecode_disabled: true,
+    shell: false,
+  });
+}
+
 const CRITICAL_HEAD_BOUND_PATHS = Object.freeze([
   "package.json",
   "package-lock.json",
@@ -1095,7 +1187,7 @@ export async function runSyntheticSelfTest() {
 
     for (const remote of [
       "https://github.com/RowlandL/decretum-matrix.git",
-      "ssh://git@github.com/RowlandL/decretum-matrix.git",
+      "ssh://github.com/RowlandL/decretum-matrix.git",
       "git@github.com:RowlandL/decretum-matrix.git",
     ]) {
       const normalized = normalizeRepositoryRemote(remote);
@@ -1107,6 +1199,23 @@ export async function runSyntheticSelfTest() {
         `synthetic repository remote normalization failed: ${remote}`,
       );
     }
+    let originUserinfoRejected = true;
+    let originUserinfoRedacted = true;
+    for (const remote of [
+      "https://sensitive-user:sensitive-pass@github.com/RowlandL/decretum-matrix.git",
+      "ssh://sensitive-user@github.com/RowlandL/decretum-matrix.git",
+    ]) {
+      try {
+        normalizeRepositoryRemote(remote);
+        originUserinfoRejected = false;
+      } catch (error) {
+        if (String(error?.message || error).includes("sensitive-")) {
+          originUserinfoRedacted = false;
+        }
+      }
+    }
+    assert(originUserinfoRejected, "origin URL userinfo was not rejected");
+    assert(originUserinfoRedacted, "origin URL userinfo leaked through an error");
     let wrongOriginRejected = false;
     const wrongOrigin = runFixtureCommand(
       "git",
@@ -1142,6 +1251,10 @@ export async function runSyntheticSelfTest() {
     const fixtureRepository = loadRepositoryOracle(
       authorityRoot,
       manifestFromDisk,
+    );
+    assert(
+      !("input" in fixtureRepository),
+      "repository oracle retained the raw origin URL",
     );
 
     const trackedAuthorityEvidence = await validateTrackedProductionAuthority(
@@ -1302,10 +1415,8 @@ export async function runSyntheticSelfTest() {
       ...fixtureLegalFiles.map((file) => file.path),
     ].sort();
     const zipPath = path.join(assetRoot, current.artifactName);
-    const zipCreate = runFixtureCommand(
-      "python",
+    const zipCreate = runPythonFixtureCommand(
       [
-        "-B",
         "-c",
         SYNTHETIC_ZIP_SCRIPT,
         authorityRoot,
@@ -1375,9 +1486,8 @@ export async function runSyntheticSelfTest() {
     );
 
     const canonicalChecker = path.join(REPO_ROOT, "scripts", "check_package_privacy.py");
-    const canonicalPrivacy = runFixtureCommand(
-      "python",
-      ["-B", canonicalChecker, "-q"],
+    const canonicalPrivacy = runPythonFixtureCommand(
+      [canonicalChecker, "-q"],
       {
         cwd: REPO_ROOT,
         env: { ...process.env, COURT_PACKAGE_STAGE_VALIDATION: "1" },
@@ -1387,10 +1497,8 @@ export async function runSyntheticSelfTest() {
       canonicalPrivacy.status === 0,
       `canonical privacy fixture failed: ${canonicalPrivacy.stdout}${canonicalPrivacy.stderr}`,
     );
-    const zipPrivacy = runFixtureCommand(
-      "python",
+    const zipPrivacy = runPythonFixtureCommand(
       [
-        "-B",
         "-c",
         ZIP_PRIVACY_SCRIPT,
         zipPath,
@@ -1410,10 +1518,8 @@ export async function runSyntheticSelfTest() {
     const tamperedRoot = path.join(root, "inventory-tampered-release-assets");
     await mkdir(tamperedRoot, { recursive: false });
     const tamperedZipPath = path.join(tamperedRoot, current.artifactName);
-    const tamperResult = runFixtureCommand(
-      "python",
+    const tamperResult = runPythonFixtureCommand(
       [
-        "-B",
         "-c",
         TAMPER_ZIP_SCRIPT,
         zipPath,
@@ -1465,10 +1571,8 @@ export async function runSyntheticSelfTest() {
         tamperedSidecarDescriptor.size === tamperedSidecar.length,
       "tampered sidecar/attestation were not synchronized",
     );
-    const inventoryTamperCheck = runFixtureCommand(
-      "python",
+    const inventoryTamperCheck = runPythonFixtureCommand(
       [
-        "-B",
         "-c",
         ZIP_PRIVACY_SCRIPT,
         tamperedZipPath,
@@ -1559,12 +1663,12 @@ export async function runSyntheticSelfTest() {
     const syntheticPrivacyEvidence = {
       canonical: {
         command:
-          "COURT_PACKAGE_STAGE_VALIDATION=1 python -B scripts/check_package_privacy.py -q",
+          "COURT_PACKAGE_STAGE_VALIDATION=1 $PYTHON -B scripts/check_package_privacy.py -q",
         rc: canonicalPrivacy.status,
         checker_sha256: await hashFile(canonicalChecker),
       },
       release_zip: {
-        command: "python -B -c <nested-zip-member-privacy-checker> <zip>",
+        command: "$PYTHON -B -c <nested-zip-member-privacy-checker> <zip>",
         rc: zipPrivacy.status,
         checker_sha256: createHash("sha256")
           .update(ZIP_PRIVACY_SCRIPT, "utf8")
@@ -1668,13 +1772,13 @@ export async function runSyntheticSelfTest() {
         size: firstPack.size,
       },
       evidence: {
+        python_invocation: pythonInvocationContract(),
         repository_oracle: {
           command: fixtureRepository.command,
           rc: fixtureRepository.rc,
           owner: fixtureRepository.owner,
           repository: fixtureRepository.repository,
           canonical_url: fixtureRepository.canonicalUrl,
-          origin: fixtureRepository.input,
           provenance_sha256: fixtureRepository.provenanceSha256,
           package_repository: publishPackage.repository,
           receipt_repository: created.receipt.source.repository,
@@ -1690,12 +1794,12 @@ export async function runSyntheticSelfTest() {
         },
         canonical_privacy: {
           command:
-            "COURT_PACKAGE_STAGE_VALIDATION=1 python -B scripts/check_package_privacy.py -q",
+            "COURT_PACKAGE_STAGE_VALIDATION=1 $PYTHON -B scripts/check_package_privacy.py -q",
           rc: canonicalPrivacy.status,
           checker_sha256: await hashFile(canonicalChecker),
         },
         release_zip: {
-          command: "python -B -c <nested-zip-member-privacy-checker> <zip>",
+          command: "$PYTHON -B -c <nested-zip-member-privacy-checker> <zip>",
           rc: zipPrivacy.status,
           checker_sha256: createHash("sha256")
             .update(ZIP_PRIVACY_SCRIPT, "utf8")
@@ -1718,7 +1822,7 @@ export async function runSyntheticSelfTest() {
         },
         inventory_tamper_negative: {
           command:
-            "python -B -c <nested-zip-member-privacy-checker> <tampered-zip>",
+            "$PYTHON -B -c <nested-zip-member-privacy-checker> <tampered-zip>",
           rc: inventoryTamperCheck.status,
           checker_sha256: createHash("sha256")
             .update(ZIP_PRIVACY_SCRIPT, "utf8")
@@ -1762,6 +1866,10 @@ export async function runSyntheticSelfTest() {
         production_output_reuse_no_mutation: "PASS",
         production_output_collision_preserved: "PASS",
         repository_origin_oracle: "PASS",
+        origin_userinfo_rejected: "PASS",
+        origin_userinfo_redacted: "PASS",
+        receipt_canonical_origin_only: "PASS",
+        python_interpreter_contract: "PASS",
         wrong_origin_rejected: "PASS",
         full_fixture_noncurrent_release: "PASS",
         tracked_authority_clean: "PASS",
@@ -2254,9 +2362,8 @@ export async function validateReleaseAssets() {
     "scripts",
     "check_package_privacy.py",
   );
-  const canonicalPrivacy = runFixtureCommand(
-    "python",
-    ["-B", canonicalChecker, "-q"],
+  const canonicalPrivacy = runPythonFixtureCommand(
+    [canonicalChecker, "-q"],
     {
       cwd: REPO_ROOT,
       env: { ...process.env, COURT_PACKAGE_STAGE_VALIDATION: "1" },
@@ -2266,10 +2373,8 @@ export async function validateReleaseAssets() {
     canonicalPrivacy.status === 0,
     `canonical privacy fixture failed: ${canonicalPrivacy.stdout}${canonicalPrivacy.stderr}`,
   );
-  const zipPrivacy = runFixtureCommand(
-    "python",
+  const zipPrivacy = runPythonFixtureCommand(
     [
-      "-B",
       "-c",
       ZIP_PRIVACY_SCRIPT,
       path.join(RELEASE_ASSET_DIR, LIVE_IDENTITY.artifactName),
@@ -2293,12 +2398,12 @@ export async function validateReleaseAssets() {
     privacy: Object.freeze({
       canonical: Object.freeze({
         command:
-          "COURT_PACKAGE_STAGE_VALIDATION=1 python -B scripts/check_package_privacy.py -q",
+          "COURT_PACKAGE_STAGE_VALIDATION=1 $PYTHON -B scripts/check_package_privacy.py -q",
         rc: canonicalPrivacy.status,
         checker_sha256: await hashFile(canonicalChecker),
       }),
       release_zip: Object.freeze({
-        command: "python -B -c <nested-zip-member-privacy-checker> <zip>",
+        command: "$PYTHON -B -c <nested-zip-member-privacy-checker> <zip>",
         rc: zipPrivacy.status,
         checker_sha256: createHash("sha256")
           .update(ZIP_PRIVACY_SCRIPT, "utf8")

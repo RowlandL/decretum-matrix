@@ -39,6 +39,14 @@
       "condition": "always"
     },
     {
+      "name": "npm_release_harness",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_release_manifest.py", "--npm-harness-self-test", "--json"],
+      "timeout": 900,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "capability_index",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_capability_index_gate.py", "--query", "release license manifest package security", "--json"],

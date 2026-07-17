@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import json
+import os
 from pathlib import Path
+import re
+import shutil
+import subprocess
 import sys
 import tempfile
+from types import MappingProxyType
 
 sys.dont_write_bytecode = True
 
@@ -26,6 +32,167 @@ import release_payload_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+NPM_HARNESS_SCRIPT = ROOT / "scripts" / "check_npm_package.mjs"
+NPM_HARNESS_MODE_ARGS = MappingProxyType(
+    {
+        "check": (),
+        "self-test": ("--self-test",),
+    }
+)
+NPM_HARNESS_ENVIRONMENT = MappingProxyType(
+    {
+        "GH_TOKEN": "",
+        "GITHUB_TOKEN": "",
+        "NODE_AUTH_TOKEN": "",
+        "NPM_TOKEN": "",
+        "HTTP_PROXY": "",
+        "HTTPS_PROXY": "",
+        "ALL_PROXY": "",
+        "npm_config_audit": "false",
+        "npm_config_fund": "false",
+        "npm_config_ignore_scripts": "true",
+        "npm_config_offline": "true",
+        "npm_config_provenance": "false",
+        "npm_config_registry": "https://registry.invalid/",
+        "npm_config_update_notifier": "false",
+    }
+)
+SENSITIVE_ENV_RE = re.compile(r"(?:token|password|passwd|secret|_auth)", re.IGNORECASE)
+URL_USERINFO_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@")
+
+
+def _sanitize_subprocess_text(value: str) -> str:
+    return URL_USERINFO_RE.sub(r"\1[REDACTED]@", value)
+
+
+def _resolve_node_executable() -> str:
+    override = os.environ.get("DECRETUM_NODE_EXECUTABLE", "").strip()
+    candidate = override or shutil.which("node")
+    if not candidate:
+        raise AssertionError("Node.js executable is unavailable")
+    resolved = Path(candidate).resolve(strict=True)
+    probe = subprocess.run(
+        [str(resolved), "--version"],
+        cwd=ROOT.resolve(strict=True),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        shell=False,
+        check=False,
+    )
+    if probe.returncode != 0 or re.fullmatch(r"v\d+\.\d+\.\d+", probe.stdout.strip()) is None:
+        label = "configured" if override else "discovered"
+        raise AssertionError(f"{label} Node.js executable failed validation")
+    return str(resolved)
+
+
+def npm_harness_invocation_contract() -> dict[str, object]:
+    base = ("$NODE", "scripts/check_npm_package.mjs")
+    production = (*base, *NPM_HARNESS_MODE_ARGS["check"])
+    self_test = (*base, *NPM_HARNESS_MODE_ARGS["self-test"])
+    environment_json = json.dumps(
+        dict(NPM_HARNESS_ENVIRONMENT),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("ascii")
+    return {
+        "production_argv": list(production),
+        "self_test_argv": list(self_test),
+        "shared_immutable_prefix": list(production),
+        "mode_only_delta": list(self_test[len(production) :]),
+        "environment_sha256": hashlib.sha256(environment_json).hexdigest(),
+        "offline": True,
+        "python_override": "$PYTHON",
+        "shell": False,
+    }
+
+
+def _npm_harness_environment() -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if SENSITIVE_ENV_RE.search(key) is None
+    }
+    environment.update(NPM_HARNESS_ENVIRONMENT)
+    environment["DECRETUM_PYTHON_EXECUTABLE"] = str(Path(sys.executable).resolve(strict=True))
+    return environment
+
+
+def run_npm_harness(mode: str) -> dict[str, object]:
+    if mode not in NPM_HARNESS_MODE_ARGS:
+        raise AssertionError(f"unsupported npm harness mode: {mode}")
+    root = ROOT.resolve(strict=True)
+    script = NPM_HARNESS_SCRIPT.resolve(strict=True)
+    try:
+        script.relative_to(root / "scripts")
+    except ValueError as exc:
+        raise AssertionError("npm harness script resolves outside scripts/") from exc
+    command = [
+        _resolve_node_executable(),
+        str(script),
+        *NPM_HARNESS_MODE_ARGS[mode],
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=root,
+        env=_npm_harness_environment(),
+        capture_output=True,
+        text=True,
+        timeout=900,
+        shell=False,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = _sanitize_subprocess_text(
+            "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
+        )
+        raise AssertionError(
+            f"npm harness {mode} failed with exit {completed.returncode}"
+            + (f": {detail[-4000:]}" if detail else "")
+        )
+    try:
+        report = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError("npm harness did not return one JSON report") from exc
+    expected_schema = (
+        "decretum.npm_self_test.v3"
+        if mode == "self-test"
+        else "decretum.npm_package_check.v2"
+    )
+    if report.get("schema") != expected_schema or report.get("status") != "PASS":
+        raise AssertionError("npm harness report schema/status mismatch")
+    if mode == "self-test":
+        validation = report.get("validation") or {}
+        required = {
+            "origin_userinfo_rejected",
+            "origin_userinfo_redacted",
+            "receipt_canonical_origin_only",
+            "python_interpreter_contract",
+            "strict_offline_install",
+        }
+        failed = sorted(name for name in required if validation.get(name) != "PASS")
+        python_evidence = (report.get("evidence") or {}).get("python_invocation") or {}
+        if failed:
+            raise AssertionError(f"npm harness required validations failed: {failed}")
+        if python_evidence.get("source") != "override":
+            raise AssertionError("strict wrapper did not bind the Python interpreter override")
+        if report.get("repository_output") != "NOT_WRITTEN":
+            raise AssertionError("npm harness wrote output inside the repository")
+    contract = npm_harness_invocation_contract()
+    return {
+        "ok": True,
+        "schema": "decretum.npm_release_harness_wrapper.v1",
+        "mode": mode,
+        "command": " ".join(
+            contract["self_test_argv"] if mode == "self-test" else contract["production_argv"]
+        ),
+        "contract": contract,
+        "report_schema": report["schema"],
+        "report_sha256": hashlib.sha256(completed.stdout.encode("utf-8")).hexdigest(),
+        "network_dependency": "NONE",
+        "pending_body_access": "NO",
+    }
 
 
 def expect_invalid(manifest: dict[str, object], expected_text: str) -> None:
@@ -365,7 +532,35 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--json", action="store_true")
+    harness_mode = parser.add_mutually_exclusive_group()
+    harness_mode.add_argument("--npm-harness-self-test", action="store_true")
+    harness_mode.add_argument("--npm-harness-check", action="store_true")
     args = parser.parse_args()
+    selected_harness_mode = (
+        "self-test"
+        if args.npm_harness_self_test
+        else "check"
+        if args.npm_harness_check
+        else None
+    )
+    if selected_harness_mode is not None:
+        try:
+            result = run_npm_harness(selected_harness_mode)
+        except (AssertionError, OSError, subprocess.SubprocessError) as exc:
+            result = {"ok": False, "error": str(exc)}
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print(f"NPM_RELEASE_HARNESS_FAILED {exc}")
+            return 2
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(
+                "NPM_RELEASE_HARNESS_OK "
+                f"mode={result['mode']} report_sha256={result['report_sha256']}"
+            )
+        return 0
     try:
         manifest = load_release_manifest()
         negative_cases = run_negative_contract_checks(manifest)
@@ -397,6 +592,16 @@ def main() -> int:
                     name for name, passed in install_receipt_contract.items() if not passed
                 )
             )
+        npm_harness_contract = npm_harness_invocation_contract()
+        if (
+            npm_harness_contract["production_argv"]
+            != npm_harness_contract["shared_immutable_prefix"]
+            or npm_harness_contract["mode_only_delta"] != ["--self-test"]
+            or npm_harness_contract["offline"] is not True
+            or npm_harness_contract["python_override"] != "$PYTHON"
+            or npm_harness_contract["shell"] is not False
+        ):
+            raise AssertionError("npm harness production/self-test invocation contract drifted")
         all_steps = selected_release_steps(
             manifest,
             include_active_copies=True,
@@ -408,9 +613,14 @@ def main() -> int:
             if step.get("gate_class") == "source" and step.get("name") != "catalog_strict"
         ]
         candidate_names = {str(step["name"]) for step in candidate_steps}
-        if len(candidate_steps) != 35:
+        if len(candidate_steps) != 36:
             raise AssertionError(f"candidate pre-install step count drifted: {len(candidate_steps)}")
-        if not {"release_payload_manifest", "court_agent_config", "court_codex_host_resolution"}.issubset(
+        if not {
+            "npm_release_harness",
+            "release_payload_manifest",
+            "court_agent_config",
+            "court_codex_host_resolution",
+        }.issubset(
             candidate_names
         ):
             raise AssertionError("candidate pre-install required source gates are missing")
@@ -456,6 +666,7 @@ def main() -> int:
         "gate_counts": gate_counts,
         "expanded_release_steps": [
             "capability_index",
+            "npm_release_harness",
             "release_legal",
             "release_payload_manifest",
             "package_privacy_regressions",
@@ -465,6 +676,7 @@ def main() -> int:
         "release_identity_parity_contract": identity_parity,
         "release_identity_parity_fixture_contract": identity_parity_fixture,
         "install_receipt_gate_fixture_contract": install_receipt_contract,
+        "npm_harness_invocation_contract": npm_harness_contract,
         "candidate_preinstall_step_count": len(candidate_steps),
         "post_install_step_count": len(post_install_steps),
         "negative_contract_cases": negative_cases,
