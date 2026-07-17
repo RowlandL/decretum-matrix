@@ -412,6 +412,7 @@ def check_drift_is_quarantined_before_mutation() -> None:
 
 
 def _dispatch_binding_fixture(task_id: str) -> tuple[dict[str, object], dict[str, object]]:
+    preload_hashes = court_runtime._semantic_preload_hashes("gongbu")
     binding: dict[str, object] = {
         "role": "gongbu",
         "instance_id": "gongbu#0001",
@@ -426,10 +427,22 @@ def _dispatch_binding_fixture(task_id: str) -> tuple[dict[str, object], dict[str
         "read_scope": ["scripts/court_semantic_continuity.py"],
         "mutation_allowed": True,
         "integration_authority": False,
+        "preload_hashes": preload_hashes,
     }
+    budget_id = f"budget:{task_id}:semantic-binding"
     lease: dict[str, object] = {
+        "schema": "court.agent.admission_lease.v2",
+        "budget_id": budget_id,
         "status": "ACTIVE",
         "lease_id": f"{task_id}-lease-0001",
+        "parent_budget_id": f"{budget_id}:taizi",
+        "parent_id": "taizi",
+        "approved_by": "taizi",
+        "grantee_role": "shangshu",
+        "lease_depth": 1,
+        "approved_next_depth": 2,
+        "expires_at_utc": "2099-01-01T00:00:00+00:00",
+        "parent_write_scope": ["scripts/court_semantic_continuity.py"],
         "approved_count": 1,
         "task_id": task_id,
         "calling_office": "shangshu",
@@ -456,6 +469,7 @@ def _dispatch_binding_fixture(task_id: str) -> tuple[dict[str, object], dict[str
                 "direct_superior": "shangshu",
             }
         },
+        "approved_preload_hashes": {"gongbu#0001": preload_hashes},
     }
     return lease, binding
 

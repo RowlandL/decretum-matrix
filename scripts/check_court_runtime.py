@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from argparse import Namespace
+from copy import deepcopy
 import hashlib
 import json
 import tempfile
@@ -159,6 +160,7 @@ def _public_admission_fixture(
     approved_count: int | None = None,
     calling_office: str = "shangshu",
     worker_only: bool = False,
+    next_depth: int = 2,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     normalized_roles = court_runtime.parse_requested_roles(roles, len(roles))
     count = len(normalized_roles) if approved_count is None else approved_count
@@ -185,6 +187,14 @@ def _public_admission_fixture(
         role_number = role_counts[role]
         instance_id = f"{role}#{role_number:04d}"
         worker = role in ministry_roles and (worker_only or role_number > 1)
+        try:
+            preload_hashes = court_runtime._semantic_preload_hashes(role)
+        except ValueError:
+            preload_hashes = {
+                "profile_hash": "1" * 64,
+                "dossier_hash": "2" * 64,
+                "court_skill_hash": "3" * 64,
+            }
         binding: dict[str, object] = {
             "role": role,
             "instance_id": instance_id,
@@ -198,9 +208,10 @@ def _public_admission_fixture(
             "read_scope": [f"work/{role}/{role_number:04d}.txt"],
             "mutation_allowed": True,
             "integration_authority": False,
+            "preload_hashes": dict(preload_hashes),
         }
         if worker:
-            binding["child_profile"] = dict(
+            child_profile = dict(
                 build_child_office_profile(
                     {
                         **binding,
@@ -212,20 +223,44 @@ def _public_admission_fixture(
                         "terminal_condition": "stop after the synthetic admission is evaluated",
                     },
                     child_role="GongBu-GongJiang" if role == "gongbu" else f"{role}-worker",
-                    profile_sha256="1" * 64,
-                    dossier_sha256="2" * 64,
-                    skill_sha256="3" * 64,
+                    profile_sha256=preload_hashes["profile_hash"],
+                    dossier_sha256=preload_hashes["dossier_hash"],
+                    skill_sha256=preload_hashes["court_skill_hash"],
                     dispatch_context_packet_sha256="4" * 64,
                     semantic_receipt_sha256="5" * 64,
                     invariant_capsule_sha256="6" * 64,
                     expires_at_utc="2099-01-01T00:00:00Z",
                 )
             )
+            binding["child_profile"] = child_profile
+            for outer_field, profile_field in {
+                "child_role": "child_role",
+                "bounded_mandate": "bounded_mandate",
+                "expected_result": "expected_result",
+                "task_id": "task_id",
+                "dispatch_uid": "dispatch_uid",
+                "attempt": "attempt",
+                "expires_at_utc": "expires_at_utc",
+                "terminal_condition": "terminal_condition",
+            }.items():
+                binding[outer_field] = child_profile[profile_field]
         bindings.append(binding)
     approved = bindings[:count]
+    budget_id = f"budget:{task_id}:phase:wave"
+    lease_superior = direct_superiors.get(calling_office, "taizi")
     lease: dict[str, object] = {
+        "schema": "court.agent.admission_lease.v2",
+        "budget_id": budget_id,
         "status": "ACTIVE",
         "lease_id": f"{task_id}-lease-{count}",
+        "parent_budget_id": f"{budget_id}:{lease_superior}",
+        "parent_id": lease_superior,
+        "approved_by": lease_superior,
+        "grantee_role": calling_office,
+        "lease_depth": max(0, next_depth - 1),
+        "approved_next_depth": next_depth,
+        "expires_at_utc": "2099-01-01T00:00:00+00:00",
+        "parent_write_scope": ["work"],
         "approved_count": count,
         "task_id": task_id,
         "calling_office": calling_office,
@@ -263,6 +298,10 @@ def _public_admission_fixture(
             for binding in approved
             if isinstance(binding.get("child_profile"), dict)
         },
+        "approved_preload_hashes": {
+            str(binding["instance_id"]): dict(binding["preload_hashes"])
+            for binding in approved
+        },
     }
     return lease, bindings
 
@@ -274,6 +313,7 @@ def _public_admission_fields(
     integration_domain: str,
     approved_count: int | None = None,
     calling_office: str = "shangshu",
+    next_depth: int = 1,
 ) -> dict[str, object]:
     lease, bindings = _public_admission_fixture(
         task_id=task_id,
@@ -281,6 +321,7 @@ def _public_admission_fields(
         integration_domain=integration_domain,
         approved_count=approved_count,
         calling_office=calling_office,
+        next_depth=next_depth,
     )
     return {
         "budget_lease_json": json.dumps(lease, ensure_ascii=False),
@@ -1013,6 +1054,138 @@ def check_existing_task_intake_cannot_create_new_task() -> None:
                 court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
+def check_rejected_admission_has_zero_runtime_side_effects() -> None:
+    with tempfile.TemporaryDirectory(prefix="court-runtime-rejected-admission-") as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(
+                create_args(
+                    "runtime-cardinality",
+                    intake_gate=formal_gate_fixture(mutates_state=True),
+                )
+            )
+            task = _make_task_dispatchable("runtime-cardinality")
+            args = _bind_admission_args(_cardinality_args(approved_count=1), task)
+            args.requested_fork_turns = "all"
+            before = deepcopy(court_runtime.load_tasks()["runtime-cardinality"])
+            before_events = court_runtime.events_for_task(
+                "runtime-cardinality", limit=None
+            )
+
+            rejected = court_runtime.agent_admit(args)
+            assert rejected["allowed"] is False
+            assert rejected["decision"] == "unbounded_context_fork"
+
+            after = court_runtime.load_tasks()["runtime-cardinality"]
+            after_events = court_runtime.events_for_task(
+                "runtime-cardinality", limit=None
+            )
+            for field in (
+                "next_semantic_dispatch_attempt",
+                "semantic_dispatch_attempts",
+                "agent_admissions",
+                "last_agent_admission",
+            ):
+                assert after.get(field) == before.get(field), field
+            assert after_events == before_events
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_admission_immutable_event_anchor_rejects_coherent_rewrite() -> None:
+    with tempfile.TemporaryDirectory(prefix="court-runtime-admission-anchor-") as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(
+                create_args(
+                    "runtime-cardinality",
+                    intake_gate=formal_gate_fixture(mutates_state=True),
+                )
+            )
+            task = _make_task_dispatchable("runtime-cardinality")
+            admission = court_runtime.agent_admit(
+                _bind_admission_args(_cardinality_args(approved_count=1), task)
+            )
+            tasks = court_runtime.load_tasks()
+            stored = tasks["runtime-cardinality"]["agent_admissions"][
+                "runtime-cardinality-wave"
+            ]
+            rebound_scope = ["work/gongbu/coherently-rewritten.txt"]
+            selected = stored["selected_bindings"][0]
+            requested = stored["requested_bindings"][0]
+            for binding in (selected, requested):
+                binding["write_set"] = list(rebound_scope)
+                binding["read_scope"] = list(rebound_scope)
+                child_profile = binding["child_profile"]
+                child_profile["write_set"] = list(rebound_scope)
+                child_profile["read_scope"] = list(rebound_scope)
+            lease = stored["budget_lease"]
+            lease["approved_write_sets"]["gongbu#0001"] = list(rebound_scope)
+            lease["approved_access_contracts"]["gongbu#0001"][
+                "read_scope"
+            ] = list(rebound_scope)
+            lease["approved_binding_sha256s"]["gongbu#0001"] = (
+                canonical_child_office_binding_sha256(requested)
+            )
+            stored["admission_binding_sha256s"]["gongbu#0001"] = (
+                canonical_child_office_binding_sha256(selected)
+            )
+            court_runtime.write_tasks(tasks)
+
+            try:
+                court_runtime.agent_start(
+                    _instance_start_args(
+                        instance_id="gongbu#0001",
+                        agent_id="gongbu-anchor-tamper",
+                        dispatch_requested_at=str(admission["dispatch_requested_at"]),
+                    )
+                )
+            except ValueError as exc:
+                assert "agent_start_admission_immutable_anchor_mismatch" in str(exc)
+            else:
+                raise AssertionError(
+                    "coherent request/lease/admission/digest rewrite bypassed the append-only event anchor"
+                )
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
+def check_canonical_preload_hashes_bound_before_admission() -> None:
+    with tempfile.TemporaryDirectory(prefix="court-runtime-preload-anchor-") as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(
+                create_args(
+                    "runtime-cardinality",
+                    intake_gate=formal_gate_fixture(mutates_state=True),
+                )
+            )
+            task = _make_task_dispatchable("runtime-cardinality")
+            args = _bind_admission_args(_cardinality_args(approved_count=1), task)
+            bindings = json.loads(args.requested_bindings_json)
+            lease = json.loads(args.budget_lease_json)
+            forged = dict(bindings[0]["preload_hashes"])
+            forged["profile_hash"] = "f" * 64
+            bindings[0]["preload_hashes"] = forged
+            lease["approved_preload_hashes"]["gongbu#0001"] = dict(forged)
+            args.requested_bindings_json = json.dumps(bindings, ensure_ascii=False)
+            args.budget_lease_json = json.dumps(lease, ensure_ascii=False)
+
+            try:
+                court_runtime.agent_admit(args)
+            except ValueError as exc:
+                assert "agent_admission_canonical_preload_mismatch" in str(exc)
+            else:
+                raise AssertionError(
+                    "forged but request/lease-consistent preload hashes were admitted"
+                )
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
 def main() -> int:
     check_runtime_parallel_cardinality()
     check_runtime_instance_keyed_routes()
@@ -1023,6 +1196,9 @@ def main() -> int:
     check_malformed_task_entries_rejected()
     check_normalization_deep_copy()
     check_existing_task_intake_cannot_create_new_task()
+    check_rejected_admission_has_zero_runtime_side_effects()
+    check_admission_immutable_event_anchor_rejects_coherent_rewrite()
+    check_canonical_preload_hashes_bound_before_admission()
     ordinary = ProtocolRequirements(
         child_agents_required=True,
         needs_parallel_tree=True,
@@ -1079,12 +1255,31 @@ def main() -> int:
             "canonical_authority": True,
             "owner_role": None,
             "write_set": [f"synthetic/runtime-capacity/{index}"],
+            "access_mode": "read_write",
+            "read_scope": [f"synthetic/runtime-capacity/{index}"],
+            "mutation_allowed": True,
+            "integration_authority": False,
+            "preload_hashes": {
+                "profile_hash": "1" * 64,
+                "dossier_hash": "2" * 64,
+                "court_skill_hash": "3" * 64,
+            },
         }
         for index, role in enumerate(capacity_roles)
     )
     capacity_lease = {
+        "schema": "court.agent.admission_lease.v2",
+        "budget_id": "budget:runtime-capacity-check:phase:wave",
         "status": "ACTIVE",
         "lease_id": "runtime-capacity-lease",
+        "parent_budget_id": "budget:runtime-capacity-check:phase:wave:taizi",
+        "parent_id": "taizi",
+        "approved_by": "taizi",
+        "grantee_role": "shangshu",
+        "lease_depth": 3,
+        "approved_next_depth": 4,
+        "expires_at_utc": "2099-01-01T00:00:00+00:00",
+        "parent_write_scope": ["synthetic/runtime-capacity"],
         "approved_count": len(capacity_roles),
         "task_id": "runtime-capacity-check",
         "calling_office": "shangshu",
@@ -1102,6 +1297,15 @@ def main() -> int:
             str(binding["instance_id"]): list(binding["write_set"])
             for binding in capacity_bindings
         },
+        "approved_access_contracts": {
+            str(binding["instance_id"]): {
+                "access_mode": binding["access_mode"],
+                "read_scope": list(binding["read_scope"]),
+                "mutation_allowed": binding["mutation_allowed"],
+                "integration_authority": binding["integration_authority"],
+            }
+            for binding in capacity_bindings
+        },
         "approved_instance_shapes": {
             str(binding["instance_id"]): {
                 "instance_kind": binding["instance_kind"],
@@ -1109,6 +1313,10 @@ def main() -> int:
                 "owner_role": binding["owner_role"],
                 "direct_superior": binding["direct_superior"],
             }
+            for binding in capacity_bindings
+        },
+        "approved_preload_hashes": {
+            str(binding["instance_id"]): dict(binding["preload_hashes"])
             for binding in capacity_bindings
         },
     }

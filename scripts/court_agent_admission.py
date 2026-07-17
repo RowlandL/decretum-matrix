@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import re
 import sys
 from typing import Mapping, Sequence
@@ -55,16 +56,101 @@ _OFFICE_DIRECT_SUPERIORS = {
     "xingbu": "shangshu",
     "gongbu": "shangshu",
     "shiguan": "taizi/menxia",
+    "shiguan-hermes": "taizi/menxia",
+    "zaochao": "taizi",
+    "patrol-inspector": "taizi",
 }
 _SIX_MINISTRY_ROLES = frozenset({"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"})
+_SPECIAL_LIFECYCLE_ROLES = frozenset(
+    {"shiguan", "shiguan-hermes", "zaochao", "patrol-inspector"}
+)
 _FORMAL_HIERARCHY_ROLES = frozenset(
-    {"taizi", "zhongshu", "menxia", "shangshu", *_SIX_MINISTRY_ROLES}
+    {
+        "taizi",
+        "zhongshu",
+        "menxia",
+        "shangshu",
+        *_SIX_MINISTRY_ROLES,
+        *_SPECIAL_LIFECYCLE_ROLES,
+    }
 )
 _WORKER_INSTANCE_KINDS = frozenset({"worker", "craftsman", "office_worker_instance"})
 _CANONICAL_INSTANCE_KINDS = frozenset({"office", "canonical_authority"})
 
 
-def _first_scoped_hierarchy_denial(
+_CHILD_PROFILE_OUTER_FIELDS = {
+    "role": "role_key",
+    "instance_id": "office_instance_id",
+    "owner_role": "owner_role",
+    "direct_superior": "direct_superior",
+    "instance_kind": "instance_kind",
+    "canonical_authority": "canonical_authority",
+    "child_role": "child_role",
+    "bounded_mandate": "bounded_mandate",
+    "expected_result": "expected_result",
+    "read_scope": "read_scope",
+    "write_set": "write_set",
+    "task_id": "task_id",
+    "dispatch_uid": "dispatch_uid",
+    "shard_id": "shard_id",
+    "attempt": "attempt",
+    "expires_at_utc": "expires_at_utc",
+    "terminal_condition": "terminal_condition",
+}
+_PRELOAD_HASH_FIELDS = ("profile_hash", "dossier_hash", "court_skill_hash")
+
+
+def _normalized_preload_hashes(value: object) -> tuple[str, str, str] | None:
+    if not isinstance(value, Mapping) or set(value) != set(_PRELOAD_HASH_FIELDS):
+        return None
+    hashes = tuple(str(value.get(field) or "").strip().lower() for field in _PRELOAD_HASH_FIELDS)
+    if any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in hashes):
+        return None
+    return hashes[0], hashes[1], hashes[2]
+
+
+def _child_profile_scope_binding_error(binding: Mapping[str, object]) -> str | None:
+    profile = binding.get("child_profile")
+    if not isinstance(profile, Mapping):
+        return None
+    for outer_field, profile_field in _CHILD_PROFILE_OUTER_FIELDS.items():
+        if outer_field not in binding or binding.get(outer_field) != profile.get(profile_field):
+            return "dispatch_hierarchy_child_scope_binding_mismatch"
+    outer_hashes = _normalized_preload_hashes(binding.get("preload_hashes"))
+    profile_hashes = (
+        str(profile.get("profile_sha256") or "").strip().lower(),
+        str(profile.get("dossier_sha256") or "").strip().lower(),
+        str(profile.get("skill_sha256") or "").strip().lower(),
+    )
+    if outer_hashes is None or outer_hashes != profile_hashes:
+        return "approved_budget_preload_mismatch"
+    return None
+
+
+def _special_lifecycle_hierarchy_decision(
+    role: str,
+    decision: DispatchHierarchyDecision,
+) -> DispatchHierarchyDecision:
+    if (
+        role not in _SPECIAL_LIFECYCLE_ROLES
+        or decision.reason_codes != ("dispatch_hierarchy_edge_forbidden",)
+        or decision.normalized_caller
+        not in _OFFICE_DIRECT_SUPERIORS[role].split("/")
+    ):
+        return decision
+    return DispatchHierarchyDecision(
+        allowed=True,
+        edge_class="special_lifecycle_dispatch",
+        normalized_caller=decision.normalized_caller,
+        normalized_target=decision.normalized_target,
+        normalized_owner=decision.normalized_owner,
+        reason_codes=(),
+        hierarchy_schema=decision.hierarchy_schema,
+        hierarchy_manifest_sha256=decision.hierarchy_manifest_sha256,
+    )
+
+
+def scoped_hierarchy_denial(
     *,
     calling_office: object,
     requested_roles: Sequence[str],
@@ -121,9 +207,25 @@ def _first_scoped_hierarchy_denial(
             owner_role=owner_role,
             child_profile=child_profile,
         )
+        decision = _special_lifecycle_hierarchy_decision(role, decision)
         if not decision.allowed:
             return decision
+        profile_error = _child_profile_scope_binding_error(binding)
+        if profile_error is not None:
+            return DispatchHierarchyDecision(
+                allowed=False,
+                edge_class=None,
+                normalized_caller=decision.normalized_caller,
+                normalized_target=decision.normalized_target,
+                normalized_owner=decision.normalized_owner,
+                reason_codes=(profile_error,),
+                hierarchy_schema=decision.hierarchy_schema,
+                hierarchy_manifest_sha256=decision.hierarchy_manifest_sha256,
+            )
     return None
+
+
+_first_scoped_hierarchy_denial = scoped_hierarchy_denial
 
 
 def validate_admission_instance_shape(
@@ -246,6 +348,74 @@ def _normalized_access_contract(binding: Mapping[str, object]) -> tuple[object, 
     else:
         return None
     return access_mode, write_set, read_scope, mutation_allowed, integration_authority
+
+
+def _admission_lease_metadata_error(
+    budget_lease: Mapping[str, object],
+    *,
+    calling_office: str,
+    direct_superior: str,
+    next_depth: int | None,
+) -> str | None:
+    if str(budget_lease.get("schema") or "") != "court.agent.admission_lease.v2":
+        return "approved_budget_lease_schema_invalid"
+    budget_id = str(budget_lease.get("budget_id") or "").strip()
+    lease_id = str(budget_lease.get("lease_id") or "").strip()
+    parent_budget_id = str(budget_lease.get("parent_budget_id") or "").strip()
+    parent_id = str(budget_lease.get("parent_id") or "").strip().lower()
+    approved_by = str(budget_lease.get("approved_by") or "").strip().lower()
+    grantee_role = str(budget_lease.get("grantee_role") or "").strip().lower()
+    if (
+        not budget_id
+        or not lease_id
+        or not parent_budget_id
+        or len({budget_id, lease_id, parent_budget_id}) != 3
+    ):
+        return "approved_budget_parent_binding_invalid"
+    if (
+        not calling_office
+        or not direct_superior
+        or parent_id != direct_superior
+        or approved_by != direct_superior
+        or grantee_role != calling_office
+        or approved_by == calling_office
+    ):
+        return "approved_budget_parent_authority_mismatch"
+    lease_depth = budget_lease.get("lease_depth")
+    approved_next_depth = budget_lease.get("approved_next_depth")
+    if (
+        next_depth is None
+        or isinstance(next_depth, bool)
+        or not isinstance(next_depth, int)
+        or isinstance(lease_depth, bool)
+        or not isinstance(lease_depth, int)
+        or isinstance(approved_next_depth, bool)
+        or not isinstance(approved_next_depth, int)
+        or lease_depth < 0
+        or approved_next_depth != next_depth
+        or approved_next_depth != lease_depth + 1
+    ):
+        return "approved_budget_depth_mismatch"
+    expires_text = str(budget_lease.get("expires_at_utc") or "").strip()
+    try:
+        expires_at = datetime.fromisoformat(expires_text.replace("Z", "+00:00"))
+    except ValueError:
+        return "approved_budget_lease_expiry_invalid"
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        return "approved_budget_lease_expiry_invalid"
+    if expires_at.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+        return "approved_budget_lease_expired"
+    return None
+
+
+def _write_set_within_parent_scope(
+    write_set: Sequence[str],
+    parent_scope: Sequence[str],
+) -> bool:
+    return all(
+        any(path == parent or path.startswith(f"{parent}/") for parent in parent_scope)
+        for path in write_set
+    )
 
 
 def budget_lease_access_contract_error(
@@ -384,7 +554,14 @@ def _approved_scope_selection(
 
     requested: dict[
         str,
-        tuple[int, str, str, tuple[object, ...], tuple[str, bool, str, str]],
+        tuple[
+            int,
+            str,
+            str,
+            tuple[object, ...],
+            tuple[str, bool, str, str],
+            tuple[str, str, str],
+        ],
     ] = {}
     requested_shards: set[str] = set()
     for index, (requested_role, binding) in enumerate(zip(roles, bindings)):
@@ -396,12 +573,14 @@ def _approved_scope_selection(
         canonical_authority = binding.get("canonical_authority")
         owner_role = str(binding.get("owner_role") or "").strip().lower()
         access_contract = _normalized_access_contract(binding)
+        preload_hashes = _normalized_preload_hashes(binding.get("preload_hashes"))
         if (
             not role
             or role != requested_role
             or not instance_id
             or not shard_id
             or access_contract is None
+            or preload_hashes is None
             or instance_id in requested
             or shard_id in requested_shards
         ):
@@ -421,6 +600,7 @@ def _approved_scope_selection(
             shard_id,
             access_contract,
             (instance_kind, canonical_authority, owner_role, direct_superior),
+            preload_hashes,
         )
         requested_shards.add(shard_id)
 
@@ -430,12 +610,19 @@ def _approved_scope_selection(
     approved_write_sets = budget_lease.get("approved_write_sets")
     approved_access_contracts = budget_lease.get("approved_access_contracts")
     approved_instance_shapes = budget_lease.get("approved_instance_shapes")
+    approved_preload_hashes_raw = budget_lease.get("approved_preload_hashes")
+    parent_write_scope = _normalized_write_set(
+        budget_lease.get("parent_write_scope"),
+        allow_empty=True,
+    )
     if (
         not isinstance(approved_roles_raw, (list, tuple))
         or not isinstance(approved_instances_raw, (list, tuple))
         or not isinstance(approved_shards_raw, (list, tuple))
         or not isinstance(approved_write_sets, Mapping)
         or not isinstance(approved_instance_shapes, Mapping)
+        or not isinstance(approved_preload_hashes_raw, Mapping)
+        or parent_write_scope is None
         or (
             approved_access_contracts is not None
             and not isinstance(approved_access_contracts, Mapping)
@@ -506,6 +693,15 @@ def _approved_scope_selection(
         )
     if set(normalized_instance_shapes) != set(approved_instances):
         return None, "approved_budget_instance_shape_mismatch"
+    normalized_preload_hashes: dict[str, tuple[str, str, str]] = {}
+    for key, value in approved_preload_hashes_raw.items():
+        instance_id = str(key or "").strip().lower()
+        preload_hashes = _normalized_preload_hashes(value)
+        if not instance_id or preload_hashes is None or instance_id in normalized_preload_hashes:
+            return None, "approved_budget_preload_mismatch"
+        normalized_preload_hashes[instance_id] = preload_hashes
+    if set(normalized_preload_hashes) != set(approved_instances):
+        return None, "approved_budget_preload_mismatch"
     try:
         validate_admission_instance_shape(
             [
@@ -536,7 +732,10 @@ def _approved_scope_selection(
             requested_shard,
             requested_access_contract,
             requested_instance_shape,
+            requested_preload_hashes,
         ) = requested_binding
+        if normalized_preload_hashes[instance_id] != requested_preload_hashes:
+            return None, "approved_budget_preload_mismatch"
         if (
             role != requested_role
             or shard_id != requested_shard
@@ -544,6 +743,12 @@ def _approved_scope_selection(
             or normalized_instance_shapes[instance_id] != requested_instance_shape
         ):
             return None, "approved_budget_scope_mismatch"
+        requested_write_set = requested_access_contract[1]
+        if not isinstance(requested_write_set, tuple) or not _write_set_within_parent_scope(
+            requested_write_set,
+            parent_write_scope,
+        ):
+            return None, "approved_budget_parent_write_scope_mismatch"
         selected_indices.append(index)
     return tuple(selected_indices), None
 
@@ -556,6 +761,7 @@ def approved_budget_selection(
     direct_superior: str | None,
     requested_roles: Sequence[str],
     requested_bindings: Sequence[Mapping[str, object]] | None = None,
+    next_depth: int | None = None,
     integration_domain: str | None = None,
     authority: str | None = None,
 ) -> tuple[tuple[int, ...] | None, str | None]:
@@ -591,6 +797,14 @@ def approved_budget_selection(
         or lease_superior != expected_superior
     ):
         return None, "approved_budget_hierarchy_mismatch"
+    lease_error = _admission_lease_metadata_error(
+        budget_lease,
+        calling_office=expected_caller,
+        direct_superior=expected_superior,
+        next_depth=next_depth,
+    )
+    if lease_error is not None:
+        return None, lease_error
     return _approved_scope_selection(
         budget_lease,
         approved_count=approved_count,
@@ -608,6 +822,7 @@ def approved_budget_limit(
     calling_office: str | None,
     direct_superior: str | None,
     requested_bindings: Sequence[Mapping[str, object]] | None = None,
+    next_depth: int | None = None,
     integration_domain: str | None = None,
     authority: str | None = None,
 ) -> tuple[int | None, str | None]:
@@ -625,6 +840,7 @@ def approved_budget_limit(
         direct_superior=direct_superior,
         requested_roles=roles,
         requested_bindings=requested_bindings,
+        next_depth=next_depth,
         integration_domain=integration_domain,
         authority=authority,
     )
@@ -753,6 +969,7 @@ def admit_roles(
         direct_superior=direct_superior,
         requested_roles=roles,
         requested_bindings=requested_bindings,
+        next_depth=next_depth,
         integration_domain=integration_domain,
         authority=authority,
     )

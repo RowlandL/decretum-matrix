@@ -31,9 +31,17 @@ TARGET_SUPERIORS = {
     "xingbu": "shangshu",
     "gongbu": "shangshu",
     "shiguan": "taizi/menxia",
+    "shiguan-hermes": "taizi/menxia",
+    "zaochao": "taizi",
+    "patrol-inspector": "taizi",
 }
 MINISTRY_ROLES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 DISPATCH_PRELOAD_BY_ROLE: dict[str, dict[str, str]] = {}
+BOUND_PRELOAD_HASHES = {
+    "profile_hash": "1" * 64,
+    "dossier_hash": "2" * 64,
+    "court_skill_hash": "3" * 64,
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -81,8 +89,16 @@ def active_budget(
     approved_roles: Sequence[str] | None = None,
     **overrides: object,
 ) -> dict[str, object]:
+    budget_id = f"budget:{task_id}:phase:wave"
     result: dict[str, object] = {
+        "schema": "court.agent.admission_lease.v2",
+        "budget_id": budget_id,
         "lease_id": f"lease-{task_id}-{approved_count}",
+        "parent_budget_id": f"{budget_id}:{direct_superior}",
+        "parent_id": direct_superior,
+        "approved_by": direct_superior,
+        "grantee_role": calling_office,
+        "expires_at_utc": "2099-01-01T00:00:00+00:00",
         "status": "ACTIVE",
         "approved_count": approved_count,
         "task_id": task_id,
@@ -115,6 +131,7 @@ def _bindings(
             "read_scope": [f"work/{role}/{number:04d}.txt"],
             "mutation_allowed": True,
             "integration_authority": False,
+            "preload_hashes": dict(BOUND_PRELOAD_HASHES),
             "direct_superior": role if worker else TARGET_SUPERIORS.get(role, "shangshu"),
             "instance_kind": "office_worker_instance" if worker else "office",
             "canonical_authority": number == 1,
@@ -122,6 +139,19 @@ def _bindings(
         }
         if overrides and index in overrides:
             binding.update(overrides[index])
+        profile = binding.get("child_profile")
+        if isinstance(profile, Mapping):
+            for outer_field, profile_field in {
+                "child_role": "child_role",
+                "bounded_mandate": "bounded_mandate",
+                "expected_result": "expected_result",
+                "task_id": "task_id",
+                "dispatch_uid": "dispatch_uid",
+                "attempt": "attempt",
+                "expires_at_utc": "expires_at_utc",
+                "terminal_condition": "terminal_condition",
+            }.items():
+                binding.setdefault(outer_field, profile.get(profile_field))
         result.append(binding)
     return result
 
@@ -143,11 +173,11 @@ def _bounded_child_profile(
         "instance_kind": "office_worker_instance",
         "bounded_mandate": "execute one bounded Gongbu implementation shard",
         "expected_result": "return one structured implementation receipt",
-        "read_scope": [f"work/{owner_role}/input-{ordinal:04d}.txt"],
+        "read_scope": [f"work/{owner_role}/{ordinal:04d}.txt"],
         "write_set": [f"work/{owner_role}/{ordinal:04d}.txt"],
         "task_id": "dispatch-policy-child-profile",
         "dispatch_uid": f"DSP-DISPATCH-POLICY-CHILD-{ordinal:04d}",
-        "shard_id": f"{owner_role}-child-{ordinal:04d}",
+        "shard_id": f"{owner_role}-shard-{ordinal:04d}",
         "attempt": 1,
         "profile_sha256": "1" * 64,
         "dossier_sha256": "2" * 64,
@@ -169,6 +199,7 @@ def _approved_scope_kwargs(
     integration_domain: str,
     authority: str,
     binding_overrides: Mapping[int, Mapping[str, object]] | None,
+    next_depth: int = 2,
 ) -> dict[str, object]:
     requested_bindings = _bindings(roles, binding_overrides)
     if budget_lease is None:
@@ -198,6 +229,16 @@ def _approved_scope_kwargs(
     lease.setdefault(
         "approved_write_sets",
         {str(binding["instance_id"]): list(binding["write_set"]) for binding in approved_bindings},
+    )
+    lease.setdefault(
+        "parent_write_scope",
+        sorted(
+            {
+                str(path)
+                for binding in approved_bindings
+                for path in binding["write_set"]
+            }
+        ),
     )
     lease.setdefault(
         "approved_access_contracts",
@@ -233,6 +274,15 @@ def _approved_scope_kwargs(
             if isinstance(binding.get("child_profile"), Mapping)
         },
     )
+    lease.setdefault("lease_depth", max(0, int(next_depth) - 1))
+    lease.setdefault("approved_next_depth", int(next_depth))
+    lease.setdefault(
+        "approved_preload_hashes",
+        {
+            str(binding["instance_id"]): dict(binding["preload_hashes"])
+            for binding in approved_bindings
+        },
+    )
     lease.setdefault("integration_domain", integration_domain)
     lease.setdefault("authority", authority)
     return {
@@ -256,6 +306,7 @@ def select_wave(*args: object, **kwargs: object) -> object:
             integration_domain=integration_domain,
             authority=authority,
             binding_overrides=binding_overrides if isinstance(binding_overrides, Mapping) else None,
+            next_depth=int(kwargs.get("next_depth") or 0),
         )
     )
     return _select_wave(*args, **kwargs)
@@ -274,6 +325,7 @@ def admit_roles(**kwargs: object) -> object:
             integration_domain=integration_domain,
             authority=authority,
             binding_overrides=binding_overrides if isinstance(binding_overrides, Mapping) else None,
+            next_depth=int(kwargs.get("next_depth") or 0),
         )
     )
     return _admit_roles(**kwargs)
@@ -1712,14 +1764,191 @@ def check_child_profile_binding_digest_is_immutable_before_capacity() -> dict[st
     require(
         tampered.selected_roles == ()
         and tampered.deferred_roles == roles
-        and tampered.reason == "approved_budget_binding_digest_mismatch",
-        "synchronized child-profile tamper bypassed the immutable lease digest",
+        and tampered.reason == "dispatch_hierarchy_child_scope_binding_mismatch",
+        "nested child-profile tamper bypassed outer-scope parity",
     )
     return {
         "allowed": allowed.__dict__,
         "tampered": tampered.__dict__,
         "approved_binding_sha256": digest_map["gongbu#0001"],
     }
+
+
+def check_special_lifecycle_uses_shared_hierarchy_gate() -> dict[str, object]:
+    task_id = "dispatch-policy-special-lifecycle-hierarchy"
+    lease = active_budget(
+        1,
+        task_id=task_id,
+        calling_office="shangshu",
+        direct_superior="taizi",
+        approved_roles=("shiguan",),
+    )
+    common = {
+        "host_capacity": 4,
+        "host_retained": 0,
+        "host_reclamation_verified": True,
+        "next_depth": 2,
+        "max_threads": 16,
+        "max_depth": 4,
+        "budget_lease": lease,
+        "task_id": task_id,
+        "calling_office": "shangshu",
+        "direct_superior": "taizi",
+    }
+    selected = select_wave(
+        useful_roles=("shiguan",),
+        host_active=1,
+        user_agent_budget=None,
+        provider_launch_budget=None,
+        **common,
+    )
+    admitted = admit_roles(
+        requested_roles=("shiguan",),
+        active_threads=1,
+        retained_threads=0,
+        terminal_reclamation_verified=True,
+        **{key: value for key, value in common.items() if key not in {"host_retained", "host_reclamation_verified"}},
+    )
+    require(
+        selected.selected_roles == ()
+        and selected.reason == "dispatch_hierarchy_edge_forbidden",
+        "ordinary select_wave bypassed the shared hierarchy gate for Shiguan",
+    )
+    require(
+        admitted.allowed is False
+        and admitted.reason_codes == ("dispatch_hierarchy_edge_forbidden",),
+        "ordinary admit_roles bypassed the shared hierarchy gate for Shiguan",
+    )
+    return {"select_wave": selected.__dict__, "admit_roles": admitted.__dict__}
+
+
+def check_child_profile_outer_scope_must_match() -> dict[str, object]:
+    task_id = "dispatch-policy-child-profile-scope-parity"
+    profile = _bounded_child_profile()
+    profile["read_scope"] = ["work/gongbu/different-input.txt"]
+    scoped = _approved_scope_kwargs(
+        ("gongbu",),
+        active_budget(
+            1,
+            task_id=task_id,
+            calling_office="gongbu",
+            direct_superior="shangshu",
+            approved_roles=("gongbu",),
+        ),
+        integration_domain="dispatch-policy",
+        authority="super",
+        binding_overrides={
+            0: {
+                "instance_kind": "office_worker_instance",
+                "canonical_authority": False,
+                "owner_role": "gongbu",
+                "direct_superior": "gongbu",
+                "child_profile": profile,
+            }
+        },
+        next_depth=2,
+    )
+    decision = _select_wave(
+        useful_roles=("gongbu",),
+        host_capacity=4,
+        host_active=1,
+        host_retained=0,
+        host_reclamation_verified=True,
+        user_agent_budget=None,
+        provider_launch_budget=None,
+        next_depth=2,
+        max_threads=16,
+        max_depth=4,
+        budget_lease=scoped["budget_lease"],
+        task_id=task_id,
+        calling_office="gongbu",
+        direct_superior="shangshu",
+        requested_bindings=scoped["requested_bindings"],
+        integration_domain="dispatch-policy",
+        authority="super",
+    )
+    require(
+        decision.selected_roles == ()
+        and decision.reason == "dispatch_hierarchy_child_scope_binding_mismatch",
+        "outer binding and nested child_profile scope drift was admitted",
+    )
+    return decision.__dict__
+
+
+def check_admission_lease_authority_expiry_depth_scope_and_preload() -> dict[str, object]:
+    task_id = "dispatch-policy-lease-hard-gates"
+    roles = ("gongbu",)
+
+    def decision(**lease_overrides: object) -> object:
+        return select_wave(
+            useful_roles=roles,
+            host_capacity=4,
+            host_active=1,
+            host_retained=0,
+            host_reclamation_verified=True,
+            user_agent_budget=None,
+            provider_launch_budget=None,
+            next_depth=2,
+            max_threads=16,
+            max_depth=4,
+            budget_lease=active_budget(
+                1,
+                task_id=task_id,
+                calling_office="shangshu",
+                direct_superior="taizi",
+                approved_roles=roles,
+                **lease_overrides,
+            ),
+            task_id=task_id,
+            calling_office="shangshu",
+            direct_superior="taizi",
+        )
+
+    cases = {
+        "self_issued": (
+            decision(parent_id="shangshu", approved_by="shangshu"),
+            "approved_budget_parent_authority_mismatch",
+        ),
+        "self_parent_budget": (
+            decision(
+                parent_budget_id=f"budget:{task_id}:phase:wave",
+            ),
+            "approved_budget_parent_binding_invalid",
+        ),
+        "invalid_expiry": (
+            decision(expires_at_utc="not-an-instant"),
+            "approved_budget_lease_expiry_invalid",
+        ),
+        "expired": (
+            decision(expires_at_utc="2000-01-01T00:00:00+00:00"),
+            "approved_budget_lease_expired",
+        ),
+        "depth": (
+            decision(lease_depth=2, approved_next_depth=3),
+            "approved_budget_depth_mismatch",
+        ),
+        "write_scope": (
+            decision(parent_write_scope=["unrelated"]),
+            "approved_budget_parent_write_scope_mismatch",
+        ),
+        "preload": (
+            decision(
+                approved_preload_hashes={
+                    "gongbu#0001": {
+                        **BOUND_PRELOAD_HASHES,
+                        "profile_hash": "f" * 64,
+                    }
+                }
+            ),
+            "approved_budget_preload_mismatch",
+        ),
+    }
+    for name, (current, reason) in cases.items():
+        require(
+            current.selected_roles == () and current.reason == reason,
+            f"{name} lease mutation bypassed the admission hard gate",
+        )
+    return {name: current.__dict__ for name, (current, _reason) in cases.items()}
 
 
 def main() -> int:
@@ -1737,6 +1966,9 @@ def main() -> int:
         child_profile_binding_digest = (
             check_child_profile_binding_digest_is_immutable_before_capacity()
         )
+        special_lifecycle_hierarchy = check_special_lifecycle_uses_shared_hierarchy_gate()
+        child_profile_scope_parity = check_child_profile_outer_scope_must_match()
+        lease_hard_gates = check_admission_lease_authority_expiry_depth_scope_and_preload()
         result = {
             "ok": True,
             "admission_facade": check_admission_facade(),
@@ -1754,6 +1986,9 @@ def main() -> int:
             "target_binding_required": target_binding_required,
             "bounded_child_profile": bounded_child_profile,
             "child_profile_binding_digest": child_profile_binding_digest,
+            "special_lifecycle_hierarchy": special_lifecycle_hierarchy,
+            "child_profile_scope_parity": child_profile_scope_parity,
+            "lease_hard_gates": lease_hard_gates,
         }
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return 0

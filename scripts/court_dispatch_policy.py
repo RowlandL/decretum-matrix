@@ -13,10 +13,8 @@ from court_complexity_budget import (
     DEFAULT_NORMAL_PARALLEL_LIMIT,
     resolve_parallel_limit,
 )
-from court_dispatch_hierarchy import (
-    DispatchHierarchyDecision,
-    validate_dispatch_hierarchy,
-)
+from court_dispatch_hierarchy import DispatchHierarchyDecision
+from court_agent_admission import scoped_hierarchy_denial
 from court_multi_agent_protocol import (
     approved_budget_selection,
     validate_admission_instance_shape,
@@ -132,74 +130,11 @@ def _first_scoped_hierarchy_denial(
     requested_bindings: Sequence[Mapping[str, object]] | None,
 ) -> DispatchHierarchyDecision | None:
     """Validate hierarchy-scoped requests before capacity or lease selection."""
-
-    formal_roles = frozenset(
-        {
-            "taizi",
-            "zhongshu",
-            "menxia",
-            "shangshu",
-            "libu-hr",
-            "hubu",
-            "libu",
-            "bingbu",
-            "xingbu",
-            "gongbu",
-        }
+    return scoped_hierarchy_denial(
+        calling_office=calling_office,
+        requested_roles=requested_roles,
+        requested_bindings=requested_bindings,
     )
-    if (
-        requested_bindings is None
-        or isinstance(requested_bindings, (str, bytes))
-        or len(requested_bindings) != len(requested_roles)
-    ):
-        for raw_role in requested_roles:
-            role = str(raw_role or "").strip().lower()
-            if role in formal_roles:
-                return validate_dispatch_hierarchy(
-                    action="dispatch",
-                    calling_office=calling_office,
-                    target_role=role,
-                    target_direct_superior=OFFICE_SPECS[role][1],
-                    instance_kind=None,
-                    canonical_authority=None,
-                    owner_role=None,
-                    child_profile=None,
-                )
-        return None
-    for role, binding in zip(requested_roles, requested_bindings):
-        if not isinstance(binding, Mapping):
-            continue
-        canonical_authority = binding.get("canonical_authority")
-        child_profile = binding.get("child_profile")
-        instance_kind = (
-            binding.get("instance_kind") or binding.get("office_instance_kind")
-        )
-        owner_role = binding.get("owner_role")
-        child_shape = (
-            canonical_authority is False
-            or str(instance_kind or "").strip().lower()
-            in WORKER_INSTANCE_KINDS
-            or owner_role not in {None, ""}
-        )
-        if not (
-            (role in formal_roles and canonical_authority is True)
-            or child_shape
-            or child_profile is not None
-        ):
-            continue
-        decision = validate_dispatch_hierarchy(
-            action="dispatch",
-            calling_office=calling_office,
-            target_role=role,
-            target_direct_superior=binding.get("direct_superior"),
-            instance_kind=instance_kind,
-            canonical_authority=canonical_authority,
-            owner_role=owner_role,
-            child_profile=child_profile,
-        )
-        if not decision.allowed:
-            return decision
-    return None
 
 
 def _approved_binding_digest_error(
@@ -398,6 +333,7 @@ def select_wave(
         direct_superior=direct_superior,
         requested_roles=roles,
         requested_bindings=requested_bindings,
+        next_depth=resolved_depth,
         integration_domain=integration_domain,
         authority=authority,
     )

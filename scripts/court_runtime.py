@@ -883,6 +883,10 @@ _HIERARCHY_FORMAL_ROLES = frozenset(
         "bingbu",
         "xingbu",
         "gongbu",
+        "shiguan",
+        "shiguan-hermes",
+        "zaochao",
+        "patrol-inspector",
     }
 )
 _HIERARCHY_EVIDENCE_FIELDS = (
@@ -1677,6 +1681,67 @@ def _semantic_preload_hashes(role: str) -> dict[str, str]:
     }
 
 
+def _validate_canonical_admission_preloads(args: argparse.Namespace) -> None:
+    bindings = _optional_json_array(
+        getattr(args, "requested_bindings_json", ""),
+        "requested-bindings-json",
+    )
+    budget_lease = _optional_json_object(
+        getattr(args, "budget_lease_json", ""),
+        "budget-lease-json",
+    )
+    if bindings is None or budget_lease is None:
+        raise ValueError("agent_admission_canonical_preload_mismatch")
+    approved_ids_raw = budget_lease.get("approved_instance_ids")
+    approved_preloads = budget_lease.get("approved_preload_hashes")
+    if not isinstance(approved_ids_raw, (list, tuple)) or not isinstance(
+        approved_preloads, Mapping
+    ):
+        raise ValueError("agent_admission_canonical_preload_mismatch")
+    approved_ids = {
+        str(value or "").strip().lower() for value in approved_ids_raw
+    }
+    bindings_by_id = {
+        str(binding.get("instance_id") or "").strip().lower(): binding
+        for binding in bindings
+        if isinstance(binding, Mapping)
+    }
+    if (
+        not approved_ids
+        or "" in approved_ids
+        or len(bindings_by_id) != len(bindings)
+        or not approved_ids.issubset(bindings_by_id)
+        or {str(key or "").strip().lower() for key in approved_preloads}
+        != approved_ids
+    ):
+        raise ValueError("agent_admission_canonical_preload_mismatch")
+    for instance_id in approved_ids:
+        binding = bindings_by_id[instance_id]
+        role = str(binding.get("role") or "").strip().lower()
+        expected = _semantic_preload_hashes(role)
+        if binding.get("preload_hashes") != expected:
+            raise ValueError("agent_admission_canonical_preload_mismatch")
+        lease_hashes = approved_preloads.get(instance_id)
+        if lease_hashes is None:
+            lease_hashes = next(
+                (
+                    value
+                    for key, value in approved_preloads.items()
+                    if str(key or "").strip().lower() == instance_id
+                ),
+                None,
+            )
+        if lease_hashes != expected:
+            raise ValueError("agent_admission_canonical_preload_mismatch")
+        child_profile = binding.get("child_profile")
+        if isinstance(child_profile, Mapping) and (
+            child_profile.get("profile_sha256") != expected["profile_hash"]
+            or child_profile.get("dossier_sha256") != expected["dossier_hash"]
+            or child_profile.get("skill_sha256") != expected["court_skill_hash"]
+        ):
+            raise ValueError("agent_admission_canonical_preload_mismatch")
+
+
 def _generate_missing_child_office_profiles(
     args: argparse.Namespace,
     *,
@@ -2094,6 +2159,61 @@ def _validate_admission_semantic_receipt_anchors(
             )
         ):
             raise ValueError("agent_start_admission_binding_integrity_mismatch")
+
+
+_ADMISSION_LIFECYCLE_MUTABLE_FIELDS = frozenset(
+    {
+        "admission_immutable_anchor_sha256",
+        "consumed_roles",
+        "consumed_instances",
+        "failed_roles",
+        "failed_instances",
+        "deferred_roles",
+        "effective_selected_instance_ids",
+        "effective_selected_roles",
+        "observed_available_slots",
+        "spawn_failure",
+    }
+)
+
+
+def _admission_immutable_anchor_sha256(admission: Mapping[str, object]) -> str:
+    payload = {
+        str(field): deepcopy(value)
+        for field, value in admission.items()
+        if field not in _ADMISSION_LIFECYCLE_MUTABLE_FIELDS
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_admission_immutable_event_anchor(
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+) -> None:
+    stored = str(admission.get("admission_immutable_anchor_sha256") or "")
+    if (
+        re.fullmatch(r"[0-9a-f]{64}", stored) is None
+        or stored != _admission_immutable_anchor_sha256(admission)
+    ):
+        raise ValueError("agent_start_admission_immutable_anchor_mismatch")
+    matching_events = [
+        event
+        for event in events_for_task(task.get("task_id"), limit=None)
+        if event.get("action") == "agent_admit"
+        and event.get("wave_id") == admission.get("wave_id")
+        and event.get("allowed") is True
+    ]
+    if (
+        len(matching_events) != 1
+        or matching_events[0].get("admission_immutable_anchor_sha256") != stored
+    ):
+        raise ValueError("agent_start_admission_immutable_anchor_mismatch")
 
 
 def _validate_agent_semantic_args(
@@ -5289,6 +5409,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             if _context_contract_required(args)
             else None
         )
+        _validate_canonical_admission_preloads(args)
         now = now_text()
         attempt: int | None = None
         dispatch_uid: str | None = None
@@ -5355,6 +5476,8 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         result["model_routes"] = model_routes
         result["generated_at"] = now
         result["admission_binding_sha256s"] = {}
+        if result.get("allowed") is not True:
+            return result
         if semantic_expectations is not None:
             if attempt is None or dispatch_uid is None:
                 raise ValueError("semantic_dispatch_identity_missing")
@@ -5486,6 +5609,9 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 ),
             )
         }
+        anchor_sha256 = _admission_immutable_anchor_sha256(admission_record)
+        admission_record["admission_immutable_anchor_sha256"] = anchor_sha256
+        result["admission_immutable_anchor_sha256"] = anchor_sha256
         task["last_agent_admission"] = admission_record
         admissions = task.setdefault("agent_admissions", {})
         if not isinstance(admissions, dict):
@@ -5512,6 +5638,9 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             requested_fork_turns=result["requested_fork_turns"],
             model_route_ids={role: route["model_route_id"] for role, route in model_routes.items()},
             selected_protocol=result.get("selected_protocol"),
+            admission_immutable_anchor_sha256=admission_record[
+                "admission_immutable_anchor_sha256"
+            ],
         )
         if semantic_expectations is not None:
             event.update(
@@ -5692,6 +5821,7 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
         admission = admissions.get(wave_id) if isinstance(admissions, dict) else None
         if not isinstance(admission, dict) or admission.get("allowed") is not True:
             raise ValueError(f"allowed agent admission not found: {wave_id}")
+        _validate_admission_immutable_event_anchor(task, admission)
         selected_roles = list(admission.get("selected_roles") or [])
         if role not in selected_roles:
             raise ValueError("spawn-failed role was not selected by the admission")
@@ -5918,6 +6048,7 @@ def agent_event(
                 raise ValueError(f"agent start admission not found: {wave_id}")
             if admission.get("allowed") is not True:
                 raise ValueError(f"agent start admission was not allowed: {wave_id}")
+            _validate_admission_immutable_event_anchor(task, admission)
             selected_bindings = admission.get("selected_bindings")
             if not isinstance(selected_bindings, (list, tuple)):
                 raise ValueError("agent start admission is missing instance bindings")

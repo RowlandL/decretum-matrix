@@ -268,10 +268,22 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
         overrides.get("calling_office", default_calling_office)
         or default_calling_office
     )
+    office_direct_superiors = {
+        "taizi": "user",
+        "zhongshu": "taizi",
+        "menxia": "taizi",
+        "shangshu": "taizi",
+        "libu-hr": "shangshu",
+        "hubu": "shangshu",
+        "libu": "shangshu",
+        "bingbu": "shangshu",
+        "xingbu": "shangshu",
+        "gongbu": "shangshu",
+    }
     caller_direct_superior = str(
         overrides.get(
             "direct_superior",
-            "user" if calling_office == "taizi" else "taizi",
+            office_direct_superiors.get(calling_office, "taizi"),
         )
         or ""
     )
@@ -293,6 +305,7 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             if binding_role in {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
             else "taizi"
         )
+        preload_hashes = court_runtime._semantic_preload_hashes(binding_role)
         binding = {
             "role": binding_role,
             "instance_id": instance_id,
@@ -311,6 +324,7 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             else [f"fixtures/{wave_id}/{binding_role}-{index:04d}.txt"],
             "mutation_allowed": True,
             "integration_authority": False,
+            "preload_hashes": preload_hashes,
         }
         if child_worker:
             binding.update(
@@ -333,9 +347,26 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
                 ),
             )
         bindings.append(binding)
+    budget_id = f"budget:{task_id}:{wave_id}"
     lease = {
+        "schema": "court.agent.admission_lease.v2",
+        "budget_id": budget_id,
         "status": "ACTIVE",
         "lease_id": f"{task_id}-{wave_id}-lease",
+        "parent_budget_id": f"{budget_id}:{caller_direct_superior}",
+        "parent_id": caller_direct_superior,
+        "approved_by": caller_direct_superior,
+        "grantee_role": calling_office,
+        "lease_depth": 0,
+        "approved_next_depth": 1,
+        "expires_at_utc": "2099-01-01T00:00:00+00:00",
+        "parent_write_scope": sorted(
+            {
+                str(path)
+                for binding in bindings
+                for path in binding["write_set"]
+            }
+        ),
         "approved_count": len(bindings),
         "task_id": task_id,
         "calling_office": calling_office,
@@ -365,6 +396,10 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
                 "owner_role": binding["owner_role"],
                 "direct_superior": binding["direct_superior"],
             }
+            for binding in bindings
+        },
+        "approved_preload_hashes": {
+            str(binding["instance_id"]): dict(binding["preload_hashes"])
             for binding in bindings
         },
     }
@@ -949,7 +984,7 @@ def check_child_profile_tamper_rejected_before_start_write() -> None:
             )
         ),
         "synchronized binding and child-profile tamper reached agent start persistence",
-        "agent_start_admission_binding_integrity_mismatch",
+        "agent_start_admission_immutable_anchor_mismatch",
     )
 
 
@@ -1027,7 +1062,7 @@ def check_child_access_contract_tamper_rejected_before_start_write() -> None:
             )
         ),
         "synchronized child access-contract tamper reached agent start persistence",
-        "agent_start_budget_lease_access_contract_mismatch",
+        "agent_start_admission_immutable_anchor_mismatch",
     )
 
 
@@ -1271,7 +1306,7 @@ def check_dispatch_context_economy_contract() -> None:
             )
         ),
         "tampered context packet passed start recheck",
-        "dispatch_context_packet_hash_mismatch",
+        "agent_start_admission_immutable_anchor_mismatch",
     )
 
 
@@ -1646,7 +1681,7 @@ def check_dispatch_hierarchy_revalidated_before_start_write() -> None:
             )
         ),
         "tampered dispatch hierarchy reached agent start persistence",
-        "dispatch_hierarchy_edge_forbidden",
+        "agent_start_admission_immutable_anchor_mismatch",
     )
 
 
@@ -1671,7 +1706,7 @@ def check_three_department_hierarchy_revalidated_before_start_write() -> None:
             )
         ),
         "tampered three-department hierarchy reached agent start persistence",
-        "dispatch_hierarchy_edge_forbidden",
+        "agent_start_admission_immutable_anchor_mismatch",
     )
 
 
@@ -1697,7 +1732,7 @@ def check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write() -> Non
             )
         ),
         "tampered hierarchy receipt reached agent start persistence",
-        "dispatch_hierarchy_manifest_invalid",
+        "agent_start_admission_immutable_anchor_mismatch",
     )
 
 
