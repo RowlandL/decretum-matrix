@@ -1,34 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic RED contract for current-agent-only skill installation.
-
-The future production module is expected to expose one dependency-injected
-entry point::
-
-    install_current_agent_copy(
-        *,
-        source_root: Path,
-        home_root: Path,
-        current_tool: str,
-        explicit_tools: list[str],
-        tool_roots: dict[str, Path],
-        projection_manifest: Path,
-        write: bool,
-        fanout: bool = False,
-        blank_host_configuration: dict[str, object] | None = None,
-        configuration_adapter: object | None = None,
-        install_transaction_adapter: object | None = None,
-        platform_context: dict[str, object] | None = None,
-        source_package_sha256: str | None = None,
-    ) -> dict
-
-When ``blank_host_configuration`` is supplied, the same public entry point is
-also the configuration remediation planner/executor: ``write=False`` plans
-without mutation and ``write=True`` executes through the injected adapter.
-No public CLI or second host-discovery framework is required.
-
-All behavioral fixtures live under TemporaryDirectory.  The checker never
-installs into a real user profile and never reads Shiguan pending bodies.
-"""
+"""Deterministic install/config checks using isolated injected fixtures."""
 
 from __future__ import annotations
 
@@ -383,6 +354,13 @@ def _fixture_manifest() -> dict[str, object]:
     }
 
 
+def _write_files(root: Path, contents: dict[str, str]) -> None:
+    for relative, text in contents.items():
+        path = root / Path(relative)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
 def _write_fixture_source(
     source_root: Path,
     *,
@@ -403,10 +381,7 @@ def _write_fixture_source(
         "scripts/portable-helper.py": "VALUE = 'portable'\n",
         "docs/internal-plan.md": "# repository only\n",
     }
-    for relative, text in contents.items():
-        path = source_root / Path(relative)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+    _write_files(source_root, contents)
     identity_path = source_root / Path(IDENTITY_MANIFEST_RELATIVE)
     identity_path.parent.mkdir(parents=True, exist_ok=True)
     fixture_identity = {
@@ -414,8 +389,6 @@ def _write_fixture_source(
         "schema_version": 1,
         **LOADED_IDENTITY_EXPECTED,
         "commercial_license_notice": "COMMERCIAL-LICENSE.md",
-        "maintainer_github": "@RowlandL",
-        "maintainer_github_id": 42199880,
         "legacy_names": [
             {
                 "name": "court-capability-router",
@@ -448,6 +421,17 @@ def _write_fixture_source(
         encoding="utf-8",
     )
     return manifest_path
+
+
+def _case_fixture(
+    temp_root: Path,
+    label: str,
+    manifest_data: dict[str, object] | None = None,
+) -> tuple[object, ...]:
+    case_root = temp_root / label
+    source, home = case_root / "source", case_root / "home"
+    manifest = _write_fixture_source(source, manifest=manifest_data)
+    return source, home, manifest, _target_roots(home)
 
 
 def _target_roots(home_root: Path) -> dict[str, Path]:
@@ -682,10 +666,7 @@ def _fixture_hermes_config_path(
     explicit_config_dir: Path | None,
 ) -> tuple[Path, str]:
     if explicit_config_dir is not None:
-        return (
-            explicit_config_dir / "config.yaml",
-            "ccs_hermes_config_dir_override",
-        )
+        return explicit_config_dir / "config.yaml", "ccs_hermes_config_dir_override"
     hermes_home = environment.get("HERMES_HOME")
     if hermes_home is not None:
         return hermes_home / "config.yaml", "HERMES_HOME"
@@ -702,8 +683,6 @@ def _fixture_hermes_config_path(
 
 
 class _FixtureConfigurationAdapter:
-    """Injected blank-host controller/config surface; never reaches host state."""
-
     def __init__(
         self,
         root: Path,
@@ -1471,6 +1450,175 @@ def _assert_projection(
             errors.append(f"{name}:repository_only_installed:{relative}")
 
 
+def _tx_fixture(temp_root: Path, label: str, legacy: bool) -> tuple[object, ...]:
+    source, home, manifest, roots = _case_fixture(temp_root, label)
+    targets = [_agents_root(home), roots["codex"]]
+    old = [_legacy_root(root) for root in targets]
+    seeded = old if legacy else targets
+    sentinel = "legacy-only.txt" if legacy else "canonical-only.txt"
+    marker = f"{label}-preimage"
+    for index, root in enumerate(seeded):
+        _write_files(
+            root,
+            {
+                "SKILL.md": f"# {marker} court skill\n",
+                "VERSION": "beta0.5.10\n",
+                "scripts/portable-helper.py": f"VALUE = {marker!r}\n",
+                sentinel: f"{marker}-{index}\n",
+            },
+        )
+    return source, home, manifest, roots, targets, old, seeded, sentinel, marker
+
+
+def _tx_order_ok(events: list[str]) -> bool:
+    try:
+        marks = (
+            len(events) - 1 - events[::-1].index("source_root_backed_up"),
+            events.index("projection_file_applied"),
+            events.index("before_commit"),
+            events.index("canonical_published"),
+        )
+        return marks == tuple(sorted(marks))
+    except ValueError:
+        return False
+
+
+def _tx_kwargs(fixture: tuple[object, ...], adapter: object) -> dict[str, object]:
+    source, home, manifest, roots = fixture[:4]
+    return {
+        "source_root": source,
+        "home_root": home,
+        "current_tool": "codex",
+        "explicit_tools": [],
+        "tool_roots": roots,
+        "projection_manifest": manifest,
+        "write": True,
+        "install_transaction_adapter": adapter,
+    }
+
+
+def _tx_state(targets: list[Path], old: list[Path]) -> tuple[list[str], list[int]]:
+    leftovers = [
+        str(path)
+        for root in targets
+        for path in root.parent.glob(".*.install-migration-*")
+    ]
+    counts = [
+        _physical_authority_count(current, previous)
+        for current, previous in zip(targets, old)
+    ]
+    return leftovers, counts
+
+
+def _check_tx_cases(
+    install: Callable[..., object],
+    temp_root: Path,
+    errors: list[str],
+    *,
+    legacy: bool,
+) -> int:
+    name = (
+        "legacy_locator_migrates_atomically_to_canonical"
+        if legacy
+        else "canonical_existing_root_updates_through_staged_transaction"
+    )
+    fixture = _tx_fixture(temp_root, name, legacy)
+    source, _, _, _, targets, old, _, sentinel, marker = fixture
+    adapter = _MigrationFailureAdapter()
+    result = _require_success(
+        install,
+        name=name,
+        expected_targets=targets,
+        errors=errors,
+        **_tx_kwargs(fixture, adapter),
+    )
+    passed = 0
+    if result is not None:
+        receipts = result.get(
+            "legacy_migrations" if legacy else "install_root_transitions"
+        )
+        if not isinstance(receipts, list) or len(receipts) != 2:
+            receipt_error = "receipt_missing" if legacy else "receipt_invalid"
+        elif legacy and not all(
+            isinstance(item, dict) and item.get("status") == "APPLIED"
+            for item in receipts
+        ):
+            receipt_error = "receipt_not_applied"
+        elif not legacy and not all(
+            isinstance(item, dict)
+            and item.get("mode") == "CANONICAL_UPDATE"
+            and item.get("status") == "APPLIED"
+            and item.get("source_root") == item.get("restore_root")
+            for item in receipts
+        ):
+            receipt_error = "receipt_invalid"
+        else:
+            receipt_error = None
+        leftovers, counts = _tx_state(targets, old)
+        checks = (
+            (not legacy or not any(root.exists() or root.is_symlink() for root in old), "legacy_remains"),
+            (
+                all(
+                    (root / relative).read_bytes() == (source / relative).read_bytes()
+                    for root in targets
+                    for relative in ("SKILL.md", "VERSION", "scripts/portable-helper.py")
+                ),
+                "projection_not_updated",
+            ),
+            (
+                all(
+                    (root / sentinel).read_text(encoding="utf-8") == f"{marker}-{index}\n"
+                    for index, root in enumerate(targets)
+                ),
+                "sentinel_not_preserved",
+            ),
+            (legacy or not leftovers, f"stage_leftovers:{leftovers}"),
+            (not legacy or counts == [1, 1], f"physical_authority_count:{counts!r}"),
+            (_tx_order_ok(adapter.events), f"checkpoint_order:{adapter.events!r}"),
+        )
+        failure = receipt_error or next((message for ok, message in checks if not ok), None)
+        if failure:
+            errors.append(f"{name}:{failure}")
+        else:
+            passed += 1
+
+    for step in (
+        "source_root_backed_up",
+        "projection_file_applied",
+        "before_commit",
+        "canonical_published",
+    ):
+        prefix = "legacy_migration" if legacy else "canonical_update"
+        case_name = f"{prefix}_{step}_restores_preimage"
+        fixture = _tx_fixture(temp_root, case_name, legacy)
+        _, _, _, _, targets, old, seeded, _, _ = fixture
+        before = _snapshot_many(seeded)
+        adapter = _MigrationFailureAdapter(step)
+        if _require_rejection(
+            install,
+            name=case_name,
+            reason="install_transaction_failed",
+            errors=errors,
+            **_tx_kwargs(fixture, adapter),
+        ):
+            leftovers, counts = _tx_state(targets, old)
+            checks = (
+                (
+                    _snapshot_many(seeded) == before
+                    and (not legacy or not any(root.exists() for root in targets)),
+                    "rollback_drift",
+                ),
+                (not leftovers, f"stage_leftovers:{leftovers}"),
+                (counts == [1, 1], f"physical_authority_count:{counts!r}"),
+            )
+            failure = next((message for ok, message in checks if not ok), None)
+            if failure:
+                errors.append(f"{case_name}:{failure}")
+            else:
+                passed += 1
+    return passed
+
+
 def _check_cases(
     install: Callable[..., object],
     temp_root: Path,
@@ -1478,11 +1626,7 @@ def _check_cases(
 ) -> int:
     passed = 0
 
-    case_root = temp_root / "codex-default"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(temp_root, "codex-default")
     _prime_existing_roots(home, roots)
     before = _snapshot_many([_agents_root(home), *roots.values()])
     if _require_success(
@@ -1504,11 +1648,7 @@ def _check_cases(
         else:
             passed += 1
 
-    case_root = temp_root / "unknown-default"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(temp_root, "unknown-default")
     _prime_existing_roots(home, roots)
     if _require_success(
         install,
@@ -1525,11 +1665,7 @@ def _check_cases(
     ) is not None:
         passed += 1
 
-    case_root = temp_root / "explicit-hermes"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(temp_root, "explicit-hermes")
     _prime_existing_roots(home, roots)
     if _require_success(
         install,
@@ -1550,11 +1686,7 @@ def _check_cases(
     ) is not None:
         passed += 1
 
-    case_root = temp_root / "write-and-repeat"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(temp_root, "write-and-repeat")
     _prime_existing_roots(home, roots)
     forbidden_before = _snapshot_many(
         [roots["claude"], roots["hermes"], roots["other"]]
@@ -1635,11 +1767,7 @@ def _check_cases(
             else:
                 passed += 1
 
-    case_root = temp_root / "fanout"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(temp_root, "fanout")
     _prime_existing_roots(home, roots)
     fanout_before = _snapshot_many([_agents_root(home), *roots.values()])
     if _require_rejection(
@@ -1662,311 +1790,11 @@ def _check_cases(
         else:
             passed += 1
 
-    case_root = temp_root / "legacy-locator-migration"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
-    legacy_roots = [_legacy_root(_agents_root(home)), _legacy_root(roots["codex"])]
-    for index, legacy_root in enumerate(legacy_roots):
-        legacy_contents = {
-            "SKILL.md": "# legacy beta0.5.10 court skill\n",
-            "VERSION": "beta0.5.10\n",
-            "scripts/portable-helper.py": "VALUE = 'legacy-beta0.5.10'\n",
-            "legacy-only.txt": f"legacy-preimage-{index}\n",
-        }
-        for relative, text in legacy_contents.items():
-            path = legacy_root / Path(relative)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-    migration_adapter = _MigrationFailureAdapter()
-    migration_result = _require_success(
-        install,
-        name="legacy_locator_migrates_atomically_to_canonical",
-        expected_targets=[_agents_root(home), roots["codex"]],
-        errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
-        install_transaction_adapter=migration_adapter,
-    )
-    if migration_result is not None:
-        migration_receipts = migration_result.get("legacy_migrations")
-        if not isinstance(migration_receipts, list) or len(migration_receipts) != 2:
-            errors.append("legacy_locator_migrates_atomically_to_canonical:receipt_missing")
-        elif any(item.get("status") != "APPLIED" for item in migration_receipts if isinstance(item, dict)):
-            errors.append("legacy_locator_migrates_atomically_to_canonical:receipt_not_applied")
-        if any(path.exists() or path.is_symlink() for path in legacy_roots):
-            errors.append("legacy_locator_migrates_atomically_to_canonical:legacy_remains")
-        else:
-            canonical_roots = [_agents_root(home), roots["codex"]]
-            projected = ("SKILL.md", "VERSION", "scripts/portable-helper.py")
-            projection_updated = all(
-                (canonical / Path(relative)).read_bytes()
-                == (source / Path(relative)).read_bytes()
-                for canonical in canonical_roots
-                for relative in projected
-            )
-            sentinels_preserved = all(
-                (canonical / "legacy-only.txt").read_text(encoding="utf-8")
-                == f"legacy-preimage-{index}\n"
-                for index, canonical in enumerate(canonical_roots)
-            )
-            authority_counts = [
-                _physical_authority_count(canonical, legacy)
-                for canonical, legacy in zip(canonical_roots, legacy_roots)
-            ]
-            events = migration_adapter.events
-            try:
-                first_projection = events.index("projection_file_applied")
-                before_commit = events.index("before_commit")
-                first_publish = events.index("canonical_published")
-                last_backup = len(events) - 1 - events[::-1].index("source_root_backed_up")
-                order_ok = last_backup < first_projection < before_commit < first_publish
-            except ValueError:
-                order_ok = False
-            if not projection_updated:
-                errors.append("legacy_locator_migrates_atomically_to_canonical:projection_not_updated")
-            elif not sentinels_preserved:
-                errors.append("legacy_locator_migrates_atomically_to_canonical:sentinel_not_preserved")
-            elif authority_counts != [1, 1]:
-                errors.append(
-                    "legacy_locator_migrates_atomically_to_canonical:"
-                    f"physical_authority_count:{authority_counts!r}"
-                )
-            elif not order_ok:
-                errors.append(
-                    "legacy_locator_migrates_atomically_to_canonical:"
-                    f"checkpoint_order:{events!r}"
-                )
-            else:
-                passed += 1
+    passed += _check_tx_cases(install, temp_root, errors, legacy=True)
+    passed += _check_tx_cases(install, temp_root, errors, legacy=False)
 
-    for fail_step in (
-        "source_root_backed_up",
-        "canonical_published",
-        "projection_file_applied",
-        "before_commit",
-    ):
-        case_root = temp_root / f"legacy-rollback-{fail_step}"
-        source = case_root / "source"
-        home = case_root / "home"
-        manifest = _write_fixture_source(source)
-        roots = _target_roots(home)
-        canonical_roots = [_agents_root(home), roots["codex"]]
-        legacy_roots = [_legacy_root(root) for root in canonical_roots]
-        for index, legacy_root in enumerate(legacy_roots):
-            legacy_contents = {
-                "SKILL.md": "# rollback legacy beta0.5.10 court skill\n",
-                "VERSION": "beta0.5.10\n",
-                "scripts/portable-helper.py": "VALUE = 'rollback-legacy'\n",
-                "legacy-only.txt": f"rollback-preimage-{index}\n",
-            }
-            for relative, text in legacy_contents.items():
-                path = legacy_root / Path(relative)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(text, encoding="utf-8")
-        before = _snapshot_many(legacy_roots)
-        adapter = _MigrationFailureAdapter(fail_step)
-        if _require_rejection(
-            install,
-            name=f"legacy_migration_{fail_step}_restores_preimage",
-            reason="install_transaction_failed",
-            errors=errors,
-            source_root=source,
-            home_root=home,
-            current_tool="codex",
-            explicit_tools=[],
-            tool_roots=roots,
-            projection_manifest=manifest,
-            write=True,
-            install_transaction_adapter=adapter,
-        ):
-            after = _snapshot_many(legacy_roots)
-            stage_leftovers = [
-                str(path)
-                for root in canonical_roots
-                for path in root.parent.glob(".*.install-migration-*")
-            ]
-            authority_counts = [
-                _physical_authority_count(canonical, legacy)
-                for canonical, legacy in zip(canonical_roots, legacy_roots)
-            ]
-            if after != before or any(root.exists() for root in canonical_roots):
-                errors.append(f"legacy_migration_{fail_step}_restores_preimage:rollback_drift")
-            elif authority_counts != [1, 1]:
-                errors.append(
-                    f"legacy_migration_{fail_step}_restores_preimage:"
-                    f"physical_authority_count:{authority_counts!r}"
-                )
-            elif stage_leftovers:
-                errors.append(f"legacy_migration_{fail_step}_restores_preimage:stage_leftovers:{stage_leftovers}")
-            else:
-                passed += 1
-
-    case_root = temp_root / "canonical-staged-update"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
-    canonical_roots = [_agents_root(home), roots["codex"]]
-    for index, canonical in enumerate(canonical_roots):
-        stale_contents = {
-            "SKILL.md": "# canonical beta0.5.10 court skill\n",
-            "VERSION": "beta0.5.10\n",
-            "scripts/portable-helper.py": "VALUE = 'canonical-legacy'\n",
-            "canonical-only.txt": f"canonical-preimage-{index}\n",
-        }
-        for relative, text in stale_contents.items():
-            path = canonical / Path(relative)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-    canonical_adapter = _MigrationFailureAdapter()
-    canonical_result = _require_success(
-        install,
-        name="canonical_existing_root_updates_through_staged_transaction",
-        expected_targets=canonical_roots,
-        errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
-        install_transaction_adapter=canonical_adapter,
-    )
-    if canonical_result is not None:
-        transitions = canonical_result.get("install_root_transitions")
-        projected = ("SKILL.md", "VERSION", "scripts/portable-helper.py")
-        updated = all(
-            (canonical / Path(relative)).read_bytes()
-            == (source / Path(relative)).read_bytes()
-            for canonical in canonical_roots
-            for relative in projected
-        )
-        sentinels = all(
-            (canonical / "canonical-only.txt").read_text(encoding="utf-8")
-            == f"canonical-preimage-{index}\n"
-            for index, canonical in enumerate(canonical_roots)
-        )
-        stage_leftovers = [
-            str(path)
-            for root in canonical_roots
-            for path in root.parent.glob(".*.install-migration-*")
-        ]
-        events = canonical_adapter.events
-        try:
-            last_backup = len(events) - 1 - events[::-1].index("source_root_backed_up")
-            first_projection = events.index("projection_file_applied")
-            before_commit = events.index("before_commit")
-            first_publish = events.index("canonical_published")
-            order_ok = last_backup < first_projection < before_commit < first_publish
-        except ValueError:
-            order_ok = False
-        if (
-            not isinstance(transitions, list)
-            or len(transitions) != 2
-            or any(
-                not isinstance(item, dict)
-                or item.get("mode") != "CANONICAL_UPDATE"
-                or item.get("status") != "APPLIED"
-                or item.get("source_root") != item.get("restore_root")
-                for item in transitions
-            )
-        ):
-            errors.append("canonical_existing_root_updates_through_staged_transaction:receipt_invalid")
-        elif not updated:
-            errors.append("canonical_existing_root_updates_through_staged_transaction:projection_not_updated")
-        elif not sentinels:
-            errors.append("canonical_existing_root_updates_through_staged_transaction:sentinel_not_preserved")
-        elif stage_leftovers:
-            errors.append(
-                "canonical_existing_root_updates_through_staged_transaction:"
-                f"stage_leftovers:{stage_leftovers}"
-            )
-        elif not order_ok:
-            errors.append(
-                "canonical_existing_root_updates_through_staged_transaction:"
-                f"checkpoint_order:{events!r}"
-            )
-        else:
-            passed += 1
-
-    for fail_step in (
-        "source_root_backed_up",
-        "projection_file_applied",
-        "before_commit",
-        "canonical_published",
-    ):
-        case_root = temp_root / f"canonical-rollback-{fail_step}"
-        source = case_root / "source"
-        home = case_root / "home"
-        manifest = _write_fixture_source(source)
-        roots = _target_roots(home)
-        canonical_roots = [_agents_root(home), roots["codex"]]
-        legacy_roots = [_legacy_root(root) for root in canonical_roots]
-        for index, canonical in enumerate(canonical_roots):
-            stale_contents = {
-                "SKILL.md": "# rollback canonical beta0.5.10 court skill\n",
-                "VERSION": "beta0.5.10\n",
-                "scripts/portable-helper.py": "VALUE = 'rollback-canonical'\n",
-                "canonical-only.txt": f"rollback-canonical-preimage-{index}\n",
-            }
-            for relative, text in stale_contents.items():
-                path = canonical / Path(relative)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(text, encoding="utf-8")
-        before = _snapshot_many(canonical_roots)
-        adapter = _MigrationFailureAdapter(fail_step)
-        if _require_rejection(
-            install,
-            name=f"canonical_update_{fail_step}_restores_preimage",
-            reason="install_transaction_failed",
-            errors=errors,
-            source_root=source,
-            home_root=home,
-            current_tool="codex",
-            explicit_tools=[],
-            tool_roots=roots,
-            projection_manifest=manifest,
-            write=True,
-            install_transaction_adapter=adapter,
-        ):
-            after = _snapshot_many(canonical_roots)
-            stage_leftovers = [
-                str(path)
-                for root in canonical_roots
-                for path in root.parent.glob(".*.install-migration-*")
-            ]
-            authority_counts = [
-                _physical_authority_count(canonical, legacy)
-                for canonical, legacy in zip(canonical_roots, legacy_roots)
-            ]
-            if after != before:
-                errors.append(f"canonical_update_{fail_step}_restores_preimage:rollback_drift")
-            elif stage_leftovers:
-                errors.append(
-                    f"canonical_update_{fail_step}_restores_preimage:stage_leftovers:{stage_leftovers}"
-                )
-            elif authority_counts != [1, 1]:
-                errors.append(
-                    f"canonical_update_{fail_step}_restores_preimage:"
-                    f"physical_authority_count:{authority_counts!r}"
-                )
-            else:
-                passed += 1
-
-    case_root = temp_root / "escaped-target"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
-    roots["codex"] = case_root / "outside-home" / "decretum-matrix"
+    source, home, manifest, roots = _case_fixture(temp_root, "escaped-target")
+    roots["codex"] = home.parent / "outside-home" / "decretum-matrix"
     _prime_existing_roots(home, roots)
     escape_before = _snapshot_many([_agents_root(home), *roots.values()])
     if _require_rejection(
@@ -1988,17 +1816,15 @@ def _check_cases(
         else:
             passed += 1
 
-    case_root = temp_root / "absolute-binding"
-    source = case_root / "source"
-    home = case_root / "home"
     bad_manifest = _fixture_manifest()
     bindings = bad_manifest["persistent_bindings"]
     assert isinstance(bindings, list)
     binding = bindings[0]
     assert isinstance(binding, dict)
     binding["profile_source"] = "C:/Users/example/absolute-profile.toml"
-    manifest = _write_fixture_source(source, manifest=bad_manifest)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "absolute-binding", bad_manifest
+    )
     _prime_existing_roots(home, roots)
     invalid_before = _snapshot_many([_agents_root(home), *roots.values()])
     if _require_rejection(
@@ -2067,11 +1893,7 @@ def _check_cases(
 
     name = "darwin_clean_home_portable_current_tool_only"
     before_errors = len(errors)
-    case_root = temp_root / "darwin-clean-home"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(temp_root, "darwin-clean-home")
     all_roots = [_agents_root(home), *roots.values()]
     before = _snapshot_many(all_roots)
     platform_context = {
@@ -2147,11 +1969,9 @@ def _check_cases(
 
     name = "source_package_sha256_receipt_round_trip"
     before_errors = len(errors)
-    case_root = temp_root / "source-package-sha256"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "source-package-sha256"
+    )
     _prime_existing_roots(home, roots)
     source_package_sha256 = "a" * 64
     result = _require_success(
@@ -2175,11 +1995,9 @@ def _check_cases(
 
     name = "invalid_source_package_sha256_rejected"
     before_errors = len(errors)
-    case_root = temp_root / "invalid-source-package-sha256"
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _target_roots(home)
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "invalid-source-package-sha256"
+    )
     _prime_existing_roots(home, roots)
     invalid_values: tuple[object, ...] = ("", "A" * 64, "g" * 64, 7)
     rejected = all(
