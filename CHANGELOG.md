@@ -1,5 +1,32 @@
 # Changelog
 
+## beta0.5.12 - 2026-07-18
+
+### Added
+
+- Added versioned offline Wiki pages for installation, usage, governance,
+  architecture, troubleshooting, and release notes, plus a read-only
+  online/offline consistency checker.
+
+### Changed
+
+- Aligned VERSION, SBOM, package, manifest, artifact, and npm candidate identity
+  to beta0.5.12.
+- Reduced README to the product, shortest install command, shortest invocation,
+  and documentation entry points.
+- Converged shared Shiguan and Obsidian paths on the canonical
+  `.agents/court-shiguan/decretum-matrix/references` root.
+
+### Fixed
+
+- Restored protected Shiguan anchors and legacy semantic bootstrap recovery.
+- Fixed host-memory/child-trace gates and package synthetic-secret fixtures.
+- Fixed stale host skill locators and repair holds that blocked native
+  `$decretum-matrix` discovery after the install-directory migration.
+
+External tag, GitHub Release, npm publication, assets, and online Wiki remain
+receipt-gated and are not asserted by this source entry.
+
 ## beta0.5.11 — 2026-07-17
 
 ### Added

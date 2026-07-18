@@ -1237,3 +1237,13 @@ Git index empty
 - **最小化裁定：** 后续 resolver 必须优先复用 `court_office_bootstrap` 及现有 lock/CAS/atomic/receipt/rollback primitives；Q1-Q8 保持 `DEFERRED`，不得为 Q0 新建 service、DB、MQ、ledger 或重复状态机。
 - **顺延项：** root workspace/canonical checkout 仍停在 beta0.5.10，doctor PASS 不等于 version alignment PASS；host 旧 skill locator、14-role parity 与 source/install projection 差异留在 beta0.5.12 install/prepublication，禁止旧 profile 覆盖较新的 `.codex/agents`。
 - **当前游标：** `VERSION_ALIGNMENT_GATE -> SOURCE/CANDIDATE_GATES -> PER_RELEASE_LOCAL_INSTALL -> NEXT_RELEASE_PREPUBLICATION_GATE`；安装门必须真实修复截图中的旧 locator 并通过 `$decretum-matrix` 加三省入口调用 smoke。`pending_body_access=NO`。
+
+### 2026-07-18 beta0.5.12 version / invocation / offline Wiki receipt（append-only）
+
+- **版本对齐：** `VERSION_ALIGNMENT_GATE=PASS`；commit=`5a7cb7e` 将 source identity、SBOM、release manifest、builder/npm contract 与对应 fixtures 收敛到 `beta0.5.12`。该回执只证明源码版本合同，不预称 candidate、安装或外部发布完成。
+- **宿主旧定位修复：** 用户截图中的失效硬门禁已按最小写集修复：root `AGENTS.md` 与 host capability index 均指向 canonical `C:\Users\32893\.agents\skills\decretum-matrix\SKILL.md`，两处 host repair-hold 说明同步解除；未改 skill 正文、安装副本、agent profile 或 shared Shiguan data。canonical skill SHA-256=`BC9E28001F648D1A66879E37CF5285E69CA2E609AE3DFBA0CD966F08B50C4867`，EOF=`true`，五根 active-copy hash=`PASS`。
+- **真实调用前置 smoke：** fresh `codex exec --ephemeral -C D:\project -s read-only` 成功读取 exact canonical skill 并识别 `zhongshu,menxia,shangshu`，receipt=`DECRETUM_NATIVE_INVOCATION_SMOKE=PASS`。该临时只读进程没有创建 branch、worktree 或可见任务；beta0.5.12 exact ZIP 安装后仍须重复相同 smoke，方可将 `PER_RELEASE_LOCAL_INSTALL` 报为 PASS。
+- **README / offline Wiki：** README 已收敛为普通用户入口，首屏保留精确安装命令 `npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com` 与最短 `$decretum-matrix` 使用入口；详细安装、使用、治理、架构、排错和发布说明迁入 `docs/wiki/`。离线 Wiki exact publish set=`8` 页，`docs/wiki/check-sync.ps1` 得到 `LOCAL_COMPLETE`。
+- **线上 Wiki 边界：** read-only probe 确认 repository `hasWikiEnabled=true`，但 online Home 尚未初始化；状态=`ONLINE_WIKI_NOT_PUBLISHED`、online/offline consistency=`NOT_RUN`。未取得对应外部写入授权前不得 push Wiki，且该门未通过时不得宣称 beta0.5.12 发布完成。
+- **贯通策略与隐私：** 继续以“小而美”为全任务书贯通策略：复用单一 authority 和既有门禁，不创建重复 repo、ledger、service 或状态机；后续 handoff 必须明确传递该策略。`pending_body_access=NO`，root repository 不提交。
+- **当前游标：** `SOURCE_GATE -> CLEAN_CANDIDATE -> PRE_INSTALL_EXACT_ZIP -> PER_RELEASE_LOCAL_INSTALL -> POST_INSTALL_EXACT_ZIP -> PREPUBLICATION_GATE`；14-role parity 仅在发布前裁定当前 source-of-truth 后做 bounded sync，禁止用旧 profile 覆盖较新的 `.codex/agents`。

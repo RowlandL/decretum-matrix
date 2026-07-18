@@ -2,6 +2,37 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta0.5.12 - 2026-07-18
+
+### 发布结论
+
+`release/beta0.5.12` 以已发布并验收的 beta0.5.11 为基线。当前源码、SBOM、
+artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release、npm、
+资产和线上 Wiki 只有在对应回执完成后才可标记成功。
+
+### 核心变更
+
+1. shared Shiguan/Obsidian 默认根收敛到
+   `.agents\court-shiguan\decretum-matrix\references`，旧 LocalAppData 根不再是
+   活动 authority，daemon discovery 容忍已退出进程。
+2. protected 四锚点恢复 exact length/hash；legacy runtime task 只在全部 binding
+   key 缺失时原子 bootstrap，失败完整回滚。
+3. host-memory/child-trace、source budget 与 synthetic-secret package fixtures
+   收敛，不新增 store、daemon、DB、MQ、ledger 或第二状态机。
+4. 宿主 root/global AGENTS、capability index 的旧 skill locator 与 repair hold
+   收敛到 canonical `skills/decretum-matrix`。全新 ephemeral 只读 Codex 会话真实
+   调用 `$decretum-matrix`，EOF/hash 和三省入口 smoke 通过。
+5. README 缩为普通用户入口；详细安装、使用、治理、架构、排错和发布说明迁入
+   `docs/wiki`，并提供只读线上/线下一致性检查。
+
+### 边界
+
+- Q0 只冻结 accepted baseline，不实现 Office Pack/DLC/scope/promotion。
+- 14-role host projection 先裁定 source of truth，禁止旧 profile 覆盖较新
+  `.codex/agents`。
+- pending/private 正文保持未读、未哈希、未移动、未删除、未标记已读。
+- GitHub Wiki 已启用但尚无线上首页；外部创建与同步需独立发布授权。
+
 ## beta0.5.11 — 2026-07-17
 
 ### 发布结论
