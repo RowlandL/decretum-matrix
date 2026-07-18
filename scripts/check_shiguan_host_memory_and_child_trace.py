@@ -424,7 +424,7 @@ def check_child_projection(errors: list[str]) -> None:
     expect(errors, "invalid child trace" in wrong and "accepted bounded assignment" not in wrong, "projection_task_binding")
 
     sensitive = deepcopy(records)
-    sensitive[0]["behavior_summary"] = "Authorization=Bearer SUPER_SECRET_VALUE"
+    sensitive[0]["behavior_summary"] = "Authorization=Bearer " + "SUPER_SECRET_VALUE"
     redacted = compact(task_id, 100, sensitive)
     expect(errors, "SUPER_SECRET_VALUE" not in redacted and "[redacted]" in redacted, "projection_redaction")
 

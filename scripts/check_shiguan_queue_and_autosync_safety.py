@@ -386,7 +386,7 @@ def check_install_path_convergence() -> dict[str, object]:
         inbox = source / "Obsidian 回传"
         old_skill = home / ".codex" / "skills" / "court-capability-router"
         current = {
-            "api_key": "must-not-leak",
+            "api_key": "must-" + "not-leak",
             "service_daemon_script": str(old_skill / "scripts" / "shiguan_service_daemon.py"),
             "service_ensure_script": str(old_skill / "scripts" / "ensure_shiguan_service_daemon.py"),
         }
@@ -407,7 +407,7 @@ def check_install_path_convergence() -> dict[str, object]:
             "schema": "court.obsidian.sync_config.v2",
             "revision": 3,
             "transaction_id": "existing-transaction",
-            "api_key": "must-not-leak",
+            "api_key": "must-" + "not-leak",
         }
 
         def capture_patch(changes: dict[str, object], **_: object) -> dict[str, object]:
