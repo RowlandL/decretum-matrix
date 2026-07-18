@@ -333,6 +333,23 @@ def check_install_path_convergence() -> dict[str, object]:
         require([Path(str(item)) for item in rebound["watch_paths"]] == [cache, inbox], "watch roots were not rebound")
         public = obsidian.public_config(rebound)
         require("api_key" not in public and public.get("has_api_key") is True, "API key projection drift")
+        base = {
+            "schema": "court.obsidian.sync_config.v2",
+            "revision": 3,
+            "transaction_id": "existing-transaction",
+            "api_key": "must-not-leak",
+        }
+
+        def capture_patch(changes: dict[str, object], **_: object) -> dict[str, object]:
+            reserved = {"schema", "revision", "transaction_id", "updated_at"}
+            require(not reserved.intersection(changes), "reserved config fields were replayed")
+            return {"conflict": False}
+
+        with (
+            mock.patch.object(obsidian, "read_config_snapshot", return_value=base),
+            mock.patch.object(obsidian, "patch_config", side_effect=capture_patch),
+        ):
+            obsidian.update_sync_config(source)
         return {"active_roots": len(expected), "pending_body_reads": 0, "api_key_public": "REDACTED"}
 
 

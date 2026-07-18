@@ -18,7 +18,7 @@ import time
 
 from court_platform import user_config_base
 from court_file_lock import atomic_write_text, file_lock
-from obsidian_config_state import patch_config, public_config, read_config_snapshot
+from obsidian_config_state import RESERVED_FIELDS, patch_config, public_config, read_config_snapshot
 from shiguan_paths import (
     default_obsidian_cache_vault,
     default_obsidian_inbox,
@@ -138,8 +138,11 @@ def build_sync_config(shared_vault: Path, current: object) -> dict[str, object]:
 
 def update_sync_config(shared_vault: Path) -> dict[str, object]:
     base = read_config_snapshot()
-    config = build_sync_config(shared_vault, base)
-    config.pop("updated_at", None)
+    config = {
+        key: value
+        for key, value in build_sync_config(shared_vault, base).items()
+        if key not in RESERVED_FIELDS
+    }
     result = patch_config(config, base_snapshot=base)
     if result.get("conflict"):
         raise RuntimeError("Obsidian sync config changed concurrently: " + ", ".join(result.get("conflict_fields", [])))
