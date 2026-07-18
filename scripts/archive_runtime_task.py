@@ -7,26 +7,90 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
-
 import court_runtime
 
 
-def compact_events(
-    task_id: str,
-    limit: int,
-    event_history: list[dict[str, object]] | None = None,
-) -> str:
-    events = event_history if event_history is not None else []
-    events = events[-max(1, limit):]
-    if not events:
-        return "no runtime events"
-    parts = []
+def validate_child_trace_summaries(records: object) -> dict[str, object]:
+    required = "time event behavior_summary task_id dispatch_uid office_instance_id role direct_superior status evidence_pointer".split()
+    rejected = {"ok": False, "instance_ids": []}
+    if not isinstance(records, list) or not records:
+        return rejected
+    groups = {}
+    for record in records:
+        values = [record.get(key) for key in required] if isinstance(record, dict) else []
+        tail = record.get("next") or record.get("release_reason") if isinstance(record, dict) else None
+        if not all(isinstance(value, str) and 0 < len(value) <= 1024 for value in values + [tail]):
+            return rejected
+        groups.setdefault(record["office_instance_id"], []).append(record)
+    lifecycle = ["start", "key_action", "finish", "release"]
+    stable = ("task_id", "dispatch_uid", "role", "direct_superior")
+    ok = len({record["task_id"] for record in records}) == 1
+    ok &= all([item["event"] for item in events] == lifecycle
+              and len({tuple(item[key] for key in stable) for item in events}) == 1
+              for events in groups.values())
+    return {"ok": bool(ok), "instance_ids": sorted(groups) if ok else []}
+
+
+def _trace_text(value: object) -> str:
+    text = " ".join(str(value).split())
+    secret = ("token", "secret", "password", "passwd", "api-key", "api_key", "api key",
+              "bearer ", "authorization", "cookie")
+    if any(key in text.casefold() for key in secret):
+        return "[redacted]"
+    return text.encode("utf-8")[:64].decode("utf-8", "ignore")
+
+
+def _bounded(rendered: str, receipt: str = "") -> str:
+    return rendered if len(rendered.encode("utf-8")) <= 4096 else "trace projection blocked: byte limit " + receipt
+
+
+def _compact_child_events(events: list[dict[str, object]]) -> str:
+    groups = {}
     for event in events:
-        parts.append(
-            f"{event.get('time')} {event.get('action')} "
-            f"{event.get('from_state')}->{event.get('to_state')} by {event.get('actor')}"
-        )
-    return "; ".join(parts)
+        groups.setdefault(event["office_instance_id"], []).append(event)
+    parts = []
+    for instance, records in sorted(groups.items()):
+        first = records[0]
+        static = (first["task_id"], first["dispatch_uid"], instance, first["role"], first["direct_superior"])
+        actions = []
+        for record in records:
+            action = (record["time"], record["event"], record["status"], record["behavior_summary"],
+                      record["evidence_pointer"],
+                      record.get("next") or record.get("release_reason"))
+            actions.append(" ".join(_trace_text(value) for value in action))
+        parts.append(" ".join(_trace_text(value) for value in static) + " | " + " > ".join(actions))
+    first = events[0]
+    receipt = " ".join(_trace_text(value) for value in
+                       (first["task_id"], ",".join(sorted(groups)), first["evidence_pointer"]))
+    return _bounded("; ".join(parts), receipt)
+
+
+def compact_events(task_id: str, limit: int,
+                   event_history: list[dict[str, object]] | None = None) -> str:
+    history = event_history or []
+    if not history:
+        return "no runtime events"
+    children = [event for event in history if event.get("office_instance_id")]
+    selected = []
+    for event in reversed(children):
+        instance = event.get("office_instance_id")
+        if instance not in selected:
+            selected.append(instance)
+    selected = selected[:max(1, limit // 4)]
+    children = [event for event in children if event.get("office_instance_id") in selected]
+    events = [event for event in history if not event.get("office_instance_id")][-max(1, limit):]
+    parts = ([(_compact_child_events(children)
+               if all(event.get("task_id") == task_id for event in children)
+               and validate_child_trace_summaries(children)["ok"] else "invalid child trace")]
+             if children else [])
+    for event in events:
+        action = event.get("event") or event.get("action")
+        transition = f"{event.get('from_state')}->{event.get('to_state')} by {event.get('actor')}"
+        parts.append(" ".join(_trace_text(value) for value in (event.get("time"), action, transition)))
+    receipt = [task_id, *selected]
+    if children:
+        receipt.append(children[0].get("evidence_pointer"))
+    return _bounded(f"{task_id}: " + "; ".join(parts), " ".join(_trace_text(value) for value in receipt))
 
 
 def runtime_summary(

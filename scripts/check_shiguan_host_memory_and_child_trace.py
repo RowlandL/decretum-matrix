@@ -1,69 +1,16 @@
-"""RED checks for A02 host-memory, Obsidian projection, and child traces.
-
-The checker is intentionally read-only.  It exercises pure public policy
-evaluators when they exist and verifies the existing runtime-to-Shiguan
-projection without creating memory notes, runtime ledgers, or Shiguan records.
-Planning, create-only receipt evaluation, and later read-only ingestion
-verification are distinct observable states.
-"""
+"""Read-only A02 host-memory, metadata projection, and child-trace checks."""
 
 from __future__ import annotations
 
 from copy import deepcopy
-import importlib
 import sys
-from typing import Any, Callable, Iterable
-
+from typing import Callable, Iterable
 
 sys.dont_write_bytecode = True
+import archive_runtime_task
+import shiguan_host_memory_projection
 
-
-HOST_MEMORY_MODULES = (
-    "shiguan_host_memory_projection",
-    "memory_decision",
-    "court_runtime",
-)
-HOST_MEMORY_FUNCTIONS = (
-    "evaluate_host_memory_projection",
-    "evaluate_host_memory_candidate",
-    "plan_host_memory_update_note",
-)
-CHILD_TRACE_MODULES = (
-    "court_child_trace",
-    "court_runtime",
-    "archive_runtime_task",
-)
-CHILD_TRACE_FUNCTIONS = (
-    "validate_child_trace_summaries",
-    "validate_child_trace_contract",
-)
-MEMORY_GRAPH_MODULES = (
-    "shiguan_host_memory_projection",
-    "internal_memory_shiguan_bridge",
-    "sync_shiguan_obsidian_vault",
-)
-MEMORY_GRAPH_FUNCTIONS = (
-    "evaluate_installed_tool_memory_projection",
-    "evaluate_tool_class_memory_graph_projection",
-    "plan_obsidian_memory_graph_projection",
-)
-BLANK_HOST_PREFLIGHT_MODULES = (
-    "blank_host_memory_preflight",
-    "ensure_portable_court_bootstrap",
-    "shiguan_host_memory_projection",
-)
-BLANK_HOST_PREFLIGHT_FUNCTIONS = (
-    "evaluate_blank_host_memory_preflight",
-    "plan_blank_host_memory_feature_probe",
-    "evaluate_memory_feature_preflight",
-)
-
-CANONICAL_TOOL_CLASSES = (
-    "codex",
-    "hermes",
-    "claude-code",
-    "other:fixture-cli",
-)
+CANONICAL_TOOL_CLASSES = "codex hermes claude-code other:fixture-cli".split()
 MEMORY_PROBE_STATES = {
     "codex": "enabled",
     "hermes": "disabled",
@@ -72,37 +19,13 @@ MEMORY_PROBE_STATES = {
 }
 
 
-def find_public_callable(
-    module_names: Iterable[str], function_names: Iterable[str]
-) -> tuple[Callable[..., Any] | None, str, list[str]]:
-    errors: list[str] = []
-    for module_name in module_names:
-        try:
-            module = importlib.import_module(module_name)
-        except Exception as exc:  # pragma: no cover - diagnostic path
-            errors.append(f"{module_name}: {type(exc).__name__}: {exc}")
-            continue
-        for function_name in function_names:
-            candidate = getattr(module, function_name, None)
-            if callable(candidate):
-                return candidate, f"{module_name}.{function_name}", errors
-    return None, "", errors
-
-
 def decision_flag(result: object) -> bool | None:
-    if not isinstance(result, dict):
-        return None
-    for key in ("allowed", "ok", "accepted"):
-        value = result.get(key)
-        if isinstance(value, bool):
-            return value
-    return None
+    value = result.get("ok") if isinstance(result, dict) else None
+    return value if isinstance(value, bool) else None
 
 
 def decision_status(result: object) -> str:
-    if not isinstance(result, dict):
-        return ""
-    return str(result.get("status") or result.get("decision") or "")
+    return str(result.get("status") or "") if isinstance(result, dict) else ""
 
 
 def nested_dicts(value: object) -> Iterable[dict[str, object]]:
@@ -122,66 +45,20 @@ def tool_class_from(value: object) -> str:
 
 
 def graph_map(result: object) -> dict[str, dict[str, object]]:
-    if not isinstance(result, dict):
-        return {}
-    value = result.get("graphs") or result.get("tool_graphs")
-    if isinstance(value, dict):
-        return {
-            str(key): graph
-            for key, graph in value.items()
-            if isinstance(graph, dict)
-        }
-    if isinstance(value, list):
-        found: dict[str, dict[str, object]] = {}
-        for graph in value:
-            if not isinstance(graph, dict):
-                continue
-            tool_class = tool_class_from(graph)
-            if tool_class:
-                found[tool_class] = graph
-        return found
-    return {}
+    value = result.get("graphs") if isinstance(result, dict) else None
+    return ({str(key): graph for key, graph in value.items() if isinstance(graph, dict)}
+            if isinstance(value, dict) else {})
 
 
 def probe_result_map(result: object) -> dict[str, dict[str, object]]:
-    if not isinstance(result, dict):
-        return {}
-    value = result.get("probe_results") or result.get("tools") or result.get("results")
-    if isinstance(value, dict):
-        return {
-            str(key): item
-            for key, item in value.items()
-            if isinstance(item, dict)
-        }
-    if isinstance(value, list):
-        found: dict[str, dict[str, object]] = {}
-        for item in value:
-            if not isinstance(item, dict):
-                continue
-            tool_class = tool_class_from(item)
-            if tool_class:
-                found[tool_class] = item
-        return found
-    return {}
+    value = result.get("probe_results") if isinstance(result, dict) else None
+    return ({str(key): item for key, item in value.items() if isinstance(item, dict)}
+            if isinstance(value, dict) else {})
 
 
 def blocked_tool_classes(result: object) -> set[str]:
-    if not isinstance(result, dict):
-        return set()
-    found: set[str] = set()
-    for key in (
-        "blocked_mutations",
-        "mutation_blocked_tool_classes",
-        "automatic_enablement_blocked",
-    ):
-        value = result.get(key)
-        if not isinstance(value, list):
-            continue
-        for item in value:
-            tool_class = tool_class_from(item)
-            if tool_class:
-                found.add(tool_class)
-    return found
+    value = result.get("blocked_mutations", []) if isinstance(result, dict) else []
+    return {tool_class_from(item) for item in value if tool_class_from(item)}
 
 
 def host_memory_base_request() -> dict[str, object]:
@@ -301,21 +178,8 @@ def host_memory_rejection_cases() -> list[tuple[str, dict[str, object]]]:
 
 
 def check_host_memory_contract(failures: list[str]) -> None:
-    evaluator, source, import_errors = find_public_callable(
-        HOST_MEMORY_MODULES, HOST_MEMORY_FUNCTIONS
-    )
-    if evaluator is None:
-        failures.append(
-            "host_memory_public_api_missing: expected a pure evaluator named one of "
-            + ", ".join(HOST_MEMORY_FUNCTIONS)
-        )
-        for case_name, _ in host_memory_rejection_cases():
-            failures.append(
-                f"host_memory_case_unexercised:{case_name}: no public evaluator"
-            )
-        if import_errors:
-            failures.append("host_memory_import_diagnostics: " + " | ".join(import_errors))
-        return
+    evaluator = shiguan_host_memory_projection.evaluate_host_memory_projection
+    source = evaluator.__name__
 
     for case_name, request in host_memory_rejection_cases():
         try:
@@ -484,24 +348,8 @@ def memory_source_fixtures() -> dict[str, list[dict[str, object]]]:
 
 
 def check_installed_tool_memory_graph(failures: list[str]) -> None:
-    evaluator, source, import_errors = find_public_callable(
-        MEMORY_GRAPH_MODULES, MEMORY_GRAPH_FUNCTIONS
-    )
-    if evaluator is None:
-        failures.extend(
-            [
-                "memory_graph_public_api_missing: expected a pure evaluator named one of "
-                + ", ".join(MEMORY_GRAPH_FUNCTIONS),
-                "memory_graph_manifest_eligibility_unexercised: no public evaluator",
-                "memory_graph_canonical_tool_classes_unexercised: no public evaluator",
-                "memory_graph_namespace_isolation_unexercised: no public evaluator",
-                "memory_graph_source_read_only_unexercised: no public evaluator",
-                "memory_graph_metadata_only_package_exclusion_unexercised: no public evaluator",
-            ]
-        )
-        if import_errors:
-            failures.append("memory_graph_import_diagnostics: " + " | ".join(import_errors))
-        return
+    evaluator = shiguan_host_memory_projection.evaluate_installed_tool_memory_projection
+    source = evaluator.__name__
 
     projection = install_projection_fixture()
     projection_before = deepcopy(projection)
@@ -625,13 +473,7 @@ def check_installed_tool_memory_graph(failures: list[str]) -> None:
         for key in item
         if key in forbidden_keys
     )
-    required_projection_fields = {
-        "relative_source_path",
-        "state",
-        "headings",
-        "topics",
-        "relations",
-    }
+    required_projection_fields = set("relative_source_path state headings topics relations".split())
     projected_records = [
         item for item in nested_dicts(result) if "relative_source_path" in item
     ]
@@ -656,56 +498,33 @@ def check_installed_tool_memory_graph(failures: list[str]) -> None:
             f"leaked_keys={leaked_keys!r}"
         )
 
-    mixed_sources = memory_source_fixtures()
-    mixed_sources["codex"][0]["relations"] = [
-        {
-            "source_id": "codex:fixture-index",
-            "target_id": "hermes:fixture-index",
-            "target_tool_class": "hermes",
-        }
-    ]
+    def evaluate_sources(sources: dict[str, list[dict[str, object]]]) -> object:
+        def read_sources(tool: object, *_args: object, **_kwargs: object) -> object:
+            return deepcopy(sources.get(tool_class_from(tool), []))
+        candidate = dict(request)
+        candidate["callbacks"] = dict(request["callbacks"], read_source_metadata=read_sources)
+        return evaluator(candidate)
 
-    def read_mixed_metadata(tool: object, *_args: object, **_kwargs: object) -> object:
-        return deepcopy(mixed_sources.get(tool_class_from(tool), []))
-
-    mixed_request = dict(request)
-    mixed_request["callbacks"] = dict(
-        request["callbacks"], read_source_metadata=read_mixed_metadata
-    )
-    try:
-        mixed_result = evaluator(mixed_request)
-    except Exception:
-        pass
-    else:
-        if decision_flag(mixed_result) is not False:
-            failures.append(
-                f"memory_graph_cross_tool_relation_accepted:{source}:result={mixed_result!r}"
-            )
+    mixed = memory_source_fixtures()
+    mixed["codex"][0]["relations"] = [{"target_id": "hermes:fixture-index",
+                                         "target_tool_class": "hermes"}]
+    if decision_flag(evaluate_sources(mixed)) is not False:
+        failures.append("memory_graph_cross_tool_relation_accepted")
+    absolute = memory_source_fixtures()
+    absolute["codex"][0]["relative_source_path"] = "C:/private/MEMORY.md"
+    if decision_flag(evaluate_sources(absolute)) is not False:
+        failures.append("memory_graph_absolute_path_accepted")
+    missing_state = memory_source_fixtures()
+    missing_state["codex"][0].pop("state")
+    state_result = evaluate_sources(missing_state)
+    records = [item for item in nested_dicts(state_result) if "relative_source_path" in item]
+    if decision_flag(state_result) is not True or not any(item.get("state") == "unknown" for item in records):
+        failures.append("memory_graph_missing_state_not_normalized")
 
 
 def check_blank_host_memory_preflight(failures: list[str]) -> None:
-    evaluator, source, import_errors = find_public_callable(
-        BLANK_HOST_PREFLIGHT_MODULES, BLANK_HOST_PREFLIGHT_FUNCTIONS
-    )
-    if evaluator is None:
-        failures.extend(
-            [
-                "blank_host_memory_preflight_public_api_missing: expected a pure evaluator named one of "
-                + ", ".join(BLANK_HOST_PREFLIGHT_FUNCTIONS),
-                "blank_host_manifest_probe_candidates_unexercised: no public evaluator",
-                "blank_host_probe_before_write_unexercised: no public evaluator",
-                "blank_host_probe_enum_evidence_prompt_unexercised: no public evaluator",
-                "blank_host_probe_side_effect_free_unexercised: no public evaluator",
-                "blank_host_unknown_fail_closed_unexercised: no public evaluator",
-                "blank_host_unrequested_tool_mutation_unexercised: no public evaluator",
-            ]
-        )
-        if import_errors:
-            failures.append(
-                "blank_host_memory_preflight_import_diagnostics: "
-                + " | ".join(import_errors)
-            )
-        return
+    evaluator = shiguan_host_memory_projection.evaluate_blank_host_memory_preflight
+    source = evaluator.__name__
 
     projection = install_projection_fixture()
     projection_before = deepcopy(projection)
@@ -870,62 +689,14 @@ def trace_ok(result: object) -> bool | None:
 
 
 def traced_instance_ids(result: object) -> set[str]:
-    if not isinstance(result, dict):
-        return set()
-    for key in ("instance_ids", "office_instance_ids"):
-        value = result.get(key)
-        if isinstance(value, list):
-            return {str(item) for item in value}
-    for key in ("instances", "instance_summaries"):
-        value = result.get(key)
-        if isinstance(value, dict):
-            return {str(item) for item in value}
-        if isinstance(value, list):
-            found = set()
-            for item in value:
-                if isinstance(item, dict):
-                    instance_id = item.get("office_instance_id") or item.get("instance_id")
-                    if instance_id:
-                        found.add(str(instance_id))
-                elif item:
-                    found.add(str(item))
-            return found
-    return set()
+    value = result.get("instance_ids", []) if isinstance(result, dict) else []
+    return {str(item) for item in value} if isinstance(value, list) else set()
 
 
 def check_child_trace_validator(failures: list[str]) -> None:
-    validator, source, import_errors = find_public_callable(
-        CHILD_TRACE_MODULES, CHILD_TRACE_FUNCTIONS
-    )
-    required_fields = (
-        "time",
-        "event",
-        "behavior_summary",
-        "task_id",
-        "dispatch_uid",
-        "office_instance_id",
-        "role",
-        "direct_superior",
-        "status",
-        "evidence_pointer",
-        "next_or_release_reason",
-    )
-    if validator is None:
-        failures.append(
-            "child_trace_public_api_missing: expected a validator named one of "
-            + ", ".join(CHILD_TRACE_FUNCTIONS)
-        )
-        for field in required_fields:
-            failures.append(
-                f"child_trace_missing_field_case_unexercised:{field}: no public validator"
-            )
-        failures.append(
-            "child_trace_same_role_multi_instance_unexercised: no public validator"
-        )
-        if import_errors:
-            failures.append("child_trace_import_diagnostics: " + " | ".join(import_errors))
-        return
-
+    validator = archive_runtime_task.validate_child_trace_summaries
+    source = validator.__name__
+    required_fields = "time event behavior_summary task_id dispatch_uid office_instance_id role direct_superior status evidence_pointer next_or_release_reason".split()
     valid = child_trace_records()
     try:
         valid_result = validator(deepcopy(valid))
@@ -944,6 +715,13 @@ def check_child_trace_validator(failures: list[str]) -> None:
             f"{source}:expected={sorted(expected_instances)!r}:"
             f"actual={sorted(actual_instances)!r}:result={valid_result!r}"
         )
+
+    cross_task = deepcopy(valid)
+    for record in cross_task:
+        if record["office_instance_id"] == "gongbu#0002":
+            record["task_id"] = "OTHER-TASK"
+    if trace_ok(validator(cross_task)) is not False:
+        failures.append("child_trace_cross_task_instances_accepted")
 
     for field in required_fields:
         invalid = deepcopy(valid)
@@ -983,9 +761,7 @@ def check_child_trace_validator(failures: list[str]) -> None:
 
 def check_runtime_to_shiguan_projection(failures: list[str]) -> None:
     try:
-        archive_runtime_task = importlib.import_module("archive_runtime_task")
-        compact_events = getattr(archive_runtime_task, "compact_events")
-        rendered = compact_events(
+        rendered = archive_runtime_task.compact_events(
             "CCR-R2-SHIR-20260714-A02",
             100,
             child_trace_records(),
@@ -1023,6 +799,22 @@ def check_runtime_to_shiguan_projection(failures: list[str]) -> None:
             failures.append(
                 f"child_trace_shiguan_projection_leaked_private_body:{forbidden}"
             )
+
+    legacy = {"time": "2026-07-14T00:00:00Z", "action": "legacy-action",
+              "from_state": "queued", "to_state": "running", "actor": "taizi"}
+    mixed = archive_runtime_task.compact_events(
+        "CCR-R2-SHIR-20260714-A02", 100, [legacy, *child_trace_records()]
+    )
+    if "legacy-action" not in mixed or any(fragment not in mixed for fragment in required_fragments):
+        failures.append("child_trace_mixed_history_evidence_lost")
+    limited = archive_runtime_task.compact_events(
+        "CCR-R2-SHIR-20260714-A02", 1, child_trace_records()
+    )
+    if "gongbu#0001" in limited or "gongbu#0002" not in limited:
+        failures.append("child_trace_limit_did_not_select_latest_complete_instance")
+    wrong_task = archive_runtime_task.compact_events("OTHER-TASK", 100, child_trace_records())
+    if "invalid child trace" not in wrong_task or "accepted bounded assignment" in wrong_task:
+        failures.append("child_trace_task_argument_binding_missing")
 
 
 def main() -> int:
