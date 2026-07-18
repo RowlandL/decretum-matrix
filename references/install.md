@@ -95,10 +95,11 @@ default references: %USERPROFILE%\.agents\court-shiguan\decretum-matrix\referenc
 override env: COURT_SHARED_SHIGUAN_ROOT or SHIGUAN_SHARED_ROOT
 ```
 
-The old `%LOCALAPPDATA%\court-shiguan\court-capability-router` path is a
-migration source only. A governed whole-directory rename may remove it once the
-new root is the sole physical store; it must never remain as a second writable
-Shiguan store.
+The old `%USERPROFILE%\.agents\court-shiguan\court-capability-router` and
+`%LOCALAPPDATA%\court-shiguan\court-capability-router` paths are migration
+sources only. A governed whole-directory rename may remove the physical source
+once the new root is the sole physical store; an exact junction may remain as a
+compatibility alias, but neither locator may remain as a second writable store.
 
 On a blank host, do not invoke a Shiguan service, daemon, WebUI startup, or
 shared-root writer before the read-only probe. After the probe and explicit

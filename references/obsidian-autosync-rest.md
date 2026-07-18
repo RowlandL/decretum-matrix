@@ -10,8 +10,10 @@ vault 的同步、Local REST API、插件和父 vault 入口规则。现存
 
 权威史馆数据根由 `scripts/shiguan_paths.py` 决定。默认路径为：
 `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`。迁移前的
+`%USERPROFILE%\.agents\court-shiguan\court-capability-router\references` 与
 `%LOCALAPPDATA%\court-shiguan\court-capability-router\references` 只作为显式
-legacy source 识别，不得继续成为活动物理库。活动根可由
+legacy source 识别；指向同一物理库的已验证 junction 只是兼容别名，不算第二物理库。
+legacy source 不得继续成为活动物理库。活动根可由
 `COURT_SHARED_SHIGUAN_ROOT` 或 `SHIGUAN_SHARED_ROOT` 覆盖。Codex、Hermes 与
 Agent Skills 的 skill-local `references/` 不是运行时权威库。
 
@@ -66,7 +68,7 @@ official records.
 
 - 默认权威共享史馆数据根：`%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`
 - 默认权威史馆树：`%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references\shiguan-tree`
-- 迁移前 legacy source：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references`
+- 迁移前 legacy sources：`%USERPROFILE%\.agents\court-shiguan\court-capability-router\references`、`%LOCALAPPDATA%\court-shiguan\court-capability-router\references`
 - 默认父 Obsidian vault：`%USERPROFILE%\Documents\Obsidian Vault`
 - 默认父 vault 入口：`%USERPROFILE%\Documents\Obsidian Vault\史馆入口.md`
 - 默认 Obsidian 缓存镜像：`%USERPROFILE%\Documents\Obsidian Vault\Court Shiguan`

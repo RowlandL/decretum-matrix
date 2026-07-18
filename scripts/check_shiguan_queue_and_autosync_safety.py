@@ -24,6 +24,7 @@ sys.path.insert(0, str(SCRIPTS))
 import ensure_shiguan_autosync as autosync  # noqa: E402
 import ensure_obsidian_shared_vault as obsidian  # noqa: E402
 import check_shiguan_import_queue as import_queue  # noqa: E402
+import migrate_shared_shiguan as migration  # noqa: E402
 import shiguan_paths  # noqa: E402
 
 
@@ -173,8 +174,10 @@ def check_autosync_health_truth() -> dict[str, object]:
 
     with tempfile.TemporaryDirectory(prefix="court-autosync-health-") as raw_temp:
         isolated_lock = Path(raw_temp) / "obsidian-autosync-ensure.lock"
+        isolated_env = {"COURT_SHARED_SHIGUAN_ROOT": str(Path(raw_temp) / "court-data")}
         with (
             mock.patch.object(autosync, "ensure_lock_path", return_value=isolated_lock),
+            mock.patch.dict(os.environ, isolated_env),
             mock.patch.object(autosync, "read_json", return_value=fresh_status(101)),
             mock.patch.object(autosync, "pid_alive", side_effect=lambda pid: pid == 101),
             mock.patch.object(autosync, "find_running_daemon_pid", return_value=101),
@@ -185,6 +188,7 @@ def check_autosync_health_truth() -> dict[str, object]:
         stale = {"pid": 202, "updated_at": "2000-01-01T00:00:00", "interval_seconds": 20}
         with (
             mock.patch.object(autosync, "ensure_lock_path", return_value=isolated_lock),
+            mock.patch.dict(os.environ, isolated_env),
             mock.patch.object(autosync, "read_json", return_value=stale),
             mock.patch.object(autosync, "pid_alive", side_effect=lambda pid: pid == 202),
             mock.patch.object(autosync, "find_running_daemon_pid", return_value=202),
@@ -196,6 +200,7 @@ def check_autosync_health_truth() -> dict[str, object]:
         require("status_stale_or_missing" in str(unhealthy.get("reason")), "stale reason was not preserved")
 
         with (
+            mock.patch.dict(os.environ, isolated_env),
             mock.patch.object(autosync, "read_json", return_value=stale),
             mock.patch.object(autosync, "pid_alive", side_effect=lambda pid: pid == 202),
             mock.patch.object(autosync, "find_running_daemon_pid", return_value=202),
@@ -212,6 +217,7 @@ def check_autosync_health_truth() -> dict[str, object]:
 
         with (
             mock.patch.object(autosync, "ensure_lock_path", return_value=isolated_lock),
+            mock.patch.dict(os.environ, isolated_env),
             mock.patch.object(autosync, "read_json", return_value=fresh_status(303)),
             mock.patch.object(autosync, "pid_alive", return_value=True),
             mock.patch.object(
@@ -226,6 +232,7 @@ def check_autosync_health_truth() -> dict[str, object]:
 
         with (
             mock.patch.object(autosync, "ensure_lock_path", return_value=isolated_lock),
+            mock.patch.dict(os.environ, isolated_env),
             mock.patch.object(autosync, "read_json", return_value=stale),
             mock.patch.object(autosync, "pid_alive", return_value=True),
             mock.patch.object(autosync, "find_running_daemon_pid", return_value=0),
@@ -254,6 +261,7 @@ def check_autosync_health_truth() -> dict[str, object]:
         "updated_at": "not-a-time",
     }
     with (
+        mock.patch.dict(os.environ, isolated_env),
         mock.patch.object(autosync, "read_json", return_value=malformed),
         mock.patch.object(autosync, "find_running_daemon_pid", return_value=0),
     ):
@@ -295,6 +303,66 @@ def check_install_path_convergence() -> dict[str, object]:
             )
             == canonical,
             "renamed target-only shared root is not selectable",
+        )
+
+        upgrade_home = fixture / "upgrade-home"
+        upgrade_data = fixture / "upgrade-localappdata"
+        upgrade_target = shiguan_paths.default_shared_root(upgrade_home)
+        prior = shiguan_paths.default_previous_shared_root(upgrade_home)
+        localappdata = shiguan_paths.default_legacy_shared_root(upgrade_data)
+        prior_refs = prior / "references"
+        localappdata_refs = localappdata / "references"
+        prior_refs.mkdir(parents=True)
+        selected = shiguan_paths.default_migration_source_root(upgrade_home, upgrade_data)
+        require(
+            selected == prior and shiguan_paths._active_shared_root(upgrade_target, selected) == prior,
+            "published .agents root was not kept active",
+        )
+        target_refs = upgrade_target / "references"
+        with (
+            mock.patch.object(migration, "default_migration_source_root", return_value=prior),
+            mock.patch.object(migration, "default_shared_root", return_value=upgrade_target),
+        ):
+            plan = migration.migration_plan()
+        require(
+            (plan["source_root"], plan["target_root"]) == (str(prior_refs), str(target_refs)),
+            "default migration plan ignored selector",
+        )
+        original_kind = shiguan_paths._path_kind
+
+        def select_with(kinds: dict[Path, str], targets: dict[Path, Path]) -> object:
+            with (
+                mock.patch.object(shiguan_paths, "_path_kind", side_effect=lambda p: kinds.get(Path(p)) or original_kind(Path(p))),
+                mock.patch.object(shiguan_paths, "_resolved_junction_target", side_effect=lambda p: targets.get(Path(p)) or Path(p).resolve(strict=True)),
+            ):
+                try:
+                    return shiguan_paths.default_migration_source_root(upgrade_home, upgrade_data)
+                except RuntimeError as exc:
+                    return str(exc)
+
+        require(
+            select_with({localappdata_refs: "junction"}, {localappdata_refs: prior_refs}) == prior,
+            "exact alias counted as physical",
+        )
+        target_refs.mkdir(parents=True)
+        junctions = {prior_refs: "junction", localappdata_refs: "junction"}
+        require(select_with(junctions, dict.fromkeys(junctions, target_refs)) == prior, "exact aliases blocked")
+        single = {prior_refs: "absent", localappdata_refs: "junction"}
+        require(select_with(single, {localappdata_refs: target_refs}) == localappdata, "exact single alias blocked")
+        for kind in ("unknown", "other", "symlink", "reparse"):
+            require(
+                select_with({prior_refs: kind}, {}) == "transitional_shiguan_legacy_root_untrusted",
+                f"untrusted {kind} accepted",
+            )
+        require(
+            select_with(single, {localappdata_refs: fixture / "wrong-target"})
+            == "transitional_shiguan_multiple_legacy_roots",
+            "mismatched junction accepted",
+        )
+        localappdata_refs.mkdir(parents=True)
+        require(
+            select_with({}, {}) == "transitional_shiguan_multiple_legacy_roots",
+            "two physical roots accepted",
         )
         with (
             mock.patch.object(autosync.Path, "home", return_value=home),
@@ -349,6 +417,7 @@ def check_install_path_convergence() -> dict[str, object]:
 
         with (
             mock.patch.object(obsidian, "read_config_snapshot", return_value=base),
+            mock.patch.object(obsidian, "build_sync_config", return_value=rebound),
             mock.patch.object(obsidian, "patch_config", side_effect=capture_patch),
         ):
             obsidian.update_sync_config(source)

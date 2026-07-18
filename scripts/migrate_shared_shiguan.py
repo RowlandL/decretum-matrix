@@ -17,9 +17,9 @@ from shiguan_paths import (
     _cutover_receipt_sha256,
     _success_rollback_is_consumable,
     _valid_empty_binding_snapshot,
+    default_migration_source_root,
     default_shared_root,
 )
-from court_platform import user_data_base
 from court_file_lock import atomic_write_text
 from court_safe_fs import SafeFilesystemError, validate_relative_path
 
@@ -1286,12 +1286,7 @@ def execute_atomic_cutover(
 def migration_plan(
     source_root: Path | None = None, target_root: Path | None = None
 ) -> dict[str, object]:
-    source = source_root or (
-        user_data_base()
-        / "court-shiguan"
-        / "court-capability-router"
-        / "references"
-    )
+    source = source_root or (default_migration_source_root() / "references")
     target = target_root or (default_shared_root() / "references")
     return {
         "schema": "court.shiguan_atomic_cutover.plan.v1",

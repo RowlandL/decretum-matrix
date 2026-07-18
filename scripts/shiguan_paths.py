@@ -101,6 +101,10 @@ def default_shared_root(home: Path | None = None) -> Path:
     ).resolve()
 
 
+def default_previous_shared_root(home: Path | None = None) -> Path:
+    return default_shared_root(home).with_name("court-capability-router")
+
+
 def default_legacy_shared_root(data_base: Path | None = None) -> Path:
     base = data_base or user_data_base()
     return Path(
@@ -108,6 +112,35 @@ def default_legacy_shared_root(data_base: Path | None = None) -> Path:
             str(base / "court-shiguan" / "court-capability-router")
         )
     )
+
+
+def default_migration_source_root(
+    home: Path | None = None, data_base: Path | None = None
+) -> Path:
+    target = default_shared_root(home)
+    candidates = tuple(
+        root
+        for root in (default_previous_shared_root(home), default_legacy_shared_root(data_base))
+        if not _same_lexical_path(root, target)
+    )
+    present = [
+        (root, kind)
+        for root in candidates
+        if (kind := _path_kind(root / "references")) != "absent"
+    ]
+    if any(kind not in {"directory", "junction"} for _, kind in present):
+        raise RuntimeError("transitional_shiguan_legacy_root_untrusted")
+    physical = [root for root, kind in present if kind == "directory"]
+    if len(physical) > 1:
+        raise RuntimeError("transitional_shiguan_multiple_legacy_roots")
+    selected = physical[0] if physical else (present[0][0] if present else candidates[0])
+    expected = (physical[0] if physical else target) / "references"
+    for root, kind in present:
+        if kind == "junction":
+            alias_target = _resolved_junction_target(root / "references")
+            if alias_target is None or not _same_lexical_path(alias_target, expected):
+                raise RuntimeError("transitional_shiguan_multiple_legacy_roots")
+    return selected
 
 
 def _same_lexical_path(left: Path, right: Path) -> bool:
@@ -945,7 +978,7 @@ def shared_root() -> Path:
             break
     if explicit_override and not _same_lexical_path(target, canonical_target):
         return target
-    return _active_shared_root(target, default_legacy_shared_root())
+    return _active_shared_root(target, default_migration_source_root())
 
 
 def references_root() -> Path:
