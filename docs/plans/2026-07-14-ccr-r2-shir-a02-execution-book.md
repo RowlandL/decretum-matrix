@@ -1196,3 +1196,26 @@ Git index empty
 - **三省裁定：** 中书预算审查通过；门下 frozen targeted review=`ACCEPT`；尚书 frozen integration review=`FINAL_APPROVE`。最终 archive/host/checker SHA-256 分别为 `36FF55CDF32F892924E3E77A3143DC8A669A9C02C9CC94797135969CEDD6B6A9`、`AC4A56E34933F0F937B8CF142C09FE9B42354240B955A3F9C3857F032DAD477C`、`1EDD84B82211766772127A437196AFB0D02CF1CE9B4C06E03855E9FB3CCA0A76`。
 - **质量证据：** focused checker、`check_court_runtime.py`、隔离 shared-root 的 `check_court_runtime_completion.py`（18 cases）、`check_read_only_contract.py`、`check_portability.py`、`quick_validate.py .`、`check_release_manifest.py`、`check_source_state_budget.py`、`git diff --check` 与 `.pyc=0` 均 PASS；portable source=`6224086/6225000`，headroom=`914`，pending body reads/access=`0/NO`。
 - **未通过项与顺位：** 当前 beta0.5.12 baseline 的 `check_catalog.py --strict` 对已迁移 host 返回 `shared_shiguan_path_error`，故 `MAINLINE_ACCEPTED_BASELINE_GATE` 继续为 `BASELINE_NOT_ACCEPTED`。下一游标为 `OBS_LOCAL_HOTFIX_INTEGRATION_REVIEW -> MAINLINE_ACCEPTED_BASELINE_GATE`；独立 hotfix 未经该既有三省 integration gate 前不得 cherry-pick、吸收或改写本 cluster。
+
+### A02 完成后的《声无哀乐》最终循环交接 overlay
+
+- 后续任务书：`docs/plans/2026-07-18-decretum-matrix-sheng-wu-ai-le-final-stage-task-book.md`；本执行书不复制其正文。
+- 阶段属性：该任务书整体是 A02 完成后接续的一个 `FINAL_MAJOR_STAGE`；其内部工作包不得再提升为新的主线 Phase、版本循环或平行项目。
+- 启动游标：`A02_ALL_PHASES_AND_TASKS_PASS -> A02_COMPLETION_CONTRACT_PASS -> A02_ACCEPTED_BASELINE_FROZEN -> MAJOR_STAGE_HANDOFF_ACCEPTED -> SHENG_WU_AI_LE_FINAL_STAGE_READY`。
+- 本 overlay 不改变 A02 当前目标、执行顺序、权限、写集、版本边界或既有验收；A02 未完整通过前，后续任务书始终为 `DEFERRED`，不得提前实施。
+- A02 通过后，沿用 §3.3 完成一次且仅一次的任务、release child worktree 与紧凑凭据交接；后续任务书沿用 §3.1、§3.1A、§3.1B 和 §3.2 的阶段循环合同。
+- 后续任务书是主线最后一个循环。其整体完成后不得再创建下一 major-stage 任务、分支或工作树，游标直接进入 `PROJECT_FINAL_CLOSEOUT`。
+- 本执行书原有“完整结诏和恢复父 Task 3”终态延后到 `SHENG_WU_AI_LE_FINAL_STAGE=PASS` 与 `PROJECT_FINAL_CLOSEOUT=PASS`；此前只能完成 A02 自身验收和最终循环交接，不得宣称整个项目已经结项。
+- 后续阶段及其正式交付必须执行语义清洗，采用稳定的产品、治理、架构、能力、证据与验收用语，不携带阶段性开发过程词汇、临时定位措辞、工具内部状态标签、分支处置口令或实现现场残留。
+- 当前状态：`TASK_BOOK_PACKAGED_MD=YES`、`A02_FINAL_LOOP_HANDOFF_RECORDED=YES`、`SHENG_WU_AI_LE_FINAL_STAGE=DEFERRED`。
+
+### 2026-07-18 beta0.5.12 mainline repair acceptance（append-only receipt）
+
+- **Accepted commits：** `9d72bdad0d1f724a5e1bbcaab317c1792644c381`（保护四锚点、legacy semantic bootstrap、预算收敛）与 `50cf3ff`（发布包 synthetic-secret fixture 收敛）；branch=`release/beta0.5.12`，child/root index=`0/0`。
+- **Hotfix integration：** `66fbbccb -> 4f164f9`、`c74fd059 -> 68d1d3e`、`07f3e04 -> 5ea27a0` 的 stable patch-id 分别一致，follow-up=`4ead41a`；状态=`EQUIVALENTLY_INTEGRATED`，不得重复 cherry-pick。
+- **Host repair：** canonical installed skill root=`C:\Users\32893\.agents\skills\decretum-matrix`；四个 protected anchors 已按 beta0.5.11 release ZIP 原长度/SHA-256 恢复；五根 active-copy=`PASS`；旧 skill physical root 不再是 authority；pending body access=`NO`。
+- **Source acceptance：** semantic/runtime/installer `28/28`、configuration `31/31`、strict catalog、portability、read-only、payload manifest、privacy `61/61`、artifact builder、legal 与 source budget 全部通过；portable source=`6224776/6225000`。
+- **阶段裁定：** `MAINLINE_SOURCE_GATE=PASS`、`MAINLINE_ACCEPTED_BASELINE_GATE=P0_ENTRY_ACCEPTED`。安装期 `codex_privacy_contract=unknown_configuration_field` 与 14-role parity drift 依最新用户规则顺延至 beta0.5.12 发布前 host projection 验收；不得用旧 profile 覆盖当前 `.codex/agents`，且不阻断 P0/Q0。
+- **当前游标：** `POST_MAINLINE_REBASE/P0 -> OFFICE_PACK_Q0`。P0/Q0 只做 accepted baseline 与只读 inventory，不提前实现 Office Pack/DLC/scope/promotion。
+- **贯通策略：** 后续每阶段持续优先最小完整机制，回收重复和非必要复杂度，不抬预算掩盖增长；每次 handoff 必须明确传递“小而美”策略与 `pending_body_access=NO`。
+- **beta0.5.12 invocation repair：** 当前已安装 beta0.5.11 存在偶发无法调出 `$decretum-matrix` / 三省六部入口的问题；beta0.5.12 本机安装阶段必须修复 skill discovery/invocation 链，并以 canonical skill 与三省入口的真实调用 smoke 验收。该要求不授权扩大到无关宿主配置，也不得用旧 profile 覆盖较新的 `.codex/agents`；调用 smoke 未通过时 `PER_RELEASE_LOCAL_INSTALL` 不得报 PASS。

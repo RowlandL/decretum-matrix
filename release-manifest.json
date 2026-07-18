@@ -1701,7 +1701,7 @@
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
     "payload_index_sha256": "559e03d32a56b1add881bc187fd003316d01651cd0819158a44ed92e557b3e7d",
     "source_packaged_tracked_file_count": 269,
-    "source_tracked_file_count": 282
+    "source_tracked_file_count": 283
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1722,6 +1722,7 @@
     "docs/plans/2026-07-16-decretum-matrix-dual-license-rights-and-provenance-plan.md",
     "docs/plans/2026-07-16-decretum-matrix-office-identity-pack-dlc-and-scope-plan.md",
     "docs/plans/2026-07-16-decretum-matrix-taizi-three-departments-and-shangshu-six-ministries-dispatch-plan.md",
+    "docs/plans/2026-07-18-decretum-matrix-sheng-wu-ai-le-final-stage-task-book.md",
     "package-lock.json",
     "package.json",
     "scripts/build_npm_package.mjs",
