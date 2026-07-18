@@ -1369,6 +1369,68 @@ def check_legacy_v2_v3_are_diagnostic_only_until_semantically_bound() -> None:
                 raise AssertionError("LEGACY_DISPATCH_ACCEPTED")
             if court_runtime.tasks_path().read_bytes() != before:
                 raise AssertionError("LEGACY_REJECTED_MUTATION_CHANGED_LEDGER")
+
+            for field in court_runtime.LEGACY_SEMANTIC_BINDING_FIELDS:
+                if court_runtime._legacy_semantic_bootstrap(
+                    {**legacy_tasks["legacy-v3"], field: None}
+                ):
+                    raise AssertionError(f"LEGACY_PARTIAL_BINDING_ACCEPTED:{field}")
+
+            def bootstrap_args(task_id: str) -> Namespace:
+                old = str(legacy_tasks[task_id]["charter"])
+                args = _revise_args(task_id, old_charter=old, new_charter=old + " bound")
+                args.expected_revision = 0
+                args.new_revision = 1
+                return args
+
+            def ledger_bytes():
+                return tuple(
+                    path.read_bytes() if path.exists() else None
+                    for path in (court_runtime.tasks_path(), court_runtime.events_path())
+                )
+
+            def rejected(args: Namespace, error_type: type[Exception]) -> None:
+                preimage = ledger_bytes()
+                try:
+                    court_runtime.revise_charter_task(args)
+                except error_type:
+                    pass
+                else:
+                    raise AssertionError("LEGACY_REJECT_ACCEPTED")
+                if ledger_bytes() != preimage:
+                    raise AssertionError("LEGACY_REJECT_MUTATED_LEDGER")
+
+            for field, value in (("expected_revision", 1), ("expected_sha256", "0" * 64)):
+                args = bootstrap_args("legacy-v3")
+                setattr(args, field, value)
+                rejected(args, ValueError)
+
+            original_append_event = court_runtime.append_event
+            court_runtime.append_event = lambda _event: (_ for _ in ()).throw(
+                RuntimeError("injected append failure")
+            )
+            try:
+                rejected(
+                    bootstrap_args("legacy-v2"), RuntimeError
+                )
+            finally:
+                court_runtime.append_event = original_append_event
+
+            for task_id in legacy_tasks:
+                revised = court_runtime.revise_charter_task(
+                    bootstrap_args(task_id)
+                ).task
+                if tuple(revised.get(key) for key in (
+                    "charter_revision", "semantic_epoch", "semantic_state"
+                )) != (1, 1, "REVERIFY"):
+                    raise AssertionError(f"LEGACY_BOOTSTRAP_INVALID:{task_id}")
+            court_runtime.semantic_checkpoint_task(
+                _semantic_args("legacy-v3", "checkpoint")
+            )
+            if court_runtime.semantic_verify_task(
+                _semantic_args("legacy-v3", "verify")
+            ).task.get("semantic_state") != "DISPATCHABLE":
+                raise AssertionError("LEGACY_BOOTSTRAP_NOT_DISPATCHABLE")
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 

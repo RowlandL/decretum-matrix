@@ -14,6 +14,9 @@ import shutil
 import sys
 import tempfile
 from typing import Any, Callable
+
+sys.dont_write_bytecode = True
+from install_current_agent_copy import PROTECTED_SHARED_AGENT_CONTRACT_SHA256
 Payload = dict[str, object]
 Installer = Callable[..., object]
 
@@ -21,10 +24,6 @@ try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
-
-
-sys.dont_write_bytecode = True
-
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_PATH = ROOT / "scripts" / "install_current_agent_copy.py"
@@ -168,6 +167,12 @@ PORTABLE_FILES = (
     IDENTITY_MANIFEST_RELATIVE,
     "scripts/portable-helper.py",
 )
+PROTECTED_SEEDS = {
+    "references/shiguan-index.jsonl": "",
+    "references/shiguan-knowledge-graph.json": "{}",
+    "references/shiguan-tree/_index.md": "tree seed",
+    "references/shiguan-tree/capability-index/_index.md": "capability seed",
+}
 REPOSITORY_ONLY_FILES = (
     "docs/internal-plan.md",
 )
@@ -249,6 +254,12 @@ def _validate_manifest(
             f"{label}:identity_manifest:{manifest.get('identity_manifest')!r}!="
             f"{IDENTITY_MANIFEST_RELATIVE!r}"
         )
+
+    protected = manifest.get("protected_shared_agents_seeds")
+    if not isinstance(protected, dict) or _sha256_bytes(
+        json.dumps(protected, sort_keys=True, separators=(",", ":")).encode()
+    ) != PROTECTED_SHARED_AGENT_CONTRACT_SHA256:
+        errors.append(f"{label}:protected_shared_agents_seeds")
 
     policy = manifest.get("policy")
     if not isinstance(policy, dict):
@@ -344,6 +355,10 @@ def _fixture_manifest() -> Payload:
         "schema": PROJECTION_SCHEMA,
         "identity_manifest": IDENTITY_MANIFEST_RELATIVE,
         "policy": dict(POLICY_EXPECTED),
+        "protected_shared_agents_seeds": {
+            path: _sha256_bytes(text.encode("utf-8"))
+            for path, text in PROTECTED_SEEDS.items()
+        },
         "projections": {
             "shared_agents": list(PORTABLE_FILES),
             "portable_current_tool": list(PORTABLE_FILES),
@@ -387,6 +402,7 @@ def _write_fixture_source(
         "scripts/portable-helper.py": "VALUE = 'portable'\n",
         "docs/internal-plan.md": "# repository only\n",
     }
+    contents.update(PROTECTED_SEEDS)
     _write_files(source_root, contents)
     identity_path = source_root / Path(IDENTITY_MANIFEST_RELATIVE)
     identity_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1454,6 +1470,13 @@ def _assert_projection(
     for relative in REPOSITORY_ONLY_FILES:
         if (target_root / Path(relative)).exists():
             errors.append(f"{name}:repository_only_installed:{relative}")
+    for relative, text in PROTECTED_SEEDS.items():
+        path = target_root / Path(relative)
+        if ".agents" in target_root.parts:
+            if not path.is_file() or path.read_text(encoding="utf-8") != text:
+                errors.append(f"{name}:protected_seed_drift:{relative}")
+        elif path.exists():
+            errors.append(f"{name}:protected_seed_wrong_target:{relative}")
 
 
 def _tx_fixture(temp_root: Path, label: str, legacy: bool) -> tuple[object, ...]:
@@ -1700,6 +1723,7 @@ def _check_cases(
     temp_root: Path,
     errors: list[str],
 ) -> int:
+    install.__globals__["PROTECTED_SHARED_AGENT_CONTRACT_SHA256"] = _sha256_bytes(json.dumps(_fixture_manifest()["protected_shared_agents_seeds"], sort_keys=True, separators=(",", ":")).encode())
     passed = 0
 
     def install_args(
@@ -1846,6 +1870,42 @@ def _check_cases(
             errors.append("fixed_five_root_fanout_rejected:partial_mutation")
         else:
             passed += 1
+
+    for name, target_kind, reason in (
+        ("protected_anchor_drift_rejected", "agents", "protected_anchor_drift"),
+        ("protected_anchor_wrong_target_rejected", "codex", "protected_anchor_wrong_target"),
+        ("protected_anchor_source_drift_rejected", "source", "protected_anchor_source_drift"),
+    ):
+        source, home, manifest, roots = _case_fixture(temp_root, name)
+        target = source if target_kind == "source" else (
+            _agents_root(home) if target_kind == "agents" else roots["codex"]
+        )
+        relative = next(iter(PROTECTED_SEEDS))
+        _write_files(target, {relative: "drift\n"})
+        before = _snapshots([_agents_root(home), roots["codex"]])
+        if _require_rejection(
+            install,
+            name=name,
+            reason=reason,
+            errors=errors,
+            **install_args(source, home, manifest, roots, write=True),
+        ):
+            if _snapshots([_agents_root(home), roots["codex"]]) != before:
+                errors.append(f"{name}:partial_mutation")
+            else:
+                passed += 1
+
+    bad_manifest = _fixture_manifest()
+    protected = bad_manifest["protected_shared_agents_seeds"]
+    assert isinstance(protected, dict)
+    protected[next(iter(protected))] = "0" * 64
+    source, home, manifest, roots = _case_fixture(temp_root, "protected-contract", bad_manifest)
+    if _require_rejection(
+        install, name="protected_contract_drift_rejected",
+        reason="projection_manifest_invalid", errors=errors,
+        **install_args(source, home, manifest, roots, write=False),
+    ):
+        passed += 1
 
     passed += _check_tx_cases(install, temp_root, errors, legacy=True)
     passed += _check_tx_cases(install, temp_root, errors, legacy=False)
@@ -2710,7 +2770,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 24,
+        "declared_cases": 28,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

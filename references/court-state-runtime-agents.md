@@ -1057,10 +1057,10 @@ Agent group rules:
 ## RC2 Semantic Continuity And Operation Authority
 
 `tasks.json` current-task records and append-only `court_events.jsonl` remain
-the only runtime authority. Runtime-schema v2/v3 records that lack a body-bound
-semantic binding may be listed and diagnosed, but every mutation fails closed
-with `legacy_semantic_binding_read_only`; normalization never upgrades their
-stored bytes.
+the only runtime authority. Unbound runtime-schema v2/v3 records are diagnostic
+only. Mutations fail with `legacy_semantic_binding_read_only` except the audited
+`revise-charter` revision `0 -> 1` bootstrap when every binding key is absent
+and the exact old charter hash matches; normalization never upgrades bytes.
 
 A writable task binds `charter_revision == semantic_epoch`, the exact charter
 SHA-256, and an invariant capsule of at most 2 KiB. The capsule carries the

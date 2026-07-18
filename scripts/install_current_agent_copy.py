@@ -10,6 +10,7 @@ safe while using the canonical ``decretum-matrix`` physical install directory.
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -58,6 +59,15 @@ FORBIDDEN_PROJECTION_PREFIXES = (
     ("references", "memory-decisions"),
     ("references", "shiguan-imports"),
     ("references", "shiguan-tree"),
+)
+PROTECTED_SHARED_AGENT_PATHS = {
+    "references/shiguan-index.jsonl",
+    "references/shiguan-knowledge-graph.json",
+    "references/shiguan-tree/_index.md",
+    "references/shiguan-tree/capability-index/_index.md",
+}
+PROTECTED_SHARED_AGENT_CONTRACT_SHA256 = (
+    "36af654a6c1ca18b16f2479fc77cdde2666d796070e2cb47ff52401a65722e08"
 )
 
 _MISSING = object()
@@ -174,6 +184,24 @@ def _load_projection_contract(
     if portable & repository_only:
         raise _InstallContractError(
             "projection_manifest_invalid", "repository_only_overlap"
+        )
+    protected = manifest.get("protected_shared_agents_seeds")
+    if not isinstance(protected, dict) or hashlib.sha256(json.dumps(
+        protected, sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest() != PROTECTED_SHARED_AGENT_CONTRACT_SHA256 or set(protected) != PROTECTED_SHARED_AGENT_PATHS or any(
+        not _safe_relative(path)
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or digest != digest.lower()
+        or any(character not in "0123456789abcdef" for character in digest)
+        for path, digest in protected.items()
+    ):
+        raise _InstallContractError(
+            "projection_manifest_invalid", "protected_seeds_invalid"
+        )
+    if portable & set(protected):
+        raise _InstallContractError(
+            "projection_manifest_invalid", "protected_seed_projection_overlap"
         )
 
     bindings = manifest.get("persistent_bindings")
@@ -475,6 +503,19 @@ def _plan_projection_writes(
     operations: list[tuple[Path, bytes, bytes | None]] = []
     identical = 0
     replacements = 0
+    seed_contract = manifest["protected_shared_agents_seeds"]
+    assert isinstance(seed_contract, dict)
+    protected: list[tuple[PurePosixPath, bytes]] = []
+    for name, expected in sorted(seed_contract.items()):
+        relative = PurePosixPath(name)
+        source = source_root / Path(name)
+        if not _within(source, source_root) or source.is_symlink() or not source.is_file():
+            raise _InstallContractError("protected_anchor_source_invalid", name)
+        payload = source.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != expected:
+            raise _InstallContractError("protected_anchor_source_drift", name)
+        protected.append((relative, payload))
+    protected_paths = {relative.as_posix() for relative, _payload in protected}
     for _label, target, projection_name in selected:
         migration_source = (migration_sources or {}).get(target.resolve(strict=False))
         inspection_root = migration_source or target
@@ -482,7 +523,17 @@ def _plan_projection_writes(
             values = projections[projection_name]
             assert isinstance(values, list)
             expanded[projection_name] = _expand_projection(source_root, values)
-        for relative, payload in expanded[projection_name]:
+        if projection_name != "shared_agents":
+            for relative, _payload in protected:
+                wrong_target = inspection_root / Path(relative.as_posix())
+                if wrong_target.exists() or wrong_target.is_symlink():
+                    raise _InstallContractError(
+                        "protected_anchor_wrong_target", wrong_target.as_posix()
+                    )
+        entries = expanded[projection_name] + (
+            protected if projection_name == "shared_agents" else []
+        )
+        for relative, payload in entries:
             destination = target / Path(relative.as_posix())
             existing = inspection_root / Path(relative.as_posix())
             if not _within(destination, target) or not _parent_chain_is_directory(
@@ -498,6 +549,10 @@ def _plan_projection_writes(
                     )
                 previous = existing.read_bytes()
                 if previous != payload:
+                    if relative.as_posix() in protected_paths:
+                        raise _InstallContractError(
+                            "protected_anchor_drift", existing.as_posix()
+                        )
                     if migration_source is None:
                         raise _InstallContractError(
                             "target_conflict", existing.as_posix()

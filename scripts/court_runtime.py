@@ -2583,6 +2583,23 @@ def require_semantic_mutation_binding(task: dict[str, Any]) -> None:
         raise ValueError("legacy_semantic_binding_read_only:" + ",".join(problems))
 
 
+LEGACY_SEMANTIC_BINDING_FIELDS = (
+    "charter_revision",
+    "semantic_epoch",
+    "charter_sha256",
+    "invariant_capsule",
+    "invariant_capsule_sha256",
+    "semantic_state",
+    "semantic_receipt",
+    "semantic_receipt_id",
+    "semantic_receipts",
+)
+
+
+def _legacy_semantic_bootstrap(task: dict[str, object]) -> bool:
+    return all(field not in task for field in LEGACY_SEMANTIC_BINDING_FIELDS)
+
+
 @dataclass
 class TransitionResult:
     task: dict[str, Any]
@@ -4165,13 +4182,21 @@ def revise_charter_record(
         raise ValueError("unknown_actor_office")
     if str(revised.get("state") or "Pending") not in RECHARTERABLE_STATES:
         raise ValueError("task_state_cannot_be_rechartered")
-    if revised.get("charter_revision") != expected_revision:
-        raise ValueError("stale_charter_revision")
     canonical_expected_sha256 = _canonical_sha256(
         expected_sha256,
         "invalid_expected_charter_sha256",
     )
-    if str(revised.get("charter_sha256") or "").lower() != canonical_expected_sha256:
+    if _legacy_semantic_bootstrap(revised):
+        current_charter = revised.get("charter")
+        if expected_revision != 0:
+            raise ValueError("stale_charter_revision")
+        if not isinstance(current_charter, str) or hashlib.sha256(
+            current_charter.encode("utf-8")
+        ).hexdigest() != canonical_expected_sha256:
+            raise ValueError("stale_charter_sha256")
+    elif revised.get("charter_revision") != expected_revision:
+        raise ValueError("stale_charter_revision")
+    elif str(revised.get("charter_sha256") or "").lower() != canonical_expected_sha256:
         raise ValueError("stale_charter_sha256")
     if new_revision != expected_revision + 1:
         raise ValueError("invalid_charter_revision_increment")
@@ -4406,7 +4431,8 @@ def revise_charter_task(args: argparse.Namespace) -> TransitionResult:
         task = tasks.get(args.task_id)
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
-        require_semantic_mutation_binding(task)
+        if not _legacy_semantic_bootstrap(task):
+            require_semantic_mutation_binding(task)
         revised = revise_charter_record(
             task,
             expected_revision=args.expected_revision,

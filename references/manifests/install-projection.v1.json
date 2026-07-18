@@ -8,6 +8,12 @@
     "extra_targets": "explicit_latest_user_request_only",
     "fanout": "forbidden"
   },
+  "protected_shared_agents_seeds": {
+    "references/shiguan-index.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "references/shiguan-knowledge-graph.json": "2f0454eec5355fb502624fb3658c477386da668920836fd0e33ff9ad47ec4922",
+    "references/shiguan-tree/_index.md": "ce5671b2da87093f9b0d6a17d030be39c5a0632db98cff6d3a0671a671fb4169",
+    "references/shiguan-tree/capability-index/_index.md": "01bc65df443e52103fc08b86de8f5250b8630e13dde4b3b6c5b5dc7ed09aef7a"
+  },
   "projections": {
     "shared_agents": [
       "SKILL.md",

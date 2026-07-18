@@ -11,6 +11,7 @@ import sys
 sys.dont_write_bytecode = True
 
 from court_platform import user_data_base
+from install_current_agent_copy import PROTECTED_SHARED_AGENT_CONTRACT_SHA256
 
 
 CANONICAL_INSTALL_DIRECTORY_NAME = "decretum-matrix"
@@ -107,13 +108,18 @@ def should_skip(path: Path, root: Path) -> bool:
     return False
 
 
-def forbidden_generated_artifacts(root: Path) -> list[str]:
+def forbidden_generated_artifacts(
+    root: Path, allowed_protected: set[str] | None = None
+) -> list[str]:
     artifacts: list[str] = []
+    allowed = allowed_protected or set()
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
         text = relative.as_posix()
+        if text in allowed:
+            continue
         if (
             "__pycache__" in relative.parts
             or relative.suffix.lower() == ".pyc"
@@ -155,16 +161,41 @@ def sha256(path: Path) -> str:
     return digest.hexdigest().upper()
 
 
+def protected_anchor_contract() -> tuple[dict[str, str], list[str]]:
+    path = Path(__file__).resolve().parent.parent / "references/manifests/install-projection.v1.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))["protected_shared_agents_seeds"]
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        return {}, [f"protected_anchor_contract:{type(exc).__name__}"]
+    digest = hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if not isinstance(value, dict) or digest != PROTECTED_SHARED_AGENT_CONTRACT_SHA256:
+        return {}, ["protected_anchor_contract:manifest_drift"]
+    return {str(key): str(digest).lower() for key, digest in value.items()}, []
+
+
 def check(files: list[str] | None = None) -> dict[str, object]:
     roots = active_roots()
+    protected, contract_errors = protected_anchor_contract()
     legacy_conflicts = legacy_locator_conflicts(roots)
     missing_roots = [str(root) for root in roots if not root.exists()]
     forbidden_generated: dict[str, list[str]] = {}
-    for root in roots:
+    for index, root in enumerate(roots):
         if root.exists():
-            artifacts = forbidden_generated_artifacts(root)
+            artifacts = forbidden_generated_artifacts(
+                root, set(protected) if index == 0 else None
+            )
             if artifacts:
                 forbidden_generated[str(root)] = artifacts
+    protected_drift: list[dict[str, object]] = []
+    for relative, expected in protected.items():
+        path = roots[0] / Path(relative)
+        actual = sha256(path).lower() if path.is_file() and not path.is_symlink() else None
+        if actual != expected:
+            protected_drift.append(
+                {"file": relative, "expected": expected, "actual": actual}
+            )
     if files:
         relatives = [Path(item) for item in files]
     else:
@@ -190,12 +221,14 @@ def check(files: list[str] | None = None) -> dict[str, object]:
                 }
             )
     return {
-        "ok": not missing_roots and not drift and not forbidden_generated and not legacy_conflicts,
+        "ok": not missing_roots and not drift and not forbidden_generated and not legacy_conflicts and not protected_drift and not contract_errors,
         "roots": [str(root) for root in roots],
         "missing_roots": missing_roots,
         "checked_files": len(relatives),
         "drift": drift,
         "forbidden_generated": forbidden_generated,
+        "protected_anchor_drift": protected_drift,
+        "protected_anchor_contract_errors": contract_errors,
         "legacy_locator_conflicts": legacy_conflicts,
     }
 
@@ -221,6 +254,10 @@ def main() -> int:
             print("LEGACY_LOCATOR_CONFLICTS " + ", ".join(result["legacy_locator_conflicts"]))
         for root, paths in result["forbidden_generated"].items():
             print(f"FORBIDDEN_GENERATED {root} " + ", ".join(paths[:50]))
+        for item in result["protected_anchor_drift"]:
+            print("PROTECTED_ANCHOR_DRIFT " + json.dumps(item, sort_keys=True))
+        for error in result["protected_anchor_contract_errors"]:
+            print("PROTECTED_ANCHOR_CONTRACT " + error)
     return 0 if result["ok"] else 2
 
 
