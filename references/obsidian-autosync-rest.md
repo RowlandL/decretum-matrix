@@ -2,15 +2,16 @@
 
 本卷治理 Dercretum-Matrix（诏令矩阵）（`decretum-matrix` / `$decretum-matrix`）史馆与本机 Obsidian
 vault 的同步、Local REST API、插件和父 vault 入口规则。现存
-`court-capability-router` 目录段仅是受保护的共享史馆与安装 locator，不是当前产品名。
+`court-capability-router` 目录段仅是迁移前 locator，不是当前活动路径或产品名。
 
 ## Authority
 
 用户最新纠正优先：史馆↔Obsidian freshness 不应依赖 Hermes cron；共享史馆应由本机独立 `shiguan_service_daemon.py` 常驻维护。该守护进程由 `ensure_shiguan_service_daemon.py` 安装为隐藏的用户登录启动任务 `CourtShiguanDaemon`，统一确保单一 8765 史馆 WebUI 与 preserve-only autosync daemon 运行。结诏/checkpoint 的前台路径只负责快速写入归档、索引和刷新请求；全量生长树/Obsidian 镜像刷新由后台 daemon 在检测到史馆源变更后异步执行，除非本轮明确需要阻塞式验证。
 
-权威史馆数据根由 `scripts/shiguan_paths.py` 决定。默认路径继续保留受保护的
-`court-capability-router` 共享史馆 namespace：
-`%LOCALAPPDATA%\court-shiguan\court-capability-router\references`，可由
+权威史馆数据根由 `scripts/shiguan_paths.py` 决定。默认路径为：
+`%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`。迁移前的
+`%LOCALAPPDATA%\court-shiguan\court-capability-router\references` 只作为显式
+legacy source 识别，不得继续成为活动物理库。活动根可由
 `COURT_SHARED_SHIGUAN_ROOT` 或 `SHIGUAN_SHARED_ROOT` 覆盖。Codex、Hermes 与
 Agent Skills 的 skill-local `references/` 不是运行时权威库。
 
@@ -63,8 +64,9 @@ official records.
 
 ## Portable Host Paths
 
-- 默认权威共享史馆数据根（受保护兼容 locator）：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references`
-- 默认权威史馆树（受保护兼容 locator）：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references\shiguan-tree`
+- 默认权威共享史馆数据根：`%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`
+- 默认权威史馆树：`%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references\shiguan-tree`
+- 迁移前 legacy source：`%LOCALAPPDATA%\court-shiguan\court-capability-router\references`
 - 默认父 Obsidian vault：`%USERPROFILE%\Documents\Obsidian Vault`
 - 默认父 vault 入口：`%USERPROFILE%\Documents\Obsidian Vault\史馆入口.md`
 - 默认 Obsidian 缓存镜像：`%USERPROFILE%\Documents\Obsidian Vault\Court Shiguan`
@@ -99,8 +101,8 @@ official records.
 每次相关变更至少验证：
 
 ```bash
-# `court-capability-router` is the protected physical install locator.
-cd "$HOME/.agents/skills/court-capability-router"
+# `decretum-matrix` is the active physical install locator.
+cd "$HOME/.agents/skills/decretum-matrix"
 python -B scripts/ensure_shiguan_service_daemon.py --check-only
 python -B scripts/shiguan_autosync_daemon.py --once --force-sync
 ```

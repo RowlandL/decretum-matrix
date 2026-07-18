@@ -22,7 +22,9 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
 import ensure_shiguan_autosync as autosync  # noqa: E402
+import ensure_obsidian_shared_vault as obsidian  # noqa: E402
 import check_shiguan_import_queue as import_queue  # noqa: E402
+import shiguan_paths  # noqa: E402
 
 
 def require(condition: bool, message: str) -> None:
@@ -268,11 +270,78 @@ def check_autosync_health_truth() -> dict[str, object]:
     }
 
 
+def check_install_path_convergence() -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="decretum-obsidian-paths-") as raw_temp:
+        fixture = Path(raw_temp)
+        home = fixture / "home"
+        data_base = fixture / "localappdata"
+        canonical = home / ".agents" / "court-shiguan" / "decretum-matrix"
+        require(
+            shiguan_paths.default_shared_root(home) == canonical.resolve(),
+            "default shared root still uses the legacy product locator",
+        )
+        require(
+            shiguan_paths.DEFAULT_PROTECTED_ROOT
+            == (Path.home() / ".agents" / "skills" / "decretum-matrix" / "references").resolve(),
+            "protected skill root still uses the legacy locator",
+        )
+        (canonical / "references").mkdir(parents=True)
+        require(
+            shiguan_paths._active_shared_root(
+                canonical,
+                shiguan_paths.default_legacy_shared_root(data_base),
+            )
+            == canonical,
+            "renamed target-only shared root is not selectable",
+        )
+        with (
+            mock.patch.object(autosync.Path, "home", return_value=home),
+            mock.patch.object(autosync, "user_data_base", return_value=data_base),
+        ):
+            trusted = autosync.trusted_daemon_script_paths()
+        expected_roots = [
+            home / root / "skills" / "decretum-matrix"
+            for root in (".agents", ".codex", ".claude", ".hermes")
+        ] + [data_base / "hermes" / "skills" / "decretum-matrix"]
+        expected = {
+            autosync.normalized_process_path(root / "scripts" / "shiguan_autosync_daemon.py")
+            for root in expected_roots
+        }
+        require(expected.issubset(trusted), "renamed active roots are absent from daemon discovery")
+
+        refs = canonical / "references"
+        source = refs / "shiguan-tree"
+        parent = home / "Documents" / "Obsidian Vault"
+        cache = parent / "Court Shiguan"
+        inbox = source / "Obsidian 回传"
+        old_skill = home / ".codex" / "skills" / "court-capability-router"
+        current = {
+            "api_key": "must-not-leak",
+            "service_daemon_script": str(old_skill / "scripts" / "shiguan_service_daemon.py"),
+            "service_ensure_script": str(old_skill / "scripts" / "ensure_shiguan_service_daemon.py"),
+        }
+        with (
+            mock.patch.object(obsidian, "default_obsidian_cache_vault", return_value=cache),
+            mock.patch.object(obsidian, "default_obsidian_parent_vault", return_value=parent),
+            mock.patch.object(obsidian, "default_obsidian_inbox", return_value=inbox),
+            mock.patch.object(obsidian, "references_root", return_value=refs),
+        ):
+            rebound = obsidian.build_sync_config(source, current)
+        for field in ("service_daemon_script", "service_ensure_script"):
+            require("court-capability-router" not in str(rebound[field]), f"stale {field}")
+        require(Path(str(rebound["shared_shiguan_root"])) == refs, "shared root was not rebound")
+        require([Path(str(item)) for item in rebound["watch_paths"]] == [cache, inbox], "watch roots were not rebound")
+        public = obsidian.public_config(rebound)
+        require("api_key" not in public and public.get("has_api_key") is True, "API key projection drift")
+        return {"active_roots": len(expected), "pending_body_reads": 0, "api_key_public": "REDACTED"}
+
+
 def main() -> int:
     result = {
         "seen_ledger": check_seen_ledger_concurrency(),
         "invalid_sidecar_truth": check_invalid_sidecar_truth(),
         "autosync_health": check_autosync_health_truth(),
+        "install_path_convergence": check_install_path_convergence(),
     }
     print(json.dumps({"ok": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

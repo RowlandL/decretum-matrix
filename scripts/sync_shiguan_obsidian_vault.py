@@ -509,7 +509,7 @@ def write_marker(vault: Path, result: dict[str, object], dry_run: bool) -> dict[
         "",
         "# Shiguan → Obsidian Auto Sync Status",
         "",
-        "This folder is a preserve-only Obsidian cache refreshed by the background `court-capability-router` Shiguan service when authoritative Shiguan sources change.",
+        "This folder is a preserve-only Obsidian cache refreshed by the background `decretum-matrix` Shiguan service when authoritative Shiguan sources change.",
         "Original/source text and user notes are preserved; sync is allowed to add or update generated files, not delete old text.",
         "This is event-driven sync, not a periodic cron freshness mechanism.",
         "",

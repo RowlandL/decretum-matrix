@@ -138,7 +138,7 @@ is part of `/court` state progression.
 Current implementation root:
 
 ```text
-%LOCALAPPDATA%\court-shiguan\court-capability-router\references\plan-archives\
+%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references\plan-archives\
 ```
 
 All writable Shiguan data is resolved by `scripts/shiguan_paths.py`.

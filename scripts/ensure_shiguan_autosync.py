@@ -34,11 +34,11 @@ def trusted_daemon_script_paths() -> set[str]:
     home = Path.home()
     roots = {
         Path(__file__).resolve().parents[1],
-        home / ".agents" / "skills" / "court-capability-router",
-        home / ".codex" / "skills" / "court-capability-router",
-        home / ".claude" / "skills" / "court-capability-router",
-        home / ".hermes" / "skills" / "court-capability-router",
-        user_data_base() / "hermes" / "skills" / "court-capability-router",
+        home / ".agents" / "skills" / "decretum-matrix",
+        home / ".codex" / "skills" / "decretum-matrix",
+        home / ".claude" / "skills" / "decretum-matrix",
+        home / ".hermes" / "skills" / "decretum-matrix",
+        user_data_base() / "hermes" / "skills" / "decretum-matrix",
     }
     return {
         normalized_process_path(root / "scripts" / "shiguan_autosync_daemon.py")

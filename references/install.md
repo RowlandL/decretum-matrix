@@ -71,11 +71,10 @@ Shiguan root after installation.
 
 Writable Shiguan data is not stored under a single skill installation. All
 explicitly selected tool installs resolve the same physical shared root. The
-`court-capability-router` path segment below is the protected shared-Shiguan
-namespace retained for compatibility. The blank-host safety contract is:
+blank-host safety contract is:
 
 ```text
-shared_root=%USERPROFILE%\.agents\court-shiguan\court-capability-router\references
+shared_root=%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references
 probe_before_write=true
 install_current_tool_only=true
 unapproved_other_tools=REMINDER_ONLY
@@ -91,14 +90,15 @@ restart_requires_latest_explicit_authority=true
 The canonical resolver target is:
 
 ```text
-default data root: %USERPROFILE%\.agents\court-shiguan\court-capability-router
-default references: %USERPROFILE%\.agents\court-shiguan\court-capability-router\references
+default data root: %USERPROFILE%\.agents\court-shiguan\decretum-matrix
+default references: %USERPROFILE%\.agents\court-shiguan\decretum-matrix\references
 override env: COURT_SHARED_SHIGUAN_ROOT or SHIGUAN_SHARED_ROOT
 ```
 
-After a separately verified migration, the old `%LOCALAPPDATA%` path may exist
-only as a compatibility junction to this same directory. It must not become a
-second writable Shiguan store.
+The old `%LOCALAPPDATA%\court-shiguan\court-capability-router` path is a
+migration source only. A governed whole-directory rename may remove it once the
+new root is the sole physical store; it must never remain as a second writable
+Shiguan store.
 
 On a blank host, do not invoke a Shiguan service, daemon, WebUI startup, or
 shared-root writer before the read-only probe. After the probe and explicit

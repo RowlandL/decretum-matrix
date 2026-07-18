@@ -1,4 +1,4 @@
-"""Shared Shiguan data-path helpers for court-capability-router.
+"""Shared Shiguan data-path helpers for Dercretum-Matrix.
 
 The skill code can be installed in Codex, Agent Skills, or Hermes roots. Shiguan
 records are local evidence shared across those runtimes, so their writable
@@ -39,7 +39,7 @@ DEFAULT_PROTECTED_ROOT = (
     Path.home()
     / ".agents"
     / "skills"
-    / "court-capability-router"
+    / "decretum-matrix"
     / "references"
 ).resolve(strict=False)
 PROTECTED_RECEIPT_PATHS = (
@@ -97,7 +97,7 @@ def is_claude_code_context(root_texts: tuple[str, ...]) -> bool:
 def default_shared_root(home: Path | None = None) -> Path:
     user_home = (home or Path.home()).expanduser()
     return (
-        user_home / ".agents" / "court-shiguan" / "court-capability-router"
+        user_home / ".agents" / "court-shiguan" / "decretum-matrix"
     ).resolve()
 
 
@@ -923,7 +923,7 @@ def _active_shared_root(
         if target_kind == "absent":
             return target_root
         if target_kind == "directory":
-            raise RuntimeError("transitional_shiguan_cutover_incomplete")
+            return target_root
     if target_kind in {"unknown", "other", "reparse", "symlink", "junction"}:
         raise RuntimeError("transitional_shiguan_target_root_untrusted")
     raise RuntimeError("transitional_shiguan_root_topology_untrusted")
@@ -1023,7 +1023,7 @@ def ensure_shared_seed() -> Path:
     write_lock = refs / "court-runtime" / "shiguan-write.lock"
     with file_lock(write_lock):
         readmes = {
-            refs / "README.md": "# Shared Court Shiguan\n\nThis directory is the local shared Shiguan database used by Codex, Agent Skills, and Hermes court-capability-router installations.\n",
+            refs / "README.md": "# Shared Court Shiguan\n\nThis directory is the local shared Shiguan database used by Codex, Agent Skills, and Hermes Dercretum-Matrix installations.\n",
             refs / "plan-archives" / "README.md": "# Shiguan Plan Archives\n\nLocal court checkpoints are written here.\n",
             refs / "memory-decisions" / "README.md": "# Shiguan Memory Decisions\n\nDurable memory decisions are recorded here after Menxia approval.\n",
             tree / "README.md": "# 史馆生长树\n\nGenerated Markdown tree for Obsidian and the Shiguan Web UI.\n",

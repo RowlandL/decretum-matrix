@@ -122,7 +122,7 @@ Hermes rules:
 
 ## Claude Code Client And Sync
 
-Claude Code receives the same skill rules through the active Claude skill root. On this host `.claude\skills\court-capability-router` is expected to resolve to the Codex skill copy, so syncing `.codex` also updates Claude. Claude Code can also be a selected terminal-visible office client through `ensure_supercc_court.py --office-client claude`.
+Claude Code receives the same skill rules through the active Claude skill root. On this host `.claude\skills\decretum-matrix` is expected to resolve to the canonical skill copy, so governed active-copy sync keeps Claude aligned. Claude Code can also be a selected terminal-visible office client through `ensure_supercc_court.py --office-client claude`.
 
 Claude rules:
 

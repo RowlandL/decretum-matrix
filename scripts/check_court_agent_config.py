@@ -538,7 +538,7 @@ def _lane_e_config_contract() -> None:
 
     install_text = (Path(__file__).resolve().parents[1] / "references" / "install.md").read_text(encoding="utf-8")
     install_contract = (
-        "shared_root=%USERPROFILE%\\.agents\\court-shiguan\\court-capability-router\\references",
+        "shared_root=%USERPROFILE%\\.agents\\court-shiguan\\decretum-matrix\\references",
         "probe_before_write=true",
         "install_current_tool_only=true",
         "unapproved_other_tools=REMINDER_ONLY",

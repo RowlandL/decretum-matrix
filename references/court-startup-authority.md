@@ -48,7 +48,7 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
 2. Run 开朝 capability classification:
    - 户部/史馆 ensures the shared Shiguan root exists with
      `scripts/shiguan_paths.py` / `ensure_shared_seed()`. The default root is
-     `%LOCALAPPDATA%\court-shiguan\court-capability-router\references`; all
+     `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`; all
      Codex/Hermes/Agent Skills installs must read and write Shiguan records
      through that shared root unless `COURT_SHARED_SHIGUAN_ROOT` or
      `SHIGUAN_SHARED_ROOT` explicitly overrides it.
@@ -123,7 +123,7 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
 3. Locate the capability catalog:
    - Prefer this skill's own `references/installed-capabilities-catalog.md`.
    - If this skill is not installed under the active skills root, use
-     `<CODEX_HOME>\skills\court-capability-router\references\installed-capabilities-catalog.md`.
+     `<CODEX_HOME>\skills\decretum-matrix\references\installed-capabilities-catalog.md`.
    - If `CODEX_HOME` is unset, use `%USERPROFILE%\.codex`.
    - If the catalog is missing, use `references/department-map.md` as the
      fallback department map and run a light local scan only when needed.

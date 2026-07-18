@@ -192,7 +192,7 @@ class CutoverFixtureOperations:
         final_live_updates: dict[str, object] | None = None,
     ) -> None:
         self.source_root = temp_root / "localappdata" / "court-shiguan" / "court-capability-router" / "references"
-        self.target_root = temp_root / "user" / ".agents" / "court-shiguan" / "court-capability-router" / "references"
+        self.target_root = temp_root / "user" / ".agents" / "court-shiguan" / "decretum-matrix" / "references"
         self.agents_root = temp_root / "user" / ".agents"
         self.pending_root = self.source_root / "shiguan-imports" / "pending"
         self.protected_root = (
@@ -569,7 +569,7 @@ def _fixture(
     target_root = (
         temp_root / "escaped" / "court-shiguan" / "references"
         if target_outside_agents
-        else agents_root / "court-shiguan" / "court-capability-router" / "references"
+        else agents_root / "court-shiguan" / "decretum-matrix" / "references"
     )
     raw_scans = stable_scans or [
         _inventory(captured_at=_timestamp(0), evidence_id="scan-1"),
@@ -2010,7 +2010,7 @@ def _check_default_shared_root(
         return 0
     home = temp_root / "home"
     expected = (
-        home / ".agents" / "court-shiguan" / "court-capability-router"
+        home / ".agents" / "court-shiguan" / "decretum-matrix"
     ).resolve()
     try:
         actual = target(home)
@@ -2434,7 +2434,7 @@ def _check_phase3_repair_cases(
 ) -> dict[str, bool]:
     results: dict[str, bool] = {}
 
-    case_id = "P3-ROOT-INCOMPLETE-011"
+    case_id = "P3-TARGET-ONLY-011"
     before = len(errors)
     active_root = getattr(paths_module, "_active_shared_root", None)
     original_path_kind = getattr(paths_module, "_path_kind", None)
@@ -2457,18 +2457,13 @@ def _check_phase3_repair_cases(
         setattr(paths_module, "_path_kind", incomplete_kind)
         try:
             selected = active_root(target_root, legacy_root)
-        except RuntimeError as exc:
-            if str(exc) not in {
-                "transitional_shiguan_cutover_incomplete",
-                "verified_shiguan_cutover_receipt_required",
-            }:
-                errors.append(f"{case_id}:unexpected_error:{exc}")
         except Exception as exc:
             errors.append(
                 f"{case_id}:execution_error:{type(exc).__name__}:{exc}"
             )
         else:
-            errors.append(f"{case_id}:incomplete_target_selected:{selected}")
+            if selected != target_root:
+                errors.append(f"{case_id}:target_not_selected:{selected}")
         finally:
             setattr(paths_module, "_path_kind", original_path_kind)
     results[case_id] = len(errors) == before

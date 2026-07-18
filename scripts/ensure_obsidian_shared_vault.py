@@ -126,6 +126,8 @@ def build_sync_config(shared_vault: Path, current: object) -> dict[str, object]:
             ],
             "autosync_script": str(Path(__file__).with_name("shiguan_autosync_daemon.py")),
             "filesystem_sync_script": str(Path(__file__).with_name("sync_shiguan_obsidian_vault.py")),
+            "service_daemon_script": str(Path(__file__).with_name("shiguan_service_daemon.py")),
+            "service_ensure_script": str(Path(__file__).with_name("ensure_shiguan_service_daemon.py")),
             "shared_shiguan_root": str(references_root()),
             "api_key": api_key,
             "updated_at": datetime.now().isoformat(timespec="seconds"),
