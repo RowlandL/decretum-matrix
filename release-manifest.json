@@ -603,8 +603,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "18317a81385661140c3fec5afa4b44d2e4a9706ce11cb68adc5e63267ed2685f",
-      "size": 1205
+      "sha256": "f11f9793e001d245282e81514c7d3b5bec04ac1482f154a4737e554cf33bcfdf",
+      "size": 1332
     },
     {
       "mode": "100644",
@@ -801,8 +801,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_active_copy_hashes.py",
-      "sha256": "dbee58a158c3fed66dae25b9450c1595f10ac9b44045259080dd2dffe8ad496e",
-      "size": 6985
+      "sha256": "891e691489d071182adf95af10d454a7482b0fa41ae5434836d2b469e9636e2e",
+      "size": 7784
     },
     {
       "mode": "100644",
@@ -963,8 +963,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_install_current_agent_copy.py",
-      "sha256": "f3ff2fca43746c1e81ae6d37907b2317ad86ac28025e69251fe8624c3ae31be8",
-      "size": 107985
+      "sha256": "edb6ff265c3228d99c93d5f64cb34e4396c8783179e0d6b632754e229a035b2f",
+      "size": 104646
     },
     {
       "mode": "100644",
@@ -1089,8 +1089,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_skill_identity.py",
-      "sha256": "d11299eea52df37bb6e2de09456e3c07d88b410e3dbcc912098b060ad427c0d6",
-      "size": 28278
+      "sha256": "b5462b796db1f63260cb1592bc1a9e5e747919c3b056ec5b5db8ce35631b9a78",
+      "size": 28395
     },
     {
       "mode": "100644",
@@ -1383,8 +1383,8 @@
     {
       "mode": "100644",
       "path": "scripts/install_current_agent_copy.py",
-      "sha256": "1666e1d0fb87d6a582fc444172d0c5dcf5d8b12c19bce0e583bd9980abc8c53b",
-      "size": 39938
+      "sha256": "c3a7f92523e218f0e04232a34cb4ef43875297dea46722db487125f63637d96e",
+      "size": 56646
     },
     {
       "mode": "100644",
@@ -1623,14 +1623,14 @@
     {
       "mode": "100644",
       "path": "scripts/sync_active_copies.py",
-      "sha256": "96ed29ba39c3f1675e673a90dfef988e6cbe351ac424686613241859438d2232",
-      "size": 3935
+      "sha256": "0d0e871cd805b72369b79218857db204a70302a7b93e13b468360ce238227ee1",
+      "size": 4223
     },
     {
       "mode": "100644",
       "path": "scripts/sync_codex_agents_from_profiles.py",
-      "sha256": "1c0fe49ecf0f7174dfab4c6b230daaab6dd91c75161808666f15a750eb3bee2d",
-      "size": 13748
+      "sha256": "22b5253be26e4a3028a0644ed456d8205ea3ee9ebce6195950fe5d30a8080f97",
+      "size": 13724
     },
     {
       "mode": "100644",
@@ -1690,10 +1690,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6021382,
+    "payload_bytes": 6036058,
     "payload_file_count": 276,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "c903c2c00ddfba64459ae42d915e5f7c4f3281c51e2055640265bebc15e64096",
+    "payload_index_sha256": "81c595b5cf9501e151b19a14b8f729b7c7adea926ff086ca234dec9324aaa8f8",
     "source_packaged_tracked_file_count": 268,
     "source_tracked_file_count": 281
   },
