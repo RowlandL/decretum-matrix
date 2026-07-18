@@ -595,3 +595,107 @@ pending_body_access=NO
 分别留在既有 Q4 与 beta0.5.12 install/prepublication gate。当前游标顺位进入
 `OFFICE_PACK_Q0`，只读冻结 built-in identity、topology、resolver consumers 与
 mutation primitives，不实现 pack/DLC/scope/promotion。
+
+## 16. 2026-07-18 Q0 accepted baseline inventory（append-only receipt）
+
+状态：`Q0_COMPLETE / BETA0.5.12_RELEASE_LINE_READY`
+
+### 16.1 时点与冻结算法
+
+- §15 中 `9c9c2d6fa5d89f4aece4bf8e1b9331d59d0c0e7b` 是 P0 输入快照；P0
+  receipt commit 为 `a2f4d5a65c69f30d6baf11595528f06d15bd5af7`。本 Q0 以该
+  receipt commit 作为只读输入 baseline；本节不把它误称为提交本节后的实时 HEAD。
+- set digest 统一写入 `path<TAB>lowercase-sha256<LF>` 的 UTF-8 字节后取整体
+  SHA-256。Decree Kernel 固定 `SKILL.md` 为首项，其后按 ordinal 排序 13 个直接
+  references；其他集合按 repo-relative POSIX path ordinal 排序。所有 set 都来自
+  同一 Q0 输入 baseline，未读取 host pending/private body。
+- accepted package 前像仍为 beta0.5.11 source/tag `726a89e2...03d`，release ZIP
+  SHA-256=`00C92455...5370`；beta0.5.12 candidate/package 尚未构建，符合 Q0
+  只读边界。
+
+### 16.2 Decree Kernel 与 built-in identity
+
+- source Decree Kernel direct set：`SKILL.md` 加由
+  `scripts/check_court_preload_semantics.py::direct_governing_reference_paths` 解析的
+  13 个直接 governing Markdown，共 `14` files，set SHA-256=
+  `283DDD0EF696D73E9307BC8B0B9E2F1F8C3698B71EBFF5FCD90408ABCBC3636D`；
+  source `SKILL.md` SHA-256=
+  `DD42B8CC9D3720E251FF197B3B27E69647BAD5B9009781D3C777E77C07079226`。
+- 13 个直接 references 精确为：`court-capability-registry.md`、
+  `court-closeout-validation.md`、`court-core-contract.md`、
+  `court-host-platform-pitfalls.md`、`court-office-model-routing.md`、
+  `court-offices-dispatch.md`、`court-shiguan-memory.md`、
+  `court-startup-authority.md`、`court-state-runtime-agents.md`、
+  `court-supercc-runtime-selection.md`、`hermes-studio-group-chat.md`、
+  `hermes-studio-super-gl.md`、`obsidian-autosync-rest.md`，均位于 `references/`。
+- standing profiles=`14`，set SHA-256=
+  `9FD737092276C95C966D531C761B49CB94D18D10A57884D4BCCAB8E7601BA319`；
+  ordinary dossiers=`14`，set SHA-256=
+  `188DA8145BB18B91FA8B3B849C0A8F9298050A7E9855AD36E142A2C8D3B4306C`；
+  superCC carrier dossiers=`14`，set SHA-256=
+  `DB0C0FC6A0C2377C36BBBA300D7C89DD2846CC38383E0C063EA223106876235E`。
+  superCC dossier 只是 projection carrier，不是第二身份权威。
+- 三组共同 role set：`bingbu,gongbu,hubu,libu-hr,libu,menxia,patrol-inspector,`
+  `shangshu,shiguan-hermes,shiguan,taizi,xingbu,zaochao,zhongshu`。
+- skill identity、dispatch hierarchy、install projection SHA-256 分别为
+  `F11F9793E001D245282E81514C7D3B5BEC04AC1482F154A4737E554CF33BCFDF`、
+  `2CD590CCBD6FF1A386B32BEB9AA4D354E017CAE9C76C191550EAC70D30BAE5C6`、
+  `4B927F8D94585D315BACA4F811CF43DF333AD3E107C34D6CA1A31521EDD1D54F`。
+- installed beta0.5.11 direct governing set 另行冻结为
+  `54E0CCF9150C2271DF9DCFC5F6E5837AA83904E768D43242883A7E7294548C0F`，
+  canonical installed `SKILL.md` SHA-256 为 `BC9E2800...4867`。它是安装前像，
+  不冒充当前 source set；二者在 beta0.5.12 安装时由 candidate/updater 收敛。
+
+### 16.3 Shared Shiguan 与 native tool repo topology
+
+| surface | Q0 现场 |
+|---|---|
+| shared Shiguan data | `C:\Users\32893\.agents\court-shiguan\decretum-matrix\references` 存在，为普通目录、非 Git；两个 LocalAppData 旧候选根均不存在。 |
+| protected anchors | canonical installed root 内四文件 exact length/hash 与 install projection 一致；active-copy `5 roots / 277 files / drift=[]`。 |
+| Codex native memory | `C:\Users\32893\.codex\memories` 是 local-only Git，`main@7b3cbf525a931dcd8890bf343bf7c9628321b4d7`，index=`0`、dirty=`0`；SQLite 只确认存在，不读不哈希。 |
+| Hermes native memory | `%LOCALAPPDATA%\hermes\memories` 存在；`%LOCALAPPDATA%\hermes` 与 `~\.hermes` 均非 Git。 |
+| Claude native memory | `~\.claude` 非 Git；memory 文件只做存在性探测，不读不哈希。 |
+| other tool | 无 `other:<stable-id>` concrete repo/manifest；不得猜测或创建。 |
+
+shared Shiguan managed Git 缺失只登记为 Q4 前置冲突；Q0 不初始化 repo、不创建
+second authority。各工具 native body 继续归各自 loader/store 所有，Q0 不复制正文。
+
+### 16.4 Resolver consumers 与 mutation primitives
+
+- 当前 resolver consumer set=`9` files，SHA-256=
+  `24922B2EF13DA9CAB9159DE2287FD734A94E7173B7DEC6489879FFE8A9168E87`：
+  `agent_runtime_probe.py`、`check_capability_index_gate.py`、
+  `court_office_bootstrap.py`、`court_runtime.py`、`ensure_supercc_court.py`、
+  `install_current_agent_copy.py`、`package_skill.py`、`shiguan_paths.py`、
+  `sync_codex_agents_from_profiles.py`。现有逻辑直接解析 built-in/static projections；
+  尚无 pack-lock/`.decretum`/`semantic_effective_digest` resolver，这是 Q1-Q3 的
+  预期 RED 面，不是 Q0 blocker。
+- 当前 mutation primitive set=`9` files，SHA-256=
+  `6939913C4F443A9F756D6C62CFDD72D9E089AD56FE37ECA76A23465270B06544`：
+  `court_file_lock.py`、`court_runtime.py`、`court_safe_fs.py`、
+  `court_safe_fs_windows.py`、`install_current_agent_copy.py`、
+  `migrate_shared_shiguan.py`、`obsidian_config_state.py`、
+  `shiguan_peer_state.py`、`sync_shiguan_obsidian_vault.py`。这些已提供 lock、
+  atomic replace/fsync、generation/digest CAS、marker/receipt、rollback/reconcile；
+  后续复用，不新增 service/DB/MQ/ledger。
+
+### 16.5 Deferred drift 与 Q0 门禁
+
+- root doctor=`PASS` 只证明 controller/index 合同；root `workspace.yaml` 与 canonical
+  checkout 仍为 beta0.5.10，而 child `VERSION=beta0.5.11`。这是 bounded root
+  governance/version-alignment drift，不得把 doctor PASS 解释为版本对齐 PASS。
+- host capability index/root `AGENTS.md` 旧 locator、14-role parity 与 source/install
+  projection 差异继续留在 beta0.5.12 install/prepublication；禁止旧 profile
+  `--write` 覆盖较新的 `.codex/agents`。
+
+```text
+OFFICE_PACK_Q0=PASS
+OFFICE_PACK_Q1_Q8=DEFERRED
+Q0_PRODUCT_CODE_WRITE=NO
+Q0_HOST_MUTATION=NO
+pending_body_access=NO
+NEXT_CURSOR=VERSION_ALIGNMENT_GATE -> SOURCE/CANDIDATE_GATES -> PER_RELEASE_LOCAL_INSTALL -> NEXT_RELEASE_PREPUBLICATION_GATE
+```
+
+`PER_RELEASE_LOCAL_INSTALL` 必须包含旧 locator 到 canonical path 的有界修复，以及
+真实 `$decretum-matrix` 和三省入口调用 smoke；未通过不得报安装 PASS。

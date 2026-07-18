@@ -1228,3 +1228,12 @@ Git index empty
 - **安装期回归：** beta0.5.12 install 只需将受控旧指针收敛到 canonical path，并以 `$decretum-matrix` 加三省入口真实调用 smoke 验收；14-role parity 另按发布前 source-of-truth 裁定，禁止用旧 profile 覆盖较新的 `.codex/agents`。
 - **门下复核：** `ACCEPT`，`P0_HARD_BLOCKERS=[]`；shared Shiguan managed-Git 缺口留在既有 Q4 gate，host invocation/role projection 漂移留在 install/prepublication gate，均不阻断 Q0 只读盘点。
 - **当前游标：** `OFFICE_PACK_Q0`；继续贯彻“小而美”、单一 authority、无第二 repo/ledger/state machine，`pending_body_access=NO`。
+
+### 2026-07-18 beta0.5.12 OFFICE_PACK_Q0 completion（append-only receipt）
+
+- **时点纠正：** `9c9c2d6` 是 P0 输入快照，P0 receipt commit=`a2f4d5a65c69f30d6baf11595528f06d15bd5af7`；本 Q0 以该 commit 为只读输入，不改写前段历史。
+- **Q0 状态：** `OFFICE_PACK_Q0=PASS`、`Q0_PRODUCT_CODE_WRITE=NO`、`Q0_HOST_MUTATION=NO`。source Decree Kernel direct set=`14 / 283DDD0E...3636D`，standing profiles=`14 / 9FD73709...A319`，ordinary dossiers=`14 / 188DA814...306C`，superCC projections=`14 / DB0C0FC6...235E`；精确算法、角色、topology 与 consumer/primitive 清册见 Office plan §16。
+- **拓扑裁定：** shared Shiguan canonical data root 存在但非 Git；Codex native memories 是独立 local Git，Hermes/Claude roots 非 Git。Q0 不初始化 shared repo、不读取或哈希 native/pending/private body，不创建第二 authority。
+- **最小化裁定：** 后续 resolver 必须优先复用 `court_office_bootstrap` 及现有 lock/CAS/atomic/receipt/rollback primitives；Q1-Q8 保持 `DEFERRED`，不得为 Q0 新建 service、DB、MQ、ledger 或重复状态机。
+- **顺延项：** root workspace/canonical checkout 仍停在 beta0.5.10，doctor PASS 不等于 version alignment PASS；host 旧 skill locator、14-role parity 与 source/install projection 差异留在 beta0.5.12 install/prepublication，禁止旧 profile 覆盖较新的 `.codex/agents`。
+- **当前游标：** `VERSION_ALIGNMENT_GATE -> SOURCE/CANDIDATE_GATES -> PER_RELEASE_LOCAL_INSTALL -> NEXT_RELEASE_PREPUBLICATION_GATE`；安装门必须真实修复截图中的旧 locator 并通过 `$decretum-matrix` 加三省入口调用 smoke。`pending_body_access=NO`。
