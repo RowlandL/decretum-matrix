@@ -13,6 +13,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path, PurePosixPath
+import subprocess
 import sys
 import tempfile
 from typing import Any
@@ -269,6 +270,71 @@ def _select_targets(
 def _is_junction(path: Path) -> bool:
     probe = getattr(path, "is_junction", None)
     return bool(callable(probe) and probe())
+
+
+class WindowsJunctionTransactionAdapter:
+    def checkpoint(self, *_):
+        pass
+
+    def _target(self, p):
+        return p.resolve(strict=True)
+
+    def _occupied(self, p):
+        return p.exists() or p.is_symlink() or _is_junction(p)
+
+    def _create(self, p, t):
+        if os.name != "nt" or not t.is_dir() or self._occupied(p):
+            raise RuntimeError("junction")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        code = subprocess.run(
+            ["cmd.exe", "/d", "/c", "mklink", "/j", str(p), str(t)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        if code or not _is_junction(p):
+            raise RuntimeError(f"junction:{code}")
+
+    def _remove(self, p):
+        if _is_junction(p):
+            p.rmdir()
+        elif p.is_symlink():
+            p.unlink()
+        elif p.exists():
+            raise RuntimeError("alias")
+
+    def prepare_alias(self, **x):
+        l, c, t = (
+            x[k] for k in ("legacy_alias", "canonical_alias", "physical_root")
+        )
+        p = c.with_name(f".{c.name}.alias-prepared")
+        if (
+            l.parent != c.parent
+            or l.name != LEGACY_INSTALL_DIRECTORY_NAME
+            or c.name != LOCATOR_POLICY_EXPECTED["install_directory_name"]
+            or not _is_junction(l)
+            or any(map(self._occupied, (c, p)))
+        ):
+            raise RuntimeError("alias")
+        r = self._target(l)
+        expected = t.with_name(LEGACY_INSTALL_DIRECTORY_NAME).resolve(strict=False)
+        if not r.is_dir() or r.resolve(strict=False) != expected:
+            raise RuntimeError("target")
+        return tuple(map(str, (l, c, t, p, r)))
+
+    def commit_alias(self, receipt):
+        l, c, t, p, _ = map(Path, receipt)
+        if not t.is_dir():
+            raise RuntimeError("physical")
+        self._create(p, t)
+        self._remove(l)
+        os.replace(p, c)
+
+    def rollback_alias(self, receipt):
+        l, c, _, p, t = map(Path, receipt)
+        self._remove(c)
+        self._remove(p)
+        if not self._occupied(l):
+            self._create(l, t)
 
 
 def _install_root_transition_candidates(
@@ -615,6 +681,7 @@ def _apply_install_transaction(
     selected: list[tuple[str, Path, str]],
     transitions: list[dict[str, object]],
     install_transaction_adapter: object | None,
+    home_root: Path,
 ) -> list[dict[str, object]]:
     if install_transaction_adapter is not None and not callable(
         getattr(install_transaction_adapter, "checkpoint", None)
@@ -623,7 +690,36 @@ def _apply_install_transaction(
     records: list[dict[str, object]] = []
     applied: list[tuple[Path, bytes | None]] = []
     transaction_selected = selected
+    alias_receipt: object | None = None
     try:
+        hermes_root = next(
+            (target for label, target, _kind in selected if label == "hermes"),
+            None,
+        )
+        hermes_migration = hermes_root is not None and any(
+            transition.get("mode") == "LEGACY_MIGRATION"
+            and Path(str(transition["canonical_root"])).resolve(strict=False)
+            == hermes_root.resolve(strict=False)
+            for transition in transitions
+        )
+        alias_methods = tuple(
+            getattr(install_transaction_adapter, name, None)
+            for name in ("prepare_alias", "commit_alias", "rollback_alias")
+        )
+        if hermes_migration and any(callable(method) for method in alias_methods):
+            if not all(callable(method) for method in alias_methods):
+                raise _InstallContractError("install_transaction_adapter_invalid")
+            alias_receipt = alias_methods[0](
+                legacy_alias=home_root
+                / ".hermes"
+                / "skills"
+                / LEGACY_INSTALL_DIRECTORY_NAME,
+                canonical_alias=home_root
+                / ".hermes"
+                / "skills"
+                / str(LOCATOR_POLICY_EXPECTED["install_directory_name"]),
+                physical_root=hermes_root,
+            )
         for transition in transitions:
             source_root = Path(str(transition["source_root"]))
             restore_root = Path(str(transition["restore_root"]))
@@ -631,14 +727,6 @@ def _apply_install_transaction(
             stage = canonical.parent / (
                 f".{canonical.name}.install-migration-{uuid.uuid4().hex}"
             )
-            if stage.exists() or stage.is_symlink():
-                raise _InstallContractError("install_migration_stage_conflict", str(stage))
-            if (canonical.exists() or canonical.is_symlink()) and canonical != source_root:
-                raise _InstallContractError(
-                    "dual_physical_authority",
-                    str(canonical),
-                )
-            os.replace(source_root, stage)
             record: dict[str, object] = {
                 "mode": str(transition["mode"]),
                 "source_root": str(source_root),
@@ -647,7 +735,15 @@ def _apply_install_transaction(
                 "stage_root": str(stage),
                 "status": "BACKED_UP",
             }
+            if stage.exists() or stage.is_symlink():
+                raise _InstallContractError("install_migration_stage_conflict", str(stage))
+            if (canonical.exists() or canonical.is_symlink()) and canonical != source_root:
+                raise _InstallContractError(
+                    "dual_physical_authority",
+                    str(canonical),
+                )
             records.append(record)
+            os.replace(source_root, stage)
             _transaction_checkpoint(
                 install_transaction_adapter,
                 "source_root_backed_up",
@@ -682,6 +778,8 @@ def _apply_install_transaction(
                 "canonical_published",
                 canonical_root=str(canonical),
             )
+        if alias_receipt is not None:
+            alias_methods[1](alias_receipt)
     except Exception as exc:
         rollback_errors: list[str] = []
         try:
@@ -702,6 +800,13 @@ def _apply_install_transaction(
             rollback_errors.append(
                 f"restore:{type(rollback_exc).__name__}:{rollback_exc}"
             )
+        if alias_receipt is not None:
+            try:
+                alias_methods[2](alias_receipt)
+            except Exception as rollback_exc:
+                rollback_errors.append(
+                    f"alias:{type(rollback_exc).__name__}:{rollback_exc}"
+                )
         if rollback_errors:
             raise _InstallContractError(
                 "install_rollback_failed",
@@ -1306,6 +1411,7 @@ def install_current_agent_copy(
                 selected=selected,
                 transitions=transitions,
                 install_transaction_adapter=install_transaction_adapter,
+                home_root=home,
             )
         else:
             transition_receipts = [
@@ -1420,4 +1526,4 @@ def install_current_agent_copy(
     return result
 
 
-__all__ = ["install_current_agent_copy"]
+__all__ = ["install_current_agent_copy", "WindowsJunctionTransactionAdapter"]

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
 import importlib.util
@@ -13,6 +14,8 @@ import shutil
 import sys
 import tempfile
 from typing import Any, Callable
+Payload = dict[str, object]
+Installer = Callable[..., object]
 
 try:
     import tomllib
@@ -118,20 +121,23 @@ GENERIC_NORMALIZED_SEMANTIC_DELTA = {
     "set": {"court.blank_host.ready": True},
     "remove": [],
 }
-CONFIG_UNEXERCISED_GAPS = (
-    "blank_host_config_public_planner_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_public_executor_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_tool_class_matrix_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_reminder_nonblocking_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_controller_first_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_effective_file_verification_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_direct_transaction_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_uncertainty_fail_closed_unexercised:install_current_agent_copy unavailable",
-    "blank_host_config_hermes_fallback_gate_unexercised:install_current_agent_copy unavailable",
-    "cc_switch_synthetic_json_fixture_contract_unexercised:install_current_agent_copy unavailable",
-    "cc_switch_version_schema_matrix_unexercised:install_current_agent_copy unavailable",
-    "hermes_config_path_precedence_unexercised:install_current_agent_copy unavailable",
-    "hermes_step_failure_rollback_unexercised:install_current_agent_copy unavailable",
+CONFIG_UNEXERCISED_GAPS = tuple(
+    f"{stem}_unexercised:install_current_agent_copy unavailable"
+    for stem in (
+        "blank_host_config_public_planner",
+        "blank_host_config_public_executor",
+        "blank_host_config_tool_class_matrix",
+        "blank_host_config_reminder_nonblocking",
+        "blank_host_config_controller_first",
+        "blank_host_config_effective_file_verification",
+        "blank_host_config_direct_transaction",
+        "blank_host_config_uncertainty_fail_closed",
+        "blank_host_config_hermes_fallback_gate",
+        "cc_switch_synthetic_json_fixture_contract",
+        "cc_switch_version_schema_matrix",
+        "hermes_config_path_precedence",
+        "hermes_step_failure_rollback",
+    )
 )
 INSTALL_UNEXERCISED_GAPS = (
     "macos_darwin_clean_home_portability_unexercised:install_current_agent_copy unavailable",
@@ -333,7 +339,7 @@ def _load_production(errors: list[str]) -> object | None:
     return module
 
 
-def _fixture_manifest() -> dict[str, object]:
+def _fixture_manifest() -> Payload:
     return {
         "schema": PROJECTION_SCHEMA,
         "identity_manifest": IDENTITY_MANIFEST_RELATIVE,
@@ -364,7 +370,7 @@ def _write_files(root: Path, contents: dict[str, str]) -> None:
 def _write_fixture_source(
     source_root: Path,
     *,
-    manifest: dict[str, object] | None = None,
+    manifest: Payload | None = None,
 ) -> Path:
     contents = {
         "SKILL.md": "# fixture court skill\n",
@@ -426,7 +432,7 @@ def _write_fixture_source(
 def _case_fixture(
     temp_root: Path,
     label: str,
-    manifest_data: dict[str, object] | None = None,
+    manifest_data: Payload | None = None,
 ) -> tuple[object, ...]:
     case_root = temp_root / label
     source, home = case_root / "source", case_root / "home"
@@ -466,13 +472,47 @@ class _MigrationFailureAdapter:
         self.fail_step = fail_step
         self.events: list[str] = []
 
-    def checkpoint(self, step: str, evidence: dict[str, object]) -> None:
+    def checkpoint(self, step: str, evidence: Payload) -> None:
         self.events.append(step)
         if step == self.fail_step:
             raise RuntimeError(f"fixture install transaction failure: {step}")
 
 
-def _prime_existing_roots(home_root: Path, tool_roots: dict[str, Path]) -> None:
+class _AliasFailureAdapter(_MigrationFailureAdapter):
+    def __init__(self, legacy: Path, canonical: Path, physical: Path) -> None:
+        super().__init__()
+        self.initial = {str(legacy): str(physical)}
+        self.aliases = dict(self.initial)
+        self.prepared: dict[str, str] = {}
+        self.physical = physical
+
+    def prepare_alias(self, *, legacy_alias: Path, canonical_alias: Path, physical_root: Path) -> dict[str, str]:
+        self.events.append("alias_prepare")
+        receipt = {
+            "legacy_alias": str(legacy_alias),
+            "canonical_alias": str(canonical_alias),
+            "physical_root": str(physical_root),
+            "prepared_alias": str(canonical_alias.with_name(f".{canonical_alias.name}.alias-prepared")),
+        }
+        self.prepared[receipt["prepared_alias"]] = receipt["physical_root"]
+        return receipt
+
+    def commit_alias(self, receipt: dict[str, str]) -> None:
+        self.events.append("alias_commit")
+        self.aliases.pop(receipt["legacy_alias"], None)
+        self.aliases[receipt["canonical_alias"]] = receipt["physical_root"]
+        self.prepared.pop(receipt["prepared_alias"], None)
+        raise RuntimeError("fixture alias commit failure")
+
+    def rollback_alias(self, receipt: dict[str, str]) -> None:
+        if not self.physical.is_dir():
+            raise AssertionError("alias_rollback_before_physical_restore")
+        self.events.append("alias_rollback")
+        self.aliases = dict(self.initial)
+        self.prepared.clear()
+
+
+def _prime_roots(home_root: Path, tool_roots: dict[str, Path]) -> None:
     roots = [_agents_root(home_root), *tool_roots.values()]
     for index, root in enumerate(roots):
         root.mkdir(parents=True, exist_ok=True)
@@ -492,7 +532,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
-def _snapshot_many(roots: list[Path]) -> dict[str, dict[str, bytes]]:
+def _snapshots(roots: list[Path]) -> dict[str, dict[str, bytes]]:
     return {str(root.resolve(strict=False)): _snapshot(root) for root in roots}
 
 
@@ -512,7 +552,7 @@ def _nested_get(data: object, dotted_key: str) -> object:
     return current
 
 
-def _nested_set(data: dict[str, object], dotted_key: str, value: object) -> None:
+def _nested_set(data: Payload, dotted_key: str, value: object) -> None:
     current = data
     parts = dotted_key.split(".")
     for part in parts[:-1]:
@@ -524,7 +564,7 @@ def _nested_set(data: dict[str, object], dotted_key: str, value: object) -> None
     current[parts[-1]] = deepcopy(value)
 
 
-def _nested_remove(data: dict[str, object], dotted_key: str) -> None:
+def _nested_remove(data: Payload, dotted_key: str) -> None:
     current: object = data
     parts = dotted_key.split(".")
     for part in parts[:-1]:
@@ -536,9 +576,9 @@ def _nested_remove(data: dict[str, object], dotted_key: str) -> None:
 
 
 def _apply_semantic_delta(
-    data: dict[str, object],
-    delta: dict[str, object],
-) -> dict[str, object]:
+    data: Payload,
+    delta: Payload,
+) -> Payload:
     updated = deepcopy(data)
     set_values = delta.get("set")
     if isinstance(set_values, dict):
@@ -554,9 +594,9 @@ def _apply_semantic_delta(
 
 
 def _without_delta_fields(
-    data: dict[str, object],
-    delta: dict[str, object],
-) -> dict[str, object]:
+    data: Payload,
+    delta: Payload,
+) -> Payload:
     projected = deepcopy(data)
     set_values = delta.get("set")
     if isinstance(set_values, dict):
@@ -583,10 +623,10 @@ def _toml_scalar(value: object) -> str:
     raise TypeError(f"unsupported fixture TOML scalar: {value!r}")
 
 
-def _render_fixture_toml(data: dict[str, object]) -> str:
+def _render_fixture_toml(data: Payload) -> str:
     lines: list[str] = []
 
-    def emit_table(table: dict[str, object], prefix: tuple[str, ...]) -> None:
+    def emit_table(table: Payload, prefix: tuple[str, ...]) -> None:
         scalar_items = [
             (key, value) for key, value in table.items() if not isinstance(value, dict)
         ]
@@ -607,7 +647,7 @@ def _render_fixture_toml(data: dict[str, object]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _parse_fixture_config(path: Path) -> dict[str, object]:
+def _parse_fixture_config(path: Path) -> Payload:
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() == ".toml":
         if tomllib is None:
@@ -620,7 +660,7 @@ def _parse_fixture_config(path: Path) -> dict[str, object]:
     return parsed
 
 
-def _write_fixture_config(path: Path, data: dict[str, object]) -> None:
+def _write_fixture_config(path: Path, data: Payload) -> None:
     if path.suffix.lower() == ".toml":
         text = _render_fixture_toml(data)
     else:
@@ -630,8 +670,8 @@ def _write_fixture_config(path: Path, data: dict[str, object]) -> None:
 
 def _delta_gaps(
     path: Path,
-    data: dict[str, object],
-    delta: dict[str, object],
+    data: Payload,
+    delta: Payload,
 ) -> list[str]:
     gaps: list[str] = []
     set_values = delta.get("set")
@@ -682,25 +722,31 @@ def _fixture_hermes_config_path(
     return home_root / ".hermes" / "config.yaml", "posix_home_default"
 
 
-class _FixtureConfigurationAdapter:
+class _ConfigFixture:
     def __init__(
         self,
         root: Path,
         *,
         tool_class: str,
-        controller_present: bool,
-        controller_materializes: bool = True,
-        controller_version: str = "3.17.0",
-        controller_user_version: int = 13,
-        controller_schema_complete: bool = True,
-        current_profile_settings_present: bool = False,
-        uncertainty: str | None = None,
-        fail_direct_write_number: int | None = None,
-        fail_direct_step: str | None = None,
-        hermes_platform_system: str = "Linux",
-        hermes_environment: dict[str, Path] | None = None,
-        hermes_config_dir_override: Path | None = None,
+        has_controller: bool,
+        **options: object,
     ) -> None:
+        values = {
+            "controller_materializes": True,
+            "controller_version": "3.17.0",
+            "controller_user_version": 13,
+            "controller_schema_complete": True,
+            "current_profile_settings_present": False,
+            "uncertainty": None,
+            "fail_direct_write_number": None,
+            "fail_direct_step": None,
+            "hermes_platform_system": "Linux",
+            "hermes_environment": None,
+            "hermes_config_dir_override": None,
+        }
+        values.update(options)
+        uncertainty = values["uncertainty"]
+        fail_direct_step = values["fail_direct_step"]
         if tool_class not in CANONICAL_TOOL_CLASSES:
             raise ValueError(f"unsupported fixture tool class: {tool_class}")
         if uncertainty is not None and uncertainty not in UNCERTAINTY_KINDS:
@@ -709,20 +755,13 @@ class _FixtureConfigurationAdapter:
             raise ValueError(f"unsupported direct failure step: {fail_direct_step}")
         self.root = root.resolve()
         self.tool_class = tool_class
-        self.controller_present = controller_present
-        self.controller_materializes = controller_materializes
-        self.controller_version = controller_version
-        self.controller_user_version = controller_user_version
-        self.controller_schema_complete = controller_schema_complete
-        self.current_profile_settings_present = current_profile_settings_present
-        self.uncertainty = uncertainty
-        self.fail_direct_write_number = fail_direct_write_number
-        self.fail_direct_step = fail_direct_step
+        self.has_controller = has_controller
+        self.__dict__.update(values)
         self.events: list[str] = []
         self.mutation_events: list[str] = []
         self.migration_attempts = 0
-        self.controller_deltas: list[dict[str, object]] = []
-        self.direct_deltas: list[tuple[str, dict[str, object]]] = []
+        self.controller_deltas: list[Payload] = []
+        self.direct_deltas: list[tuple[str, Payload]] = []
         self._direct_write_count = 0
         self._controller_original: bytes | None = None
         self._controller_effective_originals: dict[Path, bytes] = {}
@@ -730,67 +769,66 @@ class _FixtureConfigurationAdapter:
         self._backups: dict[Path, Path] = {}
 
         home = self.root / "home"
-        self.controller_fixture_path = (
+        self.controller_path = (
             self.root / "fixtures" / "cc-switch-controller.json"
         )
-        if tool_class == "codex":
-            self.effective_paths = [
-                home / ".codex" / "config.toml",
-                home / ".codex" / "managed_config.toml",
-            ]
-            self.expected_delta = deepcopy(CODEX_NORMALIZED_SEMANTIC_DELTA)
-        elif tool_class == "claude-code":
-            self.effective_paths = [home / ".claude" / "settings.json"]
-            self.expected_delta = deepcopy(GENERIC_NORMALIZED_SEMANTIC_DELTA)
-        elif tool_class == "hermes":
+        if tool_class == "hermes":
             hermes_path, hermes_path_source = _fixture_hermes_config_path(
                 home,
-                platform_system=hermes_platform_system,
-                environment=dict(hermes_environment or {}),
-                explicit_config_dir=hermes_config_dir_override,
+                platform_system=values["hermes_platform_system"],
+                environment=dict(values["hermes_environment"] or {}),
+                explicit_config_dir=values["hermes_config_dir_override"],
             )
-            self.effective_paths = [hermes_path]
+            self.paths = [hermes_path]
             self.hermes_path_source = hermes_path_source
-            self.expected_delta = deepcopy(GENERIC_NORMALIZED_SEMANTIC_DELTA)
         else:
-            self.effective_paths = [home / ".fixture-cli" / "config.json"]
-            self.expected_delta = deepcopy(GENERIC_NORMALIZED_SEMANTIC_DELTA)
+            relatives = {
+                "codex": (".codex/config.toml", ".codex/managed_config.toml"),
+                "claude-code": (".claude/settings.json",),
+                "other:fixture-cli": (".fixture-cli/config.json",),
+            }
+            self.paths = [home / relative for relative in relatives[tool_class]]
+        delta = (
+            CODEX_NORMALIZED_SEMANTIC_DELTA
+            if tool_class == "codex"
+            else GENERIC_NORMALIZED_SEMANTIC_DELTA
+        )
+        self.expected_delta = deepcopy(delta)
 
         self._create_effective_fixtures()
-        if controller_present:
-            self.controller_fixture_path.parent.mkdir(parents=True, exist_ok=True)
+        if has_controller:
+            self.controller_path.parent.mkdir(parents=True, exist_ok=True)
             profile_columns = list(PROFILES_REQUIRED_COLUMNS)
-            if not controller_schema_complete:
+            if not self.controller_schema_complete:
                 profile_columns.remove("updated_at")
             schema_evidence = {
                 "profiles": {
-                    "exists": controller_schema_complete,
+                    "exists": self.controller_schema_complete,
                     "columns": profile_columns,
-                    "required_columns_present": controller_schema_complete,
+                    "required_columns_present": self.controller_schema_complete,
                 },
-                "proxy_request_logs": {
-                    "exists": controller_schema_complete,
-                    "input_token_semantics": controller_schema_complete,
-                },
-                "usage_daily_rollups": {
-                    "exists": controller_schema_complete,
-                    "input_token_semantics": controller_schema_complete,
+                **{
+                    table: {
+                        "exists": self.controller_schema_complete,
+                        "input_token_semantics": self.controller_schema_complete,
+                    }
+                    for table in V13_INPUT_TOKEN_TABLES
                 },
             }
-            self.controller_fixture_path.write_text(
+            self.controller_path.write_text(
                 json.dumps(
                     {
                         "schema": "fixture.cc_switch.v1",
                         "storage_kind": "json_fixture",
                         "synthetic": True,
-                        "controller_version": controller_version,
-                        "app_version": controller_version,
-                        "user_version": controller_user_version,
+                        "controller_version": self.controller_version,
+                        "app_version": self.controller_version,
+                        "user_version": self.controller_user_version,
                         "schema_evidence": schema_evidence,
                         "settings": {
                             "current_profile_id_codex": "fixture-profile"
                         }
-                        if current_profile_settings_present
+                        if self.current_profile_settings_present
                         else {},
                         "provider_secret": "fixture",
                         "unknown_controller_key": "preserve-controller",
@@ -808,7 +846,7 @@ class _FixtureConfigurationAdapter:
                 encoding="utf-8",
             )
             fixture = json.loads(
-                self.controller_fixture_path.read_text(encoding="utf-8")
+                self.controller_path.read_text(encoding="utf-8")
             )
             if (
                 fixture.get("storage_kind") != "json_fixture"
@@ -816,16 +854,16 @@ class _FixtureConfigurationAdapter:
                 or "tool_blocks" in fixture
             ):
                 raise AssertionError("controller JSON fixture masquerades as SQLite")
-        self.initial_surface_snapshot = self.surface_snapshot()
+        self.initial_snapshot = self.surface_snapshot()
         self.initial_parsed = {
-            path: _parse_fixture_config(path) for path in self.effective_paths
+            path: _parse_fixture_config(path) for path in self.paths
         }
 
-    def _controller_schema_evidence(self) -> dict[str, object]:
-        if not self.controller_present:
+    def _controller_schema_evidence(self) -> Payload:
+        if not self.has_controller:
             return {}
         fixture = json.loads(
-            self.controller_fixture_path.read_text(encoding="utf-8")
+            self.controller_path.read_text(encoding="utf-8")
         )
         evidence = fixture.get("schema_evidence")
         if not isinstance(evidence, dict):
@@ -869,63 +907,44 @@ class _FixtureConfigurationAdapter:
             raise RuntimeError(f"fixture direct step failure: {step}")
 
     def _create_effective_fixtures(self) -> None:
-        for path in self.effective_paths:
+        for path in self.paths:
             path.parent.mkdir(parents=True, exist_ok=True)
         if self.tool_class == "codex":
-            base = {
-                "model_provider": "fixture-base-provider",
-                "api_key": "fixture",
-                "unknown_top": "preserve-config-top",
-                "agents": {
-                    "max_depth": 1,
-                    "max_threads": 3,
-                    "base_agent_unknown": "preserve-base-agent",
-                },
-                "features": {
-                    "goals": True,
-                    "multi_agent_v2": {
-                        "enabled": False,
-                        "max_concurrent_threads_per_session": 2,
-                        "hide_spawn_agent_metadata": False,
-                        "base_overlay_unknown": "preserve-base-overlay",
+            layers = (
+                ("base", "fixture", "config", 1, 3, 2, "goals", True),
+                ("managed", "managed", "managed", 2, 5, 7, "multi_agent", False),
+            )
+            for path, row in zip(self.paths, layers):
+                layer, provider, top, depth, threads, concurrency, flag, value = row
+                _write_fixture_config(
+                    path,
+                    {
+                        "model_provider": f"fixture-{layer}-provider",
+                        "api_key": "fixture",
+                        "unknown_top": f"preserve-{top}-top",
+                        "agents": {
+                            "max_depth": depth,
+                            "max_threads": threads,
+                            f"{layer}_agent_unknown": f"preserve-{layer}-agent",
+                        },
+                        "features": {
+                            flag: value,
+                            "multi_agent_v2": {
+                                "enabled": False,
+                                "max_concurrent_threads_per_session": concurrency,
+                                "hide_spawn_agent_metadata": False,
+                                f"{layer}_overlay_unknown": f"preserve-{layer}-overlay",
+                            },
+                        },
+                        "providers": {
+                            provider: {
+                                "base_url": f"https://{layer}.fixture.invalid",
+                                "token": "fixture",
+                            }
+                        },
+                        "unknown": {layer: {"keep": f"{layer}-unknown"}},
                     },
-                },
-                "providers": {
-                    "fixture": {
-                        "base_url": "https://base.fixture.invalid",
-                        "token": "fixture",
-                    }
-                },
-                "unknown": {"base": {"keep": "base-unknown"}},
-            }
-            managed = {
-                "model_provider": "fixture-managed-provider",
-                "api_key": "fixture",
-                "unknown_top": "preserve-managed-top",
-                "agents": {
-                    "max_depth": 2,
-                    "max_threads": 5,
-                    "managed_agent_unknown": "preserve-managed-agent",
-                },
-                "features": {
-                    "multi_agent": False,
-                    "multi_agent_v2": {
-                        "enabled": False,
-                        "max_concurrent_threads_per_session": 7,
-                        "hide_spawn_agent_metadata": False,
-                        "managed_overlay_unknown": "preserve-managed-overlay",
-                    },
-                },
-                "providers": {
-                    "managed": {
-                        "base_url": "https://managed.fixture.invalid",
-                        "token": "fixture",
-                    }
-                },
-                "unknown": {"managed": {"keep": "managed-unknown"}},
-            }
-            _write_fixture_config(self.effective_paths[0], base)
-            _write_fixture_config(self.effective_paths[1], managed)
+                )
             return
         generic = {
             "court": {"blank_host": {"ready": False}},
@@ -933,7 +952,7 @@ class _FixtureConfigurationAdapter:
             "provider": {"id": f"fixture-{self.tool_class}"},
             "unknown": {"keep": f"preserve-{self.tool_class}"},
         }
-        _write_fixture_config(self.effective_paths[0], generic)
+        _write_fixture_config(self.paths[0], generic)
 
     def _require_tool(self, tool_class: str) -> None:
         if tool_class != self.tool_class:
@@ -943,13 +962,13 @@ class _FixtureConfigurationAdapter:
 
     def _require_path(self, path: Path) -> Path:
         resolved = Path(path).resolve(strict=False)
-        if resolved not in [item.resolve(strict=False) for item in self.effective_paths]:
+        if resolved not in [item.resolve(strict=False) for item in self.paths]:
             raise AssertionError(f"non-fixture effective path requested: {path}")
         if self.root not in resolved.parents:
             raise AssertionError(f"path escaped TemporaryDirectory: {path}")
         return resolved
 
-    def _require_delta(self, delta: object) -> dict[str, object]:
+    def _require_delta(self, delta: object) -> Payload:
         if delta != self.expected_delta:
             raise AssertionError(
                 f"semantic delta drift: {delta!r}!={self.expected_delta!r}"
@@ -958,27 +977,63 @@ class _FixtureConfigurationAdapter:
             raise AssertionError("semantic delta must be structured")
         return deepcopy(delta)
 
+    def _record(
+        self, tool_class: str, action: str, *, mutation: bool = False
+    ) -> None:
+        self._require_tool(tool_class)
+        event = f"{action}:{self.tool_class}"
+        self.events.append(event)
+        if mutation:
+            self.mutation_events.append(event)
+
+    @staticmethod
+    def _backup(source: Path, backup: Path) -> tuple[bytes, Payload]:
+        payload = source.read_bytes()
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_bytes(payload)
+        return payload, {
+            "sha256": _sha256_bytes(payload),
+            "verified": backup.read_bytes() == payload,
+        }
+
+    @staticmethod
+    def _commit_receipt(transaction: Payload, kind: str, tool_class: str) -> Payload:
+        return {
+            "receipt_id": f"fixture-{kind}-receipt-{tool_class}",
+            "transaction_id": transaction.get("transaction_id"),
+            "committed": True,
+        }
+
+    @staticmethod
+    def _rollback_receipt(
+        transaction: Payload, kind: str, tool_class: str, reason: str
+    ) -> Payload:
+        return {
+            "rollback_id": f"fixture-{kind}-rollback-{tool_class}",
+            "transaction_id": transaction.get("transaction_id"),
+            "restored": True,
+            "reason": reason,
+        }
+
     def surface_snapshot(self) -> dict[str, bytes | None]:
-        paths = [self.controller_fixture_path, *self.effective_paths]
+        paths = [self.controller_path, *self.paths]
         return {
             str(path.resolve(strict=False)): path.read_bytes() if path.exists() else None
             for path in paths
         }
 
     def list_effective_files(self, tool_class: str) -> list[Path]:
-        self._require_tool(tool_class)
-        self.events.append(f"list_effective_files:{tool_class}")
-        return list(self.effective_paths)
+        self._record(tool_class, "list_effective_files")
+        return list(self.paths)
 
-    def probe_controller(self, tool_class: str) -> dict[str, object]:
-        self._require_tool(tool_class)
-        self.events.append(f"probe_controller:{tool_class}")
+    def probe_controller(self, tool_class: str) -> Payload:
+        self._record(tool_class, "probe_controller")
         certainty = {kind: kind != self.uncertainty for kind in UNCERTAINTY_KINDS}
         compatible, compatibility_reason = self._controller_compatibility()
-        if self.controller_present and not compatible:
+        if self.has_controller and not compatible:
             certainty["compatibility"] = False
         uncertainty = [self.uncertainty] if self.uncertainty else []
-        if self.controller_present and not compatible:
+        if self.has_controller and not compatible:
             uncertainty.append(compatibility_reason)
         explanation = (
             "fixture uncertainty: " + ", ".join(uncertainty) + " is not proven"
@@ -986,33 +1041,33 @@ class _FixtureConfigurationAdapter:
             else "all controller/config semantics proven by fixture adapter"
         )
         return {
-            "present": self.controller_present,
+            "present": self.has_controller,
             "kind": "synthetic-json-controller-fixture"
-            if self.controller_present
+            if self.has_controller
             else "none",
-            "storage_kind": "json_fixture" if self.controller_present else "none",
+            "storage_kind": "json_fixture" if self.has_controller else "none",
             "synthetic": True,
             "db_path": None,
-            "fixture_path": self.controller_fixture_path
-            if self.controller_present
+            "fixture_path": self.controller_path
+            if self.has_controller
             else None,
             "tool_class": tool_class,
             "controller_version": self.controller_version
-            if self.controller_present
+            if self.has_controller
             else None,
-            "app_version": self.controller_version if self.controller_present else None,
+            "app_version": self.controller_version if self.has_controller else None,
             "user_version": self.controller_user_version
-            if self.controller_present
+            if self.has_controller
             else None,
             "schema_evidence": self._controller_schema_evidence(),
             "current_profile_setting_required": False,
             "database_migration_allowed": False,
             "compatibility": {
-                "supported": compatible if self.controller_present else None,
-                "reason": compatibility_reason if self.controller_present else "not_present",
+                "supported": compatible if self.has_controller else None,
+                "reason": compatibility_reason if self.has_controller else "not_present",
             },
             "tool_block_proven": bool(
-                self.controller_present
+                self.has_controller
                 and compatible
                 and self.uncertainty not in {"db_schema", "field_ownership"}
             ),
@@ -1030,7 +1085,7 @@ class _FixtureConfigurationAdapter:
         self,
         tool_class: str,
         path: Path,
-    ) -> dict[str, object]:
+    ) -> Payload:
         self._require_tool(tool_class)
         resolved = self._require_path(path)
         self.events.append(f"read_effective_config:{tool_class}:{resolved.name}")
@@ -1052,9 +1107,8 @@ class _FixtureConfigurationAdapter:
             "evidence": f"fixture://effective/{tool_class}/{resolved.name}",
         }
 
-    def runtime_probe(self, tool_class: str) -> dict[str, object]:
-        self._require_tool(tool_class)
-        self.events.append(f"runtime_probe:{tool_class}")
+    def runtime_probe(self, tool_class: str) -> Payload:
+        self._record(tool_class, "runtime_probe")
         gaps = self.expected_gaps()
         return {
             "available": True,
@@ -1063,56 +1117,46 @@ class _FixtureConfigurationAdapter:
             "evidence": f"fixture://runtime/{tool_class}",
         }
 
-    def backup_controller_database(self, tool_class: str) -> dict[str, object]:
+    def backup_controller_database(self, tool_class: str) -> Payload:
         self._require_tool(tool_class)
-        if not self.controller_present or not self.controller_fixture_path.is_file():
+        if not self.has_controller or not self.controller_path.is_file():
             raise AssertionError("controller backup requested without controller")
-        self.events.append(f"backup_controller_database:{tool_class}")
-        self.mutation_events.append(f"backup_controller_database:{tool_class}")
-        payload = self.controller_fixture_path.read_bytes()
+        self._record(tool_class, "backup_controller_database", mutation=True)
         backup = self.root / "backups" / "cc-switch.db.before"
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        backup.write_bytes(payload)
+        payload, receipt = self._backup(self.controller_path, backup)
         self._controller_original = payload
         self._controller_effective_originals = {
-            path: path.read_bytes() for path in self.effective_paths
+            path: path.read_bytes() for path in self.paths
         }
-        return {
-            "path": backup,
-            "sha256": _sha256_bytes(payload),
-            "verified": backup.read_bytes() == payload,
-        }
+        return {"path": backup, **receipt}
 
-    def begin_controller_transaction(self, tool_class: str) -> dict[str, object]:
-        self._require_tool(tool_class)
-        self.events.append(f"begin_controller_transaction:{tool_class}")
-        self.mutation_events.append(f"begin_controller_transaction:{tool_class}")
+    def begin_controller_transaction(self, tool_class: str) -> Payload:
+        self._record(tool_class, "begin_controller_transaction", mutation=True)
         return {"transaction_id": f"fixture-controller-{tool_class}"}
 
     def update_controller_tool_block(
         self,
-        transaction: dict[str, object],
+        transaction: Payload,
         tool_class: str,
-        semantic_delta: dict[str, object],
-    ) -> dict[str, object]:
+        semantic_delta: Payload,
+    ) -> Payload:
         self._require_tool(tool_class)
         delta = self._require_delta(semantic_delta)
         if transaction.get("transaction_id") != f"fixture-controller-{tool_class}":
             raise AssertionError("wrong controller transaction")
-        self.events.append(f"update_controller_tool_block:{tool_class}")
-        self.mutation_events.append(f"update_controller_tool_block:{tool_class}")
+        self._record(tool_class, "update_controller_tool_block", mutation=True)
         self.controller_deltas.append(delta)
         database = json.loads(
-            self.controller_fixture_path.read_text(encoding="utf-8")
+            self.controller_path.read_text(encoding="utf-8")
         )
         block = database["fixture_tool_blocks"][tool_class]
         block["semantic_delta"] = delta
-        self.controller_fixture_path.write_text(
+        self.controller_path.write_text(
             json.dumps(database, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         if self.controller_materializes:
-            for path in self.effective_paths:
+            for path in self.paths:
                 updated = _apply_semantic_delta(_parse_fixture_config(path), delta)
                 _write_fixture_config(path, updated)
         return {
@@ -1124,47 +1168,34 @@ class _FixtureConfigurationAdapter:
 
     def commit_controller_transaction(
         self,
-        transaction: dict[str, object],
+        transaction: Payload,
         tool_class: str,
-    ) -> dict[str, object]:
-        self._require_tool(tool_class)
-        self.events.append(f"commit_controller_transaction:{tool_class}")
-        self.mutation_events.append(f"commit_controller_transaction:{tool_class}")
+    ) -> Payload:
+        self._record(tool_class, "commit_controller_transaction", mutation=True)
         return {
-            "receipt_id": f"fixture-controller-receipt-{tool_class}",
-            "transaction_id": transaction.get("transaction_id"),
-            "committed": True,
-            "controller_store_sha256": _sha256_bytes(
-                self.controller_fixture_path.read_bytes()
-            ),
+            **self._commit_receipt(transaction, "controller", tool_class),
+            "controller_store_sha256": _sha256_bytes(self.controller_path.read_bytes()),
         }
 
     def rollback_controller_transaction(
         self,
-        transaction: dict[str, object],
+        transaction: Payload,
         tool_class: str,
         reason: str,
-    ) -> dict[str, object]:
-        self._require_tool(tool_class)
-        self.events.append(f"rollback_controller_transaction:{tool_class}")
-        self.mutation_events.append(f"rollback_controller_transaction:{tool_class}")
+    ) -> Payload:
+        self._record(tool_class, "rollback_controller_transaction", mutation=True)
         if self._controller_original is None:
             raise AssertionError("controller rollback missing verified backup")
-        self.controller_fixture_path.write_bytes(self._controller_original)
+        self.controller_path.write_bytes(self._controller_original)
         for path, payload in self._controller_effective_originals.items():
             path.write_bytes(payload)
-        return {
-            "rollback_id": f"fixture-controller-rollback-{tool_class}",
-            "transaction_id": transaction.get("transaction_id"),
-            "restored": True,
-            "reason": reason,
-        }
+        return self._rollback_receipt(transaction, "controller", tool_class, reason)
 
     def backup_effective_file(
         self,
         tool_class: str,
         path: Path,
-    ) -> dict[str, object]:
+    ) -> Payload:
         self._require_tool(tool_class)
         resolved = self._require_path(path)
         self.events.append(f"backup_effective_file:{tool_class}:{resolved.name}")
@@ -1172,40 +1203,32 @@ class _FixtureConfigurationAdapter:
             f"backup_effective_file:{tool_class}:{resolved.name}"
         )
         self._maybe_fail_direct_step("backup_effective_file")
-        payload = resolved.read_bytes()
         backup = self.root / "backups" / f"{resolved.name}.before"
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        backup.write_bytes(payload)
+        payload, receipt = self._backup(resolved, backup)
         self._backups[resolved] = backup
-        return {
-            "path": resolved,
-            "backup_path": backup,
-            "sha256": _sha256_bytes(payload),
-            "verified": backup.read_bytes() == payload,
-        }
+        return {"path": resolved, "backup_path": backup, **receipt}
 
     def begin_effective_files_transaction(
         self,
         tool_class: str,
         paths: list[Path],
-    ) -> dict[str, object]:
+    ) -> Payload:
         self._require_tool(tool_class)
         resolved = [self._require_path(path) for path in paths]
-        if resolved != [path.resolve(strict=False) for path in self.effective_paths]:
+        if resolved != [path.resolve(strict=False) for path in self.paths]:
             raise AssertionError("effective transaction did not bind all actual files")
-        self.events.append(f"begin_effective_files_transaction:{tool_class}")
-        self.mutation_events.append(f"begin_effective_files_transaction:{tool_class}")
+        self._record(tool_class, "begin_effective_files_transaction", mutation=True)
         self._maybe_fail_direct_step("begin_effective_files_transaction")
         self._direct_originals = {path: path.read_bytes() for path in resolved}
         return {"transaction_id": f"fixture-effective-{tool_class}"}
 
     def write_effective_config(
         self,
-        transaction: dict[str, object],
+        transaction: Payload,
         tool_class: str,
         path: Path,
-        semantic_delta: dict[str, object],
-    ) -> dict[str, object]:
+        semantic_delta: Payload,
+    ) -> Payload:
         self._require_tool(tool_class)
         resolved = self._require_path(path)
         delta = self._require_delta(semantic_delta)
@@ -1230,46 +1253,29 @@ class _FixtureConfigurationAdapter:
 
     def commit_effective_files_transaction(
         self,
-        transaction: dict[str, object],
+        transaction: Payload,
         tool_class: str,
-    ) -> dict[str, object]:
-        self._require_tool(tool_class)
-        self.events.append(f"commit_effective_files_transaction:{tool_class}")
-        self.mutation_events.append(
-            f"commit_effective_files_transaction:{tool_class}"
-        )
+    ) -> Payload:
+        self._record(tool_class, "commit_effective_files_transaction", mutation=True)
         self._maybe_fail_direct_step("commit_effective_files_transaction")
-        return {
-            "receipt_id": f"fixture-effective-receipt-{tool_class}",
-            "transaction_id": transaction.get("transaction_id"),
-            "committed": True,
-        }
+        return self._commit_receipt(transaction, "effective", tool_class)
 
     def rollback_effective_files_transaction(
         self,
-        transaction: dict[str, object],
+        transaction: Payload,
         tool_class: str,
         reason: str,
-    ) -> dict[str, object]:
-        self._require_tool(tool_class)
-        self.events.append(f"rollback_effective_files_transaction:{tool_class}")
-        self.mutation_events.append(
-            f"rollback_effective_files_transaction:{tool_class}"
-        )
+    ) -> Payload:
+        self._record(tool_class, "rollback_effective_files_transaction", mutation=True)
         if not self._direct_originals:
             raise AssertionError("effective rollback missing transaction snapshot")
         for path, payload in self._direct_originals.items():
             path.write_bytes(payload)
-        return {
-            "rollback_id": f"fixture-effective-rollback-{tool_class}",
-            "transaction_id": transaction.get("transaction_id"),
-            "restored": True,
-            "reason": reason,
-        }
+        return self._rollback_receipt(transaction, "effective", tool_class, reason)
 
     def expected_gaps(self) -> list[str]:
         gaps: list[str] = []
-        for path in self.effective_paths:
+        for path in self.paths:
             gaps.extend(
                 _delta_gaps(path, _parse_fixture_config(path), self.expected_delta)
             )
@@ -1278,19 +1284,19 @@ class _FixtureConfigurationAdapter:
     def expected_evidence(self) -> list[str]:
         return [
             f"fixture://effective/{self.tool_class}/{path.name}"
-            for path in self.effective_paths
+            for path in self.paths
         ]
 
-    def non_delta_projection(self) -> dict[str, dict[str, object]]:
+    def non_delta_projection(self) -> dict[str, Payload]:
         return {
             path.name: _without_delta_fields(
                 _parse_fixture_config(path), self.expected_delta
             )
-            for path in self.effective_paths
+            for path in self.paths
         }
 
 
-def _normalize_targets(result: dict[str, object]) -> list[Path]:
+def _normalize_targets(result: Payload) -> list[Path]:
     raw_targets = result.get("targets")
     if not isinstance(raw_targets, list):
         raise AssertionError("result targets must be a list")
@@ -1327,7 +1333,7 @@ def _result_reason(result: object) -> str:
 
 
 def _invoke(
-    install: Callable[..., object],
+    install: Installer,
     *,
     source_root: Path,
     home_root: Path,
@@ -1337,13 +1343,13 @@ def _invoke(
     projection_manifest: Path,
     write: bool,
     fanout: bool = False,
-    blank_host_configuration: dict[str, object] | None = None,
+    blank_host_configuration: Payload | None = None,
     configuration_adapter: object | None = None,
     install_transaction_adapter: object | None = None,
-    platform_context: dict[str, object] | None = None,
+    platform_context: Payload | None = None,
     source_package_sha256: object | None = None,
-) -> tuple[dict[str, object] | None, str | None]:
-    optional: dict[str, object] = {}
+) -> tuple[Payload | None, str | None]:
+    optional: Payload = {}
     if blank_host_configuration is not None:
         optional["blank_host_configuration"] = blank_host_configuration
     if configuration_adapter is not None:
@@ -1380,13 +1386,13 @@ def _invoke(
 
 
 def _require_success(
-    install: Callable[..., object],
+    install: Installer,
     *,
     name: str,
     expected_targets: list[Path],
     errors: list[str],
     **kwargs: Any,
-) -> dict[str, object] | None:
+) -> Payload | None:
     result, rejection = _invoke(install, **kwargs)
     if result is None or rejection is not None:
         errors.append(f"{name}:unexpected_rejection:{rejection}")
@@ -1418,7 +1424,7 @@ def _require_success(
 
 
 def _require_rejection(
-    install: Callable[..., object],
+    install: Installer,
     *,
     name: str,
     reason: str,
@@ -1483,7 +1489,7 @@ def _tx_order_ok(events: list[str]) -> bool:
         return False
 
 
-def _tx_kwargs(fixture: tuple[object, ...], adapter: object) -> dict[str, object]:
+def _tx_kwargs(fixture: tuple[object, ...], adapter: object) -> Payload:
     source, home, manifest, roots = fixture[:4]
     return {
         "source_root": source,
@@ -1510,8 +1516,78 @@ def _tx_state(targets: list[Path], old: list[Path]) -> tuple[list[str], list[int
     return leftovers, counts
 
 
+def _four_root_fixture(
+    temp_root: Path,
+    label: str,
+) -> tuple[object, ...]:
+    source, home, manifest, roots = _case_fixture(temp_root, label)
+    roots = {
+        "codex": home / ".codex" / "skills" / "decretum-matrix",
+        "claude": home / ".claude" / "skills" / "decretum-matrix",
+        "hermes": home / "localappdata" / "hermes" / "skills" / "decretum-matrix",
+    }
+    targets = [_agents_root(home), *roots.values()]
+    old = [_legacy_root(root) for root in targets]
+    for index, root in enumerate(old):
+        _write_files(
+            root,
+            {
+                "SKILL.md": "# legacy projected skill\n",
+                "VERSION": "beta0.5.10\n",
+                "scripts/portable-helper.py": "VALUE = 'legacy'\n",
+                "data-only.txt": f"legacy-data-{index}\n",
+            },
+        )
+    return source, home, manifest, roots, targets, old
+
+
+def _four_root_kwargs(fixture: tuple[object, ...], adapter: object) -> Payload:
+    source, home, manifest, roots = fixture[:4]
+    return {
+        "source_root": source,
+        "home_root": home,
+        "current_tool": "codex",
+        "explicit_tools": ["claude", "hermes"],
+        "tool_roots": roots,
+        "projection_manifest": manifest,
+        "write": True,
+        "install_transaction_adapter": adapter,
+    }
+
+
+def _case_hermes_alias_commit_failure_restores_legacy_junction(
+    install: Installer,
+    temp_root: Path,
+) -> str | None:
+    name = "hermes_alias_commit_failure_restores_legacy_junction"
+    fixture = _four_root_fixture(temp_root, name)
+    _, home, _, _, targets, old = fixture
+    legacy_alias = home / ".hermes" / "skills" / LEGACY_INSTALL_DIRECTORY_NAME
+    canonical_alias = home / ".hermes" / "skills" / "decretum-matrix"
+    adapter = _AliasFailureAdapter(legacy_alias, canonical_alias, old[-1])
+    before = _snapshots(old)
+    result, rejection = _invoke(install, **_four_root_kwargs(fixture, adapter))
+    if result is not None and result.get("ok") is True:
+        return f"{name}:unexpected_success"
+    prepared_alias = canonical_alias.with_name(f".{canonical_alias.name}.alias-prepared")
+    leftovers, _ = _tx_state(targets, old)
+    checks = (
+        "install_transaction_failed" in (rejection or _result_reason(result)),
+        _snapshots(old) == before,
+        not any(root.exists() or root.is_symlink() for root in targets),
+        adapter.aliases == adapter.initial and not adapter.prepared,
+        str(canonical_alias) not in adapter.aliases,
+        not canonical_alias.exists() and not prepared_alias.exists(),
+        not leftovers,
+        [adapter.events.index(step) for step in ("alias_prepare", "alias_commit", "alias_rollback")]
+        == sorted(adapter.events.index(step) for step in ("alias_prepare", "alias_commit", "alias_rollback"))
+        and adapter.events[-1] == "alias_rollback",
+    )
+    return None if all(checks) else f"{name}:alias_failure_rollback_incomplete"
+
+
 def _check_tx_cases(
-    install: Callable[..., object],
+    install: Installer,
     temp_root: Path,
     errors: list[str],
     *,
@@ -1592,7 +1668,7 @@ def _check_tx_cases(
         case_name = f"{prefix}_{step}_restores_preimage"
         fixture = _tx_fixture(temp_root, case_name, legacy)
         _, _, _, _, targets, old, seeded, _, _ = fixture
-        before = _snapshot_many(seeded)
+        before = _snapshots(seeded)
         adapter = _MigrationFailureAdapter(step)
         if _require_rejection(
             install,
@@ -1604,7 +1680,7 @@ def _check_tx_cases(
             leftovers, counts = _tx_state(targets, old)
             checks = (
                 (
-                    _snapshot_many(seeded) == before
+                    _snapshots(seeded) == before
                     and (not legacy or not any(root.exists() for root in targets)),
                     "rollback_drift",
                 ),
@@ -1620,53 +1696,63 @@ def _check_tx_cases(
 
 
 def _check_cases(
-    install: Callable[..., object],
+    install: Installer,
     temp_root: Path,
     errors: list[str],
 ) -> int:
     passed = 0
 
+    def install_args(
+        source: Path,
+        home: Path,
+        manifest: Path,
+        roots: dict[str, Path],
+        *,
+        write: bool,
+        **extra: object,
+    ) -> Payload:
+        return {
+            "source_root": source,
+            "home_root": home,
+            "current_tool": "codex",
+            "explicit_tools": [],
+            "tool_roots": roots,
+            "projection_manifest": manifest,
+            "write": write,
+            **extra,
+        }
+
     source, home, manifest, roots = _case_fixture(temp_root, "codex-default")
-    _prime_existing_roots(home, roots)
-    before = _snapshot_many([_agents_root(home), *roots.values()])
+    _prime_roots(home, roots)
+    before = _snapshots([_agents_root(home), *roots.values()])
     if _require_success(
         install,
         name="codex_default_agents_plus_current",
         expected_targets=[_agents_root(home), roots["codex"]],
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=False,
+        **install_args(source, home, manifest, roots, write=False),
     ) is not None:
-        after = _snapshot_many([_agents_root(home), *roots.values()])
+        after = _snapshots([_agents_root(home), *roots.values()])
         if after != before:
             errors.append("codex_default_agents_plus_current:plan_mutated_targets")
         else:
             passed += 1
 
     source, home, manifest, roots = _case_fixture(temp_root, "unknown-default")
-    _prime_existing_roots(home, roots)
+    _prime_roots(home, roots)
     if _require_success(
         install,
         name="unknown_tool_agents_only",
         expected_targets=[_agents_root(home)],
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="unknown",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=False,
+        **install_args(
+            source, home, manifest, roots, write=False, current_tool="unknown"
+        ),
     ) is not None:
         passed += 1
 
     source, home, manifest, roots = _case_fixture(temp_root, "explicit-hermes")
-    _prime_existing_roots(home, roots)
+    _prime_roots(home, roots)
     if _require_success(
         install,
         name="codex_explicit_hermes",
@@ -1676,19 +1762,15 @@ def _check_cases(
             roots["hermes"],
         ],
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=["hermes"],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=False,
+        **install_args(
+            source, home, manifest, roots, write=False, explicit_tools=["hermes"]
+        ),
     ) is not None:
         passed += 1
 
     source, home, manifest, roots = _case_fixture(temp_root, "write-and-repeat")
-    _prime_existing_roots(home, roots)
-    forbidden_before = _snapshot_many(
+    _prime_roots(home, roots)
+    forbidden_before = _snapshots(
         [roots["claude"], roots["hermes"], roots["other"]]
     )
     first = _require_success(
@@ -1696,13 +1778,7 @@ def _check_cases(
         name="default_write_excludes_unrequested_tools",
         expected_targets=[_agents_root(home), roots["codex"]],
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
+        **install_args(source, home, manifest, roots, write=True),
     )
     if first is not None:
         _assert_projection(
@@ -1715,7 +1791,7 @@ def _check_cases(
             name="default_write_codex_projection",
             errors=errors,
         )
-        forbidden_after = _snapshot_many(
+        forbidden_after = _snapshots(
             [roots["claude"], roots["hermes"], roots["other"]]
         )
         if forbidden_after != forbidden_before:
@@ -1725,21 +1801,15 @@ def _check_cases(
         else:
             passed += 1
 
-        repeat_before = _snapshot_many([_agents_root(home), roots["codex"]])
+        repeat_before = _snapshots([_agents_root(home), roots["codex"]])
         if _require_success(
             install,
             name="repeated_identical_write_is_idempotent",
             expected_targets=[_agents_root(home), roots["codex"]],
             errors=errors,
-            source_root=source,
-            home_root=home,
-            current_tool="codex",
-            explicit_tools=[],
-            tool_roots=roots,
-            projection_manifest=manifest,
-            write=True,
+            **install_args(source, home, manifest, roots, write=True),
         ) is not None:
-            repeat_after = _snapshot_many([_agents_root(home), roots["codex"]])
+            repeat_after = _snapshots([_agents_root(home), roots["codex"]])
             if repeat_after != repeat_before:
                 errors.append(
                     "repeated_identical_write_is_idempotent:bytes_changed"
@@ -1754,13 +1824,7 @@ def _check_cases(
             name="stale_projected_bytes_update_transactionally",
             expected_targets=[_agents_root(home), roots["codex"]],
             errors=errors,
-            source_root=source,
-            home_root=home,
-            current_tool="codex",
-            explicit_tools=[],
-            tool_roots=roots,
-            projection_manifest=manifest,
-            write=True,
+            **install_args(source, home, manifest, roots, write=True),
         ) is not None:
             if conflict_path.read_bytes() != (source / "SKILL.md").read_bytes():
                 errors.append("stale_projected_bytes_update_transactionally:not_updated")
@@ -1768,23 +1832,16 @@ def _check_cases(
                 passed += 1
 
     source, home, manifest, roots = _case_fixture(temp_root, "fanout")
-    _prime_existing_roots(home, roots)
-    fanout_before = _snapshot_many([_agents_root(home), *roots.values()])
+    _prime_roots(home, roots)
+    fanout_before = _snapshots([_agents_root(home), *roots.values()])
     if _require_rejection(
         install,
         name="fixed_five_root_fanout_rejected",
         reason="fanout_forbidden",
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
-        fanout=True,
+        **install_args(source, home, manifest, roots, write=True, fanout=True),
     ):
-        fanout_after = _snapshot_many([_agents_root(home), *roots.values()])
+        fanout_after = _snapshots([_agents_root(home), *roots.values()])
         if fanout_after != fanout_before:
             errors.append("fixed_five_root_fanout_rejected:partial_mutation")
         else:
@@ -1792,25 +1849,26 @@ def _check_cases(
 
     passed += _check_tx_cases(install, temp_root, errors, legacy=True)
     passed += _check_tx_cases(install, temp_root, errors, legacy=False)
+    failure = _case_hermes_alias_commit_failure_restores_legacy_junction(
+        install, temp_root
+    )
+    if failure:
+        errors.append(failure)
+    else:
+        passed += 1
 
     source, home, manifest, roots = _case_fixture(temp_root, "escaped-target")
     roots["codex"] = home.parent / "outside-home" / "decretum-matrix"
-    _prime_existing_roots(home, roots)
-    escape_before = _snapshot_many([_agents_root(home), *roots.values()])
+    _prime_roots(home, roots)
+    escape_before = _snapshots([_agents_root(home), *roots.values()])
     if _require_rejection(
         install,
         name="target_outside_home_rejected",
         reason="target_outside_home",
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
+        **install_args(source, home, manifest, roots, write=True),
     ):
-        escape_after = _snapshot_many([_agents_root(home), *roots.values()])
+        escape_after = _snapshots([_agents_root(home), *roots.values()])
         if escape_after != escape_before:
             errors.append("target_outside_home_rejected:partial_mutation")
         else:
@@ -1825,22 +1883,16 @@ def _check_cases(
     source, home, manifest, roots = _case_fixture(
         temp_root, "absolute-binding", bad_manifest
     )
-    _prime_existing_roots(home, roots)
-    invalid_before = _snapshot_many([_agents_root(home), *roots.values()])
+    _prime_roots(home, roots)
+    invalid_before = _snapshots([_agents_root(home), *roots.values()])
     if _require_rejection(
         install,
         name="absolute_persisted_binding_rejected",
         reason="persisted_path_invalid",
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
+        **install_args(source, home, manifest, roots, write=True),
     ):
-        invalid_after = _snapshot_many([_agents_root(home), *roots.values()])
+        invalid_after = _snapshots([_agents_root(home), *roots.values()])
         if invalid_after != invalid_before:
             errors.append(
                 "absolute_persisted_binding_rejected:partial_mutation"
@@ -1862,19 +1914,15 @@ def _check_cases(
     ):
         home = case_root / f"home-{label}"
         roots = _target_roots(home)
-        _prime_existing_roots(home, roots)
+        _prime_roots(home, roots)
         if _require_success(
             install,
             name=f"relative_binding_relocates_{label}",
             expected_targets=[_agents_root(home), roots["codex"]],
             errors=errors,
-            source_root=source_root,
-            home_root=home,
-            current_tool="codex",
-            explicit_tools=[],
-            tool_roots=roots,
-            projection_manifest=projection_manifest,
-            write=True,
+            **install_args(
+                source_root, home, projection_manifest, roots, write=True
+            ),
         ) is None:
             relocation_ok = False
             continue
@@ -1892,10 +1940,10 @@ def _check_cases(
             passed += 1
 
     name = "darwin_clean_home_portable_current_tool_only"
-    before_errors = len(errors)
+    before = len(errors)
     source, home, manifest, roots = _case_fixture(temp_root, "darwin-clean-home")
     all_roots = [_agents_root(home), *roots.values()]
-    before = _snapshot_many(all_roots)
+    root_snapshots = _snapshots(all_roots)
     platform_context = {
         "system": "Darwin",
         "clean_home": True,
@@ -1914,14 +1962,14 @@ def _check_cases(
         name=name,
         expected_targets=[_agents_root(home), roots["codex"]],
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
-        platform_context=platform_context,
+        **install_args(
+            source,
+            home,
+            manifest,
+            roots,
+            write=True,
+            platform_context=platform_context,
+        ),
     )
     if result is not None:
         _assert_projection(_agents_root(home), name=name, errors=errors)
@@ -1931,7 +1979,7 @@ def _check_cases(
         if shared_targets != [_agents_root(home).resolve(strict=False)]:
             errors.append(f"{name}:shared_agents_not_unique:{shared_targets!r}")
         for target in (roots["claude"], roots["hermes"], roots["other"]):
-            if _snapshot(target) != before[str(target.resolve(strict=False))]:
+            if _snapshot(target) != root_snapshots[str(target.resolve(strict=False))]:
                 errors.append(f"{name}:unrequested_tool_mutated:{target}")
         portability = result.get("portability_evidence")
         if not isinstance(portability, dict):
@@ -1964,41 +2012,41 @@ def _check_cases(
             if any(not _safe_relative(binding.get(field)) for field in BINDING_FIELDS):
                 errors.append(f"{name}:persistent_binding_not_posix_relative")
                 break
-    if len(errors) == before_errors:
+    if len(errors) == before:
         passed += 1
 
     name = "source_package_sha256_receipt_round_trip"
-    before_errors = len(errors)
+    before = len(errors)
     source, home, manifest, roots = _case_fixture(
         temp_root, "source-package-sha256"
     )
-    _prime_existing_roots(home, roots)
+    _prime_roots(home, roots)
     source_package_sha256 = "a" * 64
     result = _require_success(
         install,
         name=name,
         expected_targets=[_agents_root(home), roots["codex"]],
         errors=errors,
-        source_root=source,
-        home_root=home,
-        current_tool="codex",
-        explicit_tools=[],
-        tool_roots=roots,
-        projection_manifest=manifest,
-        write=True,
-        source_package_sha256=source_package_sha256,
+        **install_args(
+            source,
+            home,
+            manifest,
+            roots,
+            write=True,
+            source_package_sha256=source_package_sha256,
+        ),
     )
     if result is not None and result.get("source_package_sha256") != source_package_sha256:
         errors.append(f"{name}:top_level_source_package_sha256_missing")
-    if len(errors) == before_errors:
+    if len(errors) == before:
         passed += 1
 
     name = "invalid_source_package_sha256_rejected"
-    before_errors = len(errors)
+    before = len(errors)
     source, home, manifest, roots = _case_fixture(
         temp_root, "invalid-source-package-sha256"
     )
-    _prime_existing_roots(home, roots)
+    _prime_roots(home, roots)
     invalid_values: tuple[object, ...] = ("", "A" * 64, "g" * 64, 7)
     rejected = all(
         _require_rejection(
@@ -2006,18 +2054,18 @@ def _check_cases(
             name=f"{name}:{index}",
             reason="source_package_sha256_invalid",
             errors=errors,
-            source_root=source,
-            home_root=home,
-            current_tool="codex",
-            explicit_tools=[],
-            tool_roots=roots,
-            projection_manifest=manifest,
-            write=False,
-            source_package_sha256=value,
+            **install_args(
+                source,
+                home,
+                manifest,
+                roots,
+                write=False,
+                source_package_sha256=value,
+            ),
         )
         for index, value in enumerate(invalid_values)
     )
-    if rejected and len(errors) == before_errors:
+    if rejected and len(errors) == before:
         passed += 1
 
     return passed
@@ -2038,19 +2086,33 @@ def _canonical_tool_roots(home_root: Path) -> dict[str, Path]:
     }
 
 
-def _configuration_request(
-    adapter: _FixtureConfigurationAdapter,
+def _invoke_configuration_case(
+    install: Installer,
     *,
-    explicit_permission: bool,
-    direct_actual_file_authority: bool = False,
-) -> dict[str, object]:
+    case_root: Path,
+    name: str,
+    tool_class: str,
+    errors: list[str],
+    **options: object,
+) -> tuple[Payload | None, Payload | None, _ConfigFixture]:
+    source, home = case_root / "source", case_root / "home"
+    manifest = _write_fixture_source(source)
+    roots = _canonical_tool_roots(home)
+    _prime_roots(home, roots)
+    write = options.pop("write", True)
+    explicit_permission = options.pop("explicit_permission", True)
+    has_controller = options.pop("has_controller", True)
+    direct_authority = options.pop("direct_authority", False)
+    adapter = _ConfigFixture(
+        case_root, tool_class=tool_class, has_controller=has_controller, **options
+    )
     request = {
         "schema": CONFIG_REQUEST_SCHEMA,
         "blank_host": True,
         "tool_class": adapter.tool_class,
         "normalized_semantic_delta": deepcopy(adapter.expected_delta),
         "newest_explicit_change_permission": explicit_permission,
-        "direct_actual_file_change_authority": direct_actual_file_authority,
+        "direct_actual_file_change_authority": direct_authority,
         "controller_probe_requirements": {
             "storage_kind": "json_fixture",
             "synthetic": True,
@@ -2061,75 +2123,9 @@ def _configuration_request(
     }
     if adapter.tool_class == "hermes":
         request["config_path_fixture"] = {
-            "effective_path": str(adapter.effective_paths[0]),
+            "effective_path": str(adapter.paths[0]),
             "source": adapter.hermes_path_source,
         }
-    return request
-
-
-def _configuration_result(
-    result: dict[str, object] | None,
-    *,
-    name: str,
-    errors: list[str],
-) -> dict[str, object] | None:
-    if result is None:
-        return None
-    value = result.get(CONFIG_RESULT_KEY)
-    if not isinstance(value, dict):
-        errors.append(f"{name}:{CONFIG_RESULT_KEY}_missing")
-        return None
-    return value
-
-
-def _invoke_configuration_case(
-    install: Callable[..., object],
-    *,
-    case_root: Path,
-    name: str,
-    tool_class: str,
-    write: bool,
-    explicit_permission: bool,
-    controller_present: bool,
-    controller_materializes: bool = True,
-    controller_version: str = "3.17.0",
-    controller_user_version: int = 13,
-    controller_schema_complete: bool = True,
-    current_profile_settings_present: bool = False,
-    direct_actual_file_authority: bool = False,
-    uncertainty: str | None = None,
-    fail_direct_write_number: int | None = None,
-    fail_direct_step: str | None = None,
-    hermes_platform_system: str = "Linux",
-    hermes_environment: dict[str, Path] | None = None,
-    hermes_config_dir_override: Path | None = None,
-    errors: list[str],
-) -> tuple[
-    dict[str, object] | None,
-    dict[str, object] | None,
-    _FixtureConfigurationAdapter,
-]:
-    source = case_root / "source"
-    home = case_root / "home"
-    manifest = _write_fixture_source(source)
-    roots = _canonical_tool_roots(home)
-    _prime_existing_roots(home, roots)
-    adapter = _FixtureConfigurationAdapter(
-        case_root,
-        tool_class=tool_class,
-        controller_present=controller_present,
-        controller_materializes=controller_materializes,
-        controller_version=controller_version,
-        controller_user_version=controller_user_version,
-        controller_schema_complete=controller_schema_complete,
-        current_profile_settings_present=current_profile_settings_present,
-        uncertainty=uncertainty,
-        fail_direct_write_number=fail_direct_write_number,
-        fail_direct_step=fail_direct_step,
-        hermes_platform_system=hermes_platform_system,
-        hermes_environment=hermes_environment,
-        hermes_config_dir_override=hermes_config_dir_override,
-    )
     result, rejection = _invoke(
         install,
         source_root=source,
@@ -2139,11 +2135,7 @@ def _invoke_configuration_case(
         tool_roots=roots,
         projection_manifest=manifest,
         write=write,
-        blank_host_configuration=_configuration_request(
-            adapter,
-            explicit_permission=explicit_permission,
-            direct_actual_file_authority=direct_actual_file_authority,
-        ),
+        blank_host_configuration=request,
         configuration_adapter=adapter,
     )
     if result is None:
@@ -2160,12 +2152,15 @@ def _invoke_configuration_case(
         ]
         if targets != expected:
             errors.append(f"{name}:targets:{targets!r}!={expected!r}")
-    config = _configuration_result(result, name=name, errors=errors)
+    config = result.get(CONFIG_RESULT_KEY)
+    if not isinstance(config, dict):
+        errors.append(f"{name}:{CONFIG_RESULT_KEY}_missing")
+        config = None
     return result, config, adapter
 
 
 def _require_config_fields(
-    config: dict[str, object],
+    config: Payload,
     *,
     name: str,
     tool_class: str,
@@ -2198,8 +2193,8 @@ def _require_config_fields(
 
 
 def _require_controller_probe_contract(
-    config: dict[str, object],
-    adapter: _FixtureConfigurationAdapter,
+    config: Payload,
+    adapter: _ConfigFixture,
     *,
     name: str,
     expected_compatible: bool,
@@ -2254,7 +2249,7 @@ def _require_controller_probe_contract(
 
 
 def _require_no_controller_migration(
-    adapter: _FixtureConfigurationAdapter,
+    adapter: _ConfigFixture,
     *,
     name: str,
     errors: list[str],
@@ -2264,7 +2259,7 @@ def _require_no_controller_migration(
 
 
 def _require_reversibility(
-    config: dict[str, object],
+    config: Payload,
     *,
     name: str,
     errors: list[str],
@@ -2283,7 +2278,7 @@ def _require_reversibility(
 
 
 def _require_actual_files_verified(
-    adapter: _FixtureConfigurationAdapter,
+    adapter: _ConfigFixture,
     *,
     name: str,
     after_event: str,
@@ -2296,7 +2291,7 @@ def _require_actual_files_verified(
         return
     later = adapter.events[boundary + 1 :]
     reread_positions: list[int] = []
-    for path in adapter.effective_paths:
+    for path in adapter.paths:
         event = f"read_effective_config:{adapter.tool_class}:{path.name}"
         if event not in later:
             errors.append(f"{name}:actual_effective_file_not_reread:{path.name}")
@@ -2313,567 +2308,349 @@ def _require_actual_files_verified(
 
 
 def _check_blank_host_configuration_cases(
-    install: Callable[..., object],
+    install: Installer,
     temp_root: Path,
     errors: list[str],
 ) -> int:
     passed = 0
 
-    for tool_class in CANONICAL_TOOL_CLASSES:
-        name = f"reminder_plan_{tool_class.replace(':', '_')}"
-        before_errors = len(errors)
+    def fail(condition: object, detail: str) -> None:
+        if condition:
+            errors.append(f"{name}:{detail}")
+
+    @contextmanager
+    def run_case(
+        case_name: str,
+        tool_class: str = "codex",
+        *,
+        status: str | None = None,
+        probe: bool | None = None,
+        unchanged: tuple[str, str] | None = None,
+        check_migration: bool = True,
+        **options: object,
+    ):
+        nonlocal passed
+        before = len(errors)
         result, config, adapter = _invoke_configuration_case(
             install,
-            case_root=temp_root / name,
-            name=name,
+            case_root=temp_root / case_name,
+            name=case_name,
             tool_class=tool_class,
+            errors=errors,
+            **options,
+        )
+        if config is not None:
+            if status is not None:
+                _require_config_fields(
+                    config, name=case_name, tool_class=tool_class, errors=errors
+                )
+                if config.get("status") != status:
+                    errors.append(
+                        f"{case_name}:status:{config.get('status')!r}"
+                    )
+            if probe is not None:
+                _require_controller_probe_contract(
+                    config,
+                    adapter,
+                    name=case_name,
+                    expected_compatible=probe,
+                    errors=errors,
+                )
+        yield result, config, adapter
+        if unchanged is not None:
+            mutation_label, surface_label = unchanged
+            if adapter.mutation_events:
+                errors.append(
+                    f"{case_name}:{mutation_label}:{adapter.mutation_events!r}"
+                )
+            if adapter.surface_snapshot() != adapter.initial_snapshot:
+                errors.append(f"{case_name}:{surface_label}")
+        if check_migration:
+            _require_no_controller_migration(adapter, name=case_name, errors=errors)
+        passed += len(errors) == before
+
+    for tool_class in CANONICAL_TOOL_CLASSES:
+        name = f"reminder_plan_{tool_class.replace(':', '_')}"
+        with run_case(
+            name,
+            tool_class,
+            status="REMINDER_ONLY",
+            unchanged=("planner_mutated", "planner_changed_fixture_surfaces"),
             write=False,
             explicit_permission=False,
-            controller_present=True,
-            errors=errors,
-        )
-        expected_gaps = adapter.expected_gaps()
-        if result is not None and result.get("ok") is not True:
-            errors.append(f"{name}:planner_blocked_install_contract")
-        if config is not None:
-            _require_config_fields(
-                config, name=name, tool_class=tool_class, errors=errors
-            )
-            if config.get("status") != "REMINDER_ONLY":
-                errors.append(f"{name}:status:{config.get('status')!r}")
-            if config.get("gaps") != expected_gaps:
-                errors.append(f"{name}:gaps_not_exact:{config.get('gaps')!r}")
-            if config.get("evidence") != adapter.expected_evidence():
-                errors.append(f"{name}:evidence_not_exact:{config.get('evidence')!r}")
-            for field in (
-                "standard_requirements_met",
-                "compliance_claimed",
-                "mutation_authorized",
-                "unrelated_install_blocked",
-                "unrelated_task_blocked",
-            ):
-                if config.get(field) is not False:
-                    errors.append(f"{name}:{field}_must_be_false")
-        if adapter.mutation_events:
-            errors.append(f"{name}:planner_mutated:{adapter.mutation_events!r}")
-        if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-            errors.append(f"{name}:planner_changed_fixture_surfaces")
-        _require_no_controller_migration(adapter, name=name, errors=errors)
-        if len(errors) == before_errors:
-            passed += 1
+        ) as (result, config, adapter):
+            expected_gaps = adapter.expected_gaps()
+            fail(result is not None and result.get("ok") is not True, "planner_blocked_install_contract")
+            if config is not None:
+                fail(config.get("gaps") != expected_gaps, f"gaps_not_exact:{config.get('gaps')!r}")
+                fail(config.get("evidence") != adapter.expected_evidence(), f"evidence_not_exact:{config.get('evidence')!r}")
+                for field in (
+                    "standard_requirements_met",
+                    "compliance_claimed",
+                    "mutation_authorized",
+                    "unrelated_install_blocked",
+                    "unrelated_task_blocked",
+                ):
+                    fail(config.get(field) is not False, f"{field}_must_be_false")
 
     name = "reminder_execute_does_not_block_install_or_task"
-    before_errors = len(errors)
-    result, config, adapter = _invoke_configuration_case(
-        install,
-        case_root=temp_root / name,
-        name=name,
-        tool_class="codex",
-        write=True,
+    with run_case(
+        name,
+        status="REMINDER_ONLY",
+        unchanged=("configuration_writes", "configuration_surface_changed"),
         explicit_permission=False,
-        controller_present=True,
-        errors=errors,
-    )
-    if result is not None and result.get("ok") is not True:
-        errors.append(f"{name}:unrelated_install_reported_failed")
-    if config is not None:
-        _require_config_fields(config, name=name, tool_class="codex", errors=errors)
-        if config.get("status") != "REMINDER_ONLY":
-            errors.append(f"{name}:status:{config.get('status')!r}")
-        if config.get("compliance_claimed") is not False:
-            errors.append(f"{name}:claimed_compliant")
-        if config.get("unrelated_install_blocked") is not False:
-            errors.append(f"{name}:install_blocked")
-        if config.get("unrelated_task_blocked") is not False:
-            errors.append(f"{name}:task_blocked")
-    if adapter.mutation_events:
-        errors.append(f"{name}:configuration_writes:{adapter.mutation_events!r}")
-    if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-        errors.append(f"{name}:configuration_surface_changed")
-    _require_no_controller_migration(adapter, name=name, errors=errors)
-    home = temp_root / name / "home"
-    _assert_projection(_agents_root(home), name=name, errors=errors)
-    if len(errors) == before_errors:
-        passed += 1
-
-    for uncertainty in UNCERTAINTY_KINDS:
-        name = f"uncertain_{uncertainty}_changes_nothing"
-        before_errors = len(errors)
-        _result, config, adapter = _invoke_configuration_case(
-            install,
-            case_root=temp_root / name,
-            name=name,
-            tool_class="codex",
-            write=True,
-            explicit_permission=True,
-            controller_present=True,
-            uncertainty=uncertainty,
-            errors=errors,
-        )
+    ) as (result, config, _adapter):
+        fail(result is not None and result.get("ok") is not True, "unrelated_install_reported_failed")
         if config is not None:
-            _require_config_fields(
-                config, name=name, tool_class="codex", errors=errors
-            )
-            if config.get("status") != "NO_CHANGE_UNCERTAIN":
-                errors.append(f"{name}:status:{config.get('status')!r}")
-            if config.get("compliance_claimed") is not False:
-                errors.append(f"{name}:claimed_compliant")
-            if uncertainty not in str(config.get("uncertainty")):
-                errors.append(f"{name}:uncertainty_not_explained")
-            if uncertainty not in str(config.get("explanation")):
-                errors.append(f"{name}:explanation_missing")
-        if adapter.mutation_events:
-            errors.append(f"{name}:mutated:{adapter.mutation_events!r}")
-        if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-            errors.append(f"{name}:surface_changed")
-        _require_no_controller_migration(adapter, name=name, errors=errors)
-        if len(errors) == before_errors:
-            passed += 1
+            fail(config.get("compliance_claimed") is not False, "claimed_compliant")
+            fail(config.get("unrelated_install_blocked") is not False, "install_blocked")
+            fail(config.get("unrelated_task_blocked") is not False, "task_blocked")
+        _assert_projection(_agents_root(temp_root / name / "home"), name=name, errors=errors)
 
     name = "cc_switch_3_16_5_user_version_11_is_supported"
-    before_errors = len(errors)
-    _result, config, adapter = _invoke_configuration_case(
-        install,
-        case_root=temp_root / name,
-        name=name,
-        tool_class="codex",
-        write=True,
-        explicit_permission=True,
-        controller_present=True,
+    with run_case(
+        name,
+        status="PASSED",
+        probe=True,
         controller_materializes=True,
         controller_version="3.16.5",
         controller_user_version=11,
         controller_schema_complete=False,
-        errors=errors,
-    )
-    if config is not None:
-        _require_config_fields(config, name=name, tool_class="codex", errors=errors)
-        _require_controller_probe_contract(
-            config,
+    ) as (_result, _config, adapter):
+        _require_actual_files_verified(
             adapter,
             name=name,
-            expected_compatible=True,
+            after_event="commit_controller_transaction:codex",
             errors=errors,
         )
-        if config.get("status") != "PASSED":
-            errors.append(f"{name}:status:{config.get('status')!r}")
-    _require_no_controller_migration(adapter, name=name, errors=errors)
-    _require_actual_files_verified(
-        adapter,
-        name=name,
-        after_event="commit_controller_transaction:codex",
-        errors=errors,
-    )
-    if len(errors) == before_errors:
-        passed += 1
 
-    incompatible_fixtures = (
-        ("cc_switch_3_16_5_user_version_13_mismatch", "3.16.5", 13, False),
-        ("cc_switch_3_17_0_user_version_11_mismatch", "3.17.0", 11, True),
-        ("cc_switch_3_17_9_user_version_14_mismatch", "3.17.9", 14, True),
-        ("cc_switch_unknown_3_18_0_fails_closed", "3.18.0", 13, True),
-        ("cc_switch_3_17_0_missing_v13_schema_fails_closed", "3.17.0", 13, False),
-    )
-    for name, version, user_version, schema_complete in incompatible_fixtures:
-        before_errors = len(errors)
-        _result, config, adapter = _invoke_configuration_case(
-            install,
-            case_root=temp_root / name,
-            name=name,
-            tool_class="codex",
-            write=True,
-            explicit_permission=True,
-            controller_present=True,
-            controller_version=version,
-            controller_user_version=user_version,
-            controller_schema_complete=schema_complete,
-            errors=errors,
+    fail_closed_cases = [
+        (
+            f"uncertain_{uncertainty}_changes_nothing",
+            {"uncertainty": uncertainty},
+            uncertainty,
+            ("uncertainty_not_explained", "explanation_missing"),
+            None,
         )
-        compatibility_reason = adapter._controller_compatibility()[1]
-        if config is not None:
-            _require_config_fields(
-                config, name=name, tool_class="codex", errors=errors
-            )
-            _require_controller_probe_contract(
-                config,
-                adapter,
-                name=name,
-                expected_compatible=False,
-                errors=errors,
-            )
-            if config.get("status") != "NO_CHANGE_UNCERTAIN":
-                errors.append(f"{name}:status:{config.get('status')!r}")
-            if config.get("compliance_claimed") is not False:
-                errors.append(f"{name}:claimed_compliant")
-            if compatibility_reason not in str(config.get("uncertainty")):
-                errors.append(f"{name}:compatibility_uncertainty_missing")
-            if compatibility_reason not in str(config.get("explanation")):
-                errors.append(f"{name}:compatibility_explanation_missing")
-        if adapter.mutation_events:
-            errors.append(f"{name}:mutated:{adapter.mutation_events!r}")
-        if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-            errors.append(f"{name}:surface_changed")
-        _require_no_controller_migration(adapter, name=name, errors=errors)
-        if len(errors) == before_errors:
-            passed += 1
+        for uncertainty in UNCERTAINTY_KINDS
+    ] + [
+        (name, {
+            "controller_version": version,
+            "controller_user_version": user_version,
+            "controller_schema_complete": schema_complete,
+        }, None, (
+            "compatibility_uncertainty_missing",
+            "compatibility_explanation_missing",
+        ), False)
+        for name, version, user_version, schema_complete in (
+            ("cc_switch_3_16_5_user_version_13_mismatch", "3.16.5", 13, False),
+            ("cc_switch_3_17_0_user_version_11_mismatch", "3.17.0", 11, True),
+            ("cc_switch_3_17_9_user_version_14_mismatch", "3.17.9", 14, True),
+            ("cc_switch_unknown_3_18_0_fails_closed", "3.18.0", 13, True),
+            ("cc_switch_3_17_0_missing_v13_schema_fails_closed", "3.17.0", 13, False),
+        )
+    ]
+    for name, options, reason, labels, probe in fail_closed_cases:
+        with run_case(
+            name,
+            status="NO_CHANGE_UNCERTAIN",
+            probe=probe,
+            unchanged=("mutated", "surface_changed"),
+            **options,
+        ) as (_result, config, adapter):
+            reason = reason or adapter._controller_compatibility()[1]
+            if config is not None:
+                fail(config.get("compliance_claimed") is not False, "claimed_compliant")
+                for field, label in zip(("uncertainty", "explanation"), labels):
+                    fail(reason not in str(config.get(field)), label)
 
     name = "codex_controller_first_then_effective_files_verified"
-    before_errors = len(errors)
-    _result, config, adapter = _invoke_configuration_case(
-        install,
-        case_root=temp_root / name,
-        name=name,
-        tool_class="codex",
-        write=True,
-        explicit_permission=True,
-        controller_present=True,
+    with run_case(
+        name,
+        status="PASSED",
+        probe=True,
         controller_materializes=True,
-        errors=errors,
-    )
-    if config is not None:
-        _require_config_fields(config, name=name, tool_class="codex", errors=errors)
-        _require_controller_probe_contract(
-            config,
-            adapter,
-            name=name,
-            expected_compatible=True,
-            errors=errors,
-        )
-        _require_reversibility(config, name=name, errors=errors)
-        if config.get("status") != "PASSED":
-            errors.append(f"{name}:status:{config.get('status')!r}")
-        if config.get("standard_requirements_met") is not True:
-            errors.append(f"{name}:standard_not_met")
-        if config.get("semantic_delta_verified") is not True:
-            errors.append(f"{name}:semantic_delta_not_verified")
-        if config.get("mutation_path") != "cc_switch_upstream_then_effective_files":
-            errors.append(f"{name}:mutation_path:{config.get('mutation_path')!r}")
-    expected_order = [
-        "backup_controller_database:codex",
-        "begin_controller_transaction:codex",
-        "update_controller_tool_block:codex",
-        "commit_controller_transaction:codex",
-    ]
-    positions = [adapter.events.index(item) for item in expected_order if item in adapter.events]
-    if len(positions) != len(expected_order) or positions != sorted(positions):
-        errors.append(f"{name}:controller_transaction_order:{adapter.events!r}")
-    if adapter.direct_deltas:
-        errors.append(f"{name}:leaf_only_write_attempted:{adapter.direct_deltas!r}")
-    if adapter.controller_deltas != [CODEX_NORMALIZED_SEMANTIC_DELTA]:
-        errors.append(f"{name}:controller_delta:{adapter.controller_deltas!r}")
-    _require_no_controller_migration(adapter, name=name, errors=errors)
-    _require_actual_files_verified(
-        adapter,
-        name=name,
-        after_event="commit_controller_transaction:codex",
-        errors=errors,
-    )
-    initial_projection = {
-        path.name: _without_delta_fields(
-            adapter.initial_parsed[path], adapter.expected_delta
-        )
-        for path in adapter.effective_paths
-    }
-    if adapter.non_delta_projection() != initial_projection:
-        errors.append(f"{name}:secret_provider_or_unknown_key_changed")
-    if adapter.expected_gaps():
-        errors.append(f"{name}:actual_effective_files_noncompliant")
-    if adapter.effective_paths[0].read_bytes() == adapter.effective_paths[1].read_bytes():
-        errors.append(f"{name}:overlays_were_forced_byte_identical")
-    controller_fixture = json.loads(
-        adapter.controller_fixture_path.read_text(encoding="utf-8")
-    )
-    if any(key.startswith("current_profile_id_") for key in controller_fixture["settings"]):
-        errors.append(f"{name}:optional_current_profile_setting_was_required")
-    if len(errors) == before_errors:
-        passed += 1
+    ) as (_result, config, adapter):
+        if config is not None:
+            _require_reversibility(config, name=name, errors=errors)
+            fail(config.get("standard_requirements_met") is not True, "standard_not_met")
+            fail(config.get("semantic_delta_verified") is not True, "semantic_delta_not_verified")
+            fail(
+                config.get("mutation_path") != "cc_switch_upstream_then_effective_files",
+                f"mutation_path:{config.get('mutation_path')!r}",
+            )
+        expected_order = [
+            "backup_controller_database:codex",
+            "begin_controller_transaction:codex",
+            "update_controller_tool_block:codex",
+            "commit_controller_transaction:codex",
+        ]
+        positions = [adapter.events.index(item) for item in expected_order if item in adapter.events]
+        fail(len(positions) != len(expected_order) or positions != sorted(positions), f"controller_transaction_order:{adapter.events!r}")
+        fail(adapter.direct_deltas, f"leaf_only_write_attempted:{adapter.direct_deltas!r}")
+        fail(adapter.controller_deltas != [CODEX_NORMALIZED_SEMANTIC_DELTA], f"controller_delta:{adapter.controller_deltas!r}")
+        _require_actual_files_verified(adapter, name=name, after_event="commit_controller_transaction:codex", errors=errors)
+        initial_projection = {
+            path.name: _without_delta_fields(adapter.initial_parsed[path], adapter.expected_delta)
+            for path in adapter.paths
+        }
+        fail(adapter.non_delta_projection() != initial_projection, "secret_provider_or_unknown_key_changed")
+        fail(adapter.expected_gaps(), "actual_effective_files_noncompliant")
+        fail(adapter.paths[0].read_bytes() == adapter.paths[1].read_bytes(), "overlays_were_forced_byte_identical")
+        controller_fixture = json.loads(adapter.controller_path.read_text(encoding="utf-8"))
+        fail(any(key.startswith("current_profile_id_") for key in controller_fixture["settings"]), "optional_current_profile_setting_was_required")
 
     name = "codex_db_receipt_without_materialization_rolls_back"
-    before_errors = len(errors)
-    _result, config, adapter = _invoke_configuration_case(
-        install,
-        case_root=temp_root / name,
-        name=name,
-        tool_class="codex",
-        write=True,
-        explicit_permission=True,
-        controller_present=True,
+    with run_case(
+        name,
+        probe=True,
         controller_materializes=False,
-        errors=errors,
-    )
-    if config is not None:
-        _require_controller_probe_contract(
-            config,
-            adapter,
-            name=name,
-            expected_compatible=True,
-            errors=errors,
-        )
-        if config.get("status") == "PASSED" or config.get("compliance_claimed") is True:
-            errors.append(f"{name}:db_receipt_claimed_success")
-    if adapter.direct_deltas:
-        errors.append(f"{name}:leaf_only_fallback_used:{adapter.direct_deltas!r}")
-    if "rollback_controller_transaction:codex" not in adapter.events:
-        errors.append(f"{name}:controller_rollback_missing")
-    if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-        errors.append(f"{name}:rollback_did_not_restore_surfaces")
-    _require_no_controller_migration(adapter, name=name, errors=errors)
-    if len(errors) == before_errors:
-        passed += 1
+    ) as (_result, config, adapter):
+        if config is not None:
+            fail(config.get("status") == "PASSED" or config.get("compliance_claimed") is True, "db_receipt_claimed_success")
+        fail(bool(adapter.direct_deltas), f"leaf_only_fallback_used:{adapter.direct_deltas!r}")
+        fail("rollback_controller_transaction:codex" not in adapter.events, "controller_rollback_missing")
+        fail(adapter.surface_snapshot() != adapter.initial_snapshot, "rollback_did_not_restore_surfaces")
 
     name = "codex_without_controller_dual_file_transaction"
-    before_errors = len(errors)
-    _result, config, adapter = _invoke_configuration_case(
-        install,
-        case_root=temp_root / name,
-        name=name,
-        tool_class="codex",
-        write=True,
-        explicit_permission=True,
-        controller_present=False,
-        errors=errors,
-    )
-    if config is not None:
-        _require_reversibility(config, name=name, errors=errors)
-        if config.get("status") != "PASSED":
-            errors.append(f"{name}:status:{config.get('status')!r}")
-        if config.get("mutation_path") != "direct_reversible_effective_files":
-            errors.append(f"{name}:mutation_path:{config.get('mutation_path')!r}")
-    if [item[0] for item in adapter.direct_deltas] != [
-        "config.toml",
-        "managed_config.toml",
-    ]:
-        errors.append(f"{name}:dual_file_delta_missing:{adapter.direct_deltas!r}")
-    if any(delta != CODEX_NORMALIZED_SEMANTIC_DELTA for _, delta in adapter.direct_deltas):
-        errors.append(f"{name}:normalized_delta_drift")
-    _require_actual_files_verified(
-        adapter,
-        name=name,
-        after_event="commit_effective_files_transaction:codex",
-        errors=errors,
-    )
-    if adapter.expected_gaps():
-        errors.append(f"{name}:dual_file_result_noncompliant")
-    if adapter.effective_paths[0].read_bytes() == adapter.effective_paths[1].read_bytes():
-        errors.append(f"{name}:dual_toml_files_were_forced_byte_identical")
-    if len(errors) == before_errors:
-        passed += 1
+    with run_case(
+        name,
+        status="PASSED",
+        check_migration=False,
+        has_controller=False,
+    ) as (_result, config, adapter):
+        if config is not None:
+            _require_reversibility(config, name=name, errors=errors)
+            fail(config.get("mutation_path") != "direct_reversible_effective_files", f"mutation_path:{config.get('mutation_path')!r}")
+        fail([item[0] for item in adapter.direct_deltas] != ["config.toml", "managed_config.toml"], f"dual_file_delta_missing:{adapter.direct_deltas!r}")
+        fail(any(delta != CODEX_NORMALIZED_SEMANTIC_DELTA for _, delta in adapter.direct_deltas), "normalized_delta_drift")
+        _require_actual_files_verified(adapter, name=name, after_event="commit_effective_files_transaction:codex", errors=errors)
+        fail(bool(adapter.expected_gaps()), "dual_file_result_noncompliant")
+        fail(adapter.paths[0].read_bytes() == adapter.paths[1].read_bytes(), "dual_toml_files_were_forced_byte_identical")
 
     name = "codex_dual_file_failure_rolls_back_atomically"
-    before_errors = len(errors)
-    _result, config, adapter = _invoke_configuration_case(
-        install,
-        case_root=temp_root / name,
-        name=name,
-        tool_class="codex",
-        write=True,
-        explicit_permission=True,
-        controller_present=False,
+    with run_case(
+        name,
+        check_migration=False,
+        has_controller=False,
         fail_direct_write_number=2,
-        errors=errors,
-    )
-    if config is not None and (
-        config.get("status") == "PASSED" or config.get("compliance_claimed") is True
-    ):
-        errors.append(f"{name}:partial_write_claimed_success")
-    if "rollback_effective_files_transaction:codex" not in adapter.events:
-        errors.append(f"{name}:rollback_missing")
-    if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-        errors.append(f"{name}:rollback_did_not_restore_both_files")
-    if len(errors) == before_errors:
-        passed += 1
+    ) as (_result, config, adapter):
+        fail(config is not None and (config.get("status") == "PASSED" or config.get("compliance_claimed") is True), "partial_write_claimed_success")
+        fail("rollback_effective_files_transaction:codex" not in adapter.events, "rollback_missing")
+        fail(adapter.surface_snapshot() != adapter.initial_snapshot, "rollback_did_not_restore_both_files")
 
     for direct_authority in (False, True):
         suffix = "authorized" if direct_authority else "unauthorized"
         name = f"hermes_controller_nonmaterialization_{suffix}_fallback"
-        before_errors = len(errors)
-        _result, config, adapter = _invoke_configuration_case(
-            install,
-            case_root=temp_root / name,
-            name=name,
-            tool_class="hermes",
-            write=True,
-            explicit_permission=True,
-            controller_present=True,
+        with run_case(
+            name,
+            "hermes",
+            status="PASSED" if direct_authority else None,
             controller_materializes=False,
-            direct_actual_file_authority=direct_authority,
-            errors=errors,
-        )
-        if not direct_authority:
-            if config is not None and (
-                config.get("status") == "PASSED"
-                or config.get("compliance_claimed") is True
-            ):
-                errors.append(f"{name}:claimed_success")
-            if adapter.direct_deltas:
-                errors.append(f"{name}:unauthorized_direct_fallback")
-            if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-                errors.append(f"{name}:unauthorized_surface_change")
-        else:
-            if config is not None:
-                _require_reversibility(config, name=name, errors=errors)
-                if config.get("status") != "PASSED":
-                    errors.append(f"{name}:status:{config.get('status')!r}")
-            if not adapter.direct_deltas:
-                errors.append(f"{name}:authorized_fallback_not_used")
-            controller_index = adapter.events.index(
-                "update_controller_tool_block:hermes"
-            ) if "update_controller_tool_block:hermes" in adapter.events else -1
-            direct_events = [
-                index
-                for index, event in enumerate(adapter.events)
-                if event.startswith("write_effective_config:hermes:")
-            ]
-            if controller_index < 0 or not direct_events or controller_index >= direct_events[0]:
-                errors.append(f"{name}:fallback_not_controller_first")
-            if adapter.expected_gaps():
-                errors.append(f"{name}:fallback_not_effective")
-            _require_actual_files_verified(
-                adapter,
-                name=name,
-                after_event="commit_effective_files_transaction:hermes",
-                errors=errors,
-            )
-        _require_no_controller_migration(adapter, name=name, errors=errors)
-        if len(errors) == before_errors:
-            passed += 1
+            direct_authority=direct_authority,
+        ) as (_result, config, adapter):
+            if not direct_authority:
+                fail(config is not None and (config.get("status") == "PASSED" or config.get("compliance_claimed") is True), "claimed_success")
+                fail(bool(adapter.direct_deltas), "unauthorized_direct_fallback")
+                fail(adapter.surface_snapshot() != adapter.initial_snapshot, "unauthorized_surface_change")
+            else:
+                if config is not None:
+                    _require_reversibility(config, name=name, errors=errors)
+                fail(not adapter.direct_deltas, "authorized_fallback_not_used")
+                controller_index = adapter.events.index("update_controller_tool_block:hermes") if "update_controller_tool_block:hermes" in adapter.events else -1
+                direct_events = [
+                    index for index, event in enumerate(adapter.events)
+                    if event.startswith("write_effective_config:hermes:")
+                ]
+                fail(controller_index < 0 or not direct_events or controller_index >= direct_events[0], "fallback_not_controller_first")
+                fail(bool(adapter.expected_gaps()), "fallback_not_effective")
+                _require_actual_files_verified(adapter, name=name, after_event="commit_effective_files_transaction:hermes", errors=errors)
 
     hermes_path_cases = (
-        "explicit_override",
-        "hermes_home",
-        "windows_localappdata",
-        "windows_home_localappdata_fallback",
-        "darwin_posix_home_default",
+        (
+            "explicit_override", "Windows", "override",
+            (("HERMES_HOME", "ignored-hermes-home"), ("LOCALAPPDATA", "ignored-localappdata")),
+            "override/config.yaml", "ccs_hermes_config_dir_override",
+        ),
+        (
+            "hermes_home", "Windows", None,
+            (("HERMES_HOME", "hermes-home"), ("LOCALAPPDATA", "ignored-localappdata")),
+            "hermes-home/config.yaml", "HERMES_HOME",
+        ),
+        (
+            "windows_localappdata", "Windows", None,
+            (("LOCALAPPDATA", "localappdata"),),
+            "localappdata/hermes/config.yaml", "LOCALAPPDATA",
+        ),
+        (
+            "windows_home_localappdata_fallback", "Windows", None, (),
+            "home/AppData/Local/hermes/config.yaml", "windows_home_localappdata_fallback",
+        ),
+        (
+            "darwin_posix_home_default", "Darwin", None, (),
+            "home/.hermes/config.yaml", "posix_home_default",
+        ),
     )
-    for path_case in hermes_path_cases:
+    for path_case, platform_system, override, environment_rows, expected_relative, expected_source in hermes_path_cases:
         name = f"hermes_config_path_{path_case}"
-        before_errors = len(errors)
         case_root = temp_root / name
         home = case_root / "home"
-        environment: dict[str, Path] = {}
-        explicit_config_dir: Path | None = None
-        platform_system = "Windows"
-        if path_case == "explicit_override":
-            explicit_config_dir = case_root / "override"
-            environment = {
-                "HERMES_HOME": case_root / "ignored-hermes-home",
-                "LOCALAPPDATA": case_root / "ignored-localappdata",
-            }
-            expected = explicit_config_dir / "config.yaml"
-            expected_source = "ccs_hermes_config_dir_override"
-        elif path_case == "hermes_home":
-            environment = {
-                "HERMES_HOME": case_root / "hermes-home",
-                "LOCALAPPDATA": case_root / "ignored-localappdata",
-            }
-            expected = environment["HERMES_HOME"] / "config.yaml"
-            expected_source = "HERMES_HOME"
-        elif path_case == "windows_localappdata":
-            environment = {"LOCALAPPDATA": case_root / "localappdata"}
-            expected = environment["LOCALAPPDATA"] / "hermes" / "config.yaml"
-            expected_source = "LOCALAPPDATA"
-        elif path_case == "windows_home_localappdata_fallback":
-            expected = home / "AppData" / "Local" / "hermes" / "config.yaml"
-            expected_source = "windows_home_localappdata_fallback"
-        else:
-            platform_system = "Darwin"
-            expected = home / ".hermes" / "config.yaml"
-            expected_source = "posix_home_default"
-        _result, config, adapter = _invoke_configuration_case(
-            install,
-            case_root=case_root,
-            name=name,
-            tool_class="hermes",
+        environment = {key: case_root / suffix for key, suffix in environment_rows}
+        explicit_config_dir = case_root / override if override else None
+        expected = (case_root / expected_relative).resolve(strict=False)
+        with run_case(
+            name,
+            "hermes",
+            status="REMINDER_ONLY",
+            unchanged=("planner_mutated", "planner_changed_fixture_surfaces"),
             write=False,
             explicit_permission=False,
-            controller_present=False,
+            has_controller=False,
             hermes_platform_system=platform_system,
             hermes_environment=environment,
             hermes_config_dir_override=explicit_config_dir,
-            errors=errors,
-        )
-        expected = expected.resolve(strict=False)
-        if len(adapter.effective_paths) != 1 or not _same_filesystem_path(
-            adapter.effective_paths[0], expected
-        ):
-            errors.append(f"{name}:effective_path:{adapter.effective_paths!r}!={[expected]!r}")
-        if adapter.hermes_path_source != expected_source:
-            errors.append(
-                f"{name}:path_source:{adapter.hermes_path_source!r}!={expected_source!r}"
-            )
-        if platform_system == "Windows" and adapter.effective_paths == [
-            (home / ".hermes" / "config.yaml").resolve(strict=False)
-        ]:
-            errors.append(f"{name}:windows_defaulted_to_dot_hermes")
-        if config is not None:
-            _require_config_fields(
-                config, name=name, tool_class="hermes", errors=errors
-            )
-            if config.get("status") != "REMINDER_ONLY":
-                errors.append(f"{name}:status:{config.get('status')!r}")
-            effective_files = config.get("effective_files")
-            if not isinstance(effective_files, list) or not any(
-                isinstance(item, (str, Path))
-                and _same_filesystem_path(Path(item), expected)
-                for item in effective_files
-            ):
-                errors.append(f"{name}:effective_file_evidence_missing")
-        if "list_effective_files:hermes" not in adapter.events:
-            errors.append(f"{name}:adapter_path_fixture_not_used")
-        if adapter.mutation_events:
-            errors.append(f"{name}:planner_mutated:{adapter.mutation_events!r}")
-        if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-            errors.append(f"{name}:planner_changed_fixture_surfaces")
-        _require_no_controller_migration(adapter, name=name, errors=errors)
-        if len(errors) == before_errors:
-            passed += 1
+        ) as (_result, config, adapter):
+            fail(len(adapter.paths) != 1 or not _same_filesystem_path(adapter.paths[0], expected), f"effective_path:{adapter.paths!r}!={[expected]!r}")
+            fail(adapter.hermes_path_source != expected_source, f"path_source:{adapter.hermes_path_source!r}!={expected_source!r}")
+            fail(platform_system == "Windows" and adapter.paths == [(home / ".hermes" / "config.yaml").resolve(strict=False)], "windows_defaulted_to_dot_hermes")
+            if config is not None:
+                effective_files = config.get("effective_files")
+                fail(
+                    not isinstance(effective_files, list)
+                    or not any(isinstance(item, (str, Path)) and _same_filesystem_path(Path(item), expected) for item in effective_files),
+                    "effective_file_evidence_missing",
+                )
+            fail("list_effective_files:hermes" not in adapter.events, "adapter_path_fixture_not_used")
 
     for failure_step in DIRECT_FAILURE_STEPS:
         name = f"hermes_direct_fallback_{failure_step}_failure_rolls_back"
-        before_errors = len(errors)
-        _result, config, adapter = _invoke_configuration_case(
-            install,
-            case_root=temp_root / name,
-            name=name,
-            tool_class="hermes",
-            write=True,
-            explicit_permission=True,
-            controller_present=True,
+        with run_case(
+            name,
+            "hermes",
             controller_materializes=False,
-            direct_actual_file_authority=True,
+            direct_authority=True,
             fail_direct_step=failure_step,
-            errors=errors,
-        )
-        if config is not None and (
-            config.get("status") == "PASSED"
-            or config.get("compliance_claimed") is True
-        ):
-            errors.append(f"{name}:step_failure_claimed_success")
-        controller_event = "update_controller_tool_block:hermes"
-        failure_events = [
-            index
-            for index, event in enumerate(adapter.events)
-            if event.startswith(f"{failure_step}:hermes")
-        ]
-        if controller_event not in adapter.events or not failure_events:
-            errors.append(f"{name}:controller_or_failure_step_missing")
-        elif adapter.events.index(controller_event) >= failure_events[0]:
-            errors.append(f"{name}:direct_failure_not_after_controller_first")
-        if failure_step in {
-            "write_effective_config",
-            "commit_effective_files_transaction",
-        } and "rollback_effective_files_transaction:hermes" not in adapter.events:
-            errors.append(f"{name}:effective_rollback_missing")
-        if adapter.surface_snapshot() != adapter.initial_surface_snapshot:
-            errors.append(f"{name}:failure_did_not_restore_all_surfaces")
-        _require_no_controller_migration(adapter, name=name, errors=errors)
-        if len(errors) == before_errors:
-            passed += 1
+        ) as (_result, config, adapter):
+            fail(config is not None and (config.get("status") == "PASSED" or config.get("compliance_claimed") is True), "step_failure_claimed_success")
+            controller_event = "update_controller_tool_block:hermes"
+            failure_events = [
+                index for index, event in enumerate(adapter.events)
+                if event.startswith(f"{failure_step}:hermes")
+            ]
+            missing_event = controller_event not in adapter.events or not failure_events
+            fail(missing_event, "controller_or_failure_step_missing")
+            fail(not missing_event and adapter.events.index(controller_event) >= failure_events[0], "direct_failure_not_after_controller_first")
+            fail(
+                failure_step in {"write_effective_config", "commit_effective_files_transaction"}
+                and "rollback_effective_files_transaction:hermes" not in adapter.events,
+                "effective_rollback_missing",
+            )
+            fail(adapter.surface_snapshot() != adapter.initial_snapshot, "failure_did_not_restore_all_surfaces")
 
     return passed
 
 
-def evaluate() -> dict[str, object]:
+def evaluate() -> Payload:
     errors: list[str] = []
     actual_manifest = _load_json(
         PROJECTION_MANIFEST_PATH,
@@ -2933,7 +2710,7 @@ def evaluate() -> dict[str, object]:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 23,
+        "declared_cases": 24,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,
