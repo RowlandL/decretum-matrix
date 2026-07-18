@@ -22,6 +22,8 @@ from court_file_lock import atomic_write_text, file_lock
 
 PROCESS_DISCOVERY_MULTIPLE = -1
 PROCESS_DISCOVERY_FAILED = -2
+def process_query_gone(error):
+    return error in {87, 1168}
 
 
 def daemon_script() -> Path:
@@ -335,6 +337,9 @@ def _windows_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
                         int(entry.th32ProcessID),
                     )
                     if not handle:
+                        if process_query_gone(ctypes.get_last_error()):
+                            more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
+                            continue
                         return False, []
                     try:
                         command_line = ""
@@ -358,6 +363,9 @@ def _windows_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
                                 break
                             if required.value <= size:
                                 break
+                        if not command_line and not windows_pid_alive(int(entry.th32ProcessID)):
+                            more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
+                            continue
                         if not command_line:
                             return False, []
                         rows.append(

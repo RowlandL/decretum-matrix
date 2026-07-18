@@ -134,6 +134,8 @@ def fresh_status(pid: int, interval: int = 20) -> dict[str, object]:
 
 
 def check_autosync_health_truth() -> dict[str, object]:
+    require(autosync.process_query_gone(87), "gone")
+    require(not autosync.process_query_gone(5), "access")
     exact = f'"{sys.executable}" "{autosync.daemon_script()}" --interval 20'
     wrong = autosync.daemon_script().with_name("not-the-daemon.py")
     require(autosync.command_line_runs_daemon(exact), "exact canonical daemon path was not recognized")
