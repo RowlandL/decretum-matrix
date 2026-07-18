@@ -1219,3 +1219,12 @@ Git index empty
 - **当前游标：** `POST_MAINLINE_REBASE/P0 -> OFFICE_PACK_Q0`。P0/Q0 只做 accepted baseline 与只读 inventory，不提前实现 Office Pack/DLC/scope/promotion。
 - **贯通策略：** 后续每阶段持续优先最小完整机制，回收重复和非必要复杂度，不抬预算掩盖增长；每次 handoff 必须明确传递“小而美”策略与 `pending_body_access=NO`。
 - **beta0.5.12 invocation repair：** 当前已安装 beta0.5.11 存在偶发无法调出 `$decretum-matrix` / 三省六部入口的问题；beta0.5.12 本机安装阶段必须修复 skill discovery/invocation 链，并以 canonical skill 与三省入口的真实调用 smoke 验收。该要求不授权扩大到无关宿主配置，也不得用旧 profile 覆盖较新的 `.codex/agents`；调用 smoke 未通过时 `PER_RELEASE_LOCAL_INSTALL` 不得报 PASS。
+
+### 2026-07-18 beta0.5.12 POST_MAINLINE_REBASE/P0 completion（append-only receipt）
+
+- **状态：** `POST_MAINLINE_REBASE/P0=PASS`；child=`release/beta0.5.12@9c9c2d6fa5d89f4aece4bf8e1b9331d59d0c0e7b`，child clean/index=`0`，root index=`0`，root mapping/doctor=`PASS`。
+- **完整裁定：** `docs/plans/2026-07-16-decretum-matrix-office-identity-pack-dlc-and-scope-plan.md` §15 已顺位追加最终 `UNCHANGED|RENAMED|SUPERSEDED|CONFLICT` 矩阵；未改写修复前历史 note，未修改产品代码、root、安装根或 shared data。
+- **真实调用失败前像：** 用户截图显示宿主硬门禁要求已不存在的 `C:\Users\32893\.agents\skills\court-capability-router\SKILL.md`；同时 host capability index 仍解析旧 locator，而 canonical `C:\Users\32893\.agents\skills\decretum-matrix\SKILL.md` 存在、EOF/hash 与五根 active-copy 均通过。故根因边界固定为旧定位指针漂移，不推定 skill 内容、三省六部语义或整个 runtime 损坏。
+- **安装期回归：** beta0.5.12 install 只需将受控旧指针收敛到 canonical path，并以 `$decretum-matrix` 加三省入口真实调用 smoke 验收；14-role parity 另按发布前 source-of-truth 裁定，禁止用旧 profile 覆盖较新的 `.codex/agents`。
+- **门下复核：** `ACCEPT`，`P0_HARD_BLOCKERS=[]`；shared Shiguan managed-Git 缺口留在既有 Q4 gate，host invocation/role projection 漂移留在 install/prepublication gate，均不阻断 Q0 只读盘点。
+- **当前游标：** `OFFICE_PACK_Q0`；继续贯彻“小而美”、单一 authority、无第二 repo/ledger/state machine，`pending_body_access=NO`。
