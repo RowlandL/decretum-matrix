@@ -1187,3 +1187,12 @@ Git index empty
 4. Wiki 必须线上线下同时建立：线上为 GitHub Wiki；线下在仓库内保留可版本化、可离线阅读的 Wiki 源或镜像，并建立同步或发布校验，禁止把线上内容作为唯一副本。
 5. beta0.5.12 发布门增加四项验收：README 普通用户可读性、线上 Wiki 可访问、离线 Wiki 完整性、线上/线下一致性。
 6. 未到 beta0.5.12 发布阶段，或既有外部发布授权/门禁未满足时，不得提前创建或发布线上 Wiki。
+
+### beta0.5.12 A02 host-memory / child-trace repair receipt
+
+- **状态：** `IMPLEMENTED / REVIEWED / COMMITTED_LOCAL`；代码 commit=`e08c6c8`（`fix: gate host memory and child traces`），仅包含 `scripts/archive_runtime_task.py`、`scripts/check_shiguan_host_memory_and_child_trace.py` 与新增 `scripts/shiguan_host_memory_projection.py`。
+- **RED -> GREEN：** production edit 前 `python -B scripts/check_shiguan_host_memory_and_child_trace.py` 得到 `A02_RED_EXPECTED_FAILURES=43`；冻结实现得到 `A02_HOST_MEMORY_CHILD_TRACE_OK`。该结果只关闭 host-memory / metadata graph / blank-host preflight / child-trace cluster，不声称 aggregate Phase 1 GREEN。
+- **实现边界：** host memory update note 三阶段状态严格区分；安装工具只按 manifest eligibility 生成 metadata-only、namespace-isolated graph；blank host 只读探测不执行 mutation；child trace 绑定单 task、实例、差遣与直属上级，按完整生命周期单位执行 event limit，过滤敏感文本并按 UTF-8 bytes 失败关闭，mixed overflow receipt 保留 task/instance/evidence。未创建 store、daemon、plugin、runtime ledger、memory ingestion 或 Obsidian 写入。
+- **三省裁定：** 中书预算审查通过；门下 frozen targeted review=`ACCEPT`；尚书 frozen integration review=`FINAL_APPROVE`。最终 archive/host/checker SHA-256 分别为 `36FF55CDF32F892924E3E77A3143DC8A669A9C02C9CC94797135969CEDD6B6A9`、`AC4A56E34933F0F937B8CF142C09FE9B42354240B955A3F9C3857F032DAD477C`、`1EDD84B82211766772127A437196AFB0D02CF1CE9B4C06E03855E9FB3CCA0A76`。
+- **质量证据：** focused checker、`check_court_runtime.py`、隔离 shared-root 的 `check_court_runtime_completion.py`（18 cases）、`check_read_only_contract.py`、`check_portability.py`、`quick_validate.py .`、`check_release_manifest.py`、`check_source_state_budget.py`、`git diff --check` 与 `.pyc=0` 均 PASS；portable source=`6224086/6225000`，headroom=`914`，pending body reads/access=`0/NO`。
+- **未通过项与顺位：** 当前 beta0.5.12 baseline 的 `check_catalog.py --strict` 对已迁移 host 返回 `shared_shiguan_path_error`，故 `MAINLINE_ACCEPTED_BASELINE_GATE` 继续为 `BASELINE_NOT_ACCEPTED`。下一游标为 `OBS_LOCAL_HOTFIX_INTEGRATION_REVIEW -> MAINLINE_ACCEPTED_BASELINE_GATE`；独立 hotfix 未经该既有三省 integration gate 前不得 cherry-pick、吸收或改写本 cluster。
