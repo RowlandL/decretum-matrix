@@ -1176,3 +1176,14 @@ Git index empty
 ### Current-stage host messaging reliability blocker
 
 - 状态：`CURRENT_STAGE_PASS`。重启前旧线程携带陈旧 `WorkspaceWrite` 权限枚举，向旧线程发送时被当前宿主枚举校验拒绝；磁盘 `managed_config.toml` 已是合法 `danger-full-access`。未修改宿主配置或 SQLite，改用当前项目线程创建链完成真实跨对话烟测，thread=`019f7193-52ec-7a22-80e2-196e8f6aa014` 返回 `MESSAGE_SMOKE_PASS`。旧线程保留为证据，不再阻断 beta0.5.11 handoff。
+
+### beta0.5.12 release-stage README / Wiki requirement
+
+> 排队约束：本节只在 beta0.5.12 到达发布阶段后执行，不改变当前 `MAINLINE_ACCEPTED_BASELINE_GATE -> POST_MAINLINE_REBASE/P0 -> OFFICE_PACK_Q0` 顺位，也不授权提前创建或发布线上 Wiki。
+
+1. beta0.5.12 到达发布阶段时，为 GitHub 仓库建立并启用 Wiki。
+2. 仓库首页 README 面向普通用户，尽可能简洁、直白；首屏优先说明产品是什么、最短安装命令和最短使用入口，不堆放内部治理细节。
+3. 详细安装、治理、架构、排错和发布说明迁入或整理到 Wiki。
+4. Wiki 必须线上线下同时建立：线上为 GitHub Wiki；线下在仓库内保留可版本化、可离线阅读的 Wiki 源或镜像，并建立同步或发布校验，禁止把线上内容作为唯一副本。
+5. beta0.5.12 发布门增加四项验收：README 普通用户可读性、线上 Wiki 可访问、离线 Wiki 完整性、线上/线下一致性。
+6. 未到 beta0.5.12 发布阶段，或既有外部发布授权/门禁未满足时，不得提前创建或发布线上 Wiki。
