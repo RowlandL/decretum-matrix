@@ -31,7 +31,7 @@ sys.dont_write_bytecode = True
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Dercretum-Matrix"
-RELEASE_LABEL = "beta0.5.11"
+RELEASE_LABEL = "beta0.5.12"
 LICENSE_ID = "AGPL-3.0-only"
 # Stable install/archive locator retained for compatibility with existing hosts.
 ROOT_NAME = "court-capability-router"

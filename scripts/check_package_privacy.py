@@ -1236,7 +1236,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
     def test_root_release_allowlist_accepts_known_files_and_rejects_unknown(self) -> None:
         allowed = validation_problems(
             [
-                (f"{ROOT_NAME}/VERSION", b"beta0.5.11\n"),
+                (f"{ROOT_NAME}/VERSION", b"beta0.5.12\n"),
                 (f"{ROOT_NAME}/CHANGELOG.md", b"# Changelog\n"),
                 (f"{ROOT_NAME}/RELEASE-LOG.md", b"# Release log\n"),
                 (
@@ -1244,7 +1244,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                     (
                         b'{"name":"decretum-matrix","display_name":"Dercretum-Matrix",'
                         b'"package_name":"decretum-matrix",'
-                        b'"release_label":"beta0.5.11","artifact_name":"decretum-matrix-beta0.5.11.zip",'
+                        b'"release_label":"beta0.5.12","artifact_name":"decretum-matrix-beta0.5.12.zip",'
                         b'"archive_root":"court-capability-router/","license":{"declared":"AGPL-3.0-only",'
                         b'"file":"LICENSE"}}\n'
                     ),
@@ -1264,7 +1264,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta0.5.11","licenseDeclared":"AGPL-3.0-only"}]}\n',
+                    b'"versionInfo":"beta0.5.12","licenseDeclared":"AGPL-3.0-only"}]}\n',
                 ),
             ]
         )
@@ -1297,7 +1297,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta0.5.11","licenseDeclared":"Apache-2.0"}]}\n',
+                    b'"versionInfo":"beta0.5.12","licenseDeclared":"Apache-2.0"}]}\n',
                 )
             ]
         )
@@ -1330,10 +1330,10 @@ class PackageBuildTests(unittest.TestCase):
             getattr(package_skill, "DISPLAY_NAME", None),
             "Dercretum-Matrix",
         )
-        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.11")
+        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.12")
         self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")
         self.assertEqual(package_skill.ROOT_NAME, "court-capability-router")
-        self.assertEqual(package_skill.default_out().name, "decretum-matrix-beta0.5.11.zip")
+        self.assertEqual(package_skill.default_out().name, "decretum-matrix-beta0.5.12.zip")
         self.assertTrue(package_skill.should_skip(Path(".github"), is_dir=True))
 
     def test_legal_governance_files_are_mandatory_package_members(self) -> None:

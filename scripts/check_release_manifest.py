@@ -279,8 +279,8 @@ def release_surface_contract() -> dict[str, bool]:
         "canonical_display_name": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Dercretum-Matrix",
         "canonical_artifact_name": release_payload_manifest.ARTIFACT_NAME
-        == "decretum-matrix-beta0.5.11.zip",
-        "canonical_release_label": release_payload_manifest.RELEASE_LABEL == "beta0.5.11",
+        == "decretum-matrix-beta0.5.12.zip",
+        "canonical_release_label": release_payload_manifest.RELEASE_LABEL == "beta0.5.12",
         "agpl_only": getattr(release_payload_manifest, "LICENSE_ID", None) == "AGPL-3.0-only",
         "artifact_builder_identity": build_release_artifacts.NAME == "decretum-matrix",
         "tagless_candidate_builder": (

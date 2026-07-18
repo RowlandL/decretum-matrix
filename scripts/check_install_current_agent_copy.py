@@ -389,7 +389,7 @@ def _write_fixture_source(
 ) -> Path:
     contents = {
         "SKILL.md": "# fixture court skill\n",
-        "VERSION": "beta0.5.11\n",
+        "VERSION": "beta0.5.12\n",
         "agents/standing-officials/gongbu.toml": (
             '[profile]\nrole_key = "gongbu"\noffice_zh = "工部"\n'
         ),

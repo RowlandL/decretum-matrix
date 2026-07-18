@@ -8,13 +8,9 @@
 npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 ```
 
-该命令当前解析到公开的 `0.5.10-beta.0` 不可变 release-assets carrier；它没有
-dependencies 或 lifecycle scripts，不会安装、更新或修改任何 skill 目录。
-`beta0.5.11` 的 npm 发布仍为 `NOT_RUN`。只有本次发布完成后实际验证 `beta`
-dist-tag 指向 `0.5.11-beta.0`，并通过 online install smoke，才可更新上述状态。
-若 GitHub Packages 客户端要求认证，只授予最小 `read:packages`，通过进程内
-`NODE_AUTH_TOKEN` 与临时 npmrc 使用；不得把 token 写入命令行、仓库、项目
-`.npmrc`、日志或其他持久化配置，用后立即移除临时 npmrc 和进程变量。
+该命令当前解析到已发布的 `0.5.11-beta.0`；它没有 dependencies 或 lifecycle
+scripts。beta0.5.12 发布后，只有 dist-tag 与 online install smoke 均通过才更新
+这个状态。需要认证时只授予最小 `read:packages`，且不得持久化 token。
 
 ## 发布 / Release
 
@@ -23,11 +19,11 @@ repository/skill/package machine 标识与调用保持为 `decretum-matrix`、
 `$decretum-matrix`。
 项目主页：[github.com/RowlandL/decretum-matrix](https://github.com/RowlandL/decretum-matrix)。
 
-当前源码发布身份为 `release/beta0.5.11` / `beta0.5.11`，本节记录
-2026-07-17 收敛的源码与本地发布合同。候选 ZIP、pre/post-install、本机安装、
+当前源码发布身份为 `release/beta0.5.12` / `beta0.5.12`，本节记录
+2026-07-18 收敛的源码与本地发布合同。候选 ZIP、pre/post-install、本机安装、
 tag、push、GitHub Release、npm package 与资产上传分别只由对应后续 receipt
-证明；本文不预称任何尚未取得回执的动作成功。已发布的上一版本仍为
-[`beta0.5.10`](https://github.com/RowlandL/decretum-matrix/releases/tag/beta0.5.10)。
+证明；本文不预称任何尚未取得回执的动作成功。已发布的上一版本为
+[`beta0.5.11`](https://github.com/RowlandL/decretum-matrix/releases/tag/beta0.5.11)。
 
 当前源码与发行版本以 `VERSION` 为准；正式线上状态只由对应 annotated tag、
 GitHub Release 与资产回执证明，不从仓库说明文字推断。规范发行产物使用
@@ -60,8 +56,8 @@ Apache-2.0 历史证据与兼容 locator：
 - 正式结诏：`诏令编号` 格式为 `层级码串-YYYYMMDD-日内 uppercase base36 序号-四字码`，正例 `SCGSDYJM-20260606-1Z-DAAA`；`古制谱系` 必须精确七层 `史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`。`CCR`、`Phase`、`RB`、task id 或 workflow path 均不得充当内容谱系。
 - Source split：dispatch contract、delivery、admission contract 与 autosync public projection 分属独立模块和既有 line ceilings；focused checker 读取实时 source-state，不再固定 measured bytes。
 - Intervention baseline：caller/direct-superior、bounded child ownership/write scope、serial no-mutation、canonical preload 与 16-slot tree cap fixtures 已与 production admission contract 对齐。
-- npm：公开 `beta` 仍是 `0.5.10-beta.0` backfill carrier；`0.5.11-beta.0` 仅是本地 version-neutral harness 推导的候选身份，npm publish 为 `NOT_RUN`。
-- 安装：canonical physical authority 是 `skills/decretum-matrix`；旧 `skills/court-capability-router` 只能缺省不存在或作为同一 authority 的兼容 locator/junction/router。ZIP internal root 仍为 `court-capability-router/`，本机迁移为 `NOT_RUN`。
+- npm：`@rowlandl/decretum-matrix@0.5.11-beta.0` 已公开发布，`beta` dist-tag 与 online install smoke 均通过。
+- 安装：canonical physical authority 已收敛到 `skills/decretum-matrix`；五根 active-copy hash 一致，旧 `skills/court-capability-router` 不再是物理 authority。ZIP internal root 仍为 `court-capability-router/`。
 - 门禁：发布策略共 42 步（source 37、installation 4、runtime 1）；candidate pre-install 选择 36 个 source steps，正常 post-install 选择 5 步。
 - 隐私：本轮 `pending_body_access=NO`；pending 正文不读、不哈希、不搬移、不删除。
 - The beta0.5.11 release source tree measures 273 portable files / 6,138,661 bytes against the unchanged ceiling of 275 files / 6,200,000 bytes.
@@ -364,7 +360,7 @@ court-capability-router/
 ZIP 内物理包根继续是受保护的 `court-capability-router/`，但 canonical physical
 安装目标是 `skills/decretum-matrix`。旧 `skills/court-capability-router` 只能不存在，
 或作为解析到同一物理 authority 的兼容 locator/junction/router，不能形成第二副本。
-以下是空白主机的 no-clobber 示例；本机 beta0.5.11 路径迁移仍为 `NOT_RUN`：
+以下是空白主机的 no-clobber 示例；本机 beta0.5.11 路径迁移已完成：
 
 ```python
 from pathlib import Path
@@ -837,7 +833,7 @@ while the canonical physical install target is `skills/decretum-matrix`.
 Legacy `skills/court-capability-router` must be absent or resolve through a
 locator, junction, or router to that same physical authority; it must not be a
 second copy. This no-clobber example is for a blank host. The beta0.5.11 host
-path migration remains `NOT_RUN`:
+path migration is complete:
 
 ```python
 from pathlib import Path

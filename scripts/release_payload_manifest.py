@@ -1,4 +1,4 @@
-"""Generate and strictly validate the Dercretum-Matrix beta0.5.11 payload manifest."""
+"""Generate and strictly validate the Dercretum-Matrix beta0.5.12 payload manifest."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ NAME = "decretum-matrix"
 DISPLAY_NAME = "Dercretum-Matrix"
 PACKAGE_NAME = NAME
 LICENSE_ID = "AGPL-3.0-only"
-RELEASE_LABEL = "beta0.5.11"
-VERSION_CORE = "0.5.11"
-ARTIFACT_NAME = "decretum-matrix-beta0.5.11.zip"
+RELEASE_LABEL = "beta0.5.12"
+VERSION_CORE = "0.5.12"
+ARTIFACT_NAME = "decretum-matrix-beta0.5.12.zip"
 SIDECAR_NAME = f"{ARTIFACT_NAME}.sha256"
-ATTESTATION_NAME = "decretum-matrix-beta0.5.11.release-attestation.json"
+ATTESTATION_NAME = "decretum-matrix-beta0.5.12.release-attestation.json"
 MANIFEST_NAME = "release-manifest.json"
 ARCHIVE_ROOT = f"{package_skill.ROOT_NAME}/"
 INDEX_FORMAT = "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes"
@@ -503,10 +503,10 @@ def self_tests() -> dict[str, bool]:
             NAME == "decretum-matrix"
             and globals().get("DISPLAY_NAME") == "Dercretum-Matrix"
         ),
-        "beta_0_5_11_artifact_identity_required": (
-            RELEASE_LABEL == "beta0.5.11"
-            and VERSION_CORE == "0.5.11"
-            and ARTIFACT_NAME == "decretum-matrix-beta0.5.11.zip"
+        "beta_0_5_12_artifact_identity_required": (
+            RELEASE_LABEL == "beta0.5.12"
+            and VERSION_CORE == "0.5.12"
+            and ARTIFACT_NAME == "decretum-matrix-beta0.5.12.zip"
         ),
         "agpl_only_license_required": base.get("license")
         == {"declared": "AGPL-3.0-only", "file": "LICENSE"},
