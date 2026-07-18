@@ -435,3 +435,98 @@ tracking；pending body access=`NO`；protected bytes/hash 不变；精确 paths
 本轮只允许创建本计划与 governing-plan 指针。本计划状态保持
 `QUEUED_POST_A02_HANDOFF`，不得把任何 Q0-Q8 实现吸收到当前 beta0.5.10 行为、
 当前 A02 write set 或当前 release/package acceptance。
+
+## 14. 2026-07-18 P0 preflight（append-only superseding note）
+
+状态：`P0_PREFLIGHT / BASELINE_NOT_ACCEPTED`
+
+本节只冻结 beta0.5.11 已发布基线与 beta0.5.12 Handoff 的现场证据，不改写
+前文历史事实，不进入 Q0，不修改产品代码、root 仓、安装根、shared Shiguan、
+Obsidian、native memory、remote 或 pending。正式显示名按最新旨意为
+`Dercretum-Matrix`；`诏令矩阵` 仅作中文解释。
+
+### 14.1 已绑定的同源证据
+
+- accepted source：`release/beta0.5.11`，commit/tag source
+  `726a89e2a5aad94c207fc133f2677670eb83903d`；beta0.5.12 worktree 从该
+  commit 创建，branch=`release/beta0.5.12`，common-dir=
+  `D:\project\decretum-matrix\.git`，child clean/index=`0`。
+- release candidate receipt SHA-256：
+  `144AED6F50F6A04F763AEEA5CEBDF112B7F28F25C92AA5E1361DAC6C3360EBF6`；
+  deterministic ZIP SHA-256：
+  `00C92455975E982B72FB80D82AC0EBB20F5718B30522B65D8D43590A027C5370`。
+- release-manifest SHA-256：
+  `6090C414B65BBA7FBAE1899DBB31BD1F167F1F6240C37BF67B2C303F5FA321B2`；
+  SBOM SHA-256：
+  `21E1E449DF238F0CFBDA16883F8272EE4A6745300117059C5364F12986454984`；
+  skill identity manifest SHA-256：
+  `F11F9793E001D245282E81514C7D3B5BEC04AC1482F154A4737E554CF33BCFDF`。
+- current Decree Kernel inventory：14 files，canonical set SHA-256
+  `F778ADB96C5BF0D4A590B976385E83A57EAF21AA3DD6E4E795D656E8B0B4283C`；
+  standing profiles：14 files，set SHA-256
+  `9FD737092276C95C966D531C761B49CB94D18D10A57884D4BCCAB8E7601BA319`；
+  ordinary office dossiers：14 files，set SHA-256
+  `188DA8145BB18B91FA8B3B849C0A8F9298050A7E9855AD36E142A2C8D3B4306C`；
+  dispatch hierarchy manifest SHA-256：
+  `2CD590CCBD6FF1A386B32BEB9AA4D354E017CAE9C76C191550EAC70D30BAE5C6`。
+- install receipt SHA-256：
+  `40C1F90CB1691E0F0687E8E11275CAEFA41B8EAC182EE47A91C74E8D1143F93F`；
+  receipt 绑定同一 ZIP，`status=INSTALLED`、`pending_body_accessed=false`。
+- npm publication receipt SHA-256：
+  `306BFA70C56CEAE3CD2F6258253EDD4F690FE0A4ACA7FEA2D13726AD559A5432`；
+  `@rowlandl/decretum-matrix@0.5.11-beta.0`、`beta` dist-tag、public、online
+  install 均为 `PASS`，内嵌 ZIP hash 与 release 相同。
+- final Handoff record SHA-256：
+  `2F05B11CF1D8AE844D9E8E548B408B36BBE09E4371EA328E696A9A7FA3EAFFC9`；
+  本会话已回报 `HANDOFF_ACCEPTED`。
+- root repo-control state SHA-256：
+  `AE1068A71B890CEE60D0B217BB79A02654C76E2F73A4295D1AAC0F421C1A0E99`；
+  create event SHA-256：
+  `2E0DED0B728F08D2F42E14B8BBC1D03AF0A0DCCDD02D3D9169A098D858666CC6`；
+  map-branch event SHA-256：
+  `5118FE533CFB9F1CBF20FABFABC45D160898A0DC6492B64499B1A83582C1CA7E`；
+  mapping=`ref_only_no_checkout`，root technical ref=
+  `codex/decretum-matrix/release/beta0.5.12`，root/child index 均为 `0`。
+
+### 14.2 最终基线假设矩阵
+
+| 假设域 | 裁定 | 2026-07-18 现场事实 |
+|---|---|---|
+| 中间审查前像 `6f97c91` | `SUPERSEDED` | accepted source 已为 `726a89e2a5aad94c207fc133f2677670eb83903d`。 |
+| next-release carrier | `SUPERSEDED` | 最新旨意要求 D:\project 本地分支会话；不是新的 Codex worktree task。受管 child worktree 与 ref-only root mapping 保留为 Git carrier。 |
+| repository/common-dir | `RENAMED` | 当前 child repo/common-dir 已是 `decretum-matrix`；旧 `court-capability-router` 仅保留历史、ZIP internal root、shared Shiguan namespace 与 deprecated locator 语境。 |
+| display identity | `RENAMED` | 当前正式显示名逐字为 `Dercretum-Matrix`；machine/package/skill name 仍为 `decretum-matrix`。 |
+| installed skill authority | `RENAMED` | canonical path 为 `C:\Users\32893\.agents\skills\decretum-matrix\SKILL.md`；309 lines / 67148 bytes / SHA-256 `24D19C0A40CA3887ECF91E78C868FB264C748FF88762057CF88D6A7AF60F94F1`。 |
+| capability index locator | `CONFLICT` | strict catalog 通过，但 active index 仍解析旧 `court-capability-router/SKILL.md`，`dispatchable=0`；本 P0 只记录，不刷新安装根。 |
+| runtime task authority | `CONFLICT` | shared `tasks.json` 的 A02 旧条目缺 semantic epoch/capsule/receipt，按 P00 只读；当前项目合同以 per-task `.repo-control` state/events 管理 carrier，不得把旧 shared ledger 升格为可写权威。 |
+| shared Shiguan topology | `CONFLICT` | LocalAppData `court-shiguan\court-capability-router` 仍是普通目录而非指向 `.agents` 的 junction；canonical `.agents` skill root 也没有 shared-data Git。 |
+| managed data repo | `CONFLICT` | 未找到 shared Shiguan owning repo 或 separate git-dir，故没有可证明为 `0` 的 managed-data index。不得为过门禁擅自初始化。 |
+| protected four anchors | `CONFLICT` | 既有 snapshot 基线仍可定位，但 canonical `.agents\skills\decretum-matrix\references` 下四个 anchor 当前不存在；LocalAppData 同名文件是已演进的 shared indexes，不能冒充原路径/长度/hash 不变。 |
+| pending/private body | `UNCHANGED` | `pending_body_access=NO`；本 P0 未枚举、读取、哈希、移动、删除或 mark-seen pending 正文。 |
+| remote/main/root mutation | `UNCHANGED` | 本 P0 不进入 Git `main`，不执行 PR/force/push/tag/release，不提交或发布 root。 |
+
+### 14.3 P0 门禁裁定与恢复游标
+
+```text
+ROOT_CHILD_TASK_IDENTITY_GATE=PASS_WITH_EXPLICIT_BRANCH_SESSION_SUPERSESSION
+NO_INTERMEDIATE_FACT_PROMOTION_GATE=PASS
+MAINLINE_ACCEPTED_BASELINE_GATE=BASELINE_NOT_ACCEPTED
+POST_MAINLINE_REBASE_GATE=BLOCKED
+OFFICE_PACK_Q0=NOT_STARTED
+pending_body_access=NO
+```
+
+首个阻断为 `SHIGUAN_LATEST_SYSTEM_GATE` 的 one-root/junction/shared-Git/protected-
+anchor 合同未满足；这是原 A02 gate，不是 Office Pack Q0 的实现内容。恢复游标固定为：
+
+```text
+A02_SHIGUAN_LATEST_SYSTEM_REPAIR
+-> MAINLINE_ACCEPTED_BASELINE_GATE_RETRY
+-> POST_MAINLINE_REBASE/P0
+-> OFFICE_PACK_Q0
+```
+
+修复必须回到原 A02 governing plan，先形成最小 RED/GREEN/SPEC/QUALITY 与独立门下
+复核；不得在本计划内临时发明第二 repo/ledger/authority，不得触碰 pending/private
+body，也不得重做 beta0.5.11 的 intake、hierarchy、installer、candidate、install、
+GitHub 或 npm 发布工作。
