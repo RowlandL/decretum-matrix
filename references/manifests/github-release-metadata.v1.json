@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.0",
+  "latest_tag": "beta1.0.0-hotfix-v1",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -69,6 +69,19 @@
         "完成 beta1 身份、候选包、五根安装、Wiki 与 GitHub 覆盖发布收敛；npm 1.0.0-beta.0 保留首次发布基线。"
       ],
       "asset_note": "完整细节见附带的 decretum-matrix-beta1.0.0.release-notes.md；npm beta 同版本不可覆盖，本页 ZIP 为 coverage revision。"
+    },
+    {
+      "tag": "beta1.0.0-hotfix-v1",
+      "title": "Decretum Matrix beta1.0.0-hotfix-v1",
+      "summary": "本 hotfix 从载体与回执层修复普通并行和 superCC 的语义串线，以及结诏编号/谱系可能被模型自行分配的问题。",
+      "highlights": [
+        "共享官署 profile 保持单一来源，ordinary 与 superCC 由显式 carrier pointer 分别加载不同 dossier。",
+        "普通 Codex role 和 runtime probe 不再加载、探测或回显 superCC/squad/zellij 运行面。",
+        "统一 CLI 的 archive-checkpoint 返回带 receipt/archive SHA256 的结构化结诏身份。",
+        "完整官署预载保持在 20 KiB 内，单解释器冷/热 p50 提升 88.60%/99.33%。",
+        "npm 使用 1.0.0-beta.0.hotfix.1，保留既有 1.0.0-beta.0 不可覆盖证据。"
+      ],
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix release-notes.md。"
     }
   ]
 }

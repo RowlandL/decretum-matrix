@@ -500,7 +500,7 @@ def _check_documentation_contract() -> list[str]:
         "references/court-offices-dispatch.md",
         "CHANGELOG.md",
         "RELEASE-LOG.md",
-        "docs/logs/2026-07-19-beta1.0.0.md",
+        "docs/logs/2026-07-20-beta1.0.0-hotfix-v1.md",
     ]
     texts = {path: (ROOT / path).read_text(encoding="utf-8") for path in paths}
     canonical_terms = (
@@ -541,7 +541,7 @@ def _check_documentation_contract() -> list[str]:
     assert "published baseline" in joined or "已发布基线" in joined
     assert "Latest" in joined
     assert "覆盖" in joined and ("尚未" in joined or "不冒充" in joined)
-    assert "OFFICE_PACK_Q1_Q8" in texts["docs/logs/2026-07-19-beta1.0.0.md"]
+    assert "OFFICE_PACK_Q1_Q8" in texts["docs/logs/2026-07-20-beta1.0.0-hotfix-v1.md"]
     for forbidden in ("TBD", "TODO", "beta0.5.14", "SECOND_STATE", "SECOND_LEDGER"):
         assert forbidden not in joined, f"formal_language_forbidden:{forbidden}"
     return [

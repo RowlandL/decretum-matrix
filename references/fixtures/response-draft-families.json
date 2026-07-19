@@ -25,6 +25,14 @@
     {
       "family": "implementation_closeout",
       "expected_gate": "PASSED",
+      "archive_receipt": {
+        "schema": "court.shiguan_archive_checkpoint_receipt.v1",
+        "receipt_id": "shiguan:SCGSDYJM-20260606-1Z-DAAA",
+        "receipt_sha256": "8e46f9ce9368c496f66d151711f2f772a1d0b859ca393535add558259b757158",
+        "archive_sha256": "f83718069a33bfec238899237d3357be4ea1ec1c3680dd3972fcbc4e809eea33",
+        "court_code": "SCGSDYJM-20260606-1Z-DAAA",
+        "lineage_display": "史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏"
+      },
       "draft": "结诏：\n诏令编号：SCGSDYJM-20260606-1Z-DAAA\n古制谱系：史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏\n状态：DONE\n作业AI：Codex\n旨意与边界：为十类回复增加 draft lint，不进入 superCC 运行态。\n执行门禁：APPROVED\n门下裁定：APPROVED_WITH_CAVEATS\n实际动作：新增 fixture、校验脚本，并接入目录与打包门禁。\n验收证据：VERIFIED；quick_validate.py、check_catalog.py --strict、package_skill.py。\n运行态与并行：ordinary parallel；礼部/刑部只读审查，superCC=NOT_APPLICABLE。\n史馆：Web local_url=http://127.0.0.1:8765/；lan_urls=unavailable\n余险：若后续生成器新增字段，先由该 lint 拒绝，再回到礼部修订 few-shot；因此回滚面限定在回复 shard、fixture 与脚本。\n太子回奏：本轮把格式约束从示例文本推进到可执行门禁；证据链覆盖本地校验、打包包含性与四份 copy 同步。\n下一步：后续若扩展新 family，先补 fixture，再更新 SAMPLE_FAMILIES 与目录索引。"
     },
     {

@@ -1,4 +1,4 @@
-"""Generate and strictly validate the Decretum Matrix（诏令矩阵） beta1.0.0 payload manifest."""
+"""Generate and strictly validate the current Decretum Matrix payload manifest."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 PACKAGE_NAME = NAME
 LICENSE_ID = "AGPL-3.0-only"
-RELEASE_LABEL = "beta1.0.0"
+RELEASE_LABEL = "beta1.0.0-hotfix-v1"
 VERSION_CORE = "1.0.0"
-ARTIFACT_NAME = "decretum-matrix-beta1.0.0.zip"
+ARTIFACT_NAME = f"decretum-matrix-{RELEASE_LABEL}.zip"
 SIDECAR_NAME = f"{ARTIFACT_NAME}.sha256"
-ATTESTATION_NAME = "decretum-matrix-beta1.0.0.release-attestation.json"
+ATTESTATION_NAME = f"decretum-matrix-{RELEASE_LABEL}.release-attestation.json"
 MANIFEST_NAME = "release-manifest.json"
 ARCHIVE_ROOT = f"{package_skill.ROOT_NAME}/"
 INDEX_FORMAT = "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes"
@@ -75,10 +75,13 @@ def sha256_bytes(data: bytes) -> str:
 
 def release_identity(version_text: str) -> dict[str, str]:
     value = version_text.strip()
-    match = re.fullmatch(r"beta(\d+)\.(\d+)\.(\d+)", value)
+    match = re.fullmatch(
+        r"beta(?P<core>\d+\.\d+\.\d+)(?:-hotfix-v(?P<hotfix>[1-9]\d*))?",
+        value,
+    )
     if not match:
         raise ManifestError(f"invalid VERSION: {value!r}")
-    version_core = ".".join(match.groups())
+    version_core = match.group("core")
     if value != RELEASE_LABEL or version_core != VERSION_CORE:
         raise ManifestError(f"stale VERSION: expected {RELEASE_LABEL}, got {value}")
     return {
@@ -503,10 +506,10 @@ def self_tests() -> dict[str, bool]:
             NAME == "decretum-matrix"
             and globals().get("DISPLAY_NAME") == "Decretum Matrix（诏令矩阵）"
         ),
-        "beta_1_0_0_artifact_identity_required": (
-            RELEASE_LABEL == "beta1.0.0"
+        "beta_1_0_0_hotfix_v1_artifact_identity_required": (
+            RELEASE_LABEL == "beta1.0.0-hotfix-v1"
             and VERSION_CORE == "1.0.0"
-            and ARTIFACT_NAME == "decretum-matrix-beta1.0.0.zip"
+            and ARTIFACT_NAME == "decretum-matrix-beta1.0.0-hotfix-v1.zip"
         ),
         "agpl_only_license_required": base.get("license")
         == {"declared": "AGPL-3.0-only", "file": "LICENSE"},

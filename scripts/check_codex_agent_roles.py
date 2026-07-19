@@ -21,6 +21,7 @@ from sync_codex_agents_from_profiles import (
     backup_toml_tree,
     expected_rendered_hash,
     installed_agents_root,
+    render_agent_toml,
     sha256_file,
     template_root,
     codex_home,
@@ -237,6 +238,25 @@ def validate_managed_overlay_contract() -> None:
         assert result["config_layer_source"] == "legacy_managed_overlay"
 
 
+def validate_ordinary_carrier_projection_contract() -> None:
+    templates = template_root()
+    for name in ("zhongshu.toml", "patrol-inspector.toml"):
+        role = Path(name).stem
+        rendered = render_agent_toml(templates / name)
+        assert tomllib is not None
+        parsed = tomllib.loads(rendered)
+        normalized = (
+            str(parsed.get("description") or "")
+            + "\n"
+            + str(parsed.get("developer_instructions") or "")
+        ).replace("\\", "/").casefold()
+        expected_dossier = f"agents/office-dossiers/{role}/agents.md"
+        assert expected_dossier in normalized, f"{role}: ordinary dossier pointer missing"
+        assert "agents/supercc-dossiers/" not in normalized, f"{role}: visible carrier dossier leaked"
+        for forbidden in ("supercc", "squad", "zellij"):
+            assert forbidden not in normalized, f"{role}: ordinary projection leaked {forbidden}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--format", choices=["text", "json"], default="text")
@@ -244,6 +264,7 @@ def main() -> int:
     try:
         validate_immutable_backup_contract()
         validate_managed_overlay_contract()
+        validate_ordinary_carrier_projection_contract()
         result = validate_installed_agents()
     except Exception as exc:
         print(f"CODEX_AGENT_ROLES_FAILED {exc}")

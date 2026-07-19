@@ -2,10 +2,16 @@
 
 ## Unified Dynamic Dispatch Semantics
 
+This reference is an explicit-carrier extension. Ordinary dispatch must not load
+it. Entry requires a current selector receipt with
+`carrier_kind=supercc_cli_office`; a parallel topology, agent count, or similar
+working state is not an entry condition.
+
 1. 官署按任务职责、依赖和证据价值动态分配。
 2. 实时容量与请求预算是运行门禁，不是模式固定人数；整棵 agent tree 受 max_threads=16（含根线程）和 max_depth=4 约束，未知容量、占用或深度时 fail closed。
 3. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
-4. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
+4. Ordinary carriers are resolved elsewhere through their own dossier pointer;
+   this extension neither aliases nor intercepts that path.
 
 本卷是 `superCC` 在 Codex、Hermes CLI/desktop readiness、Claude Code client/sync、generic CLI adapter 与可见 zellij+`squad` 官署环境之间分流的 governing reference。入口 `SKILL.md` 保持硬门禁摘要；本卷保存运行时选择、CLI adapter、Hermes profile/session 证据、Claude 同步、打包同步和验收字段。
 

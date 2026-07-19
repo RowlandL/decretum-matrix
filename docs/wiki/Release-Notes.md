@@ -1,5 +1,26 @@
 # Release Notes
 
+## beta1.0.0-hotfix-v1
+
+状态：hotfix source candidate；安装、tag、GitHub Release 与 npm 由最终发布回执证明。
+
+### 主要修复
+
+- 普通 `super并行` 与 superCC 改为独立结构化选择：共享官署 profile 不拆分，
+  carrier pointer 分别指向普通 dossier 与显式可见 dossier。
+- 普通 Codex role/probe 不再加载或回显 superCC、squad、zellij 与可见拓扑。
+- 统一 CLI 的 `shiguan archive-checkpoint` 输出带哈希的结构化回执；诏令编号、
+  古制谱系和作业 AI 只能逐字取自该回执。
+- 完整 root+dossier+profile 预载最大 20,173 bytes；cold/warm p50 提升
+  88.60%/99.33%，保持单解释器快速路径。
+- hotfix npm 版本为 `1.0.0-beta.0.hotfix.1`，不覆盖 `1.0.0-beta.0`。
+
+### 保持不变
+
+- 安装命令：`npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com`。
+- canonical skill/invocation：`decretum-matrix` / `$decretum-matrix`。
+- pending/private 正文保持零访问，史馆实录不被安装覆盖。
+
 ## beta1.0.0
 
 状态：已发布基线 + coverage revision source accepted。原 tag、五项 GitHub 资产与

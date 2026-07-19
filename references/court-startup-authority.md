@@ -25,7 +25,13 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
 
 ## Quick Start
 
-1. Determine the approval policy:
+1. Parse three independent structured fields before runtime selection:
+   `execution_authority`, `parallel_topology`, and `carrier_kind`. Authority text
+   may set the first field; `super并行` sets only
+   `parallel_topology=ordinary_parallel`; only an explicit runtime selector
+   receipt may set `carrier_kind=supercc_cli_office`. Never infer one field from
+   another because their work states or names appear similar.
+2. Determine the approval policy:
    - If they specified `approval`, `autonomous`, or `super`, honor it inside the
      unchanged current decree/boundary. If they specified `superCC`, honor it only
      for the current formal decree that explicitly named `superCC`; do not reuse
@@ -142,8 +148,10 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
    - `approval` is read-only authority.
    - `autonomous` is management authority inside the user's stated scope.
    - `super` is full-control authority inside the user's stated scope.
-   - `super并行` / `super parallel` is `super` authority plus the ordinary
-     parallel topology, not another authority and not `superCC`.
+   - `super并行` / `super parallel` is `super` authority plus
+     `parallel_topology=ordinary_parallel`; its dispatch receipt uses only
+     `carrier_kind=child_agent|worktree_thread` and does not invoke another
+     runtime selector.
    - `superCC` is `super` plus a selected court runtime; it is not a higher
      safety authority. Normal `superCC` must pass the zellij+squad environment
      gate before the court claims real 官署 mode. Codex/Hermes/Claude/generic CLI

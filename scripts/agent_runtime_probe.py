@@ -874,21 +874,13 @@ def standing_profile_summary(agents_dir: Path, templates_dir: Path) -> dict[str,
     if str(scripts_dir) not in sys.path:
         sys.path.insert(0, str(scripts_dir))
     try:
-        import check_supercc_profiles  # type: ignore
-
-        validation = check_supercc_profiles.validate_all()
-        required_files = list(check_supercc_profiles.REQUIRED_PROFILE_FILES)
-    except Exception as exc:
-        validation = {"ok": False, "error": str(exc)}
-        required_files = sorted(path.name for path in templates_dir.glob("*.toml")) if templates_dir.exists() else []
-
-    try:
         import check_codex_agent_roles  # type: ignore
 
-        canonical_templates = check_codex_agent_roles.template_root()
-        role_state = check_codex_agent_roles.validate_installed_agents(agents_dir, canonical_templates)
+        required_files = list(check_codex_agent_roles.REQUIRED_PROFILE_FILES)
+        role_state = check_codex_agent_roles.validate_installed_agents(agents_dir, templates_dir)
         sync_rows = list(role_state["sync_rows"])
     except Exception as exc:
+        required_files = sorted(path.name for path in templates_dir.glob("*.toml")) if templates_dir.exists() else []
         role_state = {
             "ok": False,
             "error": str(exc),
@@ -913,6 +905,28 @@ def standing_profile_summary(agents_dir: Path, templates_dir: Path) -> dict[str,
                     "status": status,
                 }
             )
+    validation_errors: list[str] = []
+    validated_profiles = 0
+    try:
+        import court_office_bootstrap  # type: ignore
+
+        for name in required_files:
+            role = Path(name).stem
+            try:
+                court_office_bootstrap.load_standing_profile_binding(role, profile_root=templates_dir)
+                validated_profiles += 1
+            except Exception as exc:
+                validation_errors.append(f"{role}:{exc}")
+    except Exception as exc:
+        validation_errors.append(f"validator:{exc}")
+    validation = {
+        "ok": not validation_errors and validated_profiles == len(required_files),
+        "validator": "court_office_bootstrap.load_standing_profile_binding",
+        "carrier_kind": "child_agent",
+        "profile_count": validated_profiles,
+        "required_count": len(required_files),
+        "errors": validation_errors,
+    }
     return {
         "validation": validation,
         "installed_role_schema": role_state,
@@ -1031,6 +1045,9 @@ def probe() -> dict[str, object]:
         },
         "ordinary_dispatch_policy": {
             "topology": "ordinary_parallel",
+            "carrier_kind": "child_agent",
+            "carrier_dossier_family": "ordinary",
+            "presentation_extension_loaded": False,
             "wave_policy": "dynamic_by_duty_and_capacity",
             "static_wave_cap": None,
             "selection_basis": "useful_roles_plus_live_capacity_and_budgets",
@@ -1042,10 +1059,7 @@ def probe() -> dict[str, object]:
             "max_threads": RECOMMENDED_AGENT_MAX_THREADS,
             "root_thread_counts_toward_limit": True,
             "unknown_capacity_occupancy_or_depth": "fail_closed",
-            "ordinary_supercc_surfaces": "none: no pane, show delay, wake, or closeout-silence",
             "ordinary_spawn_delay_seconds": 0.0,
-            "supercc_visible_core_roles": ["taizi", "zhongshu", "menxia", "shangshu"],
-            "supercc_visible_core_is_active_office_cap": False,
             "default_fork_turns": "none",
             "long_context_threshold_tokens": 32000,
             "long_context_fork_turns": "none",

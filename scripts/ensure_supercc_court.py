@@ -38,6 +38,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 
 from court_file_lock import atomic_write_text
 from court_dispatch_hierarchy import validate_dispatch_hierarchy
+from court_office_bootstrap import SUPERCC_CLI_CARRIER, resolve_office_dossier_locator
 import court_runtime
 from supercc_dispatch_contract import (
     _new_identity_generation_challenge,
@@ -426,7 +427,12 @@ def office_dossier_dir(role: str) -> Path:
 
 
 def office_dossier_path(role: str) -> Path:
-    return office_dossier_dir(role) / SUPERCC_DOSSIER_FILE_NAME
+    locator = resolve_office_dossier_locator(
+        role,
+        carrier_kind=SUPERCC_CLI_CARRIER,
+        supercc_enabled=True,
+    )
+    return skill_root().joinpath(*locator.parts)
 
 
 def skill_relative_path(path: Path) -> str:

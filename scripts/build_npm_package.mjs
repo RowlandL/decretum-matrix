@@ -163,11 +163,14 @@ function loadRepositoryOracle(root, manifest, { allowManifestDrift = false } = {
 }
 
 export function deriveReleaseIdentity(releaseLabel, manifest) {
-  const match = /^beta(\d+\.\d+\.\d+)$/.exec(releaseLabel);
+  const match = /^beta(\d+\.\d+\.\d+)(?:-hotfix-v([1-9]\d*))?$/.exec(
+    releaseLabel,
+  );
   if (!match) {
     throw new Error(`unsupported release label: ${releaseLabel}`);
   }
   const versionCore = match[1];
+  const hotfixRevision = match[2] || null;
   if (
     manifest.release_label !== releaseLabel ||
     manifest.version_core !== versionCore ||
@@ -186,7 +189,9 @@ export function deriveReleaseIdentity(releaseLabel, manifest) {
   ) {
     throw new Error("release-manifest.json artifact/tag identity disagree");
   }
-  const packageVersion = `${versionCore}-beta.0`;
+  const packageVersion = hotfixRevision
+    ? `${versionCore}-beta.0.hotfix.${hotfixRevision}`
+    : `${versionCore}-beta.0`;
   return Object.freeze({
     artifactName,
     attestationName: manifest.attestation_name,
@@ -198,6 +203,7 @@ export function deriveReleaseIdentity(releaseLabel, manifest) {
     tagRef: expectedTagRef,
     tarballName: `rowlandl-decretum-matrix-${packageVersion}.tgz`,
     versionCore,
+    hotfixRevision,
   });
 }
 
@@ -1270,6 +1276,16 @@ export async function runSyntheticSelfTest() {
       sidecar_name: `decretum-matrix-${futureReleaseLabel}.zip.sha256`,
       version_core: "7.8.9",
     });
+    const hotfixReleaseLabel = "beta1.0.0-hotfix-v1";
+    const hotfix = deriveReleaseIdentity(hotfixReleaseLabel, {
+      artifact_name: `decretum-matrix-${hotfixReleaseLabel}.zip`,
+      attestation_name: `decretum-matrix-${hotfixReleaseLabel}.release-attestation.json`,
+      channel: "beta",
+      expected_final_tag: `refs/tags/${hotfixReleaseLabel}`,
+      release_label: hotfixReleaseLabel,
+      sidecar_name: `decretum-matrix-${hotfixReleaseLabel}.zip.sha256`,
+      version_core: "1.0.0",
+    });
     assert(
       current.packageVersion === `${fixtureVersionCore}-beta.0` &&
         current.tarballName ===
@@ -1280,6 +1296,11 @@ export async function runSyntheticSelfTest() {
       future.packageVersion === "7.8.9-beta.0" &&
         future.tagRef === `refs/tags/${futureReleaseLabel}`,
       "future-generic identity derivation failed",
+    );
+    assert(
+      hotfix.packageVersion === "1.0.0-beta.0.hotfix.1" &&
+        hotfix.tagRef === `refs/tags/${hotfixReleaseLabel}`,
+      "hotfix identity derivation failed",
     );
 
     const gitEnvironment = {

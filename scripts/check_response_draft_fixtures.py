@@ -182,7 +182,11 @@ def _check_ordered_prefixes(family: str, lines: list[str], errors: list[str]) ->
             errors.append(f"{family}:line_{index}_value:{sorted(allowed)}")
 
 
-def _check_closeout(lines: list[str], errors: list[str]) -> None:
+def _check_closeout(
+    lines: list[str],
+    fixture: dict[str, Any],
+    errors: list[str],
+) -> None:
     if not lines or lines[0] != "结诏：":
         errors.append("implementation_closeout:first_line_not_closeout")
         return
@@ -203,6 +207,25 @@ def _check_closeout(lines: list[str], errors: list[str]) -> None:
             errors.append("implementation_closeout:court_code_shape")
         if label == "古制谱系：" and not _is_formal_content_lineage(value):
             errors.append("implementation_closeout:content_lineage_shape")
+    receipt = fixture.get("archive_receipt")
+    if not isinstance(receipt, dict):
+        errors.append("implementation_closeout:archive_receipt_required")
+        return
+    if receipt.get("schema") != "court.shiguan_archive_checkpoint_receipt.v1":
+        errors.append("implementation_closeout:archive_receipt_schema")
+    for field in ("receipt_id", "receipt_sha256", "archive_sha256", "court_code", "lineage_display"):
+        value = receipt.get(field)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"implementation_closeout:archive_receipt_missing:{field}")
+    expected = {
+        "诏令编号：": str(receipt.get("court_code") or ""),
+        "古制谱系：": str(receipt.get("lineage_display") or ""),
+    }
+    for label, expected_value in expected.items():
+        matching = next((line for line in labels if line.startswith(label)), "")
+        actual = matching[len(label):].strip() if matching else ""
+        if actual != expected_value:
+            errors.append(f"implementation_closeout:archive_receipt_mismatch:{label}")
 
 
 def _is_forbidden_identifier_value(value: str) -> bool:
@@ -349,7 +372,7 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
             continue
         lines = _nonempty_lines(draft)
         if family == "implementation_closeout":
-            _check_closeout(lines, errors)
+            _check_closeout(lines, item, errors)
         elif family == "code_review":
             if len(lines) < 4:
                 errors.append("code_review:too_few_lines")

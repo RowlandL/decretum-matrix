@@ -139,12 +139,15 @@ Use when one missing answer blocks safe progress.
 ### implementation_closeout
 
 Use after changes and verification. For full `/court` closeout, load
-`court-closeout-memorial-format.md`.
+`court-closeout-memorial-format.md`. This family is valid only after the unified
+`shiguan archive-checkpoint` command returns a verified
+`court.shiguan_archive_checkpoint_receipt.v1`; copy the receipt identity fields
+exactly. Without that receipt, select a non-closeout family below.
 
 ```text
 结诏：
-诏令编号：<non-placeholder court_code or allocated snapshot identifier>
-古制谱系：<non-placeholder lineage_display or allocated snapshot lineage>
+诏令编号：<exact archive receipt court_code>
+古制谱系：<exact archive receipt lineage_display>
 状态：DONE | DONE_WITH_CONCERNS | PARTIAL | BLOCKED | HANDOFF
 作业AI：<Codex/Hermes/Agents>
 旨意与边界：<requested scope and non-goals>

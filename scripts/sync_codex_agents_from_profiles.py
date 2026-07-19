@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None  # type: ignore[assignment]
 
 from shiguan_paths import reference_path
+from court_office_bootstrap import resolve_office_dossier_locator
 
 
 REQUIRED_PROFILE_FILES = (
@@ -65,34 +66,19 @@ PROFILE_FIELDS = (
     "hermes_model_inheritance_policy",
 )
 
-COMPACT_PROFILE_FIELDS = (
+ORDINARY_IDENTITY_FIELDS = (
     "role_key",
     "office_zh",
     "direct_superior",
-    "duty",
-    "can_do",
-    "report_contract",
-    "evidence_contract",
-    "heartbeat_contract",
-    "profile_version",
     "preload_contract_version",
-    "dispatch_selection_policy",
-    "capacity_admission_policy",
-    "runtime_visibility_policy",
-    "ordinary_parallel_policy",
-    "startup_latency_contract",
-    "codex_model_routing_policy",
-    "claude_model_inheritance_policy",
-    "hermes_model_inheritance_policy",
 )
 
-AGENT_DOSSIER_ROOT = Path("agents") / "supercc-dossiers"
 AGENT_DOSSIER_FILE = "AGENTS.md"
 PRELOAD_CONTRACT_VERSION = "court.office.preload_ack.v1"
 AGENT_DOSSIER_POLICY = (
     "Installed .codex/agents TOML files are native auto-discovered role files and must remain "
-    "one-file-per-agent and model-neutral. Use the referenced AGENTS.md dossier as the long role "
-    "mandate for ordinary and visible transports. If it cannot be read and "
+    "one-file-per-agent and model-neutral. Use the referenced ordinary AGENTS.md dossier as the "
+    "long role mandate for child-agent and worktree-thread carriers. If it cannot be read and "
     "acknowledged as agent_dossier_loaded=YES, preload fails and the office "
     "must not enter running."
 )
@@ -152,7 +138,8 @@ def toml_string(value: str) -> str:
 
 
 def agent_dossier_path(role: str) -> Path:
-    return agent_template_skill_root() / AGENT_DOSSIER_ROOT / role / AGENT_DOSSIER_FILE
+    locator = resolve_office_dossier_locator(role, carrier_kind="child_agent")
+    return agent_template_skill_root().joinpath(*locator.parts)
 
 
 def render_agent_dossier_block(role: str) -> list[str]:
@@ -160,8 +147,9 @@ def render_agent_dossier_block(role: str) -> list[str]:
     skill = agent_template_skill_root() / "SKILL.md"
     exists = path.exists()
     return [
-        "Office dossier / mode-neutral preload manifest:",
+        "Office dossier / ordinary carrier preload manifest:",
         f"- preload_contract_version: {PRELOAD_CONTRACT_VERSION}",
+        "- carrier_kind: child_agent",
         f"- agent_dossier_path: {path}",
         f"- agent_dossier_hash: {sha256_file(path) if exists else 'missing'}",
         f"- court_skill_path: {skill}",
@@ -169,10 +157,9 @@ def render_agent_dossier_block(role: str) -> list[str]:
         "- preload_ack: required before the office lifecycle may enter running.",
         "- agent_dossier_loaded: report exactly YES or NO; only YES with matching hashes passes preload.",
         "- loaded_skills: must include decretum-matrix in the preload ack.",
-        f"- ordinary_super_agent_md_policy: {AGENT_DOSSIER_POLICY}",
+        f"- ordinary_carrier_dossier_policy: {AGENT_DOSSIER_POLICY}",
         f"- office_voice_policy: {OFFICE_VOICE_POLICY}",
-        "- superCC: terminal-visible Codex offices start with this dossier directory as cwd, so AGENTS.md is auto-loaded.",
-        "- ordinary super: `/root/*` is only a collaboration thread address. The parent must dispatch an explicit role_key plus this dossier/profile/skill manifest and require the first preload ack.",
+        "- `/root/*` is only a collaboration thread address. The parent must dispatch an explicit role_key plus this dossier/profile/skill manifest and require the first preload ack.",
         "- Codex model route: V1 binds agent_type only; V2 hides reserved metadata; both inherit the main model/effort and keep this role file model-neutral.",
         "- Claude Code model route: no office override; inherit the main thread model.",
         "- Hermes model route: no office override in this phase; inherit the main profile model and defer detailed profile design.",
@@ -187,7 +174,7 @@ def render_profile_block(template_path: Path, profile: dict[str, object]) -> str
         f"- profile_source: {template_path}",
         f"- profile_hash: {computed_hash}",
     ]
-    for field in COMPACT_PROFILE_FIELDS:
+    for field in ORDINARY_IDENTITY_FIELDS:
         value = str(profile.get(field, "")).strip()
         lines.append(f"- {field}: {value}")
     lines.extend(
@@ -213,14 +200,25 @@ def rendered_agent_data(template_path: Path) -> dict[str, str]:
     if not isinstance(profile, dict):
         raise ValueError(f"{template_path.name}: missing [profile]")
     name = data.get("name")
-    description = data.get("description")
-    developer_instructions = data.get("developer_instructions")
+    office_zh = str(profile.get("office_zh") or "").strip()
+    direct_superior = str(profile.get("direct_superior") or "").strip()
     if not isinstance(name, str) or not name.strip():
         raise ValueError(f"{template_path.name}: missing string name")
-    if not isinstance(description, str) or not description.strip():
-        raise ValueError(f"{template_path.name}: missing string description")
-    if not isinstance(developer_instructions, str) or not developer_instructions.strip():
-        raise ValueError(f"{template_path.name}: missing string developer_instructions")
+    if not office_zh or not direct_superior:
+        raise ValueError(f"{template_path.name}: missing ordinary identity fields")
+    role = str(profile.get("role_key") or template_path.stem).strip()
+    description = (
+        f"Decretum Matrix ordinary office carrier for {office_zh} ({role}); "
+        "load the bound dossier before work."
+    )
+    developer_instructions = "\n".join(
+        (
+            "Ordinary Decretum Matrix office carrier.",
+            f"Role: {office_zh} ({role}); direct_superior={direct_superior}.",
+            "Load the exact Decretum Matrix SKILL.md, shared standing profile identity, and referenced ordinary dossier before work.",
+            "Return the exact preload acknowledgement before entering running, stay inside the assigned scope, and report only through the direct superior.",
+        )
+    )
     rendered_instructions = (
         developer_instructions.rstrip()
         + "\n\n"

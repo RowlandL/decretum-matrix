@@ -7,9 +7,11 @@ import argparse
 import ast
 import importlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import subprocess
 import sys
+import tempfile
 from typing import Iterable, Mapping
 
 sys.dont_write_bytecode = True
@@ -96,7 +98,11 @@ def _manifest_entry(path: str) -> dict[str, object]:
     stem = pure.stem
     domain = _domain_for(path)
     is_root = path == "scripts/court_cli.py"
-    direct_module = path in {"scripts/court_cli.py", "scripts/court_runtime.py"}
+    direct_module = path in {
+        "scripts/archive_checkpoint.py",
+        "scripts/court_cli.py",
+        "scripts/court_runtime.py",
+    }
     entry_name = stem.replace("_", "-").lower()
     if pure.suffix.lower() != ".py":
         entry_name = f"{entry_name}-{pure.suffix.lower().lstrip('.')}"
@@ -111,8 +117,14 @@ def _manifest_entry(path: str) -> dict[str, object]:
         ),
         "public": True,
         "side_effect": _side_effect_for(path),
-        "authority_source": "court_runtime" if direct_module else path,
-        "receipt_schema": "decretum.cli.result.v1" if is_root else "legacy.entrypoint.result.v1",
+        "authority_source": "court_runtime" if path == "scripts/court_runtime.py" else path,
+        "receipt_schema": (
+            "decretum.cli.result.v1"
+            if is_root
+            else "court.shiguan_archive_checkpoint_receipt.v1"
+            if path == "scripts/archive_checkpoint.py"
+            else "legacy.entrypoint.result.v1"
+        ),
         "compatibility_state": "canonical_public_root" if is_root else "unified_compatibility_adapter",
         "group": "root" if is_root else domain,
         "command": "decretum-matrix" if is_root else entry_name,
@@ -349,7 +361,11 @@ def evaluate_registry() -> dict[str, object]:
     }
 
 
-def _run_cli(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_cli(
+    arguments: list[str],
+    *,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-B", str(ROOT / "scripts" / "court_cli.py"), *arguments],
         cwd=ROOT,
@@ -357,6 +373,7 @@ def _run_cli(arguments: list[str]) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
         shell=False,
+        env=env,
     )
 
 
@@ -403,7 +420,7 @@ def evaluate_parity() -> dict[str, object]:
                 continue
             if record.legacy_path != entry.get("legacy_path"):
                 problems.append(f"legacy_path_mismatch:{key[0]}:{key[1]}")
-            if record.loader not in {"court_runtime.main", "isolated_subprocess"}:
+            if record.loader not in {"court_runtime.main", "isolated_subprocess"} and not record.loader.startswith("python_module:"):
                 problems.append(f"undeclared_adapter:{key[0]}:{key[1]}")
 
         legacy = _run_cli(["--format", "json", parity_command])
@@ -608,6 +625,74 @@ def evaluate_install_core() -> dict[str, object]:
     }
 
 
+def evaluate_archive_receipt() -> dict[str, object]:
+    problems: list[str] = []
+    payload: dict[str, object] | None = None
+    with tempfile.TemporaryDirectory(prefix="decretum-cli-archive-receipt-") as temp_text:
+        env = dict(os.environ)
+        env["COURT_SHARED_SHIGUAN_ROOT"] = str(Path(temp_text) / "shared-shiguan")
+        completed = _run_cli(
+            [
+                "--format",
+                "json",
+                "shiguan",
+                "archive-checkpoint",
+                "--topic",
+                "unified-cli-receipt-fixture",
+                "--phase",
+                "receipt-binding",
+                "--status",
+                "DONE",
+                "--summary",
+                "fixture",
+                "--evidence",
+                "fixture",
+                "--next",
+                "none",
+                "--no-refresh",
+            ],
+            env=env,
+        )
+        if completed.returncode != 0:
+            problems.append(f"archive_command_exit:{completed.returncode}:{completed.stderr.strip()}")
+        else:
+            try:
+                envelope = _json_stdout(completed)
+            except AssertionError as exc:
+                problems.append(str(exc))
+            else:
+                candidate = envelope.get("payload") if isinstance(envelope, dict) else None
+                if not isinstance(candidate, dict):
+                    problems.append("archive_receipt_payload_not_structured")
+                else:
+                    payload = candidate
+                    if candidate.get("schema") != "court.shiguan_archive_checkpoint_receipt.v1":
+                        problems.append("archive_receipt_schema")
+                    for field in (
+                        "receipt_id",
+                        "receipt_sha256",
+                        "archive_sha256",
+                        "court_code",
+                        "lineage_display",
+                        "closeout_identity",
+                    ):
+                        if not isinstance(candidate.get(field), str) or not str(candidate[field]).strip():
+                            problems.append(f"archive_receipt_missing:{field}")
+                    identity = str(candidate.get("closeout_identity") or "")
+                    if f"诏令编号：{candidate.get('court_code', '')}" not in identity:
+                        problems.append("archive_receipt_court_code_not_bound")
+                    if f"古制谱系：{candidate.get('lineage_display', '')}" not in identity:
+                        problems.append("archive_receipt_lineage_not_bound")
+    return {
+        "schema": "decretum.cli_archive_receipt_check.v1",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_ARCHIVE_RECEIPT_BINDING": "PASS" if not problems else "FAIL",
+        "receipt_id": payload.get("receipt_id") if payload else None,
+        "problems": problems,
+    }
+
+
 def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
     selected = []
     if args.inventory_only:
@@ -620,6 +705,8 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
         selected.append(evaluate_v2_normalization())
     if args.install_core:
         selected.append(evaluate_install_core())
+    if args.archive_receipt:
+        selected.append(evaluate_archive_receipt())
     if not selected or args.all:
         selected = [
             evaluate_inventory(),
@@ -627,6 +714,7 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
             evaluate_parity(),
             evaluate_v2_normalization(),
             evaluate_install_core(),
+            evaluate_archive_receipt(),
         ]
     return selected
 
@@ -665,6 +753,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parity", action="store_true")
     parser.add_argument("--v2-normalization", action="store_true")
     parser.add_argument("--install-core", action="store_true")
+    parser.add_argument("--archive-receipt", action="store_true")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--write-manifest", action="store_true")
     parser.add_argument("--json", action="store_true")

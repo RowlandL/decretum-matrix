@@ -22,7 +22,7 @@
     "I have",
     "I think"
   ],
-  "closeout_identifier_contract": "court_code_and_ancient_lineage_required_for_any_closeout_or_snapshot",
+  "closeout_identifier_contract": "archive_checkpoint_receipt_required_for_implementation_closeout",
   "forbidden_closeout_identifier_values": [
     "",
     "...",
@@ -31,7 +31,15 @@
     "pending_archive_assignment",
     "NOT_APPLICABLE"
   ],
-  "restored_reply_preview": "结诏：\n诏令编号：CTXSNAP-20260701-A-DBAA\n古制谱系：史馆总纪·朝制志·官署门·压缩存活条\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：按三省六部格式回复。",
+  "archive_receipt": {
+    "schema": "court.shiguan_archive_checkpoint_receipt.v1",
+    "receipt_id": "shiguan:SCGSDYJM-20260606-1Z-DAAA",
+    "receipt_sha256": "8e46f9ce9368c496f66d151711f2f772a1d0b859ca393535add558259b757158",
+    "archive_sha256": "f83718069a33bfec238899237d3357be4ea1ec1c3680dd3972fcbc4e809eea33",
+    "court_code": "SCGSDYJM-20260606-1Z-DAAA",
+    "lineage_display": "史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏"
+  },
+  "restored_reply_preview": "结诏：\n诏令编号：SCGSDYJM-20260606-1Z-DAAA\n古制谱系：史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：按三省六部格式回复。",
   "cases": [
     {
       "name": "survives_three_cycles",
@@ -269,7 +277,7 @@
       ],
       "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
       "reply_family": "implementation_closeout",
-      "restored_reply_preview": "结诏：\n诏令编号：CTXSNAP-20260701-B-DBAA\n古制谱系：史馆总纪·朝制志·官署门·压缩存活条\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：assistant 普通口吻已漂移。",
+      "restored_reply_preview": "结诏：\n诏令编号：SCGSDYJM-20260606-1Z-DAAA\n古制谱系：史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：assistant 普通口吻已漂移。",
       "closeout_labels": [
         "诏令编号：",
         "古制谱系：",
@@ -314,7 +322,7 @@
       ],
       "court_flow_anchor": "太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录",
       "reply_family": "implementation_closeout",
-      "restored_reply_preview": "结诏：\n诏令编号：CTXSNAP-20260701-C-DBAA\n古制谱系：史馆总纪·朝制志·官署门·压缩存活条\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：我已经完成压缩恢复，接下来我会结诏。",
+      "restored_reply_preview": "结诏：\n诏令编号：SCGSDYJM-20260606-1Z-DAAA\n古制谱系：史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏\n作业AI：Codex\n门下裁定：APPROVED\n太子回奏：我已经完成压缩恢复，接下来我会结诏。",
       "closeout_labels": [
         "诏令编号：",
         "古制谱系：",

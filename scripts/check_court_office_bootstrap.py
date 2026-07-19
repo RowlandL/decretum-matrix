@@ -29,6 +29,23 @@ def main() -> int:
         gongbu_manifest.direct_superior == "shangshu",
         "ordinary Gongbu superior drifted away from shangshu",
     )
+    require(
+        manifest.dossier_path == "agents/office-dossiers/xingbu/AGENTS.md",
+        "ordinary carrier did not resolve the ordinary dossier pointer",
+    )
+    visible_manifest = build_preload_manifest(
+        "xingbu",
+        carrier_kind="supercc_cli_office",
+        supercc_enabled=True,
+    )
+    require(
+        visible_manifest.dossier_path == "agents/supercc-dossiers/xingbu/AGENTS.md",
+        "explicit visible carrier did not resolve its dossier pointer",
+    )
+    require(
+        visible_manifest.profile_source == manifest.profile_source,
+        "carrier selection split the shared standing profile",
+    )
 
     try:
         build_preload_manifest("/root/xingbu_wave3")

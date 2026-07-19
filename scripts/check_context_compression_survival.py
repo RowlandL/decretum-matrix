@@ -31,6 +31,8 @@ REQUIRED_SHARD_TERMS = [
     "我已经",
     "I will",
     "closeout_identifier_contract",
+    "archive_receipt",
+    "court.shiguan_archive_checkpoint_receipt.v1",
     "forbidden_closeout_identifier_values",
     "closeout_label_hash",
     "closeout_shard_on_demand",
@@ -77,7 +79,8 @@ FORBIDDEN_REPLY_VOICE = [
 ]
 REQUIRED_CLOSEOUT_IDENTIFIERS = ["诏令编号：", "古制谱系："]
 FORBIDDEN_CLOSEOUT_IDENTIFIER_VALUES = ["", "...", "…", "未生成", "pending_archive_assignment", "NOT_APPLICABLE"]
-CLOSEOUT_IDENTIFIER_CONTRACT = "court_code_and_ancient_lineage_required_for_any_closeout_or_snapshot"
+CLOSEOUT_IDENTIFIER_CONTRACT = "archive_checkpoint_receipt_required_for_implementation_closeout"
+ARCHIVE_RECEIPT_SCHEMA = "court.shiguan_archive_checkpoint_receipt.v1"
 REQUIRED_RELOADS = [
     "SKILL.md",
     "references/sections/court-context-compression-survival.md",
@@ -127,6 +130,7 @@ def _case_errors(
     original_hash: str,
     plan_hash: str,
     default_reply_preview: str,
+    default_archive_receipt: dict[str, Any] | None,
 ) -> list[str]:
     errors: list[str] = []
     name = str(case.get("name", "unnamed"))
@@ -174,6 +178,29 @@ def _case_errors(
             errors.append(f"{name}:missing_closeout_identifier:{label}")
         elif _is_forbidden_identifier_value(value):
             errors.append(f"{name}:invalid_closeout_identifier:{label}")
+    receipt = case.get("archive_receipt", default_archive_receipt)
+    if not isinstance(receipt, dict):
+        errors.append(f"{name}:archive_receipt_required")
+    else:
+        if receipt.get("schema") != ARCHIVE_RECEIPT_SCHEMA:
+            errors.append(f"{name}:archive_receipt_schema")
+        for field in (
+            "receipt_id",
+            "receipt_sha256",
+            "archive_sha256",
+            "court_code",
+            "lineage_display",
+        ):
+            if not isinstance(receipt.get(field), str) or not str(receipt[field]).strip():
+                errors.append(f"{name}:archive_receipt_missing:{field}")
+        expected_by_label = {
+            "诏令编号：": str(receipt.get("court_code") or ""),
+            "古制谱系：": str(receipt.get("lineage_display") or ""),
+        }
+        for label, expected in expected_by_label.items():
+            actual = _line_value(reply_preview, label)
+            if actual is not None and not _is_forbidden_identifier_value(actual) and actual != expected:
+                errors.append(f"{name}:archive_receipt_mismatch:{label}")
     if case.get("closeout_labels") != CLOSEOUT_LABELS:
         errors.append(f"{name}:closeout_labels")
     if case.get("closeout_label_hash") != CLOSEOUT_LABEL_HASH:
@@ -230,6 +257,10 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
     if not isinstance(default_reply_preview, str) or not default_reply_preview.strip():
         errors.append("restored_reply_preview")
         default_reply_preview = ""
+    default_archive_receipt = data.get("archive_receipt")
+    if not isinstance(default_archive_receipt, dict):
+        errors.append("archive_receipt")
+        default_archive_receipt = None
     cases = data.get("cases")
     if not isinstance(cases, list) or not cases:
         errors.append("cases")
@@ -252,6 +283,7 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
             original_hash,
             plan_hash,
             default_reply_preview,
+            default_archive_receipt,
         )
         expected_errors = item.get("expected_errors")
         if not isinstance(expected_errors, list):

@@ -32,11 +32,11 @@
       "compatibility_state": "unified_compatibility_adapter",
       "domain": "shiguan",
       "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/archive_checkpoint.py",
+      "handler": "python_module:archive_checkpoint",
       "id": "shiguan.archive-checkpoint",
       "legacy_path": "scripts/archive_checkpoint.py",
       "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
+      "receipt_schema": "court.shiguan_archive_checkpoint_receipt.v1",
       "side_effect": "bounded_mutation"
     },
     {
@@ -976,7 +976,7 @@
       "side_effect": "read_only"
     },
     {
-      "authority_source": "court_runtime",
+      "authority_source": "scripts/court_cli.py",
       "command": "decretum-matrix",
       "compatibility_state": "canonical_public_root",
       "domain": "court",

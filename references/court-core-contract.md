@@ -244,15 +244,16 @@ Semantic invariants:
   `中书省 agente`, `门下省 agente`, `尚书省 agente`, `吏部 agente`, `户部 agente`,
   `礼部 agente`, `兵部 agente`, `刑部 agente`, `工部 agente`, and any invoked
   `史官 agente` must remain separately identified when the runtime can represent
-  them. Their essence is the same office abstraction across transports: an
-  ordinary spawned subagent, a terminal-visible `superCC` pane, and a Hermes
-  profile-native session can all be the same named court office when role,
-  direct superior, profile/dossier, task scope, report path, and evidence pointer
-  are preserved. Each office agente inherits or binds the corresponding
+  them. Their shared identity comes from one standing profile, while the carrier
+  is selected independently by a structured pointer: ordinary spawned agents
+  resolve `agents/office-dossiers/<role>/AGENTS.md`; an explicitly selected
+  terminal-visible carrier resolves `agents/supercc-dossiers/<role>/AGENTS.md`.
+  A topology label, similar working state, or natural-language association cannot
+  change that pointer. Each office agente inherits or binds the corresponding
   office/skill profile for duties, vocabulary, allowed tools, and evidence
   rules, but the `skill` is the 工坊技艺/能力资产 it uses, not the office itself.
-  `superCC` adds runtime-selector, visible/profile transport, wake, uniqueness,
-  and closeout proof gates; ordinary parallel subagent dispatch instead proves
+  The explicit visible carrier adds runtime-selector, visible/profile transport,
+  wake, uniqueness, and closeout proof gates; ordinary parallel subagent dispatch proves
   spawned-agent identity, dossier/context attachment, task acceptance, and report
   evidence. This implementation difference must not be treated as a difference
   in 官署本体. An office agente may communicate with other office agente and may

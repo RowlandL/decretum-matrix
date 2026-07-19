@@ -229,7 +229,7 @@ async function validateIndependentHeadAndTag(authority) {
   if (
     headVersion !== authority.releaseLabel ||
     headManifest.release_label !== authority.releaseLabel ||
-    headManifest.version_core !== authority.packageVersion.replace(/-beta\.0$/, "")
+    headManifest.version_core !== authority.versionCore
   ) {
     fail("independent HEAD VERSION/release-manifest identity mismatch");
   }
@@ -320,10 +320,14 @@ async function loadIndependentAuthority() {
   if (releaseManifest.release_label !== releaseLabel) {
     fail("VERSION and release-manifest.json release_label disagree");
   }
-  if (!/^beta\d+\.\d+\.\d+$/.test(releaseLabel)) {
+  const releaseMatch = /^beta(\d+\.\d+\.\d+)(?:-hotfix-v([1-9]\d*))?$/.exec(
+    releaseLabel,
+  );
+  if (!releaseMatch) {
     fail(`unsupported VERSION release label: ${releaseLabel}`);
   }
-  const versionCore = releaseLabel.slice("beta".length);
+  const versionCore = releaseMatch[1];
+  const hotfixRevision = releaseMatch[2] || null;
   if (releaseManifest.version_core !== versionCore) {
     fail("release-manifest.json version_core does not match VERSION");
   }
@@ -331,7 +335,9 @@ async function loadIndependentAuthority() {
   if (channel !== "beta") {
     fail(`unsupported release channel: ${channel}`);
   }
-  const packageVersion = `${versionCore}-${channel}.0`;
+  const packageVersion = hotfixRevision
+    ? `${versionCore}-${channel}.0.hotfix.${hotfixRevision}`
+    : `${versionCore}-${channel}.0`;
   const artifactName = `decretum-matrix-${releaseLabel}.zip`;
   const sidecarName = `${artifactName}.sha256`;
   const attestationName = `decretum-matrix-${releaseLabel}.release-attestation.json`;
@@ -356,6 +362,7 @@ async function loadIndependentAuthority() {
     sidecarName,
     tagRef: releaseManifest.expected_final_tag,
     tarballName,
+    versionCore,
     headCommit: gitText("rev-parse", "HEAD"),
     headTree: gitText("rev-parse", "HEAD^{tree}"),
   };

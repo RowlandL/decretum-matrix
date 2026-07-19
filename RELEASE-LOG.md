@@ -2,6 +2,39 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta1.0.0-hotfix-v1 - 2026-07-20
+
+### 发布结论
+
+本 hotfix 在 `release/beta1.0.0-hotfix-v1` 上修复普通 `super并行` 与 superCC 的
+底层载体耦合，以及结诏编号/古制谱系可能由模型自行编造的问题。源码、候选包、
+安装与外部发布状态分别由后续门禁回执证明，本节不预称成功。
+
+### 核心修复
+
+1. `execution_authority`、`parallel_topology`、`carrier_kind` 独立解析；普通并行
+   只选择 `child_agent|worktree_thread`，不得因名称、规模或相似工作状态进入
+   可见 runtime selector。
+2. 共享 `agents/standing-officials/*.toml` 继续作为唯一官署身份配置；普通载体
+   机械指向 `agents/office-dossiers`，显式 `supercc_cli_office` 才指向
+   `agents/supercc-dossiers`。
+3. `.codex/agents/*.toml` 的普通投影不再携带 superCC dossier、squad/zellij 指令
+   或可见拓扑字段；普通 runtime probe 不再导入 `check_supercc_profiles`。
+4. 既有统一 CLI 的 `shiguan archive-checkpoint` 改为 UTF-8 结构化调用，返回
+   `court.shiguan_archive_checkpoint_receipt.v1`、`receipt_sha256`、
+   `archive_sha256` 与可逐字复制的 `closeout_identity`。
+5. 十四行结诏只能消费当前归档回执；无回执时使用 partial、blocked 或 handoff
+   回复族，不再允许模型分配 snapshot 编号或谱系。
+6. 产品版本为 `beta1.0.0-hotfix-v1`，npm 合法 SemVer 映射为
+   `1.0.0-beta.0.hotfix.1`，继续使用 `beta` dist-tag。
+
+### 边界
+
+- `pending_body_access=NO`；不读取、哈希、移动、删除或标记 pending/private 正文。
+- `OFFICE_PACK_Q1_Q8=DEFERRED_TO_QUEUED_POST_A02_HANDOFF`。
+- 唯一既有 worktree 被复用；未创建或物化第二 worktree。
+- 旧 `beta1.0.0` tag、GitHub Release 与 npm `1.0.0-beta.0` 保持历史证据。
+
 ## beta1.0.0 - 2026-07-19
 
 ### 发布结论

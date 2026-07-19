@@ -58,13 +58,19 @@ the `史馆` line instead of a usable Web address, or appends ad-hoc fields, 门
 must mark `hard_memorial_gate: DRIFT_CORRECTED` and rewrite before 太子 sends the
 final answer.
 
-Every `结诏` is a snapshot closeout. It must carry a non-placeholder
-`诏令编号` and `古制谱系` even when the work is paused, blocked, partially verified,
-or not yet archived into a final Shiguan checkpoint. If a checkpoint has already
-been written, use its `court_code` and `ancient_lineage` / `lineage_display`. If
-the closeout is an intermediate snapshot, allocate a snapshot identifier and
-ancient lineage before sending. Never write `未生成`, empty, `...`, `…`,
-`pending_archive_assignment`, or `NOT_APPLICABLE` in these two lines.
+Every fourteen-line `结诏` is receipt-bound. Before rendering it, invoke the
+existing unified CLI entry `decretum-matrix --format json shiguan
+archive-checkpoint ...` (source-tree equivalent: `python -B scripts/court_cli.py
+--format json shiguan archive-checkpoint ...`). The returned payload must use
+schema `court.shiguan_archive_checkpoint_receipt.v1`; copy its `court_code`,
+`lineage_display`, and `source_agent_label` exactly, or copy the complete
+`closeout_identity` block. The receipt must also retain `receipt_id`,
+`receipt_sha256`, `archive_sha256`, and `path` as evidence.
+
+If no valid archive receipt exists, do not render a `结诏` or allocate a snapshot
+identifier. Use `partial_or_not_run`, `authority_blocked`, or `handoff_or_pause`
+instead. Never write `未生成`, empty, `...`, `…`, `pending_archive_assignment`,
+or `NOT_APPLICABLE` in a rendered closeout's two identity lines.
 
 Formal identifier shapes are mandatory, not merely non-placeholder:
 
@@ -103,7 +109,7 @@ represented to the user by its Shiguan anchor instead of being pasted in full.
 
 ```text
 诏令编号：...
-古制谱系：...（填当前 lineage_display/ancient_lineage；中途截照则填已分配的 snapshot lineage）
+古制谱系：...（逐字复制 archive receipt 的 lineage_display）
 状态：...
 作业AI：<source_agent_label from archive_checkpoint.py, e.g. Codex/Hermes/Claude Code/Agents>
 旨意：...
@@ -143,10 +149,9 @@ Codex YOLO 自启任务：TASK_EXISTS | MISSING | GENERATED_REVIEW_TASK | REGIST
 下一步：...
 ```
 
-Final `/court` memorials and intermediate snapshot closeouts must autonomously
-show `诏令编号` and `古制谱系`. If no checkpoint was written in the current work,
-allocate a snapshot code and lineage before sending; never mark either field
-`未生成`.
+Final `/court` memorials may show `诏令编号` and `古制谱系` only from the current
+archive receipt. Intermediate progress is not a closeout and uses a non-closeout
+response family; it never allocates identifiers in model prose.
 
 Before sending, compare the response against the Long Conversation Drift Guard.
 If there is a conflict, the guard wins over shorter Shiguan wording or ad-hoc

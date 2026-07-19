@@ -975,6 +975,69 @@ def check_missing_ordinary_dossier_fails_closed() -> None:
             raise AssertionError("missing ordinary dossier was accepted")
 
 
+def check_ordinary_runtime_probe_zero_load() -> None:
+    import agent_runtime_probe
+
+    sys.modules.pop("check_supercc_profiles", None)
+    home = agent_runtime_probe.codex_home()
+    summary = agent_runtime_probe.standing_profile_summary(
+        home / "agents",
+        ROOT / "agents" / "standing-officials",
+    )
+    require(
+        "check_supercc_profiles" not in sys.modules,
+        "ordinary runtime probe imported the visible carrier validator",
+    )
+    payload = agent_runtime_probe.probe()
+    serialized = json.dumps(
+        {"standing_profiles": summary, "probe": payload},
+        ensure_ascii=False,
+        sort_keys=True,
+    ).casefold()
+    require("supercc_" not in serialized, "ordinary runtime probe exposed visible carrier topology")
+
+
+def check_carrier_pointer_semantic_independence() -> None:
+    ordinary = court_office_bootstrap.build_preload_manifest(
+        "zhongshu",
+        carrier_kind="child_agent",
+    )
+    visible = court_office_bootstrap.build_preload_manifest(
+        "zhongshu",
+        carrier_kind="supercc_cli_office",
+        supercc_enabled=True,
+    )
+    require(ordinary.profile_source == visible.profile_source, "carrier split the shared profile source")
+    require(ordinary.profile_hash == visible.profile_hash, "carrier split the shared profile identity")
+    require(
+        ordinary.dossier_path == "agents/office-dossiers/zhongshu/AGENTS.md",
+        "ordinary carrier pointer drifted",
+    )
+    require(
+        visible.dossier_path == "agents/supercc-dossiers/zhongshu/AGENTS.md",
+        "explicit visible carrier pointer drifted",
+    )
+    require(ordinary.dossier_hash != visible.dossier_hash, "carrier dossiers collapsed into one semantic body")
+    signature = inspect.signature(court_office_bootstrap.resolve_office_dossier_locator)
+    require("carrier_kind" in signature.parameters, "carrier resolver lacks an explicit enum")
+    require("mode" not in signature.parameters and "prompt" not in signature.parameters, "carrier resolver accepts semantic text")
+    governing = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in (
+            SKILL_PATH,
+            ROOT / "references" / "court-startup-authority.md",
+            ROOT / "references" / "court-state-runtime-agents.md",
+        )
+    )
+    for term in (
+        "execution_authority",
+        "parallel_topology",
+        "carrier_kind",
+        "carrier_pointer_resolution=MECHANICAL",
+    ):
+        require(term in governing, f"mechanical carrier contract missing: {term}")
+
+
 def check_fourteen_office_manifest_hashes() -> None:
     identities = court_office_bootstrap.OFFICE_ASSIGNMENT_IDENTITIES
     problems: list[str] = []
@@ -1596,6 +1659,8 @@ CHECKS: tuple[tuple[str, Callable[[], None]], ...] = (
     ),
     ("legacy_supercc_carrier_rejected", check_legacy_supercc_carrier_rejected),
     ("missing_ordinary_dossier_fails_closed", check_missing_ordinary_dossier_fails_closed),
+    ("ordinary_runtime_probe_zero_load", check_ordinary_runtime_probe_zero_load),
+    ("carrier_pointer_semantic_independence", check_carrier_pointer_semantic_independence),
     ("pinned_initial_semantics", check_pinned_initial_semantics),
     ("amended_behavior_source_reachability", check_amended_behavior_source_reachability),
     (

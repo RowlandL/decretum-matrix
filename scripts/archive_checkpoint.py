@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,7 @@ NOISE_TERMS = {
     "court",
     "checkpoint",
 }
+ARCHIVE_RECEIPT_SCHEMA = "court.shiguan_archive_checkpoint_receipt.v1"
 
 
 def slugify(value: str) -> str:
@@ -65,6 +67,14 @@ def refresh_request_path() -> Path:
 
 def archive_path(topic: str, date_text: str) -> Path:
     return archive_dir() / f"plan-{date_text}-{slugify(topic)}-1.md"
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return sha256_bytes(path.read_bytes())
 
 
 def split_terms(value: str | None) -> list[str]:
@@ -466,7 +476,51 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
     return path, entry, refresh
 
 
-def main() -> int:
+def build_archive_receipt(
+    path: Path,
+    entry: dict[str, object],
+    refresh: dict[str, object],
+) -> dict[str, object]:
+    court_code = str(entry.get("court_code") or "").strip()
+    lineage_display = str(
+        entry.get("lineage_display") or entry.get("ancient_lineage") or ""
+    ).strip()
+    source_agent_label = str(
+        entry.get("source_agent_label") or entry.get("source_agent") or ""
+    ).strip()
+    closeout_identity = "\n".join(
+        (
+            f"诏令编号：{court_code}",
+            f"古制谱系：{lineage_display}",
+            f"作业AI：{source_agent_label}",
+        )
+    )
+    receipt: dict[str, object] = {
+        "schema": ARCHIVE_RECEIPT_SCHEMA,
+        "receipt_id": f"shiguan:{court_code}",
+        "path": str(path),
+        "source": relative_to_data(path),
+        "archive_sha256": sha256_file(path),
+        "court_code": court_code,
+        "ancient_lineage": str(entry.get("ancient_lineage") or ""),
+        "lineage_display": lineage_display,
+        "source_agent": str(entry.get("source_agent") or ""),
+        "source_agent_label": source_agent_label,
+        "closeout_identity": closeout_identity,
+        "refresh": refresh,
+    }
+    receipt["receipt_sha256"] = sha256_bytes(
+        json.dumps(
+            receipt,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+    return receipt
+
+
+def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
@@ -495,7 +549,8 @@ def main() -> int:
     parser.add_argument("--sync-timeout", type=int, default=600)
     parser.add_argument("--lock-timeout", type=float, default=30.0, help="Seconds to wait for the shared Shiguan write lock.")
     parser.add_argument("--result-json", default="", help="Write a JSON summary with court_code/lineage/path for callers.")
-    args = parser.parse_args()
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    args = parser.parse_args(argv)
 
     try:
         path, entry, refresh = append_checkpoint(args)
@@ -507,24 +562,17 @@ def main() -> int:
         print("Request approval/escalation, then rerun the same Shiguan command.", file=sys.stderr)
         return 13
 
-    result = {
-        "ok": True,
-        "path": str(path),
-        "source": relative_to_data(path),
-        "court_code": entry.get("court_code", ""),
-        "ancient_lineage": entry.get("ancient_lineage", ""),
-        "lineage_display": entry.get("lineage_display") or entry.get("ancient_lineage", ""),
-        "source_agent": entry.get("source_agent", ""),
-        "source_agent_label": entry.get("source_agent_label", ""),
-        "refresh": refresh,
-    }
+    result = build_archive_receipt(path, entry, refresh)
     if args.result_json:
         atomic_write_text(
             Path(args.result_json),
             json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         )
-    print(f"ARCHIVE_OK {path}")
-    print("ARCHIVE_OK_JSON " + json.dumps(result, ensure_ascii=False, sort_keys=True))
+    if args.format == "json":
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(f"ARCHIVE_OK {path}")
+        print("ARCHIVE_OK_JSON " + json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 
 

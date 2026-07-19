@@ -1,5 +1,32 @@
 # Changelog
 
+## beta1.0.0-hotfix-v1 - 2026-07-20
+
+### Fixed
+
+- Decoupled ordinary super parallelism from the explicit superCC runtime at the
+  carrier layer. Shared standing profiles remain single-source, while ordinary
+  Codex roles resolve only `agents/office-dossiers` and explicit visible carriers
+  resolve only `agents/supercc-dossiers`.
+- Removed superCC validation and topology fields from the ordinary runtime probe,
+  so the ordinary path no longer imports, probes, or reports the visible runtime.
+- Made `decretum-matrix shiguan archive-checkpoint` return a UTF-8 structured
+  receipt with archive/receipt hashes and exact closeout identity lines.
+- Rejected model-allocated decree identifiers and lineages: a fourteen-line
+  closeout now requires the current CLI archive receipt, otherwise a non-closeout
+  response family must be used.
+- Re-compacted the root skill without relaxing the 20 KiB preload ceiling;
+  maximum role preload is 20,173 bytes and measured cold/warm p50 improvements
+  remain 88.60%/99.33%.
+
+### Release boundary
+
+- Product/tag/artifact version: `beta1.0.0-hotfix-v1`.
+- npm version: `1.0.0-beta.0.hotfix.1`, preserving the existing
+  `1.0.0-beta.0` package as immutable registry evidence.
+- Publication, tag, assets, installation, and Latest status are asserted only by
+  the final hotfix receipts.
+
 ## beta1.0.0 - 2026-07-19
 
 ### Added

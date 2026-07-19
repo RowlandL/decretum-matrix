@@ -117,6 +117,8 @@ def load_registry() -> dict[tuple[str, str], CommandRecord]:
         loader = (
             "court_runtime.main"
             if legacy_path == "scripts/court_runtime.py"
+            else handler
+            if handler.startswith("python_module:")
             else "isolated_subprocess"
         )
         side_effect = str(entry.get("side_effect") or "request_dependent")
@@ -333,6 +335,8 @@ def _capture_subprocess(record: CommandRecord, arguments: Sequence[str]) -> Invo
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         shell=False,
     )
@@ -359,7 +363,10 @@ def _capture_python_module(
     stderr = io.StringIO()
     module = importlib.import_module(module_name)
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        returncode = int(module.main(module_arguments))
+        try:
+            returncode = int(module.main(module_arguments))
+        except SystemExit as exc:
+            returncode = int(exc.code or 0)
     return InvocationResult(
         returncode=returncode,
         stdout=stdout.getvalue(),
@@ -634,6 +641,13 @@ def _resolve_and_run(group: str, command: str, arguments: Sequence[str], output_
         raise CliUsageError(f"unknown command: {group} {command}")
     if record.loader == "court_runtime.main":
         result = _capture_runtime(arguments, output_format=output_format)
+    elif record.loader.startswith("python_module:"):
+        result = _capture_python_module(
+            record.loader.split(":", 1)[1],
+            arguments,
+            output_format=output_format,
+            legacy_path=record.legacy_path,
+        )
     else:
         result = _capture_subprocess(record, arguments)
     return _emit_invocation(f"{group} {command}", result, output_format)

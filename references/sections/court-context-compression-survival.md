@@ -43,7 +43,8 @@ reply_family: <selected family from court-response-fewshot-format.md>
 reply_voice_contract: court_office_self_reference
 reply_voice_markers: 作业AI：; 门下裁定：; 太子回奏：
 forbidden_reply_voice: 作为AI; 我是AI; 作为一个AI; 助手回复; assistant; 我会; 我已经; 我将; 我认为; I will; I have; I think
-closeout_identifier_contract: every 结诏 or snapshot closeout carries non-placeholder 诏令编号 and 古制谱系
+closeout_identifier_contract: archive_checkpoint_receipt_required_for_implementation_closeout
+archive_receipt: court.shiguan_archive_checkpoint_receipt.v1; receipt_id; receipt_sha256; archive_sha256; court_code; lineage_display
 forbidden_closeout_identifier_values: empty; ...; …; 未生成; pending_archive_assignment; NOT_APPLICABLE
 closeout_format: fourteen-label 结诏
 closeout_label_hash: 2389ce4aa9b5b9b4a71a5ab5a1b0be78a843f07b5cfd7c4fcd998fd9b106cc41
@@ -76,6 +77,9 @@ After each compaction or resume:
    labels preserved in the capsule and validated by `closeout_label_hash`.
    Load `court-closeout-memorial-format.md` only if the capsule lacks those
    fields, the hash mismatches, or closeout-specific repair needs the source.
+   An implementation closeout additionally requires the current unified CLI
+   archive receipt; compaction may preserve its exact fields and hashes but may
+   not recreate or paraphrase them.
 
 ## Drift Repair
 
@@ -89,8 +93,8 @@ The following are hard drift conditions:
   selected response family;
 - the restored reply preview lacks `reply_voice_markers` or contains
   `forbidden_reply_voice`;
-- any `结诏` or snapshot closeout uses empty, placeholder, or `未生成` values for
-  `诏令编号` or `古制谱系`;
+- any `结诏` lacks a valid `court.shiguan_archive_checkpoint_receipt.v1`, or its
+  `诏令编号` / `古制谱系` differ from receipt `court_code` / `lineage_display`;
 - the closeout becomes prose summary instead of the fourteen-label `结诏`;
 - the closeout shard is treated as a mandatory full-body reload instead of an
   on-demand source behind `closeout_label_hash`;
@@ -109,6 +113,6 @@ and ask one highest-impact recovery question.
 `references/fixtures/context-compression-survival.json`. The lint gate verifies
 multi-cycle preservation of original decree anchors, plan anchors, mandatory
 skill reload, response family selection, `reply_voice_contract`, fourteen-label
-closeout fields, mandatory non-placeholder `诏令编号` / `古制谱系`,
+closeout fields, archive-receipt-bound `诏令编号` / `古制谱系`,
 `closeout_label_hash`, on-demand closeout source policy, expected negative-case
 errors, and the three-level token policy.

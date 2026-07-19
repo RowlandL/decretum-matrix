@@ -401,7 +401,7 @@ def resolve_office_dossier_locator(
     if carrier == SUPERCC_CLI_CARRIER:
         if not supercc_enabled:
             raise ValueError("supercc_experimental_cli_explicit_enable_required")
-        raise ValueError("supercc_cli_preload_requires_experimental_adapter")
+        return PurePosixPath("agents", "supercc-dossiers", normalized, "AGENTS.md")
     raise ValueError(f"unsupported office carrier: {carrier}")
 
 
@@ -434,7 +434,11 @@ def build_preload_manifest(
     dossier = root.joinpath(*dossier_locator.parts)
     skill_path = root / "SKILL.md"
     if not dossier.is_file():
-        raise ValueError("ordinary_office_dossier_missing")
+        raise ValueError(
+            "supercc_office_dossier_missing"
+            if carrier_kind == SUPERCC_CLI_CARRIER
+            else "ordinary_office_dossier_missing"
+        )
     if not skill_path.is_file():
         raise ValueError("court_skill_missing")
     office_zh = str(profile.get("office_zh") or "").strip()

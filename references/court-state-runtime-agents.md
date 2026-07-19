@@ -4,8 +4,8 @@
 
 1. 官署按任务职责、依赖和证据价值动态分配。
 2. 正常并行默认整棵 agent tree 最多 16 个线程（含根线程），`max_depth=4`；只有最新用户明确指定 `>16` 数量或明确开启 `unlimited/解限` 才可越过 16。旧状态、记忆或非明确来源 fail closed；解限仍须通过太子动态预算池、宿主压力降级、层级、写集和实例追溯门禁，且不得自动开满。
-3. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
-4. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
+3. 普通并行只设置 `parallel_topology=ordinary_parallel`，并把 `carrier_kind` 固定为 `child_agent` 或 `worktree_thread`；它不调用 runtime selector。
+4. 可见 runtime 是独立选择面。只有最新旨意和结构化 selector receipt 同时明确 `carrier_kind=supercc_cli_office` 时才加载对应扩展；不得从拓扑名称、并行规模或相似工作状态推导。
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
@@ -98,6 +98,11 @@ authority, durable store, daemon, or second state machine.
   the same capsule hash, current semantic receipt, task/sub-id, budget/lease,
   write-set, preload, result, and stop contract. A worktree is an isolation
   carrier, not another authority or concurrent writer.
+- `carrier_pointer_resolution=MECHANICAL`: the shared standing profile remains one
+  identity/configuration source. `child_agent|worktree_thread` resolve only
+  `agents/office-dossiers/<role>/AGENTS.md`; explicit `supercc_cli_office` resolves
+  only `agents/supercc-dossiers/<role>/AGENTS.md`. Resolution consumes the
+  structured carrier enum, never user-text similarity or a topology synonym.
 - `disabled_supercc_zero_load=REQUIRED`: unless the newest decree explicitly
   selects `superCC`, its annex, profiles, dossiers, scripts, watchdog, daemon, and
   visible-office runtime are not loaded or probed by this path.
