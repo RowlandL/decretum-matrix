@@ -174,3 +174,21 @@ PROJECT_FINAL_CLOSEOUT=PASS
 最终应能够确认：
 
 > 在 A02 完整完成并稳定运行的基础上，Decretum Matrix 通过《声无哀乐》的设计理念完成语义赋能：框架保存通用机制，史馆承担长期认知，三省六部作为完整的官方治理实现独立演进。事实不被解释冒充，记忆不覆盖当前旨意，治理语义可以替换，而权限、安全、证据和唯一权威保持确定。本阶段是主线最后一个循环，验收后项目直接结项。
+
+## 12. beta1.0.0 最终阶段版本 overlay
+
+本节记录最新明确版本旨意，并只 supersede 本任务书启动时沿用的 A02 §3.3 顺位版本计算；其他启动门禁、单阶段属性、工作包 A-G、完成合同和 `NEXT_MAJOR_STAGE=NONE` 均不改变。
+
+```text
+SOURCE_ACCEPTED_VERSION: beta0.5.13
+TARGET_VERSION: beta1.0.0
+TARGET_BRANCH: release/beta1.0.0
+FORBIDDEN_INTERMEDIATE_VERSION: beta0.5.14
+FIRST_CURSOR: BETA1_VERSION_ALIGNMENT_GATE
+```
+
+- A02 全部 completion gates 与 beta0.5.13 对应发布终态通过前，本任务书继续为 `DEFERRED_UNTIL_A02_COMPLETE`，不得提前创建候选、安装或实施工作包。
+- 交接只使用 `release/beta1.0.0`；不得创建 `release/beta0.5.14` 或以其作为兼容中转。当前最新硬约束要求复用 A02 的唯一 child worktree，不创建或物化第二 worktree；A02 writer 释放后，最终阶段任务才能取得该 worktree 的唯一 write lease。
+- 新 branch 必须从 A02 accepted commit 创建并保留该 start-head 证据；随后首先通过 `BETA1_VERSION_ALIGNMENT_GATE`，将所有版本、包、文档、SBOM、npm 与安装身份面机械收敛到 `beta1.0.0`。在该 gate 通过前只可做版本对齐，不得把 branch 名冒充产品版号完成。
+- beta1.0.0 的外部发布不由本 overlay 自动授权；push、tag、GitHub release 与 npm publish 仍须在本最终阶段对应发布游标取得最新明确授权并通过 release-fastpath。
+- 最终 handoff receipt 必须绑定 A02 accepted commit、beta0.5.13 发布终态、`release/beta1.0.0`、实际复用 worktree、root/child index=`0/0`、clean、任务书/compact handoff SHA-256 和 `SHENG_WU_AI_LE_FINAL_STAGE_READY` 游标。

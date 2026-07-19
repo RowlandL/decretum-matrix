@@ -1308,3 +1308,12 @@ Git index empty
 - **focused GREEN：** installer cases=`28/28 PASS`、configuration cases=`31/31 PASS`、`protected_shiguan_data_accessed=false`。新 candidate 安装后必须机械证明五根 `VERSION`、identity manifest、release manifest SHA/payload index 与 candidate 完全一致，缺一即再次完整回滚。
 - **证据：** `D:\project\.repo-control\evidence\decretum-matrix\CCR-R2-SHIR-20260714-A02\phase10\phase10-release-manifest-projection-repair-20260719.json`，SHA-256=`915F744D83FF6589CB0383E4DAB2AF383BC89264DDC1F43900718CC909E05E8A`；preimage 位于 `.repo-control/preimages/decretum-matrix/CCR-R2-SHIR-20260714-A02/20260719T101500-phase10-release-manifest-projection`。
 - **重新准入顺位：** `SOURCE_GATES -> BOUNDED_REPAIR_COMMIT -> NEW_TAGLESS_CANDIDATE -> PRE_INSTALL -> BACKUP/APPLY -> ROLE_SYNC_WITH_EXTERNAL_BACKUP -> POST_INSTALL -> FIVE_ROOT_NATIVE_MANIFEST_REREAD`；旧两个 candidate 只作未发布 preimage，不删除、不覆盖、不 promotion。
+
+### 2026-07-19 A02 -> 《声无哀乐》beta1.0.0 交接版本 overlay
+
+- **最新明确版本旨意：** 本 overlay 只 supersede A02 完成后进入唯一最终 major stage 时的 §3.3 `beta0.5.(x+1)` 版本计算；目标版号固定为 `beta1.0.0`，目标 child branch 固定为 `release/beta1.0.0`。不得创建、物化、映射或发布 `beta0.5.14` 载体。
+- **当前阶段不改写：** A02 仍在 `release/beta0.5.13` 完成其候选、安装、史馆、发布和 completion contract；既有 beta0.5.13 commit/package/receipt 不得被追溯重标为 beta1.0.0，也不得在 A02 门禁通过前提前构建 beta1.0.0 候选。
+- **单 worktree 交接：** 继续遵守本轮“不创建、不物化新 worktree”的最新硬约束。A02 accepted commit、beta0.5.13 branch/ref 与发布凭据冻结后，复用当前唯一 child worktree 切换到从该 accepted commit 创建的 `release/beta1.0.0`；旧任务先释放 write lease，新任务取得唯一 writer 后方可写入，禁止双 writer、第二 child worktree 或覆盖不匹配 ref。
+- **版号收敛：** 最终阶段首个原子游标固定为 `BETA1_VERSION_ALIGNMENT_GATE`，把 `VERSION`、identity/release manifest、package/npm contract、README/CHANGELOG/RELEASE-LOG、SBOM、候选目录和安装回执统一到 `beta1.0.0`，通过 source/package/install gates 后才可实施工作包 A-G。branch 创建本身不得冒充版本面已完成。
+- **交接凭据：** `MAJOR_STAGE_HANDOFF_ACCEPTED` 必须额外绑定 `source_version=beta0.5.13`、`target_version=beta1.0.0`、`target_branch=release/beta1.0.0`、复用 worktree 实际路径、A02 accepted commit、root/child index=`0/0`、clean、计划/compact handoff SHA-256 与 `next_stage=SHENG_WU_AI_LE_FINAL_STAGE`。
+- **外部动作边界：** 本 overlay 不新增 beta1.0.0 的 push/tag/PR/GitHub release/npm publish 权限；对应外部动作仍须在最终阶段的正式发布游标取得最新明确授权。`pending_body_access=NO`，`OFFICE_PACK_Q1_Q8=DEFERRED_TO_QUEUED_POST_A02_HANDOFF` 保持不变。
