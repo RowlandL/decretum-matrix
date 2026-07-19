@@ -101,10 +101,10 @@ def assert_pending_body_not_read(base: Path, shared_root: Path, env: dict[str, s
         json.dumps(
             {
                 "id": "sidecar-body",
-                "filename": "source-note.md",
+                "filename": "sidecar-body.json",
                 "source_type": "md",
                 "status": "pending",
-                "imported_at": "fixture",
+                "imported_at": "2026-07-19T00:00:00+00:00",
                 "char_count": 120,
                 "estimated_tokens": 48,
                 "sha256": "0" * 64,

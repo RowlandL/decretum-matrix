@@ -16,14 +16,19 @@ from xml.sax.saxutils import escape
 
 sys.dont_write_bytecode = True
 
-from shiguan_paths import ensure_shared_seed, reference_path, references_root
+from shiguan_paths import (
+    ensure_shared_seed,
+    reference_path,
+    references_root,
+    runtime_code_root,
+)
 
 
 TASK_NAME = "CourtShiguanDaemon"
 
 
 def daemon_script() -> Path:
-    return Path(__file__).with_name("shiguan_service_daemon.py")
+    return runtime_code_root() / "scripts" / "shiguan_service_daemon.py"
 
 
 def status_path() -> Path:
@@ -63,7 +68,7 @@ def write_wrapper(interval: int) -> Path:
             "env.Item(\"PYTHONUTF8\") = \"1\"",
             "env.Item(\"PYTHONIOENCODING\") = \"utf-8\"",
             "env.Item(\"PYTHONDONTWRITEBYTECODE\") = \"1\"",
-            f"sh.CurrentDirectory = \"{vbs_string(Path(__file__).resolve().parents[1])}\"",
+            f"sh.CurrentDirectory = \"{vbs_string(runtime_code_root())}\"",
             f"cmd = Chr(34) & \"{vbs_string(pythonw_path())}\" & Chr(34) & \" \" & Chr(34) & \"{vbs_string(daemon_script())}\" & Chr(34) & \" --interval {interval}\"",
             "sh.Run cmd, 0, False",
             "",
@@ -188,7 +193,7 @@ def task_xml(interval: int) -> str:
     wrapper = write_wrapper(interval)
     command = "wscript.exe"
     args = escape(f'//B //Nologo "{wrapper}"')
-    workdir = escape(str(Path(__file__).resolve().parents[1]))
+    workdir = escape(str(runtime_code_root()))
     user = escape(current_user())
     registered = datetime.now().isoformat(timespec="seconds")
     return f"""<?xml version="1.0" encoding="UTF-16"?>
@@ -347,7 +352,7 @@ def start_direct(interval: int) -> int:
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     args = [str(pythonw_path()), str(daemon_script()), "--interval", str(interval)]
     kwargs: dict[str, object] = {
-        "cwd": str(Path(__file__).resolve().parents[1]),
+        "cwd": str(runtime_code_root()),
         "stdout": handle,
         "stderr": subprocess.STDOUT,
         "stdin": subprocess.DEVNULL,

@@ -349,7 +349,7 @@ function buildPackageReadmeForContract(contract) {
     "",
     `This package contains the release ZIP and checksum, release attestation, release notes, SPDX SBOM, and legal/governance documents validated against the ${contract.releaseLabel} release manifest.`,
     "",
-    "It has no dependencies or install lifecycle scripts. The `decretum-matrix` bin starts the verified release CLI only when explicitly invoked; package installation does not modify host configuration or execute package code.",
+    "It has no third-party runtime dependencies. Its bounded `postinstall` verifies the embedded release ZIP, backs up managed public files, installs the canonical `.agents/skills/decretum-matrix` runtime, creates or atomically migrates the physical shared Shiguan root, and records rollback receipts without reading pending/private bodies.",
     "",
     `Verify \`release/${contract.identity.artifactName}\` with \`release/${contract.identity.sidecarName}\` and the release attestation before use.`,
   ].join("\n")}\n`;
@@ -1103,7 +1103,11 @@ async function runSyntheticInstalledSmoke(
     "synthetic package bin contract mismatch",
   );
   assert(installedPackage.main === undefined, "synthetic package unexpectedly exposes a main entry");
-  assert(installedPackage.scripts === undefined, "synthetic package contains lifecycle scripts");
+  assert(
+    installedPackage.scripts?.postinstall ===
+      "node bin/decretum-matrix.js --npm-postinstall",
+    "synthetic package postinstall contract mismatch",
+  );
   assert(
     installedPackage.exports?.["./package.json"] === "./package.json" &&
       installedPackage.exports?.["./release/*"] === "./release/*",
@@ -1993,7 +1997,7 @@ export async function runSyntheticSelfTest() {
         deterministic_double_pack: "PASS",
         strict_offline_install: "PASS",
         bin_entry: "PASS",
-        no_install_lifecycle_scripts: "PASS",
+        transactional_postinstall_declared: "PASS",
         source_local_tgz_cli_parity: "PASS",
         clean_home_windows_macos_linux: "PASS",
         create_only: "PASS",
@@ -2134,6 +2138,9 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
     bin: {
       "decretum-matrix": "bin/decretum-matrix.js",
     },
+    scripts: {
+      postinstall: "node bin/decretum-matrix.js --npm-postinstall",
+    },
     license: contract.license,
     repository: contract.repositoryUrl,
     homepage: contract.releaseUrl,
@@ -2184,7 +2191,10 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
       cli: {
         entrypoint: "bin/decretum-matrix.js",
         pythonBootstrap: "bin/decretum-matrix.py",
-        installLifecycleScripts: false,
+        installLifecycleScripts: true,
+        postinstall: "node bin/decretum-matrix.js --npm-postinstall",
+        postinstallContract:
+          "verified_zip_then_transactional_canonical_install_and_physical_shiguan_bootstrap",
         runtimeAuthority: `release/${contract.identity.artifactName}`,
       },
       legalSurface: {
@@ -2821,12 +2831,12 @@ function npmInvocation(args) {
   };
 }
 
-function runNpm(args, cwd, npmState) {
+function runNpm(args, cwd, npmState, environmentOverrides = {}) {
   const invocation = npmInvocation(args);
   const result = spawnSync(invocation.command, invocation.args, {
     cwd,
     encoding: "utf8",
-    env: sanitizedNpmEnvironment(npmState),
+    env: { ...sanitizedNpmEnvironment(npmState), ...environmentOverrides },
     maxBuffer: 32 * 1024 * 1024,
     shell: false,
     timeout: 120_000,
@@ -2987,10 +2997,28 @@ async function runInstalledSmoke(
     { encoding: "utf8", flag: "wx", mode: 0o644 },
   );
 
+  const postinstallHome = path.join(smokeRoot, "postinstall-home");
+  const postinstallCache = path.join(smokeRoot, "postinstall-cache");
+  const localAppData = path.join(postinstallHome, "AppData", "Local");
+  const roamingAppData = path.join(postinstallHome, "AppData", "Roaming");
+  await mkdir(postinstallHome, { recursive: true });
+  await mkdir(localAppData, { recursive: true });
+  await mkdir(roamingAppData, { recursive: true });
+
   runNpm(
     ["install", "--package-lock=false", "--save=false", tarballPath],
     smokeRoot,
     npmState,
+    {
+      APPDATA: roamingAppData,
+      DECRETUM_MATRIX_NPM_CACHE_ROOT: postinstallCache,
+      DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES: "0",
+      HOME: postinstallHome,
+      LOCALAPPDATA: localAppData,
+      PYTHONDONTWRITEBYTECODE: "1",
+      USERPROFILE: postinstallHome,
+      npm_config_ignore_scripts: "false",
+    },
   );
 
   const installedRoot = path.join(
@@ -3017,7 +3045,8 @@ async function runInstalledSmoke(
   );
   assert(
     installedPackage.bin?.["decretum-matrix"] === "bin/decretum-matrix.js" &&
-      installedPackage.scripts === undefined,
+      installedPackage.scripts?.postinstall ===
+        "node bin/decretum-matrix.js --npm-postinstall",
     "installed package executable/lifecycle contract mismatch",
   );
 
@@ -3068,8 +3097,59 @@ async function runInstalledSmoke(
     );
   }
 
+  const canonicalRuntime = path.join(
+    postinstallHome,
+    ".agents",
+    "skills",
+    "decretum-matrix",
+  );
+  const canonicalShiguan = path.join(
+    postinstallHome,
+    ".agents",
+    "court-shiguan",
+    "decretum-matrix",
+    "references",
+  );
+  const canonicalRuntimeStat = await lstat(canonicalRuntime);
+  const canonicalShiguanStat = await lstat(canonicalShiguan);
+  assert(
+    canonicalRuntimeStat.isDirectory() && !canonicalRuntimeStat.isSymbolicLink(),
+    "postinstall canonical runtime is not a physical directory",
+  );
+  assert(
+    canonicalShiguanStat.isDirectory() && !canonicalShiguanStat.isSymbolicLink(),
+    "postinstall canonical Shiguan root is not a physical directory",
+  );
+  const receiptRoot = path.join(
+    postinstallHome,
+    ".agents",
+    "install-receipts",
+    "decretum-matrix",
+  );
+  const receiptNames = (await readdir(receiptRoot)).filter((name) =>
+    name.startsWith("npm-postinstall-"),
+  );
+  assert(receiptNames.length === 1, "postinstall receipt count mismatch");
+  const postinstallReceipt = await readJson(
+    path.join(receiptRoot, receiptNames[0]),
+    "postinstall receipt",
+  );
+  assert(
+    postinstallReceipt.ok === true &&
+      postinstallReceipt.pending_body_access === "NO" &&
+      postinstallReceipt.body_content_reads === 0 &&
+      postinstallReceipt.body_hashes === 0,
+    "postinstall receipt contract mismatch",
+  );
+
   await verifyInstalledCliParity(operationRoot, installedRoot);
-  return "PASS";
+  return {
+    status: "PASS",
+    canonical_runtime: canonicalRuntime,
+    canonical_shiguan: canonicalShiguan,
+    receipt: receiptNames[0],
+    service_activation_requested: false,
+  };
 }
 
 export async function createVerifiedPackage({

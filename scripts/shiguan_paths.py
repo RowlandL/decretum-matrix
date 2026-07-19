@@ -29,6 +29,8 @@ ROOT_ENV_KEYS = ("COURT_SHARED_SHIGUAN_ROOT", "SHIGUAN_SHARED_ROOT")
 CUTOVER_RECEIPT_ENV_KEY = "COURT_SHIGUAN_CUTOVER_RECEIPT"
 CUTOVER_RECEIPT_SCHEMA = "court.shiguan_atomic_cutover.result.v1"
 CUTOVER_COMMIT_SCHEMA = "court.shiguan_atomic_cutover.commit.v1"
+TOPOLOGY_RECEIPT_SCHEMA = "court.shiguan_physical_topology.v1"
+TOPOLOGY_COMMIT_SCHEMA = "court.shiguan_physical_topology.commit.v1"
 LOCAL_AUTHORITY_REALM_SCHEMA = "court.shiguan.local_authority_realm.v1"
 LOCAL_AUTHORITY_REQUIRED_PRODUCTION_GATES = (
     "PENDING_COUNT_ZERO",
@@ -79,6 +81,28 @@ def code_root() -> Path:
     return Path(__file__).parents[1]
 
 
+RUNTIME_MARKER_PATHS = (
+    Path("scripts") / "court_cli.py",
+    Path("scripts") / "shiguan_service_daemon.py",
+    Path("scripts") / "shiguan_autosync_daemon.py",
+    Path("scripts") / "serve_shiguan_tree.py",
+)
+
+
+def runtime_code_root(home: Path | None = None) -> Path:
+    """Return the stable canonical installed runtime when it is complete."""
+
+    canonical = (
+        (home or Path.home()).expanduser()
+        / ".agents"
+        / "skills"
+        / "decretum-matrix"
+    )
+    if all((canonical / relative).is_file() for relative in RUNTIME_MARKER_PATHS):
+        return canonical
+    return code_root()
+
+
 def resolved_code_root() -> Path:
     return code_root().resolve()
 
@@ -96,9 +120,13 @@ def is_claude_code_context(root_texts: tuple[str, ...]) -> bool:
 
 def default_shared_root(home: Path | None = None) -> Path:
     user_home = (home or Path.home()).expanduser()
-    return (
-        user_home / ".agents" / "court-shiguan" / "decretum-matrix"
-    ).resolve()
+    # Keep the canonical locator lexical.  Resolving here would silently follow a
+    # symlink/junction and could make a non-physical canonical path look valid.
+    return Path(
+        os.path.abspath(
+            str(user_home / ".agents" / "court-shiguan" / "decretum-matrix")
+        )
+    )
 
 
 def default_previous_shared_root(home: Path | None = None) -> Path:
@@ -138,7 +166,7 @@ def default_migration_source_root(
     for root, kind in present:
         if kind == "junction":
             alias_target = _resolved_junction_target(root / "references")
-            if alias_target is None or not _same_lexical_path(alias_target, expected):
+            if alias_target is None or not _same_physical_path(alias_target, expected):
                 raise RuntimeError("transitional_shiguan_multiple_legacy_roots")
     return selected
 
@@ -147,6 +175,13 @@ def _same_lexical_path(left: Path, right: Path) -> bool:
     return os.path.normcase(os.path.abspath(str(left))) == os.path.normcase(
         os.path.abspath(str(right))
     )
+
+
+def _same_physical_path(left: Path, right: Path) -> bool:
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return _same_lexical_path(left, right)
 
 
 def _path_kind(path: Path) -> str:
@@ -616,11 +651,11 @@ def _verified_cutover_receipt(
         and live_state.get("is_symlink") is False
         and live_state.get("is_reparse") is True
         and live_state.get("target_references_kind") == "directory"
-        and _same_lexical_path(
+        and _same_physical_path(
             Path(str(live_state.get("junction_target", ""))),
             expected_target,
         )
-        and _same_lexical_path(
+        and _same_physical_path(
             Path(str(live_state.get("canonical_target", ""))),
             expected_target,
         )
@@ -671,6 +706,162 @@ def _load_cutover_commit_marker(
         return json.loads(marker_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return None
+
+
+def _topology_control_root(target_root: Path) -> Path:
+    return target_root / "private-runtime" / "shiguan-migration"
+
+
+def _load_topology_receipt(target_root: Path) -> object:
+    try:
+        return json.loads(
+            (_topology_control_root(target_root) / "shiguan-topology-receipt.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _load_topology_commit(target_root: Path) -> object:
+    try:
+        return json.loads(
+            (_topology_control_root(target_root) / "shiguan-topology-commit.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _verified_physical_topology_receipt(
+    receipt: object,
+    marker: object,
+    *,
+    legacy_root: Path,
+    target_root: Path,
+) -> bool:
+    if not isinstance(receipt, dict) or not isinstance(marker, dict):
+        return False
+    legacy_references = legacy_root / "references"
+    target_references = target_root / "references"
+    digest = _cutover_receipt_sha256(receipt)
+    identity = receipt.get("canonical_identity")
+    postimage = receipt.get("postimage")
+    legacy_entries = receipt.get("legacy_references")
+    compatibility_targets = receipt.get("compatibility_junction_targets")
+    expected_legacy_entries = [
+        target_root.with_name("court-capability-router") / "references",
+        default_legacy_shared_root() / "references",
+    ]
+    unmatched_expected = list(expected_legacy_entries)
+    legacy_scope_verified = bool(
+        _same_lexical_path(target_root, default_shared_root())
+        and isinstance(legacy_entries, list)
+        and len(legacy_entries) == len(expected_legacy_entries)
+    )
+    if legacy_scope_verified:
+        for value in legacy_entries:
+            if not isinstance(value, str):
+                legacy_scope_verified = False
+                break
+            matches = [
+                index
+                for index, candidate in enumerate(unmatched_expected)
+                if _same_lexical_path(Path(value), candidate)
+            ]
+            if len(matches) != 1:
+                legacy_scope_verified = False
+                break
+            unmatched_expected.pop(matches[0])
+        legacy_scope_verified = legacy_scope_verified and not unmatched_expected
+    try:
+        live_identity = {
+            "device": int(target_references.stat().st_dev),
+            "inode": int(target_references.stat().st_ino),
+        }
+    except OSError:
+        return False
+    junction_target = _resolved_junction_target(legacy_references)
+    all_legacy_verified = bool(
+        isinstance(legacy_entries, list)
+        and legacy_entries
+        and legacy_scope_verified
+        and isinstance(postimage, dict)
+        and isinstance(compatibility_targets, dict)
+    )
+    if all_legacy_verified:
+        for value in legacy_entries:
+            if not isinstance(value, str) or not value:
+                all_legacy_verified = False
+                break
+            path = Path(value)
+            target = _resolved_junction_target(path)
+            if (
+                _path_kind(path) != "junction"
+                or target is None
+                or not _same_physical_path(target, target_references)
+                or postimage.get(str(path)) != "junction"
+                or not _same_physical_path(
+                    Path(str(compatibility_targets.get(str(path), ""))),
+                    target_references,
+                )
+            ):
+                all_legacy_verified = False
+                break
+    expected_receipt_path = (
+        _topology_control_root(target_root) / "shiguan-topology-receipt.json"
+    )
+    return bool(
+        receipt.get("schema") == TOPOLOGY_RECEIPT_SCHEMA
+        and receipt.get("status") == "PHYSICAL_TOPOLOGY_VERIFIED"
+        and receipt.get("ok") is True
+        and receipt.get("physical_authority_required") is True
+        and receipt.get("canonical_locator_kind") == "physical_directory"
+        and receipt.get("compatibility_locator_kind") == "junction_not_symlink"
+        and receipt.get("pending_body_access") == "NO"
+        and receipt.get("body_content_reads") == 0
+        and receipt.get("body_hashes") == 0
+        and receipt.get("rollback_supported") is True
+        and receipt.get("action")
+        in {
+            "REUSE_PHYSICAL_CANONICAL",
+            "ATOMIC_RENAME_LEGACY_TO_CANONICAL",
+            "CREATE_PHYSICAL_CANONICAL",
+        }
+        and _aware_timestamp(receipt.get("committed_at")) is not None
+        and _same_lexical_path(
+            Path(str(receipt.get("canonical_references", ""))),
+            target_references,
+        )
+        and isinstance(postimage, dict)
+        and all_legacy_verified
+        and any(
+            isinstance(value, str)
+            and _same_lexical_path(Path(value), legacy_references)
+            for value in legacy_entries
+        )
+        and postimage.get(str(target_references)) == "directory"
+        and postimage.get(str(legacy_references)) == "junction"
+        and identity == live_identity
+        and _path_kind(target_references) == "directory"
+        and _path_kind(legacy_references) == "junction"
+        and junction_target is not None
+        and _same_physical_path(junction_target, target_references)
+        and marker.get("schema") == TOPOLOGY_COMMIT_SCHEMA
+        and marker.get("state") == "COMMITTED"
+        and marker.get("receipt_sha256") == digest
+        and _valid_sha256(digest)
+        and marker.get("committed_at") == receipt.get("committed_at")
+        and _same_lexical_path(
+            Path(str(marker.get("canonical_references", ""))),
+            target_references,
+        )
+        and _same_lexical_path(
+            Path(str(marker.get("receipt_path", ""))),
+            expected_receipt_path,
+        )
+    )
 
 
 def _metadata_inventory_snapshot(
@@ -847,7 +1038,7 @@ def _probe_live_cutover_state(
     junction_target = _resolved_junction_target(legacy_references)
     if (
         junction_target is None
-        or not _same_lexical_path(junction_target, target_references)
+        or not _same_physical_path(junction_target, target_references)
     ):
         return None
     identity_provider = identity_probe or _windows_directory_identity
@@ -933,6 +1124,15 @@ def _active_shared_root(
     if legacy_kind in {"unknown", "other"}:
         raise RuntimeError("transitional_shiguan_legacy_root_untrusted")
     if legacy_kind == "junction":
+        topology_receipt = _load_topology_receipt(target_root)
+        topology_commit = _load_topology_commit(target_root)
+        if _verified_physical_topology_receipt(
+            topology_receipt,
+            topology_commit,
+            legacy_root=legacy_root,
+            target_root=target_root,
+        ):
+            return target_root
         receipt = _load_cutover_receipt(target_root, legacy_root)
         live_state = _probe_live_cutover_state(
             legacy_root,
@@ -1018,25 +1218,22 @@ def _create_text_exclusive(path: Path, text: str) -> bool:
     return True
 
 
-def ensure_shared_seed() -> Path:
-    """Explicitly initialize shared seed files without registering agent presence."""
+def shared_seed_layout(refs: Path | None = None) -> dict[str, tuple[Path, ...]]:
+    """Return the finite metadata-only seed surface for transactional callers."""
 
-    # Imported lazily so court_file_lock can expose shiguan_write_lock_path()
-    # without creating a module-import cycle back into this file.
-    from court_file_lock import atomic_write_text, file_lock
-
-    refs = references_root()
-    tree = refs / "shiguan-tree"
-    for directory in (
-        refs,
-        refs / "plan-archives",
-        refs / "memory-decisions",
-        refs / "court-runtime",
-        refs / "agente-logs",
-        refs / "shiguan-imports" / "pending",
-        refs / "shiguan-imports" / "processed",
-        refs / "shiguan-peers",
-        refs / "obsidian-sync",
+    root = refs or references_root()
+    tree = root / "shiguan-tree"
+    directories = (
+        root,
+        root / "plan-archives",
+        root / "memory-decisions",
+        root / "court-runtime",
+        root / "agente-logs",
+        root / "shiguan-imports",
+        root / "shiguan-imports" / "pending",
+        root / "shiguan-imports" / "processed",
+        root / "shiguan-peers",
+        root / "obsidian-sync",
         tree,
         tree / "capability-index",
         tree / "branches",
@@ -1046,11 +1243,51 @@ def ensure_shared_seed() -> Path:
         tree / "sources",
         tree / "sources" / "plan-archives",
         tree / "sources" / "memory-decisions",
+        tree / "sources" / "shiguan-tree",
         tree / "sources" / "shiguan-tree" / "manual",
         tree / ".obsidian",
         tree / "Obsidian 回传",
-        refs / "court-runtime" / "agente-presence",
-    ):
+        root / "court-runtime" / "agente-presence",
+    )
+    files = (
+        root / "README.md",
+        root / "plan-archives" / "README.md",
+        root / "memory-decisions" / "README.md",
+        tree / "README.md",
+        tree / "capability-index" / "README.md",
+        tree / "capability-index" / "_index.md",
+        tree / "branches" / "README.md",
+        tree / "leaves" / "README.md",
+        tree / "manual" / "README.md",
+        tree / "meta" / "schema.md",
+        tree / "sources" / "README.md",
+        tree / "sources" / "plan-archives" / "README.md",
+        tree / "sources" / "memory-decisions" / "README.md",
+        tree / "Obsidian 回传" / "README.md",
+        root / "obsidian-sync" / "README.md",
+        root / "shiguan-index.jsonl",
+        root / "shiguan-knowledge-graph.json",
+        root / "obsidian-sync" / "config.json",
+        root / "court-runtime" / "shiguan-write.lock",
+    )
+    return {
+        "directories": directories,
+        "files": files,
+        "mutable_control_files": (root / "obsidian-sync" / "config.json",),
+    }
+
+
+def ensure_shared_seed() -> Path:
+    """Explicitly initialize shared seed files without registering agent presence."""
+
+    # Imported lazily so court_file_lock can expose shiguan_write_lock_path()
+    # without creating a module-import cycle back into this file.
+    from court_file_lock import atomic_write_text, file_lock
+
+    refs = references_root()
+    tree = refs / "shiguan-tree"
+    layout = shared_seed_layout(refs)
+    for directory in layout["directories"]:
         directory.mkdir(parents=True, exist_ok=True)
 
     write_lock = refs / "court-runtime" / "shiguan-write.lock"

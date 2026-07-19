@@ -27,6 +27,7 @@ from shiguan_paths import (
     ensure_shared_seed,
     reference_path,
     references_root,
+    runtime_code_root,
 )
 
 
@@ -109,6 +110,7 @@ def ensure_cache_vault_files(cache_vault: Path) -> None:
 def build_sync_config(shared_vault: Path, current: object) -> dict[str, object]:
     config = dict(current) if isinstance(current, dict) else {}
     api_key = str(config.get("api_key") or "")
+    runtime_scripts = runtime_code_root() / "scripts"
     config.update(
         {
             "sync_mode": "filesystem_preserve_only",
@@ -124,13 +126,13 @@ def build_sync_config(shared_vault: Path, current: object) -> dict[str, object]:
                 str(config.get("cache_vault_path") or config.get("vault_path") or default_obsidian_cache_vault()),
                 str(default_obsidian_inbox()),
             ],
-            "autosync_script": str(Path(__file__).with_name("shiguan_autosync_daemon.py")),
-            "filesystem_sync_script": str(Path(__file__).with_name("sync_shiguan_obsidian_vault.py")),
-            "service_daemon_script": str(Path(__file__).with_name("shiguan_service_daemon.py")),
-            "service_ensure_script": str(Path(__file__).with_name("ensure_shiguan_service_daemon.py")),
+            "autosync_script": str(runtime_scripts / "shiguan_autosync_daemon.py"),
+            "filesystem_sync_script": str(runtime_scripts / "sync_shiguan_obsidian_vault.py"),
+            "service_daemon_script": str(runtime_scripts / "shiguan_service_daemon.py"),
+            "service_ensure_script": str(runtime_scripts / "ensure_shiguan_service_daemon.py"),
             "shared_shiguan_root": str(references_root()),
             "api_key": api_key,
-            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
     )
     return config

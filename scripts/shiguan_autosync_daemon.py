@@ -39,7 +39,7 @@ MAX_CYCLE_FRESH_SECONDS = 1260
 
 
 def now_text() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def read_json(path: Path, default: object) -> object:
@@ -255,6 +255,10 @@ def queue_pending_file(path: Path, root: Path, rel: str, sha256: str, reason: st
             "suggested_processor",
         )
     }
+    # The sidecar is the commit marker for the generated pending body.  Its
+    # filename binds that queue object; the original Obsidian name remains in
+    # the body record and source provenance.
+    metadata["filename"] = target.name
     pending_root().mkdir(parents=True, exist_ok=True)
     metadata_path = pending_metadata_path(target)
     if not target.exists():

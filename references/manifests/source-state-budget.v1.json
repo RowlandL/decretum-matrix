@@ -93,7 +93,7 @@
   "hard_limits": {
     "portable_source": {
       "max_files": 283,
-      "max_bytes": 6325000
+      "max_bytes": 6425000
     },
     "source_lines": {
       "scripts/ensure_supercc_court.py": 5700,

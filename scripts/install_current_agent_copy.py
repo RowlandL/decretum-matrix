@@ -637,7 +637,7 @@ def _backup_projection_writes(
     home_root: Path,
     requested_root: Path | None,
 ) -> dict[str, object]:
-    if not operations:
+    if not operations and not transitions:
         return {
             "schema": BACKUP_SCHEMA,
             "status": "NOT_REQUIRED",
@@ -715,9 +715,6 @@ def _backup_projection_writes(
             shutil.rmtree(backup_root)
         raise
 
-    legacy_transition = any(
-        str(item.get("mode")) == "LEGACY_MIGRATION" for item in transitions
-    )
     return {
         "schema": BACKUP_SCHEMA,
         "status": "CREATED",
@@ -726,12 +723,8 @@ def _backup_projection_writes(
         "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         "operation_count": len(entries),
         "replace_count": sum(entry["action"] == "REPLACE" for entry in entries),
-        "rollback_supported": not legacy_transition,
-        "rollback_scope": (
-            "managed_files_only"
-            if not legacy_transition
-            else "automatic_transaction_only_for_legacy_locator"
-        ),
+        "rollback_supported": True,
+        "rollback_scope": "managed_files_and_atomic_legacy_locator_restore",
     }
 
 
@@ -757,11 +750,52 @@ def rollback_install_backup(
             not isinstance(item, dict) for item in transitions
         ):
             raise _InstallContractError("backup_manifest_invalid", "transitions_invalid")
-        if any(item.get("mode") == "LEGACY_MIGRATION" for item in transitions):
-            raise _InstallContractError("legacy_manual_rollback_not_supported")
         entries = manifest.get("entries")
-        if not isinstance(entries, list) or not entries:
+        if not isinstance(entries, list) or (
+            not entries
+            and not any(
+                item.get("mode") == "LEGACY_MIGRATION"
+                for item in transitions
+            )
+        ):
             raise _InstallContractError("backup_manifest_invalid", "entries_invalid")
+
+        legacy_transitions: list[tuple[Path, Path]] = []
+        seen_transition_roots: set[Path] = set()
+        for item in transitions:
+            mode = item.get("mode")
+            if mode not in {"CANONICAL_UPDATE", "LEGACY_MIGRATION"}:
+                raise _InstallContractError(
+                    "backup_manifest_invalid", "transition_mode_invalid"
+                )
+            if mode != "LEGACY_MIGRATION":
+                continue
+            canonical = Path(str(item.get("canonical_root"))).resolve(strict=False)
+            restore = Path(str(item.get("restore_root"))).resolve(strict=False)
+            if (
+                not _within(canonical, home)
+                or not _within(restore, home)
+                or canonical.name != LOCATOR_POLICY_EXPECTED["install_directory_name"]
+                or restore.name != LEGACY_INSTALL_DIRECTORY_NAME
+                or canonical.parent != restore.parent
+                or canonical in seen_transition_roots
+            ):
+                raise _InstallContractError(
+                    "backup_manifest_invalid", "legacy_transition_invalid"
+                )
+            seen_transition_roots.add(canonical)
+            if (
+                canonical.is_symlink()
+                or _is_junction(canonical)
+                or not canonical.is_dir()
+                or restore.exists()
+                or restore.is_symlink()
+                or _is_junction(restore)
+            ):
+                raise _InstallContractError(
+                    "rollback_target_drift", str(canonical)
+                )
+            legacy_transitions.append((canonical, restore))
 
         prepared: list[tuple[Path, bytes | None, bytes]] = []
         for entry in entries:
@@ -804,6 +838,7 @@ def rollback_install_backup(
             prepared.append((destination, previous, current))
 
         restored: list[tuple[Path, bytes]] = []
+        moved: list[tuple[Path, Path]] = []
         try:
             for destination, previous, current in reversed(prepared):
                 if previous is None:
@@ -811,7 +846,13 @@ def rollback_install_backup(
                 else:
                     _atomic_replace_file(destination, previous)
                 restored.append((destination, current))
+            for canonical, restore in legacy_transitions:
+                os.replace(canonical, restore)
+                moved.append((canonical, restore))
         except Exception:
+            for canonical, restore in reversed(moved):
+                if restore.is_dir() and not canonical.exists():
+                    os.replace(restore, canonical)
             for destination, current in reversed(restored):
                 if destination.exists():
                     _atomic_replace_file(destination, current)
@@ -832,6 +873,7 @@ def rollback_install_backup(
         "reason": "managed_projection_restored",
         "backup_root": str(root),
         "restored_count": len(prepared),
+        "legacy_locator_restored_count": len(legacy_transitions),
         "pending_body_accessed": False,
         "real_host_configuration_accessed": False,
     }
@@ -1737,13 +1779,11 @@ def install_current_agent_copy(
             ]
             backup_receipt = {
                 "schema": BACKUP_SCHEMA,
-                "status": "PLANNED" if operations else "NOT_REQUIRED",
+                "status": "PLANNED" if operations or transitions else "NOT_REQUIRED",
                 "operation_count": len(operations),
                 "replace_count": projection_counts["replace"],
-                "rollback_supported": not any(
-                    item.get("mode") == "LEGACY_MIGRATION" for item in transitions
-                ),
-                "rollback_scope": "managed_files_only",
+                "rollback_supported": True,
+                "rollback_scope": "managed_files_and_atomic_legacy_locator_restore",
             }
     except _InstallContractError as exc:
         return _failure(exc.reason, detail=exc.detail)
@@ -1853,4 +1893,8 @@ def install_current_agent_copy(
     return result
 
 
-__all__ = ["install_current_agent_copy", "WindowsJunctionTransactionAdapter"]
+__all__ = [
+    "install_current_agent_copy",
+    "rollback_install_backup",
+    "WindowsJunctionTransactionAdapter",
+]

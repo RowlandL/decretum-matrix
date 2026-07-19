@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 import re
@@ -31,21 +32,28 @@ SIDECAR_FIELDS = {
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
-def valid_sidecar_record(value: object) -> bool:
+def valid_sidecar_record(value: object, expected_filename: str | None = None) -> bool:
     if not isinstance(value, dict) or set(value) != SIDECAR_FIELDS:
         return False
     filename = value.get("filename")
+    imported_at = value.get("imported_at")
+    try:
+        imported_time = datetime.fromisoformat(str(imported_at or ""))
+    except ValueError:
+        imported_time = None
     return bool(
         isinstance(value.get("id"), str)
         and str(value.get("id")).strip()
         and isinstance(filename, str)
         and filename.strip()
         and Path(filename).name == filename
+        and (expected_filename is None or filename == expected_filename)
         and isinstance(value.get("source_type"), str)
         and str(value.get("source_type")).strip()
         and value.get("status") == "pending"
-        and isinstance(value.get("imported_at"), str)
-        and str(value.get("imported_at")).strip()
+        and isinstance(imported_at, str)
+        and imported_time is not None
+        and imported_time.tzinfo is not None
         and type(value.get("char_count")) is int
         and int(value.get("char_count")) >= 0
         and type(value.get("estimated_tokens")) is int
@@ -96,7 +104,7 @@ def load_sidecar(path: Path) -> tuple[dict[str, object] | None, Path | None, str
             value = json.loads(candidate.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None, candidate, "invalid_sidecar"
-        if not valid_sidecar_record(value):
+        if not valid_sidecar_record(value, path.name):
             return None, candidate, "invalid_sidecar"
         return value, candidate, "sidecar"
     return None, None, "unknown"

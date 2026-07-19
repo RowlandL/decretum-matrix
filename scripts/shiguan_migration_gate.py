@@ -1073,20 +1073,29 @@ def _is_sidecar_name(name: str) -> bool:
     return any(lowered.endswith(suffix) for suffix in SIDECAR_SUFFIXES)
 
 
+def _is_plain_metadata_directory(path: Path) -> bool:
+    try:
+        root_stat = path.lstat()
+    except (FileNotFoundError, OSError, ValueError):
+        return False
+    attributes = int(getattr(root_stat, "st_file_attributes", 0) or 0)
+    reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    is_junction = getattr(path, "is_junction", None)
+    try:
+        junction = bool(callable(is_junction) and is_junction())
+    except OSError:
+        return False
+    return bool(
+        stat.S_ISDIR(root_stat.st_mode)
+        and not stat.S_ISLNK(root_stat.st_mode)
+        and not bool(attributes & reparse_flag)
+        and not junction
+    )
+
+
 def _metadata_only_pending_count(pending_root: Path) -> tuple[int | None, str | None]:
     try:
-        root_stat = pending_root.lstat()
-        attributes = int(getattr(root_stat, "st_file_attributes", 0) or 0)
-        reparse_flag = int(
-            getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-        )
-        is_junction = getattr(pending_root, "is_junction", None)
-        if (
-            not stat.S_ISDIR(root_stat.st_mode)
-            or stat.S_ISLNK(root_stat.st_mode)
-            or bool(attributes & reparse_flag)
-            or bool(callable(is_junction) and is_junction())
-        ):
+        if not _is_plain_metadata_directory(pending_root):
             return None, "pending_root_not_plain_directory"
         count = 0
         with os.scandir(pending_root) as entries:
@@ -1111,7 +1120,25 @@ class _ScanOperations:
     def __init__(self, *, source_root: Path, target_root: Path) -> None:
         self.source_root = source_root
         self.target_root = target_root
-        self.pending_root = source_root / "shiguan-imports" / "pending"
+        source_pending = source_root / "shiguan-imports" / "pending"
+        target_pending = target_root / "shiguan-imports" / "pending"
+        try:
+            source_root.lstat()
+            source_absent = False
+        except FileNotFoundError:
+            source_absent = True
+        except (OSError, ValueError):
+            source_absent = False
+        if (
+            source_absent
+            and _is_plain_metadata_directory(target_root)
+            and _is_plain_metadata_directory(target_pending)
+        ):
+            self.pending_root = target_pending
+            self.pending_root_mode = "existing_canonical_target"
+        else:
+            self.pending_root = source_pending
+            self.pending_root_mode = "migration_source"
         self.pending_probe_error: str | None = None
         self.calls: list[str] = []
 
@@ -1191,6 +1218,7 @@ def _scan_command(args: argparse.Namespace) -> int:
             "command": "scan",
             "migration_id": args.migration_id,
             "pending_root": str(operations.pending_root),
+            "pending_root_mode": operations.pending_root_mode,
             "pending_probe_error": operations.pending_probe_error,
             "probe_calls": operations.calls,
             "evidence_gaps": ["unknown_binding", "two_stable_scans_required"],
@@ -1204,7 +1232,7 @@ def _scan_command(args: argparse.Namespace) -> int:
         print(f"allowed: {str(result['allowed']).lower()}")
         print(f"pending_count: {result['pending_count']}")
         print(f"reason_codes: {','.join(result['reason_codes'])}")
-    return 0
+    return 0 if result.get("allowed") is True else 2
 
 
 def _parser() -> argparse.ArgumentParser:

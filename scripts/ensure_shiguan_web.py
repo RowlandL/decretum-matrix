@@ -16,14 +16,18 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-from shiguan_paths import code_root, ensure_shared_seed, references_root as shared_references_root
+from shiguan_paths import (
+    ensure_shared_seed,
+    references_root as shared_references_root,
+    runtime_code_root,
+)
 
 
 DEFAULT_BIND_HOST = "127.0.0.1"
 
 
 def skill_root() -> Path:
-    return code_root()
+    return runtime_code_root()
 
 
 def serve_script() -> Path:

@@ -7,6 +7,7 @@ do not inspect the host pending queue and do not start or stop real daemons.
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,8 @@ import ensure_shiguan_autosync as autosync  # noqa: E402
 import ensure_obsidian_shared_vault as obsidian  # noqa: E402
 import check_shiguan_import_queue as import_queue  # noqa: E402
 import migrate_shared_shiguan as migration  # noqa: E402
+import plan_shiguan_pending_quarantine as quarantine_plan  # noqa: E402
+import shiguan_autosync_daemon as autosync_daemon  # noqa: E402
 import shiguan_paths  # noqa: E402
 
 
@@ -87,7 +90,11 @@ def check_invalid_sidecar_truth() -> dict[str, object]:
         root = Path(raw_temp)
         pending = root / "references" / "shiguan-imports" / "pending"
         pending.mkdir(parents=True)
-        bodies = [pending / "extra-key.json", pending / "oversized.json"]
+        bodies = [
+            pending / "extra-key.json",
+            pending / "oversized.json",
+            pending / "contract-drift.json",
+        ]
         for body in bodies:
             body.write_bytes(b"opaque-pending-body-never-opened")
         (pending / "extra-key.metadata.json").write_text(
@@ -96,6 +103,22 @@ def check_invalid_sidecar_truth() -> dict[str, object]:
         )
         (pending / "oversized.metadata.json").write_bytes(
             b"{" + b" " * import_queue.MAX_SIDECAR_BYTES + b"}"
+        )
+        (pending / "contract-drift.metadata.json").write_text(
+            json.dumps(
+                {
+                    "id": "contract-drift",
+                    "filename": "README.md",
+                    "source_type": "md",
+                    "status": "pending",
+                    "imported_at": "2026-07-19T12:00:00",
+                    "char_count": 10,
+                    "estimated_tokens": 4,
+                    "sha256": "0" * 64,
+                    "suggested_processor": "codex",
+                }
+            ),
+            encoding="utf-8",
         )
         original_read_text = Path.read_text
         original_open = Path.open
@@ -117,11 +140,11 @@ def check_invalid_sidecar_truth() -> dict[str, object]:
         ):
             summary = import_queue.queue_summary(8)
         serialized = json.dumps(summary, ensure_ascii=False)
-        require(summary.get("unknown_metadata_count") == 2, "invalid sidecars were counted as valid metadata")
-        require(summary.get("unknown_estimated_tokens_count") == 2, "missing token metrics were undercounted")
+        require(summary.get("unknown_metadata_count") == 3, "invalid sidecars were counted as valid metadata")
+        require(summary.get("unknown_estimated_tokens_count") == 3, "missing token metrics were undercounted")
         require("must-not-leak" not in serialized, "unknown sidecar field leaked into queue output")
-        require("2 份缺少可用 estimated_tokens" in str(summary.get("startup_message")), "unknown metric message drifted")
-        return {"invalid_sidecars": 2, "pending_body_reads": 0, "unknown_tokens": 2}
+        require("3 份缺少可用 estimated_tokens" in str(summary.get("startup_message")), "unknown metric message drifted")
+        return {"invalid_sidecars": 3, "pending_body_reads": 0, "unknown_tokens": 3}
 
 
 def fresh_status(pid: int, interval: int = 20) -> dict[str, object]:
@@ -287,7 +310,8 @@ def check_install_path_convergence() -> dict[str, object]:
         data_base = fixture / "localappdata"
         canonical = home / ".agents" / "court-shiguan" / "decretum-matrix"
         require(
-            shiguan_paths.default_shared_root(home) == canonical.resolve(),
+            shiguan_paths.default_shared_root(home)
+            == Path(os.path.abspath(str(canonical))),
             "default shared root still uses the legacy product locator",
         )
         require(
@@ -385,12 +409,20 @@ def check_install_path_convergence() -> dict[str, object]:
         cache = parent / "Court Shiguan"
         inbox = source / "Obsidian 回传"
         old_skill = home / ".codex" / "skills" / "court-capability-router"
+        canonical_skill = home / ".agents" / "skills" / "decretum-matrix"
+        canonical_scripts = canonical_skill / "scripts"
+        canonical_scripts.mkdir(parents=True)
+        names = {path.name for path in shiguan_paths.RUNTIME_MARKER_PATHS}
+        names.update(("sync_shiguan_obsidian_vault.py", "ensure_shiguan_service_daemon.py"))
+        for name in names:
+            (canonical_scripts / name).write_text("# fixture\n", encoding="utf-8")
         current = {
             "api_key": "must-" + "not-leak",
             "service_daemon_script": str(old_skill / "scripts" / "shiguan_service_daemon.py"),
             "service_ensure_script": str(old_skill / "scripts" / "ensure_shiguan_service_daemon.py"),
         }
         with (
+            mock.patch.object(obsidian.Path, "home", return_value=home),
             mock.patch.object(obsidian, "default_obsidian_cache_vault", return_value=cache),
             mock.patch.object(obsidian, "default_obsidian_parent_vault", return_value=parent),
             mock.patch.object(obsidian, "default_obsidian_inbox", return_value=inbox),
@@ -399,6 +431,16 @@ def check_install_path_convergence() -> dict[str, object]:
             rebound = obsidian.build_sync_config(source, current)
         for field in ("service_daemon_script", "service_ensure_script"):
             require("court-capability-router" not in str(rebound[field]), f"stale {field}")
+        for field in (
+            "autosync_script",
+            "filesystem_sync_script",
+            "service_daemon_script",
+            "service_ensure_script",
+        ):
+            require(
+                Path(str(rebound[field])).parent == canonical_scripts,
+                f"{field} did not bind the canonical installed runtime root",
+            )
         require(Path(str(rebound["shared_shiguan_root"])) == refs, "shared root was not rebound")
         require([Path(str(item)) for item in rebound["watch_paths"]] == [cache, inbox], "watch roots were not rebound")
         public = obsidian.public_config(rebound)
@@ -424,12 +466,47 @@ def check_install_path_convergence() -> dict[str, object]:
         return {"active_roots": len(expected), "pending_body_reads": 0, "api_key_public": "REDACTED"}
 
 
+def check_autosync_sidecar_contract() -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="court-autosync-sidecar-") as raw_temp:
+        root = Path(raw_temp)
+        source_root = root / "obsidian"
+        source_root.mkdir()
+        source = source_root / "README.md"
+        body = "fixture pending body\n"
+        source.write_text(body, encoding="utf-8")
+        pending = root / "pending"
+        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        with mock.patch.object(autosync_daemon, "pending_root", return_value=pending):
+            queued = autosync_daemon.queue_pending_file(
+                source,
+                source_root,
+                source.name,
+                digest,
+                "fixture",
+            )
+        sidecar_path = Path(str(queued["metadata_sidecar"]))
+        target_path = pending / f"{queued['id']}.json"
+        metadata = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        errors = quarantine_plan.validate_sidecar(metadata, target_path.name)
+        require(not errors, f"autosync sidecar is not governance-valid: {errors}")
+        require(metadata.get("filename") == target_path.name, "sidecar filename is not the pending body filename")
+        imported_at = datetime.fromisoformat(str(metadata.get("imported_at") or ""))
+        require(imported_at.tzinfo is not None, "sidecar imported_at is timezone-naive")
+        return {
+            "valid": True,
+            "filename": metadata["filename"],
+            "timezone_aware": True,
+            "pending_body_reads": 0,
+        }
+
+
 def main() -> int:
     result = {
         "seen_ledger": check_seen_ledger_concurrency(),
         "invalid_sidecar_truth": check_invalid_sidecar_truth(),
         "autosync_health": check_autosync_health_truth(),
         "install_path_convergence": check_install_path_convergence(),
+        "autosync_sidecar_contract": check_autosync_sidecar_contract(),
     }
     print(json.dumps({"ok": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

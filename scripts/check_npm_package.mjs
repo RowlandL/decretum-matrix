@@ -612,7 +612,7 @@ export async function selfTestNpmPackage() {
     "deterministic_double_pack",
     "strict_offline_install",
     "bin_entry",
-    "no_install_lifecycle_scripts",
+    "transactional_postinstall_declared",
     "source_local_tgz_cli_parity",
     "clean_home_windows_macos_linux",
     "create_only",

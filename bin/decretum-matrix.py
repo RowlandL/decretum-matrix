@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import runpy
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -34,6 +35,17 @@ FORBIDDEN_PARTS = {
 
 class LauncherError(RuntimeError):
     pass
+
+
+def _write_json_atomic(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.replace(temporary, path)
 
 
 def _sha256(path: Path) -> str:
@@ -146,6 +158,197 @@ def _extract_runtime(archive: Path, cache_root: Path, digest: str) -> Path:
             shutil.rmtree(staging)
 
 
+def _postinstall_home() -> Path:
+    value = (
+        os.environ.get("USERPROFILE")
+        if os.name == "nt"
+        else os.environ.get("HOME")
+    )
+    return Path(value or Path.home()).expanduser().resolve(strict=False)
+
+
+def _run_json_command(arguments: list[str], *, env: dict[str, str]) -> dict[str, object]:
+    try:
+        result = subprocess.run(
+            arguments,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            env=env,
+            timeout=180,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "ok": False,
+            "status": "COMMAND_FAILED",
+            "reason": f"{type(exc).__name__}:{exc}",
+            "returncode": None,
+        }
+    try:
+        payload = json.loads(result.stdout.strip())
+    except json.JSONDecodeError:
+        payload = {
+            "ok": False,
+            "status": "INVALID_RECEIPT",
+            "stdout": result.stdout[-4000:],
+            "stderr": result.stderr[-4000:],
+        }
+    if not isinstance(payload, dict):
+        payload = {"ok": False, "status": "INVALID_RECEIPT"}
+    payload["returncode"] = result.returncode
+    return payload
+
+
+def _run_postinstall(runtime_root: Path, digest: str) -> int:
+    home = _postinstall_home()
+    scripts = runtime_root / "scripts"
+    sys.path.insert(0, str(scripts))
+    try:
+        from install_current_agent_copy import (  # type: ignore[import-not-found]
+            install_current_agent_copy,
+            rollback_install_backup,
+        )
+    except ImportError as exc:
+        raise LauncherError(f"release runtime lacks the install updater: {exc}") from exc
+
+    install = install_current_agent_copy(
+        source_root=runtime_root,
+        home_root=home,
+        current_tool="npm",
+        explicit_tools=[],
+        tool_roots={},
+        projection_manifest=(
+            runtime_root
+            / "references"
+            / "manifests"
+            / "install-projection.v1.json"
+        ),
+        write=True,
+        source_package_sha256=digest,
+    )
+    if install.get("ok") is not True:
+        raise LauncherError(
+            "transactional canonical install failed: "
+            f"{install.get('reason')}:{install.get('detail', '')}"
+        )
+
+    installed_root = home / ".agents" / "skills" / "decretum-matrix"
+    bootstrap = installed_root / "scripts" / "ensure_portable_court_bootstrap.py"
+    if not bootstrap.is_file():
+        raise LauncherError("installed runtime lacks the portable bootstrap")
+    activate = os.environ.get(
+        "DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES", "1"
+    ).strip().casefold() not in {"0", "false", "no", "off"}
+    bootstrap_arguments = [
+        sys.executable,
+        "-B",
+        str(bootstrap),
+        "--apply",
+        "--shared-shiguan-and-obsidian-only",
+        "--format",
+        "json",
+    ]
+    if not activate:
+        bootstrap_arguments.extend(["--skip-obsidian", "--skip-service-daemon"])
+    child_env = dict(os.environ)
+    child_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    child_env["DECRETUM_MATRIX_BOOTSTRAP_INSTALL_CONTEXT"] = "npm"
+    bootstrap_receipt = _run_json_command(bootstrap_arguments, env=child_env)
+
+    receipt_path = (
+        home
+        / ".agents"
+        / "install-receipts"
+        / "decretum-matrix"
+        / f"npm-postinstall-{digest}.json"
+    )
+    combined: dict[str, object] = {
+        "schema": "decretum.npm_postinstall.v1",
+        "ok": bootstrap_receipt.get("ok") is True,
+        "status": (
+            "INSTALLED"
+            if bootstrap_receipt.get("ok") is True
+            else "ROLLBACK_REQUIRED"
+        ),
+        "archive_sha256": digest,
+        "home_root": str(home),
+        "installed_root": str(installed_root),
+        "service_activation_requested": activate,
+        "install": install,
+        "bootstrap": bootstrap_receipt,
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+    }
+    if bootstrap_receipt.get("ok") is not True:
+        rollbacks: dict[str, object] = {}
+        shared_step = (
+            bootstrap_receipt.get("steps", {}).get("shared_shiguan")
+            if isinstance(bootstrap_receipt.get("steps"), dict)
+            else None
+        )
+        topology = (
+            shared_step.get("topology")
+            if isinstance(shared_step, dict)
+            else None
+        )
+        shared_backup = (
+            topology.get("backup_root") if isinstance(topology, dict) else None
+        )
+        if (
+            isinstance(shared_step, dict)
+            and shared_step.get("status") == "ROLLED_BACK"
+        ) or (
+            isinstance(topology, dict)
+            and topology.get("status") == "ROLLED_BACK"
+        ):
+            rollbacks["shared"] = {
+                "ok": True,
+                "status": "ALREADY_ROLLED_BACK",
+                "pending_body_access": "NO",
+            }
+        elif isinstance(shared_backup, str) and shared_backup:
+            rollbacks["shared"] = _run_json_command(
+                [
+                    sys.executable,
+                    "-B",
+                    str(bootstrap),
+                    "--rollback-shared-transaction",
+                    shared_backup,
+                    "--format",
+                    "json",
+                ],
+                env=child_env,
+            )
+        backup = install.get("backup")
+        backup_root = (
+            backup.get("backup_root") if isinstance(backup, dict) else None
+        )
+        if isinstance(backup_root, str) and backup_root:
+            rollbacks["install"] = rollback_install_backup(
+                home_root=home,
+                backup_root=Path(backup_root),
+            )
+        combined["rollbacks"] = rollbacks
+        combined["status"] = (
+            "ROLLED_BACK"
+            if rollbacks
+            and all(
+                isinstance(value, dict) and value.get("ok") is True
+                for value in rollbacks.values()
+            )
+            else "BLOCKED_MANUAL_RECOVERY"
+        )
+        _write_json_atomic(receipt_path, combined)
+        raise LauncherError(
+            f"postinstall bootstrap failed; receipt: {receipt_path}"
+        )
+    _write_json_atomic(receipt_path, combined)
+    print(json.dumps(combined, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     package_root = Path(__file__).resolve().parents[1]
     archive, digest = _release_archive(package_root)
@@ -154,9 +357,12 @@ def main(argv: list[str] | None = None) -> int:
         or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
     ).resolve(strict=False)
     runtime_root = _extract_runtime(archive, cache_base / digest, digest)
+    effective_argv = sys.argv[1:] if argv is None else argv
+    if effective_argv == ["--npm-postinstall"]:
+        return _run_postinstall(runtime_root, digest)
     cli = runtime_root / "scripts" / "court_cli.py"
     sys.path.insert(0, str(cli.parent))
-    sys.argv = [str(cli), *(sys.argv[1:] if argv is None else argv)]
+    sys.argv = [str(cli), *effective_argv]
     runpy.run_path(str(cli), run_name="__main__")
     return 0
 

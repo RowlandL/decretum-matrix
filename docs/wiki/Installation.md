@@ -9,7 +9,20 @@ npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 GitHub Packages 如要求认证，只授予 `read:packages`。使用进程级
 `NODE_AUTH_TOKEN` 与临时 npmrc，不要把 token 写入仓库、命令历史或长期配置。
 
-安装包不运行隐式 `postinstall`。统一入口与源码入口产生同一类结构化回执：
+安装包运行受限且可回滚的 `postinstall`：先校验内嵌 ZIP/sidecar，再备份并覆盖
+manifest 管理的公开文件，把 canonical runtime 安装到
+`%USERPROFILE%\.agents\skills\decretum-matrix`；随后创建真实物理共享史馆根，或把
+旧物理目录以同卷原子改名迁移到新路径。canonical 根不得是 symlink/junction；旧
+locator 只在迁移完成后创建 Windows junction 兼容定位，不以链接代替数据迁移。
+全过程不读取、哈希、移动或删除 private/pending 正文。
+
+空白机须已有 Python 3。默认安装同时登记 Obsidian shared vault 与史馆 daemon
+任务，但 npm 安装阶段不强制启动前台/后台 daemon。安装回执写入
+`%USERPROFILE%\.agents\install-receipts\decretum-matrix\`，覆盖备份写入
+`%USERPROFILE%\.agents\install-backups\decretum-matrix\`。若显式使用 npm
+`--ignore-scripts`，上述宿主安装不会执行，需再通过统一入口运行安装请求。
+
+统一入口与源码入口仍产生同一类结构化回执：
 
 ```powershell
 decretum-matrix --format json --help

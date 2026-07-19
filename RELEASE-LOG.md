@@ -24,9 +24,13 @@ payload manifest、artifact 与 npm candidate 身份已对齐 beta0.5.13；本�
    失败自动回滚，成功回执提供 `backup_root` 和显式 rollback。史馆实录、索引、
    evidence/data 与 private/pending 正文不读取、不扫描、不哈希且不进入覆盖集；
    目标独有文件保持原样。五根 projection 同步更新 `VERSION`、identity manifest 与
-   当前 `release-manifest.json`，禁止保留旧 release identity。
-6. npm 包增加无 lifecycle side effect 的 `decretum-matrix` bin；Windows、macOS、
-   Linux clean-home 的 source/local-tgz help receipt 完全一致。
+   当前 `release-manifest.json`，禁止保留旧 release identity；旧 skill 物理目录即使
+   文件内容已经一致，也必须先留 backup/receipt，再支持显式原子回滚。
+6. npm 包增加受限 transactional `postinstall`：校验内嵌 ZIP 后一次安装 canonical
+   `.agents` runtime，创建真实物理史馆根，或把旧物理根同卷原子改名到新路径；
+   canonical symlink/junction、双物理根与 hash/identity 漂移全部 fail closed。旧
+   locator 只在物理迁移完成后建立精确 junction，不以链接代替资料迁移。Windows、
+   macOS、Linux clean-home 的 source/local-tgz help receipt 仍完全一致。
 7. final source audit 的 40 个 source steps 全部通过；temporary Git index 只交给
    需要 tracked 视图的步骤，并按步骤复制隔离，fixture 不得污染权威 index。
 
@@ -36,6 +40,9 @@ payload manifest、artifact 与 npm candidate 身份已对齐 beta0.5.13；本�
 - `OFFICE_PACK_Q1_Q8` 保持 deferred 到 `QUEUED_POST_A02_HANDOFF`。
 - beta0.5.12 发布工件与回执保持不可变，不重建、不重发。
 - beta0.5.13 candidate、安装、tag、push、Release、npm 与 handoff 由后续实际回执证明。
+- 默认 npm 安装保留精确命令
+  `npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com`；
+  Python 3 为运行前置，`--ignore-scripts` 会显式跳过宿主安装且不得冒充完成。
 
 ## beta0.5.12 - 2026-07-18
 

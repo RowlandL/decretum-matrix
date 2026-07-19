@@ -10,6 +10,9 @@
   deterministic cold/warm performance gates.
 - Added managed-file install backups plus explicit rollback for direct atomic
   overwrite updates.
+- Added a bounded npm `postinstall` that verifies the embedded release ZIP,
+  installs the canonical `.agents` runtime, creates or atomically migrates the
+  physical Shiguan root, and emits durable rollback receipts.
 
 ### Changed
 
@@ -27,6 +30,11 @@
   reads and writes while retaining managed-file backup and rollback coverage.
 - Added the current `release-manifest.json` to every managed skill projection so
   installed VERSION, identity, payload index, and release identity converge.
+- Made successful legacy skill-directory migrations explicitly rollbackable,
+  including the zero-file-delta case, and reject canonical Shiguan links or
+  dual physical roots before mutation.
+- Bound autosync sidecars to the generated pending filename and timezone-aware
+  import timestamp without reading pending bodies.
 - Restored discovery of public legacy court commands in unified top-level help.
 - Corrected remaining current-product naming, canonical package-root, bytecode,
   fixture-index, and release-builder contract drift.

@@ -3,14 +3,16 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from copy import deepcopy
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import subprocess
 import sys
 import tempfile
 from typing import Any, Callable
@@ -1622,7 +1624,7 @@ def _check_tx_cases(
         else "canonical_existing_root_updates_through_staged_transaction"
     )
     fixture = _tx_fixture(temp_root, name, legacy)
-    source, _, _, _, targets, old, _, sentinel, marker = fixture
+    source, home, _, _, targets, old, _, sentinel, marker = fixture
     adapter = _MigrationFailureAdapter()
     result = _require_success(
         install,
@@ -1680,6 +1682,93 @@ def _check_tx_cases(
             errors.append(f"{name}:{failure}")
         else:
             passed += 1
+            if legacy:
+                backup = result.get("backup")
+                backup_root = (
+                    Path(str(backup.get("backup_root")))
+                    if isinstance(backup, dict) and backup.get("backup_root")
+                    else None
+                )
+                rollback = (
+                    install.__globals__["rollback_install_backup"](
+                        home_root=home,
+                        backup_root=backup_root,
+                    )
+                    if backup_root is not None
+                    else None
+                )
+                rollback_checks = (
+                    isinstance(backup, dict)
+                    and backup.get("rollback_supported") is True,
+                    isinstance(rollback, dict)
+                    and rollback.get("ok") is True
+                    and rollback.get("legacy_locator_restored_count") == 2,
+                    not any(root.exists() or root.is_symlink() for root in targets),
+                    all(root.is_dir() and not root.is_symlink() for root in old),
+                    all(
+                        (root / "VERSION").read_text(encoding="utf-8")
+                        == "beta0.5.10\n"
+                        and (root / sentinel).read_text(encoding="utf-8")
+                        == f"{marker}-{index}\n"
+                        for index, root in enumerate(old)
+                    ),
+                )
+                if not all(rollback_checks):
+                    errors.append(
+                        f"{name}:explicit_legacy_rollback_failed:{rollback}"
+                    )
+                else:
+                    passed += 1
+
+    if legacy:
+        exact_name = "exact_version_legacy_locator_still_backs_up_and_rolls_back"
+        exact_fixture = _tx_fixture(temp_root, exact_name, True)
+        exact_source, exact_home, _, _, exact_targets, exact_old = exact_fixture[:6]
+        for root in exact_old:
+            for relative in PORTABLE_FILES:
+                source_path = exact_source / Path(relative)
+                target_path = root / Path(relative)
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, target_path)
+        exact_result = _require_success(
+            install,
+            name=exact_name,
+            expected_targets=exact_targets,
+            errors=errors,
+            **_tx_kwargs(exact_fixture, _MigrationFailureAdapter()),
+        )
+        exact_backup = exact_result.get("backup") if exact_result else None
+        exact_backup_root = (
+            Path(str(exact_backup.get("backup_root")))
+            if isinstance(exact_backup, dict) and exact_backup.get("backup_root")
+            else None
+        )
+        exact_rollback = (
+            install.__globals__["rollback_install_backup"](
+                home_root=exact_home,
+                backup_root=exact_backup_root,
+            )
+            if exact_backup_root is not None
+            else None
+        )
+        if (
+            not isinstance(exact_result, dict)
+            or exact_result.get("projection_counts", {}).get("create") != 0
+            or exact_result.get("projection_counts", {}).get("replace") != 0
+            or not isinstance(exact_backup, dict)
+            or exact_backup.get("status") != "CREATED"
+            or exact_backup.get("operation_count") != 0
+            or not isinstance(exact_rollback, dict)
+            or exact_rollback.get("ok") is not True
+            or exact_rollback.get("legacy_locator_restored_count") != 2
+            or any(root.exists() or root.is_symlink() for root in exact_targets)
+            or not all(root.is_dir() for root in exact_old)
+        ):
+            errors.append(
+                f"{exact_name}:contract_failed:{exact_result}:{exact_rollback}"
+            )
+        else:
+            passed += 1
 
     for step in (
         "source_root_backed_up",
@@ -1716,6 +1805,175 @@ def _check_tx_cases(
             else:
                 passed += 1
     return passed
+
+
+def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
+    name = "npm_blank_host_postinstall_installs_physical_authority"
+    launcher_path = ROOT / "bin" / "decretum-matrix.py"
+    spec = importlib.util.spec_from_file_location(
+        "decretum_matrix_npm_postinstall_fixture", launcher_path
+    )
+    if spec is None or spec.loader is None:
+        errors.append(f"{name}:launcher_spec_unavailable")
+        return 0
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        errors.append(f"{name}:launcher_import_failed:{type(exc).__name__}:{exc}")
+        return 0
+    run = getattr(module, "_run_postinstall", None)
+    if not callable(run):
+        errors.append(f"{name}:postinstall_callable_missing")
+        return 0
+
+    home = temp_root / name / "home"
+    local = home / "AppData" / "Local"
+    roaming = home / "AppData" / "Roaming"
+    for path in (home, local, roaming):
+        path.mkdir(parents=True, exist_ok=True)
+    keys = (
+        "APPDATA",
+        "DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES",
+        "HOME",
+        "LOCALAPPDATA",
+        "PYTHONDONTWRITEBYTECODE",
+        "USERPROFILE",
+    )
+    saved = {key: os.environ.get(key) for key in keys}
+    try:
+        os.environ.update(
+            {
+                "APPDATA": str(roaming),
+                "DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES": "0",
+                "HOME": str(home),
+                "LOCALAPPDATA": str(local),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "USERPROFILE": str(home),
+            }
+        )
+        digest = hashlib.sha256(b"npm-postinstall-fixture").hexdigest()
+        with redirect_stdout(io.StringIO()):
+            returncode = run(ROOT, digest)
+    except Exception as exc:
+        receipts = list(
+            (
+                home
+                / ".agents"
+                / "install-receipts"
+                / "decretum-matrix"
+            ).glob("npm-postinstall-*.json")
+        )
+        detail = ""
+        if len(receipts) == 1:
+            try:
+                failed_receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+                detail = json.dumps(
+                    failed_receipt.get("bootstrap"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            except (OSError, json.JSONDecodeError):
+                detail = receipts[0].read_text(encoding="utf-8")[-6000:]
+        errors.append(
+            f"{name}:execution_failed:{type(exc).__name__}:{exc}:{detail}"
+        )
+        return 0
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    canonical = home / ".agents" / "skills" / "decretum-matrix"
+    references = home / ".agents" / "court-shiguan" / "decretum-matrix" / "references"
+    previous = home / ".agents" / "court-shiguan" / "court-capability-router" / "references"
+    local_legacy = local / "court-shiguan" / "court-capability-router" / "references"
+    receipt = (
+        home
+        / ".agents"
+        / "install-receipts"
+        / "decretum-matrix"
+        / f"npm-postinstall-{digest}.json"
+    )
+    try:
+        receipt_value = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"{name}:receipt_invalid:{type(exc).__name__}:{exc}")
+        return 0
+    junction_probe = getattr(Path, "is_junction", None)
+    junctions_ok = (
+        callable(junction_probe)
+        and previous.is_junction()
+        and local_legacy.is_junction()
+        and previous.resolve(strict=True) == references.resolve(strict=True)
+        and local_legacy.resolve(strict=True) == references.resolve(strict=True)
+    ) if os.name == "nt" else (not previous.exists() and not local_legacy.exists())
+    checks = (
+        returncode == 0,
+        canonical.is_dir() and not canonical.is_symlink(),
+        references.is_dir() and not references.is_symlink(),
+        junctions_ok,
+        receipt_value.get("ok") is True,
+        receipt_value.get("pending_body_access") == "NO",
+        receipt_value.get("body_content_reads") == 0,
+        receipt_value.get("body_hashes") == 0,
+        receipt_value.get("service_activation_requested") is False,
+    )
+    if not all(checks):
+        errors.append(f"{name}:contract_failed:{receipt_value}")
+        return 0
+    bootstrap = receipt_value.get("bootstrap")
+    steps = bootstrap.get("steps") if isinstance(bootstrap, dict) else None
+    shared = steps.get("shared_shiguan") if isinstance(steps, dict) else None
+    topology = shared.get("topology") if isinstance(shared, dict) else None
+    backup_root = topology.get("backup_root") if isinstance(topology, dict) else None
+    rollback_env = dict(os.environ)
+    rollback_env.update(
+        {
+            "APPDATA": str(roaming),
+            "HOME": str(home),
+            "LOCALAPPDATA": str(local),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "USERPROFILE": str(home),
+        }
+    )
+    rollback = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(canonical / "scripts" / "ensure_portable_court_bootstrap.py"),
+            "--rollback-shared-transaction",
+            str(backup_root),
+            "--format",
+            "json",
+        ],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        env=rollback_env,
+        timeout=120,
+    )
+    try:
+        rollback_receipt = json.loads(rollback.stdout)
+    except json.JSONDecodeError:
+        rollback_receipt = None
+    if (
+        rollback.returncode != 0
+        or not isinstance(rollback_receipt, dict)
+        or rollback_receipt.get("ok") is not True
+        or rollback_receipt.get("mode") != "apply"
+        or references.exists()
+        or previous.exists()
+        or local_legacy.exists()
+    ):
+        errors.append(
+            f"{name}:explicit_shared_rollback_failed:{rollback.stdout}:{rollback.stderr}"
+        )
+        return 0
+    return 1
 
 
 def _check_cases(
@@ -2001,6 +2259,7 @@ def _check_cases(
 
     passed += _check_tx_cases(install, temp_root, errors, legacy=True)
     passed += _check_tx_cases(install, temp_root, errors, legacy=False)
+    passed += _check_npm_postinstall_fixture(temp_root, errors)
     failure = _case_hermes_alias_commit_failure_restores_legacy_junction(
         install, temp_root
     )
@@ -2862,7 +3121,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 28,
+        "declared_cases": 31,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

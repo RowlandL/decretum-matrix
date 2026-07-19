@@ -13,11 +13,12 @@ non-zero or unknown pending count must return before any other probe or action.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_PATH = ROOT / "scripts" / "shiguan_migration_gate.py"
 CUTOVER_PATH = ROOT / "scripts" / "migrate_shared_shiguan.py"
 PATHS_PATH = ROOT / "scripts" / "shiguan_paths.py"
+BOOTSTRAP_PATH = ROOT / "scripts" / "ensure_portable_court_bootstrap.py"
 SHIGUAN_MEMORY_PATH = ROOT / "references" / "court-shiguan-memory.md"
 RESULT_SCHEMA = "court.shiguan_migration_gate.result.v1"
 PENDING_BLOCK = "MIGRATION_BLOCKED_PENDING_BODIES"
@@ -2009,9 +2011,11 @@ def _check_default_shared_root(
         errors.append("missing_callable:default_shared_root")
         return 0
     home = temp_root / "home"
-    expected = (
-        home / ".agents" / "court-shiguan" / "decretum-matrix"
-    ).resolve()
+    expected = Path(
+        os.path.abspath(
+            str(home / ".agents" / "court-shiguan" / "decretum-matrix")
+        )
+    )
     try:
         actual = target(home)
     except Exception as exc:
@@ -4747,6 +4751,377 @@ def _check_rc6_phase1_fixture_only_case(
     return {case_id: len(errors) == before}
 
 
+def _check_existing_canonical_pending_probe_case(
+    gate_module: object,
+    temp_root: Path,
+    errors: list[str],
+) -> dict[str, bool]:
+    """A missing legacy locator must not hide the live canonical pending count."""
+
+    case_id = "P2-EXISTING-CANONICAL-PENDING-029"
+    before = len(errors)
+    source_root = (
+        temp_root
+        / "localappdata"
+        / "court-shiguan"
+        / "court-capability-router"
+        / "references"
+    )
+    target_root = (
+        temp_root
+        / "user"
+        / ".agents"
+        / "court-shiguan"
+        / "decretum-matrix"
+        / "references"
+    )
+    pending_root = target_root / "shiguan-imports" / "pending"
+    pending_root.mkdir(parents=True)
+    (pending_root / "one.json").write_text("fixture-one\n", encoding="utf-8")
+    (pending_root / "two.json").write_text("fixture-two\n", encoding="utf-8")
+    (pending_root / "two.json.metadata.json").write_text("{}\n", encoding="utf-8")
+
+    operations_type = getattr(gate_module, "_ScanOperations", None)
+    target = getattr(gate_module, "evaluate_migration_gate", None)
+    if not callable(operations_type) or not callable(target):
+        errors.append(f"{case_id}:missing_scan_adapter")
+        return {case_id: False}
+    operations = operations_type(source_root=source_root, target_root=target_root)
+    result = target(phase="preflight", operations=operations)
+    if Path(str(operations.pending_root)) != pending_root:
+        errors.append(f"{case_id}:canonical_pending_root_not_selected")
+    if result.get("pending_count") != 2:
+        errors.append(f"{case_id}:pending_count:{result.get('pending_count')}")
+    if result.get("status") != PENDING_BLOCK:
+        errors.append(f"{case_id}:status:{result.get('status')}")
+    if result.get("reason_codes") != ["pending_bodies_nonzero"]:
+        errors.append(f"{case_id}:reason_codes:{result.get('reason_codes')}")
+    main = getattr(gate_module, "main", None)
+    if not callable(main):
+        errors.append(f"{case_id}:missing_cli_main")
+    else:
+        with redirect_stdout(io.StringIO()):
+            returncode = main(
+                [
+                    "scan",
+                    "--source-root",
+                    str(source_root),
+                    "--target-root",
+                    str(target_root),
+                    "--migration-id",
+                    "fixture-existing-canonical",
+                    "--format",
+                    "json",
+                ]
+            )
+        if returncode != 2:
+            errors.append(f"{case_id}:blocked_cli_returncode:{returncode}")
+    if source_root.exists():
+        errors.append(f"{case_id}:source_root_materialized")
+    return {case_id: len(errors) == before}
+
+
+class _TopologyJunctionFixture:
+    def __init__(
+        self,
+        bootstrap_module: object,
+        *,
+        targets: dict[Path, Path] | None = None,
+        fail_create_number: int | None = None,
+        forced_kinds: dict[Path, str] | None = None,
+    ) -> None:
+        self.bootstrap_module = bootstrap_module
+        self.targets = {
+            self._key(path): Path(target)
+            for path, target in (targets or {}).items()
+        }
+        self.fail_create_number = fail_create_number
+        self.forced_kinds = {
+            self._key(path): kind for path, kind in (forced_kinds or {}).items()
+        }
+        self.create_count = 0
+
+    @staticmethod
+    def _key(path: Path) -> str:
+        return os.path.normcase(os.path.abspath(str(path)))
+
+    def kind(self, path: Path) -> str:
+        key = self._key(path)
+        if key in self.forced_kinds:
+            return self.forced_kinds[key]
+        if key in self.targets:
+            return "junction"
+        return str(getattr(self.bootstrap_module, "path_kind")(path))
+
+    def target(self, path: Path) -> Path | None:
+        return self.targets.get(self._key(path))
+
+    def create(self, path: Path, target: Path) -> None:
+        self.create_count += 1
+        if self.create_count == self.fail_create_number:
+            raise RuntimeError("fixture_alias_create_failure")
+        key = self._key(path)
+        if key in self.targets or self.kind(path) != "absent":
+            raise RuntimeError("fixture_alias_destination_occupied")
+        self.targets[key] = Path(target)
+
+    def remove(self, path: Path, expected_target: Path) -> None:
+        key = self._key(path)
+        actual = self.targets.get(key)
+        if actual is None or self._key(actual) != self._key(expected_target):
+            raise RuntimeError("fixture_alias_target_mismatch")
+        del self.targets[key]
+
+
+def _check_physical_topology_transaction_case(
+    bootstrap_module: object,
+    temp_root: Path,
+    errors: list[str],
+) -> dict[str, bool]:
+    """Physical migration is metadata-only, atomic, and rollback-safe."""
+
+    case_id = "P10-PHYSICAL-TOPOLOGY-030"
+    before = len(errors)
+    ensure = getattr(bootstrap_module, "ensure_physical_shiguan_topology", None)
+    identity = getattr(bootstrap_module, "directory_identity", None)
+    kind = getattr(bootstrap_module, "path_kind", None)
+    if not callable(ensure) or not callable(identity) or not callable(kind):
+        errors.append(f"{case_id}:missing_topology_callable")
+        return {case_id: False}
+
+    def paths(root: Path) -> tuple[Path, list[Path]]:
+        canonical = root / "home" / ".agents" / "court-shiguan" / "decretum-matrix" / "references"
+        legacy = [
+            root / "home" / ".agents" / "court-shiguan" / "court-capability-router" / "references",
+            root / "local" / "court-shiguan" / "court-capability-router" / "references",
+        ]
+        return canonical, legacy
+
+    blank_root = temp_root / "blank"
+    canonical, legacy = paths(blank_root)
+    blank_adapter = _TopologyJunctionFixture(bootstrap_module)
+    blank = ensure(
+        True,
+        canonical_references=canonical,
+        legacy_references=legacy,
+        junction_adapter=blank_adapter,
+        backup_root=blank_root / "backup",
+        kind_probe=blank_adapter.kind,
+        platform="win32",
+    )
+    if (
+        blank.get("status") != "PHYSICAL_TOPOLOGY_VERIFIED"
+        or blank.get("action") != "CREATE_PHYSICAL_CANONICAL"
+        or kind(canonical) != "directory"
+        or canonical.is_symlink()
+        or blank.get("pending_body_access") != "NO"
+        or blank.get("body_content_reads") != 0
+        or blank.get("body_hashes") != 0
+        or any(blank_adapter.target(path) != canonical for path in legacy)
+    ):
+        errors.append(f"{case_id}:blank_physical_create_failed:{blank}")
+
+    migration_root = temp_root / "legacy-migration"
+    canonical, legacy = paths(migration_root)
+    legacy[0].mkdir(parents=True)
+    (legacy[0] / "fixture-record.json").write_text("fixture\n", encoding="utf-8")
+    source_identity = identity(legacy[0])
+    migration_adapter = _TopologyJunctionFixture(
+        bootstrap_module,
+        targets={legacy[1]: legacy[0]},
+    )
+    migrated = ensure(
+        True,
+        canonical_references=canonical,
+        legacy_references=legacy,
+        junction_adapter=migration_adapter,
+        backup_root=migration_root / "backup",
+        kind_probe=migration_adapter.kind,
+        platform="win32",
+    )
+    if (
+        migrated.get("status") != "PHYSICAL_TOPOLOGY_VERIFIED"
+        or migrated.get("action") != "ATOMIC_RENAME_LEGACY_TO_CANONICAL"
+        or identity(canonical) != source_identity
+        or not (canonical / "fixture-record.json").is_file()
+        or any(migration_adapter.target(path) != canonical for path in legacy)
+        or str(legacy[1]) not in migrated.get("replaced_compatibility_junctions", [])
+    ):
+        errors.append(f"{case_id}:legacy_atomic_migration_failed:{migrated}")
+
+    rollback_root = temp_root / "rollback"
+    canonical, legacy = paths(rollback_root)
+    legacy[0].mkdir(parents=True)
+    rollback_identity = identity(legacy[0])
+    rollback_adapter = _TopologyJunctionFixture(
+        bootstrap_module,
+        fail_create_number=2,
+    )
+    rolled_back = ensure(
+        True,
+        canonical_references=canonical,
+        legacy_references=legacy,
+        junction_adapter=rollback_adapter,
+        backup_root=rollback_root / "backup",
+        kind_probe=rollback_adapter.kind,
+        platform="win32",
+    )
+    if (
+        rolled_back.get("status") != "ROLLED_BACK"
+        or kind(canonical) != "absent"
+        or kind(legacy[0]) != "directory"
+        or identity(legacy[0]) != rollback_identity
+        or rollback_adapter.targets
+    ):
+        errors.append(f"{case_id}:failure_rollback_incomplete:{rolled_back}")
+
+    retarget_root = temp_root / "retarget-rollback"
+    canonical, legacy = paths(retarget_root)
+    legacy[0].mkdir(parents=True)
+    retarget_identity = identity(legacy[0])
+    retarget_adapter = _TopologyJunctionFixture(
+        bootstrap_module,
+        targets={legacy[1]: legacy[0]},
+        fail_create_number=2,
+    )
+    retarget_rollback = ensure(
+        True,
+        canonical_references=canonical,
+        legacy_references=legacy,
+        junction_adapter=retarget_adapter,
+        backup_root=retarget_root / "backup",
+        kind_probe=retarget_adapter.kind,
+        platform="win32",
+    )
+    if (
+        retarget_rollback.get("status") != "ROLLED_BACK"
+        or kind(canonical) != "absent"
+        or identity(legacy[0]) != retarget_identity
+        or retarget_adapter.target(legacy[1]) != legacy[0]
+        or retarget_adapter.target(legacy[0]) is not None
+    ):
+        errors.append(f"{case_id}:preexisting_alias_rollback_incomplete:{retarget_rollback}")
+
+    blocked_root = temp_root / "blocked"
+    canonical, legacy = paths(blocked_root)
+    canonical.mkdir(parents=True)
+    legacy[0].mkdir(parents=True)
+    blocked_adapter = _TopologyJunctionFixture(bootstrap_module)
+    blocked = ensure(
+        True,
+        canonical_references=canonical,
+        legacy_references=legacy,
+        junction_adapter=blocked_adapter,
+        backup_root=blocked_root / "backup",
+        kind_probe=blocked_adapter.kind,
+        platform="win32",
+    )
+    if blocked.get("reason") != "dual_physical_shiguan_roots" or (blocked_root / "backup").exists():
+        errors.append(f"{case_id}:dual_physical_root_not_blocked:{blocked}")
+
+    symlink_root = temp_root / "symlink-block"
+    canonical, legacy = paths(symlink_root)
+    symlink_adapter = _TopologyJunctionFixture(
+        bootstrap_module,
+        forced_kinds={canonical: "symlink"},
+    )
+    symlink_blocked = ensure(
+        False,
+        canonical_references=canonical,
+        legacy_references=legacy,
+        junction_adapter=symlink_adapter,
+        kind_probe=symlink_adapter.kind,
+        platform="win32",
+    )
+    if symlink_blocked.get("reason") != "canonical_root_not_physical":
+        errors.append(f"{case_id}:canonical_symlink_not_blocked:{symlink_blocked}")
+
+    seed_root = temp_root / "seed-rollback"
+    canonical, legacy = paths(seed_root)
+    canonical.mkdir(parents=True)
+    backup = seed_root / "backup"
+    backup.mkdir(parents=True)
+    topology_receipt = {
+        "schema": "court.shiguan_physical_topology.v1",
+        "ok": True,
+        "status": "PHYSICAL_TOPOLOGY_VERIFIED",
+        "action": "CREATE_PHYSICAL_CANONICAL",
+        "canonical_references": str(canonical),
+        "legacy_references": [str(path) for path in legacy],
+        "preimage": {
+            str(canonical): "absent",
+            **{str(path): "absent" for path in legacy},
+        },
+        "preexisting_junction_targets": {},
+        "created_compatibility_junctions": [],
+        "replaced_compatibility_junctions": [],
+        "canonical_identity": identity(canonical),
+        "backup_root": str(backup),
+        "control_preimage": {
+            "shiguan-topology-receipt.json": {"state": "absent"},
+            "shiguan-topology-commit.json": {"state": "absent"},
+        },
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+    }
+    originals = {
+        name: getattr(bootstrap_module, name)
+        for name in (
+            "default_legacy_shared_root",
+            "default_previous_shared_root",
+            "default_shared_root",
+            "ensure_physical_shiguan_topology",
+            "shared_root",
+            "references_root",
+            "ensure_shared_seed",
+        )
+    }
+
+    def fail_seed() -> Path:
+        control = canonical / "obsidian-sync" / "config.json"
+        control.parent.mkdir(parents=True)
+        control.write_text("{}\n", encoding="utf-8")
+        raise RuntimeError("fixture_seed_failure")
+
+    try:
+        setattr(
+            bootstrap_module,
+            "ensure_physical_shiguan_topology",
+            lambda apply: dict(topology_receipt),
+        )
+        setattr(
+            bootstrap_module,
+            "default_shared_root",
+            lambda home=None: canonical.parent,
+        )
+        setattr(
+            bootstrap_module,
+            "default_previous_shared_root",
+            lambda home=None: legacy[0].parent,
+        )
+        setattr(
+            bootstrap_module,
+            "default_legacy_shared_root",
+            lambda data_base=None: legacy[1].parent,
+        )
+        setattr(bootstrap_module, "shared_root", lambda: canonical.parent)
+        setattr(bootstrap_module, "references_root", lambda: canonical)
+        setattr(bootstrap_module, "ensure_shared_seed", fail_seed)
+        seed_failure = getattr(bootstrap_module, "ensure_shared")(True)
+    finally:
+        for name, value in originals.items():
+            setattr(bootstrap_module, name, value)
+    if (
+        seed_failure.get("status") != "ROLLED_BACK"
+        or seed_failure.get("pending_body_access") != "NO"
+        or kind(canonical) != "absent"
+        or any(kind(path) != "absent" for path in legacy)
+    ):
+        errors.append(f"{case_id}:seed_failure_rollback_incomplete:{seed_failure}")
+    return {case_id: len(errors) == before}
+
+
 def evaluate() -> dict[str, object]:
     errors: list[str] = []
     gate_module = _load_production(errors)
@@ -4754,6 +5129,9 @@ def evaluate() -> dict[str, object]:
         CUTOVER_PATH, "migrate_shared_shiguan_red_target", errors
     )
     paths_module = _load_script(PATHS_PATH, "shiguan_paths_red_target", errors)
+    bootstrap_module = _load_script(
+        BOOTSTRAP_PATH, "ensure_portable_court_bootstrap_red_target", errors
+    )
     gate_passed = 0
     cutover_passed = 0
     paths_passed = 0
@@ -4780,6 +5158,13 @@ def evaluate() -> dict[str, object]:
             quality_cases.update(
                 _check_rc6_admission_fail_closed_case(gate_module, errors)
             )
+            quality_cases.update(
+                _check_existing_canonical_pending_probe_case(
+                    gate_module,
+                    temp_root / "existing-canonical-pending",
+                    errors,
+                )
+            )
         if cutover_module is not None:
             execute = getattr(cutover_module, "execute_atomic_cutover", None)
             if not callable(execute):
@@ -4797,6 +5182,14 @@ def evaluate() -> dict[str, object]:
                         errors,
                     )
                 )
+        if bootstrap_module is not None:
+            quality_cases.update(
+                _check_physical_topology_transaction_case(
+                    bootstrap_module,
+                    temp_root / "physical-topology",
+                    errors,
+                )
+            )
         if paths_module is not None:
             paths_passed = _check_default_shared_root(paths_module, temp_root, errors)
             paths_passed += _check_transitional_seed_root(

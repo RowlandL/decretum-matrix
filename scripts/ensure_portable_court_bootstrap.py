@@ -25,13 +25,18 @@ import tempfile
 import urllib.error
 import urllib.request
 import zipfile
-from typing import Any
+from typing import Any, Callable
 
 from court_platform import user_data_base
 from shiguan_paths import (
+    default_legacy_shared_root,
     default_obsidian_shared_vault,
+    default_previous_shared_root,
+    default_shared_root,
     ensure_shared_seed,
     references_root,
+    runtime_code_root,
+    shared_seed_layout,
     shared_root,
 )
 
@@ -62,7 +67,613 @@ def default_install_dir() -> Path:
 
 
 def skill_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return runtime_code_root()
+
+
+def path_kind(path: Path) -> str:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return "absent"
+    except OSError:
+        return "unknown"
+    junction_probe = getattr(path, "is_junction", None)
+    try:
+        if callable(junction_probe) and junction_probe():
+            return "junction"
+    except OSError:
+        return "unknown"
+    if path.is_symlink():
+        return "symlink"
+    reparse = int(getattr(metadata, "st_file_attributes", 0) or 0) & 0x400
+    if reparse:
+        return "reparse"
+    return "directory" if path.is_dir() else "other"
+
+
+def directory_identity(path: Path) -> dict[str, int]:
+    metadata = path.stat()
+    return {"device": int(metadata.st_dev), "inode": int(metadata.st_ino)}
+
+
+def _same_lexical_path(left: Path, right: Path) -> bool:
+    return os.path.normcase(os.path.abspath(str(left))) == os.path.normcase(
+        os.path.abspath(str(right))
+    )
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return _same_lexical_path(left, right)
+
+
+def _paths_match_exactly(values: list[Path], expected: list[Path]) -> bool:
+    if len(values) != len(expected):
+        return False
+    unmatched = list(expected)
+    for value in values:
+        matches = [
+            index
+            for index, candidate in enumerate(unmatched)
+            if _same_lexical_path(value, candidate)
+        ]
+        if len(matches) != 1:
+            return False
+        unmatched.pop(matches[0])
+    return not unmatched
+
+
+class CompatibilityJunctionAdapter:
+    def target(self, path: Path) -> Path | None:
+        if path_kind(path) != "junction":
+            return None
+        try:
+            return path.resolve(strict=True)
+        except OSError:
+            return None
+
+    def create(self, path: Path, target: Path) -> None:
+        if sys.platform != "win32":
+            raise RuntimeError("compatibility_junction_not_supported")
+        if path_kind(path) != "absent" or path_kind(target) != "directory":
+            raise RuntimeError("compatibility_junction_precondition_failed")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            ["cmd.exe", "/d", "/c", "mklink", "/j", str(path), str(target)],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=30,
+        )
+        if result.returncode or path_kind(path) != "junction":
+            raise RuntimeError("compatibility_junction_create_failed")
+
+    def remove(self, path: Path, expected_target: Path) -> None:
+        actual = self.target(path)
+        if actual is None or os.path.normcase(str(actual)) != os.path.normcase(str(expected_target.resolve())):
+            raise RuntimeError("compatibility_junction_target_mismatch")
+        path.rmdir()
+
+
+def _write_topology_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.replace(temporary, path)
+
+
+def _write_topology_bytes(path: Path, value: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    temporary.write_bytes(value)
+    os.replace(temporary, path)
+
+
+def _capture_topology_control_preimage(
+    canonical: Path,
+    backup: Path,
+    *,
+    kind_probe: Callable[[Path], str],
+) -> dict[str, dict[str, object]]:
+    control_root = canonical.parent / "private-runtime" / "shiguan-migration"
+    result: dict[str, dict[str, object]] = {}
+    for name in ("shiguan-topology-receipt.json", "shiguan-topology-commit.json"):
+        path = control_root / name
+        kind = kind_probe(path)
+        if kind == "absent":
+            result[name] = {"state": "absent"}
+            continue
+        if kind != "other" or not path.is_file() or path.is_symlink():
+            raise RuntimeError(f"topology_control_preimage_untrusted:{name}:{kind}")
+        payload = path.read_bytes()
+        relative = Path("control-preimage") / name
+        _write_topology_bytes(backup / relative, payload)
+        result[name] = {
+            "state": "file",
+            "backup_relative": relative.as_posix(),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size": len(payload),
+        }
+    return result
+
+
+def _restore_topology_control_preimage(
+    canonical: Path,
+    backup: Path,
+    preimage: dict[str, dict[str, object]],
+    *,
+    kind_probe: Callable[[Path], str],
+) -> None:
+    control_root = canonical.parent / "private-runtime" / "shiguan-migration"
+    for name, metadata in preimage.items():
+        path = control_root / name
+        state = metadata.get("state")
+        kind = kind_probe(path)
+        if state == "absent":
+            if kind == "absent":
+                continue
+            if kind != "other" or not path.is_file() or path.is_symlink():
+                raise RuntimeError(f"topology_control_rollback_untrusted:{name}:{kind}")
+            path.unlink()
+            continue
+        if state != "file":
+            raise RuntimeError(f"topology_control_preimage_state_invalid:{name}")
+        relative = Path(str(metadata.get("backup_relative", "")))
+        source = backup / relative
+        payload = source.read_bytes()
+        if (
+            hashlib.sha256(payload).hexdigest() != metadata.get("sha256")
+            or len(payload) != metadata.get("size")
+        ):
+            raise RuntimeError(f"topology_control_backup_invalid:{name}")
+        if kind not in {"absent", "other"} or (
+            kind == "other" and (not path.is_file() or path.is_symlink())
+        ):
+            raise RuntimeError(f"topology_control_rollback_untrusted:{name}:{kind}")
+        _write_topology_bytes(path, payload)
+
+
+def ensure_physical_shiguan_topology(
+    apply: bool,
+    *,
+    canonical_references: Path | None = None,
+    legacy_references: list[Path] | None = None,
+    junction_adapter: CompatibilityJunctionAdapter | None = None,
+    backup_root: Path | None = None,
+    kind_probe: Callable[[Path], str] | None = None,
+    identity_probe: Callable[[Path], dict[str, int]] | None = None,
+    replace_operation: Callable[[Path, Path], object] | None = None,
+    platform: str | None = None,
+) -> dict[str, Any]:
+    """Create or atomically migrate one physical root without reading bodies."""
+
+    canonical = canonical_references or (default_shared_root() / "references")
+    legacy = legacy_references or [
+        default_previous_shared_root() / "references",
+        default_legacy_shared_root() / "references",
+    ]
+    deduplicated: list[Path] = []
+    seen: set[str] = set()
+    for path in legacy:
+        key = os.path.normcase(os.path.abspath(str(path)))
+        if key != os.path.normcase(os.path.abspath(str(canonical))) and key not in seen:
+            seen.add(key)
+            deduplicated.append(path)
+    legacy = deduplicated
+    probe_kind = kind_probe or path_kind
+    probe_identity = identity_probe or directory_identity
+    replace = replace_operation or os.replace
+    runtime_platform = platform or sys.platform
+    kinds = {str(path): probe_kind(path) for path in [canonical, *legacy]}
+    if kinds[str(canonical)] not in {"absent", "directory"}:
+        return {"ok": False, "status": "BLOCKED", "reason": "canonical_root_not_physical", "paths": kinds}
+    physical_legacy = [path for path in legacy if kinds[str(path)] == "directory"]
+    invalid_legacy = [
+        path
+        for path in legacy
+        if kinds[str(path)] not in {"absent", "directory", "junction"}
+    ]
+    if invalid_legacy:
+        return {"ok": False, "status": "BLOCKED", "reason": "legacy_root_untrusted", "paths": kinds}
+    if kinds[str(canonical)] == "directory" and physical_legacy:
+        return {"ok": False, "status": "BLOCKED", "reason": "dual_physical_shiguan_roots", "paths": kinds}
+    if kinds[str(canonical)] == "absent" and len(physical_legacy) > 1:
+        return {"ok": False, "status": "BLOCKED", "reason": "multiple_legacy_physical_roots", "paths": kinds}
+
+    adapter = junction_adapter or CompatibilityJunctionAdapter()
+    junction_targets: dict[str, str] = {}
+    for path in legacy:
+        if kinds[str(path)] != "junction":
+            continue
+        target = adapter.target(path)
+        expected = canonical if kinds[str(canonical)] == "directory" else (physical_legacy[0] if physical_legacy else canonical)
+        if target is None or not _same_path(target, expected):
+            return {"ok": False, "status": "BLOCKED", "reason": "legacy_junction_mismatch", "paths": kinds}
+        junction_targets[str(path)] = str(target)
+
+    action = "REUSE_PHYSICAL_CANONICAL"
+    source = None
+    if kinds[str(canonical)] == "absent":
+        if physical_legacy:
+            action = "ATOMIC_RENAME_LEGACY_TO_CANONICAL"
+            source = physical_legacy[0]
+        else:
+            action = "CREATE_PHYSICAL_CANONICAL"
+    plan = {
+        "schema": "court.shiguan_physical_topology.v1",
+        "ok": True,
+        "status": "PLANNED" if not apply else "IN_PROGRESS",
+        "action": action,
+        "canonical_references": str(canonical),
+        "legacy_references": [str(path) for path in legacy],
+        "preimage": kinds,
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+        "physical_authority_required": True,
+        "canonical_locator_kind": "physical_directory",
+        "compatibility_locator_kind": "junction_not_symlink",
+        "preexisting_junction_targets": junction_targets,
+    }
+    if not apply:
+        return plan
+
+    backup = backup_root or (
+        user_home()
+        / ".agents"
+        / "install-backups"
+        / "decretum-matrix"
+        / f"shiguan-topology-{now_stamp()}-{os.getpid()}"
+    )
+    if backup.exists():
+        return {**plan, "ok": False, "status": "BLOCKED", "reason": "backup_root_exists"}
+    backup.mkdir(parents=True)
+    _write_topology_json(backup / "preimage.json", plan)
+    created_aliases: list[Path] = []
+    removed_aliases: list[tuple[Path, Path]] = []
+    moved_identity: dict[str, int] | None = None
+    control_preimage: dict[str, dict[str, object]] = {}
+    try:
+        control_preimage = _capture_topology_control_preimage(
+            canonical,
+            backup,
+            kind_probe=probe_kind,
+        )
+        _write_topology_json(backup / "control-preimage.json", control_preimage)
+        if action == "ATOMIC_RENAME_LEGACY_TO_CANONICAL":
+            assert source is not None
+            for path in legacy:
+                if probe_kind(path) != "junction":
+                    continue
+                target = adapter.target(path)
+                if target is None or not _same_path(target, source):
+                    raise RuntimeError("legacy_junction_pre_move_target_drift")
+                adapter.remove(path, source)
+                removed_aliases.append((path, source))
+            moved_identity = probe_identity(source)
+            canonical.parent.mkdir(parents=True, exist_ok=True)
+            replace(source, canonical)
+            if probe_kind(canonical) != "directory" or probe_identity(canonical) != moved_identity:
+                raise RuntimeError("atomic_migration_identity_mismatch")
+        elif action == "CREATE_PHYSICAL_CANONICAL":
+            canonical.mkdir(parents=True, exist_ok=False)
+        if probe_kind(canonical) != "directory":
+            raise RuntimeError("canonical_root_not_physical_after_apply")
+        if runtime_platform == "win32":
+            for path in legacy:
+                kind = probe_kind(path)
+                if kind == "junction":
+                    target = adapter.target(path)
+                    if target is None or not _same_path(target, canonical):
+                        raise RuntimeError("legacy_locator_target_drift_after_migration")
+                    continue
+                if kind != "absent":
+                    raise RuntimeError("legacy_locator_not_empty_after_migration")
+                adapter.create(path, canonical)
+                created_aliases.append(path)
+        postimage = {str(path): probe_kind(path) for path in [canonical, *legacy]}
+        post_targets: dict[str, str] = {}
+        if runtime_platform == "win32":
+            for path in legacy:
+                target = adapter.target(path)
+                if postimage[str(path)] != "junction" or target is None or not _same_path(target, canonical):
+                    raise RuntimeError("compatibility_junction_verification_failed")
+                post_targets[str(path)] = str(target)
+        receipt = {
+            **plan,
+            "status": "PHYSICAL_TOPOLOGY_VERIFIED",
+            "committed_at": dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "backup_root": str(backup),
+            "postimage": postimage,
+            "canonical_identity": probe_identity(canonical),
+            "created_compatibility_junctions": [str(path) for path in created_aliases],
+            "replaced_compatibility_junctions": [str(path) for path, _target in removed_aliases],
+            "compatibility_junction_targets": post_targets,
+            "control_preimage": control_preimage,
+            "rollback_supported": True,
+            "rollback_scope": "automatic_transaction_failure_before_external_use",
+        }
+        _write_topology_json(backup / "receipt.json", receipt)
+        control_root = canonical.parent / "private-runtime" / "shiguan-migration"
+        persistent_receipt = control_root / "shiguan-topology-receipt.json"
+        _write_topology_json(persistent_receipt, receipt)
+        receipt_digest = hashlib.sha256(
+            json.dumps(
+                receipt,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        _write_topology_json(
+            control_root / "shiguan-topology-commit.json",
+            {
+                "schema": "court.shiguan_physical_topology.commit.v1",
+                "state": "COMMITTED",
+                "canonical_references": str(canonical),
+                "receipt_path": str(persistent_receipt),
+                "receipt_sha256": receipt_digest,
+                "committed_at": receipt["committed_at"],
+            },
+        )
+        receipt["persistent_receipt"] = str(persistent_receipt)
+        receipt["receipt_sha256"] = receipt_digest
+        return receipt
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for path in reversed(created_aliases):
+            try:
+                adapter.remove(path, canonical)
+            except Exception as rollback_exc:  # noqa: BLE001 - preserve every rollback fault.
+                rollback_errors.append(f"alias:{path}:{type(rollback_exc).__name__}:{rollback_exc}")
+        if action == "ATOMIC_RENAME_LEGACY_TO_CANONICAL" and source is not None and probe_kind(canonical) == "directory":
+            try:
+                if moved_identity is None or probe_identity(canonical) != moved_identity:
+                    raise RuntimeError("rollback_identity_mismatch")
+                source.parent.mkdir(parents=True, exist_ok=True)
+                replace(canonical, source)
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_errors.append(f"move:{type(rollback_exc).__name__}:{rollback_exc}")
+        elif action == "CREATE_PHYSICAL_CANONICAL" and probe_kind(canonical) == "directory":
+            try:
+                canonical.rmdir()
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_errors.append(f"create:{type(rollback_exc).__name__}:{rollback_exc}")
+        for path, target in removed_aliases:
+            try:
+                if probe_kind(path) != "absent":
+                    raise RuntimeError("rollback_alias_destination_occupied")
+                adapter.create(path, target)
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_errors.append(f"alias_restore:{path}:{type(rollback_exc).__name__}:{rollback_exc}")
+        if control_preimage:
+            try:
+                _restore_topology_control_preimage(
+                    canonical,
+                    backup,
+                    control_preimage,
+                    kind_probe=probe_kind,
+                )
+            except Exception as rollback_exc:  # noqa: BLE001
+                rollback_errors.append(f"control:{type(rollback_exc).__name__}:{rollback_exc}")
+        failed = {
+            **plan,
+            "ok": False,
+            "status": "ROLLED_BACK" if not rollback_errors else "BLOCKED_MANUAL_RECOVERY",
+            "reason": f"{type(exc).__name__}:{exc}",
+            "backup_root": str(backup),
+            "rollback_errors": rollback_errors,
+        }
+        _write_topology_json(backup / "failure.json", failed)
+        return failed
+
+
+def _capture_seed_preimage(
+    refs: Path,
+    backup: Path,
+) -> dict[str, object]:
+    layout = shared_seed_layout(refs)
+    mutable = {str(path) for path in layout["mutable_control_files"]}
+    directories = {
+        str(path): path_kind(path) for path in layout["directories"]
+    }
+    files: dict[str, dict[str, object]] = {}
+    for path in layout["files"]:
+        kind = path_kind(path)
+        metadata: dict[str, object] = {"state": kind}
+        if str(path) in mutable and kind != "absent":
+            if kind != "other" or not path.is_file() or path.is_symlink():
+                raise RuntimeError(f"seed_control_preimage_untrusted:{path}:{kind}")
+            payload = path.read_bytes()
+            relative = Path("seed-control-preimage") / path.name
+            _write_topology_bytes(backup / relative, payload)
+            metadata.update(
+                {
+                    "backup_relative": relative.as_posix(),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size": len(payload),
+                }
+            )
+        files[str(path)] = metadata
+    preimage = {
+        "schema": "court.shiguan_seed_preimage.v1",
+        "references_root": str(refs),
+        "directories": directories,
+        "files": files,
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+    }
+    _write_topology_json(backup / "seed-preimage.json", preimage)
+    return preimage
+
+
+def _seed_receipt(preimage: dict[str, object]) -> dict[str, object]:
+    directories = preimage.get("directories")
+    files = preimage.get("files")
+    if not isinstance(directories, dict) or not isinstance(files, dict):
+        raise RuntimeError("seed_preimage_invalid")
+    created_directories = [
+        path
+        for path, state in directories.items()
+        if state == "absent" and path_kind(Path(path)) == "directory"
+    ]
+    created_files = [
+        path
+        for path, metadata in files.items()
+        if isinstance(metadata, dict)
+        and metadata.get("state") == "absent"
+        and path_kind(Path(path)) == "other"
+        and Path(path).is_file()
+        and not Path(path).is_symlink()
+    ]
+    return {
+        "schema": "court.shiguan_seed_transaction.v1",
+        "status": "SEEDED",
+        "created_directories": created_directories,
+        "created_files": created_files,
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+        "rollback_supported": True,
+    }
+
+
+def _rollback_seed_preimage(
+    preimage: dict[str, object],
+    backup: Path,
+) -> dict[str, object]:
+    directories = preimage.get("directories")
+    files = preimage.get("files")
+    if not isinstance(directories, dict) or not isinstance(files, dict):
+        raise RuntimeError("seed_preimage_invalid")
+    removed_files: list[str] = []
+    restored_files: list[str] = []
+    for value, metadata in reversed(list(files.items())):
+        if not isinstance(metadata, dict):
+            raise RuntimeError("seed_file_preimage_invalid")
+        path = Path(value)
+        before = metadata.get("state")
+        current = path_kind(path)
+        if before == "absent":
+            if current == "absent":
+                continue
+            if current != "other" or not path.is_file() or path.is_symlink():
+                raise RuntimeError(f"seed_rollback_file_untrusted:{path}:{current}")
+            path.unlink()
+            removed_files.append(str(path))
+            continue
+        backup_relative = metadata.get("backup_relative")
+        if backup_relative is None:
+            continue
+        source = backup / Path(str(backup_relative))
+        payload = source.read_bytes()
+        if (
+            hashlib.sha256(payload).hexdigest() != metadata.get("sha256")
+            or len(payload) != metadata.get("size")
+        ):
+            raise RuntimeError(f"seed_control_backup_invalid:{path}")
+        if current not in {"absent", "other"} or (
+            current == "other" and (not path.is_file() or path.is_symlink())
+        ):
+            raise RuntimeError(f"seed_control_rollback_untrusted:{path}:{current}")
+        _write_topology_bytes(path, payload)
+        restored_files.append(str(path))
+    removed_directories: list[str] = []
+    for value, before in reversed(list(directories.items())):
+        path = Path(value)
+        if before != "absent" or path_kind(path) == "absent":
+            continue
+        if path_kind(path) != "directory":
+            raise RuntimeError(f"seed_rollback_directory_untrusted:{path}")
+        path.rmdir()
+        removed_directories.append(str(path))
+    return {
+        "schema": "court.shiguan_seed_rollback.v1",
+        "status": "ROLLED_BACK",
+        "removed_files": removed_files,
+        "restored_files": restored_files,
+        "removed_directories": removed_directories,
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+    }
+
+
+def _rollback_applied_topology(receipt: dict[str, Any]) -> dict[str, object]:
+    canonical = Path(str(receipt.get("canonical_references", "")))
+    backup = Path(str(receipt.get("backup_root", "")))
+    identity = receipt.get("canonical_identity")
+    legacy_values = receipt.get("legacy_references")
+    expected_canonical = default_shared_root() / "references"
+    expected_legacy = [
+        default_previous_shared_root() / "references",
+        default_legacy_shared_root() / "references",
+    ]
+    if (
+        receipt.get("status") != "PHYSICAL_TOPOLOGY_VERIFIED"
+        or not _same_path(canonical, expected_canonical)
+        or not isinstance(legacy_values, list)
+        or any(not isinstance(value, str) for value in legacy_values)
+        or not _paths_match_exactly(
+            [Path(str(value)) for value in legacy_values], expected_legacy
+        )
+        or path_kind(canonical) != "directory"
+        or directory_identity(canonical) != identity
+        or not backup.is_dir()
+    ):
+        raise RuntimeError("topology_rollback_receipt_invalid")
+    adapter = CompatibilityJunctionAdapter()
+    for value in reversed(receipt.get("created_compatibility_junctions", [])):
+        adapter.remove(Path(str(value)), canonical)
+    action = receipt.get("action")
+    if action == "ATOMIC_RENAME_LEGACY_TO_CANONICAL":
+        preimage = receipt.get("preimage")
+        if not isinstance(preimage, dict):
+            raise RuntimeError("topology_rollback_preimage_invalid")
+        sources = [Path(path) for path, kind in preimage.items() if kind == "directory" and not _same_path(Path(path), canonical)]
+        if len(sources) != 1 or path_kind(sources[0]) != "absent":
+            raise RuntimeError("topology_rollback_source_invalid")
+        sources[0].parent.mkdir(parents=True, exist_ok=True)
+        os.replace(canonical, sources[0])
+    elif action == "CREATE_PHYSICAL_CANONICAL":
+        canonical.rmdir()
+    elif action != "REUSE_PHYSICAL_CANONICAL":
+        raise RuntimeError("topology_rollback_action_invalid")
+    preexisting = receipt.get("preexisting_junction_targets")
+    replaced = receipt.get("replaced_compatibility_junctions")
+    if not isinstance(preexisting, dict) or not isinstance(replaced, list):
+        raise RuntimeError("topology_rollback_alias_preimage_invalid")
+    for value in replaced:
+        path = Path(str(value))
+        target_value = preexisting.get(str(path))
+        if not isinstance(target_value, str) or path_kind(path) != "absent":
+            raise RuntimeError("topology_rollback_alias_restore_invalid")
+        adapter.create(path, Path(target_value))
+    control_preimage = receipt.get("control_preimage")
+    if not isinstance(control_preimage, dict):
+        raise RuntimeError("topology_control_preimage_invalid")
+    _restore_topology_control_preimage(
+        canonical,
+        backup,
+        control_preimage,
+        kind_probe=path_kind,
+    )
+    return {
+        "schema": "court.shiguan_physical_topology.rollback.v1",
+        "status": "ROLLED_BACK",
+        "action": action,
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+    }
 
 
 def tool_env(install_dir: Path | None = None) -> dict[str, str]:
@@ -325,18 +936,157 @@ def enable_hermes_memory(apply: bool) -> dict[str, Any]:
 
 
 def ensure_shared(apply: bool) -> dict[str, Any]:
+    topology = ensure_physical_shiguan_topology(apply)
+    if not topology.get("ok"):
+        return {
+            "ok": False,
+            "changed": False,
+            "topology": topology,
+            "reason": topology.get("reason"),
+        }
     root = shared_root()
     refs = references_root()
+    seed_missing = not refs.exists()
+    seed: dict[str, object] = {
+        "schema": "court.shiguan_seed_transaction.v1",
+        "status": "PLANNED" if not apply else "NOT_RUN",
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_hashes": 0,
+    }
     if apply:
-        refs = ensure_shared_seed()
+        backup = Path(str(topology.get("backup_root", "")))
+        try:
+            preimage = _capture_seed_preimage(refs, backup)
+            refs = ensure_shared_seed()
+            seed = _seed_receipt(preimage)
+        except Exception as exc:  # noqa: BLE001 - preserve both rollback outcomes.
+            rollback_errors: list[str] = []
+            seed_rollback: dict[str, object] | None = None
+            topology_rollback: dict[str, object] | None = None
+            if "preimage" in locals():
+                try:
+                    seed_rollback = _rollback_seed_preimage(preimage, backup)
+                except Exception as rollback_exc:  # noqa: BLE001
+                    rollback_errors.append(
+                        f"seed:{type(rollback_exc).__name__}:{rollback_exc}"
+                    )
+            if not rollback_errors:
+                try:
+                    topology_rollback = _rollback_applied_topology(topology)
+                except Exception as rollback_exc:  # noqa: BLE001
+                    rollback_errors.append(
+                        f"topology:{type(rollback_exc).__name__}:{rollback_exc}"
+                    )
+            return {
+                "ok": False,
+                "changed": False,
+                "reason": f"seed_transaction_failed:{type(exc).__name__}:{exc}",
+                "status": (
+                    "ROLLED_BACK"
+                    if not rollback_errors
+                    else "BLOCKED_MANUAL_RECOVERY"
+                ),
+                "topology": topology,
+                "seed_rollback": seed_rollback,
+                "topology_rollback": topology_rollback,
+                "rollback_errors": rollback_errors,
+                "pending_body_access": "NO",
+            }
+    topology_changed = bool(
+        apply
+        and (
+            topology.get("action") != "REUSE_PHYSICAL_CANONICAL"
+            or topology.get("created_compatibility_junctions")
+        )
+    )
     return {
         "ok": True,
-        "changed": apply,
-        "would_change": not apply and not refs.exists(),
+        "changed": topology_changed or (apply and seed_missing),
+        "would_change": not apply and seed_missing,
         "shared_root": str(root),
         "references_root": str(refs),
         "seed_exists": refs.exists(),
+        "topology": topology,
+        "seed": seed,
     }
+
+
+def rollback_shared_transaction(backup_root: Path) -> dict[str, object]:
+    backup = Path(backup_root).resolve(strict=False)
+    allowed = (
+        user_home()
+        / ".agents"
+        / "install-backups"
+        / "decretum-matrix"
+    ).resolve(strict=False)
+    try:
+        backup.relative_to(allowed)
+    except ValueError:
+        return {
+            "ok": False,
+            "changed": False,
+            "status": "BLOCKED",
+            "reason": "shared_transaction_backup_outside_authority",
+        }
+    try:
+        seed_preimage = json.loads(
+            (backup / "seed-preimage.json").read_text(encoding="utf-8")
+        )
+        topology = json.loads(
+            (backup / "receipt.json").read_text(encoding="utf-8")
+        )
+        if not isinstance(seed_preimage, dict) or not isinstance(topology, dict):
+            raise RuntimeError("shared_transaction_receipt_invalid")
+        expected_refs = default_shared_root() / "references"
+        layout = shared_seed_layout(expected_refs)
+        directory_preimage = seed_preimage.get("directories")
+        file_preimage = seed_preimage.get("files")
+        if (
+            not _same_path(
+                Path(str(seed_preimage.get("references_root", ""))),
+                expected_refs,
+            )
+            or not isinstance(directory_preimage, dict)
+            or not isinstance(file_preimage, dict)
+            or any(not isinstance(value, str) for value in directory_preimage)
+            or any(not isinstance(value, str) for value in file_preimage)
+            or not _paths_match_exactly(
+                [Path(value) for value in directory_preimage],
+                list(layout["directories"]),
+            )
+            or not _paths_match_exactly(
+                [Path(value) for value in file_preimage],
+                list(layout["files"]),
+            )
+        ):
+            raise RuntimeError("shared_transaction_preimage_scope_invalid")
+        seed = _rollback_seed_preimage(seed_preimage, backup)
+        topology_result = _rollback_applied_topology(topology)
+        receipt = {
+            "schema": "court.shiguan_shared_transaction.rollback.v1",
+            "ok": True,
+            "changed": True,
+            "status": "ROLLED_BACK",
+            "backup_root": str(backup),
+            "seed": seed,
+            "topology": topology_result,
+            "pending_body_access": "NO",
+            "body_content_reads": 0,
+            "body_hashes": 0,
+        }
+        _write_topology_json(backup / "shared-rollback-receipt.json", receipt)
+        return receipt
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "schema": "court.shiguan_shared_transaction.rollback.v1",
+            "ok": False,
+            "changed": False,
+            "status": "BLOCKED_MANUAL_RECOVERY",
+            "reason": f"{type(exc).__name__}:{exc}",
+            "backup_root": str(backup),
+            "pending_body_access": "NO",
+        }
 
 
 def ensure_obsidian(apply: bool, set_open: bool) -> dict[str, Any]:
@@ -400,7 +1150,10 @@ def ensure_service_daemon(apply: bool) -> dict[str, Any]:
             "task_exists": bool(task.get("ok")),
             "would_change": not status.exists() or (sys.platform == "win32" and not task.get("ok")),
         }
-    result = run_command([sys.executable, str(script)], cwd=skill_root(), timeout=90)
+    arguments = [sys.executable, str(script)]
+    if os.environ.get("DECRETUM_MATRIX_BOOTSTRAP_INSTALL_CONTEXT") == "npm":
+        arguments.append("--no-start-now")
+    result = run_command(arguments, cwd=skill_root(), timeout=90)
     return {"ok": result["ok"], "changed": result["ok"], "script": str(script), "result": result}
 
 
@@ -677,23 +1430,7 @@ def step_status(step: dict[str, Any]) -> str:
     return "OK"
 
 
-def build_payload(args: argparse.Namespace) -> dict[str, Any]:
-    if args.check_only:
-        args.apply = False
-    steps: dict[str, Any] = {}
-    if not args.skip_supercc_deps:
-        steps["supercc_dependencies"] = ensure_supercc_deps(args)
-    if not args.supercc_deps_only:
-        steps["shared_shiguan"] = ensure_shared(args.apply)
-        if not args.skip_obsidian:
-            steps["obsidian_shared_vault"] = ensure_obsidian(args.apply, args.set_open_obsidian)
-        if not args.skip_service_daemon:
-            steps["shiguan_service_daemon"] = ensure_service_daemon(args.apply)
-        if not args.skip_memory:
-            steps["codex_memory"] = enable_codex_memory(args.apply)
-            steps["hermes_memory"] = enable_hermes_memory(args.apply)
-        if not args.skip_memory_bridge:
-            steps["memory_shiguan_bridge"] = run_memory_bridge(args.apply, args.result_json)
+def _bootstrap_payload(args: argparse.Namespace, steps: dict[str, Any]) -> dict[str, Any]:
     ok = all(bool(step.get("ok")) for step in steps.values())
     changed = any(bool(step.get("changed")) for step in steps.values())
     return {
@@ -706,6 +1443,51 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "step_status": {name: step_status(step) for name, step in steps.items()},
         "steps": steps,
     }
+
+
+def build_payload(args: argparse.Namespace) -> dict[str, Any]:
+    if args.check_only:
+        args.apply = False
+    if args.rollback_shared_transaction:
+        args.apply = True
+        steps = {
+            "shared_transaction_rollback": rollback_shared_transaction(
+                Path(args.rollback_shared_transaction)
+            )
+        }
+        return _bootstrap_payload(args, steps)
+    if args.shared_shiguan_and_obsidian_only:
+        args.skip_supercc_deps = True
+        args.supercc_deps_only = False
+        args.skip_memory = True
+        args.skip_memory_bridge = True
+    steps: dict[str, Any] = {}
+    if not args.skip_supercc_deps:
+        steps["supercc_dependencies"] = ensure_supercc_deps(args)
+        if not steps["supercc_dependencies"].get("ok"):
+            return _bootstrap_payload(args, steps)
+    if not args.supercc_deps_only:
+        steps["shared_shiguan"] = ensure_shared(args.apply)
+        if not steps["shared_shiguan"].get("ok"):
+            return _bootstrap_payload(args, steps)
+        if not args.skip_obsidian:
+            steps["obsidian_shared_vault"] = ensure_obsidian(args.apply, args.set_open_obsidian)
+            if not steps["obsidian_shared_vault"].get("ok"):
+                return _bootstrap_payload(args, steps)
+        if not args.skip_service_daemon:
+            steps["shiguan_service_daemon"] = ensure_service_daemon(args.apply)
+            if not steps["shiguan_service_daemon"].get("ok"):
+                return _bootstrap_payload(args, steps)
+        if not args.skip_memory:
+            steps["codex_memory"] = enable_codex_memory(args.apply)
+            if not steps["codex_memory"].get("ok"):
+                return _bootstrap_payload(args, steps)
+            steps["hermes_memory"] = enable_hermes_memory(args.apply)
+            if not steps["hermes_memory"].get("ok"):
+                return _bootstrap_payload(args, steps)
+        if not args.skip_memory_bridge:
+            steps["memory_shiguan_bridge"] = run_memory_bridge(args.apply, args.result_json)
+    return _bootstrap_payload(args, steps)
 
 
 def render_text(payload: dict[str, Any]) -> str:
@@ -730,6 +1512,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-service-daemon", action="store_true")
     parser.add_argument("--skip-memory", action="store_true")
     parser.add_argument("--skip-memory-bridge", action="store_true")
+    parser.add_argument(
+        "--rollback-shared-transaction",
+        default="",
+        help="Rollback one verified shared-Shiguan topology+seed transaction by backup root.",
+    )
+    parser.add_argument(
+        "--shared-shiguan-and-obsidian-only",
+        action="store_true",
+        help="Install the physical shared Shiguan topology, Obsidian binding, and service only.",
+    )
     parser.add_argument("--set-open-obsidian", action="store_true", help="Mark the shared Shiguan vault as Obsidian's open vault.")
     parser.add_argument("--no-squad-init", action="store_true", help="Do not run squad init when the workspace lacks .squad.")
     parser.add_argument("--allow-unverified-release-asset", action="store_true", help="Install a release asset even if no sha256 digest/sidecar is available.")

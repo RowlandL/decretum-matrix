@@ -16,7 +16,7 @@ sys.dont_write_bytecode = True
 import tempfile
 
 from court_platform import user_data_base
-from shiguan_paths import ensure_shared_seed, reference_path, references_root
+from shiguan_paths import ensure_shared_seed, reference_path, references_root, runtime_code_root
 from court_file_lock import atomic_write_text, file_lock
 
 
@@ -27,7 +27,7 @@ def process_query_gone(error):
 
 
 def daemon_script() -> Path:
-    return Path(__file__).with_name("shiguan_autosync_daemon.py")
+    return runtime_code_root() / "scripts" / "shiguan_autosync_daemon.py"
 
 
 def trusted_daemon_script_paths() -> set[str]:
@@ -440,7 +440,7 @@ def start_daemon(interval: int) -> int:
     env["COURT_DISABLE_AGENT_PRESENCE"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     kwargs: dict[str, object] = {
-        "cwd": str(Path(__file__).resolve().parents[1]),
+        "cwd": str(runtime_code_root()),
         "stdout": handle,
         "stderr": subprocess.STDOUT,
         "stdin": subprocess.DEVNULL,
