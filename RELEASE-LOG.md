@@ -21,8 +21,9 @@ payload manifest、artifact 与 npm candidate 身份已对齐 beta0.5.13；本�
 4. 根 `SKILL.md` 与 role preload 收敛到最大 19,360 bytes；正式 10+10 样本中
    cold p50 提升 88.55%，warm p50 提升 99.34%，fast process count 为 1。
 5. 安装更新只覆盖 manifest 管理的公开文件；覆盖前持久化逐文件 SHA256 备份，
-   失败自动回滚，成功回执提供 `backup_root` 和显式 rollback。史馆实录、目标独有
-   文件与 private/pending 正文不进入覆盖集。
+   失败自动回滚，成功回执提供 `backup_root` 和显式 rollback。史馆实录、索引、
+   evidence/data 与 private/pending 正文不读取、不扫描、不哈希且不进入覆盖集；
+   目标独有文件保持原样。
 6. npm 包增加无 lifecycle side effect 的 `decretum-matrix` bin；Windows、macOS、
    Linux clean-home 的 source/local-tgz help receipt 完全一致。
 7. final source audit 的 40 个 source steps 全部通过；temporary Git index 只交给

@@ -33,8 +33,8 @@
     {
       "mode": "100644",
       "path": "CHANGELOG.md",
-      "sha256": "9b6c67601b4bd3d9696b38972396496f6402f5763e32f3bf5782172e3bb6d95f",
-      "size": 11679
+      "sha256": "f9f4a0e035a8fcb1675ce7ed7b72d533412023df9dc651c8a04a28e6fcd98014",
+      "size": 11838
     },
     {
       "mode": "100644",
@@ -93,8 +93,8 @@
     {
       "mode": "100644",
       "path": "RELEASE-LOG.md",
-      "sha256": "d5f0ce7f254bcd46fc5c41aeccac5814b17386bb11f981a8689d53976507b787",
-      "size": 19708
+      "sha256": "8eb3306604ca835f434970deb7ee7c191c047c03f65534914c25d667b8fe9ea8",
+      "size": 19786
     },
     {
       "mode": "100644",
@@ -819,8 +819,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_active_copy_hashes.py",
-      "sha256": "0a74a8f173934fac8e8bcdb5f17dc33648b2c7ae14df9a44e3b7be2f8dd2127c",
-      "size": 9715
+      "sha256": "c477dca8e3cb2fd1d8ac9dcb2e76fde6dfae09441115f8bdd30fd8597b9da596",
+      "size": 11185
     },
     {
       "mode": "100644",
@@ -993,8 +993,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_install_current_agent_copy.py",
-      "sha256": "ec82acb09b4cd030aeba6091e33c9c2a03e8c288512a25dd515b676e194a5650",
-      "size": 109350
+      "sha256": "b4e023f43ef43323aa2a63b024f3b4cefc242eef59b2d484fe7cff463cdc4bdd",
+      "size": 111470
     },
     {
       "mode": "100644",
@@ -1437,8 +1437,8 @@
     {
       "mode": "100644",
       "path": "scripts/install_current_agent_copy.py",
-      "sha256": "e3758991dae5b2147dfed9703cbe6307d0e64c3f32184de082a01f0aeb2b74f8",
-      "size": 71535
+      "sha256": "de88215c27b31fc0f2e90d0cef7baf7c6a06a3b6f6b7fe0e15c51008b7102696",
+      "size": 71108
     },
     {
       "mode": "100644",
@@ -1750,10 +1750,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6122052,
+    "payload_bytes": 6125452,
     "payload_file_count": 286,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "f5fe53fd7266afa8448b90674fd72ef0f91ccb4476560edc5316c0d4249d4dfb",
+    "payload_index_sha256": "665094fa8fa7dd3e1930b1e432a0997d3b1eb8982064e9724a5558fe56c52808",
     "source_packaged_tracked_file_count": 278,
     "source_tracked_file_count": 305
   },

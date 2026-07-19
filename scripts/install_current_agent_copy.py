@@ -508,17 +508,7 @@ def _plan_projection_writes(
     replacements = 0
     seed_contract = manifest["protected_shared_agents_seeds"]
     assert isinstance(seed_contract, dict)
-    protected: list[tuple[PurePosixPath, bytes]] = []
-    for name, expected in sorted(seed_contract.items()):
-        relative = PurePosixPath(name)
-        source = source_root / Path(name)
-        if not _within(source, source_root) or source.is_symlink() or not source.is_file():
-            raise _InstallContractError("protected_anchor_source_invalid", name)
-        payload = source.read_bytes()
-        if hashlib.sha256(payload).hexdigest() != expected:
-            raise _InstallContractError("protected_anchor_source_drift", name)
-        protected.append((relative, payload))
-    protected_paths = {relative.as_posix() for relative, _payload in protected}
+    protected_paths = set(seed_contract)
     for _label, target, projection_name in selected:
         migration_source = (migration_sources or {}).get(target.resolve(strict=False))
         inspection_root = migration_source or target
@@ -527,15 +517,13 @@ def _plan_projection_writes(
             assert isinstance(values, list)
             expanded[projection_name] = _expand_projection(source_root, values)
         if projection_name != "shared_agents":
-            for relative, _payload in protected:
-                wrong_target = inspection_root / Path(relative.as_posix())
+            for protected_path in sorted(protected_paths):
+                wrong_target = inspection_root / Path(protected_path)
                 if wrong_target.exists() or wrong_target.is_symlink():
                     raise _InstallContractError(
                         "protected_anchor_wrong_target", wrong_target.as_posix()
                     )
-        entries = expanded[projection_name] + (
-            protected if projection_name == "shared_agents" else []
-        )
+        entries = expanded[projection_name]
         for relative, payload in entries:
             destination = target / Path(relative.as_posix())
             existing = inspection_root / Path(relative.as_posix())
@@ -1787,6 +1775,12 @@ def install_current_agent_copy(
             for item in transition_receipts
             if item.get("mode") == "LEGACY_MIGRATION"
         ],
+        "protected_shiguan_data": {
+            "status": "NO_READ_NO_WRITE_NO_MOVE_NO_REWRITE",
+            "paths": sorted(PROTECTED_SHARED_AGENT_PATHS),
+            "operation_count": 0,
+            "verification_authority": "accepted_package_manifest_metadata",
+        },
         "pending_body_accessed": False,
         "real_host_configuration_accessed": False,
     }

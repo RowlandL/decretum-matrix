@@ -16,6 +16,7 @@ from install_current_agent_copy import PROTECTED_SHARED_AGENT_CONTRACT_SHA256
 
 CANONICAL_INSTALL_DIRECTORY_NAME = "decretum-matrix"
 LEGACY_INSTALL_DIRECTORY_NAME = "court-capability-router"
+PROJECTION_MANIFEST_RELATIVE = Path("references/manifests/install-projection.v1.json")
 
 
 EXCLUDED_DIRS = {
@@ -111,38 +112,62 @@ def should_skip(path: Path, root: Path) -> bool:
 def forbidden_generated_artifacts(
     root: Path, allowed_protected: set[str] | None = None
 ) -> list[str]:
-    artifacts: list[str] = []
     allowed = allowed_protected or set()
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root)
-        text = relative.as_posix()
-        if text in allowed:
-            continue
-        if (
-            "__pycache__" in relative.parts
-            or relative.suffix.lower() == ".pyc"
-            or text in FORBIDDEN_GENERATED_EXACT
-            or ("capability-index" in relative.parts and path.name != "README.md")
-            or (text.startswith("references/startup-tasks/") and path.name != "README.md")
-            or (
-                any(text.startswith(f"references/shiguan-tree/{part}/") for part in ("branches", "leaves", "sources"))
-                and path.name != "README.md"
-            )
-        ):
-            artifacts.append(text)
-    return sorted(artifacts)
+    return sorted(
+        relative
+        for relative in FORBIDDEN_GENERATED_EXACT
+        if relative not in allowed
+        and (
+            (root / Path(relative)).exists()
+            or (root / Path(relative)).is_symlink()
+        )
+    )
 
 
 def iter_source_files(root: Path) -> list[Path]:
-    files: list[Path] = []
-    for path in sorted(root.rglob("*")):
-        if should_skip(path, root):
+    manifest_path = root / PROJECTION_MANIFEST_RELATIVE
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    projections = manifest.get("projections")
+    if not isinstance(projections, dict):
+        raise ValueError("install projection manifest has no projections")
+    entries = {
+        str(value)
+        for name in ("shared_agents", "portable_current_tool")
+        for value in projections.get(name, [])
+        if isinstance(value, str)
+    }
+    protected = {
+        str(value)
+        for value in manifest.get("protected_shared_agents_seeds", {})
+    }
+    files: set[Path] = set()
+    for relative_text in sorted(entries):
+        source = root / Path(relative_text)
+        if source.is_symlink():
+            raise ValueError(f"managed projection contains a symlink: {relative_text}")
+        if source.is_file():
+            relative = source.relative_to(root)
+            if relative.as_posix() not in protected:
+                files.add(relative)
             continue
-        if path.is_file():
-            files.append(path.relative_to(root))
-    return files
+        if not source.is_dir():
+            raise ValueError(f"managed projection path is missing: {relative_text}")
+        for child in sorted(source.rglob("*")):
+            if child.is_symlink():
+                raise ValueError(
+                    f"managed projection contains a symlink: {child.relative_to(root)}"
+                )
+            if not child.is_file():
+                continue
+            relative = child.relative_to(root)
+            if (
+                relative.as_posix() in protected
+                or "__pycache__" in relative.parts
+                or relative.suffix.lower() == ".pyc"
+            ):
+                continue
+            files.add(relative)
+    return sorted(files)
 
 
 def iter_union_files(roots: list[Path]) -> list[Path]:
@@ -181,25 +206,33 @@ def check(files: list[str] | None = None) -> dict[str, object]:
     legacy_conflicts = legacy_locator_conflicts(roots)
     missing_roots = [str(root) for root in roots if not root.exists()]
     forbidden_generated: dict[str, list[str]] = {}
+    shared_shiguan_paths = {
+        relative
+        for relative in FORBIDDEN_GENERATED_EXACT
+        if relative.startswith("references/shiguan-")
+        or relative.startswith("references/shiguan-tree/")
+    }
     for index, root in enumerate(roots):
         if root.exists():
             artifacts = forbidden_generated_artifacts(
-                root, set(protected) if index == 0 else None
+                root, shared_shiguan_paths if index == 0 else None
             )
             if artifacts:
                 forbidden_generated[str(root)] = artifacts
     protected_drift: list[dict[str, object]] = []
-    for relative, expected in protected.items():
-        path = roots[0] / Path(relative)
-        actual = sha256(path).lower() if path.is_file() and not path.is_symlink() else None
-        if actual != expected:
-            protected_drift.append(
-                {"file": relative, "expected": expected, "actual": actual}
-            )
     if files:
-        relatives = [Path(item) for item in files]
+        protected_requests = sorted(set(files) & set(protected))
+        if protected_requests:
+            contract_errors.append(
+                "protected_shiguan_file_requested:" + ",".join(protected_requests)
+            )
+        relatives = [Path(item) for item in files if item not in protected]
     else:
-        relatives = iter_union_files(roots)
+        try:
+            relatives = iter_union_files(roots)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            contract_errors.append(f"managed_projection_inventory:{type(exc).__name__}:{exc}")
+            relatives = []
 
     drift: list[dict[str, object]] = []
     for relative in relatives:
@@ -229,6 +262,8 @@ def check(files: list[str] | None = None) -> dict[str, object]:
         "forbidden_generated": forbidden_generated,
         "protected_anchor_drift": protected_drift,
         "protected_anchor_contract_errors": contract_errors,
+        "protected_shiguan_data_access": "NOT_RUN_NO_READ_POLICY",
+        "protected_shiguan_operation_count": 0,
         "legacy_locator_conflicts": legacy_conflicts,
     }
 

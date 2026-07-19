@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 from typing import Any, Callable
+from unittest import mock
 
 sys.dont_write_bytecode = True
 from install_current_agent_copy import PROTECTED_SHARED_AGENT_CONTRACT_SHA256
@@ -1470,13 +1471,10 @@ def _assert_projection(
     for relative in REPOSITORY_ONLY_FILES:
         if (target_root / Path(relative)).exists():
             errors.append(f"{name}:repository_only_installed:{relative}")
-    for relative, text in PROTECTED_SEEDS.items():
+    for relative in PROTECTED_SEEDS:
         path = target_root / Path(relative)
-        if ".agents" in target_root.parts:
-            if not path.is_file() or path.read_text(encoding="utf-8") != text:
-                errors.append(f"{name}:protected_seed_drift:{relative}")
-        elif path.exists():
-            errors.append(f"{name}:protected_seed_wrong_target:{relative}")
+        if path.exists() or path.is_symlink():
+            errors.append(f"{name}:protected_shiguan_path_installed:{relative}")
 
 
 def _tx_fixture(temp_root: Path, label: str, legacy: bool) -> tuple[object, ...]:
@@ -1907,29 +1905,85 @@ def _check_cases(
         else:
             passed += 1
 
-    for name, target_kind, reason in (
-        ("protected_anchor_drift_rejected", "agents", "protected_anchor_drift"),
-        ("protected_anchor_wrong_target_rejected", "codex", "protected_anchor_wrong_target"),
-        ("protected_anchor_source_drift_rejected", "source", "protected_anchor_source_drift"),
-    ):
-        source, home, manifest, roots = _case_fixture(temp_root, name)
-        target = source if target_kind == "source" else (
-            _agents_root(home) if target_kind == "agents" else roots["codex"]
-        )
-        relative = next(iter(PROTECTED_SEEDS))
-        _write_files(target, {relative: "drift\n"})
-        before = _snapshots([_agents_root(home), roots["codex"]])
-        if _require_rejection(
+    relative = next(iter(PROTECTED_SEEDS))
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "protected-anchor-no-read"
+    )
+    protected_target = _agents_root(home) / Path(relative)
+    _write_files(_agents_root(home), {relative: "existing private record\n"})
+    protected_before = protected_target.read_bytes()
+    original_read_bytes = Path.read_bytes
+
+    def reject_protected_read(path: Path) -> bytes:
+        if path.resolve(strict=False) == protected_target.resolve(strict=False):
+            raise AssertionError("protected Shiguan bytes were read")
+        return original_read_bytes(path)
+
+    with mock.patch.object(Path, "read_bytes", reject_protected_read):
+        protected_result = _require_success(
             install,
-            name=name,
-            reason=reason,
+            name="protected_anchor_bytes_not_read_or_written",
+            expected_targets=[_agents_root(home), roots["codex"]],
             errors=errors,
             **install_args(source, home, manifest, roots, write=True),
-        ):
-            if _snapshots([_agents_root(home), roots["codex"]]) != before:
-                errors.append(f"{name}:partial_mutation")
-            else:
-                passed += 1
+        )
+    protected_contract = (
+        protected_result.get("protected_shiguan_data")
+        if isinstance(protected_result, dict)
+        else None
+    )
+    if (
+        not isinstance(protected_contract, dict)
+        or protected_contract.get("status")
+        != "NO_READ_NO_WRITE_NO_MOVE_NO_REWRITE"
+        or protected_contract.get("operation_count") != 0
+        or protected_target.read_bytes() != protected_before
+    ):
+        errors.append("protected_anchor_bytes_not_read_or_written:contract_failed")
+    else:
+        passed += 1
+
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "protected-source-no-read"
+    )
+    protected_source = source / Path(relative)
+    protected_source.write_text("source drift\n", encoding="utf-8")
+    source_before = protected_source.read_bytes()
+
+    def reject_protected_source_read(path: Path) -> bytes:
+        if path.resolve(strict=False) == protected_source.resolve(strict=False):
+            raise AssertionError("protected package seed bytes were read")
+        return original_read_bytes(path)
+
+    with mock.patch.object(Path, "read_bytes", reject_protected_source_read):
+        source_result = _require_success(
+            install,
+            name="protected_anchor_source_bytes_not_read",
+            expected_targets=[_agents_root(home), roots["codex"]],
+            errors=errors,
+            **install_args(source, home, manifest, roots, write=False),
+        )
+    if source_result is None or protected_source.read_bytes() != source_before:
+        errors.append("protected_anchor_source_bytes_not_read:contract_failed")
+    else:
+        passed += 1
+
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "protected-anchor-wrong-target"
+    )
+    _write_files(roots["codex"], {relative: "second physical record\n"})
+    before = _snapshots([_agents_root(home), roots["codex"]])
+    if _require_rejection(
+        install,
+        name="protected_anchor_wrong_target_rejected",
+        reason="protected_anchor_wrong_target",
+        errors=errors,
+        **install_args(source, home, manifest, roots, write=True),
+    ):
+        if _snapshots([_agents_root(home), roots["codex"]]) != before:
+            errors.append("protected_anchor_wrong_target_rejected:partial_mutation")
+        else:
+            passed += 1
 
     bad_manifest = _fixture_manifest()
     protected = bad_manifest["protected_shared_agents_seeds"]
@@ -2821,6 +2875,7 @@ def evaluate() -> Payload:
         "controller_fixture_storage_kind": "json_fixture",
         "controller_fixture_synthetic": True,
         "real_cc_switch_or_codex_accessed": False,
+        "protected_shiguan_data_accessed": False,
         "pending_body_accessed": False,
         "errors": errors,
     }
