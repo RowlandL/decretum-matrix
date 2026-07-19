@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.0-hotfix-v1",
+  "latest_tag": "beta1.0.0-hotfix-v2",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -82,6 +82,17 @@
         "npm 使用 1.0.0-beta.0.hotfix.1，保留既有 1.0.0-beta.0 不可覆盖证据。"
       ],
       "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix release-notes.md。"
+    },
+    {
+      "tag": "beta1.0.0-hotfix-v2",
+      "title": "Decretum Matrix beta1.0.0-hotfix-v2",
+      "summary": "本 hotfix 修复 Windows GBK 环境中 npm postinstall 最终结构化回执无法输出的问题。",
+      "highlights": [
+        "npm Python launcher 在进程入口统一使用 UTF-8 stdout/stderr。",
+        "新增严格 GBK stream 行为回归，验证 U+FFFD 可稳定输出。",
+        "v1 保留不可变发布证据，v2 使用 1.0.0-beta.0.hotfix.2 取代。"
+      ],
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix-v2 release notes。"
     }
   ]
 }

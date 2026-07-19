@@ -19,6 +19,16 @@ import zipfile
 
 sys.dont_write_bytecode = True
 
+
+def _configure_standard_streams(streams: tuple[object, ...] | None = None) -> None:
+    for stream in streams or (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
+_configure_standard_streams()
+
 ARCHIVE_ROOT = "decretum-matrix"
 MAX_MEMBER_COUNT = 5000
 MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024

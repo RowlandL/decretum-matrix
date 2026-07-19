@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -693,6 +695,40 @@ def evaluate_archive_receipt() -> dict[str, object]:
     }
 
 
+def evaluate_npm_launcher_stdio() -> dict[str, object]:
+    problems: list[str] = []
+    encoded = b""
+    try:
+        launcher_path = ROOT / "bin" / "decretum-matrix.py"
+        spec = importlib.util.spec_from_file_location(
+            "decretum_matrix_npm_launcher_stdio_check",
+            launcher_path,
+        )
+        if spec is None or spec.loader is None:
+            raise AssertionError("npm launcher import spec unavailable")
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        buffer = io.BytesIO()
+        stream = io.TextIOWrapper(buffer, encoding="gbk", errors="strict")
+        launcher._configure_standard_streams((stream,))
+        stream.write(json.dumps({"replacement": "\ufffd"}, ensure_ascii=False))
+        stream.flush()
+        encoded = buffer.getvalue()
+        stream.detach()
+        if encoded.decode("utf-8") != '{"replacement": "\ufffd"}':
+            problems.append("npm_launcher_utf8_payload_mismatch")
+    except (AssertionError, ImportError, OSError, UnicodeError, AttributeError) as exc:
+        problems.append(f"npm_launcher_stdio_unavailable:{type(exc).__name__}:{exc}")
+    return {
+        "schema": "decretum.cli_npm_stdio_check.v1",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_NPM_STDIO_UTF8": "PASS" if not problems else "FAIL",
+        "encoded_sha256": __import__("hashlib").sha256(encoded).hexdigest() if encoded else None,
+        "problems": problems,
+    }
+
+
 def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
     selected = []
     if args.inventory_only:
@@ -715,6 +751,7 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
             evaluate_v2_normalization(),
             evaluate_install_core(),
             evaluate_archive_receipt(),
+            evaluate_npm_launcher_stdio(),
         ]
     return selected
 

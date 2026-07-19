@@ -2,6 +2,29 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta1.0.0-hotfix-v2 - 2026-07-20
+
+### 发布结论
+
+`hotfix-v1` 在真实 GitHub Packages 空白 Windows HOME 安装中暴露 GBK 输出失败：
+npm `postinstall` 已完成受管安装，但 launcher 在打印含 `U+FFFD` 的最终 JSON 时
+触发 `UnicodeEncodeError`。v1 的 tag/npm 不可覆盖，因此本版本以最小后继发布修复。
+
+### 核心修复
+
+1. `bin/decretum-matrix.py` 在任何输出前把 stdout/stderr 重配置为 UTF-8，并以
+   `errors=replace` 保持诊断可输出。
+2. unified CLI gate 使用严格 GBK `TextIOWrapper` 写入替换字符，要求实际输出可按
+   UTF-8 解码；不接受仅靠环境变量绕过。
+3. 产品版本为 `beta1.0.0-hotfix-v2`，npm 映射为
+   `1.0.0-beta.0.hotfix.2`，继续使用 `beta` dist-tag。
+
+### 边界
+
+- v1 保留为不可变失败证据，v2 发布后再标记 superseded/deprecated。
+- 五根、pending/private、史馆数据和 ordinary/superCC carrier 修复均沿用 v1，
+  本次不扩大其语义或写集。
+
 ## beta1.0.0-hotfix-v1 - 2026-07-20
 
 ### 发布结论

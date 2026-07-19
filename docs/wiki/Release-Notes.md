@@ -1,5 +1,22 @@
 # Release Notes
 
+## beta1.0.0-hotfix-v2
+
+状态：Windows npm online-install 修复候选；最终状态由新 tag、Release、npm 与
+空白机回执证明。
+
+### 主要修复
+
+- npm Python launcher 在入口统一使用 UTF-8 stdout/stderr，避免 GBK 控制台打印
+  结构化 postinstall receipt 时触发 `UnicodeEncodeError`。
+- 新增严格 GBK stream 行为回归，直接验证 `U+FFFD` 能以 UTF-8 输出。
+- npm 版本为 `1.0.0-beta.0.hotfix.2`；已发布 v1 保留不可变并由 v2 取代。
+
+### 保持不变
+
+- ordinary/superCC carrier pointer 与 CLI archive receipt 修复沿用 v1。
+- 安装命令、五根、许可、pending/private 零访问与史馆保护边界不变。
+
 ## beta1.0.0-hotfix-v1
 
 状态：hotfix source candidate；安装、tag、GitHub Release 与 npm 由最终发布回执证明。

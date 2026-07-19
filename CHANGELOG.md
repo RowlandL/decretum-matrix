@@ -1,5 +1,22 @@
 # Changelog
 
+## beta1.0.0-hotfix-v2 - 2026-07-20
+
+### Fixed
+
+- Forced the packaged Python launcher to reconfigure stdout/stderr as UTF-8,
+  preventing Windows GBK `npm postinstall` from failing while printing a
+  structured receipt containing replacement characters.
+- Added a behavioral GBK stream regression to the unified CLI gate so the
+  launcher must encode `U+FFFD` as UTF-8 rather than relying on host code pages.
+
+### Release boundary
+
+- Product/tag/artifact version: `beta1.0.0-hotfix-v2`.
+- npm version: `1.0.0-beta.0.hotfix.2` on the existing `beta` dist-tag.
+- Published `hotfix-v1` remains immutable evidence and is superseded rather
+  than overwritten.
+
 ## beta1.0.0-hotfix-v1 - 2026-07-20
 
 ### Fixed

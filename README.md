@@ -16,7 +16,7 @@ npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 decretum-matrix --format json --help
 ```
 
-当前源码候选为 `1.0.0-beta.0.hotfix.1`。安装命令解析到 registry 已发布的 `beta`；
+当前源码候选为 `1.0.0-beta.0.hotfix.2`。安装命令解析到 registry 已发布的 `beta`；
 实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
 `read:packages`，且不得持久化 token。
 
@@ -58,9 +58,12 @@ $decretum-matrix
 
 ## 当前版本
 
-当前源码分支为 `release/beta1.0.0-hotfix-v1`，发布身份以 [`VERSION`](VERSION) 和
+当前源码分支为 `release/beta1.0.0-hotfix-v2`，发布身份以 [`VERSION`](VERSION) 和
 [`release-manifest.json`](release-manifest.json) 为准。tag、GitHub Release、npm
 以及线上 Wiki 的成功状态只由对应发布回执证明。
+
+`hotfix-v1` 保留不可变发布证据；`hotfix-v2` 修复其 Windows GBK npm
+`postinstall` 最终 JSON 输出失败。
 
 ## 许可
 

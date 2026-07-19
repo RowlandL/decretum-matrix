@@ -31,7 +31,7 @@ sys.dont_write_bytecode = True
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
-RELEASE_LABEL = "beta1.0.0-hotfix-v1"
+RELEASE_LABEL = "beta1.0.0-hotfix-v2"
 LICENSE_ID = "AGPL-3.0-only"
 # Canonical package and physical install root. Legacy locators may only resolve
 # to this same authority through an explicitly validated compatibility link.

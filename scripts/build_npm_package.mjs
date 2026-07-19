@@ -1276,7 +1276,7 @@ export async function runSyntheticSelfTest() {
       sidecar_name: `decretum-matrix-${futureReleaseLabel}.zip.sha256`,
       version_core: "7.8.9",
     });
-    const hotfixReleaseLabel = "beta1.0.0-hotfix-v1";
+    const hotfixReleaseLabel = "beta1.0.0-hotfix-v2";
     const hotfix = deriveReleaseIdentity(hotfixReleaseLabel, {
       artifact_name: `decretum-matrix-${hotfixReleaseLabel}.zip`,
       attestation_name: `decretum-matrix-${hotfixReleaseLabel}.release-attestation.json`,
@@ -1298,7 +1298,7 @@ export async function runSyntheticSelfTest() {
       "future-generic identity derivation failed",
     );
     assert(
-      hotfix.packageVersion === "1.0.0-beta.0.hotfix.1" &&
+      hotfix.packageVersion === "1.0.0-beta.0.hotfix.2" &&
         hotfix.tagRef === `refs/tags/${hotfixReleaseLabel}`,
       "hotfix identity derivation failed",
     );
