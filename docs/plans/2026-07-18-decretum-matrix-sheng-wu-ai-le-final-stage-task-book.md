@@ -192,3 +192,23 @@ FIRST_CURSOR: BETA1_VERSION_ALIGNMENT_GATE
 - 新 branch 必须从 A02 accepted commit 创建并保留该 start-head 证据；随后首先通过 `BETA1_VERSION_ALIGNMENT_GATE`，将所有版本、包、文档、SBOM、npm 与安装身份面机械收敛到 `beta1.0.0`。在该 gate 通过前只可做版本对齐，不得把 branch 名冒充产品版号完成。
 - beta1.0.0 的外部发布不由本 overlay 自动授权；push、tag、GitHub release 与 npm publish 仍须在本最终阶段对应发布游标取得最新明确授权并通过 release-fastpath。
 - 最终 handoff receipt 必须绑定 A02 accepted commit、beta0.5.13 发布终态、`release/beta1.0.0`、实际复用 worktree、root/child index=`0/0`、clean、任务书/compact handoff SHA-256 和 `SHENG_WU_AI_LE_FINAL_STAGE_READY` 游标。
+
+## 13. 2026-07-19 A02 完成态与最终阶段启动交接（append-only activation receipt）
+
+```text
+A02_COMPLETION: PASS
+SOURCE_ACCEPTED_VERSION: beta0.5.13
+SOURCE_ACCEPTED_COMMIT: 907301cfc308debfe5d64ce3951fe96ee342b2be
+SOURCE_PUBLICATION_TERMINAL: PASS
+TARGET_VERSION: beta1.0.0
+TARGET_BRANCH: release/beta1.0.0
+REUSED_WORKTREE: D:\project\worktrees\decretum-matrix\CCR-R2-SHIR-20260714-A02-beta0.5.13-handoff
+NEXT_CURSOR: BETA1_VERSION_ALIGNMENT_GATE
+STAGE_STATE: SHENG_WU_AI_LE_FINAL_STAGE_READY
+NEXT_MAJOR_STAGE: NONE
+```
+
+- A02 的 candidate、安装、五根、物理史馆、GitHub prerelease、npm beta package、在线空白机安装与 Wiki 终态均已取得可复核 receipt；publication terminal receipt SHA-256=`3EE3D687E3DF36EDC92F0E6977A07010F2B7A0A73762B8863D4D9359463296FC`。
+- `release/beta1.0.0` 已从 A02 accepted commit 创建并复用唯一既有 child worktree；未创建新 worktree，未创建 `beta0.5.14`，root/child index 在交接窗口外保持 `0/0`。
+- 本段只激活最终阶段并固定首游标，不把 branch 名冒充产品版本已对齐。下一原子动作必须是 `BETA1_VERSION_ALIGNMENT_GATE`；在该 gate 完成前不得实施工作包 A-G。
+- beta1.0.0 外部发布仍未授权；`pending_body_access=NO`，`OFFICE_PACK_Q1_Q8=DEFERRED_TO_QUEUED_POST_A02_HANDOFF` 保持不变。
