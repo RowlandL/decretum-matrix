@@ -53,6 +53,7 @@ def gate(
     next_route: str,
     question: str = "",
     target_task_id: str | None = None,
+    understanding: dict[str, object] | None = None,
 ) -> dict[str, object]:
     value: dict[str, object] = {
         "schema": INTAKE_SCHEMA,
@@ -71,6 +72,8 @@ def gate(
     }
     if target_task_id is not None:
         value["target_task_id"] = target_task_id
+    if understanding is not None:
+        value["understanding"] = understanding
     return value
 
 
@@ -91,6 +94,9 @@ PASS_CASES: list[tuple[str, dict[str, object]]] = [
             consent="EXPLICIT",
             requires_tools=True,
             next_route="THREE_DEPARTMENTS",
+            understanding=deepcopy(
+                court_intake_gate.minimal_formal_task_example()["understanding"]
+            ),
         ),
     ),
     (
@@ -436,10 +442,19 @@ def check_public_intake_contract() -> None:
     properties = schema.get("properties")
     require(schema.get("type") == "object", "public intake schema is not object-shaped")
     require(schema.get("additionalProperties") is False, "public intake schema is not closed-world")
-    require(required == set(PASS_BY_NAME["formal_task"]), "public intake schema required fields drifted")
+    require(
+        required == set(PASS_BY_NAME["formal_task"]) - {"understanding"},
+        "public intake schema required fields drifted",
+    )
     require(isinstance(properties, dict), "public intake schema properties missing")
-    require(set(properties) == required | {"target_task_id"}, "public intake optional fields drifted")
-    require(schema.get("optional") == ["target_task_id"], "public intake optional field list missing")
+    require(
+        set(properties) == required | {"target_task_id", "understanding"},
+        "public intake optional fields drifted",
+    )
+    require(
+        schema.get("optional") == ["target_task_id", "understanding"],
+        "public intake optional field list missing",
+    )
     require(properties["schema"].get("const") == INTAKE_SCHEMA, "public intake schema id drifted")
     for field in ("active_decree", "requires_tools", "mutates_state", "risk_present"):
         require(properties[field].get("type") == "boolean", f"public intake type drifted:{field}")
@@ -454,10 +469,17 @@ def check_public_intake_contract() -> None:
         "next_route",
     ):
         require(isinstance(properties[field].get("enum"), list), f"public intake enum missing:{field}")
+    require(
+        properties["understanding"].get("$id") == "court.request_understanding.v1",
+        "public understanding schema id drifted",
+    )
 
     example = example_factory()
     require_new_formal_task_gate(example)
-    require(set(example) == required, "minimal FORMAL_TASK example is not schema-complete")
+    require(
+        set(example) == required | {"understanding"},
+        "minimal FORMAL_TASK example is not schema-complete",
+    )
 
     invalid = {
         "schema": "court.conversation_gate.v0",

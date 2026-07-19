@@ -469,6 +469,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_governance_framework.py",
+      "command": "check-governance-framework",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_governance_framework.py",
+      "id": "check.check-governance-framework",
+      "legacy_path": "scripts/check_governance_framework.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_install_current_agent_copy.py",
       "command": "check-install-current-agent-copy",
       "compatibility_state": "unified_compatibility_adapter",

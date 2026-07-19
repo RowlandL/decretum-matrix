@@ -7980,7 +7980,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a court task in Pending from documented JSON intake",
         description=(
             "Create from court.conversation_gate.v1 JSON with a minimal FORMAL_TASK example from "
-            "intake-template. --charter is a required nonempty exact UTF-8 charter. An omitted "
+            "intake-template. New formal work includes court.request_understanding.v1 with goal, "
+            "usage scenario, key requirements, acceptance criteria, and a minimum score of 95. "
+            "--charter is a required nonempty exact UTF-8 charter. An omitted "
             "capsule is safely generated; a custom court.semantic.invariant_capsule.v1 has exactly "
             "13 fields, latest_decree_sha256 == charter_sha256 == sha256(exact UTF-8 charter), "
             "a 256-byte UTF-8 prefix anchor, and a 2048-byte canonical limit. Use intake-schema, "
@@ -8000,7 +8002,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--intake-file",
         type=Path,
         required=True,
-        help="court.conversation_gate.v1 JSON; see intake-schema and intake-template",
+        help=(
+            "court.conversation_gate.v1 JSON with court.request_understanding.v1 score >= 95; "
+            "see intake-schema and intake-template"
+        ),
     )
     create_capsule = create.add_mutually_exclusive_group()
     create_capsule.add_argument(

@@ -9,6 +9,10 @@ import subprocess
 import sys
 import tempfile
 
+sys.dont_write_bytecode = True
+
+from court_intake_gate import minimal_request_understanding_example
+
 
 def main() -> int:
     script = Path(__file__).resolve().parent / "court_cli.py"
@@ -32,6 +36,7 @@ def main() -> int:
                     "next_route": "THREE_DEPARTMENTS",
                     "question": "",
                     "rationale": "concurrency smoke formal task fixture",
+                    "understanding": minimal_request_understanding_example(),
                 }
             ),
             encoding="utf-8",

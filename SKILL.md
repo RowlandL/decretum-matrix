@@ -28,6 +28,7 @@ description: Decretum Matrix（诏令矩阵） routes skills, MCPs, CLIs, and ag
 - 固定层级：用户 -> 太子；太子只调中书省、门下省、尚书省；尚书省调六部；六部只调本部工坊/工匠。任何 direct-superior 违规结果都隔离，不得集成。
 - 每次普通派生前运行 `scripts/court_cli.py agent-admit`，核验 P00、层级、容量、预算、写集、preload、实例与停止条件。
 - 能力选择必须 registry-first / index-first，先查 [官籍](references/court-capability-registry.md)。当前工具兼容项由 `libu-hr`（吏部）负责维护；不因名称相似直接选用能力。
+- 通用任务治理框架通过 `references/manifests/governance-implementations.v1.json` 装载治理实现；`three-departments-six-ministries` 是唯一默认官方实现。参考实现不得改变当前 runtime、证据、权限、直接上级或史馆权威。
 - 共享史馆位于受保护的 `.agents` / shared Shiguan 当前工具边界。安装默认只投影 `.agents` 与 current-tool；未经最新明确用户授权，不改其他工具。
 - closeout / 结诏必须经过门下复核，并在允许写回时由 `scripts/archive_checkpoint.py` 形成可验证史馆记录。
 
@@ -60,6 +61,7 @@ description: Decretum Matrix（诏令矩阵） routes skills, MCPs, CLIs, and ag
 ## Common Hard Gates
 
 - Formal decree 先形成紧凑 semantic charter：`旨意`、`非目标`、`任务边界`、`允许动作`、`禁止动作`、`验收标准`、`证据要求`、`停止门禁`、`史馆记录策略`。
+- 非平凡 intake 先评估对目标、使用场景、关键要求和验收标准的理解充分度。低于 95 时一次只问一个最能改变结果的问题，必要时给 2–4 个互斥选项；达到 95 后先简要复述并确认，复述本身不得创建正式任务，确认后才进入直接执行态。若最新旨意已足够明确或明确免确认，则直接执行、不强行提问。不得重复提问或为了追问而追问。
 - 非平凡任务先经三省：中书省拟旨/验收，门下省封驳风险/隐私/漂移，尚书省评估派遣/资源/回滚；随后 `三省上奏`，太子综合为 `太子回奏`。缺失的高影响决定按 `太子上奏下一项问题：...` 一次只问一项。
 - `approval` 默认只读；`autonomous` 可在明确范围内执行和写入；`super` 可自动执行范围内 shell、写入、web、MCP、配置和多 agente，但均不授权不可逆破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
 - `superCC` 必须由最新旨意明确；它是 `super + selected runtime`。Normal superCC 需 zellij+squad 和 office-client 证据；显性核心为太子+三省，六部只由尚书省派遣。
@@ -101,6 +103,7 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 
 - 权威 runtime Shiguan root 由 `scripts/shiguan_paths.py` 解析，默认 `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`；skill-local `references/` 只含 governing references 与 portable seeds。
 - Formal decree 在可写时用 `scripts/archive_checkpoint.py` 记录阶段链和最终结诏。记录是证据，不覆盖最新旨意或 governing source。
+- 史馆 GBrain 只提供 metadata-first 召回与认知支持，不取得当前任务执行权；`decretum.gbrain.recall.v1` 必须保持 advisory、无执行权且最新旨意优先。
 - `references/shiguan-imports/pending/` 仅允许 metadata governance。没有不可伪造 host capability 时，真实 pending/private bodies 必须保持 unopened、unhashed、unmoved、undeleted、unmarked-seen；fixture authorization 不是 production authorization。
 - Obsidian 是 preserve-only 管理面，不是权威。导入回到 pending，需三省会审/门下复核。
 - 每个 decree 结束时裁定 `记忆裁定：WRITE | PROPOSE | SKIP | DEFERRED`。WRITE 需要最新边界与门下批准；不存 secrets、raw private logs、一次性输出、未验证推测或未经许可的个人数据。
@@ -136,6 +139,7 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 python -B scripts/quick_validate.py .
 python -B scripts/check_catalog.py --strict
 python -B scripts/check_portability.py
+python -B scripts/check_governance_framework.py --json
 ```
 
 包装只在明确发布/安装/handoff 阶段进行。`package-ready` 前必须通过当前 release gates，并排除 secrets、private/pending bodies、raw logs、host-local Shiguan records、generated indexes、plan archives、memory decisions、Obsidian credentials、peer state 与无关项目。安装只覆盖 manifest 管理的公开文件；史馆实录不覆盖，替换前保留可核验备份，失败自动回滚，成功回执保留显式 rollback 路径。外部发布仍需最新授权和对应 fastpath 门禁。

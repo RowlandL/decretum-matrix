@@ -9,6 +9,7 @@
 - [Shiguan Lineage And Court Code](#shiguan-lineage-and-court-code)
 - [史馆实录](#史馆实录)
 - [Token Three-Level Optimization / 令牌三级优化](#token-three-level-optimization--令牌三级优化)
+- [Framework GBrain Contract](#framework-gbrain-contract)
 - [Codex/Hermes Internal Memory Bridge](#codexhermes-internal-memory-bridge)
 - [Memory Conflict Downgrade Rules](#memory-conflict-downgrade-rules)
 - [Memory Decision Gate](#memory-decision-gate)
@@ -333,6 +334,27 @@ summary/evidence or full record as
 `token_optimization_policy=PASSED | PARTIAL | FAILED | authority_blocked`. A
 `PARTIAL` or `FAILED` gate must name whether the problem was imprecise metadata,
 overlong body copying, or eager loading of unrelated sources.
+
+## Framework GBrain Contract
+
+史馆 GBrain is the framework-level audit and recall service shared by every
+governance implementation. It reuses the authoritative shared Shiguan index,
+archives, and existing memory-decision tools; it does not create a second store
+or copy native private memory bodies.
+
+`scripts/shiguan_gbrain.py` exposes the existing scoring/order behavior and a
+metadata-only `decretum.gbrain.recall.v1` envelope. Every recall sets
+`authority=advisory`, `execution_authority=false`, and
+`current_decree_precedence=true`. Matches retain source, evidence, record time,
+memory decision, applicability, and conflict status. Expired or conflicting
+memory remains discoverable with its provenance, but cannot authorize current
+actions or override the latest decree.
+
+The same Shiguan entries and query terms must produce the same ordered recall
+content across governance implementations. Only the requesting governance id
+may differ. Memory proposal and reevaluation continue through
+`memory_decision.py`, `reevaluate_memory_decisions.py`, and Menxia approval;
+GBrain recall itself never writes durable memory.
 
 ## Codex/Hermes Internal Memory Bridge
 

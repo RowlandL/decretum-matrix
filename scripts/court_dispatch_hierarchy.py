@@ -13,6 +13,8 @@ from typing import Mapping, Sequence
 
 sys.dont_write_bytecode = True
 
+import governance_framework
+
 
 HIERARCHY_SCHEMA = "court.dispatch_hierarchy.v1"
 MANIFEST_PATH = (
@@ -296,6 +298,19 @@ def _manifest_bundle() -> tuple[dict[str, object], str]:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise _ManifestInvalid("hierarchy manifest is not valid UTF-8 JSON") from exc
     return _validate_manifest(parsed), digest
+
+
+@lru_cache(maxsize=1)
+def _official_governance_implementation() -> governance_framework.GovernanceImplementation:
+    registry = governance_framework.load_governance_registry(MANIFEST_PATH.parents[2])
+    implementation = registry["implementations"].get(
+        governance_framework.DEFAULT_GOVERNANCE_ID
+    )
+    if not isinstance(implementation, governance_framework.GovernanceImplementation):
+        raise _ManifestInvalid("official governance implementation missing")
+    if implementation.manifest_path.resolve() != MANIFEST_PATH.resolve():
+        raise _ManifestInvalid("official governance manifest path mismatch")
+    return implementation
 
 
 def _decision(
@@ -764,19 +779,24 @@ def validate_dispatch_hierarchy(
             manifest_sha256=manifest_sha256,
         )
 
-    allowed_edges = manifest["allowed_edges"]
-    assert isinstance(allowed_edges, set)
-    matching = [
-        edge
-        for edge in allowed_edges
-        if edge[1:] == (
-            normalized_action,
-            caller,
-            target,
-            target_superior,
+    implementation = _official_governance_implementation()
+    if implementation.manifest_sha256 != manifest_sha256:
+        return _decision(
+            allowed=False,
+            edge_class=None,
+            caller=caller,
+            target=target,
+            owner=None,
+            reasons=("dispatch_hierarchy_manifest_invalid",),
+            manifest_sha256=manifest_sha256,
         )
-    ]
-    if not matching:
+    governance_decision = governance_framework.evaluate_dispatch(
+        implementation,
+        caller=caller,
+        target=target,
+        target_direct_superior=target_superior,
+    )
+    if not governance_decision.allowed:
         return _decision(
             allowed=False,
             edge_class=None,
@@ -786,10 +806,9 @@ def validate_dispatch_hierarchy(
             reasons=("dispatch_hierarchy_edge_forbidden",),
             manifest_sha256=manifest_sha256,
         )
-    edge_class = matching[0][0]
     return _decision(
         allowed=True,
-        edge_class=edge_class,
+        edge_class=governance_decision.edge_class,
         caller=caller,
         target=target,
         owner=None,

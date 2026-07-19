@@ -1,4 +1,4 @@
-"""Generate and strictly validate the Decretum Matrix（诏令矩阵） beta0.5.13 payload manifest."""
+"""Generate and strictly validate the Decretum Matrix（诏令矩阵） beta1.0.0 payload manifest."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 PACKAGE_NAME = NAME
 LICENSE_ID = "AGPL-3.0-only"
-RELEASE_LABEL = "beta0.5.13"
-VERSION_CORE = "0.5.13"
-ARTIFACT_NAME = "decretum-matrix-beta0.5.13.zip"
+RELEASE_LABEL = "beta1.0.0"
+VERSION_CORE = "1.0.0"
+ARTIFACT_NAME = "decretum-matrix-beta1.0.0.zip"
 SIDECAR_NAME = f"{ARTIFACT_NAME}.sha256"
-ATTESTATION_NAME = "decretum-matrix-beta0.5.13.release-attestation.json"
+ATTESTATION_NAME = "decretum-matrix-beta1.0.0.release-attestation.json"
 MANIFEST_NAME = "release-manifest.json"
 ARCHIVE_ROOT = f"{package_skill.ROOT_NAME}/"
 INDEX_FORMAT = "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes"
@@ -503,10 +503,10 @@ def self_tests() -> dict[str, bool]:
             NAME == "decretum-matrix"
             and globals().get("DISPLAY_NAME") == "Decretum Matrix（诏令矩阵）"
         ),
-        "beta_0_5_13_artifact_identity_required": (
-            RELEASE_LABEL == "beta0.5.13"
-            and VERSION_CORE == "0.5.13"
-            and ARTIFACT_NAME == "decretum-matrix-beta0.5.13.zip"
+        "beta_1_0_0_artifact_identity_required": (
+            RELEASE_LABEL == "beta1.0.0"
+            and VERSION_CORE == "1.0.0"
+            and ARTIFACT_NAME == "decretum-matrix-beta1.0.0.zip"
         ),
         "agpl_only_license_required": base.get("license")
         == {"declared": "AGPL-3.0-only", "file": "LICENSE"},

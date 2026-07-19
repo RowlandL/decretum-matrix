@@ -62,6 +62,40 @@ hard gates, authority classes, loading/index structure, or closeout skeleton.
 Otherwise update the owning governing reference and keep it directly
 discoverable from the entrypoint. 史馆 records the evidence and recall anchors.
 
+### Framework And Governance Implementation Boundary
+
+Decretum Matrix 的通用任务治理框架 owns task intake, boundaries, lifecycle,
+capability coordination, evidence, acceptance, pause, resume, and replay. A
+governance implementation supplies role semantics, review, dispatch language,
+and presentation; it does not own a second task state, evidence store, semantic
+capsule, memory authority, or execution authority.
+
+`references/manifests/governance-implementations.v1.json` is the bounded
+selection registry. `three-departments-six-ministries` is the sole default and
+loads the existing court hierarchy manifest. A non-default reference
+implementation may prove portability, but it must reuse `court-runtime` for
+state/evidence and `shiguan-gbrain` for memory, remain deny-by-default, and add
+no remote discovery or executable plugin loading.
+
+`decretum.semantic.record.v1` separates fact, interpretation, ruling, action,
+validation, memory, and presentation. Derived records bind upstream evidence,
+actor, scope, and validity. Memory and presentation never receive execution
+authority; latest user decree facts remain controlling when governance or
+historical recall disagrees.
+
+`court.request_understanding.v1` is the intake quality gate above detailed
+planning. It assesses four dimensions: goal, usage scenario, key requirements,
+and acceptance criteria. A score below 95 routes only to one highest-value
+question that can change the result; optional answer aids contain either no
+options or 2–4 mutually exclusive options. Questions are never repeated merely
+to prolong clarification. At or above 95, all four dimensions are clear and the
+court either gives a concise restatement for confirmation or proceeds directly
+when the newest decree is already explicit or waives repeated confirmation.
+`RESTATE_CONFIRM` remains a pending state and cannot authorize formal task
+creation; confirmation advances the assessment to `DIRECT_EXECUTION`.
+This gate improves interpretation quality; it does not override authority,
+safety, task boundaries, or the newest user wording.
+
 Semantic invariants:
 
 - The newest user decree is the controlling source. 史馆 records, prior plans,
@@ -125,6 +159,14 @@ Semantic invariants:
   is the user-requested `疯狂反问` behavior: intense and mandatory for unclear
   decrees, but still bounded by the rule that discoverable facts should be
   inspected rather than asked.
+- The understanding-sufficiency gate precedes the 强反问 loop. 三省 first rate
+  the real goal, use scenario, key requirements, and final acceptance standard.
+  Below 95, 太子 asks exactly one highest-impact unresolved question and may
+  present 2–4 concise options. At 95 or above, 太子 briefly restates the current
+  understanding and seeks confirmation when material ambiguity was just
+  resolved; an initially explicit decree proceeds without a ceremonial extra
+  question. The court must not repeat answered questions or ask questions that
+  cannot affect implementation or acceptance.
 - 三省提出问题和建议 is a mandatory evidence step, not optional wording. When a
   decree has more than one substantive question or open issue, discuss and ask
   them one by one in priority order. Do not bundle multiple blocking questions

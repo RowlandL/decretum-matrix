@@ -25,7 +25,7 @@ DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 LICENSE_ID = "AGPL-3.0-only"
 ATTESTATION_SCHEMA = "court.release_attestation.v1"
 CANDIDATE_RECEIPT_SCHEMA = "court.release_candidate_receipt.v1"
-RELEASE_RE = re.compile(r"^beta(?P<core>0\.[0-9]+\.[0-9]+)$")
+RELEASE_RE = re.compile(r"^beta(?P<core>[0-9]+\.[0-9]+\.[0-9]+)$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TAG_SIGNATURE_MARKERS = (
     "-----BEGIN PGP SIGNATURE-----",
@@ -523,9 +523,14 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         "canonical_release_product_name_required": NAME == "decretum-matrix",
         "canonical_display_name_required": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
-        "canonical_beta_0_5_13_artifact_required": (
-            release_payload_manifest.RELEASE_LABEL == "beta0.5.13"
-            and release_payload_manifest.ARTIFACT_NAME == "decretum-matrix-beta0.5.13.zip"
+        "canonical_beta_1_0_0_artifact_required": (
+            release_payload_manifest.RELEASE_LABEL == "beta1.0.0"
+            and release_payload_manifest.ARTIFACT_NAME == "decretum-matrix-beta1.0.0.zip"
+        ),
+        "major_release_label_supported": RELEASE_RE.fullmatch("beta1.0.0") is not None,
+        "malformed_release_labels_rejected": all(
+            RELEASE_RE.fullmatch(value) is None
+            for value in ("1.0.0", "beta1.0", "beta1.0.0.0", "beta1.0.0-rc1")
         ),
         "agpl_only_release_required": getattr(release_payload_manifest, "LICENSE_ID", None)
         == "AGPL-3.0-only",

@@ -29,10 +29,28 @@ INSTALL_RECEIPT_SCHEMA = "court.install_current_agent_copy.result.v1"
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GOVERNANCE_RELEASE_GATE_NAME = "governance_framework"
+GOVERNANCE_RELEASE_GATE_CLASS = "source"
+GOVERNANCE_RELEASE_GATE_COMMAND = ["$PYTHON", "scripts/check_governance_framework.py", "--json"]
+GOVERNANCE_RELEASE_GATE_CONDITION = "always"
 HIERARCHY_RELEASE_GATE_NAME = "court_dispatch_hierarchy"
 HIERARCHY_RELEASE_GATE_CLASS = "source"
 HIERARCHY_RELEASE_GATE_COMMAND = ["$PYTHON", "scripts/check_court_dispatch_hierarchy.py"]
 HIERARCHY_RELEASE_GATE_CONDITION = "always"
+MANDATORY_ARCHITECTURE_GATES = (
+    (
+        GOVERNANCE_RELEASE_GATE_NAME,
+        GOVERNANCE_RELEASE_GATE_CLASS,
+        GOVERNANCE_RELEASE_GATE_COMMAND,
+        GOVERNANCE_RELEASE_GATE_CONDITION,
+    ),
+    (
+        HIERARCHY_RELEASE_GATE_NAME,
+        HIERARCHY_RELEASE_GATE_CLASS,
+        HIERARCHY_RELEASE_GATE_COMMAND,
+        HIERARCHY_RELEASE_GATE_CONDITION,
+    ),
+)
 GIT_INDEX_VIEW_STEPS = frozenset(
     {
         "git_index_fixture",
@@ -53,73 +71,93 @@ def _expect_manifest_invalid(manifest: dict[str, object], expected_text: str) ->
                 f"expected {expected_text!r} in manifest validation error, got {exc!r}"
             ) from exc
     else:
-        raise AssertionError(f"tampered hierarchy release gate unexpectedly passed: {expected_text}")
+        raise AssertionError(f"tampered architecture release gate unexpectedly passed: {expected_text}")
 
 
-def run_hierarchy_release_gate_self_test(manifest: dict[str, object]) -> list[str]:
+def _required_release_gate_self_test(
+    manifest: dict[str, object],
+    *,
+    name: str,
+    gate_class: str,
+    command: list[str],
+    condition: str,
+) -> list[str]:
     steps = manifest.get("steps")
     if not isinstance(steps, list):
-        raise AssertionError("release manifest steps are unavailable for hierarchy self-test")
+        raise AssertionError("release manifest steps are unavailable for architecture self-test")
     matching = [
         (index, step)
         for index, step in enumerate(steps)
-        if isinstance(step, dict) and step.get("name") == HIERARCHY_RELEASE_GATE_NAME
+        if isinstance(step, dict) and step.get("name") == name
     ]
     if len(matching) != 1:
-        raise AssertionError(
-            "mandatory court_dispatch_hierarchy release step must exist exactly once"
-        )
-    hierarchy_index, hierarchy_step = matching[0]
+        raise AssertionError(f"mandatory {name} release step must exist exactly once")
+    step_index, required_step = matching[0]
     expected_contract = {
-        "name": HIERARCHY_RELEASE_GATE_NAME,
-        "gate_class": HIERARCHY_RELEASE_GATE_CLASS,
-        "command": HIERARCHY_RELEASE_GATE_COMMAND,
-        "condition": HIERARCHY_RELEASE_GATE_CONDITION,
+        "name": name,
+        "gate_class": gate_class,
+        "command": command,
+        "condition": condition,
         "allowed_returncodes": [0],
     }
     for field, expected in expected_contract.items():
-        if hierarchy_step.get(field) != expected:
+        if required_step.get(field) != expected:
             raise AssertionError(
-                f"mandatory court_dispatch_hierarchy release step {field} drifted: "
-                f"expected {expected!r}, got {hierarchy_step.get(field)!r}"
+                f"mandatory {name} release step {field} drifted: "
+                f"expected {expected!r}, got {required_step.get(field)!r}"
             )
 
     cases: list[tuple[str, dict[str, object], str]] = []
 
     missing = deepcopy(manifest)
-    missing["steps"].pop(hierarchy_index)  # type: ignore[index,union-attr]
+    missing["steps"].pop(step_index)  # type: ignore[index,union-attr]
     cases.append(("missing", missing, "external required-step policy"))
 
     renamed = deepcopy(manifest)
-    renamed["steps"][hierarchy_index]["name"] = "court_dispatch_hierarchy_renamed"  # type: ignore[index]
+    renamed["steps"][step_index]["name"] = f"{name}_renamed"  # type: ignore[index]
     cases.append(("renamed", renamed, "external required-step policy"))
 
     reordered = deepcopy(manifest)
     reordered_steps = reordered["steps"]  # type: ignore[index]
     assert isinstance(reordered_steps, list)
-    moved = reordered_steps.pop(hierarchy_index)
-    reordered_steps.insert(max(0, hierarchy_index - 1), moved)
+    moved = reordered_steps.pop(step_index)
+    reordered_steps.insert(max(0, step_index - 1), moved)
     cases.append(("reordered", reordered, "external required-step policy"))
 
     outside_source_phase = deepcopy(manifest)
-    outside_source_phase["steps"][hierarchy_index]["gate_class"] = "installation"  # type: ignore[index]
+    outside_source_phase["steps"][step_index]["gate_class"] = "installation"  # type: ignore[index]
     cases.append(("outside_source_phase", outside_source_phase, "gate_class drifted"))
 
     conditionalized = deepcopy(manifest)
-    conditionalized["steps"][hierarchy_index]["condition"] = "active_copies_enabled"  # type: ignore[index]
+    conditionalized["steps"][step_index]["condition"] = "active_copies_enabled"  # type: ignore[index]
     cases.append(("conditionalized", conditionalized, "condition drifted"))
 
     wrong_command = deepcopy(manifest)
-    wrong_command["steps"][hierarchy_index]["command"] = [  # type: ignore[index]
+    wrong_command["steps"][step_index]["command"] = [  # type: ignore[index]
         "$PYTHON",
         "scripts/check_court_dispatch_policy.py",
     ]
     cases.append(("wrong_command", wrong_command, "command drifted"))
 
     passed: list[str] = []
-    for name, value, expected in cases:
+    for case_name, value, expected in cases:
         _expect_manifest_invalid(value, expected)
-        passed.append(name)
+        passed.append(f"{name}_{case_name}")
+    return passed
+
+
+def run_hierarchy_release_gate_self_test(manifest: dict[str, object]) -> list[str]:
+    passed: list[str] = []
+    for name, gate_class, command, condition in MANDATORY_ARCHITECTURE_GATES:
+        passed.extend(
+            _required_release_gate_self_test(
+                manifest,
+                name=name,
+                gate_class=gate_class,
+                command=command,
+                condition=condition,
+            )
+        )
     return passed
 
 

@@ -2,6 +2,54 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta1.0.0 - 2026-07-19
+
+### 发布结论
+
+`release/beta1.0.0` 从已发布并验收的 beta0.5.13 基线启动。本节记录源码版本
+身份以及《声无哀乐》最终阶段的框架实现；候选包、本机安装和项目最终验收仍由
+后续实际回执证明。
+
+### 版本身份
+
+1. `VERSION` 与当前 release/package 常量统一为 `beta1.0.0` / `1.0.0`。
+2. 规范 ZIP、sidecar、attestation 与 npm candidate 名称由同一版本来源推导。
+3. README、CHANGELOG、Wiki 和 source log 明确当前分支为
+   `release/beta1.0.0`，beta0.5.13 保持不可变的已接受前序版本。
+4. 版本直接从 beta0.5.13 跳至 beta1.0.0；未创建任何中间 beta0.5.x branch、
+   commit、candidate、release artifact 或第二 writer。
+
+### 架构赋能
+
+1. 通用任务治理框架以 `decretum.semantic.record.v1` 分离事实、解释、裁定、行动、
+   验证、记忆与呈现，不新增 task state、ledger、semantic capsule 或执行权威。
+2. 史馆 GBrain 复用 shared Shiguan 索引和既有记忆裁定工具，召回固定为 advisory、
+   无执行权并服从最新用户旨意；原始 memory body 不进入 recall envelope。
+3. 三省六部通过 `three-departments-six-ministries` 成为唯一默认官方治理实现，
+   直接复用现有 hierarchy manifest、profiles、dossiers 与 governing references。
+4. 非默认 `direct-review` 以同一框架、能力与运行适配层、呈现层和史馆 GBrain
+   完成有限替换性验证，不启用远程发现、动态代码或插件市场。
+5. `court.request_understanding.v1` 在详细计划前评估目标、使用场景、关键要求与
+   验收标准；低于 95 只问一个最高价值问题，复述待确认态不能创建正式任务，
+   用户确认后才进入直接执行态；初始旨意明确时不强行提问。
+
+### 源码验收
+
+- 34/34 非 Super CC source gates 串行通过，覆盖治理框架、层级兼容、runtime、
+  concurrency、privacy、legal、portability、manifest、npm harness 和 artifact
+  builder 自测。
+- 本 Codex desktop 会话不在 Super CC 要求的终端运行时内，八项 Super CC 专项
+  检查为 `NOT_RUN/current_session_not_in_terminal_runtime`；产品合同和 release
+  policy 中的 Super CC 门禁未删除、未降级。
+- `SEMANTIC_CLEANLINESS_GATE=PASS`。
+
+### 边界
+
+- `pending_body_access=NO`；不读取、哈希、移动、删除或标记 pending/private 正文。
+- `OFFICE_PACK_Q1_Q8=DEFERRED_TO_QUEUED_POST_A02_HANDOFF`。
+- push、tag、GitHub Release、npm publish 与资产上传均未授权、未执行。
+- 外部发布未授权；本源码记录不冒充 candidate、安装或发布终态。
+
 ## beta0.5.13 - 2026-07-19
 
 ### 发布结论

@@ -1,5 +1,32 @@
 # Changelog
 
+## beta1.0.0 - 2026-07-19
+
+### Changed
+
+- Aligned VERSION, SBOM, release manifest inputs, package artifacts, npm
+  candidate identity, and release-facing documentation to beta1.0.0.
+- Added a governance-neutral framework contract, shared Shiguan GBrain recall,
+  and a default official 三省六部 adapter backed by the existing hierarchy.
+- Added one non-default direct-review reference implementation to validate
+  replacement without adding runtime, evidence, or memory authorities.
+- Added a four-dimension request-understanding gate with a 95 sufficiency
+  threshold, one-question clarification, bounded options, and clear-request
+  direct execution.
+- Activated the single final-stage branch from the accepted beta0.5.13 baseline
+  and jumped directly to beta1.0.0 without creating an intermediate beta0.5.x
+  release branch or another worktree.
+
+### Release boundary
+
+- This entry records source implementation and identity. Candidate creation,
+  installation, and final acceptance remain separately receipt-gated.
+- All 34 non-Super-CC source gates passed serially. The eight dedicated Super CC
+  checks are not run from this non-terminal desktop session; their product and
+  release-policy contracts remain intact.
+- Push, tag, GitHub Release, npm publication, and asset upload are not
+  authorized or asserted by this source entry.
+
 ## beta0.5.13 - 2026-07-19
 
 ### Added

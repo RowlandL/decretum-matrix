@@ -393,7 +393,7 @@ def _write_fixture_source(
 ) -> Path:
     contents = {
         "SKILL.md": "# fixture court skill\n",
-        "VERSION": "beta0.5.13\n",
+        "VERSION": "beta1.0.0\n",
         "release-manifest.json": '{"schema":"court.release_manifest.v2"}\n',
         "agents/standing-officials/gongbu.toml": (
             '[profile]\nrole_key = "gongbu"\noffice_zh = "工部"\n'

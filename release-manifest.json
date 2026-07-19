@@ -1,7 +1,7 @@
 {
   "archive_root": "decretum-matrix/",
-  "artifact_name": "decretum-matrix-beta0.5.13.zip",
-  "attestation_name": "decretum-matrix-beta0.5.13.release-attestation.json",
+  "artifact_name": "decretum-matrix-beta1.0.0.zip",
+  "attestation_name": "decretum-matrix-beta1.0.0.release-attestation.json",
   "authors": "AUTHORS.md",
   "build": {
     "atomic_publish": "same_directory_hard_link_no_replace",
@@ -16,7 +16,7 @@
   "contributing": "CONTRIBUTING.md",
   "contributor_license_agreement": "CLA.md",
   "display_name": "Decretum Matrix（诏令矩阵）",
-  "expected_final_tag": "refs/tags/beta0.5.13",
+  "expected_final_tag": "refs/tags/beta1.0.0",
   "files": [
     {
       "mode": "100644",
@@ -33,8 +33,8 @@
     {
       "mode": "100644",
       "path": "CHANGELOG.md",
-      "sha256": "84d957a896d148e85df509db94ba0487c6c7f66283a5f3f34e719b57a2a6e707",
-      "size": 12535
+      "sha256": "b5fda9dfcda249870145ce0e4bd03cdb8776ceca2414540ea7f47f64f3422c00",
+      "size": 13879
     },
     {
       "mode": "100644",
@@ -87,20 +87,20 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "6866d8965249e01fc30644338821b6e92ef8847fb36ea7febf50256a824b9955",
-      "size": 2312
+      "sha256": "67b29d0b40aae4ca8b35e5f9d6b25f780bb4577481f4384b7a97a5dc12340dfa",
+      "size": 2799
     },
     {
       "mode": "100644",
       "path": "RELEASE-LOG.md",
-      "sha256": "0818ab78e8428c87aee25b7d96f71f2dd6715c1863928fadf236ceac4b5d052c",
-      "size": 20592
+      "sha256": "3a4acc113007ac170e697ab9274735b5f7816f9aa7433962d70c4f352b9e7e07",
+      "size": 23294
     },
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "e8533844446d15d5a5bef987e9d7f105f0e911227abfe69f6bdf8eba5983be7d",
-      "size": 878
+      "sha256": "73095d8a81171e54fa0518bd4a9becb386ec8279d437beb966c44553e6114527",
+      "size": 875
     },
     {
       "mode": "100644",
@@ -111,8 +111,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "ac3e8c9c3540b612a69be174df5d51d6297cf3440e57ed9a660f24c936289106",
-      "size": 12799
+      "sha256": "e8c42c6da3b335ae9a08d3d4c0853057d66f14c7784eb4143c9cc77f9e043820",
+      "size": 13757
     },
     {
       "mode": "100644",
@@ -129,8 +129,8 @@
     {
       "mode": "100644",
       "path": "VERSION",
-      "sha256": "3312d025def5c1a1be1ab597c70287e534e2a781aad5194ae7d563286ba4e66e",
-      "size": 11
+      "sha256": "e88ed8d1245cb0b623f0ddee10d7394917027afdbf8d776709a442d670be6cc1",
+      "size": 10
     },
     {
       "mode": "100644",
@@ -471,8 +471,8 @@
     {
       "mode": "100644",
       "path": "references/court-core-contract.md",
-      "sha256": "de8a2da372ce367a08432187ae7da69cbac1b04d726ea31411f0831ab497dc41",
-      "size": 25587
+      "sha256": "75796aa9a1c461407c22eb4f31664a8fb630eddfb9488b582ce6626352084ccf",
+      "size": 28273
     },
     {
       "mode": "100644",
@@ -489,8 +489,8 @@
     {
       "mode": "100644",
       "path": "references/court-offices-dispatch.md",
-      "sha256": "44a696a881f7380894f49a0fe82ead0fd0269d5a753588dacfc691cb34420cf4",
-      "size": 66619
+      "sha256": "fe526006bd1c2b9c5ea579a968f763dd72e48b84dd2dc089098bbd487ceac5d0",
+      "size": 67450
     },
     {
       "mode": "100644",
@@ -507,8 +507,8 @@
     {
       "mode": "100644",
       "path": "references/court-shiguan-memory.md",
-      "sha256": "22031c2fdcc4dc77946267742f4ebb6e5753de866d8eac3edfe0c602ebacf12c",
-      "size": 34372
+      "sha256": "1565fc6ac7ef70f61fc190ed33fa28bd953bd7bae9e24ca190b8536e2165789b",
+      "size": 35556
     },
     {
       "mode": "100644",
@@ -597,14 +597,26 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "863035eaf988c1c26f62a5106fe29c80c0d68987779344ff873d2dab92828ab8",
-      "size": 65430
+      "sha256": "db404d698a950bc1a068610fc201fd83e8e94a16cf651242418b66e0932d358b",
+      "size": 65966
     },
     {
       "mode": "100644",
       "path": "references/manifests/court-dispatch-hierarchy.v1.json",
       "sha256": "2cd590ccbd6ff1a386b32beb9aa4d354e017cae9c76c191550eac70d30bae5c6",
       "size": 5366
+    },
+    {
+      "mode": "100644",
+      "path": "references/manifests/direct-review-governance.v1.json",
+      "sha256": "7d8d86426237690669400348ffe292f1feb65d0e2d836d3f72bbaf68c65d085e",
+      "size": 795
+    },
+    {
+      "mode": "100644",
+      "path": "references/manifests/governance-implementations.v1.json",
+      "sha256": "cdb7b0b81d69f207e0a96e450ec2af3a9abca75979ccb6cb3de9344209fe2889",
+      "size": 1371
     },
     {
       "mode": "100644",
@@ -615,8 +627,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/release-gates.v1.json",
-      "sha256": "445dec965cb209ad9f85d6af93e2a255c4cad529aacbdb1c0a5867a4a8e0ed25",
-      "size": 11624
+      "sha256": "9900f5e1f91949cc1aeef83a6cfb18f519af2f4ea8b7fb27cfb5291a3e0e1089",
+      "size": 11870
     },
     {
       "mode": "100644",
@@ -627,8 +639,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "2fc94ed10da32dcd7a82379f9ef411df44bae39e8ac5f52e5e9ac7adefbcbe2e",
-      "size": 3837
+      "sha256": "4e15f791e96ed1ba407872076f023eca2f8ffecfa8a26c091928f7eb8d0ab40e",
+      "size": 4067
     },
     {
       "mode": "100644",
@@ -807,8 +819,8 @@
     {
       "mode": "100644",
       "path": "scripts/build_release_artifacts.py",
-      "sha256": "ccea713049f93b45b100dbe6543946cf64cf018b1b763276d0c6455d1c3a986f",
-      "size": 35362
+      "sha256": "851dabe851d863988921fbc51e835542620ab19e5f4bd44ff467eab46a83429f",
+      "size": 35639
     },
     {
       "mode": "100644",
@@ -843,8 +855,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_cli_performance.py",
-      "sha256": "0d2684812c77655ace8a8d2199214b302bc6819e0e27fc1fa6eb467cd62fbfee",
-      "size": 11759
+      "sha256": "16473a3e4cd9c9328b3a77545e97d071bcf29ec34f4199b87f642beb6cf5baa9",
+      "size": 11757
     },
     {
       "mode": "100644",
@@ -867,8 +879,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_agent_lifecycle.py",
-      "sha256": "26bfce1cdc6d1e84b41555f2d3a79086342af55aa672b30cdf0111909dc77668",
-      "size": 112579
+      "sha256": "f6831672ff08203c421375a0e50a5adc9961953627adaf1672e24e1e02dea18f",
+      "size": 112713
     },
     {
       "mode": "100644",
@@ -909,14 +921,14 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_intake_gate.py",
-      "sha256": "2941ed69e28679072e82fc4b20953174530b154b5fb90dc6211fceda5f9c3051",
-      "size": 18685
+      "sha256": "1aa2eee50d6f00fe4d6349a234cf76e0df9191f45e0015076c91b00491251aa4",
+      "size": 19269
     },
     {
       "mode": "100644",
       "path": "scripts/check_court_intervention_matrix.py",
-      "sha256": "62ba269f0babfdf227bc7c2147ce81b00a4afb15b17d4a1a40469ec552fb67a3",
-      "size": 47095
+      "sha256": "097179b8c53ef954fa6c986023eeb21a1cda6f24a2f2a5475eed6862f15f5b8b",
+      "size": 47241
     },
     {
       "mode": "100644",
@@ -945,8 +957,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_open_fastpath.py",
-      "sha256": "b3f7eb488f0366b12d3378114f55add15856d7cbea2f6fedcb368bd0770afff2",
-      "size": 12724
+      "sha256": "ae942c7bdaee0709cbaaf2c5353240a9edf583464fd030233b2c23a3fe920511",
+      "size": 12722
     },
     {
       "mode": "100644",
@@ -957,8 +969,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_preload_semantics.py",
-      "sha256": "31d7b5f811b90f0c0eb4381bd3ca4266d3e475fd4312448e9ce93ed812cd9c82",
-      "size": 68062
+      "sha256": "f6bfcde83925c732fe8990134f2eb8b6a3b34e9ae646d52f7a9e692d52b6da55",
+      "size": 68196
     },
     {
       "mode": "100644",
@@ -969,20 +981,20 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_runtime.py",
-      "sha256": "3a3d1b3f0a193daf6e55db95b1876abf7c5bcdbede790d7efc71bcecd379fbae",
-      "size": 107412
+      "sha256": "3445174e789ed4713b2def7b9d6c3d95ae5009e4e8cfa96fd1719c1f13d244ec",
+      "size": 107792
     },
     {
       "mode": "100644",
       "path": "scripts/check_court_runtime_completion.py",
-      "sha256": "87fe16eafaec0a9ad097dc7bedafe06e490bd7e8091f1b7f7c98ae4c410965f4",
-      "size": 53478
+      "sha256": "161aba3c386664f18fa31a47f366d58b5ae464fcc3e3644c003f00ef2e473aa3",
+      "size": 53612
     },
     {
       "mode": "100644",
       "path": "scripts/check_court_runtime_concurrency.py",
-      "sha256": "29bd5a7f9ca4c12ccf90bc5616e983bbed170c391a8b5cf79d7236111293f8ea",
-      "size": 3673
+      "sha256": "049cc90bd1c81181f3e26a2d8d1afe4deccbc6db62fe69649bfae17e6d125c57",
+      "size": 3852
     },
     {
       "mode": "100644",
@@ -992,9 +1004,15 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/check_governance_framework.py",
+      "sha256": "84155c4c163a271b156082f01f1f52fc0832be129e805ef787125fc52b80576d",
+      "size": 23297
+    },
+    {
+      "mode": "100644",
       "path": "scripts/check_install_current_agent_copy.py",
-      "sha256": "ebcf52ca4dbeb5ec9065854cf5daad0152310535142d6626a166997f1adf16d8",
-      "size": 121738
+      "sha256": "811f2c66152b2ff2853bd3d65bce96f9bc94f5e7d5e63e9a91d7fd5b02f665c2",
+      "size": 121737
     },
     {
       "mode": "100644",
@@ -1017,14 +1035,14 @@
     {
       "mode": "100644",
       "path": "scripts/check_package_privacy.py",
-      "sha256": "b5f1d013305998a2bbc40965434a0d1019c6ef0a2ae83a8e12d68edb068a48a1",
-      "size": 65295
+      "sha256": "62379a84a4faeb7edc7d1ab5821d16fc1e059530bb52a6ff95595f9c3c6dbde7",
+      "size": 65288
     },
     {
       "mode": "100644",
       "path": "scripts/check_portability.py",
-      "sha256": "df6c3a708d9dd15d9f40e65ea110e9a05412ce1d6c850a5bfa8599ec0f1dda7f",
-      "size": 9634
+      "sha256": "dd64f5e67dda6b3efcf3edcb2852f01d6fe47f35203cc2462f51f5135dffa7fc",
+      "size": 9993
     },
     {
       "mode": "100644",
@@ -1035,20 +1053,20 @@
     {
       "mode": "100644",
       "path": "scripts/check_release_gate.py",
-      "sha256": "e6e4ac5c57ce597c674ac4473fe35a7448a7e16e3429b4b33b6d2dc11a36b13e",
-      "size": 22810
+      "sha256": "5373becca21eb0a682c1bfe818d7a042344bc28ffc0b35aefff9fe725f0b0c65",
+      "size": 23781
     },
     {
       "mode": "100644",
       "path": "scripts/check_release_legal.py",
-      "sha256": "efccb45163534590030a6929bbb3c878427cb35e447ddbc7c83efb6153f373b4",
-      "size": 23788
+      "sha256": "913e2399a201ccb1f8744cddeb869c798260b85b5e5b33dbb8aa121d86d94074",
+      "size": 23785
     },
     {
       "mode": "100644",
       "path": "scripts/check_release_manifest.py",
-      "sha256": "24abf0bc78f838e81bab8d4f16b09ab4ff4d82984539bc53d5337705da0e2bec",
-      "size": 28933
+      "sha256": "2aa66b421954620ff2314eaaf920386e36ebf989ab731b421fb3fac77a290ff8",
+      "size": 28967
     },
     {
       "mode": "100644",
@@ -1065,8 +1083,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_semantic_continuity.py",
-      "sha256": "740d99c086bf285b7c84c1bde3b00d04b957fb76a6a9f084b47c4cb07743856a",
-      "size": 132294
+      "sha256": "543b8c6d143d12e7d75a370cf6444d469303b639e8e880900b1fda93becd2649",
+      "size": 132428
     },
     {
       "mode": "100644",
@@ -1149,8 +1167,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_supercc_functional.py",
-      "sha256": "cb2cce9a73c729b2b2a9c9f3727f1a2b11472dc935d765ada86afe7c85811d0d",
-      "size": 25996
+      "sha256": "85f12436ec6dc7a3cff883ef1a76f7d9ff26187882aaa3941681a09d72fdbd12",
+      "size": 26131
     },
     {
       "mode": "100644",
@@ -1263,8 +1281,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_dispatch_hierarchy.py",
-      "sha256": "6d066fc8184f04de87ef973da32abe14c2907704e0a2ee59d0763f0071f3e8d3",
-      "size": 27844
+      "sha256": "42ad492634e88abd279d6a41ac292538c30031a32ceeed98ee7bb640bcc748ab",
+      "size": 28825
     },
     {
       "mode": "100644",
@@ -1287,8 +1305,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_intake_gate.py",
-      "sha256": "cfc22d195e025ae03a2a6c12b35286104e5de857ba1aa7d397557ea152cebeef",
-      "size": 15092
+      "sha256": "18961578494baefe78b60610d70633f7bb05935f0e6f4e9803ca04a6ed9198c6",
+      "size": 22511
     },
     {
       "mode": "100644",
@@ -1341,8 +1359,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "10523871c34e828d9a97a477cfa4e244f6c251cac3cfafcbabb2567c57c8d0c8",
-      "size": 368473
+      "sha256": "84f2c74a2b8de422ff12d5dc014fb5d8f4b51b1d92e68d13bc4e2e8bf26d7a89",
+      "size": 368739
     },
     {
       "mode": "100644",
@@ -1430,6 +1448,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/governance_framework.py",
+      "sha256": "fbca71b9ee7fe2a96c8663ba3327972006b482ef2de7f9470c42fe9b91d1f72d",
+      "size": 15778
+    },
+    {
+      "mode": "100644",
       "path": "scripts/grow_shiguan_tree.py",
       "sha256": "c73868ec7feea7a0a5456025dbc34c378bb85248c349116d8a04e7ad70c2193f",
       "size": 14606
@@ -1467,8 +1491,8 @@
     {
       "mode": "100644",
       "path": "scripts/package_skill.py",
-      "sha256": "7dfb559c4e1c7672b392e1d8d93eff9202e7a06db2c81be757ef605c5c4e4af5",
-      "size": 56142
+      "sha256": "aa5cd44354d44b30955d73f86ffb2c184fd5f71963d40bf0305fda797a0b105a",
+      "size": 56141
     },
     {
       "mode": "100644",
@@ -1479,8 +1503,8 @@
     {
       "mode": "100644",
       "path": "scripts/query_shiguan_index.py",
-      "sha256": "be590984e0bb09222b79c015dd0cdccb7df68ae6b69db248834fbb35b64fbef4",
-      "size": 7921
+      "sha256": "33f3c4a8b65594a92a2938f5e990460269aab4ac7e453be1820faee2abf047f3",
+      "size": 3684
     },
     {
       "mode": "100644",
@@ -1515,14 +1539,14 @@
     {
       "mode": "100644",
       "path": "scripts/release_gate_manifest.py",
-      "sha256": "3553b2253e67a76dbd304a88874cff5578d27a5c91e0f628f78a72719afe2444",
-      "size": 15994
+      "sha256": "e3561187d3fbb2740c67aaf7790c0bc29ab491d7f63789c5a3e3f32441061672",
+      "size": 16147
     },
     {
       "mode": "100644",
       "path": "scripts/release_payload_manifest.py",
-      "sha256": "8823e1e0143470a8a77571003a4d524e354b4d1aeefe7f874a9eb180e5428d3d",
-      "size": 29083
+      "sha256": "34d7e21fa1b0982466fc929a51c63ed0d1cebaddeb5489372b43b85107f08426",
+      "size": 29074
     },
     {
       "mode": "100644",
@@ -1553,6 +1577,12 @@
       "path": "scripts/shiguan_entry_utils.py",
       "sha256": "a9f87be33d3d79b3a8b323fdb8c73f7af3ddae0a9318062902c3b8e784d12266",
       "size": 48420
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_gbrain.py",
+      "sha256": "8a7c4418c875cfedc18197180d8e5a1a04dbf66c876b213f6d7123a1f0b0dfe0",
+      "size": 8318
     },
     {
       "mode": "100644",
@@ -1750,12 +1780,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6207443,
-    "payload_file_count": 286,
+    "payload_bytes": 6276360,
+    "payload_file_count": 291,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "3f1b376ac9b9f190704c8c552aac35bd090a5fa0488007fe073af8a2f84a8dba",
-    "source_packaged_tracked_file_count": 278,
-    "source_tracked_file_count": 305
+    "payload_index_sha256": "0f85ab046954558f96652c085733fa1432121a36068cc6d45b82a5ced891be69",
+    "source_packaged_tracked_file_count": 283,
+    "source_tracked_file_count": 313
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1765,12 +1795,13 @@
   "package_name": "decretum-matrix",
   "privacy_policy": "PRIVACY.md",
   "provenance": "PROVENANCE.md",
-  "release_label": "beta0.5.13",
+  "release_label": "beta1.0.0",
   "repository_only_files": [
     ".github/CODEOWNERS",
     "docs/legal/2026-07-16-cft0808-edict-bounded-similarity-and-rights-review.md",
     "docs/legal/2026-07-16-license-preimage-inventory.md",
     "docs/logs/2026-07-19-beta0.5.13.md",
+    "docs/logs/2026-07-19-beta1.0.0.md",
     "docs/logs/README.md",
     "docs/plans/2026-07-14-ccr-r2-shir-a02-execution-book.md",
     "docs/plans/2026-07-14-court-capability-router-shiguan-install-remediation-plan.md",
@@ -1779,6 +1810,8 @@
     "docs/plans/2026-07-16-decretum-matrix-office-identity-pack-dlc-and-scope-plan.md",
     "docs/plans/2026-07-16-decretum-matrix-taizi-three-departments-and-shangshu-six-ministries-dispatch-plan.md",
     "docs/plans/2026-07-18-decretum-matrix-sheng-wu-ai-le-final-stage-task-book.md",
+    "docs/plans/2026-07-19-decretum-matrix-sheng-wu-ai-le-architecture-design.md",
+    "docs/plans/2026-07-19-decretum-matrix-sheng-wu-ai-le-implementation-plan.md",
     "docs/plans/2026-07-19-decretum-matrix-unified-cli-fast-court-open-plan.md",
     "docs/wiki/Architecture.md",
     "docs/wiki/Governance.md",
@@ -1798,8 +1831,8 @@
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
   "security_policy": "SECURITY.md",
-  "sidecar_name": "decretum-matrix-beta0.5.13.zip.sha256",
+  "sidecar_name": "decretum-matrix-beta1.0.0.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
-  "version_core": "0.5.13"
+  "version_core": "1.0.0"
 }

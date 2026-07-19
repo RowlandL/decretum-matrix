@@ -28,6 +28,7 @@ os.environ["COURT_SHARED_SHIGUAN_ROOT"] = str(_IMPORT_SHIGUAN_ROOT)
 os.environ["SHIGUAN_SHARED_ROOT"] = str(_IMPORT_SHIGUAN_ROOT)
 
 import court_runtime
+from court_intake_gate import minimal_request_understanding_example
 from court_agent_admission import budget_lease_access_contract_error
 from court_complexity_budget import normalize_budget_pool
 from check_court_office_assignment_binding import run_office_assignment_binding_checks
@@ -114,6 +115,7 @@ def formal_gate_fixture(*, mutates_state: bool = True) -> dict[str, object]:
         "next_route": "THREE_DEPARTMENTS",
         "question": "",
         "rationale": "self-test formal court lifecycle task",
+        "understanding": minimal_request_understanding_example(),
     }
 
 

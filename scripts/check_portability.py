@@ -114,9 +114,16 @@ def run() -> dict[str, object]:
             and shiguan_paths.is_claude_code_context((r"C:\Users\user\.claude\skills\decretum-matrix",))
             and not shiguan_paths.is_claude_code_context(("/home/user/.codex/skills/decretum-matrix/",))
         )
+        synthetic_shared_root = Path(r"C:\Users\Example\.agents\court-shiguan\decretum-matrix")
+        os.environ[shiguan_paths.ROOT_ENV_KEYS[0]] = str(synthetic_shared_root)
         os.environ["CODEX_THREAD_ID"] = "test-codex"
         os.environ["CLAUDE_CODE_EFFORT_LEVEL"] = "test-weak-marker"
-        codex_runtime_precedence = shiguan_paths.detect_runtime_agent()["source_agent"] == "codex"
+        runtime_agent = shiguan_paths.detect_runtime_agent()
+        codex_runtime_precedence = (
+            runtime_agent["source_agent"] == "codex"
+            and Path(runtime_agent["shared_shiguan_root"])
+            == synthetic_shared_root.resolve() / "references"
+        )
     finally:
         court_platform.platform.system = original_system  # type: ignore[method-assign]
         os.environ.clear()

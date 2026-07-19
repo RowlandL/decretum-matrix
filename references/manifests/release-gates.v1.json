@@ -127,6 +127,14 @@
       "condition": "always"
     },
     {
+      "name": "governance_framework",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_governance_framework.py", "--json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "court_dispatch_hierarchy",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_court_dispatch_hierarchy.py"],

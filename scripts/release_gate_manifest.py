@@ -104,6 +104,12 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         "always",
     ),
     (
+        "governance_framework",
+        "source",
+        ("$PYTHON", "scripts/check_governance_framework.py", "--json"),
+        "always",
+    ),
+    (
         "court_dispatch_hierarchy",
         "source",
         ("$PYTHON", "scripts/check_court_dispatch_hierarchy.py"),

@@ -20,6 +20,7 @@ import threading
 sys.dont_write_bytecode = True
 
 import court_operation_journal
+from court_intake_gate import minimal_request_understanding_example
 import court_semantic_continuity
 import court_runtime
 
@@ -120,6 +121,7 @@ def _formal_gate_fixture() -> dict[str, object]:
         "next_route": "THREE_DEPARTMENTS",
         "question": "",
         "rationale": "F-RED-002 synthetic semantic-binding fixture",
+        "understanding": minimal_request_understanding_example(),
     }
 
 

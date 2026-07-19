@@ -15,6 +15,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 
 from court_complexity_budget import normalize_budget_pool
+from court_intake_gate import minimal_request_understanding_example
 from court_office_bootstrap import build_preload_manifest
 
 
@@ -671,6 +672,7 @@ def main() -> int:
                     "next_route": "THREE_DEPARTMENTS",
                     "question": "",
                     "rationale": "intervention matrix formal task fixture",
+                    "understanding": minimal_request_understanding_example(),
                 },
                 ensure_ascii=False,
                 sort_keys=True,

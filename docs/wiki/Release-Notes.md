@@ -1,5 +1,21 @@
 # Release Notes
 
+## beta1.0.0
+
+状态：final-stage source accepted。源码、SBOM、release/package、npm candidate
+身份和工作包 A-G 已完成串行源码验收；候选包、安装和最终验收仍由外置回执证明。
+
+### 当前边界
+
+- 当前源码分支：`release/beta1.0.0`。
+- 已接受前序版本：`beta0.5.13`。
+- 版本直接从 `beta0.5.13` 跳至 `beta1.0.0`；未创建任何中间 beta0.5.x
+  release 或第二 worktree。
+- 非 Super CC source gates 为 34/34 PASS；当前桌面会话不在要求的终端运行时内，
+  八项 Super CC 专项检查记录为 `NOT_RUN`，不削弱产品合同。
+- push、tag、GitHub Release、npm publish 和资产上传均未授权、未执行。
+- pending/private 正文保持零访问。
+
 ## beta0.5.13
 
 状态：source candidate。外部 tag、GitHub Release、npm、资产和最终安装只在

@@ -55,6 +55,9 @@ def formal_gate_fixture(*, mutates_state: bool = False) -> dict[str, object]:
         "next_route": "THREE_DEPARTMENTS",
         "question": "",
         "rationale": "self-test formal court task",
+        "understanding": deepcopy(
+            court_runtime.minimal_formal_task_example()["understanding"]
+        ),
     }
 
 
@@ -1276,6 +1279,8 @@ def check_public_create_help_contract() -> None:
             "JSON",
             "required nonempty exact UTF-8 charter",
             "court.semantic.invariant_capsule.v1",
+            "court.request_understanding.v1",
+            "95",
             "sha256(exact UTF-8 charter)",
             "13 fields",
             "2048",
@@ -1292,9 +1297,11 @@ def check_public_create_help_contract() -> None:
         capsule_schema = contract["invariant_capsule_schema"]
         assert gate_schema["additionalProperties"] is False
         assert capsule_schema["additionalProperties"] is False
-        assert gate_schema["optional"] == ["target_task_id"]
+        assert gate_schema["optional"] == ["target_task_id", "understanding"]
         assert capsule_schema["optional"] == []
         assert contract["minimal_formal_task"]["message_class"] == "FORMAL_TASK"
+        assert contract["minimal_formal_task"]["understanding"]["score"] >= 95
+        assert gate_schema["properties"]["understanding"]["$id"] == "court.request_understanding.v1"
         workflow = " ".join(str(step["command"]) for step in contract["workflow"])
         for command in ("create", "semantic checkpoint", "semantic verify", "agent-admit"):
             assert command in workflow, f"PUBLIC_WORKFLOW_STEP_MISSING:{command}"

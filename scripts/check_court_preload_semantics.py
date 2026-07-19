@@ -40,6 +40,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
 
 import court_office_bootstrap
 import court_runtime
+from court_intake_gate import minimal_request_understanding_example
 import check_capability_index_gate
 
 
@@ -1210,6 +1211,7 @@ def formal_gate_fixture() -> dict[str, object]:
         "next_route": "THREE_DEPARTMENTS",
         "question": "",
         "rationale": "A02 preload and recovery RED fixture",
+        "understanding": minimal_request_understanding_example(),
     }
 
 

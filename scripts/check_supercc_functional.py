@@ -20,6 +20,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from court_intake_gate import minimal_request_understanding_example
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ENSURE = ROOT / "scripts" / "ensure_supercc_court.py"
@@ -89,6 +91,7 @@ def prepare_functional_runtime_fixture(runtime_root: Path) -> None:
         "next_route": "THREE_DEPARTMENTS",
         "question": "",
         "rationale": "isolated functional fixture",
+        "understanding": minimal_request_understanding_example(),
     }
     previous_root = os.environ.get("COURT_RUNTIME_ROOT")
     os.environ["COURT_RUNTIME_ROOT"] = str(runtime_root)

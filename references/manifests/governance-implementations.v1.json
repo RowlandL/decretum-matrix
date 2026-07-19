@@ -1,0 +1,45 @@
+{
+  "schema": "decretum.governance.registry.v1",
+  "default_id": "three-departments-six-ministries",
+  "framework_services": {
+    "state": "court-runtime",
+    "evidence": "court-runtime",
+    "memory": "shiguan-gbrain"
+  },
+  "implementations": [
+    {
+      "id": "three-departments-six-ministries",
+      "display_name": "三省六部官方治理实现",
+      "version": "1.0.0",
+      "status": "default",
+      "adapter": "court-dispatch-hierarchy",
+      "manifest": "court-dispatch-hierarchy.v1.json",
+      "capability_bindings": {
+        "intake": ["taizi"],
+        "interpretation": ["zhongshu"],
+        "ruling": ["menxia"],
+        "coordination": ["shangshu"],
+        "action": ["libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"],
+        "validation": ["menxia"],
+        "presentation": ["taizi"]
+      }
+    },
+    {
+      "id": "direct-review",
+      "display_name": "直接复核参考实现",
+      "version": "1.0.0",
+      "status": "reference",
+      "adapter": "generic",
+      "manifest": "direct-review-governance.v1.json",
+      "capability_bindings": {
+        "intake": ["coordinator"],
+        "interpretation": ["coordinator"],
+        "ruling": ["reviewer"],
+        "coordination": ["coordinator"],
+        "action": ["executor"],
+        "validation": ["reviewer"],
+        "presentation": ["coordinator"]
+      }
+    }
+  ]
+}

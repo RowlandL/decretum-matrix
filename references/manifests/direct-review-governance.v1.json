@@ -1,0 +1,37 @@
+{
+  "schema": "decretum.governance.implementation.v1",
+  "id": "direct-review",
+  "version": "1.0.0",
+  "deny_by_default": true,
+  "roles": {
+    "coordinator": {
+      "direct_superior": "user"
+    },
+    "reviewer": {
+      "direct_superior": "coordinator"
+    },
+    "executor": {
+      "direct_superior": "coordinator"
+    }
+  },
+  "allowed_edges": [
+    {
+      "edge_class": "entry",
+      "caller": "user",
+      "target": "coordinator",
+      "target_direct_superior": "user"
+    },
+    {
+      "edge_class": "review",
+      "caller": "coordinator",
+      "target": "reviewer",
+      "target_direct_superior": "coordinator"
+    },
+    {
+      "edge_class": "execution",
+      "caller": "coordinator",
+      "target": "executor",
+      "target_direct_superior": "coordinator"
+    }
+  ]
+}

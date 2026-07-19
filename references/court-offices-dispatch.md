@@ -31,6 +31,21 @@ decide intent, who may reject or approve, who may dispatch execution, and what
 kind of evidence must be produced. Do not collapse the offices into generic
 planning, review, and implementation labels.
 
+### Official Governance Implementation Boundary
+
+三省六部 is the complete default official governance implementation of the
+Decretum Matrix 通用任务治理框架. Its roles, hierarchy, deliberation, memorial
+traffic, dispatch, review, and historical expression remain intact and evolve
+through this reference, standing profiles, dossiers, and the single existing
+`court-dispatch-hierarchy.v1.json` manifest.
+
+The framework loads that manifest through the
+`three-departments-six-ministries` registry entry. The adapter must not copy the
+official edge list into a second authority. Replacing a governance
+implementation may replace role names and presentation, but never changes the
+latest decree, task permissions, safety gates, direct-superior enforcement,
+runtime state/evidence, Shiguan GBrain, or pending-body boundary.
+
 ### Canonical hierarchy and exact office preload
 
 This is the single governing office-chain contract for every runtime carrier.

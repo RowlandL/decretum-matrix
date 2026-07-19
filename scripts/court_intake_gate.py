@@ -10,6 +10,16 @@ sys.dont_write_bytecode = True
 INTAKE_SCHEMA = "court.conversation_gate.v1"
 LEGACY_INTAKE_SCHEMA = "court.conversation_gate.legacy.v1"
 INTAKE_VALIDATION_SCHEMA = "court.conversation_gate.validation.v1"
+UNDERSTANDING_SCHEMA = "court.request_understanding.v1"
+UNDERSTANDING_THRESHOLD = 95
+UNDERSTANDING_DIMENSIONS = (
+    "goal",
+    "usage_scenario",
+    "key_requirements",
+    "acceptance_criteria",
+)
+UNDERSTANDING_LEVELS = frozenset({"CLEAR", "PARTIAL", "MISSING"})
+UNDERSTANDING_ROUTES = frozenset({"DIRECT_EXECUTION", "RESTATE_CONFIRM", "SINGLE_QUESTION"})
 
 WORK_KINDS = frozenset(
     {
@@ -59,7 +69,7 @@ _REQUIRED_FIELDS = frozenset(
         "rationale",
     }
 )
-_OPTIONAL_FIELDS = frozenset({"target_task_id"})
+_OPTIONAL_FIELDS = frozenset({"target_task_id", "understanding"})
 _STRING_FIELDS = (
     "schema",
     "active_decree_state",
@@ -72,6 +82,143 @@ _STRING_FIELDS = (
     "rationale",
 )
 _BOOLEAN_FIELDS = ("active_decree", "requires_tools", "mutates_state", "risk_present")
+
+
+def request_understanding_json_schema() -> dict[str, object]:
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": UNDERSTANDING_SCHEMA,
+        "type": "object",
+        "required": [
+            "schema",
+            "score",
+            "threshold",
+            "dimensions",
+            "route",
+            "question_target",
+            "question",
+            "options",
+            "restatement",
+            "confirmation_required",
+        ],
+        "properties": {
+            "schema": {"const": UNDERSTANDING_SCHEMA},
+            "score": {"type": "integer", "minimum": 0, "maximum": 100},
+            "threshold": {"const": UNDERSTANDING_THRESHOLD},
+            "dimensions": {
+                "type": "object",
+                "required": list(UNDERSTANDING_DIMENSIONS),
+                "properties": {
+                    field: {"enum": sorted(UNDERSTANDING_LEVELS)}
+                    for field in UNDERSTANDING_DIMENSIONS
+                },
+                "additionalProperties": False,
+            },
+            "route": {"enum": sorted(UNDERSTANDING_ROUTES)},
+            "question_target": {
+                "enum": [*UNDERSTANDING_DIMENSIONS, "CONFIRMATION", "NONE"]
+            },
+            "question": {"type": "string"},
+            "options": {"type": "array", "items": {"type": "string"}, "maxItems": 4},
+            "restatement": {"type": "string"},
+            "confirmation_required": {"type": "boolean"},
+        },
+        "additionalProperties": False,
+    }
+
+
+def validate_request_understanding(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("understanding_type")
+    required = {
+        "schema",
+        "score",
+        "threshold",
+        "dimensions",
+        "route",
+        "question_target",
+        "question",
+        "options",
+        "restatement",
+        "confirmation_required",
+    }
+    if set(value) != required:
+        raise ValueError("understanding_fields")
+    if value.get("schema") != UNDERSTANDING_SCHEMA:
+        raise ValueError("understanding_schema")
+    score = value.get("score")
+    if isinstance(score, bool) or not isinstance(score, int) or not 0 <= score <= 100:
+        raise ValueError("understanding_score")
+    if value.get("threshold") != UNDERSTANDING_THRESHOLD:
+        raise ValueError("understanding_threshold")
+    dimensions = value.get("dimensions")
+    if not isinstance(dimensions, dict) or set(dimensions) != set(UNDERSTANDING_DIMENSIONS):
+        raise ValueError("understanding_dimensions")
+    if any(level not in UNDERSTANDING_LEVELS for level in dimensions.values()):
+        raise ValueError("understanding_dimension_level")
+    route = value.get("route")
+    if route not in UNDERSTANDING_ROUTES:
+        raise ValueError("understanding_route")
+    target = value.get("question_target")
+    if target not in {*UNDERSTANDING_DIMENSIONS, "CONFIRMATION", "NONE"}:
+        raise ValueError("understanding_question_target")
+    question = value.get("question")
+    restatement = value.get("restatement")
+    options = value.get("options")
+    confirmation_required = value.get("confirmation_required")
+    if not isinstance(question, str) or not isinstance(restatement, str):
+        raise ValueError("understanding_text")
+    if not isinstance(options, list) or any(
+        not isinstance(option, str) or not option.strip() for option in options
+    ):
+        raise ValueError("understanding_options")
+    if len(options) not in {0, 2, 3, 4}:
+        raise ValueError("understanding_option_count")
+    if type(confirmation_required) is not bool:
+        raise ValueError("understanding_confirmation_type")
+
+    def require_single_question() -> None:
+        if (
+            not question.strip()
+            or "\n" in question
+            or "\r" in question
+            or question.count("?") + question.count("？") > 1
+        ):
+            raise ValueError("understanding_single_question_required")
+
+    all_clear = all(level == "CLEAR" for level in dimensions.values())
+    if score < UNDERSTANDING_THRESHOLD:
+        if route != "SINGLE_QUESTION":
+            raise ValueError("understanding_below_threshold_requires_question")
+        if all_clear or target not in UNDERSTANDING_DIMENSIONS or dimensions[target] == "CLEAR":
+            raise ValueError("understanding_question_target_not_uncertain")
+        require_single_question()
+        if restatement or confirmation_required:
+            raise ValueError("understanding_clarification_state")
+    else:
+        if not all_clear:
+            raise ValueError("understanding_clear_dimensions_required")
+        if route == "DIRECT_EXECUTION":
+            if target != "NONE" or question or options or confirmation_required:
+                raise ValueError("understanding_direct_execution_state")
+        elif route == "RESTATE_CONFIRM":
+            if target != "CONFIRMATION" or not restatement.strip() or not confirmation_required:
+                raise ValueError("understanding_restatement_confirmation_state")
+            require_single_question()
+        else:
+            raise ValueError("understanding_ready_route")
+    return {
+        "schema": UNDERSTANDING_SCHEMA,
+        "score": score,
+        "threshold": UNDERSTANDING_THRESHOLD,
+        "dimensions": {field: str(dimensions[field]) for field in UNDERSTANDING_DIMENSIONS},
+        "route": str(route),
+        "question_target": str(target),
+        "question": question.strip(),
+        "options": [str(option).strip() for option in options],
+        "restatement": restatement.strip(),
+        "confirmation_required": confirmation_required,
+    }
 
 
 def conversation_gate_json_schema() -> dict[str, object]:
@@ -88,14 +235,30 @@ def conversation_gate_json_schema() -> dict[str, object]:
     properties["taskization_consent"]["enum"] = sorted(TASKIZATION_CONSENTS)
     properties["next_route"]["enum"] = sorted(NEXT_ROUTES)
     properties["target_task_id"] = {"type": "string", "minLength": 1}
+    properties["understanding"] = request_understanding_json_schema()
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": INTAKE_SCHEMA,
         "type": "object",
         "required": sorted(_REQUIRED_FIELDS),
-        "optional": ["target_task_id"],
+        "optional": ["target_task_id", "understanding"],
         "properties": properties,
         "additionalProperties": False,
+    }
+
+
+def minimal_request_understanding_example() -> dict[str, object]:
+    return {
+        "schema": UNDERSTANDING_SCHEMA,
+        "score": 100,
+        "threshold": UNDERSTANDING_THRESHOLD,
+        "dimensions": {field: "CLEAR" for field in UNDERSTANDING_DIMENSIONS},
+        "route": "DIRECT_EXECUTION",
+        "question_target": "NONE",
+        "question": "",
+        "options": [],
+        "restatement": "The goal, usage scenario, key requirements, and acceptance criteria are explicit.",
+        "confirmation_required": False,
     }
 
 
@@ -114,6 +277,7 @@ def minimal_formal_task_example() -> dict[str, object]:
         "next_route": "THREE_DEPARTMENTS",
         "question": "",
         "rationale": "explicit formal task routed through Three Departments",
+        "understanding": minimal_request_understanding_example(),
     }
 
 
@@ -135,6 +299,8 @@ def validate_conversation_gate_diagnostics(value: object) -> dict[str, object]:
             errors.append({"field": field, "kind": "type", "code": "boolean_required"})
     if "target_task_id" in raw and not isinstance(raw["target_task_id"], str):
         errors.append({"field": "target_task_id", "kind": "type", "code": "string_required"})
+    if "understanding" in raw and not isinstance(raw["understanding"], dict):
+        errors.append({"field": "understanding", "kind": "type", "code": "object_required"})
     enum_fields = {
         "schema": {INTAKE_SCHEMA},
         "message_class": MESSAGE_CLASSES,
@@ -213,6 +379,8 @@ def validate_conversation_gate(value: object) -> dict[str, object]:
         target_task_id = target.strip()
         _require(bool(target_task_id), "target_task_id_empty")
         normalized["target_task_id"] = target_task_id
+    if "understanding" in raw:
+        normalized["understanding"] = validate_request_understanding(raw["understanding"])
 
     schema = str(normalized["schema"])
     active_decree = bool(normalized["active_decree"])
@@ -330,6 +498,16 @@ def require_new_formal_task_gate(value: object) -> dict[str, object]:
     _require(gate["message_class"] == "FORMAL_TASK", "new_formal_task_gate_required")
     _require(gate["taskization_consent"] == "EXPLICIT", "new_formal_task_gate_required")
     _require(gate["next_route"] == "THREE_DEPARTMENTS", "new_formal_task_gate_required")
+    understanding = gate.get("understanding")
+    _require(isinstance(understanding, dict), "formal_understanding_required")
+    _require(
+        int(understanding["score"]) >= UNDERSTANDING_THRESHOLD,
+        "formal_understanding_required",
+    )
+    _require(
+        understanding["route"] == "DIRECT_EXECUTION",
+        "formal_understanding_confirmation_pending",
+    )
     return gate
 
 

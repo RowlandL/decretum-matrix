@@ -16,6 +16,7 @@ sys.dont_write_bytecode = True
 
 import archive_runtime_task
 import court_runtime
+from court_intake_gate import minimal_request_understanding_example
 
 
 ASSESSMENT_SCHEMA = "court.outcome_assessment.v1"
@@ -92,6 +93,7 @@ def formal_gate() -> dict[str, object]:
         "next_route": "THREE_DEPARTMENTS",
         "question": "",
         "rationale": "completion checker fixture",
+        "understanding": minimal_request_understanding_example(),
     }
 
 
