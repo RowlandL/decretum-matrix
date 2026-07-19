@@ -27,7 +27,12 @@ REQUIRED = (
     "只有用户最新指令明确点名其他工具时",
     "不得扫描后自动向所有工具分发",
     "不得运行会向未点名工具扩散的 `sync_active_copies.py --write`",
-    "无删除覆盖",
+    "逐文件 SHA256 持久备份",
+    "原子覆盖",
+    "写入失败必须自动回滚",
+    "backup_root",
+    "史馆实录",
+    "private/pending",
     "SOURCE_MISSING",
 )
 

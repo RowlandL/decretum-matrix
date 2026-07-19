@@ -1,15 +1,17 @@
-# Dercretum-Matrix
+# Decretum Matrix（诏令矩阵）
 
-Dercretum-Matrix（诏令矩阵）把复杂任务组织成可验证的三省六部工作流，并在
+Decretum Matrix（诏令矩阵）把复杂任务组织成可验证的三省六部工作流，并在
 Codex、Agent Skills、Claude Code 与 Hermes 的本地 skill 环境中运行。
 
 ## 安装
 
 ```powershell
 npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
+decretum-matrix --format json --help
 ```
 
-当前公开 `beta` 为 `0.5.11-beta.0`。需要认证时只授予最小
+当前源码候选为 `0.5.13-beta.0`。安装命令解析到 registry 已发布的 `beta`；
+实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
 `read:packages`，且不得持久化 token。
 
 ## 开始使用
@@ -45,7 +47,7 @@ $decretum-matrix
 
 ## 当前版本
 
-当前源码分支为 `release/beta0.5.12`，发布身份以 [`VERSION`](VERSION) 和
+当前源码分支为 `release/beta0.5.13`，发布身份以 [`VERSION`](VERSION) 和
 [`release-manifest.json`](release-manifest.json) 为准。tag、GitHub Release、npm
 以及线上 Wiki 的成功状态只由对应发布回执证明。
 

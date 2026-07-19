@@ -34,10 +34,17 @@ function fail(message) {
   throw new Error(message);
 }
 
+function withoutInheritedGitIndex(environment = process.env) {
+  const result = { ...environment };
+  delete result.GIT_INDEX_FILE;
+  return result;
+}
+
 function gitTextAt(root, ...args) {
   const result = spawnSync("git", args, {
     cwd: root,
     encoding: "utf8",
+    env: withoutInheritedGitIndex(),
     shell: false,
     timeout: 30_000,
     windowsHide: true,
@@ -194,6 +201,7 @@ async function validateIndependentHeadAndTag(authority) {
     const head = spawnSync("git", ["show", `HEAD:${relativePath}`], {
       cwd: REPO_ROOT,
       encoding: null,
+      env: withoutInheritedGitIndex(),
       maxBuffer: 32 * 1024 * 1024,
       shell: false,
       timeout: 30_000,
@@ -248,6 +256,7 @@ async function loadIndependentRepositoryOracle(releaseManifest) {
     {
       cwd: REPO_ROOT,
       encoding: "utf8",
+      env: withoutInheritedGitIndex(),
       shell: false,
       timeout: 30_000,
       windowsHide: true,
@@ -602,6 +611,10 @@ export async function selfTestNpmPackage() {
     "nested_zip_member_privacy",
     "deterministic_double_pack",
     "strict_offline_install",
+    "bin_entry",
+    "no_install_lifecycle_scripts",
+    "source_local_tgz_cli_parity",
+    "clean_home_windows_macos_linux",
     "create_only",
     "identical_reuse",
     "collision_rejected",

@@ -35,13 +35,13 @@ EXPECTED_UPSTREAM_LICENSE_BLOB_SHA1 = "69499c3250cbecc6079c69dc0e5a0f7a4be716da"
 EXPECTED_UPSTREAM_LICENSE_SHA256 = "5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c"
 EXPECTED_UPSTREAM_COPYRIGHT = "Copyright (c) 2026 openclaw-sansheng-liubu contributors"
 EXPECTED_UPSTREAM_REPOSITORY = "https://github.com/cft0808/edict"
-EXPECTED_RELEASE = "beta0.5.12"
+EXPECTED_RELEASE = "beta0.5.13"
 EXPECTED_PACKAGE_NAME = "decretum-matrix"
 EXPECTED_LICENSE = "AGPL-3.0-only"
 EXPECTED_AGPL_SHA256 = "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
-EXPECTED_SBOM_NAME = "decretum-matrix-beta0.5.12"
-EXPECTED_SBOM_CREATED = "2026-07-18T00:00:00Z"
-EXPECTED_SBOM_NAMESPACE = "https://spdx.org/spdxdocs/decretum-matrix-beta0.5.12-20260718"
+EXPECTED_SBOM_NAME = "decretum-matrix-beta0.5.13"
+EXPECTED_SBOM_CREATED = "2026-07-19T00:00:00Z"
+EXPECTED_SBOM_NAMESPACE = "https://spdx.org/spdxdocs/decretum-matrix-beta0.5.13-20260719"
 EXPECTED_COPYRIGHT = "Copyright 2026 孙华清"
 EXPECTED_OWNER = "孙华清"
 EXPECTED_MAINTAINER = "@RowlandL"
@@ -119,7 +119,7 @@ def evaluate(root: Path) -> dict[str, object]:
 
     notice_text = read_text(root / "NOTICE") if (root / "NOTICE").is_file() else ""
     for marker in (
-        "Dercretum-Matrix（诏令矩阵）",
+        "Decretum Matrix（诏令矩阵）",
         f"Copyright 2026 {EXPECTED_OWNER}",
         f"Community edition: {EXPECTED_LICENSE}",
         f"GitHub: {EXPECTED_MAINTAINER}",
@@ -275,7 +275,7 @@ def evaluate(root: Path) -> dict[str, object]:
     trademarks = read_text(root / "TRADEMARKS.md") if (root / "TRADEMARKS.md").is_file() else ""
     for marker in (
         EXPECTED_TRADEMARK_POLICY_OWNER,
-        "Dercretum-Matrix（诏令矩阵）",
+        "Decretum Matrix（诏令矩阵）",
         "decretum-matrix",
         "nominative",
         "no affiliation",

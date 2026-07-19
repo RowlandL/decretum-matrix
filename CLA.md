@@ -1,4 +1,4 @@
-# Dercretum-Matrix Contributor License Agreement (draft)
+# Decretum Matrix（诏令矩阵） Contributor License Agreement (draft)
 
 Status: `LEGAL_REVIEW_REQUIRED`
 
@@ -15,7 +15,7 @@ contribution and accepts the adopted CLA agrees:
    irrevocable and royalty-free copyright license to reproduce, modify, prepare
    derivative works of, publicly display, publicly perform, distribute and
    sublicense the contribution, including the right to dual-license and
-   commercially license it as part of Dercretum-Matrix.
+   commercially license it as part of Decretum Matrix（诏令矩阵）.
 3. To the extent the contributor owns or controls patent claims necessarily
    infringed by the contribution, the contributor grants a worldwide,
    non-exclusive, perpetual, irrevocable and royalty-free patent license to

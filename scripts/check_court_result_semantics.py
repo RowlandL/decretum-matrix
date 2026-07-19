@@ -8,6 +8,10 @@ import re
 import sys
 from typing import Any
 
+sys.dont_write_bytecode = True
+
+import court_result_semantics
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "references" / "fixtures" / "response-draft-families.json"
@@ -178,11 +182,53 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
             errors.append(f"{family}:missing_draft")
             continue
         _validate(family, semantics, errors, draft)
+    attribution_cases = data.get("attribution_cases", []) if isinstance(data, dict) else []
+    if not isinstance(attribution_cases, list):
+        errors.append("attribution_cases_not_list")
+        attribution_cases = []
+    menxia_cases = 0
+    taizi_cases = 0
+    for case in attribution_cases:
+        if not isinstance(case, dict) or not isinstance(case.get("case"), str):
+            errors.append("attribution_case_invalid")
+            continue
+        name = case["case"]
+        request = case.get("request")
+        if not isinstance(request, dict):
+            errors.append(f"{name}:request_invalid")
+            continue
+        try:
+            result = court_result_semantics.classify_attribution(**request)
+        except (TypeError, ValueError) as exc:
+            errors.append(f"{name}:classification_failed:{exc}")
+            continue
+        if result.get("label") != case.get("expected_label"):
+            errors.append(f"{name}:label_mismatch")
+        if result.get("requires_final_followup") is not case.get("requires_final_followup", False):
+            errors.append(f"{name}:followup_mismatch")
+        expected_problem = case.get("expected_problem")
+        if expected_problem and expected_problem not in result.get("menxia_problems", []):
+            errors.append(f"{name}:problem_missing:{expected_problem}")
+        if case.get("expected_label") == "MenxiaReview":
+            menxia_cases += 1
+        if case.get("expected_label") in {"TaiziSynthesis", "TaiziReply"}:
+            taizi_cases += 1
+    menxia_gate = not any(
+        error.startswith(("accepted_menxia", "taizi_impersonation", "stale_menxia", "pre_ministry"))
+        for error in errors
+    ) and menxia_cases >= 1
+    taizi_gate = not any(
+        error.startswith(("root_synthesis", "user_reply", "missing_final_followup"))
+        for error in errors
+    ) and taizi_cases >= 3
     result = {
         "schema": "court.result_semantics_gate.v1",
         "gate": "PASSED" if not errors else "FAILED",
+        "MENXIA_REVIEW_ATTRIBUTION": "PASS" if menxia_gate else "FAIL",
+        "TAIZI_LABEL_SEMANTICS": "PASS" if taizi_gate else "FAIL",
         "families": len(REQUIRED_FAMILIES),
         "cases": len(fixtures),
+        "attribution_cases": len(attribution_cases),
         "errors": errors,
     }
     return result

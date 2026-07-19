@@ -1,4 +1,4 @@
-"""Command-line UI for the local /court runtime ledger."""
+"""Public Decretum Matrix command-line entrypoint."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
-from court_runtime import main
+from court_cli_registry import main
 
 
 if __name__ == "__main__":

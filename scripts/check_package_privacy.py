@@ -45,6 +45,8 @@ BRAND_REQUIRED = {
     f"{ROOT_NAME}/assets/brand/README.md",
 }
 PACKAGE_IDENTITY_REQUIRED = {
+    f"{ROOT_NAME}/bin/decretum-matrix.js",
+    f"{ROOT_NAME}/bin/decretum-matrix.py",
     f"{ROOT_NAME}/release-manifest.json",
     f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
     f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",
@@ -1236,22 +1238,22 @@ class ZipStructurePrivacyTests(unittest.TestCase):
     def test_root_release_allowlist_accepts_known_files_and_rejects_unknown(self) -> None:
         allowed = validation_problems(
             [
-                (f"{ROOT_NAME}/VERSION", b"beta0.5.12\n"),
+                (f"{ROOT_NAME}/VERSION", b"beta0.5.13\n"),
                 (f"{ROOT_NAME}/CHANGELOG.md", b"# Changelog\n"),
                 (f"{ROOT_NAME}/RELEASE-LOG.md", b"# Release log\n"),
                 (
                     f"{ROOT_NAME}/release-manifest.json",
                     (
-                        b'{"name":"decretum-matrix","display_name":"Dercretum-Matrix",'
-                        b'"package_name":"decretum-matrix",'
-                        b'"release_label":"beta0.5.12","artifact_name":"decretum-matrix-beta0.5.12.zip",'
-                        b'"archive_root":"court-capability-router/","license":{"declared":"AGPL-3.0-only",'
-                        b'"file":"LICENSE"}}\n'
-                    ),
+                        '{"name":"decretum-matrix","display_name":"Decretum Matrix（诏令矩阵）",'
+                        '"package_name":"decretum-matrix",'
+                        '"release_label":"beta0.5.13","artifact_name":"decretum-matrix-beta0.5.13.zip",'
+                        '"archive_root":"decretum-matrix/","license":{"declared":"AGPL-3.0-only",'
+                        '"file":"LICENSE"}}\n'
+                    ).encode("utf-8"),
                 ),
                 (f"{ROOT_NAME}/.gitignore", b"dist/\n"),
                 (f"{ROOT_NAME}/LICENSE", b"GNU AFFERO GENERAL PUBLIC LICENSE\n"),
-                (f"{ROOT_NAME}/NOTICE", b"Dercretum-Matrix\n"),
+                (f"{ROOT_NAME}/NOTICE", "Decretum Matrix（诏令矩阵）\n".encode("utf-8")),
                 (f"{ROOT_NAME}/THIRD_PARTY_NOTICES.md", b"# Third-party notices\n"),
                 (f"{ROOT_NAME}/PROVENANCE.md", b"# Provenance\n"),
                 (f"{ROOT_NAME}/COMMERCIAL-LICENSE.md", b"# Commercial license notice\n"),
@@ -1264,7 +1266,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta0.5.12","licenseDeclared":"AGPL-3.0-only"}]}\n',
+                    b'"versionInfo":"beta0.5.13","licenseDeclared":"AGPL-3.0-only"}]}\n',
                 ),
             ]
         )
@@ -1297,7 +1299,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta0.5.12","licenseDeclared":"Apache-2.0"}]}\n',
+                    b'"versionInfo":"beta0.5.13","licenseDeclared":"Apache-2.0"}]}\n',
                 )
             ]
         )
@@ -1328,12 +1330,12 @@ class PackageBuildTests(unittest.TestCase):
         self.assertEqual(getattr(package_skill, "PRODUCT_NAME", None), "decretum-matrix")
         self.assertEqual(
             getattr(package_skill, "DISPLAY_NAME", None),
-            "Dercretum-Matrix",
+            "Decretum Matrix（诏令矩阵）",
         )
-        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.12")
+        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta0.5.13")
         self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")
-        self.assertEqual(package_skill.ROOT_NAME, "court-capability-router")
-        self.assertEqual(package_skill.default_out().name, "decretum-matrix-beta0.5.12.zip")
+        self.assertEqual(package_skill.ROOT_NAME, "decretum-matrix")
+        self.assertEqual(package_skill.default_out().name, "decretum-matrix-beta0.5.13.zip")
         self.assertTrue(package_skill.should_skip(Path(".github"), is_dir=True))
 
     def test_legal_governance_files_are_mandatory_package_members(self) -> None:

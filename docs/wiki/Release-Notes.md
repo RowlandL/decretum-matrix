@@ -1,5 +1,25 @@
 # Release Notes
 
+## beta0.5.13
+
+状态：source candidate。外部 tag、GitHub Release、npm、资产和最终安装只在
+对应发布回执完成后标记成功。
+
+### 主要变化
+
+- 新增 `decretum-matrix` npm 可执行入口和惰性统一 CLI，保留既有命令兼容。
+- 新增单解释器 `court open --fast`、门下/太子结果归属和正式性能门禁。
+- 覆盖安装改为受管公开文件的持久备份、原子替换、失败自动回滚和显式恢复。
+- 根 skill/role preload 最大 19,360 bytes；cold/warm p50 分别提升 88.55%/99.34%。
+- 清理当前产品显示名、canonical package root、legacy help 与 release policy 漂移。
+
+### 保持不变
+
+- 安装命令：`npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com`。
+- canonical skill/invocation：`decretum-matrix` / `$decretum-matrix`。
+- 史馆实录与 private/pending 正文不被覆盖或读取。
+- beta0.5.12 已发布工件保持不可变。
+
 ## beta0.5.12
 
 状态：release preparation。外部 tag、GitHub Release、npm 与线上 Wiki 只在各自

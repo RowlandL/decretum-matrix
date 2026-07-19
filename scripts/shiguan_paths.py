@@ -1,4 +1,4 @@
-"""Shared Shiguan data-path helpers for Dercretum-Matrix.
+"""Shared Shiguan data-path helpers for Decretum Matrix（诏令矩阵）.
 
 The skill code can be installed in Codex, Agent Skills, or Hermes roots. Shiguan
 records are local evidence shared across those runtimes, so their writable
@@ -1056,7 +1056,7 @@ def ensure_shared_seed() -> Path:
     write_lock = refs / "court-runtime" / "shiguan-write.lock"
     with file_lock(write_lock):
         readmes = {
-            refs / "README.md": "# Shared Court Shiguan\n\nThis directory is the local shared Shiguan database used by Codex, Agent Skills, and Hermes Dercretum-Matrix installations.\n",
+            refs / "README.md": "# Shared Court Shiguan\n\nThis directory is the local shared Shiguan database used by Codex, Agent Skills, and Hermes Decretum Matrix（诏令矩阵） installations.\n",
             refs / "plan-archives" / "README.md": "# Shiguan Plan Archives\n\nLocal court checkpoints are written here.\n",
             refs / "memory-decisions" / "README.md": "# Shiguan Memory Decisions\n\nDurable memory decisions are recorded here after Menxia approval.\n",
             tree / "README.md": "# 史馆生长树\n\nGenerated Markdown tree for Obsidian and the Shiguan Web UI.\n",

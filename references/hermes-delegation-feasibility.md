@@ -1,6 +1,6 @@
 # Hermes Delegation Feasibility
 
-Use this reference when configuring Dercretum-Matrix（诏令矩阵） (`decretum-matrix`,
+Use this reference when configuring Decretum Matrix（诏令矩阵） (`decretum-matrix`,
 invoked as `$decretum-matrix`) for Hermes Agent `delegate_task`, standing court
 agents, startup hooks, or nested smoke tests.
 

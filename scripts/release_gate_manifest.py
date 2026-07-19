@@ -33,6 +33,35 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         "always",
     ),
     (
+        "unified_cli",
+        "source",
+        ("$PYTHON", "scripts/check_unified_cli.py", "--all", "--json"),
+        "always",
+    ),
+    (
+        "court_open_fastpath",
+        "source",
+        (
+            "$PYTHON",
+            "scripts/check_court_open_fastpath.py",
+            "--serial-probes",
+            "--json",
+        ),
+        "always",
+    ),
+    (
+        "court_result_semantics",
+        "source",
+        ("$PYTHON", "scripts/check_court_result_semantics.py"),
+        "always",
+    ),
+    (
+        "cli_performance",
+        "source",
+        ("$PYTHON", "scripts/check_cli_performance.py", "--samples", "10", "--json"),
+        "always",
+    ),
+    (
         "capability_index",
         "source",
         (

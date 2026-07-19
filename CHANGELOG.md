@@ -1,5 +1,35 @@
 # Changelog
 
+## beta0.5.13 - 2026-07-19
+
+### Added
+
+- Added the `decretum-matrix` npm executable and lazy unified CLI registry while
+  retaining verified compatibility adapters for existing entrypoints.
+- Added single-process `court open --fast`, structured result attribution, and
+  deterministic cold/warm performance gates.
+- Added managed-file install backups plus explicit rollback for direct atomic
+  overwrite updates.
+
+### Changed
+
+- Compacted root skill and role preloads to stay below 20 KiB while resolving
+  detailed behavior through direct governing references.
+- Expanded release gates to cover unified CLI, fast-open, result semantics, and
+  measured performance; source audit steps now isolate temporary Git indexes.
+- Aligned VERSION, SBOM, package, payload, artifact, and npm candidate identity
+  to beta0.5.13.
+
+### Fixed
+
+- Removed the V2/legacy agent-type protocol conflict at the CLI boundary.
+- Restored discovery of public legacy court commands in unified top-level help.
+- Corrected remaining current-product naming, canonical package-root, bytecode,
+  fixture-index, and release-builder contract drift.
+
+External push, tag, GitHub Release, npm publication, assets, and final host
+installation remain receipt-gated and are not asserted by this source entry.
+
 ## beta0.5.12 - 2026-07-18
 
 ### Added
@@ -36,7 +66,7 @@ receipt-gated and are not asserted by this source entry.
 - Added the bounded source split for dispatch contract, delivery, admission contract, and autosync projection modules, plus a live source-state focused checker.
 
 ### Changed
-- The current display identity is exactly `Dercretum-Matrix`; `诏令矩阵` is explanatory only, while machine/package/invocation remain `decretum-matrix` / `$decretum-matrix`.
+- The current display identity is exactly `Decretum Matrix（诏令矩阵）`; `诏令矩阵` is explanatory only, while machine/package/invocation remain `decretum-matrix` / `$decretum-matrix`.
 - Shiguan Web/autosync uses atomic state transitions, a filesystem preserve-only primary channel, optional non-blocking REST, and asynchronous refresh requests for an existing daemon.
 - Expanded the release policy to 42 manifest steps: 37 source, 4 installation, and 1 conditional runtime step; candidate pre-install selects 36 source steps and normal post-install selects 5.
 - The canonical physical install authority is `skills/decretum-matrix`; the ZIP internal root remains `court-capability-router/`, any legacy install locator must resolve to the same authority, and host migration remains `NOT_RUN`.

@@ -6,7 +6,7 @@
 - profile_source: agents/standing-officials/patrol-inspector.toml
 - governing_skill: decretum-matrix
 - governing_invocation: $decretum-matrix
-- governing_display_name: Dercretum-Matrix
+- governing_display_name: Decretum Matrix（诏令矩阵）
 - carrier_scope: child_agent | worktree_thread
 - technical_locator: court-capability-router (protected compatibility locator only)
 

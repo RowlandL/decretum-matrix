@@ -21,11 +21,21 @@ import { isDeepStrictEqual } from "node:util";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 export const REPO_ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
+const SYNTHETIC_SELF_TEST =
+  process.argv.includes("--self-test") ||
+  process.env.DECRETUM_NPM_SYNTHETIC_SELF_TEST === "1";
+
+function withoutInheritedGitIndex(environment = process.env) {
+  const result = { ...environment };
+  delete result.GIT_INDEX_FILE;
+  return result;
+}
 
 function gitText(...args) {
   const result = spawnSync("git", args, {
     cwd: REPO_ROOT,
     encoding: "utf8",
+    env: withoutInheritedGitIndex(),
     shell: false,
     timeout: 30_000,
     windowsHide: true,
@@ -81,13 +91,14 @@ export function normalizeRepositoryRemote(remote) {
   });
 }
 
-function loadRepositoryOracle(root, manifest) {
+function loadRepositoryOracle(root, manifest, { allowManifestDrift = false } = {}) {
   const result = spawnSync(
     "git",
     ["remote", "get-url", "--all", "origin"],
     {
       cwd: root,
       encoding: "utf8",
+      env: withoutInheritedGitIndex(),
       maxBuffer: 1024 * 1024,
       shell: false,
       timeout: 30_000,
@@ -126,11 +137,11 @@ function loadRepositoryOracle(root, manifest) {
   const provenanceSha256 = createHash("sha256")
     .update(provenanceBytes)
     .digest("hex");
-  if (
+  const provenanceInventoryDrift =
     provenanceEntries.length !== 1 ||
     provenanceEntries[0].size !== provenanceBytes.length ||
-    provenanceEntries[0].sha256 !== provenanceSha256
-  ) {
+    provenanceEntries[0].sha256 !== provenanceSha256;
+  if (provenanceInventoryDrift && !allowManifestDrift) {
     throw new Error("manifest provenance file inventory mismatch");
   }
   const provenanceText = provenanceBytes.toString("utf8");
@@ -196,7 +207,9 @@ const LIVE_MANIFEST_BYTES = readFileSync(
 );
 const LIVE_MANIFEST = JSON.parse(LIVE_MANIFEST_BYTES.toString("utf8"));
 const LIVE_IDENTITY = deriveReleaseIdentity(LIVE_VERSION, LIVE_MANIFEST);
-const LIVE_REPOSITORY = loadRepositoryOracle(REPO_ROOT, LIVE_MANIFEST);
+const LIVE_REPOSITORY = loadRepositoryOracle(REPO_ROOT, LIVE_MANIFEST, {
+  allowManifestDrift: SYNTHETIC_SELF_TEST,
+});
 
 export const PACKAGE_NAME = "@rowlandl/decretum-matrix";
 export const PACKAGE_VERSION = LIVE_IDENTITY.packageVersion;
@@ -255,6 +268,11 @@ const LEGAL_PATHS = Object.freeze([
   "PRIVACY.md",
 ]);
 
+const CLI_RUNTIME_PATHS = Object.freeze([
+  "bin/decretum-matrix.js",
+  "bin/decretum-matrix.py",
+]);
+
 export const LEGAL_SOURCE_FILES = Object.freeze(
   LEGAL_PATHS.map((legalPath) => {
     const matches = (LIVE_MANIFEST.files || []).filter(
@@ -276,8 +294,20 @@ export const LEGAL_SOURCE_FILES = Object.freeze(
   }),
 );
 
+export const CLI_RUNTIME_FILES = Object.freeze(
+  CLI_RUNTIME_PATHS.map((runtimePath) => {
+    const bytes = readFileSync(path.join(REPO_ROOT, runtimePath));
+    return Object.freeze({
+      path: runtimePath,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      size: bytes.length,
+    });
+  }),
+);
+
 const PACKAGE_FILE_ALLOWLIST = Object.freeze([
   "README.md",
+  "bin/",
   ...LEGAL_SOURCE_FILES.map((file) => file.path),
   "release/",
 ]);
@@ -309,7 +339,7 @@ function buildPackageReadmeForContract(contract) {
   return `${[
     `# ${contract.packageName}`,
     "",
-    `Immutable legal-v2 npm carrier for Dercretum-Matrix ${contract.releaseLabel}.`,
+    `Immutable legal-v2 npm carrier for Decretum Matrix（诏令矩阵） ${contract.releaseLabel}.`,
     "",
     `- Source commit: \`${contract.sourceCommit}\``,
     `- Release tag: \`${contract.releaseLabel}\``,
@@ -319,7 +349,7 @@ function buildPackageReadmeForContract(contract) {
     "",
     `This package contains the release ZIP and checksum, release attestation, release notes, SPDX SBOM, and legal/governance documents validated against the ${contract.releaseLabel} release manifest.`,
     "",
-    "It has no dependencies, executable entry points, or install lifecycle scripts. Installing it does not modify host configuration or execute package code.",
+    "It has no dependencies or install lifecycle scripts. The `decretum-matrix` bin starts the verified release CLI only when explicitly invoked; package installation does not modify host configuration or execute package code.",
     "",
     `Verify \`release/${contract.identity.artifactName}\` with \`release/${contract.identity.sidecarName}\` and the release attestation before use.`,
   ].join("\n")}\n`;
@@ -347,6 +377,7 @@ function createPackageContract(options) {
     sourceTree: options.sourceTree,
     releaseManifestSha256: options.releaseManifestSha256,
     legalFiles: Object.freeze([...options.legalFiles]),
+    runtimeFiles: Object.freeze([...options.runtimeFiles]),
     releaseAssets: Object.freeze([...options.releaseAssets]),
     outputRelative: options.outputRelative,
     authorityReceiptId: options.authorityReceiptId,
@@ -357,6 +388,7 @@ function createPackageContract(options) {
     [
       "package.json",
       "README.md",
+      ...contract.runtimeFiles.map((file) => file.path),
       ...contract.legalFiles.map((file) => file.path),
       ...contract.releaseAssets.map((asset) => asset.path),
     ].sort(),
@@ -377,6 +409,7 @@ const LIVE_PACKAGE_CONTRACT = createPackageContract({
   sourceTree: SOURCE_TREE,
   releaseManifestSha256: RELEASE_MANIFEST_SHA256,
   legalFiles: LEGAL_SOURCE_FILES,
+  runtimeFiles: CLI_RUNTIME_FILES,
   releaseAssets: RELEASE_ASSETS,
   outputRelative: OUTPUT_RELATIVE,
   authorityReceiptId: AUTHORITY_RECEIPT_ID,
@@ -394,7 +427,7 @@ members = json.loads(sys.argv[3])
 with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_STORED) as archive:
     for relative in members:
         body = (source / relative).read_bytes()
-        info = zipfile.ZipInfo(f"court-capability-router/{relative}", (1980, 1, 1, 0, 0, 0))
+        info = zipfile.ZipInfo(f"decretum-matrix/{relative}", (1980, 1, 1, 0, 0, 0))
         info.create_system = 3
         info.external_attr = (stat.S_IFREG | 0o644) << 16
         info.compress_type = zipfile.ZIP_STORED
@@ -630,7 +663,7 @@ function runFixtureCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd || REPO_ROOT,
     encoding: "utf8",
-    env: options.env || process.env,
+    env: withoutInheritedGitIndex(options.env || process.env),
     maxBuffer: 32 * 1024 * 1024,
     shell: false,
     timeout: options.timeout || 120_000,
@@ -769,6 +802,7 @@ async function validateTrackedProductionAuthority(root, expectedReleaseLabel) {
     const head = spawnSync("git", ["show", `HEAD:${relativePath}`], {
       cwd: root,
       encoding: null,
+      env: withoutInheritedGitIndex(),
       maxBuffer: 32 * 1024 * 1024,
       shell: false,
       timeout: 30_000,
@@ -955,6 +989,72 @@ async function snapshotOutputDirectory(outputDirectory) {
   return snapshot;
 }
 
+async function verifyInstalledCliParity(operationRoot, installedRoot) {
+  const sourceResult = runPythonFixtureCommand(
+    [path.join(REPO_ROOT, "scripts", "court_cli.py"), "--format", "json", "--help"],
+    { cwd: REPO_ROOT },
+  );
+  assert(
+    sourceResult.status === 0,
+    `source CLI receipt failed: ${sourceResult.stdout}${sourceResult.stderr}`,
+  );
+  let sourceReceipt;
+  try {
+    sourceReceipt = JSON.parse(sourceResult.stdout.trim());
+  } catch (error) {
+    fail(`source CLI receipt is not JSON: ${error.message}`);
+  }
+  const launcher = path.join(installedRoot, "bin", "decretum-matrix.js");
+  const python = resolvePythonInvocation();
+  const platforms = [];
+  for (const platform of ["win32", "darwin", "linux"]) {
+    const fixtureRoot = path.join(operationRoot, `clean-home-${platform}`);
+    const homeRoot = path.join(fixtureRoot, "home");
+    const cacheRoot = path.join(fixtureRoot, "cache");
+    await mkdir(homeRoot, { recursive: true });
+    const result = runFixtureCommand(
+      process.execPath,
+      [launcher, "--format", "json", "--help"],
+      {
+        cwd: fixtureRoot,
+        env: {
+          ...process.env,
+          DECRETUM_MATRIX_NPM_CACHE_ROOT: cacheRoot,
+          DECRETUM_MATRIX_PYTHON: python.command,
+          DECRETUM_MATRIX_PYTHON_PREFIX_JSON: JSON.stringify(python.prefixArgs),
+          DECRETUM_MATRIX_TEST_PLATFORM: platform,
+          HOME: homeRoot,
+          USERPROFILE: homeRoot,
+        },
+      },
+    );
+    assert(
+      result.status === 0,
+      `${platform} npm CLI receipt failed: ${result.stdout}${result.stderr}`,
+    );
+    let installedReceipt;
+    try {
+      installedReceipt = JSON.parse(result.stdout.trim());
+    } catch (error) {
+      fail(`${platform} npm CLI receipt is not JSON: ${error.message}`);
+    }
+    assertDeepEqual(
+      installedReceipt,
+      sourceReceipt,
+      `${platform} source/local-tgz CLI receipt parity`,
+    );
+    platforms.push({ platform, status: "PASS" });
+  }
+  return Object.freeze({
+    status: "PASS",
+    command: "decretum-matrix --format json --help",
+    source_receipt_sha256: createHash("sha256")
+      .update(jsonText(sourceReceipt), "utf8")
+      .digest("hex"),
+    platforms: Object.freeze(platforms),
+  });
+}
+
 async function runSyntheticInstalledSmoke(
   operationRoot,
   tarballPath,
@@ -998,7 +1098,10 @@ async function runSyntheticInstalledSmoke(
     "synthetic installed package.json",
   );
   assertDeepEqual(installedPackage, publishPackage, "synthetic installed metadata");
-  assert(installedPackage.bin === undefined, "synthetic package unexpectedly exposes a bin");
+  assert(
+    installedPackage.bin?.["decretum-matrix"] === "bin/decretum-matrix.js",
+    "synthetic package bin contract mismatch",
+  );
   assert(installedPackage.main === undefined, "synthetic package unexpectedly exposes a main entry");
   assert(installedPackage.scripts === undefined, "synthetic package contains lifecycle scripts");
   assert(
@@ -1013,7 +1116,7 @@ async function runSyntheticInstalledSmoke(
       `synthetic installed hash drift: ${relativePath}`,
     );
   }
-  return "PASS";
+  return await verifyInstalledCliParity(operationRoot, installedRoot);
 }
 
 export async function runSyntheticSelfTest() {
@@ -1035,6 +1138,35 @@ export async function runSyntheticSelfTest() {
     await mkdir(authorityRoot, { recursive: false });
     await mkdir(path.join(authorityRoot, "scripts"), { recursive: false });
     await mkdir(assetRoot, { recursive: false });
+    const fixtureCliPayloadPaths = Object.freeze([
+      ...CLI_RUNTIME_PATHS,
+      "scripts/court_cli.py",
+      "scripts/court_cli_registry.py",
+      "references/manifests/cli-command-surface.v1.json",
+    ]);
+    const fixtureCliPayloadEntries = [];
+    for (const relativePath of fixtureCliPayloadPaths) {
+      const destinationPath = path.join(authorityRoot, ...relativePath.split("/"));
+      await mkdir(path.dirname(destinationPath), { recursive: true });
+      await copyFile(
+        path.join(REPO_ROOT, ...relativePath.split("/")),
+        destinationPath,
+        fsConstants.COPYFILE_EXCL,
+      );
+      fixtureCliPayloadEntries.push({
+        mode: "100644",
+        path: relativePath,
+        sha256: await hashFile(destinationPath),
+        size: (await stat(destinationPath)).size,
+      });
+    }
+    const fixtureRuntimeFiles = Object.freeze(
+      fixtureCliPayloadEntries
+        .filter((entry) => CLI_RUNTIME_PATHS.includes(entry.path))
+        .map(({ path: runtimePath, sha256, size }) =>
+          Object.freeze({ path: runtimePath, sha256, size }),
+        ),
+    );
     await writeFile(path.join(authorityRoot, "VERSION"), `${releaseLabel}\n`, {
       encoding: "utf8",
       flag: "wx",
@@ -1097,11 +1229,11 @@ export async function runSyntheticSelfTest() {
     };
     manifest.name = "decretum-matrix";
     manifest.package_name = "decretum-matrix";
-    manifest.display_name = "Dercretum-Matrix";
-    manifest.archive_root = "court-capability-router/";
+    manifest.display_name = "Decretum Matrix（诏令矩阵）";
+    manifest.archive_root = "decretum-matrix/";
     manifest.license = { declared: LICENSE, file: "LICENSE" };
     manifest.provenance = "PROVENANCE.md";
-    manifest.files = [...legalEntries, versionEntry, sbomEntry].sort((left, right) =>
+    manifest.files = [...legalEntries, ...fixtureCliPayloadEntries, versionEntry, sbomEntry].sort((left, right) =>
       Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")),
     );
     const syntheticInventoryText = payloadInventoryText(manifest.files);
@@ -1402,6 +1534,7 @@ export async function runSyntheticSelfTest() {
         path.join(authorityRoot, "release-manifest.json"),
       ),
       legalFiles: fixtureLegalFiles,
+      runtimeFiles: fixtureRuntimeFiles,
       releaseAssets: fixtureAssetTemplates,
       outputRelative: `synthetic/npm/${current.packageVersion}-legal-v2`,
       authorityReceiptId: `npm-${releaseLabel}-${syntheticHead.slice(0, 8)}-legal-v2`,
@@ -1412,6 +1545,7 @@ export async function runSyntheticSelfTest() {
       "VERSION",
       "release-manifest.json",
       "SBOM.spdx.json",
+      ...fixtureCliPayloadPaths,
       ...fixtureLegalFiles.map((file) => file.path),
     ].sort();
     const zipPath = path.join(assetRoot, current.artifactName);
@@ -1524,7 +1658,7 @@ export async function runSyntheticSelfTest() {
         TAMPER_ZIP_SCRIPT,
         zipPath,
         tamperedZipPath,
-        "court-capability-router/NOTICE",
+        "decretum-matrix/NOTICE",
       ],
       { cwd: root },
     );
@@ -1616,6 +1750,7 @@ export async function runSyntheticSelfTest() {
       syntheticAssets,
     );
     const expectedHashes = new Map([
+      ...fixtureContract.runtimeFiles.map((file) => [file.path, file.sha256]),
       ...fixtureContract.legalFiles.map((file) => [file.path, file.sha256]),
       ...syntheticAssets.map((asset) => [asset.path, asset.sha256]),
     ]);
@@ -1623,6 +1758,7 @@ export async function runSyntheticSelfTest() {
     const expectedUnpackedSize =
       Buffer.byteLength(packageText, "utf8") +
       Buffer.byteLength(readmeText, "utf8") +
+      fixtureContract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
       fixtureContract.legalFiles.reduce((total, file) => total + file.size, 0) +
       syntheticAssets.reduce((total, asset) => total + asset.size, 0);
     const npmState = await prepareNpmState(root);
@@ -1650,7 +1786,7 @@ export async function runSyntheticSelfTest() {
       firstPack.sha256 === secondPack.sha256 && firstPack.size === secondPack.size,
       "synthetic npm pack is not deterministic",
     );
-    await runSyntheticInstalledSmoke(
+    const cliParityEvidence = await runSyntheticInstalledSmoke(
       root,
       firstPack.tarballPath,
       npmState,
@@ -1849,13 +1985,17 @@ export async function runSyntheticSelfTest() {
           first_sha256: firstPack.sha256,
           second_sha256: secondPack.sha256,
         },
+        npm_bin_cli_parity: cliParityEvidence,
       },
       validation: {
         canonical_privacy_fixture: "PASS",
         nested_zip_member_privacy: "PASS",
         deterministic_double_pack: "PASS",
         strict_offline_install: "PASS",
-        bin_entry: "ABSENT_BY_CONTRACT",
+        bin_entry: "PASS",
+        no_install_lifecycle_scripts: "PASS",
+        source_local_tgz_cli_parity: "PASS",
+        clean_home_windows_macos_linux: "PASS",
         create_only: "PASS",
         identical_reuse: "PASS",
         collision_rejected: "PASS",
@@ -1889,6 +2029,7 @@ export async function runSyntheticSelfTest() {
 const EXPECTED_PACK_FILES = Object.freeze([
   "package.json",
   "README.md",
+  ...CLI_RUNTIME_FILES.map((file) => file.path),
   ...LEGAL_SOURCE_FILES.map((file) => file.path),
   ...RELEASE_ASSETS.map((asset) => asset.path),
 ].sort());
@@ -1988,7 +2129,11 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
   return {
     name: contract.packageName,
     version: contract.packageVersion,
-    description: `Immutable Dercretum-Matrix ${contract.releaseLabel} release assets and provenance.`,
+    description: `Immutable Decretum Matrix（诏令矩阵） ${contract.releaseLabel} CLI, release assets, and provenance.`,
+    type: "module",
+    bin: {
+      "decretum-matrix": "bin/decretum-matrix.js",
+    },
     license: contract.license,
     repository: contract.repositoryUrl,
     homepage: contract.releaseUrl,
@@ -1998,6 +2143,7 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
     keywords: ["codex", "decretum-matrix", "release-assets"],
     files: [
       "README.md",
+      "bin/",
       ...contract.legalFiles.map((file) => file.path),
       "release/",
     ],
@@ -2035,6 +2181,12 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
         repository: contract.repositoryUrl,
         releaseUrl: contract.releaseUrl,
       },
+      cli: {
+        entrypoint: "bin/decretum-matrix.js",
+        pythonBootstrap: "bin/decretum-matrix.py",
+        installLifecycleScripts: false,
+        runtimeAuthority: `release/${contract.identity.artifactName}`,
+      },
       legalSurface: {
         revision: "legal-v2",
         sourceCommit: contract.sourceCommit,
@@ -2058,7 +2210,7 @@ function expectedHarnessPackageJson() {
     version: "0.0.0-private",
     private: true,
     description:
-      "Private version-neutral harness for building and checking Dercretum-Matrix npm release candidates.",
+      "Private version-neutral harness for building and checking Decretum Matrix（诏令矩阵） npm release candidates.",
     license: LICENSE,
     type: "module",
     engines: {
@@ -2437,6 +2589,7 @@ function loadSourceReleaseManifest() {
     {
       cwd: REPO_ROOT,
       encoding: null,
+      env: withoutInheritedGitIndex(),
       maxBuffer: 16 * 1024 * 1024,
       shell: false,
       timeout: 30_000,
@@ -2524,7 +2677,9 @@ export async function validateLegalSourceFiles() {
 
 async function stagePackage(packageRoot, contract, releaseAssets) {
   const releaseRoot = path.join(packageRoot, "release");
+  const binRoot = path.join(packageRoot, "bin");
   await mkdir(releaseRoot, { recursive: false });
+  await mkdir(binRoot, { recursive: false });
 
   const publishPackage = expectedPublishedPackageJson(contract);
   const packageText = jsonText(publishPackage);
@@ -2545,6 +2700,27 @@ async function stagePackage(packageRoot, contract, releaseAssets) {
     mode: 0o644,
   });
   await utimes(readmePath, FIXED_MTIME, FIXED_MTIME);
+
+  for (const runtimeFile of contract.runtimeFiles) {
+    const sourcePath = path.join(contract.repoRoot, runtimeFile.path);
+    assert(
+      (await hashFile(sourcePath)) === runtimeFile.sha256,
+      `CLI runtime source drift before copy: ${runtimeFile.path}`,
+    );
+    const destinationPath = path.join(packageRoot, runtimeFile.path);
+    await copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL);
+    await chmod(destinationPath, 0o755);
+    await utimes(destinationPath, FIXED_MTIME, FIXED_MTIME);
+    const copiedStat = await stat(destinationPath);
+    assert(
+      copiedStat.size === runtimeFile.size,
+      `staged CLI runtime size drift: ${runtimeFile.path}`,
+    );
+    assert(
+      (await hashFile(destinationPath)) === runtimeFile.sha256,
+      `staged CLI runtime hash drift: ${runtimeFile.path}`,
+    );
+  }
 
   for (const legalFile of contract.legalFiles) {
     const sourcePath = path.join(contract.repoRoot, legalFile.path);
@@ -2839,12 +3015,30 @@ async function runInstalledSmoke(
     publishPackage,
     "installed package metadata",
   );
+  assert(
+    installedPackage.bin?.["decretum-matrix"] === "bin/decretum-matrix.js" &&
+      installedPackage.scripts === undefined,
+    "installed package executable/lifecycle contract mismatch",
+  );
 
   assert(
     (await readFile(path.join(installedRoot, "README.md"), "utf8")) ===
       contract.readme,
     "installed package README drift",
   );
+
+  for (const runtimeFile of contract.runtimeFiles) {
+    const installedPath = path.join(installedRoot, runtimeFile.path);
+    const installedStat = await lstat(installedPath);
+    assert(
+      installedStat.isFile() && installedStat.size === runtimeFile.size,
+      `installed CLI runtime size drift: ${runtimeFile.path}`,
+    );
+    assert(
+      (await hashFile(installedPath)) === runtimeFile.sha256,
+      `installed CLI runtime hash drift: ${runtimeFile.path}`,
+    );
+  }
 
   for (const legalFile of contract.legalFiles) {
     const installedPath = path.join(installedRoot, legalFile.path);
@@ -2874,6 +3068,7 @@ async function runInstalledSmoke(
     );
   }
 
+  await verifyInstalledCliParity(operationRoot, installedRoot);
   return "PASS";
 }
 
@@ -2906,6 +3101,7 @@ export async function createVerifiedPackage({
     const expectedUnpackedSize =
       Buffer.byteLength(packageText, "utf8") +
       Buffer.byteLength(readmeText, "utf8") +
+      contract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
       releaseValidation.assets.reduce((total, asset) => total + asset.size, 0) +
       contract.legalFiles.reduce((total, file) => total + file.size, 0);
 

@@ -80,20 +80,14 @@ def check_source_rules() -> None:
     require_terms(
         "SKILL.md",
         [
-            "Core Metadata Index",
-            "Reference Index",
-            "Office abstraction",
-            "Token Three-Level Optimization",
-            "Healthy offices do their own duties",
-            "Request pressure is rate-bounded",
-            "--turn-start",
-            "--closeout-silence",
+            "健康官署各司其职",
+            "turn-start",
+            "closeout-silence",
             "court-supercc-runtime-selection.md",
             "court-state-runtime-agents.md",
             "court-offices-dispatch.md",
             "court-closeout-validation.md",
             "court-host-platform-pitfalls.md",
-            *shared_dispatch_terms,
         ],
     )
     require_terms(

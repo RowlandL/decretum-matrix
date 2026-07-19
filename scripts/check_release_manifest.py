@@ -1,4 +1,4 @@
-"""Validate release-gate policy plus Dercretum-Matrix package identity."""
+"""Validate release-gate policy plus Decretum Matrix（诏令矩阵） package identity."""
 
 from __future__ import annotations
 
@@ -277,10 +277,10 @@ def release_surface_contract() -> dict[str, bool]:
     return {
         "canonical_product_name": release_payload_manifest.NAME == "decretum-matrix",
         "canonical_display_name": getattr(release_payload_manifest, "DISPLAY_NAME", None)
-        == "Dercretum-Matrix",
+        == "Decretum Matrix（诏令矩阵）",
         "canonical_artifact_name": release_payload_manifest.ARTIFACT_NAME
-        == "decretum-matrix-beta0.5.12.zip",
-        "canonical_release_label": release_payload_manifest.RELEASE_LABEL == "beta0.5.12",
+        == "decretum-matrix-beta0.5.13.zip",
+        "canonical_release_label": release_payload_manifest.RELEASE_LABEL == "beta0.5.13",
         "agpl_only": getattr(release_payload_manifest, "LICENSE_ID", None) == "AGPL-3.0-only",
         "artifact_builder_identity": build_release_artifacts.NAME == "decretum-matrix",
         "tagless_candidate_builder": (
@@ -292,8 +292,8 @@ def release_surface_contract() -> dict[str, bool]:
             getattr(check_release_gate, "evaluate_install_receipt_gate", None)
         ),
         "stable_locator": (
-            package_skill.ROOT_NAME == "court-capability-router"
-            and release_payload_manifest.ARCHIVE_ROOT == "court-capability-router/"
+            package_skill.ROOT_NAME == "decretum-matrix"
+            and release_payload_manifest.ARCHIVE_ROOT == "decretum-matrix/"
         ),
     }
 
@@ -613,10 +613,14 @@ def main() -> int:
             if step.get("gate_class") == "source" and step.get("name") != "catalog_strict"
         ]
         candidate_names = {str(step["name"]) for step in candidate_steps}
-        if len(candidate_steps) != 36:
+        if len(candidate_steps) != 40:
             raise AssertionError(f"candidate pre-install step count drifted: {len(candidate_steps)}")
         if not {
             "npm_release_harness",
+            "unified_cli",
+            "court_open_fastpath",
+            "court_result_semantics",
+            "cli_performance",
             "release_payload_manifest",
             "court_agent_config",
             "court_codex_host_resolution",
@@ -667,6 +671,10 @@ def main() -> int:
         "expanded_release_steps": [
             "capability_index",
             "npm_release_harness",
+            "unified_cli",
+            "court_open_fastpath",
+            "court_result_semantics",
+            "cli_performance",
             "release_legal",
             "release_payload_manifest",
             "package_privacy_regressions",

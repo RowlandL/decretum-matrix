@@ -1231,7 +1231,7 @@ def _check_gate_contract(gate: object, errors: list[str]) -> dict[str, object]:
         valid_skill_record = {
             **weak_record,
             "name": "decretum-matrix",
-            "description": "Dercretum-Matrix court capability router.",
+            "description": "Decretum Matrix（诏令矩阵） court capability router.",
             "path": str(ROOT / "SKILL.md"),
             "primary_fit": ["court", "capability", "router"],
         }

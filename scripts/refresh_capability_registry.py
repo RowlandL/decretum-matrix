@@ -2,7 +2,7 @@
 
 This is a lightweight 吏部/户部 registry pass. It reads skill frontmatter and
 standing-agent files, classifies each capability into likely court offices, and
-rewrites the local catalogs used by Dercretum-Matrix（诏令矩阵）.
+rewrites the local catalogs used by Decretum Matrix（诏令矩阵）.
 """
 
 from __future__ import annotations
@@ -900,7 +900,7 @@ def write_capability_index(records: list[dict[str, object]]) -> Path:
     (root / "README.md").write_text(
         "\n".join(
             [
-                "# Dercretum-Matrix（诏令矩阵） capability index",
+                "# Decretum Matrix（诏令矩阵） capability index",
                 "",
                 f"generated_at: {generated_at}",
                 "source_skill: current installed `decretum-matrix`",
@@ -1101,10 +1101,10 @@ def run_self_test() -> dict[str, object]:
         duplicate_b.parent.mkdir(parents=True)
         duplicate_a.write_text("---\nname: duplicate\ndescription: A.\n---\n", encoding="utf-8")
         duplicate_b.write_text("---\nname: duplicate\ndescription: B.\n---\n", encoding="utf-8")
-        identity_skill = root / "identity-skills" / "court-capability-router" / "SKILL.md"
+        identity_skill = root / "identity-skills" / "decretum-matrix" / "SKILL.md"
         identity_skill.parent.mkdir(parents=True)
         identity_skill.write_text(
-            "---\nname: decretum-matrix\ndescription: Dercretum-Matrix fixture.\n---\n",
+            "---\nname: decretum-matrix\ndescription: Decretum Matrix（诏令矩阵） fixture.\n---\n",
             encoding="utf-8",
         )
         effects = {"network_calls": 0, "subprocess_calls": 0, "write_calls": 0, "cache_write_calls": 0}
@@ -1175,7 +1175,7 @@ def run_self_test() -> dict[str, object]:
             identity_records, identity_manifest
         )
         assert identity_result["status"] == "PASSED"
-        assert identity_result["canonical_relative_path"] == "court-capability-router/SKILL.md"
+        assert identity_result["canonical_relative_path"] == "decretum-matrix/SKILL.md"
         alias_result = validate_skill_identity_records(
             [
                 *identity_records,

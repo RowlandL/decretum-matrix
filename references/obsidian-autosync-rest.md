@@ -1,6 +1,6 @@
 # Obsidian Autosync REST / 史馆 Obsidian 实时同步
 
-本卷治理 Dercretum-Matrix（诏令矩阵）（`decretum-matrix` / `$decretum-matrix`）史馆与本机 Obsidian
+本卷治理 Decretum Matrix（诏令矩阵）（`decretum-matrix` / `$decretum-matrix`）史馆与本机 Obsidian
 vault 的同步、Local REST API、插件和父 vault 入口规则。现存
 `court-capability-router` 目录段仅是迁移前 locator，不是当前活动路径或产品名。
 

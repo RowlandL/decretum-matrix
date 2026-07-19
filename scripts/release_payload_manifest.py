@@ -1,4 +1,4 @@
-"""Generate and strictly validate the Dercretum-Matrix beta0.5.12 payload manifest."""
+"""Generate and strictly validate the Decretum Matrix（诏令矩阵） beta0.5.13 payload manifest."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ import package_skill
 
 SCHEMA = "court.release_manifest.v2"
 NAME = "decretum-matrix"
-DISPLAY_NAME = "Dercretum-Matrix"
+DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 PACKAGE_NAME = NAME
 LICENSE_ID = "AGPL-3.0-only"
-RELEASE_LABEL = "beta0.5.12"
-VERSION_CORE = "0.5.12"
-ARTIFACT_NAME = "decretum-matrix-beta0.5.12.zip"
+RELEASE_LABEL = "beta0.5.13"
+VERSION_CORE = "0.5.13"
+ARTIFACT_NAME = "decretum-matrix-beta0.5.13.zip"
 SIDECAR_NAME = f"{ARTIFACT_NAME}.sha256"
-ATTESTATION_NAME = "decretum-matrix-beta0.5.12.release-attestation.json"
+ATTESTATION_NAME = "decretum-matrix-beta0.5.13.release-attestation.json"
 MANIFEST_NAME = "release-manifest.json"
 ARCHIVE_ROOT = f"{package_skill.ROOT_NAME}/"
 INDEX_FORMAT = "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes"
@@ -501,12 +501,12 @@ def self_tests() -> dict[str, bool]:
         "valid_shape_passes": shape_problems(base) == [],
         "canonical_product_identity_required": (
             NAME == "decretum-matrix"
-            and globals().get("DISPLAY_NAME") == "Dercretum-Matrix"
+            and globals().get("DISPLAY_NAME") == "Decretum Matrix（诏令矩阵）"
         ),
-        "beta_0_5_12_artifact_identity_required": (
-            RELEASE_LABEL == "beta0.5.12"
-            and VERSION_CORE == "0.5.12"
-            and ARTIFACT_NAME == "decretum-matrix-beta0.5.12.zip"
+        "beta_0_5_13_artifact_identity_required": (
+            RELEASE_LABEL == "beta0.5.13"
+            and VERSION_CORE == "0.5.13"
+            and ARTIFACT_NAME == "decretum-matrix-beta0.5.13.zip"
         ),
         "agpl_only_license_required": base.get("license")
         == {"declared": "AGPL-3.0-only", "file": "LICENSE"},
@@ -522,7 +522,7 @@ def self_tests() -> dict[str, bool]:
             "CONTRIBUTING.md",
             "SBOM.spdx.json",
         }.issubset(LEGAL_PATHS),
-        "stable_archive_locator_required": ARCHIVE_ROOT == "court-capability-router/",
+        "canonical_archive_locator_required": ARCHIVE_ROOT == "decretum-matrix/",
     }
     with tempfile.TemporaryDirectory(prefix="court-staged-payload-self-test-") as tmp_text:
         staged_root = Path(tmp_text)

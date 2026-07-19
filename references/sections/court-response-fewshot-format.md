@@ -1,7 +1,7 @@
 # Court Response Few-Shot Format
 
 This shard owns the response prompt and few-shot reply samples for
-Dercretum-Matrix（诏令矩阵） (`decretum-matrix`). Load it when drafting user-facing replies, office
+Decretum Matrix（诏令矩阵） (`decretum-matrix`). Load it when drafting user-facing replies, office
 memorials, clarification questions, code review reports, blocked/partial
 answers, or final closeout. Do not paste every sample into the reply; choose the
 smallest matching sample family.

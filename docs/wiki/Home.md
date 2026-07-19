@@ -1,6 +1,6 @@
-# Dercretum-Matrix
+# Decretum Matrix（诏令矩阵）
 
-Dercretum-Matrix（诏令矩阵）是一个本地 skill 路由与可验证协作内核。它把任务
+Decretum Matrix（诏令矩阵）是一个本地 skill 路由与可验证协作内核。它把任务
 分配给太子、三省、尚书省、六部和有界工坊，并把权限、证据、隐私与收口门禁
 绑定到同一任务语义。
 

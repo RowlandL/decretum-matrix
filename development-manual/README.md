@@ -1,6 +1,6 @@
-# Dercretum-Matrix Development Manual
+# Decretum Matrix（诏令矩阵） Development Manual
 
-This folder contains the portable development manual for Dercretum-Matrix（诏令矩阵）,
+This folder contains the portable development manual for Decretum Matrix（诏令矩阵）,
 whose canonical skill name and invocation are `decretum-matrix` and `$decretum-matrix`.
 
 - Main manual: `decretum-matrix-development-manual-zh.md`

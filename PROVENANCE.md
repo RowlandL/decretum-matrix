@@ -1,4 +1,4 @@
-# Dercretum-Matrix provenance and rights matrix
+# Decretum Matrix（诏令矩阵） provenance and rights matrix
 
 Status: `ACTIVE / P1_P3_PASS_WITH_LEGAL_REVIEW_REQUIRED`
 
@@ -6,7 +6,7 @@ This document records source and rights boundaries. It is not a warranty of titl
 
 ## Project identity
 
-- Product: `Dercretum-Matrix（诏令矩阵）`
+- Product: `Decretum Matrix（诏令矩阵）`
 - Canonical repository/skill/package name: `decretum-matrix`
 - Project rights subject, CLA licensor and trademark policy owner for project-directed material, as expressly declared by the user/maintainer: `孙华清`
 - Public maintainer identity: `@RowlandL` (GitHub ID `42199880`)
@@ -58,7 +58,7 @@ That result means only that no identical whole file was found. It does not exclu
 | Runtime dispatch, lifecycle, operation journal, semantic continuity and office-assignment scripts | `upstream-inspired / locally implemented` | No whole-file upstream match was found; architecture may reflect adopted dimensions such as mandatory review, liveness and audit trails. |
 | Shared Shiguan storage, migration, privacy, host-memory and protected-locator implementation | `original / locally developed` | Project-specific Windows/runtime implementation; no known upstream runtime dependency. |
 | Packaging, deterministic release, SBOM, manifest, legal/privacy checkers | `original / locally developed` | Project-specific release engineering; third-party notices remain separate inputs. |
-| Standing profiles, office dossiers, fixtures, user/development manuals and bilingual documentation | `original or generated from local sources` | Generated files must trace to their local generator; current brand surfaces use Dercretum-Matrix while historical/path locators are allowlisted. |
+| Standing profiles, office dossiers, fixtures, user/development manuals and bilingual documentation | `original or generated from local sources` | Generated files must trace to their local generator; current brand surfaces use Decretum Matrix（诏令矩阵） while historical/path locators are allowlisted. |
 | Current A02 uncommitted changes | `AI-assisted / directed local work` | Produced under the direction of 孙华清 in this workspace; copyrightability and commercial relicensing treatment remain subject to legal review. |
 | `assets/brand/decretum-matrix-icon.svg`, PNG, ICO and README | `project-directed original/generated artwork / LEGAL_REVIEW_REQUIRED` | Selected from user task `019f6691-258f-71a1-b63d-f7ad0b881d70`, latest v2 after node-alignment/symmetry repair. Exact hashes and maintainer declaration are in the bounded receipt. No third-party source is asserted; this is not independent title proof and is not cft0808/edict material. |
 | Any file later shown to copy or adapt protected upstream expression | `modified-derived / MIT` | No such file was identified in the bounded review. If later evidence supports this classification, preserve upstream copyright/MIT and supersede the current matrix; never interpret zero current identifications as zero borrowing. |
@@ -111,4 +111,4 @@ no registered status or third-party source is claimed. Gate:
 
 ## No-affiliation boundary
 
-Dercretum-Matrix is not affiliated with or endorsed by cft0808/edict, openclaw-sansheng-liubu contributors, GNU, the Apache Software Foundation or OpenAI. Necessary source descriptions and license notices do not imply sponsorship.
+Decretum Matrix（诏令矩阵） is not affiliated with or endorsed by cft0808/edict, openclaw-sansheng-liubu contributors, GNU, the Apache Software Foundation or OpenAI. Necessary source descriptions and license notices do not imply sponsorship.

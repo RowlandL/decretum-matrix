@@ -47,6 +47,38 @@
       "condition": "always"
     },
     {
+      "name": "unified_cli",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_unified_cli.py", "--all", "--json"],
+      "timeout": 300,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_open_fastpath",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_open_fastpath.py", "--serial-probes", "--json"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_result_semantics",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_court_result_semantics.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "cli_performance",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_cli_performance.py", "--samples", "10", "--json"],
+      "timeout": 240,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "capability_index",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_capability_index_gate.py", "--query", "release license manifest package security", "--json"],

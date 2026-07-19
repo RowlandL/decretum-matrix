@@ -443,7 +443,7 @@ tracking；pending body access=`NO`；protected bytes/hash 不变；精确 paths
 本节只冻结 beta0.5.11 已发布基线与 beta0.5.12 Handoff 的现场证据，不改写
 前文历史事实，不进入 Q0，不修改产品代码、root 仓、安装根、shared Shiguan、
 Obsidian、native memory、remote 或 pending。正式显示名按最新旨意为
-`Dercretum-Matrix`；`诏令矩阵` 仅作中文解释。
+`Decretum Matrix（诏令矩阵）`；`诏令矩阵` 仅作中文解释。
 
 ### 14.1 已绑定的同源证据
 
@@ -495,7 +495,7 @@ Obsidian、native memory、remote 或 pending。正式显示名按最新旨意�
 | 中间审查前像 `6f97c91` | `SUPERSEDED` | accepted source 已为 `726a89e2a5aad94c207fc133f2677670eb83903d`。 |
 | next-release carrier | `SUPERSEDED` | 最新旨意要求 D:\project 本地分支会话；不是新的 Codex worktree task。受管 child worktree 与 ref-only root mapping 保留为 Git carrier。 |
 | repository/common-dir | `RENAMED` | 当前 child repo/common-dir 已是 `decretum-matrix`；旧 `court-capability-router` 仅保留历史、ZIP internal root、shared Shiguan namespace 与 deprecated locator 语境。 |
-| display identity | `RENAMED` | 当前正式显示名逐字为 `Dercretum-Matrix`；machine/package/skill name 仍为 `decretum-matrix`。 |
+| display identity | `RENAMED` | 当前正式显示名逐字为 `Decretum Matrix（诏令矩阵）`；machine/package/skill name 仍为 `decretum-matrix`。 |
 | installed skill authority | `RENAMED` | canonical path 为 `C:\Users\32893\.agents\skills\decretum-matrix\SKILL.md`；309 lines / 67148 bytes / SHA-256 `24D19C0A40CA3887ECF91E78C868FB264C748FF88762057CF88D6A7AF60F94F1`。 |
 | capability index locator | `CONFLICT` | strict catalog 通过，但 active index 仍解析旧 `court-capability-router/SKILL.md`，`dispatchable=0`；本 P0 只记录，不刷新安装根。 |
 | runtime task authority | `CONFLICT` | shared `tasks.json` 的 A02 旧条目缺 semantic epoch/capsule/receipt，按 P00 只读；当前项目合同以 per-task `.repo-control` state/events 管理 carrier，不得把旧 shared ledger 升格为可写权威。 |
@@ -568,7 +568,7 @@ GitHub 或 npm 发布工作。
 | 中间前像 `6f97c91` | `SUPERSEDED` | 已由 beta0.5.11 accepted source 与当前 beta0.5.12 HEAD 替代。 |
 | next-release carrier | `SUPERSEDED` | 当前唯一 writer 是既有 `release/beta0.5.12` child worktree；root 仅保留 ref-only mapping。 |
 | repository/common-dir | `RENAMED` | 产品 repo/common-dir 为 `decretum-matrix`；旧名只保留受控历史/技术语境。 |
-| display identity | `RENAMED` | 正式显示名为 `Dercretum-Matrix`；machine/skill/invocation 为 `decretum-matrix` / `$decretum-matrix`。 |
+| display identity | `RENAMED` | 正式显示名为 `Decretum Matrix（诏令矩阵）`；machine/skill/invocation 为 `decretum-matrix` / `$decretum-matrix`。 |
 | installed skill authority | `RENAMED` | canonical physical authority 已迁到 `skills/decretum-matrix`，五根逐文件 hash 一致。 |
 | protected four anchors | `SUPERSEDED` | §14 的缺失前像已修复；四文件原长度/SHA-256 与 release 合同一致。 |
 | runtime task authority | `SUPERSEDED` | A02 runtime binding 已具 semantic epoch/capsule/receipt；active carrier 仍由 per-task repo-control state/events 管理。 |

@@ -1,6 +1,6 @@
 {
   "schema": "court_response_draft_fixtures.v1",
-  "description": "Generated draft-reply fixtures for the ten court response families. These examples are lint inputs, not user-facing boilerplate.",
+  "description": "Generated draft-reply and attribution fixtures for court responses. These examples are lint inputs, not user-facing boilerplate.",
   "families": [
     {
       "family": "direct_answer",
@@ -103,6 +103,129 @@
       "expected_gate": "PASSED",
       "draft": "结诏：DONE\n状态：DONE\n完成核验：VERIFIED\n验收证据：VERIFIED；checkpoint receipt=I2_RC_ACCEPTED\n下一步：无",
       "semantics": {"status": "DONE", "completion": {"verified": true, "rendered_completed": true}, "checkpoint_receipt": {"verified": true, "evidence": "I2_RC_ACCEPTED"}, "assessment": {"binding": "PASSED"}, "original_task": {"continues": false}}
+    }
+  ],
+  "attribution_cases": [
+    {
+      "case": "accepted_menxia",
+      "request": {
+        "actor_role": "taizi",
+        "stage": "post_ministry",
+        "delivery": "internal",
+        "current_semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "menxia_report": {
+          "role": "menxia",
+          "accepted": true,
+          "evidence_binding": {
+            "report_id": "MR-001",
+            "task_id": "A02",
+            "semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "expected_label": "MenxiaReview"
+    },
+    {
+      "case": "taizi_impersonation",
+      "request": {
+        "actor_role": "taizi",
+        "stage": "post_ministry",
+        "delivery": "internal",
+        "current_semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "menxia_report": {
+          "role": "taizi",
+          "accepted": true,
+          "evidence_binding": {
+            "report_id": "TR-001",
+            "task_id": "A02",
+            "semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "expected_label": "TaiziSynthesis",
+      "expected_problem": "menxia_role_mismatch"
+    },
+    {
+      "case": "stale_menxia",
+      "request": {
+        "actor_role": "taizi",
+        "stage": "post_ministry",
+        "delivery": "internal",
+        "current_semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "menxia_report": {
+          "role": "menxia",
+          "accepted": true,
+          "evidence_binding": {
+            "report_id": "MR-STALE",
+            "task_id": "A02",
+            "semantic_receipt_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        }
+      },
+      "expected_label": "TaiziSynthesis",
+      "expected_problem": "menxia_evidence_stale"
+    },
+    {
+      "case": "pre_ministry_review",
+      "request": {
+        "actor_role": "taizi",
+        "stage": "pre_ministry",
+        "delivery": "internal",
+        "current_semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "menxia_report": {
+          "role": "menxia",
+          "accepted": true,
+          "evidence_binding": {
+            "report_id": "MR-EARLY",
+            "task_id": "A02",
+            "semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "expected_label": "TaiziSynthesis",
+      "expected_problem": "menxia_review_before_ministries"
+    },
+    {
+      "case": "root_synthesis",
+      "request": {
+        "actor_role": "taizi",
+        "stage": "post_ministry",
+        "delivery": "internal",
+        "current_semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "menxia_report": null
+      },
+      "expected_label": "TaiziSynthesis"
+    },
+    {
+      "case": "user_reply",
+      "request": {
+        "actor_role": "taizi",
+        "stage": "final",
+        "delivery": "user",
+        "current_semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "menxia_report": {
+          "role": "menxia",
+          "accepted": true,
+          "evidence_binding": {
+            "report_id": "MR-FINAL",
+            "task_id": "A02",
+            "semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "expected_label": "TaiziReply"
+    },
+    {
+      "case": "missing_final_followup",
+      "request": {
+        "actor_role": "taizi",
+        "stage": "final",
+        "delivery": "internal",
+        "current_semantic_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "menxia_report": null
+      },
+      "expected_label": "TaiziSynthesis",
+      "requires_final_followup": true
     }
   ]
 }

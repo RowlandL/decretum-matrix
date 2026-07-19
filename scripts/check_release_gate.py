@@ -1,4 +1,4 @@
-"""Read-only release gate for court-capability-router source and package state."""
+"""Read-only release gate for Decretum Matrix source and package state."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 sys.dont_write_bytecode = True
@@ -31,6 +33,15 @@ HIERARCHY_RELEASE_GATE_NAME = "court_dispatch_hierarchy"
 HIERARCHY_RELEASE_GATE_CLASS = "source"
 HIERARCHY_RELEASE_GATE_COMMAND = ["$PYTHON", "scripts/check_court_dispatch_hierarchy.py"]
 HIERARCHY_RELEASE_GATE_CONDITION = "always"
+GIT_INDEX_VIEW_STEPS = frozenset(
+    {
+        "git_index_fixture",
+        "unified_cli",
+        "release_payload_manifest",
+        "package_privacy_regressions",
+        "release_artifact_builder",
+    }
+)
 
 
 def _expect_manifest_invalid(manifest: dict[str, object], expected_text: str) -> None:
@@ -122,43 +133,78 @@ def run_step(
 ) -> dict[str, object]:
     env = dict(os.environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    isolated_git_index: Path | None = None
+    source_git_index = env.get("GIT_INDEX_FILE")
+    if source_git_index and name not in GIT_INDEX_VIEW_STEPS:
+        env.pop("GIT_INDEX_FILE", None)
+    elif source_git_index:
+        try:
+            source_path = Path(source_git_index).resolve(strict=True)
+            if not source_path.is_file():
+                raise OSError("GIT_INDEX_FILE is not a regular file")
+            descriptor, isolated_text = tempfile.mkstemp(
+                prefix=f"decretum-{name}-",
+                suffix=".index",
+                dir=source_path.parent,
+            )
+            os.close(descriptor)
+            isolated_git_index = Path(isolated_text)
+            shutil.copyfile(source_path, isolated_git_index)
+            env["GIT_INDEX_FILE"] = str(isolated_git_index)
+        except OSError as exc:
+            return {
+                "name": name,
+                "gate_class": gate_class,
+                "status": "FAILED",
+                "exit_code": None,
+                "command": " ".join(command),
+                "output": str(exc),
+                "failure_kind": "git_index_isolation_error",
+                "git_index_isolated": False,
+            }
     try:
-        completed = subprocess.run(
-            command,
-            cwd=ROOT,
-            env=env,
-            text=True,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        output = f"step timed out after {timeout} seconds"
-        if exc.stdout:
-            output += f"; stdout={str(exc.stdout)[-2000:]}"
-        if exc.stderr:
-            output += f"; stderr={str(exc.stderr)[-2000:]}"
-        return {
-            "name": name,
-            "gate_class": gate_class,
-            "status": "FAILED",
-            "exit_code": None,
-            "command": " ".join(command),
-            "output": output,
-            "failure_kind": "timeout",
-        }
-    except OSError as exc:
-        return {
-            "name": name,
-            "gate_class": gate_class,
-            "status": "FAILED",
-            "exit_code": None,
-            "command": " ".join(command),
-            "output": str(exc),
-            "failure_kind": "process_start_error",
-        }
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            output = f"step timed out after {timeout} seconds"
+            if exc.stdout:
+                output += f"; stdout={str(exc.stdout)[-2000:]}"
+            if exc.stderr:
+                output += f"; stderr={str(exc.stderr)[-2000:]}"
+            return {
+                "name": name,
+                "gate_class": gate_class,
+                "status": "FAILED",
+                "exit_code": None,
+                "command": " ".join(command),
+                "output": output,
+                "failure_kind": "timeout",
+                "git_index_isolated": isolated_git_index is not None,
+            }
+        except OSError as exc:
+            return {
+                "name": name,
+                "gate_class": gate_class,
+                "status": "FAILED",
+                "exit_code": None,
+                "command": " ".join(command),
+                "output": str(exc),
+                "failure_kind": "process_start_error",
+                "git_index_isolated": isolated_git_index is not None,
+            }
+    finally:
+        if isolated_git_index is not None:
+            isolated_git_index.unlink(missing_ok=True)
     allowed = set(allowed_returncodes)
     output = (completed.stdout + completed.stderr).strip()
     return {
@@ -168,7 +214,45 @@ def run_step(
         "exit_code": completed.returncode,
         "command": " ".join(command),
         "output": output[:4000],
+        "git_index_isolated": isolated_git_index is not None,
     }
+
+
+def run_git_index_isolation_self_test() -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="decretum-release-gate-index-") as temp_text:
+        source = Path(temp_text) / "authority.index"
+        source.write_bytes(b"authority-index")
+        before = hashlib.sha256(source.read_bytes()).hexdigest()
+        previous = os.environ.get("GIT_INDEX_FILE")
+        os.environ["GIT_INDEX_FILE"] = str(source)
+        try:
+            step = run_step(
+                "git_index_fixture",
+                [
+                    sys.executable,
+                    "-B",
+                    "-c",
+                    (
+                        "from pathlib import Path; import os; "
+                        "Path(os.environ['GIT_INDEX_FILE']).write_bytes(b'mutated')"
+                    ),
+                ],
+            )
+        finally:
+            if previous is None:
+                os.environ.pop("GIT_INDEX_FILE", None)
+            else:
+                os.environ["GIT_INDEX_FILE"] = previous
+        after = hashlib.sha256(source.read_bytes()).hexdigest()
+        if step.get("status") != "PASSED" or step.get("git_index_isolated") is not True:
+            raise AssertionError("release step did not use an isolated Git index")
+        if before != after:
+            raise AssertionError("release step mutated the authoritative Git index")
+        return {
+            "status": "PASSED",
+            "source_sha256": after,
+            "step_git_index_isolated": True,
+        }
 
 
 def validate_package(path: Path) -> dict[str, object]:
@@ -388,20 +472,30 @@ def main() -> int:
         "case_count": len(manifest_self_test_cases),
     }
     if args.self_test:
-        result = {
-            "ok": True,
-            "schema": "court.release_gate.self_test.v1",
-            "manifest_self_test": manifest_self_test,
-        }
+        try:
+            git_index_self_test = run_git_index_isolation_self_test()
+            result = {
+                "ok": True,
+                "schema": "court.release_gate.self_test.v1",
+                "manifest_self_test": manifest_self_test,
+                "git_index_self_test": git_index_self_test,
+            }
+        except AssertionError as exc:
+            result = {
+                "ok": False,
+                "schema": "court.release_gate.self_test.v1",
+                "manifest_self_test": manifest_self_test,
+                "git_index_self_test": {"status": "FAILED", "error": str(exc)},
+            }
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         else:
             print(
-                "RELEASE_GATE_SELF_TEST_PASSED "
+                f"RELEASE_GATE_SELF_TEST_{'PASSED' if result['ok'] else 'FAILED'} "
                 f"cases={len(manifest_self_test_cases)} "
                 f"names={','.join(manifest_self_test_cases)}"
             )
-        return 0
+        return 0 if result["ok"] else 2
     manifest_steps = selected_release_steps(
         manifest,
         include_active_copies=phase != "pre-install" and not args.skip_active_copies,

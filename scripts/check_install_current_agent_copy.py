@@ -76,7 +76,7 @@ ARTIFACT_PORTABILITY_RED_INTERFACE = {
 }
 
 LOADED_IDENTITY_EXPECTED = {
-    "display_name": "Dercretum-Matrix",
+    "display_name": "Decretum Matrix（诏令矩阵）",
     "canonical_skill_name": "decretum-matrix",
     "canonical_invocation": "$decretum-matrix",
     "community_license": "AGPL-3.0-only",
@@ -389,7 +389,7 @@ def _write_fixture_source(
 ) -> Path:
     contents = {
         "SKILL.md": "# fixture court skill\n",
-        "VERSION": "beta0.5.12\n",
+        "VERSION": "beta0.5.13\n",
         "agents/standing-officials/gongbu.toml": (
             '[profile]\nrole_key = "gongbu"\noffice_zh = "工部"\n'
         ),
@@ -1842,18 +1842,54 @@ def _check_cases(
                 passed += 1
 
         conflict_path = _agents_root(home) / "SKILL.md"
-        conflict_path.write_text("# conflicting target bytes\n", encoding="utf-8")
-        if _require_success(
+        conflict_preimage = b"# conflicting target bytes\n"
+        conflict_path.write_bytes(conflict_preimage)
+        overlay = _require_success(
             install,
             name="stale_projected_bytes_update_transactionally",
             expected_targets=[_agents_root(home), roots["codex"]],
             errors=errors,
             **install_args(source, home, manifest, roots, write=True),
-        ) is not None:
+        )
+        if overlay is not None:
             if conflict_path.read_bytes() != (source / "SKILL.md").read_bytes():
                 errors.append("stale_projected_bytes_update_transactionally:not_updated")
             else:
-                passed += 1
+                backup = overlay.get("backup")
+                backup_root = (
+                    Path(str(backup.get("backup_root")))
+                    if isinstance(backup, dict) and backup.get("backup_root")
+                    else None
+                )
+                manifest_path = backup_root / "manifest.json" if backup_root else None
+                backup_ok = (
+                    isinstance(backup, dict)
+                    and backup.get("status") == "CREATED"
+                    and backup.get("rollback_supported") is True
+                    and backup_root is not None
+                    and manifest_path is not None
+                    and manifest_path.is_file()
+                    and not any(
+                        part.casefold() in {"pending", "private"}
+                        for part in backup_root.parts
+                    )
+                )
+                rollback = install.__globals__["rollback_install_backup"](
+                    home_root=home,
+                    backup_root=backup_root,
+                ) if backup_ok else None
+                if (
+                    not backup_ok
+                    or not isinstance(rollback, dict)
+                    or rollback.get("ok") is not True
+                    or rollback.get("pending_body_accessed") is not False
+                    or conflict_path.read_bytes() != conflict_preimage
+                ):
+                    errors.append(
+                        "stale_projected_bytes_update_transactionally:backup_or_rollback_failed"
+                    )
+                else:
+                    passed += 1
 
     source, home, manifest, roots = _case_fixture(temp_root, "fanout")
     _prime_roots(home, roots)

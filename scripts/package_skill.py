@@ -1,4 +1,4 @@
-"""Build a portable Dercretum-Matrix skill package.
+"""Build a portable Decretum Matrix（诏令矩阵） skill package.
 
 The package is staged from the local skill directory but intentionally excludes
 host-local Shiguan record bodies, plan archives, memory decisions, generated
@@ -30,11 +30,12 @@ sys.dont_write_bytecode = True
 
 
 PRODUCT_NAME = "decretum-matrix"
-DISPLAY_NAME = "Dercretum-Matrix"
-RELEASE_LABEL = "beta0.5.12"
+DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
+RELEASE_LABEL = "beta0.5.13"
 LICENSE_ID = "AGPL-3.0-only"
-# Stable install/archive locator retained for compatibility with existing hosts.
-ROOT_NAME = "court-capability-router"
+# Canonical package and physical install root. Legacy locators may only resolve
+# to this same authority through an explicitly validated compatibility link.
+ROOT_NAME = "decretum-matrix"
 SECRET_PATTERNS = [
     re.compile(rb'(?i)"api_key"\s*:\s*"(?!\s*")[^"]{8,}"'),
     re.compile(rb"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,2048}"),
@@ -214,6 +215,7 @@ SOURCE_ALLOWED_DIRS = {
     "agents/supercc-dossiers/zhongshu",
     "assets",
     "assets/brand",
+    "bin",
     "development-manual",
     "references",
     "references/benchmarks",
@@ -343,6 +345,8 @@ BRAND_REQUIRED_MEMBERS = {
     f"{ROOT_NAME}/assets/brand/README.md",
 }
 PACKAGE_IDENTITY_REQUIRED_MEMBERS = {
+    f"{ROOT_NAME}/bin/decretum-matrix.js",
+    f"{ROOT_NAME}/bin/decretum-matrix.py",
     f"{ROOT_NAME}/release-manifest.json",
     f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
     f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",

@@ -110,9 +110,9 @@ def run() -> dict[str, object]:
         for key in shiguan_paths.CLAUDE_CODE_ENV_KEYS:
             os.environ.pop(key, None)
         runtime_root_detection = (
-            shiguan_paths.is_claude_code_context(("/home/user/.claude/skills/court-capability-router/",))
-            and shiguan_paths.is_claude_code_context((r"C:\Users\user\.claude\skills\court-capability-router",))
-            and not shiguan_paths.is_claude_code_context(("/home/user/.codex/skills/court-capability-router/",))
+            shiguan_paths.is_claude_code_context(("/home/user/.claude/skills/decretum-matrix/",))
+            and shiguan_paths.is_claude_code_context((r"C:\Users\user\.claude\skills\decretum-matrix",))
+            and not shiguan_paths.is_claude_code_context(("/home/user/.codex/skills/decretum-matrix/",))
         )
         os.environ["CODEX_THREAD_ID"] = "test-codex"
         os.environ["CLAUDE_CODE_EFFORT_LEVEL"] = "test-weak-marker"

@@ -1,15 +1,14 @@
-# Dercretum-Matrix Standard Skill Installation
+# Decretum Matrix（诏令矩阵） Standard Skill Installation
 
-Dercretum-Matrix（诏令矩阵） uses the canonical skill name `decretum-matrix` and
+Decretum Matrix（诏令矩阵） uses the canonical skill name `decretum-matrix` and
 invocation `$decretum-matrix`. Its package and repository identifier is
 `decretum-matrix`.
 
-This package is a standard Codex skill directory. The top-level
-`court-capability-router/` name below is a protected ZIP/install locator retained
-for compatibility; it is not the current product identity:
+This package is a standard Codex skill directory. The top-level ZIP and physical
+install directory use the canonical skill name:
 
 ```text
-court-capability-router/
+decretum-matrix/
   SKILL.md
   agents/openai.yaml
   agents/standing-officials/*.toml
@@ -199,31 +198,58 @@ restart the current task.
 
 ## Install From A Local Folder
 
-1. Copy the physical `court-capability-router` package root into the canonical
-   `.agents` skill root under the same protected locator, then project the same
-   verified bytes to the current agent tool only. The loader must expose
-   `Dercretum-Matrix（诏令矩阵）` / `decretum-matrix`; do not create a second alias
-   skill directory. This Codex example does not detect or modify Claude Code,
-   Hermes, or other tools:
+1. Use the unified CLI to project the verified `decretum-matrix` package root to
+   `.agents` and the proven current-tool root only. The npm executable and source
+   entrypoint use the same updater core and receipt contract; neither uses an
+   implicit lifecycle install hook. Start with a non-writing request:
 
-```python
-from pathlib import Path
-import os
-import shutil
-
-src = Path("court-capability-router")
-shared_root = Path.home() / ".agents" / "skills"
-current_tool_root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "skills"
-targets = (
-    shared_root / "court-capability-router",
-    current_tool_root / "court-capability-router",
-)
-for dst in targets:
-    if dst.exists():
-        raise SystemExit(f"refusing to overwrite existing install: {dst}")
-for dst in targets:
-    shutil.copytree(src, dst)
+```json
+{
+  "schema": "decretum.install.request.v1",
+  "source_root": "<PACKAGE_ROOT>",
+  "home_root": "<HOME>",
+  "current_tool": "codex",
+  "explicit_tools": [],
+  "tool_roots": {
+    "codex": "<HOME>/.codex/skills"
+  },
+  "projection_manifest": "<PACKAGE_ROOT>/release-manifest.json",
+  "write": false,
+  "fanout": false
+}
 ```
+
+```powershell
+decretum-matrix --format json install update --request-file .\install-request.json
+python -B scripts/court_cli.py --format json install update --request-file .\install-request.json
+```
+
+After reviewing the planned targets and hashes, set `write` to `true` and run
+the same command. Existing managed public files are atomically replaced. Each
+preimage is persisted below the receipt's `backup_root`; a failed update restores
+those preimages automatically. Target-unique files, user configuration, Shiguan
+records, and private/pending bodies are not read, moved, deleted, or overwritten.
+`install migrate` is a compatibility spelling over the same updater core.
+
+To restore an accepted backup, create the exact rollback request from the
+successful receipt and invoke the same unified CLI:
+
+```json
+{
+  "schema": "decretum.install.rollback.request.v1",
+  "home_root": "<HOME>",
+  "backup_root": "<HOME>/.agents/install-backups/decretum-matrix/projection-RECEIPT_ID"
+}
+```
+
+```powershell
+decretum-matrix --format json install rollback --request-file .\rollback-request.json
+```
+
+The loader must expose `Decretum Matrix（诏令矩阵）` / `decretum-matrix`. A
+legacy `court-capability-router` locator may exist only as a validated link to
+this same physical authority; do not keep a second writable copy or project to
+unapproved Claude, Hermes, or other tool roots.
 
 2. The user may restart a future Codex session so the skill list refreshes.
    Installation does not restart, stop, or interrupt the current task, and no
@@ -406,7 +432,7 @@ The root `release-manifest.json` describes this artifact. `references/manifests/
 
 ## License, Commercial Terms, And Provenance
 
-The current Dercretum-Matrix community license is `AGPL-3.0-only`; see
+The current Decretum Matrix（诏令矩阵） community license is `AGPL-3.0-only`; see
 `LICENSE`. Commercial rights are available only through a separate written
 agreement signed by 孙华清; `COMMERCIAL-LICENSE.md` does not itself grant those
 rights. Contributions require DCO plus the CLA gate described in `CLA.md` and
@@ -548,7 +574,7 @@ This merged skill replaces the need to invoke `installed-skill-selector`,
 refresh scripts, standing-official templates, and an empty portable Shiguan
 seed. Local catalogs and stage archives are generated on the host.
 
-- `decretum-matrix`: the single Dercretum-Matrix skill that reads the catalog and applies the
+- `decretum-matrix`: the single Decretum Matrix（诏令矩阵） skill that reads the catalog and applies the
   default court workflow, including the three execution authorities, light/full
   catalog refresh, court roles, 三省上奏/太子回奏 dispatch gates, stage archives,
   Shiguan bilingual keyword/key-behavior recall, built-in growth tree, macro
@@ -566,8 +592,8 @@ python -B scripts/package_skill.py --out "decretum-matrix-${version}-candidate.z
 
 The script stages a clean copy, removes host-local Shiguan record bodies,
 derived local records, and local capability catalogs, writes the empty Shiguan
-seed files, validates the zip, and keeps the protected compatibility root folder
-as `court-capability-router/`. ZIP members use stored compression, a fixed timestamp
+seed files, validates the zip, and keeps the canonical root folder as
+`decretum-matrix/`. ZIP members use stored compression, a fixed timestamp
 and mode, and UTF-8 path ordering. If the requested output already exists, the
 command fails without replacing it.
 

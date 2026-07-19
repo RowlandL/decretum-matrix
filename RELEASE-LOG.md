@@ -2,6 +2,39 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta0.5.13 - 2026-07-19
+
+### 发布结论
+
+`release/beta0.5.13` 从已发布并验收的 beta0.5.12 顺延。当前源码、SBOM、
+payload manifest、artifact 与 npm candidate 身份已对齐 beta0.5.13；本节只记录
+源码候选合同，不预称 tag、GitHub Release、npm、资产或最终本机安装成功。
+
+### 核心变更
+
+1. 全部可执行入口进入 122 项 versioned inventory；统一 CLI 按 group 惰性加载，
+   保留 raw runtime 兼容和稳定 JSON receipt，不建立第二 runtime authority。
+2. `court open --fast` 在单 Python 解释器内准备三省及尚书到六部 packet，复用
+   semantic/admission/preload core，并在 mutation 前完成 direct-superior 门禁。
+3. V2 + role binding 在 CLI 边界移除无模型/effort 变化的旧 agent-type override，
+   关闭 `protocol_capability_conflict`，不改写 runtime 的 V2 reserved-field 合同。
+4. 根 `SKILL.md` 与 role preload 收敛到最大 19,360 bytes；正式 10+10 样本中
+   cold p50 提升 88.55%，warm p50 提升 99.34%，fast process count 为 1。
+5. 安装更新只覆盖 manifest 管理的公开文件；覆盖前持久化逐文件 SHA256 备份，
+   失败自动回滚，成功回执提供 `backup_root` 和显式 rollback。史馆实录、目标独有
+   文件与 private/pending 正文不进入覆盖集。
+6. npm 包增加无 lifecycle side effect 的 `decretum-matrix` bin；Windows、macOS、
+   Linux clean-home 的 source/local-tgz help receipt 完全一致。
+7. final source audit 的 40 个 source steps 全部通过；temporary Git index 只交给
+   需要 tracked 视图的步骤，并按步骤复制隔离，fixture 不得污染权威 index。
+
+### 边界
+
+- `pending_body_access=NO`；未读取、扫描、哈希、移动、删除或标记 pending/private 正文。
+- `OFFICE_PACK_Q1_Q8` 保持 deferred 到 `QUEUED_POST_A02_HANDOFF`。
+- beta0.5.12 发布工件与回执保持不可变，不重建、不重发。
+- beta0.5.13 candidate、安装、tag、push、Release、npm 与 handoff 由后续实际回执证明。
+
 ## beta0.5.12 - 2026-07-18
 
 ### 发布结论
@@ -36,7 +69,7 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
 ## beta0.5.11 — 2026-07-17
 
 ### 发布结论
-`release/beta0.5.11` 从已发布的 `beta0.5.10` 精确提交顺延。当前显示身份逐字为 `Dercretum-Matrix`，`诏令矩阵` 仅是中文解释；machine/package/invocation 仍为 `decretum-matrix` / `$decretum-matrix`。本节记录源码合同，不预称候选包、安装、迁移或外部发布成功。
+`release/beta0.5.11` 从已发布的 `beta0.5.10` 精确提交顺延。当前显示身份逐字为 `Decretum Matrix（诏令矩阵）`，`诏令矩阵` 仅是中文解释；machine/package/invocation 仍为 `decretum-matrix` / `$decretum-matrix`。本节记录源码合同，不预称候选包、安装、迁移或外部发布成功。
 
 ### 核心变更
 1. RB1 admission：shared hierarchy/profile gate 在 state mutation 前统一裁决；零 mutation 拒绝保持状态不变，v2 lease 绑定 canonical preload，admission event anchor 只追加不回写。

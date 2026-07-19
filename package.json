@@ -2,7 +2,7 @@
   "name": "decretum-matrix-npm-release-harness",
   "version": "0.0.0-private",
   "private": true,
-  "description": "Private version-neutral harness for building and checking Dercretum-Matrix npm release candidates.",
+  "description": "Private version-neutral harness for building and checking Decretum Matrix（诏令矩阵） npm release candidates.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {

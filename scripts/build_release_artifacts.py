@@ -1,4 +1,4 @@
-"""Build immutable Dercretum-Matrix candidates or annotated-tag release artifacts."""
+"""Build immutable Decretum Matrix（诏令矩阵） candidates or annotated-tag release artifacts."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import release_payload_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "decretum-matrix"
-DISPLAY_NAME = "Dercretum-Matrix"
+DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 LICENSE_ID = "AGPL-3.0-only"
 ATTESTATION_SCHEMA = "court.release_attestation.v1"
 CANDIDATE_RECEIPT_SCHEMA = "court.release_candidate_receipt.v1"
@@ -522,14 +522,14 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
     tests: dict[str, bool] = {
         "canonical_release_product_name_required": NAME == "decretum-matrix",
         "canonical_display_name_required": getattr(release_payload_manifest, "DISPLAY_NAME", None)
-        == "Dercretum-Matrix",
-        "canonical_beta_0_5_12_artifact_required": (
-            release_payload_manifest.RELEASE_LABEL == "beta0.5.12"
-            and release_payload_manifest.ARTIFACT_NAME == "decretum-matrix-beta0.5.12.zip"
+        == "Decretum Matrix（诏令矩阵）",
+        "canonical_beta_0_5_13_artifact_required": (
+            release_payload_manifest.RELEASE_LABEL == "beta0.5.13"
+            and release_payload_manifest.ARTIFACT_NAME == "decretum-matrix-beta0.5.13.zip"
         ),
         "agpl_only_release_required": getattr(release_payload_manifest, "LICENSE_ID", None)
         == "AGPL-3.0-only",
-        "stable_install_locator_required": package_skill.ROOT_NAME == "court-capability-router",
+        "stable_install_locator_required": package_skill.ROOT_NAME == "decretum-matrix",
     }
     if not all(tests.values()):
         return tests

@@ -1,204 +1,73 @@
 ---
 name: decretum-matrix
-description: Dercretum-Matrix（诏令矩阵） routes tasks through local skills, MCP servers, agents, CLI tools, and the Codex/Hermes Edict 三省六部 court workflow. Use when the user invokes /court or $decretum-matrix, asks to select capabilities, dispatch sub-agents, inspect Shiguan records, edit this skill, or apply court approval modes such as approval, autonomous, super, or superCC.
+description: Decretum Matrix（诏令矩阵） routes skills, MCPs, CLIs, and agents through the Codex/Hermes 三省六部 workflow. Use for /court or $decretum-matrix, capability selection, dispatch, Shiguan, maintenance, and approval, autonomous, super, or superCC authority.
 ---
 
-# Dercretum-Matrix
+# Decretum Matrix（诏令矩阵）
 
 ## P00 Highest-Priority Semantic Dispatch And Resume Contract
 
-`P00_HIGHEST_PRIORITY=REQUIRED`: apply this gate before any child/worktree
-dispatch, compaction resume, or ordinary `super parallel` fan-out. It unifies
-low-token delegation and long-context recovery; it does not create another
-capsule, task ledger, receipt authority, or state machine.
+`P00_HIGHEST_PRIORITY=REQUIRED`. Before dispatch/resume/handoff, bind the existing `court.semantic.invariant_capsule.v1`, SHA-256, semantic receipt, authority/plan hashes, and `plan_cursor`; require `semantic_epoch == charter_revision`. Capsule and packet are each at most 2,048 UTF-8 bytes.
 
-- Reuse the current Semantic Continuity Guard only: the runtime authority is the
-  existing `court.semantic.invariant_capsule.v1` bound by
-  `semantic_epoch == charter_revision`, its canonical SHA-256, the current
-  `semantic_receipt`, `plan_cursor`, and authority/plan/governing hashes. A
-  reduced summary without those bindings is invalid.
-- A new dispatch defaults to the exact `task_id` plus a stable `sub_id`, the
-  current inline invariant capsule (maximum 2,048 UTF-8 bytes), current
-  `plan_cursor`, exact relative `path`/SHA-256 pointers, and the bounded receipt
-  id/hash. Default fork context is `none` or the minimum required context; do not
-  send a full agent list, full diff, full file, transcript, or inherited
-  conversation by default.
-- Compaction and resume consume the same capsule/receipt mechanism. Reload the
-  current inline capsule and cursor, then only exact authority pointers whose
-  hashes changed; unchanged sources are not reloaded. Reverify before dispatch,
-  and quarantine an alternate capsule authority or unbound compact summary.
-- Full context is exceptional. Only the user or 太子 may grant an explicit,
-  bounded budget override with a concrete maximum; the override changes context
-  volume only and never semantic authority, hierarchy, write set, or safety.
-- Dispatch remains registry-first and minimal-office-preload. Reuse a compatible
-  live instance before spawning another; do not blindly stop allocated or
-  in-flight instances before completion or explicit recall. 太子 allocates the
-  dynamic budget pool through the hierarchy, and no wave starts merely to fill
-  capacity.
-- `child_agent` and `worktree_thread` use the same semantic receipt and bounded
-  child trace. When `superCC` is not explicitly selected, its annex/profile/
-  runtime surface has zero load. Ordinary `super parallel` sends separate
-  bounded packets and never copies the full main-thread text to every office.
-- A migrated Shiguan task-point may later preserve this binding as a durable
-  projection (`task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`),
-  but it is never the inline runtime capsule or a second execution authority.
+- New work carries exact `task_id`/`sub_id`, bounded scope/write set, receipt pointers, changed authority pointers, and `fork_turns=none` by default. Never send a full transcript, full file, full diff, or full agent list by default.
+- `child_agent` and `worktree_thread` share capsule, receipt, hierarchy, preload, and bounded trace; neither creates a second authority.
+- Reuse a compatible live instance first; keep in-flight instances until completion or explicit recall. Full context needs a bounded user/太子 override and never changes hierarchy, safety, or write authority.
+- `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: Shiguan may retain a durable projection after migration, but it is not the inline runtime authority.
 
 ## Unified Dynamic Dispatch Semantics
 
-1. 官署按任务职责、依赖和证据价值动态分配。
-2. 正常并行默认整棵 agent tree 最多 16 个线程（含根线程），`max_depth=4`；只有最新用户明确指定 `>16` 数量或明确开启 `unlimited/解限` 才可越过 16。旧状态、记忆或非明确来源 fail closed；解限仍须通过太子动态预算池、宿主压力降级、层级、写集和实例追溯门禁，且不得自动开满。
-3. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
-4. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
-5. 普通 Codex 官署按 assignment、task focus、complexity、risk、ambiguity 动态生成 `gpt-5.6-sol|terra|luna` 与最高支持思考强度的推荐（Sol/Terra=`ultra`，Luna=`max`）。V2 child 实际继承主线程模型/effort；fresh V1 当前只实证 `agent_type`，不得声称 child 模型/effort 已覆盖。经 host proof、精确 native binary 与 session `turn_context` 验证的 fresh-session leaf worker 可应用顶层推荐，但它不是 V1/V2 child 或同会话切换。Claude Code 与 Hermes 仍继承各自主线程/主 profile。
-
-## Session-derived installation pitfall
-
-- Windows GUI terminal/emulator installs under `super`/`superCC` are software-install decrees with source/provenance gates. Prefer trusted package managers. For Alacritty, verify `winget show Alacritty.Alacritty` before `winget install --id Alacritty.Alacritty --exact --source winget`; verify both the package-manager record and `alacritty --version`. If the user or host blocks a source query/download, stop and memorialize `BLOCKED`/`NEEDS_CONTEXT` instead of retrying the same outcome through another command or tool. If an async court probe returns after a blocked closeout, append it as supplemental Shiguan evidence rather than silently reopening or changing the decree.
+1. 官署按职责、依赖、风险和证据价值动态分配，不为填满容量而派生。
+2. 正常 whole-tree 上限为 16（含 root），`max_depth=4`；只有最新用户明确指定大于 16 的数量或 `unlimited/解限` 才可提高 ceiling，且预算、资源压力、层级、写集、preload、trace 门禁仍然有效。
+3. 最新串行指令覆盖并行默认：`串行`、`完全串行`、禁止子 agente 或 `parallel_dispatch=NOT_APPLICABLE/user_serial_override` 时，不 spawn、reuse、wake 或 follow-up 子 agente。
+4. `super并行` / `ordinary_parallel` 只是 `super` 的 topology，不是第五权限，不启用 superCC pane、wake、show-delay 或 closeout-silence。
+5. Production ordinary routing is V2 or `serial`. V2 隐藏 model-reserved `agent_type/model/reasoning_effort/service_tier`; V2 树不得同时提交旧式 agent-type override。子 agente 继承主线程 model/effort，除非独立 fresh-session worker 通过精确 host proof。
 
 ## Pinned Initial Court Anchors
 
-- 最新旨意优先；`approval`、`autonomous`、`super`、`superCC` 是权限类，
-  `super并行` / `ordinary_parallel` 只是 topology 拓扑限定。
-- 太子统摄中书省、门下省、尚书省；尚书省差遣六部，六部再管理工坊/工匠。
-- Normal execution uses the same `court.dispatch_hierarchy.v1` decision in
-  ordinary and `superCC` transports before capacity selection, task delivery,
-  pane wake, or state mutation. Exact edges are `user -> taizi`,
-  `taizi -> zhongshu|menxia|shangshu`, `shangshu -> 六部`, and each ministry
-  only to its own bounded child office. 太子、中书省、门下省 never dispatch a
-  六部 office, and 尚书省 never bypasses the owning ministry to dispatch its child.
-- A bounded child carries `court.child_office_profile.v1` with
-  `owner_role == direct_superior`, `canonical_authority=false`, bounded portable
-  read/write scope, and the existing P00 dispatch packet, semantic receipt, and
-  `court.semantic.invariant_capsule.v1`. It creates no second capsule, charter,
-  receipt authority, canonical office authority, or shared ledger.
-- 每次普通派生前运行 `court_cli.py agent-admit`，并保持层级、容量、写集与
-  P00 紧凑语义回执门禁。
-- 共享史馆位于受保护的 `.agents` / shared Shiguan 当前工具边界；不得安装或
-  改动最新明确用户旨意未授权的其他工具。
-- 能力选择必须先查 [官籍](references/court-capability-registry.md)：
-  registry-first / index-first，current-tool 兼容项由 `libu-hr`（吏部）负责维护。
-- closeout / 结诏必须经过门下复核，并以 `archive_checkpoint.py` 的可验证证据
-  完成阶段闭环。
+- 最新旨意优先。`approval`、`autonomous`、`super`、`superCC` 是权限；`super并行` 是拓扑。未明确权限时，在任何命令、写入、联网、安装或外部状态变更前只问一次三权问题。
+- 固定层级：用户 -> 太子；太子只调中书省、门下省、尚书省；尚书省调六部；六部只调本部工坊/工匠。任何 direct-superior 违规结果都隔离，不得集成。
+- 每次普通派生前运行 `scripts/court_cli.py agent-admit`，核验 P00、层级、容量、预算、写集、preload、实例与停止条件。
+- 能力选择必须 registry-first / index-first，先查 [官籍](references/court-capability-registry.md)。当前工具兼容项由 `libu-hr`（吏部）负责维护；不因名称相似直接选用能力。
+- 共享史馆位于受保护的 `.agents` / shared Shiguan 当前工具边界。安装默认只投影 `.agents` 与 current-tool；未经最新明确用户授权，不改其他工具。
+- closeout / 结诏必须经过门下复核，并在允许写回时由 `scripts/archive_checkpoint.py` 形成可验证史馆记录。
 
 ## Overview
 
-This skill is the concise semantic nucleus for the Codex Edict 三省六部 court workflow. It routes the newest user decree through capability selection, 三省 review, 尚书 dispatch, 六部/workshop execution, 门下复核, and 史馆记录.
+本 skill 是三省六部语义路由器。用户侧默认简体中文；路径、命令、API、字段和代码契约保持原文。官署名是责任/证据契约，未履职时标记 `NOT_APPLICABLE`、`runtime_degraded` 或 `authority_blocked`。
 
-Default user-facing language is Simplified Chinese. Preserve English for exact file paths, commands, API/tool names, package names, code contracts, and raw source fields.
-
-This file uses progressive disclosure. It keeps triggers, hard gates, the minimum workflow, and direct reference links in context. Do not load every detailed court rule by default. Read the reference volume that owns the active behavior, and load all volumes for skill-behavior edits, semantic disputes, audits, packaging, or long-context final semantic reload.
-
-## Source Of Truth And Loading
-
-`SKILL.md` remains the authority for trigger semantics, 三权 intake, hard stops, court state gates, Shiguan/memory gates, closeout gates, and this loading map. The directly linked `references/court-*.md` files are governing references for detailed behavior in their named domains. Shiguan records, plan archives, memory decisions, runtime ledgers, and generated indexes are evidence and recall anchors; they do not override the newest user decree or this skill source.
-
-When a behavior correction changes a hard gate, trigger, approval authority, source-of-truth placement, or loading map, update this `SKILL.md`. When it refines a detailed office/process rule, update the owning governing reference and keep it directly discoverable here. Do not place durable behavior rules only in Shiguan records.
-
-## Core Metadata Index
-
-- Reference Index: the Progressive Loading Map below is the canonical reference index for this skill. Keep every durable governing reference directly linked from `SKILL.md`.
-- Office abstraction: visible `superCC` panes, Hermes profile/session readiness, ordinary spawned subagents, and temporary workshop agents are all office carriers only when role, superior, dossier/profile, assignment, report, and evidence are preserved; however a normal `superCC` environment is only zellij+`squad`.
-- Token Three-Level Optimization: keep `SKILL.md` as the compact semantic nucleus, load only the governing reference for the active behavior, and reserve full reference reloads for behavior edits, semantic disputes, audits, packaging, or long-context final closeout.
-- Decree Usage Accounting: every formal decree should receive an intake token/time estimate at 开朝 and a usage summary at 结诏. This is a gate behavior, not a new subordinate office or dispatch target. Exact token counts require provider/runtime/agent evidence, while unavailable counts must be labeled as estimated fallback or unavailable rather than fabricated.
-- Healthy offices do their own duties. 太子 relays and synthesizes; it must not silently replace 三省 deliberation, 尚书 dispatch, 六部 execution, 史馆 recording, or 监察 diagnostics while claiming named-office work.
-- Request pressure is rate-bounded. Ordinary parallelism remains under the active authority class; `superCC` removes the old fixed five-agent cap but model-triggering starts, wakes, and redispatches must respect the configured requests-per-minute and explicit total request budgets.
+普通官署 preload 只含完整根 `SKILL.md`、本角色 dossier/profile、邻接/registry 元数据和当前行为唯一 reference；禁止全官署/全 references、史馆/pending/private 正文或其他工具 profile。代表性 preload 必须 `<=20 KiB` 且较 76,990-byte Zhongshu baseline 下降至少 70%。
 
 ## Progressive Loading Map
 
-| Read when... | Governing reference |
+只读取当前行为对应卷；skill 行为修改、语义争议、审计、发布和最终语义再载入才读取全部直接相关卷。
+
+| Active behavior | Governing reference |
 | --- | --- |
-| Interpreting deepest invariants, newest-decree precedence, behavior-source placement, or semantic corrections | [court-core-contract.md](references/court-core-contract.md) |
-| Starting a court turn, selecting `approval`/`autonomous`/`super`/`superCC`, running 开朝 checks, or handling Shiguan web/import/YOLO/superCC startup gates | [court-startup-authority.md](references/court-startup-authority.md) |
-| Selecting the superCC runtime family across Codex, Hermes CLI/desktop readiness, Claude Code sync, zellij gates, profile/session evidence, and squad requirements | [court-supercc-runtime-selection.md](references/court-supercc-runtime-selection.md) |
-| Detecting Hermes Studio group-chat rooms or using same-room `@profile` parallel office wake/dispatch as `super GL` | [hermes-studio-super-gl.md](references/hermes-studio-super-gl.md) |
-| Clarifying intent, asking one question at a time, preserving court voice, assigning offices, or dispatching work | [court-offices-dispatch.md](references/court-offices-dispatch.md) |
-| Applying the P00 semantic capsule/dispatch/resume contract, or managing legal transitions, runtime ledger, recursive agents, parallel dispatch, heartbeat, or agente cleanup | [court-state-runtime-agents.md](references/court-state-runtime-agents.md) |
-| Selecting a Codex office model recommendation, preserving the reserved V2 spawn schema, validating inheritance acknowledgement, or preserving Claude/Hermes boundaries | [court-office-model-routing.md](references/court-office-model-routing.md) |
-| Selecting skills/MCPs/CLIs/scripts/agents, refreshing 官籍, recruiting capabilities, or mapping departments | [court-capability-registry.md](references/court-capability-registry.md) |
-| Reviewing Windows, Hermes, terminal, local GUI/HTTP boundaries, rate-limit, install/config, or host-specific hazards | [court-host-platform-pitfalls.md](references/court-host-platform-pitfalls.md) |
-| Recovering CC Switch / Codex routing, preserving API configuration, rebuilding state indexes, or resolving V2 config conflicts | Shared Shiguan: `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references\recovery\ccswitch-codex-deep-reset.md` and `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references\recovery\codex-ccswitch-recovery.md` |
-| Writing Shiguan records, lineage codes, growth tree/graph, import queues, memory candidates, or durable memory decisions | [court-shiguan-memory.md](references/court-shiguan-memory.md) |
-| Managing Shiguan shared data roots, Obsidian preserve-only sync, REST/filesystem sync, or Obsidian-to-pending imports | [obsidian-autosync-rest.md](references/obsidian-autosync-rest.md) |
-| Investigating Hermes Studio room/group-chat `@profile` wakeups, same-room profile routing, or undocumented Studio group chat APIs | [hermes-studio-group-chat.md](references/hermes-studio-group-chat.md) |
-| Completing, pausing, blocking, handing off, packaging, validating, semantic reload, or memorial gate review | [court-closeout-validation.md](references/court-closeout-validation.md) |
+| 核心语义、最新旨意、规则归属 | [court-core-contract.md](references/court-core-contract.md) |
+| 三权、开朝、只读与服务边界 | [court-startup-authority.md](references/court-startup-authority.md) |
+| superCC runtime/client/zellij+squad | [court-supercc-runtime-selection.md](references/court-supercc-runtime-selection.md) |
+| Hermes Studio same-room super GL | [hermes-studio-super-gl.md](references/hermes-studio-super-gl.md) |
+| 官署职责、澄清、差遣、上下级 | [court-offices-dispatch.md](references/court-offices-dispatch.md) |
+| P00、状态机、递归 agente、预算/lease | [court-state-runtime-agents.md](references/court-state-runtime-agents.md) |
+| Codex V2 schema、模型推荐/继承 | [court-office-model-routing.md](references/court-office-model-routing.md) |
+| 官籍、skill/MCP/CLI 铨选 | [court-capability-registry.md](references/court-capability-registry.md) |
+| 安装、Windows/Hermes/host 风险 | [court-host-platform-pitfalls.md](references/court-host-platform-pitfalls.md) |
+| 史馆、pending、记忆裁定 | [court-shiguan-memory.md](references/court-shiguan-memory.md) |
+| Obsidian preserve-only 同步 | [obsidian-autosync-rest.md](references/obsidian-autosync-rest.md) |
+| Hermes group-chat 调查与路由 | [hermes-studio-group-chat.md](references/hermes-studio-group-chat.md) |
+| 门下复核、结诏、验证、包装 | [court-closeout-validation.md](references/court-closeout-validation.md) |
 
-Progressive loading budget: ordinary court turns load this `SKILL.md`, then only the governing reference(s) named by the active behavior. Do not eagerly read all `references/`, generated Shiguan records, local capability catalogs, Obsidian mirrors, or rollout archives. Skill-behavior edits, semantic disputes, memory/史馆 architecture changes, package releases, or long-context final reloads are the exceptions: load every directly relevant governing reference before editing or closing. Subagents may perform task work, but the main agent must read and interpret selected skill instructions itself. Under `superCC`, each office agente must load its own standing profile/dossier and bounded context packet instead of receiving a full skill dump; spawned or visible office prompts must state the loading manifest and must not depend on reloading unrelated references to preserve behavior.
+## Common Hard Gates
 
-Portable first-run bootstrap is a governed script, not an implicit memory mirror: `scripts/ensure_portable_court_bootstrap.py --apply` creates or repairs the shared Shiguan seed, registers the shared Shiguan tree with Obsidian, ensures the Shiguan service daemon, enables Codex/Hermes built-in memory when disabled, writes a metadata-only memory bridge checkpoint, and installs/checks first-run `superCC` dependencies. Use `--check-only` for dry validation and `--supercc-deps-only` when called from the superCC launcher. It must preserve secrets, exclude private Shiguan bodies from packages, and record bridge evidence in Shiguan.
-
-## Hard Semantic Gates
-
-- Newest user wording controls. Prior Shiguan records, old plans, generated `next` fields, and moved reference text are evidence, not authority over the latest decree.
-- `/court` is the fixed workflow. Legacy tokens such as `/plan`, `/execute`, `/research`, `/debug`, `/catalog`, `/memories`, `/goal`, and `/auto` are intent hints inside the court, not separate modes.
-- If the newest user message does not explicitly select `approval`, `autonomous`, `super`, or `superCC`, ask the single 三权 question before shell commands, writes, web access, installs, MCP writes, registry mutation, or external-state changes. Only the minimum read-only skill load required by the skill system may precede this gate.
-- `super` is task-scoped full-control authority inside the approved boundary; it does not authorize irreversible destruction, leaking or storing secrets, paid actions, unverified installs, private-data upload, public exposure, unbounded agent trees, or external-state surprises.
-- `super并行` / `super parallel` is a topology qualifier, not a fifth authority class. It means `authority=super` plus `topology=ordinary_parallel` on the ordinary spawned-subagent family; it never activates zellij/`squad`, visible standing offices, superCC startup choreography, show delays, wake rules, or superCC closeout gates.
-- `super GL`（Group-Link / 群聊联动官署）is the default multi-agent court transport only when the current execution environment is confirmed to be a Hermes Studio group-chat room. It uses same-room `@profile` mentions and actual room replies as office evidence; it does not depend on zellij or `squad`, does not raise safety authority beyond the active `approval`/`autonomous`/`super` boundary, and must fall back to ordinary court dispatch when `super_gl_room_gate` is not `PASSED`. Do not fake room replies, do not use `@all` as the default startup mechanism, and do not loop-c催促 silent profiles indefinitely.
-- `superCC` is an explicit court runtime mode: `super` authority plus a selected runtime family. Normal `superCC` requires current zellij panes plus matching active `squad` identities; this is the environment gate for Codex, Hermes, Claude Code, and generic CLI office clients. `ensure_supercc_court.py --super-entry` is the unified entry; `--office-client auto` selects the current CLI when possible, built-in clients are `codex`, `hermescli`, and `claude`, and any other `--office-client <tool>` or per-office map value is treated as a generic CLI command to probe. Generic CLIs must be probed into `cli_probe` evidence (resolution, version/help attempts, prompt mode) before being treated as known. Hermes desktop/profile evidence is supplemental readiness only unless the zellij+`squad` environment gate also passes. It is not a fourth, higher safety authority and must not be inherited from `super`, old conversations, defaults, memory, or Shiguan records; the newest user decree must name `superCC` for the current decree.
-- Parallel dispatch is not `superCC`. Ordinary 三省会审, 六部并行, recursive subagente, or multi-agent work continues through the existing subagente/runtime plan under `approval`/`autonomous`/`super`; explicit `super并行` is exactly the `super` + `ordinary_parallel` branch. Do not start Codex zellij standing 官署 panes or Hermes profile fanout merely because the task is parallel.
-- Before claiming `superCC`, select and verify the runtime family and client. `scripts/ensure_supercc_court.py --super-entry plan|check|launch|turn-start|restart` reports the unified entry plan, per-office client map, and `visible_display_gate`/`display_transport_gate` for zellij+squad. `scripts/ensure_supercc_court.py --check-only` remains read-only and does not install dependencies. `office_client_gate` covers the selected pane client (`auto`, built-in `codex`/`hermescli`/`claude`, or generic `cli`); `supercc_env_gate` is the combined selected-runtime result. Generic CLI tools must provide a real executable through `--office-client-command`, `COURT_OFFICE_CLIENT_COMMAND`, or `COURT_SOURCE_CLI`; if `squad` has no matching client enum, do not invent one. Hermes CLI/desktop readiness runs through `scripts/ensure_hermes_supercc.py --surface cli|desktop --format json`, but readiness-only evidence cannot satisfy normal `superCC` without zellij+`squad`. If any selected gate fails, report `supercc_env_gate: runtime_degraded | authority_blocked`; do not pretend the court is in `superCC`.
-- `superCC` validation and self-check are read-only by default. `scripts/check_supercc_functional.py --workspace .` must run as `read_only_audit` unless `--live-mutating` is explicitly requested, and `scripts/ensure_supercc_court.py` reports `side_effects.schema=court.supercc.side_effects.v1` with `mutates_runtime`, `planned_if_live`, and `applied`. A self-check that wakes offices, writes state, archives identities, or silences panes without an explicit live-mutating boundary is semantic drift.
-- Bounded visible startup is role-specific:
-  `six_ministry_visible_start_authority=shangshu`;
-  `shiguan_visible_start_authority=taizi|menxia` for `shiguan|shiguan-hermes`;
-  `patrol_inspector_visible_start_authority=taizi`; and
-  `zaochao_visible_start_authority=taizi`. This matrix governs create/reuse/
-  launch/wake authority and must not be inferred from a shared visibility flag.
-- For any terminal-visible `superCC` branch, visible offices require current zellij panes plus matching active `squad` identities, not Codex specifically and not `squad` identities alone. After the environment gate, run `scripts/ensure_supercc_court.py --super-entry turn-start --reclaim-existing` before claiming `standing_officials=PASSED`: the explicit routine visible core is 太子 in the current pane plus 三省 (`zhongshu`, `menxia`, `shangshu`) using the selected client. 监察使 (`patrol-inspector`, also called 监察agente) is not a default visible core pane and legacy visible patrol startup is disabled; use `scripts/supercc_watchdog.py` for script-based 429/abnormal-close/abnormal-silence detection and bounded wake planning. 六部、史馆、监察使和早朝 must not be opened as visible standing panes by default. When the newest decree explicitly asks for bounded visibility, use `--launch-offices <bounded-role-set> --reclaim-existing` from the role-specific authority above: 尚书省 for 六部, 太子或门下省 for `shiguan|shiguan-hermes`, and 太子 for `patrol-inspector|zaochao`. Record why the role was not part of the default core. The launcher must be idempotent: reuse an existing visible canonical pane with an active squad identity, and treat duplicate canonical panes as `runtime_degraded` until cleaned. Bulk Codex office assembly must start child Codex processes asynchronously with stagger/backoff; do not start all child Codex sessions in the same instant. Use the launcher defaults or tune `--codex-start-stagger`, `--codex-start-jitter`, `--codex-retry-attempts`, and `--codex-retry-backoff-base` when Codex 429/rate-limit pressure appears. Verify display with `zellij action list-panes` and `squad agents --all --json`, and record canonical pane titles such as `S Taizi #0001`, `AZS Zhongshu #0001`, `AMX Menxia #0001`, and `ASS Shangshu #0001`. A squad role without a current visible pane is `runtime_degraded`, not standing office evidence; a visible pane without selected client/session evidence is display evidence only, not proof of office execution.
-- Under `superCC`, controller/main panes must not hand-type office prompts through raw `zellij write-chars` or run bare office `squad` commands as a substitute for the launcher. Use `scripts/ensure_supercc_court.py --turn-start` for routine native wake and `--enter-dispatch` for role dispatch so the `squad` task/send payload is queued first, the visible pane then receives only the generated superCC wrapper receive command, natural Enter, delayed second Enter, structured task evidence, squad mirror, direct-superior metadata, and uniqueness gates stay tied together. Office panes, including Claude Code and arbitrary CLI clients, must receive/send/ack/complete only through the generated per-role wrapper contract from their role dossier. Old Claude/Codex logs, memory notes, or stale prompts that show bare `squad`, hand-written `cd`, or manually converted Windows/POSIX workspace paths are evidence of prior drift, not authority.
-- For Hermes runtime, any superCC activation from default or taizi profile must select/force the taizi profile for the court entry without rewriting the user's sticky default. Hermes profile calls are silent by default and must record evidence in the corresponding Hermes profile/session surface. Hermes desktop/profile-native evidence is readiness/supplemental evidence, not a normal `superCC` environment by itself; normal Hermes `superCC` still requires zellij+`squad`. `squad` is a required normal-environment channel and may also mirror Hermes evidence, but it must not replace missing Hermes native profile/session evidence.
-- `scripts/ensure_hermes_supercc.py --surface cli|desktop --format json` is a read-only readiness gate, not proof that Hermes already dispatched 三省 or 监察使. Hermes `superCC` may stay visually silent, but a claim that 中书省、门下省、尚书省, or 监察使 actually worked requires per-role Hermes profile/session/conversation evidence or an explicit `runtime_degraded`/`office_duty_enforcement=PARTIAL|FAILED` report. A single merged `delegate_task`, combined-office review, or only `profile_readiness` evidence must not be counted as real 三省/监察 parallel execution.
-- `superCC` office uniqueness is role-wide, not visibility-scoped. For 太子、三省、六部、监察使、史馆, each role may have at most one active canonical `squad` identity and at most one current-session pane with the canonical title, whether the office is normally visible or non-visible. 六部 are non-visible by default, but when 尚书省 dispatches a ministry step, that ministry must first pass `office_uniqueness_gate`: no active `role-N` duplicate, no second active identity with the same role, and no duplicate canonical pane. If uniqueness fails, dispatch is blocked or explicitly degraded; 太子/main pane must not execute the ministry task to bypass the duplicate.
-- At the start of every intermediate user turn while `superCC` remains active, run `scripts/ensure_supercc_court.py --turn-start --reclaim-existing` or the bounded visible-core subset before new dispatch. This checks all known official roles for reusable current-zellij offices, performs a simple squad responsiveness check, evaluates/releases noncurrent inactive canonical ids, reopens missing visible-core offices, records `supercc-turn-start-health.jsonl`, writes `turn_start_open_decree=PASSED`, restores 太子/三省 from post-closeout `idle_receive` to `awake_no_silence`, and records `native_turn_start_wake` evidence for the 三省 panes before any new dispatch. `turn-start` must not rely only on `squad send`, because an interactive CLI pane may be idle at the prompt and miss inbox traffic; it must send the squad wake/control note first, then write the generated superCC wrapper receive command to each visible 三省 pane, send physical Enter with zellij byte `13`, wait one second, and send a second physical Enter. It then leaves 六部 non-visible/silent until 尚书省 dispatch, `shiguan|shiguan-hermes` until 太子或门下省 dispatch, and `patrol-inspector|zaochao` until 太子 dispatch, unless the newest decree explicitly asks for bounded visibility through that same authority. The same launcher supports selected-client reproduction through built-in clients or `--office-client cli --office-client-command <path>`; if the selected CLI is unavailable, report `runtime_degraded` rather than pretending it launched.
-- `superCC` standing intake is no-silence while a decree is open for 太子 and 三省: `no_silence_roles=[taizi, zhongshu, menxia, shangshu]`, with `taizi_no_silence=true` and `three_departments_no_silence=true`. Turn-start default silence affects only 六部/temporary workshops unless an unresolved-office exception is recorded. After the final user-facing `结诏`, run `scripts/ensure_supercc_court.py --closeout-silence`: every resolved agente, except roles explicitly named in `--unfinished-offices`, enters `idle_receive`; the silent supervisor may record expected-idle state, but it must not create a visible monitor pane. Standing awake means receive/heartbeat posture only, not permission to execute without dispatch.
-- In terminal-visible `superCC`, the current visible pane is the 太子 agente; 三省 (`zhongshu`, `menxia`, `shangshu`) are the session/task-scoped standing official panes using the selected office client. 监察使 (`patrol-inspector` / 监察agente) is legacy bounded diagnostic identity only; routine abnormal-close/429/silence supervision is the non-popup script path. 六部 and workshops are temporary and non-visible by default unless the newest decree separately approves a standing official. Permanent autostart, dangerous no-sandbox persistence, public exposure, or unbounded descendants still require separate explicit confirmation.
-- In `superCC`, 六部/workshop creation is a 尚书省 dispatch action, not a 太子/main-pane refresh action: only 尚书省, or a tool call explicitly bound to `calling_office=shangshu`, may create, reuse, or send named 六部 agente after approved `太子回奏` and a bounded context packet. The current visible pane or main page remains the 太子 execution surface; do not refresh or attach 六部 creation menus/panes there. If a host UI exposes 六部 scale-out controls, those controls must route to 尚书 dispatch state and preserve direct superior, evidence, heartbeat, and release metadata.
-- In `superCC`, execution tasks should be assigned to the responsible office or ministry as structured `squad task` work, with any freeform `squad send` used as a mirror or follow-up carrying the same task id. 太子 may create/relay the assignment and synthesize returns, but a task is not considered 下派办差 until the receiving office has a structured task or equivalent direct assignment evidence it can ack/complete. Work done only in 太子 after a reachable responsible agent exists is `taizi_substitution=FAILED`.
-- In `superCC`, healthy visible office panes must perform their own office duties. The 太子/main pane may relay, synthesize, and ask the user, but it must not do 三省 deliberation, 尚书 dispatch, 六部 execution, or 史馆 recording on behalf of a healthy named office while claiming real 官署 operation. If an office pane or `squad` identity is missing, silent, stale, or unresponsive, first run the bounded turn-start/repair path or report `runtime_degraded`/`authority_blocked`; any emergency or fallback `太子代摄` must be explicitly labeled and must not be counted as successful office dispatch.
-- In terminal-visible `superCC`, a named-office result is valid only when the current zellij pane is visible, the matching `squad` identity is active, the selected office client/profile/session evidence exists, the office received or accepted a `squad` message/task, the office replied or exposed heartbeat, and an evidence pointer was preserved. If any of those are missing, do not claim successful 三省、尚书、六部, or 史馆 work; mark `office_duty_enforcement=PARTIAL | FAILED | runtime_degraded` and record the missing item. `taizi_substitution=EXPLICIT_DEGRADED_FALLBACK` is allowed only after turn-start/repair, launch/wake, direct dispatch/receive/task probe, or an authority/safety gate fails with preserved command/error/message/task/pane evidence. Convenience, speed, token pressure, or single-pane ease is never a valid fallback reason.
-- In `superCC`, every standing office pane must load its own standing profile/soul before work is claimed: record `office_profile_loaded`, `profile_source`, `profile_hash`, and `profile_version` in the prompt, office state, dispatch evidence, and closeout. `ENTER_DISPATCH` for visible panes means 尚书省/authorized dispatcher first queues the same `dispatch_uid` through structured `squad` task plus `squad send --task-id`, then writes only the generated `SUPERCC_SQUAD_RECEIVE_COMMAND` wrapper receive command to the visible pane, sends natural physical Enter, waits one second, and sends one more physical Enter; evidence must include `squad_delivery_order=SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER`, `native_enter_payload_kind=SUPERCC_SQUAD_RECEIVE_COMMAND`, `post_dispatch_physical_enter_delay_seconds=1`, `native_enter_dispatch`, and `squad_evidence`. Default non-visible 六部 dispatch uses `SQUAD_STRUCTURED_TASK_WITH_AUDIT_MIRROR_NON_VISIBLE_MINISTRY`: task id plus mirror evidence is success, `native_enter_dispatch` stays skipped/false, and no native payload kind is claimed. Only a missing visible pane or native injection failure allows `SQUAD_ONLY_FALLBACK_DEGRADED`. 429 requires requeue/stagger/backoff and never extra same-duty panes or 太子代工.
-- `scripts/supercc_watchdog.py` is the silent superCC health and recovery planner. It replaces the old visible-monitor supervision path for routine supervision and can run read-only on blank hosts using only packaged skill scripts, Python, PATH-resolved zellij/squad, and optional CLI command/env. It detects missing visible panes, missing/duplicate squad identities, 429/rate-limit signals, abnormal state modes, abnormal close, and abnormal silence for no-silence roles. Default output is JSON/text evidence; `--daemon --quiet --log-jsonl <path>` starts a hidden/non-popup background loop, and `--stop-daemon --pid-file <path>` is the required shutdown path. `--apply` runs at most bounded recovery actions (`--turn-start visible-core` for 太子/三省 or `--wake-offices <role>` for others), with `--no-apply`/`--dry-run` available for audits. `--patrol` is only a compatibility alias to watchdog status and must not publish to, refresh, or depend on a visible monitor pane.
-- `noncurrent_inactive_pane_cleanup` is an evaluator before it is an applier: candidates must be outside the current zellij session or not visible/current, inactive/stale, and free of unresolved task/evidence/heartbeat blockers or marked with probe failure evidence. Patrol remains read-only and must not close/restart/archive/wake/silence; authorized cleanup may use only non-destructive squad archive/release paths and must never delete zellij sessions in this gate.
-- For design tasks under `superCC`, 尚书省 must pass the relevant 六部 a complete but bounded context packet: newest decree, semantic charter, project/path/materials, audience, visual constraints, responsive states, acceptance criteria, screenshots or inspection needs, evidence contract, stop gates, direct superior, and report format. "Complete context" never means dumping secrets, credentials, private vaults, import queues, unrelated logs, or unrelated projects.
-- For non-design tasks under `superCC`, 六部/workshop agente are silent and non-visible by default until 尚书省 actively dispatches work from a bounded step plan. 尚书省 must write the plan, run at most the useful step set under the active request-rate budget, verify every step, then allow packaging; 六部 then release naturally after 结诏 by preserving required logs/evidence, reporting completion or blockage, and closing/archiving/idling unless the user explicitly approves continued standing duty. Immediately before or as the postlude to final 结诏, run `scripts/ensure_supercc_court.py --closeout-silence` and pass `--unfinished-offices` only for roles with unresolved work; in the resulting state resolved agente enter `idle_receive`.
-- Explicit read-only decrees narrow court duties. If the newest wording says `只读`, `不要改文件`, `review only`, or equivalent, do not start task-new services, mark queues seen, rebuild indexes, change catalogs, or mutate files unless separately approved. If audit writes are explicitly banned, report `史馆实录：authority_blocked/no-audit-write-boundary`.
-- Every formal decree first receives a compact semantic charter: `旨意`, `非目标`, `任务边界`, `允许动作`, `禁止动作`, `验收标准`, `证据要求`, `停止门禁`, `史馆记录策略`.
-- Every formal decree also receives `decree_usage_estimate` during 开朝: estimated input/output/total tokens, estimated wall time, assumptions, execution mode, expected offices/subagents, and the estimate source. This estimate is performed by the court intake/runtime gate, not by spawning an extra office. Interrupted turns do not require final usage accounting. At final `结诏`, include `decree_usage_actual` in the complete Shiguan memorial and compress it into the user-facing `运行态与并行` line as `用量：...`; include spawned subagent, 六部, and `superCC` office usage only when evidence exists. If exact provider usage is unavailable, report `actual_source=estimated_fallback | unavailable` and never present it as provider-reported precision.
-- Non-trivial decrees enter 三省会审 before planning, execution, or final answer. 中书省 drafts intent/options/acceptance criteria; 门下省 reviews risk/scope/drift; 尚书省 reviews dispatch/resources/sequencing. Submit this as `三省上奏`; 太子 then synthesizes `太子回奏`.
-- Missing substantive scope, safety, cost, privacy, behavior class, evidence, acceptance, or stop-condition details go through `逐一上奏、待朱批`: ask one highest-impact question at a time as `太子上奏下一项问题：...`. Do not use closeout memorial fields for pending questions.
-- Office labels are responsibility contracts. Do not say `中书省`, `门下省`, `尚书省`, 六部, or `史馆` unless that duty was performed or explicitly marked `NOT_APPLICABLE`, `runtime_degraded`, or `authority_blocked`.
-- When the user asks to test same-room profile wakeup through group-chat `@` mentions, treat it as a real messaging probe, not as internal delegation or simulated court deliberation. Send one bounded wake message that explicitly mentions the requested profiles/roles and asks for a compact reply format such as `OK｜角色名｜一句状态`; do not answer on behalf of other profiles, do not claim response evidence until actual room replies arrive, and do not loop-c催促 silent profiles. Record the wake list, actual responders, non-responders, and any `runtime_degraded` sync/recording caveat in Shiguan.
-- When `super GL` is active, ordinary 三省/六部/史馆 office labels require same-room `@profile` dispatch or wake evidence plus actual responder evidence. Do not simulate missing room replies, do not use `@all` as the default startup mechanism, and do not keep retrying silent profiles; bound the attempt, record `super_gl_responders`, `super_gl_non_responders`, and any `runtime_degraded` caveat, and move on.
-- After a formal decree opens, user-facing prose speaks through 太子/三省/尚书省/六部/史馆 roles. Avoid roleless first-person phrasing such as `我将`, `我已经`, or generic assistant voice.
-- Network/web research is selected by evidence need. Current, volatile, external, niche, high-stakes, or citation-sensitive facts require browsing unless the active authority blocks it.
-- Capability selection follows `官籍 -> 铨选 -> 差遣 -> 考课`. A skill, MCP, CLI, script, or agent is selected by scope, allowed actions, forbidden actions, evidence, and stop conditions, not by name alone.
-- Skill/MCP/CLI/script calls must bind `calling_office`, `purpose`, `input_boundary`, `allowed_actions`, `forbidden_actions`, `risk_level`, `evidence_contract`, `stop_conditions`, and escalation path.
-- When the user asks to call a local workflow or methodology skill, treat it as a 工坊技艺 invocation, not as a new court office. First verify the skill exists in the active skill roots/catalog and read its own `SKILL.md`; if it is missing, installation is allowed only inside the active authority boundary, through a verified local/system installer or source with hashes/provenance, with 门下复核 for unverified install risk. Do not install third-party skills, run remote installers, mutate startup tasks, or expand standing 官署 merely to satisfy a skill name. Record `skill_call_contract`, `skills_invoked`, install/no-install decision, and Shiguan evidence.
-- 史馆追溯 is mandatory for formal decrees and skill-behavior corrections. If filesystem writeback is available, do not close with “未另写史馆记录”. Use `archive_checkpoint.py` and include complete stage fields for replayable evidence.
-- 史馆 writable data lives in the shared Shiguan root resolved by `scripts/shiguan_paths.py`: default `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`, overrideable with `COURT_SHARED_SHIGUAN_ROOT` or `SHIGUAN_SHARED_ROOT`. The former `%USERPROFILE%\.agents\court-shiguan\court-capability-router\references` and `%LOCALAPPDATA%\court-shiguan\court-capability-router\references` paths are migration sources only. Skill-local `references/` contains governing references and portable seed files, not the authoritative runtime archive.
-- Obsidian is a management surface, not the authority. Default sync is `Shiguan shared root -> Obsidian` preserve-only filesystem refresh; Obsidian edits/imports return to `shiguan-imports/pending` and require 三省会审/门下复核 before becoming official records. Every Obsidian sync-config writer must use `obsidian_config_state.py` under the single config lock with field-level three-way CAS, post-write reread verification, and a public projection that never exposes `api_key`.
-- 史馆记录 is not durable memory. End every decree with `记忆裁定：WRITE | PROPOSE | SKIP | DEFERRED`; durable memory writeback requires 门下 approval and must not store secrets, credentials, raw private logs, one-off command output, unverified speculation, or private personal data without explicit approval.
-- Codex/Hermes internal memories and conversation transcripts may be bridged into Shiguan only as a governed recall/audit bridge, not as a default raw memory mirror. If Codex or Hermes built-in memory is disabled and the active decree requests the memory bridge, enable only the native built-in memory flags through `scripts/ensure_portable_court_bootstrap.py --apply`, then run the metadata-only bridge; do not hand-edit Codex SQLite or install third-party memory providers merely to satisfy this bridge. Prefer index-level content bridging: every bridge node/leaf must expose precise 古制谱系/lineage, 诏令编号/court_code, bilingual keywords, key_actions, capability-lineage vector fields, and source/original paths when available, so recall can locate both the capability context and the source without copying the full private body. For live append-only sources such as the current Codex session JSONL, record a stable prefix fingerprint (`live_prefix_size`, `live_prefix_sha256`, `live_prefix_mtime_utc`) and verify that prefix rather than treating the whole-file sha256 as durable. Use `scripts/internal_memory_shiguan_bridge.py` only for metadata inspection and checkpointing; its former redacted-excerpt surface is disabled. Any body-level copy requires a separate explicit decree, a dedicated secret-safe design, and 门下复核; do not enable third-party memory providers such as Hindsight merely to satisfy this bridge.
-- Completion, pause, blocked reports, cancellation, handoff, packaging, and long-context final answers require semantic reload from this `SKILL.md` plus relevant governing references, followed by 门下 hard memorial gate review.
-
-## Quick Start
-
-1. 太子 identifies whether the latest message is casual intake, a trivial no-tool answer, or a formal decree. Formal decrees continue below.
-2. Determine 三权: use explicit `approval`, `autonomous`, `super`, or `superCC`; otherwise ask the standard 三权 question from [court-startup-authority.md](references/court-startup-authority.md).
-3. Run 开朝 checks after authority is known: shared Shiguan seed, Shiguan service daemon (`ensure_shiguan_service_daemon.py`, which keeps the single local Shiguan HTTP surface and preserve-only Obsidian autosync alive), import queue, Codex YOLO startup-task review, relevant Shiguan recall, capability registry refresh, prerequisite skills, department map, agente cleanup, and `decree_usage_estimate` through `scripts/court_usage_ledger.py estimate` or an equivalent recorded estimate. On a blank target host, `ensure_portable_court_bootstrap.py --apply` is the one-command bootstrap for the shared Shiguan, Obsidian link, native memory enablement/bridge, and superCC dependencies; `--check-only` and `--super-entry plan|check` stay read-only even on blank hosts. If the current surface is a Hermes Studio group-chat room, load [hermes-studio-super-gl.md](references/hermes-studio-super-gl.md), set `super_gl_enabled=true` only after `super_gl_room_gate=PASSED`, and treat it as a separate group-chat collaboration mode rather than normal `superCC` unless zellij+`squad` is also proven. Under `super`, parallelize independent checks when tools allow. Under `superCC`, first select the runtime branch from [court-supercc-runtime-selection.md](references/court-supercc-runtime-selection.md): normal branches run the zellij+squad display gate and selected office-client gate through `ensure_supercc_court.py --super-entry turn-start --reclaim-existing`, whose default `--office-client auto` should detect the current CLI; unknown CLIs may be named directly as `--office-client <tool>` or through per-office maps and must record `cli_probe` evidence. If the controlling process is outside zellij, pass `--zellij-session <name>` or rely on auto-selection of the newest active session containing `S Taizi #0001`, never on a session-list prompt as pane evidence. Hermes profile/session checks run `ensure_hermes_supercc.py --surface cli|desktop` only as supplemental readiness unless the zellij+squad gate passes. A terminal-visible court must assemble visible 太子+三省 panes before claiming standing visible offices; the silent supervisor is script evidence, not a visible office. Keep 六部 non-visible/silent unless 尚书省 dispatches, `shiguan|shiguan-hermes` unless 太子或门下省 dispatches, and `patrol-inspector|zaochao` unless 太子 dispatches; bounded visibility never changes that start authority.
-4. Produce `意图初判` from the newest decree plus relevant Shiguan clues: likely intent, memory clues, confidence, likely non-goals, and next step.
-5. Draft the semantic charter, convene 三省, submit `三省上奏`, and issue `太子回奏` with `execution_gate`.
-6. If execution is approved, 尚书省 dispatches 六部 and workshops within the charter. Attempt useful parallelism; serialize shared writes, installs, MCP writes, destructive actions, and external application state.
-7. Verify with concrete evidence, run 门下复核, write 史馆 records, perform semantic reload, clean up agente, then close with the approved memorial format.
-
-## Approval Authority Summary
-
-- `approval` / 只读权: inspect only by default. Ask before shell commands, writes, network/web access, installs, configuration changes, MCP writes, operations outside the workspace, destructive actions, paid actions, or secret/private-data handling. Standing Shiguan read/state service may be started as court infrastructure unless the newest decree forbids services.
-- `autonomous` / 管理权: execute and write inside the user's stated scope. Ask before destructive operations, paid actions, secret/private-data handling, unverified installs, private-data upload, broad scope changes, or surprising external application state.
-- `super` / 完全控制权: execute in-scope work automatically, including shell, writes, web, MCP probes, configuration edits, package generation, and multi-agente dispatch. Still stop for hard safety gates, unclear boundaries, public exposure, secrets, paid actions, private upload, unverified installs, dangerous autostart registration, or host-enforced authorization. Report whether the current Codex runtime is truly no-sandbox; if not, treat escalation as a runtime gate.
-- `superCC` / 官署权: explicit `super` plus a selected court runtime. Normal branches require `visible_display_gate: PASSED`/`display_transport_gate: PASSED` from zellij+squad plus `office_client_gate: PASSED` for the selected pane client before use; `runtime_client=auto` records requested vs resolved client, built-in clients record their matching command evidence, and `runtime_client=cli` records generic command/args/prompt-mode plus `cli_probe` evidence without fabricating a `squad --client` enum. Hermes desktop/profile evidence may prove readiness, taizi profile activation, and native profile/session availability, but cannot by itself make a normal `superCC` environment without zellij+squad. Claude Code skill copies follow the same zellij+squad normal-environment gate and no longer stop at readiness-only sync when `--office-client claude` or auto-resolved Claude is selected. All branches enforce `office_duty_enforcement=REQUIRED`, record `taizi_substitution=NONE | EXPLICIT_DEGRADED_FALLBACK | FAILED`, load and record each office profile/soul (`office_profile_loaded`, `profile_source`, `profile_hash`), keep 六部 non-visible/silent by default, wake 六部 only through 尚书 step-plan dispatch with bounded context packets, preserve `squad` evidence, never use a 太子/main-pane menu refresh for 六部, and silence/release temporary 六部 after 结诏 unless separately approved.
-
-Dangerous no-sandbox autostart is never ordinary `super`: actual Windows Task Scheduler registration for `codex --dangerously-bypass-approvals-and-sandbox` requires explicit dangerous confirmation after 太子回奏 names task, trigger, command, workdir, logs, revoke command, and risk.
+- Formal decree 先形成紧凑 semantic charter：`旨意`、`非目标`、`任务边界`、`允许动作`、`禁止动作`、`验收标准`、`证据要求`、`停止门禁`、`史馆记录策略`。
+- 非平凡任务先经三省：中书省拟旨/验收，门下省封驳风险/隐私/漂移，尚书省评估派遣/资源/回滚；随后 `三省上奏`，太子综合为 `太子回奏`。缺失的高影响决定按 `太子上奏下一项问题：...` 一次只问一项。
+- `approval` 默认只读；`autonomous` 可在明确范围内执行和写入；`super` 可自动执行范围内 shell、写入、web、MCP、配置和多 agente，但均不授权不可逆破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
+- `superCC` 必须由最新旨意明确；它是 `super + selected runtime`。Normal superCC 需 zellij+squad 和 office-client 证据；显性核心为太子+三省，六部只由尚书省派遣。
+- `super GL` 仅在已确认 Hermes Studio group-chat room 时使用真实同房 `@profile` 回复；不模拟回复、不默认 `@all`、不无限催促。
+- 显式只读边界禁止任务文件写入、服务启动、队列 seen、索引重建、catalog 变更和其他状态突变，除非最新旨意逐项授权。若同时禁止史馆/audit 写入，报告 `史馆实录：authority_blocked/no-audit-write-boundary`。
+- 网络研究由证据需求决定；时效、外部、冷门、高风险或需引用事实应联网，除非当前权限禁止。
+- skills/MCP/CLI/script 是工坊技艺，不自动成为官署；调用须绑定 office、目的、边界、风险、证据和停止条件。
+- Formal decree 的用户侧更新与结诏使用太子/三省/尚书/六部/史馆责任主体，禁止无主体第一人称。太子可转奏和综合，不得代替健康官署履职并声称其成果。
 
 ## Court Flow And Roles
 
@@ -206,104 +75,67 @@ Dangerous no-sandbox autostart is never ordinary `super`: actual Windows Task Sc
 太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录
 ```
 
-- 太子: only user-facing router; receives decree, drafts charter, relays 三省 findings, asks one-by-one questions, reports gates and final memorials.
-- 中书省: drafts intent, research, decomposition, missing decisions, and acceptance criteria; does not command 六部.
-- 门下省: performs 封驳, risk/scope/privacy/cost/completeness review, semantic drift checks, final review, and primary Shiguan/memory oversight.
-- 尚书省: dispatches approved work to 六部, serializes shared mutations, integrates evidence, and reports upward.
-- 吏部: 官籍, 铨选, recruitment, fitness scoring, and 考课.
-- 户部: resources, paths, dependencies, versions, tokens, time estimates, usage ledgers, budgets, caps, services, and registry freshness.
-- 礼部: wording, report contracts, citations, documentation, teaching form, and rubrics.
-- 兵部: tactics, debugging campaigns, incidents, migrations, concurrency, and runtime operations.
-- 刑部: safety, compliance, destructive action, installs, paid action, privacy, rollback, and test risk.
-- 工部: implementation, build, QA, deployment, browser/GUI/external app operations.
-- 史馆: 三省共监、门下主审; records evidence, lineage, memory candidates, memory decisions, and 考课. It is not a 六部 ministry.
-
-## State, Dispatch, And Parallelism
+- 太子：唯一用户侧路由与综合面，只调三省。
+- 中书省：拟旨、意图、研究、拆解、缺口和验收，不调六部。
+- 门下省：风险、范围、隐私、成本、语义漂移、最终复核与史馆/记忆主审。
+- 尚书省：派遣六部、串行共享突变、整合证据并向太子回奏。
+- 吏/户/礼/兵/刑/工部：官籍；资源；文书；运行；安全/回滚；实现/验证。
+- 史馆：三省共监、门下主审，记录证据、谱系与记忆裁定；不是六部。
 
 Legal state flow:
 
 ```text
 Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -> ShangshuDispatch -> SixMinistries -> Workshops -> MenxiaReview -> ShiguanRecorded -> Done
-                         ^                                                                      |
-                         |---------------------------------- reject ----------------------------|
 ```
 
-Do not skip 三省上奏/太子回奏 before implementation or dispatch. Do not skip 门下省 for implementation work. Do not mark Done without fresh verification evidence plus a Shiguan checkpoint, or a clear explanation of why verification or recording could not run.
+## Dispatch, Preload, And Runtime
 
-Formal decrees must attempt meaningful multi-agente or parallel ministry work when the runtime supports it and the work benefits from separation. Do not ask again merely because the work is parallel; the court workflow is the user's standing opt-in inside the approved boundary. Report `parallel_dispatch: USED | NOT_APPLICABLE | runtime_degraded | authority_blocked`.
+- 每个官署绑定 `role_key`、`direct_superior`、assignment、读写边界、dossier/profile/skill hashes、P00 receipt、lease、证据和 stop contract。`/root/*` 只是一条 collaboration address。
+- 普通 child 默认 `fork_turns=none`；共享写入、安装、MCP 写入、破坏性动作和外部应用状态必须串行。宿主拒绝、线程上限、资源压力、401/402/403 或语义不连续时停止当前 wave，不循环重试。
+- preload acknowledgement 在状态进入 `running` 前必须匹配 role、model route/inheritance、dossier/profile/skill hashes。过期、错角色、缺 hash 或未加载 dossier 的结果不得验收。
+- `court open --fast` 只编排既有 runtime/semantic/admission/preload 核心；必须单 Python 解释器、先过尚书/六部 direct-superior 门、在任何 mutation 前 fail closed，并保持 exact retry deterministic。
+- superCC 详情按引用加载。Old Claude/Codex logs、bare `squad`、手写 `zellij write-chars` 只算 drift evidence；当前 dossier/wrapper 优先。
+- superCC 中健康官署各司其职；中书/门下/尚书不得合并伪报，六部不得由太子直派。turn-start、uniqueness、profile、structured task、wake、429 backoff、watchdog 和 closeout-silence 证据缺失时标记 degraded，不得关闭为无保留 DONE。
 
-The newest user topology instruction overrides the normal parallel default. If the user says `串行`, `完全串行`, `不启用/不派生子 agente`, or the runtime task records `parallel_dispatch=NOT_APPLICABLE/user_serial_override`, do not spawn, reuse, wake, or follow up any child agente for that decree; report `parallel_dispatch: NOT_APPLICABLE/user_serial_override`. Before every ordinary spawn wave, run the machine-checkable `court_cli.py agent-admit` gate with current context size, whole-tree live collaboration occupancy, host-retained terminal-node count, reclamation evidence, and the proposed `next_depth`. Ordinary child dispatch defaults to `fork_turns=none`, dynamic useful-role selection with `static_wave_cap=null`, 600 seconds, and 8 tool calls. The normal whole-tree limit is 16 including the root thread, while `max_depth=4` remains a hard recursion bound. A current explicit user count above 16 or a current explicit `unlimited/解限` switch may raise the thread ceiling; prior memory, stale task state, or an implicit host setting may not. Under Multi-Agent V2 the normal config is `features.multi_agent_v2.max_concurrent_threads_per_session=16`, while legacy `agents.max_threads` must be absent; therefore the normal root-only tree has at most 15 child slots. An override only changes the ceiling: it never creates a budget lease, bypasses capacity, memory-pressure downgrade, hierarchy, write-set, preload, or trace gates, and never instructs the court to fill every available slot. Clamp host capacity to the resolved ceiling, validate `next_depth<=4` at every recursion, and fail closed when capacity, occupancy, retained-node count, reclamation status, override provenance, or depth is unknown. Retained nodes with `not-reclaimed` consume physical capacity; only machine-verified reclamation permits active-only accounting. Never use `fork_turns=all` for ordinary court work, never reuse an errored/overgrown historical agent to bypass a thread limit, and stop the wave on capacity/thread-limit. If the host rejects a spawn before any lifecycle record exists, record it with `agent-spawn-failed`, block the wave, and defer the remaining roles without inventing an agente record. A 401/402/403 quota/auth/account/billing failure opens the task circuit: no same-task retry, reconcile the terminal status immediately with `agent-reconcile`, interrupt any still-running siblings, and record failed/closed rather than leaving the court ledger at running.
+## Shiguan, Pending, And Memory
 
-For every admitted ordinary Codex office, `/root/*` remains only its collaboration address. Current Multi-Agent V2 uses a model-reserved `collaboration.spawn_agent` schema, so keep `hide_spawn_agent_metadata=true` and do not expose `agent_type`, `model`, `reasoning_effort`, or `service_tier` to the model-visible tool. Put the explicit `role_key`, corresponding office `AGENTS.md` dossier path/hash, court skill hash, and preload contract in the bounded spawn message; the child must load that dossier before claiming the office. Evaluate assignment, task focus, complexity, risk, and ambiguity through `court.office.model_route.v2`: Sol/Terra remain the `ultra` recommendations and Luna remains the `max` recommendation, while a compatible V2 child continues to inherit the main thread model and effort. The first preload acknowledgement must prove `model_route_id`, `model_override_applied=NO`, the exact inheritance policy, and the office dossier/profile hashes before status can become `running`. A separate fresh-session leaf worker may apply the recommendation only through `court_codex_office_worker.py` with a verified host proof, an exact native-binary path and SHA256, the matching dossier cwd, disabled multi-agent features, and session `turn_context` evidence for model and effort. That transport is not a V1/V2 child override, not a `/root/*` identity, and not a same-session protocol switch. Keep `.codex/agents/*.toml` model-neutral. Claude Code inherits its main thread model; Hermes inherits its main profile model and remains deferred for later detailed profile design. See [court-office-model-routing.md](references/court-office-model-routing.md).
+- 权威 runtime Shiguan root 由 `scripts/shiguan_paths.py` 解析，默认 `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`；skill-local `references/` 只含 governing references 与 portable seeds。
+- Formal decree 在可写时用 `scripts/archive_checkpoint.py` 记录阶段链和最终结诏。记录是证据，不覆盖最新旨意或 governing source。
+- `references/shiguan-imports/pending/` 仅允许 metadata governance。没有不可伪造 host capability 时，真实 pending/private bodies 必须保持 unopened、unhashed、unmoved、undeleted、unmarked-seen；fixture authorization 不是 production authorization。
+- Obsidian 是 preserve-only 管理面，不是权威。导入回到 pending，需三省会审/门下复核。
+- 每个 decree 结束时裁定 `记忆裁定：WRITE | PROPOSE | SKIP | DEFERRED`。WRITE 需要最新边界与门下批准；不存 secrets、raw private logs、一次性输出、未验证推测或未经许可的个人数据。
 
-Production ordinary-agent routing is V2, with `serial` as the no-child override. `auto` must bind to the actual active V2 namespace; recursive tree/fork/cross-branch work uses V2, while child model/effort overrides remain unavailable on Codex 0.144.1. The former automated or bidirectional V1/V2 switching design is deprecated. Keep V1 code, fixtures, configuration history, and immutable backups only as dormant recovery evidence; do not invoke `--protocol v1`, advertise command-selectable switching, or stop/restart the backend through the protocol launcher unless a newer explicit user decree reopens that capability. V2 removes legacy `agents.max_threads`, defaults to the 16-slot table, permits a proven current explicit count above 16, and hides reserved metadata. Every production config change creates an immutable backup and must pass native `config/read`. Exact-session resume retains its initial tool namespace, so the existing quiescent launcher remains fail closed and never relabels a running tree.
+## Closeout Skeleton
 
-Spawned office agente are distinct from skills. A skill call is a 工坊技艺 invocation unless a real office agente carried the role. Recursive trees are bounded by court hierarchy and configured budgets: 太子 -> 三省; 尚书省 -> 六部; 六部 -> 工坊/工匠. Never create unbounded descendants or permanently install standing officials without 太子回奏 and user approval.
-
-Usage accounting is part of 开朝 and 结诏 for formal decrees: report `decree_usage_estimate`, `decree_usage_actual`, `usage_actual_source`, `usage_precision`, `usage_ledger_path`, and `usage_children_included` in the complete Shiguan memorial. Ordinary parallel subagents and `superCC` offices both contribute usage records when available; missing child usage is `PARTIAL` or `unavailable`, not zero. Do not create or claim an extra usage office for this accounting.
-
-When `superCC` is active, report `runtime_selection_gate`, `supercc_runtime_family`, `runtime_client`, `runtime_selector_result`, `source_agent_label`, `supercc_env_gate`, `visible_display_gate`, `display_transport_gate`, `office_client_gate`, `cli_probe`, `hermes_supercc_gate`, `hermes_surface`, `hermes_forced_profile`, `hermes_desktop_zellij_gate`, `hermes_profile_native_evidence`, `hermes_profile_readiness_evidence`, `hermes_profile_dispatch_evidence`, `profile_native_evidence_scope`, `profile_session_activity`, `squad_fallback_gate`, `standing_officials`, `turn_start_health`, `turn_start_open_decree`, `turn_start_native_wake_policy`, `native_turn_start_wake`, `visible_zellij_panes`, `supercc_visible_core_roles`, `silent_supervisor`, `supercc_watchdog`, `watchdog_process`, `watchdog_log_jsonl`, `watchdog_pid_file`, `watchdog_daemon_start`, `watchdog_daemon_stop`, `watchdog_no_visible_window`, `watchdog_actions`, `watchdog_abnormal_roles`, `legacy_patrol_visible_pane`, `taizi_stale_explanation`, `supercc_concurrency_limit`, `office_duty_enforcement`, `taizi_substitution`, `context_packet_complete`, `six_ministry_step_plan_policy`, `ministry_silent_until_dispatch`, `closeout_silence`, `closeout_silence_policy`, `expected_silenced_roles`, `temporary_ministry_release`, `rate_limit_wake_hierarchy`, `redispatch_actions`, `recommended_cleanup`, `noncurrent_inactive_pane_cleanup`, `office_profile_loaded`, `profile_source`, `profile_hash`, `office_dossier_path`, `office_dossier_hash`, `light_bootstrap_policy`, `AGENTS.md`, `office_uniqueness_gate`, `task_evidence`, `dispatch_delivery_channel`, `squad_delivery_order`, `native_enter_payload_kind`, `native_enter_dispatch`, `post_dispatch_physical_enter_delay_seconds`, `physical_enter_byte`, `squad_evidence`, `direct_superior_source`, `taizi_no_silence`, `three_departments_no_silence`, `no_silence_roles`, `monitor_no_silence_roles`, `supercc_model_session_count`, `visible_active_office_count`, and `supercc_session_cap` in the complete Shiguan memorial. Missing zellij+squad normal-environment evidence, a failed standing 三省 pane, missing squad identity, missing visible pane, missing selected office-client evidence or generic `cli_probe`, stale heartbeat not explained by visible-pane heartbeat drift or expected closeout idle_receive, Hermes desktop/profile readiness reported as normal superCC without zellij+squad, Hermes profile dispatch without profile/session proof, Hermes readiness-only evidence reported as actual dispatch, merged-office Hermes `delegate_task` reported as distinct 三省履职, 429/rate-limit pressure without requeue/backoff, unreleased noncurrent inactive role, attempted 太子代工, missing profile hash/dossier hash, missing native-enter/squad delivery evidence where that branch requires it, missing second physical Enter evidence where Codex/zellij dispatch is used, missing silent-supervisor shutdown evidence when a daemon was started, missing structured task/direct assignment evidence, or unsilenced temporary 六部 must be surfaced as `runtime_degraded` or `DONE_WITH_CONCERNS`, not hidden behind ordinary parallel-dispatch wording. If `office_duty_enforcement=FAILED`, `taizi_substitution=FAILED`, `office_profile_loaded=FAILED`, or required dispatch delivery evidence is missing, the decree must not close as `DONE`; it must be returned for repair, blocked, or closed only with explicit concerns and preserved failure evidence.
-
-- When `super GL` is active or attempted, report `super_gl_enabled`, `super_gl_room_gate`, `super_gl_room_id`, `super_gl_transport`, `super_gl_zellij_gate=NOT_APPLICABLE`, `super_gl_squad_gate=NOT_APPLICABLE`, `super_gl_wake_list`, `super_gl_responders`, `super_gl_non_responders`, `super_gl_dispatch_delivery_channel`, `super_gl_office_duty_enforcement`, and `super_gl_anti_loop_policy` in the complete Shiguan memorial. A missing room gate, missing actual same-room responder, simulated office reply, retry storm (tool calling loops), or accidental dependency on zellij/`squad` must be surfaced as `runtime_degraded`, `NOT_IN_ROOM`, or `DONE_WITH_CONCERNS` rather than hidden.
-
-## Shiguan, Memory, And Runtime
-
-Use `scripts/court_runtime.py` and `scripts/court_cli.py` for machine-checkable court state when useful. Use `scripts/archive_checkpoint.py` for stage and final Shiguan records whenever filesystem writeback is available. These scripts write through `scripts/shiguan_paths.py` into the shared Shiguan database so Codex, Agent Skills, and Hermes share one archive.
-
-Use `scripts/internal_memory_shiguan_bridge.py` when Codex/Hermes built-in memory state needs to be connected to Shiguan. The bridge is metadata-only: it records enablement state and storage fingerprints for recall without copying private memory bodies. For Codex, record `body_table_state` for `stage1_outputs` with row/nonempty counts only; if empty, record `content_recall_status=empty_store_no_body_rows`, and never mutate Codex SQLite by hand. When the user asks for content-level recall without a copy, write a Shiguan checkpoint/leaf containing lineage, court_code, keywords, key_actions, capability-lineage vector fields, and source paths. The `redacted` content mode is intentionally rejected because arbitrary text cannot be proven secret-free.
-
-Shiguan imports under the shared `references/shiguan-imports/pending/` are raw materials, not official records. Every 开朝 reports pending count, new count, token estimate, queue path, and samples before raw text is loaded. Do not silently process large imports.
-
-Pending governance is metadata-only until a separate body decree exists. `shiguan_pending_governance.py` uses an authenticated v3 append-only event chain, trusted court-runtime identity evidence, independently recomputed queue bindings, unique event IDs, aware monotonic timestamps, and an authenticated append-only head outside the ledger root. On the current host, production `body_authorized`/body access remains fail-closed because a non-forgeable host-issued actor capability is not available; fixture tests do not constitute body authorization. Real pending bodies must remain unopened, unhashed, unmoved, undeleted, and unmarked-seen. One-time peer keys follow revoke-before-regenerate, and renew/extend/permanent must never clear `revoked_at` or reactivate a replaced token.
-
-## Closeout Template
-
-Use this fourteen-line user-facing closeout only for DONE, DONE_WITH_CONCERNS, PAUSED, BLOCKED, CANCELED, REJECTED, or HANDOFF. Pending clarification uses `太子上奏下一项问题：...` instead.
+完成、暂停、阻塞、取消、handoff 或包装前，重载本文件及当前引用并经门下复核。用户侧结诏固定十四行，不得改名/改序：
 
 ```text
 诏令编号：...
 古制谱系：...
 状态：...
-作业AI：<source_agent_label from archive_checkpoint.py, e.g. Codex/Hermes/Agents>
+作业AI：...
 旨意与边界：...
 执行门禁：...
 门下裁定：...
 实际动作：...
 验收证据：VERIFIED | PARTIAL | NOT_RUN；...
-运行态与并行：...；用量：tokens=<actual or estimated/unavailable>；time=<actual or estimated/unavailable>；source=<provider_reported|agent_reported|estimated_fallback|unavailable>
-史馆：Web local_url=<current ensure_shiguan_web.py local_url>；lan_urls=<current ensure_shiguan_web.py lan_urls>
+运行态与并行：...；用量：tokens=...；time=...；source=...
+史馆：Web local_url=...；lan_urls=...
 余险：...
 太子回奏：...
 下一步：...
 ```
 
-The complete Shiguan memorial fields, hard memorial gate, and packaging rules are in [court-closeout-validation.md](references/court-closeout-validation.md). The user-facing closeout must not omit or rename these fourteen labels.
+完整 memorial 字段、Menxia attribution、superCC/super GL 证据、package-ready 和安装校验门见 [court-closeout-validation.md](references/court-closeout-validation.md)。只有被门下接受的当前 task/evidence/report 才能标记 `MenxiaReview`；最终用户交付始终是 `TaiziReply`。
 
 ## Validation And Packaging
 
-For skill edits or behavior corrections, read [court-closeout-validation.md](references/court-closeout-validation.md) before claiming Done. Minimum validation normally includes:
-
-Use the active Python executable for the host (`python`, `python3`, or Windows
-`py -3`). Examples below use POSIX-style relative paths because Python accepts
-them on Windows PowerShell/cmd, Linux, and macOS. Court entrypoints disable
-bytecode before local imports, and callers must also use interpreter-level
-`-B`. Inline probes must use `python -B -`; never prepend an active court
-`scripts` directory to `sys.path` under a bytecode-writing interpreter. Any
-`__pycache__` or `.pyc` in an active skill root is an installation hard failure:
-move it intact to the shared Shiguan legacy-snapshot area; never delete it.
+使用当前 host 的 Python 3，所有入口带 `-B`；active skill root 出现 `__pycache__`/`.pyc` 是 hard failure，不直接删除。最小验证：
 
 ```sh
 python -B scripts/quick_validate.py .
 python -B scripts/check_catalog.py --strict
 python -B scripts/check_portability.py
-python -B scripts/ensure_court_agent_config.py --check
-python -B scripts/check_supercc_functional.py --workspace .
-python -B scripts/ensure_supercc_court.py --check-only --no-auto-install-deps --format json
-python -B scripts/ensure_hermes_supercc.py --surface desktop --format json
-python -B scripts/ensure_hermes_supercc.py --surface cli --format json
-python -B scripts/rebuild_shiguan_index.py
-python -B scripts/grow_shiguan_tree.py
-python -B scripts/sync_shiguan_obsidian_vault.py --dry-run
 ```
 
-Packaging is not automatic for routine local edits. Generate a portable package only when explicitly ordered, when final acceptance/handoff needs it, or when producing an installable skill release. Before a report may say `package-ready`, the package-ready hard gates must verify validation passed and the package input excludes secrets, private vaults, raw private Shiguan bodies, raw logs, generated local artifacts, generated indexes/graphs, plan archives, memory decisions, import queues, peer state, Obsidian sync config/API keys, and unrelated projects. If this host has Codex, Agent Skills, and Hermes installed copies, sync the edited portable skill files to those active copies before packaging and record the sync target list in Shiguan. Use `scripts/package_skill.py`; portable packages must exclude host-local Shiguan bodies, memory decisions, generated leaves/branches/manual entries, local capability catalogs, runtime ledgers, logs, import queues, peer state, Obsidian sync config/API keys, and private artifacts. Blank installs auto-create the shared Shiguan seed on first script/local Shiguan HTTP use.
+包装只在明确发布/安装/handoff 阶段进行。`package-ready` 前必须通过当前 release gates，并排除 secrets、private/pending bodies、raw logs、host-local Shiguan records、generated indexes、plan archives、memory decisions、Obsidian credentials、peer state 与无关项目。安装只覆盖 manifest 管理的公开文件；史馆实录不覆盖，替换前保留可核验备份，失败自动回滚，成功回执保留显式 rollback 路径。外部发布仍需最新授权和对应 fastpath 门禁。

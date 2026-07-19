@@ -1788,10 +1788,13 @@ def open_decree(task_id: str) -> dict[str, object]:
 
 
 def run_git(path: Path, *args: str) -> str:
+    env = dict(os.environ)
+    env.pop("GIT_INDEX_FILE", None)
     completed = subprocess.run(
         ["git", "-C", str(path), *args],
         check=False,
         capture_output=True,
+        env=env,
         text=True,
         encoding="utf-8",
         timeout=20,

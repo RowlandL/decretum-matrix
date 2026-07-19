@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,7 +37,7 @@ POLICY_EXPECTED = {
     "fanout": "forbidden",
 }
 LOADED_IDENTITY_EXPECTED = {
-    "display_name": "Dercretum-Matrix",
+    "display_name": "Decretum Matrix（诏令矩阵）",
     "canonical_skill_name": "decretum-matrix",
     "canonical_invocation": "$decretum-matrix",
     "community_license": "AGPL-3.0-only",
@@ -69,6 +70,8 @@ PROTECTED_SHARED_AGENT_PATHS = {
 PROTECTED_SHARED_AGENT_CONTRACT_SHA256 = (
     "36af654a6c1ca18b16f2479fc77cdde2666d796070e2cb47ff52401a65722e08"
 )
+BACKUP_SCHEMA = "court.install_projection_backup.v1"
+BACKUP_DIRECTORY_PARTS = (".agents", "install-backups", "decretum-matrix")
 
 _MISSING = object()
 
@@ -613,6 +616,239 @@ def _atomic_replace_file(path: Path, payload: bytes) -> None:
             temp_path.unlink()
 
 
+def _operation_target(
+    path: Path,
+    selected: list[tuple[str, Path, str]],
+) -> tuple[str, Path, PurePosixPath]:
+    matches: list[tuple[str, Path, PurePosixPath]] = []
+    for label, target, _projection in selected:
+        try:
+            relative = path.relative_to(target)
+        except ValueError:
+            continue
+        matches.append((label, target, PurePosixPath(relative.as_posix())))
+    if len(matches) != 1:
+        raise _InstallContractError("backup_target_ambiguous", path.as_posix())
+    label, target, relative = matches[0]
+    relative_parts = tuple(part.casefold() for part in relative.parts)
+    if relative.as_posix() not in PROTECTED_SHARED_AGENT_PATHS and any(
+        relative_parts[: len(prefix)] == prefix
+        for prefix in FORBIDDEN_PROJECTION_PREFIXES
+    ):
+        raise _InstallContractError(
+            "backup_private_surface_forbidden", relative.as_posix()
+        )
+    return label, target, relative
+
+
+def _backup_projection_writes(
+    *,
+    operations: list[tuple[Path, bytes, bytes | None]],
+    selected: list[tuple[str, Path, str]],
+    transitions: list[dict[str, object]],
+    home_root: Path,
+    requested_root: Path | None,
+) -> dict[str, object]:
+    if not operations:
+        return {
+            "schema": BACKUP_SCHEMA,
+            "status": "NOT_REQUIRED",
+            "operation_count": 0,
+            "replace_count": 0,
+            "rollback_supported": True,
+        }
+
+    backup_base = home_root.joinpath(*BACKUP_DIRECTORY_PARTS)
+    backup_root = (
+        Path(requested_root).resolve(strict=False)
+        if requested_root is not None
+        else backup_base / f"projection-{uuid.uuid4().hex}"
+    )
+    if (
+        backup_root == backup_base
+        or not _within(backup_root, backup_base)
+        or any(_within(backup_root, target) or _within(target, backup_root) for _label, target, _kind in selected)
+    ):
+        raise _InstallContractError("backup_root_invalid", str(backup_root))
+    if backup_root.exists() or backup_root.is_symlink():
+        raise _InstallContractError("backup_root_conflict", str(backup_root))
+
+    entries: list[dict[str, object]] = []
+    try:
+        backup_root.mkdir(parents=True, exist_ok=False)
+        for index, (path, payload, previous) in enumerate(operations):
+            label, target, relative = _operation_target(path, selected)
+            backup_relative: str | None = None
+            previous_sha256: str | None = None
+            if previous is not None:
+                backup_relative = (
+                    PurePosixPath("preimages")
+                    / f"{index:04d}-{label}"
+                    / relative
+                ).as_posix()
+                _atomic_create(backup_root / Path(backup_relative), previous)
+                previous_sha256 = hashlib.sha256(previous).hexdigest()
+            entries.append(
+                {
+                    "action": "REPLACE" if previous is not None else "CREATE",
+                    "backup_path": backup_relative,
+                    "installed_sha256": hashlib.sha256(payload).hexdigest(),
+                    "path": relative.as_posix(),
+                    "previous_sha256": previous_sha256,
+                    "target_class": label,
+                    "target_root": str(target),
+                }
+            )
+        manifest = {
+            "schema": BACKUP_SCHEMA,
+            "entries": entries,
+            "transitions": [
+                {
+                    "canonical_root": str(item["canonical_root"]),
+                    "mode": str(item["mode"]),
+                    "restore_root": str(item["restore_root"]),
+                }
+                for item in transitions
+            ],
+        }
+        manifest_bytes = (
+            json.dumps(
+                manifest,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        manifest_path = backup_root / "manifest.json"
+        _atomic_create(manifest_path, manifest_bytes)
+    except Exception:
+        if backup_root.exists() and _within(backup_root, backup_base):
+            shutil.rmtree(backup_root)
+        raise
+
+    legacy_transition = any(
+        str(item.get("mode")) == "LEGACY_MIGRATION" for item in transitions
+    )
+    return {
+        "schema": BACKUP_SCHEMA,
+        "status": "CREATED",
+        "backup_root": str(backup_root),
+        "manifest_path": str(manifest_path),
+        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "operation_count": len(entries),
+        "replace_count": sum(entry["action"] == "REPLACE" for entry in entries),
+        "rollback_supported": not legacy_transition,
+        "rollback_scope": (
+            "managed_files_only"
+            if not legacy_transition
+            else "automatic_transaction_only_for_legacy_locator"
+        ),
+    }
+
+
+def rollback_install_backup(
+    *,
+    home_root: Path,
+    backup_root: Path,
+) -> dict[str, object]:
+    """Restore a successful canonical overlay from its managed-file backup."""
+
+    home = Path(home_root).resolve(strict=False)
+    backup_base = home.joinpath(*BACKUP_DIRECTORY_PARTS)
+    root = Path(backup_root).resolve(strict=False)
+    if root == backup_base or not _within(root, backup_base):
+        return _failure("backup_root_invalid")
+    try:
+        manifest_path = root / "manifest.json"
+        manifest = _read_json(manifest_path, reason="backup_manifest_invalid")
+        if manifest.get("schema") != BACKUP_SCHEMA:
+            raise _InstallContractError("backup_manifest_invalid", "schema_mismatch")
+        transitions = manifest.get("transitions")
+        if not isinstance(transitions, list) or any(
+            not isinstance(item, dict) for item in transitions
+        ):
+            raise _InstallContractError("backup_manifest_invalid", "transitions_invalid")
+        if any(item.get("mode") == "LEGACY_MIGRATION" for item in transitions):
+            raise _InstallContractError("legacy_manual_rollback_not_supported")
+        entries = manifest.get("entries")
+        if not isinstance(entries, list) or not entries:
+            raise _InstallContractError("backup_manifest_invalid", "entries_invalid")
+
+        prepared: list[tuple[Path, bytes | None, bytes]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise _InstallContractError("backup_manifest_invalid", "entry_not_object")
+            target_root = Path(str(entry.get("target_root"))).resolve(strict=False)
+            relative_value = entry.get("path")
+            if (
+                not _within(target_root, home)
+                or target_root.name != LOCATOR_POLICY_EXPECTED["install_directory_name"]
+                or not _safe_relative(relative_value)
+            ):
+                raise _InstallContractError("backup_manifest_invalid", "target_invalid")
+            relative = PurePosixPath(str(relative_value))
+            relative_parts = tuple(part.casefold() for part in relative.parts)
+            if relative.as_posix() not in PROTECTED_SHARED_AGENT_PATHS and any(
+                relative_parts[: len(prefix)] == prefix
+                for prefix in FORBIDDEN_PROJECTION_PREFIXES
+            ):
+                raise _InstallContractError("backup_private_surface_forbidden")
+            destination = target_root / Path(relative.as_posix())
+            if destination.is_symlink() or not destination.is_file():
+                raise _InstallContractError("rollback_target_drift", str(destination))
+            current = destination.read_bytes()
+            if hashlib.sha256(current).hexdigest() != entry.get("installed_sha256"):
+                raise _InstallContractError("rollback_target_drift", str(destination))
+            previous: bytes | None = None
+            if entry.get("action") == "REPLACE":
+                backup_relative = entry.get("backup_path")
+                if not _safe_relative(backup_relative):
+                    raise _InstallContractError("backup_manifest_invalid", "backup_path_invalid")
+                preimage_path = root / Path(str(backup_relative))
+                if not _within(preimage_path, root) or preimage_path.is_symlink():
+                    raise _InstallContractError("backup_manifest_invalid", "backup_path_escape")
+                previous = preimage_path.read_bytes()
+                if hashlib.sha256(previous).hexdigest() != entry.get("previous_sha256"):
+                    raise _InstallContractError("backup_preimage_drift", str(preimage_path))
+            elif entry.get("action") != "CREATE":
+                raise _InstallContractError("backup_manifest_invalid", "action_invalid")
+            prepared.append((destination, previous, current))
+
+        restored: list[tuple[Path, bytes]] = []
+        try:
+            for destination, previous, current in reversed(prepared):
+                if previous is None:
+                    destination.unlink()
+                else:
+                    _atomic_replace_file(destination, previous)
+                restored.append((destination, current))
+        except Exception:
+            for destination, current in reversed(restored):
+                if destination.exists():
+                    _atomic_replace_file(destination, current)
+                else:
+                    _atomic_create(destination, current)
+            raise
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
+    except Exception as exc:
+        return _failure(
+            "install_rollback_failed",
+            detail=f"{type(exc).__name__}:{exc}",
+        )
+    return {
+        "schema": "court.install_projection_rollback.v1",
+        "ok": True,
+        "status": "ROLLED_BACK",
+        "reason": "managed_projection_restored",
+        "backup_root": str(root),
+        "restored_count": len(prepared),
+        "pending_body_accessed": False,
+        "real_host_configuration_accessed": False,
+    }
+
+
 def _transaction_checkpoint(
     adapter: object | None,
     step: str,
@@ -674,6 +910,8 @@ def _apply_projection_writes(
 
 def _unpublish_root_transitions(records: list[dict[str, object]]) -> None:
     for record in reversed(records):
+        if record.get("stage_root") is None:
+            continue
         canonical = Path(str(record["canonical_root"]))
         stage = Path(str(record["stage_root"]))
         if (canonical.exists() or canonical.is_symlink()) and not (
@@ -684,6 +922,8 @@ def _unpublish_root_transitions(records: list[dict[str, object]]) -> None:
 
 def _restore_root_transitions(records: list[dict[str, object]]) -> None:
     for record in reversed(records):
+        if record.get("stage_root") is None:
+            continue
         restore_root = Path(str(record["restore_root"]))
         stage = Path(str(record["stage_root"]))
         if stage.exists() or stage.is_symlink():
@@ -701,6 +941,7 @@ def _staged_selected(
     stages = {
         Path(str(record["canonical_root"])): Path(str(record["stage_root"]))
         for record in records
+        if record.get("stage_root") is not None
     }
     return [
         (label, stages.get(target, target), projection)
@@ -715,6 +956,7 @@ def _staged_operations(
     roots = [
         (Path(str(record["canonical_root"])), Path(str(record["stage_root"])))
         for record in records
+        if record.get("stage_root") is not None
     ]
     staged: list[tuple[Path, bytes, bytes | None]] = []
     for path, payload, previous in operations:
@@ -737,7 +979,8 @@ def _apply_install_transaction(
     transitions: list[dict[str, object]],
     install_transaction_adapter: object | None,
     home_root: Path,
-) -> list[dict[str, object]]:
+    backup_root: Path | None,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
     if install_transaction_adapter is not None and not callable(
         getattr(install_transaction_adapter, "checkpoint", None)
     ):
@@ -746,7 +989,15 @@ def _apply_install_transaction(
     applied: list[tuple[Path, bytes | None]] = []
     transaction_selected = selected
     alias_receipt: object | None = None
+    backup_receipt: dict[str, object] | None = None
     try:
+        backup_receipt = _backup_projection_writes(
+            operations=operations,
+            selected=selected,
+            transitions=transitions,
+            home_root=home_root,
+            requested_root=backup_root,
+        )
         hermes_root = next(
             (target for label, target, _kind in selected if label == "hermes"),
             None,
@@ -779,32 +1030,38 @@ def _apply_install_transaction(
             source_root = Path(str(transition["source_root"]))
             restore_root = Path(str(transition["restore_root"]))
             canonical = Path(str(transition["canonical_root"]))
-            stage = canonical.parent / (
-                f".{canonical.name}.install-migration-{uuid.uuid4().hex}"
+            mode = str(transition["mode"])
+            stage = (
+                canonical.parent / f".{canonical.name}.install-migration-{uuid.uuid4().hex}"
+                if mode == "LEGACY_MIGRATION"
+                else None
             )
             record: dict[str, object] = {
-                "mode": str(transition["mode"]),
+                "mode": mode,
                 "source_root": str(source_root),
                 "restore_root": str(restore_root),
                 "canonical_root": str(canonical),
-                "stage_root": str(stage),
+                "stage_root": str(stage) if stage is not None else None,
+                "backup_root": backup_receipt.get("backup_root"),
                 "status": "BACKED_UP",
             }
-            if stage.exists() or stage.is_symlink():
-                raise _InstallContractError("install_migration_stage_conflict", str(stage))
-            if (canonical.exists() or canonical.is_symlink()) and canonical != source_root:
-                raise _InstallContractError(
-                    "dual_physical_authority",
-                    str(canonical),
-                )
             records.append(record)
-            os.replace(source_root, stage)
+            if stage is not None:
+                if stage.exists() or stage.is_symlink():
+                    raise _InstallContractError("install_migration_stage_conflict", str(stage))
+                if (canonical.exists() or canonical.is_symlink()) and canonical != source_root:
+                    raise _InstallContractError(
+                        "dual_physical_authority",
+                        str(canonical),
+                    )
+                os.replace(source_root, stage)
             _transaction_checkpoint(
                 install_transaction_adapter,
                 "source_root_backed_up",
                 source_root=str(source_root),
                 restore_root=str(restore_root),
-                stage_root=str(stage),
+                stage_root=str(stage) if stage is not None else None,
+                backup_root=backup_receipt.get("backup_root"),
             )
         transaction_selected = _staged_selected(selected, records)
         applied = _apply_projection_writes(
@@ -820,13 +1077,15 @@ def _apply_install_transaction(
         )
         for record in records:
             canonical = Path(str(record["canonical_root"]))
-            stage = Path(str(record["stage_root"]))
-            if canonical.exists() or canonical.is_symlink():
-                raise _InstallContractError(
-                    "dual_physical_authority",
-                    str(canonical),
-                )
-            os.replace(stage, canonical)
+            stage_value = record.get("stage_root")
+            if stage_value is not None:
+                stage = Path(str(stage_value))
+                if canonical.exists() or canonical.is_symlink():
+                    raise _InstallContractError(
+                        "dual_physical_authority",
+                        str(canonical),
+                    )
+                os.replace(stage, canonical)
             record["status"] = "PUBLISHED"
             _transaction_checkpoint(
                 install_transaction_adapter,
@@ -867,13 +1126,19 @@ def _apply_install_transaction(
                 "install_rollback_failed",
                 f"{type(exc).__name__}:{exc};rollback:{'|'.join(rollback_errors)}",
             ) from exc
+        if backup_receipt is not None and backup_receipt.get("backup_root"):
+            created_backup = Path(str(backup_receipt["backup_root"]))
+            backup_base = home_root.joinpath(*BACKUP_DIRECTORY_PARTS)
+            if created_backup.exists() and _within(created_backup, backup_base):
+                shutil.rmtree(created_backup)
         raise _InstallContractError(
             "install_transaction_failed",
             f"{type(exc).__name__}:{exc}",
         ) from exc
     for record in records:
         record["status"] = "APPLIED"
-    return records
+    assert backup_receipt is not None
+    return records, backup_receipt
 
 
 def _nested_get(data: object, dotted_key: str) -> object:
@@ -1423,6 +1688,7 @@ def install_current_agent_copy(
     install_transaction_adapter: object | None = None,
     platform_context: dict[str, object] | None = None,
     source_package_sha256: str | None = None,
+    backup_root: Path | None = None,
 ) -> dict[str, object]:
     """Plan or apply the manifest projection without real host discovery."""
 
@@ -1461,12 +1727,13 @@ def install_current_agent_copy(
             operations,
         )
         if write:
-            transition_receipts = _apply_install_transaction(
+            transition_receipts, backup_receipt = _apply_install_transaction(
                 operations=operations,
                 selected=selected,
                 transitions=transitions,
                 install_transaction_adapter=install_transaction_adapter,
                 home_root=home,
+                backup_root=backup_root,
             )
         else:
             transition_receipts = [
@@ -1480,6 +1747,16 @@ def install_current_agent_copy(
                 }
                 for item in transitions
             ]
+            backup_receipt = {
+                "schema": BACKUP_SCHEMA,
+                "status": "PLANNED" if operations else "NOT_REQUIRED",
+                "operation_count": len(operations),
+                "replace_count": projection_counts["replace"],
+                "rollback_supported": not any(
+                    item.get("mode") == "LEGACY_MIGRATION" for item in transitions
+                ),
+                "rollback_scope": "managed_files_only",
+            }
     except _InstallContractError as exc:
         return _failure(exc.reason, detail=exc.detail)
     except Exception as exc:
@@ -1496,6 +1773,7 @@ def install_current_agent_copy(
         "targets": [str(target) for _label, target, _kind in selected],
         "target_classes": [label for label, _target, _kind in selected],
         "projection_counts": projection_counts,
+        "backup": backup_receipt,
         "loaded_identity": deepcopy(identity),
         "physical_install_directory_name": LOCATOR_POLICY_EXPECTED[
             "install_directory_name"

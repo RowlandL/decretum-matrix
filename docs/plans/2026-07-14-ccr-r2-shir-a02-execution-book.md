@@ -707,6 +707,16 @@ Phase 1 的编号/谱系 GREEN 继续沿既有 cluster 串行：
 
 **FINAL ACCEPTANCE：** 本机最终安装与 Phase 10 五根最终同步都必须由该 updater receipt 证明；五根 canonical path 均精确为 `skills/decretum-matrix`，逐文件 hash、identity、native loader/version reread、rollback 可用性、`physical_authority_count=1`、shared Shiguan/pending/private/memory/config 不变和 legacy compatibility locator 受控解析全部通过。未来才允许提供一条 `npm exec|npx` 更新命令，且它必须调用同一已验 core；本轮只保留 local `.tgz` 证据，不发布 npm。
 
+### Phase 5.2 — 全域统一 CLI 与开朝快速路径（beta0.5.13 指定执行计划）
+
+- **详细执行权威：** `docs/plans/2026-07-19-decretum-matrix-unified-cli-fast-court-open-plan.md`。
+- **designated_execution_thread：** `019f764c-4000-73b0-817c-f59e81d454eb`；该既有 `release/beta0.5.13` 单写者任务负责按计划实施并把验收证据带回本执行书，不得另建或物化工作树。
+- **单次顺位例外：** 用户在 2026-07-19 明确授权本索引插入 Phase 5.1 后、Phase 6 前，因此本次仅对该计划索引绕过“执行书只允许 EOF 顺位增写”规则；不得据此改写、删除、重排其他既有阶段或扩大未来例外。
+- **范围：** 登记全部受支持入口并收口到惰性统一 CLI；建立单进程 `court open --fast`；让尚书首次派遣前一次性完成六部 packet/admission 校验；机械区分真实 `MenxiaReview` 与 `TaiziSynthesis|TaiziReply`；复用 Phase 5.1 updater 唯一 mutation core 与 npm 薄入口。
+- **非目标：** 不合并全部 Python 文件，不新建 daemon/cache/ledger/状态机，不为形式统一机械重写全部低频脚本，不绕过三省六部、semantic/admission、pending/private、Git、安装或发布门禁。
+- **状态：** `PLAN_INDEXED / IMPLEMENTATION_PENDING`。必须取得计划定义的 `CLI_ENTRYPOINT_COVERAGE`、`CLI_LAZY_LOAD`、`CLI_LEGACY_PARITY`、`FAST_OPEN_SINGLE_PROCESS`、`SHANGSHU_FIRST_DISPATCH`、`SIX_MINISTRY_DIRECT_SUPERIOR`、`MENXIA_REVIEW_ATTRIBUTION`、`TAIZI_LABEL_SEMANTICS`、`UPDATER_SINGLE_CORE` 与 `CLI_PERFORMANCE_GATE` 全部 `PASS`，方可继续 Phase 6/9/10 的最终收敛。
+- `pending_body_access=NO`、`OFFICE_PACK_Q1_Q8=DEFERRED`、root 不提交、child/root index 为空、无新 worktree、无 push/PR/tag/npm publish/beta0.5.13 publication 等既有边界全部不变。
+
 ### Phase 6 — 本机 current-tool 预安装与整体验收
 
 - 本阶段只备份 `.agents` 和 Codex，写 per-file SHA256 manifest；这是 Phase 9/10 前的 current-tool 预验，不是最终五根收敛。
@@ -1258,3 +1268,25 @@ Git index empty
 - **Successor carrier：** `repo-control` 已从 accepted commit 创建唯一 `release/beta0.5.13` worktree=`D:\project\worktrees\decretum-matrix\CCR-R2-SHIR-20260714-A02-beta0.5.13-handoff`，start HEAD=`e3fcecf4f8869a97bec1da465134f2ce7bd14f46`，common-dir=`D:\project\decretum-matrix\.git`，child/root index=`0/0`。per-task state/create-event/root branch-sync event SHA-256 分别为 `adfe4b48dd6e04df6c0fb8059e294ed193e6475d16dbf7dc448240d5a3c5043c`、`ad64edca949834b17b8268a446fab9648c65352daed9a354d444c4a699b6fc0d`、`0590bd2cca82f54a39da20c862a091d9cef933ea4ea530e31c9e18649cd37b54`；未创建新 Codex 对话，当前本地分支会话继续持有唯一 writer。
 - **边界与贯通策略：** `main/PR/force/root commit=NO`，candidate rebuild=`NO`，`pending_body_access=NO`。后续继续以“小而美”为贯通策略：复用单一 authority、现有 primitives 与 receipt，不新建重复 repo/ledger/service/state machine；handoff 必须继续传递该策略。
 - **当前游标：** `BETA0.5.12_PUBLICATION_TERMINAL=PASS -> release/beta0.5.13 -> A02_ALL_PHASES_AND_TASKS_PASS`。该总门当前仍待按本执行书逐项复核；`OFFICE_PACK_Q1_Q8` 继续保持既有 `DEFERRED`，不得在 `QUEUED_POST_A02_HANDOFF` 门前插队，也不得提前宣称 A02、后续最终循环或整个项目完成。
+
+### 2026-07-19 Phase 5.2 unified CLI / fast-open completion（append-only receipt）
+
+- **状态与现场：** `PHASE5.2_UNIFIED_CLI_FAST_OPEN=PASS`；carrier=`release/beta0.5.13@584d34ef9877db088241c3818aaec5b2b829a508`，child/root index=`0/0`，单写者未变，未创建新 worktree，未发布、推送、打 tag 或重做 beta0.5.12。
+- **统一入口：** executable inventory=`120/120`，惰性 registry、legacy adapter parity 与稳定 JSON envelope 全部通过；V2 + role binding 会在 CLI 边界移除无模型/effort 变更的旧式 agent-type override，`CLI_V2_PROTOCOL_NORMALIZATION=PASS`，既有 runtime authority 未复制、未改成第二状态机。
+- **快速开朝与层级：** `court open --fast` 在单 Python 解释器内复用既有 semantic/admission/preload core；串行门禁与一次有界并发 preload smoke 均得到 `FAST_OPEN_SINGLE_PROCESS=PASS`、`SHANGSHU_FIRST_DISPATCH=PASS`、`SIX_MINISTRY_DIRECT_SUPERIOR=PASS`，无部分 mutation、无跨级派遣、无语义调度循环。
+- **语义归属：** `MENXIA_REVIEW_ATTRIBUTION=PASS`、`TAIZI_LABEL_SEMANTICS=PASS`；只有门下接受的 review 才标记 `MenxiaReview`，太子综合/最终交付保持 `TaiziSynthesis|TaiziReply`。
+- **安装与 npm：** `install update|migrate` 复用 `install_current_agent_copy` 唯一 mutation core，`install rollback` 复用同模块恢复入口；覆盖前持久化逐文件 SHA256 preimage，失败自动回滚，成功回执保留显式 `backup_root`，只覆盖 manifest 管理的公开文件，目标独有文件、史馆实录与 private/pending 正文不读、不移、不删、不覆盖。npm `decretum-matrix` bin 无隐式 lifecycle script，Windows/macOS/Linux clean-home 与 source/local-tgz receipt parity 全部通过；安装命令保持 `npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com`。
+- **紧凑预载与性能：** `SKILL.md=12799 bytes`；全角色 compact root + dossier/profile + adjacency/registry metadata 的最大实际预载=`19360 bytes < 20480 bytes`。10 次 cold/warm 正式基准中，cold legacy/fast p50=`1382.804/158.390 ms`、提升=`88.55%`，warm legacy/fast p50=`1377.298/9.065 ms`、提升=`99.34%`；fast process count=`1`、receipts deterministic，超过任务书 `>=30%` 目标。
+- **质量与发布门：** `CLI_ENTRYPOINT_COVERAGE`、`CLI_LAZY_LOAD`、`CLI_LEGACY_PARITY`、`UPDATER_SINGLE_CORE`、`INSTALL_ROLLBACK`、`CLI_PERFORMANCE_GATE`、npm harness、release-manifest policy、release payload、package privacy `61/61`、quick validate、`git diff --check` 全部 PASS；`.pyc=0`，非历史错误显示名残留=`0`。四个 focused gate 已进入 `references/manifests/release-gates.v1.json` 并受独立 required-step policy 约束。
+- **证据：** acceptance=`D:\project\.repo-control\evidence\decretum-matrix\CCR-R2-SHIR-20260714-A02\phase5.2\phase52-acceptance-20260719.json`，SHA-256=`C206BA9319F65F16526D8ABF5069E04CE02DD27899B723732AD29E21553709F0`；performance raw samples=`D:\project\.repo-control\evidence\decretum-matrix\CCR-R2-SHIR-20260714-A02\phase5.2\cli-performance-20260719.json`，SHA-256=`3C6892C44269433A2B04F75F1D349592CD8B8EE1258035AD3988E57E448F3AA8`；rollback preimage receipts 见 acceptance 工件。
+- **边界与下一游标：** `pending_body_access=NO`；`OFFICE_PACK_Q1_Q8=DEFERRED_TO_QUEUED_POST_A02_HANDOFF`。Phase 5.2 不提交独立空/碎片 commit；下一游标=`PHASE9_FULL_AUDIT`，Phase 9/10 只消费上述已验 receipts 并补真实缺口，不重复实现或提前发布。
+
+### 2026-07-19 Phase 9 full-audit remediation completion（append-only receipt）
+
+- **事务结果：** 本段随 final-audit major-stage 的唯一有界提交生效，结果=`FULL_AUDIT_REMEDIATION_COMMITTED_LOCAL`；carrier=`release/beta0.5.13`，accepted commit binding=`THIS_COMMIT`。实际 commit SHA、tree、index/clean 与证据 hash 在提交后写入外置 `phase9-commit-receipt-20260719.json`，不以第二个碎片提交回填本段。
+- **审查与整改：** initial accepted findings=`7`、remaining accepted findings=`0`。七个最小 repair clusters 为 bytecode import guard、canonical release artifact locator、portable source budget alignment、compact superCC governing-reference contract、unified CLI compatibility surface、Git-index fixture isolation、beta0.5.13 release identity alignment；此前 `protocol_capability_conflict` 已由 V2 CLI boundary normalization 消除，未复制 runtime authority 或建立第二状态机。
+- **专项量化：** root/direct references/profile/dossier 样本=`53` 文件，exact long-line duplicate clusters=`73`，cross-surface clusters=`1` 且为既有 legal state-flow 有意重复；bad current display-name hits=`0`、old product documentation hits=`0`。CLI inventory=`122/122`，portable source=`6316227 bytes / 283 files`，仍在 `6325000 / 283` 门内。
+- **最终验证：** release payload manifest self-test/check=`PASS/PASS`；package privacy=`61/61 PASS`；npm harness self-test、artifact builder self-test、skill identity、P00 semantic dispatch、preload semantics `20/20` 均 PASS。最终 pre-install source gate=`40/40 PASS`，source failures=`[]`；未提供 candidate 时唯一预期 package 结果为 `package_required_but_not_supplied`，候选与 package gate 严格留给 Phase 10。四个 Git-view consumer 使用独立索引副本，权威临时索引前后 SHA-256 相同。
+- **性能与安装合同：** cold p50=`1382.804 -> 158.390 ms`、提升=`88.55%`；warm p50=`1377.298 -> 9.065 ms`、提升=`99.34%`，fast process count=`1`。统一 updater 保持 managed-public-file 覆盖安装：覆盖前逐文件 SHA-256 backup/preimage，失败自动 rollback 且支持显式 rollback；目标独有文件、Shared Shiguan 实录/数据与 private/pending 正文均不读、不移、不删、不覆盖。
+- **证据：** full audit=`D:\project\.repo-control\evidence\decretum-matrix\CCR-R2-SHIR-20260714-A02\phase9\phase9-full-audit-20260719.json`，SHA-256=`8BD5F4481CE09224B622C9C07EB76F5A1FB33162AA4101E347DA5151E2D08988`；Phase 5.2 acceptance/performance receipts 继续原样复用，不重做 beta0.5.12 发布工作。
+- **边界与下一游标：** root/child index=`0/0`、`.pyc=0`、single writer 不变、root dirty 原样保留；`pending_body_access=NO`，`OFFICE_PACK_Q1_Q8=DEFERRED_TO_QUEUED_POST_A02_HANDOFF`。下一游标=`PHASE10_LATEST_BRANCH_FINAL_PACKAGE_FIVE_ROOTS_SHIGUAN_CONVERGENCE`；提交前仍须在追加本段并重生 manifest 后复跑最终 source gate，未通过不得创建 accepted commit。

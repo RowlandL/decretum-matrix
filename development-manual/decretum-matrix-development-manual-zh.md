@@ -1,13 +1,13 @@
-# Dercretum-Matrix（诏令矩阵）开发手册
+# Decretum Matrix（诏令矩阵）开发手册
 
 版本：2026-07-16  
-适用范围：Dercretum-Matrix（诏令矩阵）skill 的维护、验证、打包、迁移与历史追溯；规范 skill 名与调用为 `decretum-matrix` / `$decretum-matrix`。  
+适用范围：Decretum Matrix（诏令矩阵）skill 的维护、验证、打包、迁移与历史追溯；规范 skill 名与调用为 `decretum-matrix` / `$decretum-matrix`。  
 写作依据：当前 `SKILL.md`、governing references、共享史馆索引与本机 memory/rollout 摘要。  
 边界：本手册只写可迁移的开发结论和证据索引；不收录原始私密史馆正文、完整会话、memory body、密钥、运行日志或主机绝对路径。
 
 ## 1. 这个 skill 的本质
 
-Dercretum-Matrix（诏令矩阵）不是普通“选择工具”的路由表。它已经演进为一个面向 CLI Agent 的三省六部协作内核：用最小入口文件承载硬门禁，用 governing references 承载细节规则，用脚本承载可验证运行态，用史馆承载可回放证据，用 portable package 承载迁移发布。
+Decretum Matrix（诏令矩阵）不是普通“选择工具”的路由表。它已经演进为一个面向 CLI Agent 的三省六部协作内核：用最小入口文件承载硬门禁，用 governing references 承载细节规则，用脚本承载可验证运行态，用史馆承载可回放证据，用 portable package 承载迁移发布。
 
 开发时要坚持四个底层判断：
 
@@ -21,7 +21,7 @@ Dercretum-Matrix（诏令矩阵）不是普通“选择工具”的路由表。�
 主要结构如下：
 
 ```text
-court-capability-router/
+decretum-matrix/
   SKILL.md
   README.md
   development-manual/
@@ -31,9 +31,10 @@ court-capability-router/
   web/
 ```
 
-上面的 `court-capability-router/` 是 ZIP 内根与物理安装目录的受保护兼容
-locator；当前产品、skill、调用与发行产物标识分别使用
-`Dercretum-Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix` 与
+上面的 `decretum-matrix/` 是 ZIP 内根与 canonical 物理安装目录；旧
+`court-capability-router/` 只可作为指向同一 authority 的 deprecated locator。
+当前产品、skill、调用与发行产物标识分别使用
+`Decretum Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix` 与
 `decretum-matrix-*`。
 
 各目录职责：

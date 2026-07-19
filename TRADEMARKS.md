@@ -2,7 +2,7 @@
 
 Status: `LEGAL_REVIEW_REQUIRED`
 
-This policy identifies the source-identifying names `Dercretum-Matrix（诏令矩阵）`
+This policy identifies the source-identifying names `Decretum Matrix（诏令矩阵）`
 and `decretum-matrix`, plus any separately approved official logos or release
 marks.
 
@@ -15,7 +15,7 @@ applicable law and legal review.
 Accurate nominative use is permitted to describe the project, compatibility,
 origin or modifications, provided the use does not imply sponsorship,
 endorsement or official status. Modified versions must not be presented as an
-official Dercretum-Matrix release without written permission.
+official Decretum Matrix（诏令矩阵） release without written permission.
 
 Logo artwork is governed separately from the product name. Artwork whose
 source and rights receipt is incomplete must not be used as an official logo or
