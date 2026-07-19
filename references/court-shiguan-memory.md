@@ -356,6 +356,53 @@ may differ. Memory proposal and reevaluation continue through
 `memory_decision.py`, `reevaluate_memory_decisions.py`, and Menxia approval;
 GBrain recall itself never writes durable memory.
 
+## Shared Shiguan Git And Native Memory Federation
+
+`scripts/shiguan_git_federation.py` manages one local-only Git repository at the
+authoritative shared `references` root and links it to independent native memory
+repositories for `codex`, `claude-code`, and `hermes`. The shared repository is
+the management hub, not a replacement memory store: it tracks only the explicit
+Shiguan allowlist, has no remote, and excludes `court-runtime`, pending/import,
+Obsidian configuration, peer state, logs, packages, and native Git objects.
+
+Governed commands are:
+
+```powershell
+python -B scripts/shiguan_git_federation.py probe --json
+python -B scripts/shiguan_git_federation.py apply --allow-host-mutation --json
+python -B scripts/shiguan_git_federation.py verify --json
+```
+
+On a blank host, `probe` remains read-only and reports missing canonical stores.
+Only explicit `apply --allow-host-mutation` may create
+`%USERPROFILE%\.codex\memories`/`MEMORY.md`,
+`%USERPROFILE%\.claude`/`memory.md`, and
+`%LOCALAPPDATA%\hermes\memories`/`MEMORY.md`; each becomes an independently
+versioned native store under Shiguan management. Existing roots, bodies,
+configuration, providers, and remotes are preserved.
+
+Codex reuses its existing memory repository when compatible. Claude Code and
+Hermes use separate git-dir repositories when an inline `.git` would capture
+configuration, caches, sessions, or unrelated tool state. Every stable registry
+entry records `memory_store_id`, tool class, native/repository/git-dir roots,
+memory pathspec, branch/HEAD, memory state, write policy, shared/native commits,
+and one transaction id. The native entrypoint receives exactly one versioned
+managed navigation block; the shared tool namespace points back to the native
+entrypoint and commit. A paired receipt outside the shared allowlist binds the
+two non-atomic commits before `MIGRATION_LINKS_VERIFIED` is true.
+Empty wildcard pathspecs are never passed to Git, and an initialized but unborn
+native repository resumes its first commit with the same transaction id.
+
+Existing native remotes are preserved but never contacted. New repositories and
+the shared hub have no remote. A dirty managed path, dirty index, mismatched
+commit, missing reverse link, forbidden tracked path, or remote on the shared
+hub fails before success. Pending body access remains `NO`; pending/import paths
+are neither staged nor inspected by the federation transaction.
+
+GBrain may expose the verified store ids, tool classes, memory states, commits,
+and transaction id as advisory provenance. It must remove native roots and
+git-dir paths from the recall envelope and still set `execution_authority=false`.
+
 ## Codex/Hermes Internal Memory Bridge
 
 Codex and Hermes built-in memories are the agents' own runtime memory layers.

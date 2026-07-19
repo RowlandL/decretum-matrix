@@ -104,6 +104,7 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 - 权威 runtime Shiguan root 由 `scripts/shiguan_paths.py` 解析，默认 `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`；skill-local `references/` 只含 governing references 与 portable seeds。
 - Formal decree 在可写时用 `scripts/archive_checkpoint.py` 记录阶段链和最终结诏。记录是证据，不覆盖最新旨意或 governing source。
 - 史馆 GBrain 只提供 metadata-first 召回与认知支持，不取得当前任务执行权；`decretum.gbrain.recall.v1` 必须保持 advisory、无执行权且最新旨意优先。
+- 史馆 Git 联邦入口：`scripts/shiguan_git_federation.py`；共享 hub 无 remote，原生记忆仓独立。
 - `references/shiguan-imports/pending/` 仅允许 metadata governance。没有不可伪造 host capability 时，真实 pending/private bodies 必须保持 unopened、unhashed、unmoved、undeleted、unmarked-seen；fixture authorization 不是 production authorization。
 - Obsidian 是 preserve-only 管理面，不是权威。导入回到 pending，需三省会审/门下复核。
 - 每个 decree 结束时裁定 `记忆裁定：WRITE | PROPOSE | SKIP | DEFERRED`。WRITE 需要最新边界与门下批准；不存 secrets、raw private logs、一次性输出、未验证推测或未经许可的个人数据。

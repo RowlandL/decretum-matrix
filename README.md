@@ -1,5 +1,9 @@
 # Decretum Matrix（诏令矩阵）
 
+<p align="center">
+  <img src="assets/brand/decretum-matrix-icon.svg" alt="Decretum Matrix icon" width="160">
+</p>
+
 Decretum Matrix（诏令矩阵）是通用任务治理框架：它把事实、解释、裁定、行动、
 验证、记忆和呈现组织成可追溯关系，并在 Codex、Agent Skills、Claude Code 与
 Hermes 的本地 skill 环境中运行。三省六部是完整的默认官方治理实现，史馆
@@ -33,6 +37,7 @@ $decretum-matrix
 - 在详细计划前评估真实目标、使用场景、关键要求和最终验收标准，避免表层理解。
 - 通过有界治理实现承载不同角色语义，同时保持统一任务与证据权威。
 - 由史馆 GBrain 提供来源、范围与时效明确的 metadata-first 召回。
+- 以本地无 remote 的共享史馆 Git 管理 hub 连接 Codex、Claude Code 与 Hermes 原生记忆仓库；空白机仅在显式授权后创建 canonical memory roots，并保留双向来源与提交证据。
 - 调用已登记的本地 skills、MCP、CLI、脚本与 agents。
 - 保持任务语义、权限、隐私和 Git 写集边界。
 - 提供可验证的安装、迁移、回滚、打包与发布流程。

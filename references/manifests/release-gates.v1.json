@@ -127,6 +127,22 @@
       "condition": "always"
     },
     {
+      "name": "release_metadata",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_release_metadata.py", "--json"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "shiguan_git_federation",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/check_shiguan_git_federation.py", "--json"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "governance_framework",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_governance_framework.py", "--json"],

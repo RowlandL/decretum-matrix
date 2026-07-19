@@ -329,6 +329,25 @@ def _check_gbrain() -> list[str]:
         "current_decree_sha256": _digest("decree"),
         "as_of": "2026-07-19T12:00:00+08:00",
         "limit": 5,
+        "memory_git_provenance": {
+            "schema": "decretum.gbrain.memory_git_provenance.v1",
+            "registry_available": True,
+            "migration_links_verified": True,
+            "managed_store_count": 3,
+            "shared_registry_commit": "a" * 40,
+            "transaction_id": "fixture-transaction-001",
+            "stores": [
+                {
+                    "memory_store_id": "codex-native-memory",
+                    "tool_class": "codex",
+                    "memory_state": "present",
+                    "native_commit": "b" * 40,
+                    "shared_commit": "c" * 40,
+                    "transaction_id": "fixture-transaction-001",
+                    "native_root": "must-not-leak",
+                }
+            ],
+        },
     }
     official = gbrain.build_recall_context(governance_id=DEFAULT_ID, **common)
     direct = gbrain.build_recall_context(governance_id=DIRECT_REVIEW_ID, **common)
@@ -341,6 +360,10 @@ def _check_gbrain() -> list[str]:
     assert official["matches"][1]["applicability"] == "historical"
     assert official["matches"][1]["conflict"] == "preserved"
     assert all("memory_content" not in item and "raw_body" not in item for item in official["matches"])
+    assert official["memory_git"]["migration_links_verified"] is True
+    assert official["memory_git"]["managed_store_count"] == 3
+    assert official["memory_git"]["stores"][0]["memory_store_id"] == "codex-native-memory"
+    assert "native_root" not in json.dumps(official["memory_git"], ensure_ascii=False)
     official_without_id = {key: value for key, value in official.items() if key != "governance_id"}
     direct_without_id = {key: value for key, value in direct.items() if key != "governance_id"}
     assert official_without_id == direct_without_id
@@ -351,6 +374,8 @@ def _check_gbrain() -> list[str]:
         "gbrain_current_decree_precedence",
         "gbrain_applicability",
         "gbrain_conflict_preservation",
+        "gbrain_memory_git_provenance",
+        "gbrain_memory_git_path_privacy",
         "gbrain_cross_governance_continuity",
     ]
 
@@ -410,9 +435,29 @@ def _check_release_gate_registration() -> list[str]:
     manifest = release_manifest.load_release_manifest()
     steps = manifest["steps"]
     names = [step["name"] for step in steps]
+    release_metadata_index = names.index("release_metadata")
+    federation_index = names.index("shiguan_git_federation")
     framework_index = names.index("governance_framework")
     hierarchy_index = names.index("court_dispatch_hierarchy")
+    assert release_metadata_index + 1 == federation_index
+    assert federation_index + 1 == framework_index
     assert framework_index + 1 == hierarchy_index
+    assert steps[release_metadata_index] == {
+        "name": "release_metadata",
+        "gate_class": "source",
+        "command": ["$PYTHON", "scripts/check_release_metadata.py", "--json"],
+        "timeout": 120,
+        "condition": "always",
+        "allowed_returncodes": [0],
+    }
+    assert steps[federation_index] == {
+        "name": "shiguan_git_federation",
+        "gate_class": "source",
+        "command": ["$PYTHON", "scripts/check_shiguan_git_federation.py", "--json"],
+        "timeout": 180,
+        "condition": "always",
+        "allowed_returncodes": [0],
+    }
     assert steps[framework_index] == {
         "name": "governance_framework",
         "gate_class": "source",
@@ -439,6 +484,8 @@ def _check_release_gate_registration() -> list[str]:
         "governance_release_gate_mandatory",
         "governance_release_gate_order",
         "governance_release_gate_tamper_detection",
+        "release_metadata_gate_mandatory",
+        "shiguan_git_federation_gate_mandatory",
     ]
 
 
@@ -491,7 +538,9 @@ def _check_documentation_contract() -> list[str]:
     for term in canonical_terms:
         assert term in joined
     assert "最新用户旨意" in joined
-    assert "外部发布" in joined and "未授权" in joined
+    assert "published baseline" in joined or "已发布基线" in joined
+    assert "Latest" in joined
+    assert "覆盖" in joined and ("尚未" in joined or "不冒充" in joined)
     assert "OFFICE_PACK_Q1_Q8" in texts["docs/logs/2026-07-19-beta1.0.0.md"]
     for forbidden in ("TBD", "TODO", "beta0.5.14", "SECOND_STATE", "SECOND_LEDGER"):
         assert forbidden not in joined, f"formal_language_forbidden:{forbidden}"
@@ -502,6 +551,7 @@ def _check_documentation_contract() -> list[str]:
         "official_default_documented",
         "reference_replacement_documented",
         "understanding_sufficiency_documented",
+        "published_baseline_and_coverage_boundary",
         "semantic_cleanliness",
     ]
 

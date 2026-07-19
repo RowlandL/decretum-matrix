@@ -186,6 +186,57 @@ def _record_uid(entry: dict[str, object]) -> str:
     return "recall-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
 
 
+def _memory_git_provenance(value: object | None) -> dict[str, object]:
+    if value is None:
+        try:
+            from shiguan_git_federation import recall_provenance
+
+            value = recall_provenance(shared_root=reference_path())
+        except (ImportError, OSError, RuntimeError, ValueError):
+            value = None
+    if not isinstance(value, dict):
+        return {
+            "schema": "decretum.gbrain.memory_git_provenance.v1",
+            "registry_available": False,
+            "migration_links_verified": False,
+            "managed_store_count": 0,
+            "stores": [],
+        }
+    stores: list[dict[str, object]] = []
+    raw_stores = value.get("stores")
+    if isinstance(raw_stores, list):
+        allowed = (
+            "memory_store_id",
+            "tool_class",
+            "memory_state",
+            "native_commit",
+            "shared_commit",
+            "transaction_id",
+        )
+        for raw in raw_stores:
+            if not isinstance(raw, dict):
+                continue
+            stores.append(
+                {
+                    key: raw[key]
+                    for key in allowed
+                    if isinstance(raw.get(key), (str, int, bool))
+                }
+            )
+    result: dict[str, object] = {
+        "schema": "decretum.gbrain.memory_git_provenance.v1",
+        "registry_available": value.get("registry_available") is True,
+        "migration_links_verified": value.get("migration_links_verified") is True,
+        "managed_store_count": int(value.get("managed_store_count") or 0),
+        "stores": stores,
+    }
+    for key in ("shared_registry_commit", "transaction_id"):
+        item = value.get(key)
+        if isinstance(item, str) and item.strip():
+            result[key] = item.strip()
+    return result
+
+
 def build_recall_context(
     entries: list[dict[str, object]],
     terms: list[str],
@@ -194,6 +245,7 @@ def build_recall_context(
     current_decree_sha256: str,
     as_of: str,
     limit: int = 5,
+    memory_git_provenance: dict[str, object] | None = None,
 ) -> dict[str, object]:
     if not isinstance(governance_id, str) or not governance_id.strip():
         raise ValueError("governance_id_required")
@@ -238,4 +290,5 @@ def build_recall_context(
         "terms": normalized_terms,
         "match_count": len(matches),
         "matches": matches,
+        "memory_git": _memory_git_provenance(memory_git_provenance),
     }

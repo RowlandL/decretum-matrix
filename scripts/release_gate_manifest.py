@@ -104,6 +104,18 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         "always",
     ),
     (
+        "release_metadata",
+        "source",
+        ("$PYTHON", "scripts/check_release_metadata.py", "--json"),
+        "always",
+    ),
+    (
+        "shiguan_git_federation",
+        "source",
+        ("$PYTHON", "scripts/check_shiguan_git_federation.py", "--json"),
+        "always",
+    ),
+    (
         "governance_framework",
         "source",
         ("$PYTHON", "scripts/check_governance_framework.py", "--json"),

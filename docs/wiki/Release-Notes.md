@@ -2,8 +2,17 @@
 
 ## beta1.0.0
 
-状态：final-stage source accepted。源码、SBOM、release/package、npm candidate
-身份和工作包 A-G 已完成串行源码验收；候选包、安装和最终验收仍由外置回执证明。
+状态：已发布基线 + coverage revision source accepted。原 tag、五项 GitHub 资产与
+npm `1.0.0-beta.0` 保持首次发布证据；覆盖候选、安装和再次发布由新回执证明。
+
+### 覆盖修订
+
+- shared `references` 增加 local-only Git 管理 hub，严格 allowlist 且无 remote。
+- Codex/Claude Code/Hermes 原生记忆保持独立仓库，通过 registry、双向 link、
+  native/shared commit 和 paired receipt 形成可验证联邦。
+- 空白机只读探测不写入；显式授权后创建三类 canonical memory root 并统一纳入史馆。
+- GBrain recall 携带路径裁剪后的 Git provenance，仍为 advisory、无执行权。
+- GitHub 每版 Release 改为简短说明，beta1.0.0 设为 Latest；README 恢复品牌图标。
 
 ### 当前边界
 
@@ -11,9 +20,8 @@
 - 已接受前序版本：`beta0.5.13`。
 - 版本直接从 `beta0.5.13` 跳至 `beta1.0.0`；未创建任何中间 beta0.5.x
   release 或第二 worktree。
-- 非 Super CC source gates 为 34/34 PASS；当前桌面会话不在要求的终端运行时内，
-  八项 Super CC 专项检查记录为 `NOT_RUN`，不削弱产品合同。
-- push、tag、GitHub Release、npm publish 和资产上传均未授权、未执行。
+- 43 项 candidate source step 均有 PASS 证据；live install/runtime 仍由后续门验证。
+- 当前 GitHub Release metadata 已更新；覆盖 tag/资产/npm 尚未执行。
 - pending/private 正文保持零访问。
 
 ## beta0.5.13

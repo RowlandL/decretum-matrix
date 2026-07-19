@@ -6,9 +6,10 @@
 
 ### 发布结论
 
-`release/beta1.0.0` 从已发布并验收的 beta0.5.13 基线启动。本节记录源码版本
-身份以及《声无哀乐》最终阶段的框架实现；候选包、本机安装和项目最终验收仍由
-后续实际回执证明。
+`release/beta1.0.0` 已有首次公开发布。本次按最新旨意在同一分支形成覆盖修订，
+补齐 shared Shiguan Git/native-memory federation、GBrain Git provenance、简短
+GitHub Release 说明与 README 品牌图标；新 commit、候选包、本机安装和覆盖发布
+仍由后续实际回执证明，不从本节预称成功。
 
 ### 版本身份
 
@@ -32,23 +33,33 @@
 5. `court.request_understanding.v1` 在详细计划前评估目标、使用场景、关键要求与
    验收标准；低于 95 只问一个最高价值问题，复述待确认态不能创建正式任务，
    用户确认后才进入直接执行态；初始旨意明确时不强行提问。
+6. 覆盖修订加入 shared `references` local-only Git 管理 hub；Codex 复用既有
+   memory repo，Claude Code/Hermes 使用 separate git-dir，各仓通过稳定 registry、
+   双向 managed link、native/shared commit 和 paired receipt 形成可验证联邦。
+   空白机只读 probe 不写入；显式授权 apply 会创建三类 canonical memory root。
+7. GBrain recall 增加裁剪后的 Git provenance，只输出 store/tool/state/commit/
+   transaction 证据，不输出 native root/git-dir，也不取得执行权。
+8. GitHub Release 正文改为每版简要说明，`beta1.0.0` 显式设为 Latest；README
+   恢复既有 `assets/brand/decretum-matrix-icon.svg` 品牌图标。
 
 ### 源码验收
 
-- 34/34 非 Super CC source gates 串行通过，覆盖治理框架、层级兼容、runtime、
-  concurrency、privacy、legal、portability、manifest、npm harness 和 artifact
-  builder 自测。
-- 本 Codex desktop 会话不在 Super CC 要求的终端运行时内，八项 Super CC 专项
-  检查为 `NOT_RUN/current_session_not_in_terminal_runtime`；产品合同和 release
-  policy 中的 Super CC 门禁未删除、未降级。
-- `SEMANTIC_CLEANLINESS_GATE=PASS`。
+- 43 项 candidate source step 均有 PASS 证据；新增 `release_metadata` 与
+  `shiguan_git_federation` 均为 always/source hard gate。
+- federation fixture 共 20 项，覆盖 shared local Git、三类 native repo、空白机
+  canonical root 创建、双向 link、paired receipt、pending 排除、remote 保留、
+  Unicode 路径、空 glob、unborn repo 续跑和 GBrain 快路径。
+- CLI performance 为 PASS：最大 preload 20,433/20,480 bytes，cold/warm p50
+  提升 87.98%/99.37%；`SEMANTIC_CLEANLINESS_GATE=PASS`。
 
 ### 边界
 
 - `pending_body_access=NO`；不读取、哈希、移动、删除或标记 pending/private 正文。
 - `OFFICE_PACK_Q1_Q8=DEFERRED_TO_QUEUED_POST_A02_HANDOFF`。
-- push、tag、GitHub Release、npm publish 与资产上传均未授权、未执行。
-- 外部发布未授权；本源码记录不冒充 candidate、安装或发布终态。
+- 现有 GitHub Release 正文已缩短，`beta1.0.0` 已标记 Latest；该元数据更新未移动
+  tag、未替换五项资产。
+- 覆盖 commit、tag/asset 替换及 npm 同版本可行性仍待候选/安装终门；本源码记录
+  不冒充覆盖发布终态。
 
 ## beta0.5.13 - 2026-07-19
 

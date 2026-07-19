@@ -33,8 +33,8 @@
     {
       "mode": "100644",
       "path": "CHANGELOG.md",
-      "sha256": "b5fda9dfcda249870145ce0e4bd03cdb8776ceca2414540ea7f47f64f3422c00",
-      "size": 13879
+      "sha256": "0a74abb35c83c7547f9d972a28179a1cb0dc4af4f169c0a54a607bafd70f1203",
+      "size": 15076
     },
     {
       "mode": "100644",
@@ -87,14 +87,14 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "67b29d0b40aae4ca8b35e5f9d6b25f780bb4577481f4384b7a97a5dc12340dfa",
-      "size": 2799
+      "sha256": "0f66c0148053bf97bf3c122ee88a008f661a332174f5d1223500b2ce35750c59",
+      "size": 3129
     },
     {
       "mode": "100644",
       "path": "RELEASE-LOG.md",
-      "sha256": "3a4acc113007ac170e697ab9274735b5f7816f9aa7433962d70c4f352b9e7e07",
-      "size": 23294
+      "sha256": "c488aaf8ac2db663e681bcafd1ea8f99d7793b7c5b74baeac1fd59a030e4bbf2",
+      "size": 24267
     },
     {
       "mode": "100644",
@@ -111,8 +111,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "e8c42c6da3b335ae9a08d3d4c0853057d66f14c7784eb4143c9cc77f9e043820",
-      "size": 13757
+      "sha256": "9ddd07979b1f3396cd19a0c78a713088b398c1f668e4776b4585a34fb73f5e61",
+      "size": 13872
     },
     {
       "mode": "100644",
@@ -507,8 +507,8 @@
     {
       "mode": "100644",
       "path": "references/court-shiguan-memory.md",
-      "sha256": "1565fc6ac7ef70f61fc190ed33fa28bd953bd7bae9e24ca190b8536e2165789b",
-      "size": 35556
+      "sha256": "0eda41fd678dc9175b8f56a0b8e75c78411dcbc06ab2824844809f54bd714cf2",
+      "size": 38215
     },
     {
       "mode": "100644",
@@ -597,8 +597,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "db404d698a950bc1a068610fc201fd83e8e94a16cf651242418b66e0932d358b",
-      "size": 65966
+      "sha256": "8920f73944bf8cb592489246f405d1c1e46f201fd0f091f8ef03b288e5f0b4b3",
+      "size": 67557
     },
     {
       "mode": "100644",
@@ -611,6 +611,12 @@
       "path": "references/manifests/direct-review-governance.v1.json",
       "sha256": "7d8d86426237690669400348ffe292f1feb65d0e2d836d3f72bbaf68c65d085e",
       "size": 795
+    },
+    {
+      "mode": "100644",
+      "path": "references/manifests/github-release-metadata.v1.json",
+      "sha256": "36b86d2a8e03c891aa59e5f081ca87b703f72680b4b2dc20a3146eb1f008a621",
+      "size": 4247
     },
     {
       "mode": "100644",
@@ -627,8 +633,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/release-gates.v1.json",
-      "sha256": "9900f5e1f91949cc1aeef83a6cfb18f519af2f4ea8b7fb27cfb5291a3e0e1089",
-      "size": 11870
+      "sha256": "a23c748f9ebcbd792983f671b0bcd068eb6ade8b8af470f5c8f03f69dd7f3701",
+      "size": 12358
     },
     {
       "mode": "100644",
@@ -639,8 +645,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "4e15f791e96ed1ba407872076f023eca2f8ffecfa8a26c091928f7eb8d0ab40e",
-      "size": 4067
+      "sha256": "83743e598c230147fa034300783d0a2beb625489328d6a3a05b09c3186f0c8c8",
+      "size": 4217
     },
     {
       "mode": "100644",
@@ -1005,8 +1011,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_governance_framework.py",
-      "sha256": "84155c4c163a271b156082f01f1f52fc0832be129e805ef787125fc52b80576d",
-      "size": 23297
+      "sha256": "bb2f72ee83efcda2ad1e706fe2236ec92af0d825a89b3bde1d26f9cab5b352c9",
+      "size": 25550
     },
     {
       "mode": "100644",
@@ -1065,8 +1071,14 @@
     {
       "mode": "100644",
       "path": "scripts/check_release_manifest.py",
-      "sha256": "2aa66b421954620ff2314eaaf920386e36ebf989ab731b421fb3fac77a290ff8",
-      "size": 28967
+      "sha256": "984f8815d567d32ecb4709dbd22470d5a867c9ef5a3de2a02db95eb96e9b2c82",
+      "size": 29037
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_release_metadata.py",
+      "sha256": "b79f9eff30ad4278e8a39fcb0aa5b6e6239ad7ab30f880f61e773f22cdbb9965",
+      "size": 4410
     },
     {
       "mode": "100644",
@@ -1091,6 +1103,12 @@
       "path": "scripts/check_shiguan_concurrency.py",
       "sha256": "492a84591eb2a181ee9aa436f1053373d511ee464bb2b87bc8fdebb173881644",
       "size": 8632
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_git_federation.py",
+      "sha256": "6b13f7884d6cf99ff6bed154dfb2107fd65d234916291fde2a18e1e986604e7a",
+      "size": 15346
     },
     {
       "mode": "100644",
@@ -1539,8 +1557,8 @@
     {
       "mode": "100644",
       "path": "scripts/release_gate_manifest.py",
-      "sha256": "e3561187d3fbb2740c67aaf7790c0bc29ab491d7f63789c5a3e3f32441061672",
-      "size": 16147
+      "sha256": "537d76a47d1ab8d3f6e0b3f0dadb7ae6ac9f8b5d20650922e7a62f74bf2b6267",
+      "size": 16449
     },
     {
       "mode": "100644",
@@ -1581,8 +1599,14 @@
     {
       "mode": "100644",
       "path": "scripts/shiguan_gbrain.py",
-      "sha256": "8a7c4418c875cfedc18197180d8e5a1a04dbf66c876b213f6d7123a1f0b0dfe0",
-      "size": 8318
+      "sha256": "f85fda8b9927fa92a236154d2cdbff4727d11b3fba41bbd33789ab9f526b1ef8",
+      "size": 10248
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_git_federation.py",
+      "sha256": "555bb75d6246fff3ef4d43e544b2ac5826a8787a9d64c9f5299b77d577fdafbf",
+      "size": 38539
     },
     {
       "mode": "100644",
@@ -1780,12 +1804,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6276360,
-    "payload_file_count": 291,
+    "payload_bytes": 6350960,
+    "payload_file_count": 295,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "0f85ab046954558f96652c085733fa1432121a36068cc6d45b82a5ced891be69",
-    "source_packaged_tracked_file_count": 283,
-    "source_tracked_file_count": 313
+    "payload_index_sha256": "07ba61797ed1c79993595027531853374147bbf4cafd2a6e2c2052141a5d8e87",
+    "source_packaged_tracked_file_count": 287,
+    "source_tracked_file_count": 317
   },
   "license": {
     "declared": "AGPL-3.0-only",

@@ -41,6 +41,13 @@ state/evidence 为 `court-runtime`，memory 为 `shiguan-gbrain`。
 `execution_authority=false`、`current_decree_precedence=true`。因此不同治理实现
 可以共用相同召回结果，但历史记忆不能覆盖最新用户旨意。
 
+共享 `references` 根同时承载一个 local-only Git 管理 hub。它用稳定 registry、
+工具 namespace、双向 managed link 和 paired receipt 连接 Codex、Claude Code、
+Hermes 各自的原生记忆仓库；跨仓库提交不伪装成原子事务。GBrain 只读取裁剪后的
+store/commit/transaction provenance，不暴露本机 native root 或 git-dir。
+空白机的 probe 不写入；显式 apply 才创建 Codex、Claude Code、Hermes 的 canonical
+memory root 与 entrypoint，并将三者全部登记到史馆。
+
 ### 治理实现
 
 三省六部完整保留太子、三省、六部、工坊、会审、回奏、差遣、复核和古制表达。
@@ -74,7 +81,8 @@ release；shared Shiguan 管本机 records、indexes、memory decisions 与投�
 双写成同一个 ledger。
 
 Codex、Claude 与 Hermes 的 native memory 继续归各自 loader/store 管理。共享
-史馆只保存 metadata、裁定和引用，不复制原生私有正文或 Git objects。
+史馆只保存 metadata、裁定、registry 和引用，不复制原生私有正文或 native Git
+objects。共享仓库无 remote，native 仓库独立存在；不使用 submodule/subtree。
 
 现有实现复用文件锁、原子替换、目录 fsync、generation/digest CAS、operation
 marker、preimage、receipt、reconcile 与 rollback，不依赖新的 service、DB、MQ

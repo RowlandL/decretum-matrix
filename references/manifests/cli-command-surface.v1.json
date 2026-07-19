@@ -625,6 +625,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_release_metadata.py",
+      "command": "check-release-metadata",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_release_metadata.py",
+      "id": "check.check-release-metadata",
+      "legacy_path": "scripts/check_release_metadata.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_response_draft_fixtures.py",
       "command": "check-response-draft-fixtures",
       "compatibility_state": "unified_compatibility_adapter",
@@ -672,6 +685,19 @@
       "handler": "isolated_subprocess:scripts/check_shiguan_concurrency.py",
       "id": "check.check-shiguan-concurrency",
       "legacy_path": "scripts/check_shiguan_concurrency.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/check_shiguan_git_federation.py",
+      "command": "check-shiguan-git-federation",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_shiguan_git_federation.py",
+      "id": "check.check-shiguan-git-federation",
+      "legacy_path": "scripts/check_shiguan_git_federation.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -1413,6 +1439,19 @@
       "handler": "isolated_subprocess:scripts/shiguan_autosync_daemon.py",
       "id": "shiguan.shiguan-autosync-daemon",
       "legacy_path": "scripts/shiguan_autosync_daemon.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/shiguan_git_federation.py",
+      "command": "shiguan-git-federation",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/shiguan_git_federation.py",
+      "id": "shiguan.shiguan-git-federation",
+      "legacy_path": "scripts/shiguan_git_federation.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"

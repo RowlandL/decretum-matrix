@@ -2,6 +2,16 @@
 
 ## beta1.0.0 - 2026-07-19
 
+### Added
+
+- Added a local-only shared Shiguan Git management hub with an explicit tracking
+  allowlist, independent Codex/Claude Code/Hermes native memory repositories,
+  reciprocal managed links, stable registry entries, and paired commit receipts.
+- Added authorized blank-host bootstrap for canonical Codex, Claude Code, and
+  Hermes memory roots while keeping probe mode read-only.
+- Added concise GitHub release metadata as a mandatory source gate and restored
+  the packaged brand icon to the repository README.
+
 ### Changed
 
 - Aligned VERSION, SBOM, release manifest inputs, package artifacts, npm
@@ -16,16 +26,27 @@
 - Activated the single final-stage branch from the accepted beta0.5.13 baseline
   and jumped directly to beta1.0.0 without creating an intermediate beta0.5.x
   release branch or another worktree.
+- Extended GBrain recall with path-private Git provenance while preserving
+  advisory authority, current-decree precedence, and cross-governance ordering.
+
+### Fixed
+
+- Closed the deferred shared-Shiguan managed-Git and native-memory reciprocal
+  link gap without reading pending bodies or introducing a remote/service/DB.
+- Fixed non-ASCII Shiguan filenames being misclassified by Git quoted-path output.
+- Fixed empty native-memory glob pathspecs and same-transaction recovery for an
+  initialized repository that had not yet created its first commit.
 
 ### Release boundary
 
-- This entry records source implementation and identity. Candidate creation,
-  installation, and final acceptance remain separately receipt-gated.
-- All 34 non-Super-CC source gates passed serially. The eight dedicated Super CC
-  checks are not run from this non-terminal desktop session; their product and
-  release-policy contracts remain intact.
-- Push, tag, GitHub Release, npm publication, and asset upload are not
-  authorized or asserted by this source entry.
+- The original beta1.0.0 tag, GitHub assets, and npm `1.0.0-beta.0` package are
+  published baseline evidence. This coverage revision does not claim to have
+  replaced them until a new candidate/install/publication receipt closes.
+- All 43 candidate source steps now have passing evidence, including concise
+  release metadata, Shiguan Git federation, governance, privacy, and measured
+  CLI performance. Live install and publication remain separately gated.
+- GitHub release bodies were shortened and beta1.0.0 was marked Latest without
+  changing the existing tag or five release assets.
 
 ## beta0.5.13 - 2026-07-19
 

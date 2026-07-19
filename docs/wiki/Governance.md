@@ -46,6 +46,10 @@ profiles、dossiers、governing references 与唯一层级 manifest。治理实�
 - root 控制仓与 child 产品仓分离。
 - 未经明确授权不得 push、tag、PR、GitHub Release、资产上传或 npm publish。
 - 发布候选必须来自 clean accepted commit，publisher 不得重建候选。
+- 共享史馆 Git 是无 remote 的本地管理 hub；Codex、Claude Code、Hermes 原生记忆各自保持独立仓库，禁止 submodule/subtree 和共享仓嵌套跟踪。
+- 空白机只读 probe 不创建目录；只有显式 host-mutation 授权可创建三类 canonical memory root，任意已有正文、配置、provider 与 remote 均保持原样。
+- 两仓提交通过同一 transaction id 与 paired receipt 互引；只有 registry、managed link、反向 link、commit 和 clean index 全部回读一致，才记录 `MIGRATION_LINKS_VERIFIED`。
+- 空 glob 不提交；已初始化但尚无 HEAD 的 native repo 必须用原 transaction id 滚前完成，不能伪称回滚或另起成功状态。
 
 ## 隐私
 
