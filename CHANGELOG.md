@@ -25,6 +25,8 @@
 - Removed the V2/legacy agent-type protocol conflict at the CLI boundary.
 - Kept protected Shiguan record, index, evidence, and data paths outside install
   reads and writes while retaining managed-file backup and rollback coverage.
+- Added the current `release-manifest.json` to every managed skill projection so
+  installed VERSION, identity, payload index, and release identity converge.
 - Restored discovery of public legacy court commands in unified top-level help.
 - Corrected remaining current-product naming, canonical package-root, bytecode,
   fixture-index, and release-builder contract drift.

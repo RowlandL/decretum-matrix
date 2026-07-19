@@ -163,6 +163,7 @@ BINDING_FIELDS = (
 PORTABLE_FILES = (
     "SKILL.md",
     "VERSION",
+    "release-manifest.json",
     "agents/standing-officials/gongbu.toml",
     "agents/supercc-dossiers/gongbu/AGENTS.md",
     IDENTITY_MANIFEST_RELATIVE,
@@ -391,6 +392,7 @@ def _write_fixture_source(
     contents = {
         "SKILL.md": "# fixture court skill\n",
         "VERSION": "beta0.5.13\n",
+        "release-manifest.json": '{"schema":"court.release_manifest.v2"}\n',
         "agents/standing-officials/gongbu.toml": (
             '[profile]\nrole_key = "gongbu"\noffice_zh = "工部"\n'
         ),
