@@ -2,6 +2,24 @@
 
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
 
+## beta1.0.1 - 2026-07-20
+
+本版本在 `release/beta1.0.1` 上修复开朝启动和执行语义边界：
+
+1. 权限精确为 `approval|autonomous|super`，行为精确为
+   `serial|parallel`；六种组合均由结构化 execution receipt 覆盖。
+2. 普通 `super parallel` 固定为 native；native 与 superCC 使用独立入口、
+   import graph、task store、dossier、transport、admission 和 lifecycle，仅共享
+   neutral office configuration pointer/hash。
+3. semantic template 生产者与 validator/checkpoint 消费者完成同形往返；
+   `invalid_authority_revision` 在准入前失败，`dispatch_count=0` 且禁止手工绕过。
+4. capability index 在三省审议前解析并缓存，snapshot 给出
+   skill/MCP/plugin/CLI/script 建议；吏部维护 registry，但只读 snapshot 不派生官署。
+5. 正式性能 gate 约束单 Python 进程、20 KiB preload 与热开朝 10% 回归预算。
+6. 产品版本为 `beta1.0.1`，npm 映射为 `1.0.1-beta.0`，dist-tag 为 `beta`。
+
+发布、安装与远端状态只由候选、安装回执和远端回读证明；本节不以意图冒充成功。
+
 ## beta1.0.0-hotfix-v2 - 2026-07-20
 
 ### 发布结论

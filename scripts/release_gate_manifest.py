@@ -50,6 +50,12 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         "always",
     ),
     (
+        "startup_semantic_fastpath",
+        "source",
+        ("$PYTHON", "scripts/check_startup_fastpath_contract.py", "--json"),
+        "always",
+    ),
+    (
         "court_result_semantics",
         "source",
         ("$PYTHON", "scripts/check_court_result_semantics.py"),

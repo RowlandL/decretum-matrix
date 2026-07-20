@@ -833,6 +833,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_startup_fastpath_contract.py",
+      "command": "check-startup-fastpath-contract",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_startup_fastpath_contract.py",
+      "id": "check.check-startup-fastpath-contract",
+      "legacy_path": "scripts/check_startup_fastpath_contract.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_supercc_claude_hard_gates.py",
       "command": "check-supercc-claude-hard-gates",
       "compatibility_state": "unified_compatibility_adapter",

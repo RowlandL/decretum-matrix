@@ -9,15 +9,15 @@ $decretum-matrix
 调用后直接说明目标、允许的写入范围、停止条件和外部动作边界。最新用户旨意
 优先于旧计划、历史记录或生成的下一步提示。
 
-## 权限类
+## 权限与行为
 
-- `approval`：执行前逐步确认需要授权的动作。
-- `autonomous`：在既有授权边界内持续执行。
-- `super`：使用普通多 agent 并行，不启用 superCC pane。
-- `superCC`：显式启用 CLI/zellij/squad 运行面，需额外环境门禁。
+- `authority`：只能取 `approval`、`autonomous`、`super`。
+- `behavior`：只能取 `serial`、`parallel`，与 authority 正交。
+- `runtime`：native 与 `superCC` 是互斥启动入口；`superCC` 不是第四种权限。
 
-未选择权限类时，skill 会先确认一次。`super并行` 只是拓扑要求，不会自动打开
-`superCC`。
+未选择 authority 时，skill 会先确认一次。`super并行` 只表示
+`authority=super, behavior=parallel, runtime=native`，不会打开、探测或加载
+`superCC`。`superCC` 必须从其独立 CLI/zellij/squad 入口启动。
 
 ## 层级
 

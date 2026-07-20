@@ -2268,14 +2268,14 @@ def main() -> int:
     import ensure_supercc_court  # noqa: PLC0415
 
     original_read_office_state = ensure_supercc_court.read_office_state
-    original_load_tasks = ensure_supercc_court.court_runtime.load_tasks
+    original_load_tasks = ensure_supercc_court.load_supercc_tasks
     ensure_supercc_court.read_office_state = (  # type: ignore[assignment]
         lambda *_args, **_kwargs: {
             "ok": True,
             "roles": OFFICE_STATE_FIXTURES,
         }
     )
-    ensure_supercc_court.court_runtime.load_tasks = (  # type: ignore[assignment]
+    ensure_supercc_court.load_supercc_tasks = (  # type: ignore[assignment]
         lambda: dict(RUNTIME_TASK_FIXTURES)
     )
     try:
@@ -2292,7 +2292,7 @@ def main() -> int:
         check_menxia_reject_correction_red_matrix()
     finally:
         ensure_supercc_court.read_office_state = original_read_office_state  # type: ignore[assignment]
-        ensure_supercc_court.court_runtime.load_tasks = original_load_tasks  # type: ignore[assignment]
+        ensure_supercc_court.load_supercc_tasks = original_load_tasks  # type: ignore[assignment]
     print("SUPERCC_MINISTRY_DISPATCH_OK")
     return 0
 

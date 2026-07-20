@@ -4480,15 +4480,24 @@ def revise_charter_task(args: argparse.Namespace) -> TransitionResult:
     return TransitionResult(revised, event)
 
 
+def _semantic_context_payload(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    if value.get("schema") != "court.semantic.context_template.v1":
+        return value
+    if set(value) != {"schema", "context"} or not isinstance(value.get("context"), dict):
+        raise ValueError("semantic_context_template_invalid")
+    return value["context"]
+
+
 def _semantic_context_from_args(args: argparse.Namespace) -> dict[str, object]:
-    return normalize_semantic_context(
-        _json_object_from_args(
-            args,
-            "semantic_context",
-            "semantic_context_file",
-            "semantic context",
-        )
+    value = _json_object_from_args(
+        args,
+        "semantic_context",
+        "semantic_context_file",
+        "semantic context",
     )
+    return normalize_semantic_context(_semantic_context_payload(value))
 
 
 def _event_head_sha256() -> str:
@@ -7328,7 +7337,7 @@ def public_semantic_context_template_payload(task_id: str) -> dict[str, object]:
 
 def public_semantic_context_validation_payload(value: object) -> dict[str, object]:
     try:
-        normalized = normalize_semantic_context(value)
+        normalized = normalize_semantic_context(_semantic_context_payload(value))
     except ValueError as exc:
         return {
             "schema": "court.semantic.context_validation.v1",
@@ -8354,7 +8363,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_admit_parser.add_argument("--requested-bindings-json", default="")
     agent_admit_parser.add_argument("--integration-domain", default="")
     agent_admit_parser.add_argument(
-        "--authority", choices=["approval", "autonomous", "super", "superCC"], default=""
+        "--authority", choices=["approval", "autonomous", "super"], default=""
     )
     agent_admit_parser.add_argument("--calling-office", choices=sorted(OFFICES), default="")
     agent_admit_parser.add_argument("--direct-superior", default="")

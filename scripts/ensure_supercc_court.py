@@ -39,7 +39,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 from court_file_lock import atomic_write_text
 from court_dispatch_hierarchy import validate_dispatch_hierarchy
 from court_office_bootstrap import SUPERCC_CLI_CARRIER, resolve_office_dossier_locator
-import court_runtime
+from court_supercc_execution import select_supercc_execution
 from supercc_dispatch_contract import (
     _new_identity_generation_challenge,
     active_office_identity_fingerprint,
@@ -83,6 +83,7 @@ from supercc_office_state import (
     office_context_id,
     office_health_path,
     office_state_path,
+    load_supercc_tasks,
     office_v1_state_error,
     office_v2_state_error,
     read_office_state,
@@ -869,7 +870,7 @@ def office_dossier_text(role: str) -> str:
         - {OFFICE_VOICE_POLICY}
         - {office_clarify_rule(role)}
         - Do not expand scope, spawn descendants, install tools, expose services, spend money, handle secrets, or perform destructive work without an approved 太子回奏 and matching court gate.
-        - Treat superCC as super authority plus zellij/squad visible display and the selected runtime client, not as a higher safety authority or a different court-office essence from ordinary spawned office agents.
+        - Treat superCC as a separate startup/runtime carrying one exact three-authority value and one behavior. It shares only the neutral hierarchy/standing-profile configuration pointer and hashes with native; task state, dossier, transport, admission, and lifecycle remain isolated.
         - Hierarchy parity: ordinary and superCC use the same validator, `validate_dispatch_hierarchy`, under `court.dispatch_hierarchy.v1`; transport evidence may add pane/squad/native-enter fields but may not reinterpret the decision.
         - {rules['hierarchy_rule']}
         - Design-task 六部 dispatch requires a complete but bounded context packet; exclude secrets, credentials, private vaults, unrelated logs, and unrelated projects.
@@ -2342,6 +2343,8 @@ def office_prompt(
     workspace: Path,
     court_code: str | None,
     *,
+    authority: str = "super",
+    behavior: str = "parallel",
     office_client: str = "codex",
     ministry_mode: str = "silent",
 ) -> str:
@@ -2357,7 +2360,7 @@ def office_prompt(
     return textwrap.dedent(
         f"""
         superCC office bootstrap: {office['office_zh']} ({role})
-        Authority already selected by 太子: superCC. Do not show a 三权 selector and do not run squad join unless REPAIR_IDENTITY is sent.
+        runtime=superCC; authority={authority}; behavior={behavior}. Do not show a 三权 selector and do not run squad join unless REPAIR_IDENTITY is sent.
         {code_line}
         task_workspace_env=SUPERCC_TASK_WORKSPACE
         office_runtime_cwd=role_dossier_directory
@@ -2387,6 +2390,8 @@ def build_office_launch_command(
     role: str,
     workspace: Path,
     *,
+    authority: str = "super",
+    behavior: str = "parallel",
     court_code: str | None,
     office_client: str,
     hermescli_command: str,
@@ -2404,7 +2409,16 @@ def build_office_launch_command(
 ) -> list[str]:
     if layout_direction not in {"right", "down"}:
         raise ValueError(f"unsupported zellij layout direction: {layout_direction}")
-    prompt = office_prompt(role, role, workspace, court_code, office_client=office_client, ministry_mode=ministry_mode)
+    prompt = office_prompt(
+        role,
+        role,
+        workspace,
+        court_code,
+        authority=authority,
+        behavior=behavior,
+        office_client=office_client,
+        ministry_mode=ministry_mode,
+    )
     office_runtime_cwd = office_dossier_dir(role)
     runtime_process_cwd = runtime_process_cwd_for_client(office_client, role, workspace)
     squad_client = SQUAD_CLIENT_BY_OFFICE_CLIENT.get(office_client)
@@ -2646,6 +2660,8 @@ def launch_office(
     role: str,
     workspace: Path,
     *,
+    authority: str,
+    behavior: str,
     court_code: str | None,
     office_client: str,
     hermescli_command: str,
@@ -2666,6 +2682,8 @@ def launch_office(
     args = build_office_launch_command(
         role,
         workspace,
+        authority=authority,
+        behavior=behavior,
         court_code=court_code,
         office_client=office_client,
         hermescli_command=hermescli_command,
@@ -3441,6 +3459,8 @@ def launch_offices(args: argparse.Namespace, roles: tuple[str, ...]) -> dict[str
         launch = launch_office(
             role,
             workspace,
+            authority=args.authority,
+            behavior=args.behavior,
             court_code=args.court_code,
             office_client=role_client,
             hermescli_command=args.hermescli_command,
@@ -4821,6 +4841,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(user_home()),
         help="Workspace passed to superCC office panes. Defaults to the current user's home directory.",
     )
+    parser.add_argument("--authority", choices=("approval", "autonomous", "super"), default="super")
+    parser.add_argument("--behavior", choices=("serial", "parallel"), default="parallel")
     parser.add_argument("--check-only", action="store_true", help="Only check zellij/squad visible display and selected office-client readiness.")
     parser.add_argument("--super-entry", nargs="?", const="turn-start", choices=("plan", "check", "check-only", "launch", "turn-start", "restart"), help="Unified superCC entry: resolve current/source CLI or per-office mappings, then plan/check/launch/turn-start/restart through structured gates.")
     parser.add_argument("--super-entry-offices", default="visible-core", help="Office selection for --super-entry. Accepts role keys and aliases such as visible-core, three, ministries, all.")
@@ -5092,6 +5114,11 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     workspace = Path(args.workspace).resolve()
+    execution = select_supercc_execution(
+        authority=args.authority,
+        behavior=args.behavior,
+        root=skill_root(),
+    ).as_dict()
     transport_roles: tuple[str, ...] | None = None
     transport_preflight: dict[str, Any] | None = None
     try:
@@ -5295,6 +5322,7 @@ def main(argv: list[str] | None = None) -> int:
     payload.setdefault("office_show_delay_seconds", delay_resolution["effective_interval_seconds"])
     payload.setdefault("ordinary_spawn_delay_seconds", ordinary_spawn_delay_seconds())
     payload.setdefault("provider_rate_limit_state", QUEUED_RATE_LIMIT_STATE)
+    payload["execution"] = execution
     payload["side_effects"] = side_effect_manifest(args, payload)
     payload["dependency_bootstrap"] = dependency_bootstrap
     if not dependency_bootstrap.get("ok", False):

@@ -1,6 +1,6 @@
 ---
 name: decretum-matrix
-description: Decretum Matrix（诏令矩阵） routes skills, MCPs, CLIs, and agents through the Codex/Hermes 三省六部 workflow. Use for /court or $decretum-matrix, capability selection, dispatch, Shiguan, maintenance, and approval, autonomous, super, or superCC authority.
+description: Decretum Matrix（诏令矩阵） routes capabilities and agents through Codex/Hermes 三省六部. Use for /court, $decretum-matrix, approval/autonomous/super authority, or the separate superCC runtime.
 ---
 
 # Decretum Matrix（诏令矩阵）
@@ -18,16 +18,16 @@ description: Decretum Matrix（诏令矩阵） routes skills, MCPs, CLIs, and ag
 
 1. 官署按职责、依赖、风险和证据价值动态分配，不为填满容量而派生。
 2. 正常 whole-tree 上限为 16（含 root），`max_depth=4`；只有最新用户明确指定大于 16 的数量或 `unlimited/解限` 才可提高 ceiling，且预算、资源压力、层级、写集、preload、trace 门禁仍然有效。
-3. 最新串行指令覆盖并行默认：`串行`、`完全串行`、禁止子 agente 或 `parallel_dispatch=NOT_APPLICABLE/user_serial_override` 时，不 spawn、reuse、wake 或 follow-up 子 agente。
-4. `super并行` 只设置 `parallel_topology=ordinary_parallel`；carrier 仍是普通 child/worktree，不得据此推导或加载 superCC。
+3. `execution_authority`=`approval|autonomous|super`；`behavior`=`serial|parallel`。二者正交；serial 不派生子 agente。
+4. `super并行` 仅为 `authority=super, behavior=parallel, parallel_topology=native`；native 与 superCC 入口互斥且不探测、切换或回退。
 5. Production ordinary routing is V2 or `serial`. V2 隐藏 model-reserved `agent_type/model/reasoning_effort/service_tier`; V2 树不得同时提交旧式 agent-type override。子 agente 继承主线程 model/effort，除非独立 fresh-session worker 通过精确 host proof。
 
 ## Pinned Initial Court Anchors
 
-- 最新旨意优先。独立解析 authority/topology/carrier；carrier 只信结构化 selector/receipt，禁止按词义或相似状态推导。权限不明时，仅在首次外部或写入动作前问一次三权。
+- 最新旨意优先。独立解析 `authority`、`behavior`、`runtime`；runtime 只信结构化 startup receipt，不按文本推导。权限不明时首次写入/外部动作前只问一次三权。
 - 固定层级：用户 -> 太子；太子只调中书省、门下省、尚书省；尚书省调六部；六部只调本部工坊/工匠。任何 direct-superior 违规结果都隔离，不得集成。
 - 每次普通派生前运行 `scripts/court_cli.py agent-admit`，核验 P00、层级、容量、预算、写集、preload、实例与停止条件。
-- 能力选择必须 registry-first / index-first，先查 [官籍](references/court-capability-registry.md)。当前工具兼容项由 `libu-hr`（吏部）负责维护；不因名称相似直接选用能力。
+- 开朝读取 `libu-hr` 维护的 `references/court-capability-registry.md` registry-first 当前工具索引；缓存只读 capability snapshot，并与 profile/dossier preload 一同在三省审议前完成。
 - 通用任务治理框架通过 `references/manifests/governance-implementations.v1.json` 装载治理实现；`three-departments-six-ministries` 是唯一默认官方实现。参考实现不得改变当前 runtime、证据、权限、直接上级或史馆权威。
 - 共享史馆位于受保护的 `.agents` / shared Shiguan 当前工具边界。安装默认只投影 `.agents` 与 current-tool；未经最新明确用户授权，不改其他工具。
 - 结诏须经门下复核；编号、谱系和作业 AI 只逐字复制统一 CLI `shiguan archive-checkpoint` 的 `payload.closeout_identity`，模型不得分配。
@@ -63,8 +63,8 @@ description: Decretum Matrix（诏令矩阵） routes skills, MCPs, CLIs, and ag
 - Formal decree 先形成紧凑 semantic charter：`旨意`、`非目标`、`任务边界`、`允许动作`、`禁止动作`、`验收标准`、`证据要求`、`停止门禁`、`史馆记录策略`。
 - 非平凡 intake 先评估“目标、使用场景、关键要求和验收标准”；低于 95 时一次只问一个影响结果的问题，可给 2–4 个互斥选项；达到 95 后简要复述确认。已清楚或免确认则直接执行、不强行提问。
 - 非平凡任务先经三省：中书省拟旨/验收，门下省封驳风险/隐私/漂移，尚书省评估派遣/资源/回滚；随后 `三省上奏`，太子综合为 `太子回奏`。缺失的高影响决定按 `太子上奏下一项问题：...` 一次只问一项。
-- `approval` 默认只读；`autonomous` 可在明确范围内执行和写入；`super` 可自动执行范围内 shell、写入、web、MCP、配置和多 agente，但均不授权不可逆破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
-- `superCC` 必须由最新旨意明确；它是 `super + selected runtime`。Normal superCC 需 zellij+squad 和 office-client 证据；显性核心为太子+三省，六部只由尚书省派遣。
+- `approval` 只读；`autonomous` 可在范围内写入；`super` 可自动执行范围内动作；三权均可 serial/parallel，均不授权破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
+- `superCC` 是独立 startup/runtime，不是第四权。它携带三权之一和一个 behavior，须最新旨意与 zellij+squad/client 证据；与 native 只共享中性官署配置 pointer/hash，不共享运行状态或生命周期。
 - `super GL` 仅在已确认 Hermes Studio group-chat room 时使用真实同房 `@profile` 回复；不模拟回复、不默认 `@all`、不无限催促。
 - 显式只读边界禁止任务文件写入、服务启动、队列 seen、索引重建、catalog 变更和其他状态突变，除非最新旨意逐项授权。若同时禁止史馆/audit 写入，报告 `史馆实录：authority_blocked/no-audit-write-boundary`。
 - 网络研究由证据需求决定；时效、外部、冷门、高风险或需引用事实应联网，除非当前权限禁止。
@@ -92,11 +92,11 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 
 ## Dispatch, Preload, And Runtime
 
-- 官署绑定身份/上级、任务边界、三类 hash、P00、lease、证据和 stop。共享 profile 供身份；普通 carrier 指向 `office-dossiers/<role>`，仅显式 `supercc_cli_office` 指向 `supercc-dossiers/<role>`。
+- 官署绑定身份/上级、边界、三类 hash、P00、lease、证据和 stop。native/superCC 仅共享中性层级/profile pointer/hash，各用 `office-dossiers` / `supercc-dossiers`。
 - 普通 child 默认 `fork_turns=none`；共享写入、安装、MCP 写入、破坏性动作和外部应用状态必须串行。宿主拒绝、线程上限、资源压力、401/402/403 或语义不连续时停止当前 wave，不循环重试。
 - preload acknowledgement 在状态进入 `running` 前必须匹配 role、model route/inheritance、dossier/profile/skill hashes。过期、错角色、缺 hash 或未加载 dossier 的结果不得验收。
-- `court open --fast` 只编排既有 runtime/semantic/admission/preload 核心；必须单 Python 解释器、先过尚书/六部 direct-superior 门、在任何 mutation 前 fail closed，并保持 exact retry deterministic。
-- 仅结构化 selector 的 `carrier_kind=supercc_cli_office` 可加载 superCC 引用/runtime；普通 carrier 不加载、探测或回显其面。Old Claude/Codex logs、bare `squad`、手写 `zellij write-chars` 仅算 drift evidence。
+- `court open --fast` 用单 Python 解释器；真实 capability snapshot/preload 须先于三省审议，direct-superior 与 mutation 前门禁 fail closed，exact retry deterministic。
+- 仅 `runtime=superCC, entry_path=supercc` receipt 可加载 superCC；`entry_path=court` 不加载、探测或回显。Old Claude/Codex logs、裸 `squad` 或手写 pane 输入仅是 drift evidence。
 - superCC 健康官署各司其职并守层级；turn-start、uniqueness、profile、task、wake/backoff、watchdog 或 closeout-silence 缺证即 degraded，不得无保留 DONE。
 
 ## Shiguan, Pending, And Memory

@@ -77,7 +77,7 @@ def _identity(path: Path) -> tuple[dict[str, object], list[list[str]]]:
     return (
         {
             "path": str(path.resolve()),
-            "branch": "release/beta1.0.0-hotfix-v2",
+            "branch": "release/beta1.0.1",
             "HEAD": "5" * 40,
             "index_count": 0,
             "tracked_dirty_count": 0,
@@ -150,6 +150,7 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
         "schema": court_open_fastpath.REQUEST_SCHEMA,
         "task_id": "fast-open-fixture",
         "authority": "super",
+        "behavior": "parallel",
         "worktree": str(worktree),
         "skill_root": str(root),
         "host_capacity": 16,
@@ -160,11 +161,12 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
         "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
         "include_shangshu_ministries": True,
         "write_sets": {},
-        "expected_branch": "release/beta1.0.0-hotfix-v2",
+        "expected_branch": "release/beta1.0.1",
         "expected_head": "5" * 40,
         "expected_semantic_receipt_sha256": "1" * 64,
         "expected_plan_sha256": "4" * 64,
         "transport": "codex",
+        "task_focus": "fast court open fixture",
         "expires_at_utc": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
     }
 

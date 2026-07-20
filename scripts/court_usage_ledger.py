@@ -19,7 +19,9 @@ from shiguan_paths import ensure_shared_seed, reference_path
 
 
 SOURCES = {"provider_reported", "agent_reported", "estimated_fallback", "unavailable"}
-MODES = {"approval", "autonomous", "super", "super_parallel", "superCC", "super_gl", "unknown"}
+AUTHORITIES = {"approval", "autonomous", "super"}
+BEHAVIORS = {"serial", "parallel"}
+RUNTIMES = {"native", "superCC"}
 
 
 def now_text() -> str:
@@ -114,26 +116,30 @@ def build_estimate(args: argparse.Namespace) -> dict[str, Any]:
     expected_tool_calls = max(0, int(args.expected_tool_calls or 0))
     request_tokens = estimate_text_tokens(args.decree)
     context_tokens = max(0, int(args.context_tokens or 0))
-    mode = args.mode if args.mode in MODES else "unknown"
+    authority = args.authority
+    behavior = args.behavior
+    runtime = args.runtime
 
     input_expected = request_tokens + context_tokens + office_count * 500 + subagent_count * 650
     output_expected = max(250, 350 + expected_tool_calls * 250 + office_count * 350 + subagent_count * 400)
-    if mode == "superCC":
+    if runtime == "superCC":
         input_expected += 1200
         output_expected += 600
     total_expected = input_expected + output_expected
 
     minutes_expected = 4.0 + expected_tool_calls * 1.5 + office_count * 1.5 + subagent_count * 2.0
-    if mode == "superCC":
+    if runtime == "superCC":
         minutes_expected += 5.0
-    elif mode == "super_parallel":
+    if behavior == "parallel":
         minutes_expected += max(1.0, subagent_count * 0.75)
 
     return {
         "kind": "estimate",
         "recorded_at": now_text(),
         "task_id": args.task_id,
-        "mode": mode,
+        "authority": authority,
+        "behavior": behavior,
+        "runtime": runtime,
         "roles": roles,
         "office_count": office_count,
         "subagent_count": subagent_count,
@@ -388,7 +394,9 @@ def build_parser() -> argparse.ArgumentParser:
     estimate = sub.add_parser("estimate", help="record a decree token/time estimate")
     estimate.add_argument("--task-id", required=True)
     estimate.add_argument("--decree", required=True)
-    estimate.add_argument("--mode", default="unknown")
+    estimate.add_argument("--authority", choices=sorted(AUTHORITIES), required=True)
+    estimate.add_argument("--behavior", choices=sorted(BEHAVIORS), required=True)
+    estimate.add_argument("--runtime", choices=sorted(RUNTIMES), required=True)
     estimate.add_argument("--roles", default="")
     estimate.add_argument("--office-count", type=int, default=0)
     estimate.add_argument("--subagent-count", type=int, default=0)

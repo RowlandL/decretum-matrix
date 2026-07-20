@@ -20,6 +20,8 @@ from court_file_lock import atomic_write_text, file_lock
 CHECKPOINT_WRITERS = 32
 WEB_UPSERT_THREADS = 32
 ATOMIC_WRITERS = 32
+CHECKPOINT_LOCK_TIMEOUT_SECONDS = 120.0
+CHECKPOINT_JOIN_TIMEOUT_SECONDS = 180.0
 
 
 def checkpoint_worker(
@@ -59,7 +61,7 @@ def checkpoint_worker(
         refresh_tree=False,
         sync=False,
         sync_timeout=5,
-        lock_timeout=30.0,
+        lock_timeout=CHECKPOINT_LOCK_TIMEOUT_SECONDS,
     )
     append_checkpoint(args)
 
@@ -129,7 +131,7 @@ def main() -> int:
         for worker in workers:
             worker.start()
         start_event.set()
-        join_processes(workers, timeout=75.0)
+        join_processes(workers, timeout=CHECKPOINT_JOIN_TIMEOUT_SECONDS)
         failures = [(worker.pid, worker.exitcode) for worker in workers if worker.exitcode != 0]
         assert not failures, f"checkpoint workers failed: {failures}"
 

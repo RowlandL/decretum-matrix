@@ -279,9 +279,9 @@ def release_surface_contract() -> dict[str, bool]:
         "canonical_display_name": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
         "canonical_artifact_name": release_payload_manifest.ARTIFACT_NAME
-        == "decretum-matrix-beta1.0.0-hotfix-v2.zip",
+        == "decretum-matrix-beta1.0.1.zip",
         "canonical_release_label": release_payload_manifest.RELEASE_LABEL
-        == "beta1.0.0-hotfix-v2",
+        == "beta1.0.1",
         "agpl_only": getattr(release_payload_manifest, "LICENSE_ID", None) == "AGPL-3.0-only",
         "artifact_builder_identity": build_release_artifacts.NAME == "decretum-matrix",
         "tagless_candidate_builder": (
@@ -614,12 +614,13 @@ def main() -> int:
             if step.get("gate_class") == "source" and step.get("name") != "catalog_strict"
         ]
         candidate_names = {str(step["name"]) for step in candidate_steps}
-        if len(candidate_steps) != 43:
+        if len(candidate_steps) != 44:
             raise AssertionError(f"candidate pre-install step count drifted: {len(candidate_steps)}")
         if not {
             "npm_release_harness",
             "unified_cli",
             "court_open_fastpath",
+            "startup_semantic_fastpath",
             "court_result_semantics",
             "cli_performance",
             "release_payload_manifest",
@@ -677,6 +678,7 @@ def main() -> int:
             "npm_release_harness",
             "unified_cli",
             "court_open_fastpath",
+            "startup_semantic_fastpath",
             "court_result_semantics",
             "cli_performance",
             "release_legal",

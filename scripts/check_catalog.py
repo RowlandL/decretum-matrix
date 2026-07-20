@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -315,6 +316,35 @@ def check_shiguan_state() -> list[str]:
     return [str(path) for relative, path in mapped.items() if relative in REQUIRED_SHIGUAN_STATE and not path.exists()]
 
 
+def bound_standing_profile_text(installed_text: str, agent_name: str) -> str | None:
+    source_match = re.search(r"(?m)^- profile_source: (.+)$", installed_text)
+    hash_match = re.search(r"(?m)^- profile_hash: ([0-9a-f]{64})$", installed_text)
+    if source_match is None or hash_match is None:
+        return None
+    source = Path(source_match.group(1).strip()).resolve(strict=False)
+    if (
+        source.name != agent_name
+        or source.parent.name != "standing-officials"
+        or source.parent.parent.name != "agents"
+        or not source.is_file()
+    ):
+        return None
+    skill = source.parents[2]
+    identity_path = skill / "references" / "manifests" / "skill-identity.v1.json"
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        payload = source.read_bytes()
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(identity, dict)
+        or identity.get("canonical_skill_name") != "decretum-matrix"
+        or hashlib.sha256(payload).hexdigest() != hash_match.group(1)
+    ):
+        return None
+    return payload.decode("utf-8", errors="replace")
+
+
 def check_agent_capability_access(agents_root: Path) -> list[str]:
     missing: list[str] = []
     template_root = skill_root() / "agents" / "standing-officials"
@@ -325,8 +355,21 @@ def check_agent_capability_access(agents_root: Path) -> list[str]:
                 missing.append(f"{root_label}:{agent_name}:missing")
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
+            capability_text = text
+            bound_text = None
+            if root_label == "installed":
+                try:
+                    import tomllib
+
+                    installed = tomllib.loads(text)
+                except Exception:
+                    installed = {}
+                instructions = installed.get("developer_instructions")
+                if isinstance(instructions, str):
+                    capability_text = instructions
+                    bound_text = bound_standing_profile_text(instructions, agent_name)
             for term in REQUIRED_AGENT_ACCESS_TERMS:
-                if term not in text:
+                if term not in capability_text and (bound_text is None or term not in bound_text):
                     missing.append(f"{root_label}:{agent_name}:{term}")
     return missing
 

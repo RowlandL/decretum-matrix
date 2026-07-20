@@ -183,7 +183,7 @@ Use when the current authority forbids the requested action.
 
 ```text
 太子回奏：authority_blocked
-边界：当前权限为 <approval/autonomous/super/superCC/unknown>.
+边界：authority=<approval/autonomous/super/unknown>; behavior=<serial/parallel>; runtime=<native/superCC>.
 受阻动作：<state-changing/destructive/paid/external/private action>
 需要朱批：<minimal authority or confirmation needed>
 ```

@@ -47,7 +47,7 @@ def _initialize_preload_fixture(root: Path) -> None:
     skill_hash = _sha256(skill_path)
     for role in OFFICES:
         profile_rel = f"agents/standing-officials/{role}.toml"
-        dossier_rel = f"agents/supercc-dossiers/{role}/AGENTS.md"
+        dossier_rel = f"agents/office-dossiers/{role}/AGENTS.md"
         profile_path = root / profile_rel
         dossier_path = root / dossier_rel
         profile_path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,17 +173,27 @@ def trusted_manifest(entries: Sequence[dict[str, object]]) -> dict[str, dict[str
     }
 
 
-def validate(entries: Sequence[dict[str, object]], *, mode: str = "super并行") -> object:
+def validate(
+    entries: Sequence[dict[str, object]],
+    *,
+    authority: str = "super",
+    behavior: str = "parallel",
+) -> object:
     return validate_dispatch_plan(
         list(entries),
-        mode=mode,
+        authority=authority,
+        behavior=behavior,
         trusted_preload_manifest=trusted_manifest(entries),
     )
 
 
 def check_missing_trusted_manifest_rejected() -> None:
     try:
-        validate_dispatch_plan([canonical("gongbu")], mode="super并行")
+        validate_dispatch_plan(
+            [canonical("gongbu")],
+            authority="super",
+            behavior="parallel",
+        )
     except ValueError as exc:
         require("exact_preload_contract_gate" in str(exc), f"unexpected missing-manifest gate: {exc!s}")
     else:
@@ -306,29 +316,16 @@ def check_shangshu_super_giant_deputy() -> None:
 
 
 def check_supercc_extra_worker_stays_ordinary_non_visible() -> None:
-    plan = validate(
+    require_rejected(
+        "native dispatch must remain non-visible",
         [
             canonical(
                 "zhongshu",
                 visibility="visible_core",
                 runtime_family="visible_zellij_squad",
             ),
-            worker(
-                "zhongshu",
-                2,
-                "research-source-b",
-                visibility="non_visible",
-                runtime_family="spawned_subagent",
-            ),
+            worker("zhongshu", 2, "research-source-b"),
         ],
-        mode="superCC",
-    )
-    normalized = entries_of(plan)
-    require(value(normalized[0], "visibility") == "visible_core", "canonical superCC office lost visibility")
-    require(value(normalized[1], "visibility") == "non_visible", "extra worker became a second visible canonical office")
-    require(
-        value(normalized[1], "runtime_family") == "spawned_subagent",
-        "extra superCC worker must use the ordinary spawned-subagent runtime",
     )
 
 
@@ -348,11 +345,9 @@ def check_pressure_allows_only_degraded_canonical_shape() -> None:
 def require_rejected(
     gate: str,
     entries: Sequence[dict[str, object]],
-    *,
-    mode: str = "super并行",
 ) -> None:
     try:
-        validate(entries, mode=mode)
+        validate(entries)
     except ValueError as exc:
         require(gate in str(exc), f"expected {gate}, got {exc!s}")
     else:
@@ -362,11 +357,9 @@ def require_rejected(
 def rejection_check(
     gate: str,
     entries: Sequence[dict[str, object]],
-    *,
-    mode: str = "super并行",
 ) -> Callable[[], None]:
     def check() -> None:
-        require_rejected(gate, entries, mode=mode)
+        require_rejected(gate, entries)
 
     return check
 
@@ -536,7 +529,7 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
         ),
         (
             "reject_second_supercc_visible_canonical",
-            "supercc_canonical_visibility_gate",
+            "native dispatch must remain non-visible",
             [
                 canonical(
                     "zhongshu",
@@ -615,8 +608,8 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
         ),
     )
     return tuple(
-        (name, rejection_check(gate, entries, mode=mode))
-        for name, gate, entries, mode in cases
+        (name, rejection_check(gate, entries))
+        for name, gate, entries, _mode in cases
     )
 
 

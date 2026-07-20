@@ -17,7 +17,7 @@ This is the section-level shard index for large governing references. Read `SKIL
 | `court-offices-dispatch.md` | `## Clarification Loop` |  | One-question-at-a-time clarification, scope gaps, 三省 question routing. |
 | `court-offices-dispatch.md` | `## Dispatch Rules` |  | 尚书 dispatch, 六部 tasking, direct-superior routing, ENTER_DISPATCH, ordinary/subagent office work. |
 | `court-startup-authority.md` | `## Quick Start` |  | Minimal startup sequence, fast open checks, first commands for a court turn. |
-| `court-startup-authority.md` | `## Approval Policy Details` | `references/sections/court-startup-approval-policy-details.md` | `approval`, `autonomous`, `super`, `superCC`, read-only/live action boundaries, safety gates, index-first capability invocation, packaging governance. |
+| `court-startup-authority.md` | `## Approval Policy Details` | `references/sections/court-startup-approval-policy-details.md` | exact three-authority domain, orthogonal serial/parallel behavior, separate superCC runtime, read-only/live action boundaries, index-first capability invocation, packaging governance. |
 | `court-startup-authority.md` | `## 开朝 Selection` |  | Authority selection question, startup gate selection, startup scripts, profile/bootstrap checks. |
 | `court-supercc-runtime-selection.md` | `## Codex Branch` / phase cycling | `supercc-phase-cycling-model.md` | Routine visible core, silent supervisor lifecycle, phase cycling, non-visible ministry task queues, and request-rate budget alignment. |
 | `court-closeout-validation.md` | `## Long Conversation Drift Guard` |  | Drift risks, encoding/read issues, long-context closeout discipline. |

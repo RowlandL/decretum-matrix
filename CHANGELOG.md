@@ -1,5 +1,25 @@
 # Changelog
 
+## beta1.0.1 - 2026-07-20
+
+### Fixed
+
+- Made `approval|autonomous|super` authority independent from
+  `serial|parallel` behavior across native and superCC execution receipts.
+- Split native and superCC startup, imports, task stores, dossiers, transport,
+  admission, and lifecycle; only neutral office configuration hashes are shared.
+- Repaired the semantic-context producer/consumer boundary so an invalid
+  authority revision fails closed with zero dispatch and no manual bypass.
+- Resolved and cached a skill/MCP/plugin/CLI/script capability snapshot before
+  Three Departments deliberation without spawning libu-hr for a read.
+- Kept warm court-open p50 inside the accepted 10% regression budget while
+  preserving one-process startup and the 20 KiB preload ceiling.
+
+### Release identity
+
+- Product/tag/artifact version: `beta1.0.1`.
+- npm version: `1.0.1-beta.0` on the `beta` dist-tag.
+
 ## beta1.0.0-hotfix-v2 - 2026-07-20
 
 ### Fixed

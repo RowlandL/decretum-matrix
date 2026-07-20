@@ -63,6 +63,22 @@ Codex、Hermes、CLI、superCC、skills、MCP 和 scripts 将有界差遣映射�
 能力，并回传既有结构化结果。适配器不能改变直接上级、权限、写集、安全门、
 pending body 边界或治理实现的角色职责。
 
+执行路由固定为三个相互独立的结构化维度：`authority` 只能是
+`approval|autonomous|super`，`behavior` 只能是 `serial|parallel`，`runtime`
+只能由启动入口确定为 `native|superCC`。`super parallel` 仅表示
+`authority=super, behavior=parallel, runtime=native`，不得探测或选择 superCC。
+superCC 只能从自己的 zellij+squad 入口启动；同一 task/process 不得在 native 与
+superCC 之间共存、切换或回退。native 使用 `court.native.task` 状态命名空间和
+ordinary office dossiers，superCC 使用 `court.supercc.task` 状态命名空间和
+superCC dossiers。二者只共享中性的层级/standing-profile 配置 pointer/hash，
+不共享 task state、transport、admission 或 lifecycle。
+
+固定开朝快路在三省审议前读取并缓存当前 capability index，形成包含
+skill、MCP、plugin、CLI 和 script 建议分配的结构化 snapshot，再把 snapshot
+pointer/hash 与官署 preload 一起交给中书、门下和尚书。吏部维护 registry，读取
+snapshot 本身不要求额外派遣吏部官署；缺失、陈旧或损坏的 index 只触发一次有界
+维护差遣，不创建第二 registry、daemon 或 umbrella CLI。
+
 ### 呈现层
 
 CLI、用户侧结诏、史馆 Web 与 Obsidian 只呈现已绑定的事实、裁定和证据。

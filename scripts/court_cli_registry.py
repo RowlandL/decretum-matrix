@@ -280,25 +280,61 @@ def _capture_runtime(argv: Sequence[str], *, output_format: str) -> InvocationRe
     runtime_argv = list(normalized)
     if output_format == "json":
         runtime_argv = ["--format", "json", *runtime_argv]
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    module = importlib.import_module("court_runtime")
-    with redirect_stdout(stdout), redirect_stderr(stderr):
-        returncode = int(module.main(runtime_argv))
-    return InvocationResult(
-        returncode=returncode,
-        stdout=stdout.getvalue(),
-        stderr=stderr.getvalue(),
-        loader="court_runtime.main",
+    record = CommandRecord(
+        group="court",
+        command="runtime",
+        loader="isolated_runtime_process",
+        side_effect="request_dependent",
+        authority_requirement="runtime_gate",
         legacy_path="scripts/court_runtime.py",
+        handler="isolated_subprocess:scripts/court_runtime.py",
+        receipt_schema="legacy.entrypoint.result.v1",
+        compatibility_state="canonical_runtime_process",
+    )
+    captured = _capture_subprocess(record, runtime_argv)
+    return InvocationResult(
+        returncode=captured.returncode,
+        stdout=captured.stdout,
+        stderr=captured.stderr,
+        loader="isolated_runtime_process",
+        legacy_path=captured.legacy_path,
         normalization_notes=notes,
     )
 
 
 def _legacy_runtime(argv: Sequence[str]) -> int:
     normalized, _ = normalize_runtime_argv(argv)
-    module = importlib.import_module("court_runtime")
-    return int(module.main(list(normalized)))
+    completed = subprocess.run(
+        [sys.executable, "-B", str(ROOT / "scripts" / "court_runtime.py"), *normalized],
+        cwd=ROOT,
+        check=False,
+    )
+    return int(completed.returncode)
+
+
+def _capture_court_open(arguments: Sequence[str], output_format: str) -> InvocationResult:
+    values = list(arguments)
+    if output_format == "json":
+        values.extend(("--format", "json"))
+    record = CommandRecord(
+        group="court",
+        command="open",
+        loader="isolated_native_open_process",
+        side_effect="request_dependent",
+        authority_requirement="runtime_gate",
+        legacy_path="scripts/court_open_fastpath.py",
+        handler="isolated_subprocess:scripts/court_open_fastpath.py",
+        receipt_schema="court.open.fast.v2",
+        compatibility_state="canonical_native_process",
+    )
+    captured = _capture_subprocess(record, values)
+    return InvocationResult(
+        returncode=captured.returncode,
+        stdout=captured.stdout,
+        stderr=captured.stderr,
+        loader="isolated_native_open_process",
+        legacy_path=captured.legacy_path,
+    )
 
 
 def _subprocess_command(record: CommandRecord, arguments: Sequence[str]) -> list[str]:
@@ -607,12 +643,7 @@ def _resolve_and_run(group: str, command: str, arguments: Sequence[str], output_
     records = load_registry()
     key = (group, command)
     if group == "court" and command == "open":
-        result = _capture_python_module(
-            "court_open_fastpath",
-            arguments,
-            output_format=output_format,
-            legacy_path="scripts/court_open_fastpath.py",
-        )
+        result = _capture_court_open(arguments, output_format)
         return _emit_invocation("court open", result, output_format)
     if group == "court" and key not in records:
         result = _capture_runtime([command, *arguments], output_format=output_format)

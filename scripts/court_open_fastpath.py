@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -11,23 +12,33 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from threading import Lock
+import time
 import tomllib
 from typing import Callable, Mapping, Sequence
 
 sys.dont_write_bytecode = True
 
+from court_native_execution import AUTHORITIES, BEHAVIORS, select_native_execution
+
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUEST_SCHEMA = "court.open.fast.request.v1"
-RECEIPT_SCHEMA = "court.open.fast.v1"
+REQUEST_SCHEMA = "court.open.fast.request.v2"
+RECEIPT_SCHEMA = "court.open.fast.v2"
 MINIMAL_PRELOAD_BYTES = 20 * 1024
 DEFAULT_THREAD_CEILING = 16
 THREE_DEPARTMENTS = ("zhongshu", "menxia", "shangshu")
 SIX_MINISTRIES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
+CAPABILITY_KINDS = ("skill", "mcp", "plugin", "cli", "script")
 ROLE_SUPERIORS = {
     **{role: "taizi" for role in THREE_DEPARTMENTS},
     **{role: "shangshu" for role in SIX_MINISTRIES},
 }
+_CAPABILITY_SNAPSHOT_CACHE: dict[tuple[object, ...], dict[str, object]] = {}
+_CAPABILITY_SNAPSHOT_CACHE_LOCK = Lock()
+_PRELOAD_CACHE: dict[tuple[object, ...], dict[str, "RolePreload"]] = {}
+_PRELOAD_CACHE_LOCK = Lock()
+_DEFAULT_CAPABILITY_MANIFEST: Path | None = None
 
 
 class FastPathInvalid(ValueError):
@@ -102,8 +113,13 @@ def normalize_request(value: object) -> dict[str, object]:
         raise FastPathInvalid("request_schema_invalid")
     task_id = _required_text(value.get("task_id"), "task_id")
     authority = _required_text(value.get("authority"), "authority")
-    if authority not in {"approval", "autonomous", "super"}:
+    if authority not in AUTHORITIES:
         raise FastPathInvalid("authority_invalid")
+    behavior = _required_text(value.get("behavior"), "behavior")
+    if behavior not in BEHAVIORS:
+        raise FastPathInvalid("behavior_invalid")
+    if "runtime" in value:
+        raise FastPathInvalid("native_runtime_fixed")
     worktree = str(Path(_required_text(value.get("worktree"), "worktree")).resolve())
     requested_offices = value.get("requested_offices", list(THREE_DEPARTMENTS))
     if not isinstance(requested_offices, list) or not requested_offices:
@@ -134,6 +150,7 @@ def normalize_request(value: object) -> dict[str, object]:
         "schema": REQUEST_SCHEMA,
         "task_id": task_id,
         "authority": authority,
+        "behavior": behavior,
         "worktree": worktree,
         "skill_root": str(Path(str(value.get("skill_root") or ROOT)).resolve()),
         "host_capacity": _required_int(value.get("host_capacity"), "host_capacity", minimum=1),
@@ -149,6 +166,10 @@ def normalize_request(value: object) -> dict[str, object]:
         "expected_semantic_receipt_sha256": value.get("expected_semantic_receipt_sha256"),
         "expected_plan_sha256": value.get("expected_plan_sha256"),
         "transport": str(value.get("transport") or "codex"),
+        "task_focus": _required_text(value.get("task_focus"), "task_focus"),
+        "capability_query": str(value.get("capability_query") or "").strip(),
+        "capability_manifest": str(value.get("capability_manifest") or "").strip(),
+        "capability_manifest_state": str(value.get("capability_manifest_state") or "current").strip().casefold(),
         "expires_at_utc": expires.isoformat(),
     }
     operation_source = {key: item for key, item in normalized.items() if key != "operation_id"}
@@ -157,6 +178,190 @@ def normalize_request(value: object) -> dict[str, object]:
         or "court-open-" + _sha256_bytes(_canonical_bytes(operation_source))[:24]
     )
     return normalized
+
+
+def clear_capability_snapshot_cache() -> None:
+    with _CAPABILITY_SNAPSHOT_CACHE_LOCK:
+        _CAPABILITY_SNAPSHOT_CACHE.clear()
+
+
+def clear_preload_cache() -> None:
+    with _PRELOAD_CACHE_LOCK:
+        _PRELOAD_CACHE.clear()
+
+
+def _canonical_capability_manifest(normalized: Mapping[str, object]) -> Path:
+    global _DEFAULT_CAPABILITY_MANIFEST
+    explicit = str(normalized.get("capability_manifest") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    if _DEFAULT_CAPABILITY_MANIFEST is not None:
+        return _DEFAULT_CAPABILITY_MANIFEST
+    from shiguan_paths import reference_path
+
+    _DEFAULT_CAPABILITY_MANIFEST = reference_path("installed-capabilities-manifest.json").resolve()
+    return _DEFAULT_CAPABILITY_MANIFEST
+
+
+def _capability_cache_key(
+    normalized: Mapping[str, object],
+    manifest: Path,
+    capability_loader: Callable[..., dict[str, object]],
+) -> tuple[object, ...]:
+    try:
+        stat = manifest.stat()
+        fingerprint: tuple[object, ...] = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        fingerprint = ("missing",)
+    query = str(normalized.get("capability_query") or normalized["task_focus"])
+    return (
+        id(capability_loader),
+        str(manifest),
+        *fingerprint,
+        str(normalized.get("capability_manifest_state") or "current"),
+        str(normalized.get("transport") or "codex"),
+        query,
+    )
+
+
+def _bounded_maintenance_assignment(request: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "schema": "court.capability.maintenance_assignment.v1",
+        "owner": "libu-hr",
+        "action": "BOUNDED_INCREMENTAL_MAINTENANCE",
+        "reason": request.get("reason"),
+        "query": request.get("query"),
+        "limit": 1,
+        "offline": True,
+        "allow_write": False,
+    }
+
+
+def _candidate_kind(candidate: Mapping[str, object]) -> str:
+    kind = str(candidate.get("kind") or "").strip().casefold()
+    source = str(candidate.get("source") or "").strip().casefold()
+    if "plugin" in source:
+        return "plugin"
+    return kind if kind in CAPABILITY_KINDS else ""
+
+
+def _allocation(candidate: Mapping[str, object]) -> dict[str, object]:
+    digest = str(
+        candidate.get("observed_content_hash")
+        or candidate.get("declared_content_hash")
+        or candidate.get("content_hash")
+        or ""
+    )
+    risks: list[str] = []
+    if candidate.get("dispatchable") is not True:
+        risks.append("not_dispatchable")
+    if candidate.get("hash_status") not in {None, "MATCH", "ACTUAL_ONLY"}:
+        risks.append("hash_not_current")
+    if candidate.get("version_status") == "MISMATCH":
+        risks.append("version_drift")
+    return {
+        "kind": _candidate_kind(candidate),
+        "name": candidate.get("name"),
+        "source": candidate.get("source"),
+        "relative_path": candidate.get("relative_path"),
+        "content_sha256": digest,
+        "freshness": "current" if not risks else "attention_required",
+        "recommended_office": "libu-hr",
+        "permissions": ["read", "invoke"] if candidate.get("dispatchable") is True else ["read_metadata"],
+        "risks": risks,
+        "dispatchable": candidate.get("dispatchable") is True,
+    }
+
+
+def _capability_snapshot(
+    route: Mapping[str, object],
+    *,
+    query: str,
+    manifest: Path,
+) -> dict[str, object]:
+    proposed: dict[str, list[dict[str, object]]] = {kind: [] for kind in CAPABILITY_KINDS}
+    candidates: list[Mapping[str, object]] = []
+    selected = route.get("selected_candidate")
+    if isinstance(selected, Mapping):
+        candidates.append(selected)
+    considered = route.get("registry_candidates_considered")
+    if isinstance(considered, list):
+        candidates.extend(item for item in considered if isinstance(item, Mapping))
+    seen: set[tuple[str, str, str]] = set()
+    for candidate in candidates:
+        kind = _candidate_kind(candidate)
+        identity = (kind, str(candidate.get("source") or ""), str(candidate.get("name") or ""))
+        if not kind or identity in seen or len(proposed[kind]) >= 3:
+            continue
+        seen.add(identity)
+        proposed[kind].append(_allocation(candidate))
+    try:
+        manifest_sha256 = _sha256_bytes(manifest.read_bytes())
+    except OSError:
+        manifest_sha256 = ""
+    body: dict[str, object] = {
+        "schema": "court.capability.snapshot.v1",
+        "owner": "libu-hr",
+        "query": query,
+        "registry": {
+            "path": str(manifest),
+            "sha256": manifest_sha256,
+            "state": route.get("manifest_state"),
+        },
+        "selection_source": route.get("selection_source"),
+        "fallback_reason": route.get("fallback_reason"),
+        "dispatchable": route.get("dispatchable") is True,
+        "proposed_allocations": proposed,
+        "maintenance": {
+            "invoked": route.get("discovery_invoked") is True,
+            "call_count": int(route.get("discovery_call_count") or 0),
+            "assignment": route.get("discovery_result"),
+            "second_registry": route.get("second_registry") is True,
+            "daemon": route.get("daemon") is True,
+        },
+    }
+    body["snapshot_sha256"] = _sha256_bytes(_canonical_bytes(body))
+    return body
+
+
+def resolve_capability_snapshot(
+    normalized: Mapping[str, object],
+    *,
+    capability_loader: Callable[..., dict[str, object]] | None = None,
+) -> tuple[dict[str, object], str, float]:
+    started = time.perf_counter_ns()
+    if capability_loader is None:
+        from check_capability_index_gate import route_registry_first
+
+        capability_loader = route_registry_first
+    manifest = _canonical_capability_manifest(normalized)
+    cache_key = _capability_cache_key(normalized, manifest, capability_loader)
+    with _CAPABILITY_SNAPSHOT_CACHE_LOCK:
+        cached = _CAPABILITY_SNAPSHOT_CACHE.get(cache_key)
+    if cached is not None:
+        elapsed = (time.perf_counter_ns() - started) / 1_000_000
+        return deepcopy(cached), "HIT", elapsed
+
+    from check_capability_index_gate import default_source_roots
+
+    query = str(normalized.get("capability_query") or normalized["task_focus"])
+    source_roots: dict[str, object] = dict(default_source_roots())
+    source_roots["executable_inventory"] = {}
+    route = capability_loader(
+        query=query,
+        current_tool=str(normalized.get("transport") or "codex"),
+        manifest=manifest,
+        manifest_state=normalized.get("capability_manifest_state") or "current",
+        source_roots=source_roots,
+        bounded_discovery=_bounded_maintenance_assignment,
+    )
+    if not isinstance(route, Mapping):
+        raise FastPathMiss("capability_snapshot_invalid")
+    snapshot = _capability_snapshot(route, query=query, manifest=manifest)
+    with _CAPABILITY_SNAPSHOT_CACHE_LOCK:
+        _CAPABILITY_SNAPSHOT_CACHE[cache_key] = deepcopy(snapshot)
+    elapsed = (time.perf_counter_ns() - started) / 1_000_000
+    return snapshot, "MISS", elapsed
 
 
 def _run_git(worktree: Path, arguments: Sequence[str], audit: list[list[str]]) -> str:
@@ -267,13 +472,40 @@ def _role_preload(
     )
 
 
+def _preload_cache_key(skill_root: Path, roles: Sequence[str]) -> tuple[object, ...]:
+    paths = [
+        Path("SKILL.md"),
+        Path("references") / "manifests" / "court-dispatch-hierarchy.v1.json",
+    ]
+    for role in roles:
+        paths.extend(
+            (
+                Path("agents") / "standing-officials" / f"{role}.toml",
+                Path("agents") / "office-dossiers" / role / "AGENTS.md",
+            )
+        )
+    signatures: list[tuple[str, int, int, int]] = []
+    for relative in paths:
+        stat = (skill_root / relative).stat()
+        signatures.append(
+            (relative.as_posix(), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        )
+    return str(skill_root), tuple(roles), tuple(signatures)
+
+
 def load_preloads(
     skill_root: Path,
     roles: Sequence[str],
     *,
     concurrent: bool = True,
 ) -> dict[str, RolePreload]:
+    skill_root = skill_root.resolve(strict=False)
     try:
+        cache_key = _preload_cache_key(skill_root, roles)
+        with _PRELOAD_CACHE_LOCK:
+            cached = _PRELOAD_CACHE.get(cache_key)
+        if cached is not None:
+            return dict(cached)
         skill_bytes = (skill_root / "SKILL.md").read_bytes()
         hierarchy = json.loads(
             (skill_root / "references" / "manifests" / "court-dispatch-hierarchy.v1.json").read_text(
@@ -296,7 +528,10 @@ def load_preloads(
         values = [
             _role_preload(skill_root, role, skill_bytes, hierarchy) for role in roles
         ]
-    return {value.role: value for value in values}
+    result = {value.role: value for value in values}
+    with _PRELOAD_CACHE_LOCK:
+        _PRELOAD_CACHE[cache_key] = dict(result)
+    return result
 
 
 def _preload_payload(value: RolePreload) -> dict[str, object]:
@@ -530,6 +765,8 @@ def _miss(reason: str, problems: Sequence[str] = ()) -> dict[str, object]:
         "reason": reason,
         "problems": list(problems) or [reason],
         "mutations": [],
+        "dispatch_count": 0,
+        "manual_bypass_allowed": False,
         "python_child_processes": 0,
         "FAST_OPEN_SINGLE_PROCESS": "FAIL",
         "SHANGSHU_FIRST_DISPATCH": "FAIL",
@@ -544,10 +781,17 @@ def prepare_fast_open(
     runtime_api: object | None = None,
     identity_loader: Callable[[Path], tuple[dict[str, object], list[list[str]]]] = live_worktree_identity,
     preload_loader: Callable[..., dict[str, RolePreload]] = load_preloads,
+    capability_loader: Callable[..., dict[str, object]] | None = None,
     concurrent_preload: bool = True,
 ) -> dict[str, object]:
     try:
         normalized = normalize_request(value)
+        skill_root = Path(str(normalized["skill_root"]))
+        execution = select_native_execution(
+            authority=str(normalized["authority"]),
+            behavior=str(normalized["behavior"]),
+            root=skill_root,
+        ).as_dict()
         if normalized["host_reclamation_status"] != "verified":
             raise FastPathMiss("capacity_unknown", "host_reclamation_status")
         if float(normalized["system_memory_percent"]) >= 99.0:
@@ -555,11 +799,12 @@ def prepare_fast_open(
         requested = tuple(normalized["requested_offices"])
         if any(role not in THREE_DEPARTMENTS for role in requested):
             raise FastPathMiss("hierarchy_incomplete", "taizi_may_dispatch_only_three_departments")
-        total_roles = len(requested) + (len(SIX_MINISTRIES) if normalized["include_shangshu_ministries"] else 0)
-        effective_capacity = min(DEFAULT_THREAD_CEILING, int(normalized["host_capacity"]))
-        available = effective_capacity - int(normalized["host_active_agents"])
-        if available < total_roles:
-            raise FastPathMiss("capacity_insufficient", f"available={available}:required={total_roles}")
+        if normalized["behavior"] == "parallel":
+            total_roles = len(requested) + (len(SIX_MINISTRIES) if normalized["include_shangshu_ministries"] else 0)
+            effective_capacity = min(DEFAULT_THREAD_CEILING, int(normalized["host_capacity"]))
+            available = effective_capacity - int(normalized["host_active_agents"])
+            if available < total_roles:
+                raise FastPathMiss("capacity_insufficient", f"available={available}:required={total_roles}")
         _validate_write_sets(normalized["write_sets"])
 
         worktree = Path(str(normalized["worktree"]))
@@ -600,11 +845,27 @@ def prepare_fast_open(
         roles = list(requested)
         if normalized["include_shangshu_ministries"]:
             roles.extend(SIX_MINISTRIES)
-        preloads = preload_loader(
-            Path(str(normalized["skill_root"])),
-            roles,
-            concurrent=concurrent_preload,
-        )
+        if concurrent_preload:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                capability_future = executor.submit(
+                    resolve_capability_snapshot,
+                    normalized,
+                    capability_loader=capability_loader,
+                )
+                preload_future = executor.submit(
+                    preload_loader,
+                    skill_root,
+                    roles,
+                    concurrent=True,
+                )
+                capability_snapshot, capability_cache_status, capability_lookup_ms = capability_future.result()
+                preloads = preload_future.result()
+        else:
+            capability_snapshot, capability_cache_status, capability_lookup_ms = resolve_capability_snapshot(
+                normalized,
+                capability_loader=capability_loader,
+            )
+            preloads = preload_loader(skill_root, roles, concurrent=False)
         oversized = [role for role in roles if preloads[role].loaded_bytes > MINIMAL_PRELOAD_BYTES]
         if oversized:
             raise FastPathMiss("preload_budget_exceeded", *oversized)
@@ -612,22 +873,47 @@ def prepare_fast_open(
         department_packets: list[dict[str, object]] = []
         ministry_packets: list[dict[str, object]] = []
         admission_decisions: list[dict[str, object]] = []
+        execution_sha256 = _sha256_bytes(_canonical_bytes(execution))
         ordinal = 0
         for role in requested:
             ordinal += 1
             hierarchy = _hierarchy_decision("taizi", role)
-            admission = _admission_request(runtime_api, task, normalized, role, "taizi", preloads[role], ordinal)
-            decision = _validate_admission(runtime_api, task, admission)
-            department_packets.append({"role": role, "hierarchy": hierarchy, "admission": admission})
-            admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
+            packet: dict[str, object] = {
+                "role": role,
+                "hierarchy": hierarchy,
+                "execution_sha256": execution_sha256,
+                "capability_snapshot_sha256": capability_snapshot["snapshot_sha256"],
+            }
+            if normalized["behavior"] == "parallel":
+                admission = _admission_request(runtime_api, task, normalized, role, "taizi", preloads[role], ordinal)
+                decision = _validate_admission(runtime_api, task, admission)
+                packet["admission"] = admission
+                admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
+            else:
+                packet["admission"] = None
+                packet["serial_action"] = "inline_deliberation"
+                admission_decisions.append({"role": role, "decision": "serial_inline"})
+            department_packets.append(packet)
         if normalized["include_shangshu_ministries"]:
             for role in SIX_MINISTRIES:
                 ordinal += 1
                 hierarchy = _hierarchy_decision("shangshu", role)
-                admission = _admission_request(runtime_api, task, normalized, role, "shangshu", preloads[role], ordinal)
-                decision = _validate_admission(runtime_api, task, admission)
-                ministry_packets.append({"role": role, "hierarchy": hierarchy, "admission": admission})
-                admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
+                packet = {
+                    "role": role,
+                    "hierarchy": hierarchy,
+                    "execution_sha256": execution_sha256,
+                    "capability_snapshot_sha256": capability_snapshot["snapshot_sha256"],
+                }
+                if normalized["behavior"] == "parallel":
+                    admission = _admission_request(runtime_api, task, normalized, role, "shangshu", preloads[role], ordinal)
+                    decision = _validate_admission(runtime_api, task, admission)
+                    packet["admission"] = admission
+                    admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
+                else:
+                    packet["admission"] = None
+                    packet["serial_action"] = "inline_deliberation"
+                    admission_decisions.append({"role": role, "decision": "serial_inline"})
+                ministry_packets.append(packet)
 
         packet_digest = _sha256_bytes(_canonical_bytes({
             "operation_id": normalized["operation_id"],
@@ -643,15 +929,21 @@ def prepare_fast_open(
             "request_sha256": _sha256_bytes(_canonical_bytes(normalized)),
             "packet_sha256": packet_digest,
             "task_id": normalized["task_id"],
+            "execution": execution,
             "semantic_receipt_id": receipt.get("receipt_id"),
             "semantic_receipt_sha256": receipt.get("receipt_sha256"),
             "plan_cursor": receipt.get("plan_cursor"),
             "worktree": identity,
+            "capability_snapshot": capability_snapshot,
+            "capability_cache_status": capability_cache_status,
+            "capability_lookup_ms": round(capability_lookup_ms, 3),
             "preloads": [_preload_payload(preloads[role]) for role in roles],
             "department_packets": department_packets,
             "shangshu_ministry_packets": ministry_packets,
             "admission_decisions": admission_decisions,
             "mutations": [],
+            "dispatch_count": len(admission_decisions) if normalized["behavior"] == "parallel" else 0,
+            "manual_bypass_allowed": False,
             "process_audit": process_audit,
             "python_child_processes": python_children,
             "FAST_OPEN_SINGLE_PROCESS": "PASS",

@@ -2,11 +2,12 @@
 
 ## Unified Dynamic Dispatch Semantics
 
-1. 官署按任务职责、依赖和证据价值动态分配。
-2. 正常 whole-tree 并行默认最多 16 个线程（含 root），只有最新用户明确指定大于 16 的数量或明确开启 `unlimited/解限` 才可抬高该上限。override 只改变 ceiling，不提供预算 lease，不得绕过宿主容量/拒绝、资源压力、层级、写集、preload、实例追溯或 max_depth，也不得自动开满；未知关键证据时 fail closed。
+1. 官署按任务职责、依赖和证据价值动态分配。`authority` 精确为 `approval|autonomous|super`，`behavior` 精确为 `serial|parallel`，两者正交；每种 authority 均可选择任一 behavior。
+2. `super并行` 只表示 `authority=super, behavior=parallel, runtime=native`。superCC 是独立 startup/runtime，不是第四权，也不是 native 候选；同一 task/process 不得共存、切换或回退。二者只共享中性层级/standing-profile 配置 pointer/hash，runtime state、dossier、transport、admission 和 lifecycle 全部隔离。
+3. 正常 whole-tree 并行默认最多 16 个线程（含 root），只有最新用户明确指定大于 16 的数量或明确开启 `unlimited/解限` 才可抬高该上限。override 只改变 ceiling，不提供预算 lease，不得绕过宿主容量/拒绝、资源压力、层级、写集、preload、实例追溯或 max_depth，也不得自动开满；未知关键证据时 fail closed。
    `explicit_count` 也是 whole-tree 数量：root 已占 1 时，`17` 最多准入 16 个 child，准入第 17 个 child 需要最新用户明确 `explicit_count=18`。控制来源使用 `current_user_explicit`；`latest_user_explicit` 仅作兼容别名。系统内存达到 99% 时仍降回默认 16。
-3. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
-4. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
+4. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
+5. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 

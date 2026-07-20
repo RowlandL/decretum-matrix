@@ -56,7 +56,7 @@ def create_dispatchable_task(
         ).stdout
     )
     context_file = temp_root / f"{task_id}-context.json"
-    context_file.write_text(json.dumps(context_payload["context"]), encoding="utf-8")
+    context_file.write_text(json.dumps(context_payload), encoding="utf-8")
     validated = json.loads(
         run_cli(
             cli, env, "semantic-context-validate", "--context-file", str(context_file),

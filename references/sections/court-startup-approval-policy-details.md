@@ -1,9 +1,10 @@
 # Startup Approval Policy Details
 
 This shard owns the detailed authority rules for `court-startup-authority.md`.
-Load it for 三权 interpretation, approval/autonomous/super/superCC boundaries,
-packaging authority, service startup, MCP calls, multi-agente dispatch, or
-dangerous autostart review.
+Load it for the exact `approval|autonomous|super` authority domain, orthogonal
+`serial|parallel` behavior, the separate superCC runtime boundary, packaging
+authority, service startup, MCP calls, multi-agente dispatch, or dangerous
+autostart review.
 
 ## Contents
 
@@ -40,17 +41,17 @@ configuration work or the active authority allows that change.
   because an in-scope task uses multiple agente; ask or report
   `authority_blocked` only when the action crosses an unapproved path, service,
   risk, cost, privacy, external-state, hard-stop, or host-enforced gate.
-- `super并行` / `super parallel`: keep the same `super` safety authority and use
-  `topology=ordinary_parallel` with ordinary spawned subagents. It never starts
-  zellij/`squad`, visible standing offices, superCC show delays, wake rules, or
-  superCC closeout choreography.
-- `superCC` / **官署权**: inherits `super` inside the same task boundary and adds
-  a selected runtime family. Normal `superCC` uses zellij panes plus `squad`
-  plus selected client/readiness evidence; Codex, Hermes, and Claude have no
-  exception to the zellij+`squad` normal-environment gate. It is selected only when the newest user decree
-  explicitly names `superCC`; parallel dispatch, 六部并行, recursive subagente, or
-  ordinary multi-agent work is real 官署 work only under the shared office
-  abstraction, not automatically `superCC`.
+- `behavior=serial|parallel` is independent of authority, so all six authority /
+  behavior pairs are valid. `super并行` / `super parallel` means only
+  `authority=super, behavior=parallel, runtime=native`; it never starts or probes
+  zellij/`squad`, visible standing offices, superCC state, wake rules, or closeout
+  choreography.
+
+`superCC` is not an authority class. It is a distinct startup/runtime entry that
+carries one exact three-authority value and one explicit behavior. Normal superCC requires
+zellij panes, `squad`, and selected client/readiness evidence. Native and superCC
+may read the same neutral standing-office configuration pointer/hash, but must
+not share runtime state, dossiers, transports, admissions, or lifecycle paths.
 
 ## Capability Invocation
 

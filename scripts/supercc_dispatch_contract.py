@@ -13,7 +13,6 @@ from typing import Any, Callable, Mapping
 
 sys.dont_write_bytecode = True
 
-import court_runtime
 from court_semantic_continuity import (
     canonical_json_bytes,
     validate_dispatch_context_packet,
@@ -117,16 +116,19 @@ def validate_enter_dispatch_context(
             "ok": False,
             "reason": "enter_dispatch_semantic_packet_binding_mismatch",
         }
+    task_loader = runtime.get("load_supercc_tasks")
+    if not callable(task_loader):
+        return {"ok": False, "reason": "enter_dispatch_supercc_task_loader_unavailable"}
     try:
-        current_task = court_runtime.load_tasks().get(task_id)
+        current_task = task_loader().get(task_id)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return {
             "ok": False,
-            "reason": "enter_dispatch_runtime_task_unavailable",
+            "reason": "enter_dispatch_supercc_task_unavailable",
             "error": str(exc),
         }
     if not isinstance(current_task, dict):
-        return {"ok": False, "reason": "enter_dispatch_runtime_task_not_found"}
+        return {"ok": False, "reason": "enter_dispatch_supercc_task_not_found"}
     try:
         semantic_validation = validate_dispatch_context_packet(
             current_task,

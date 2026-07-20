@@ -25,23 +25,23 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
 
 ## Quick Start
 
-1. Parse three independent structured fields before runtime selection:
-   `execution_authority`, `parallel_topology`, and `carrier_kind`. Authority text
-   may set the first field; `super并行` sets only
-   `parallel_topology=ordinary_parallel`; only an explicit runtime selector
-   receipt may set `carrier_kind=supercc_cli_office`. Never infer one field from
-   another because their work states or names appear similar.
+1. Parse three independent structured fields before startup:
+   `authority=approval|autonomous|super`, `behavior=serial|parallel`, and
+   `runtime=native|superCC`. `super并行` sets only `authority=super,
+   behavior=parallel`; it never selects runtime. Native and superCC are mutually
+   exclusive entry paths and share only the neutral standing-office
+   configuration pointer/hash.
 2. Determine the approval policy:
    - If they specified `approval`, `autonomous`, or `super`, honor it inside the
-     unchanged current decree/boundary. If they specified `superCC`, honor it only
-     for the current formal decree that explicitly named `superCC`; do not reuse
-     `superCC` for later decrees unless the newest user message names it again.
+     unchanged current decree/boundary. An explicit `superCC` selects the separate
+     runtime entry and carries the separately selected three-authority value; it is not a fourth approval mode
+     and is never inherited by a later decree.
    - If no approval policy is known, ask the single 开朝 approval question.
      This is a hard intake gate for the first court turn in a conversation: a
      request that names a skill, pastes a `SKILL.md`, asks whether a tool can be
      installed, or appears to be a simple capability query still does not count
      as approval-mode selection unless it explicitly says `approval`,
-    `autonomous`, `super`, or `superCC` in the newest user message. Do not inherit a mode
+     `autonomous`, or `super` in the newest user message. Do not inherit a mode
      from older conversations, 史馆 records, current sandbox posture, a pasted
      prompt that merely describes the three modes, or an installation/config
      intention. Do not execute shell commands, write files, browse the web,
@@ -52,6 +52,14 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
      `/research`, `/debug`, or `/catalog` token as an intent hint inside
      `/court`, not as a separate workflow.
 2. Run 开朝 capability classification:
+   - Before 三省会审, derive one bounded capability query from the current
+     charter/task focus and call the pure registry-first query surface directly.
+     Cache a read-only capability snapshot when the canonical manifest is current;
+     `libu-hr` remains registry owner/maintainer and is not spawned merely to read
+     that snapshot. Profile/dossier preload may run concurrently with lookup, but
+     all three departments must receive the same receipt-bound snapshot before
+     deliberation. Missing/stale/corrupt/drift/no-match may create exactly one
+     bounded maintenance assignment and must not create a second registry.
    - 户部/史馆 ensures the shared Shiguan root exists with
      `scripts/shiguan_paths.py` / `ensure_shared_seed()`. The default root is
      `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`; all
@@ -72,8 +80,9 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
    - 开朝 records the intake token/time estimate for the decree before planning
      or dispatch. This is a fixed intake/runtime gate, not a new office,
      subagent, or dispatch target. Use `python -B scripts/court_usage_ledger.py estimate --task-id
-     <court-task-or-snapshot-id> --decree "<latest decree>" --mode
-     <approval|autonomous|super|super_parallel|superCC>` when filesystem writeback
+     <court-task-or-snapshot-id> --decree "<latest decree>" --authority
+     <approval|autonomous|super> --behavior <serial|parallel> --runtime
+     <native|superCC>` when filesystem writeback
      is available; otherwise report the same fields manually as
      `decree_usage_estimate=runtime_degraded`. The estimate must name assumptions,
      expected offices/subagents, expected tool calls, and source=`heuristic`.
@@ -148,15 +157,13 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
    - `approval` is read-only authority.
    - `autonomous` is management authority inside the user's stated scope.
    - `super` is full-control authority inside the user's stated scope.
-   - `super并行` / `super parallel` is `super` authority plus
-     `parallel_topology=ordinary_parallel`; its dispatch receipt uses only
-     `carrier_kind=child_agent|worktree_thread` and does not invoke another
-     runtime selector.
-   - `superCC` is `super` plus a selected court runtime; it is not a higher
-     safety authority. Normal `superCC` must pass the zellij+squad environment
-     gate before the court claims real 官署 mode. Codex/Hermes/Claude/generic CLI
-     client or readiness evidence is supplemental to that environment gate, not
-     a bypass.
+   - Behavior is independently `serial` or `parallel`; all six authority /
+     behavior pairs are legal. `super并行` / `super parallel` means only
+     `authority=super, behavior=parallel, runtime=native`.
+   - `superCC` is a separate startup/runtime entry, not a higher or fourth
+     safety authority. It carries the exact selected authority and must pass the zellij+squad
+     environment gate. It cannot coexist with or fall back to the native runtime
+     in one task/process.
    Under `autonomous` and `super`, sandbox escalation and operations outside the
    current workspace are allowed when they are task-scoped, path-scoped, and
    consistent with the chosen authority. If the tool runtime still requires an
@@ -178,7 +185,8 @@ Detailed approval policy now lives in
 [sections/court-startup-approval-policy-details.md](sections/court-startup-approval-policy-details.md).
 This parent section remains the stable startup authority anchor.
 
-Load the shard for approval/autonomous/super/superCC boundaries, index-first
+Load the shard for the exact approval/autonomous/super authority boundary,
+orthogonal behavior, the separate superCC runtime, index-first
 capability invocation, MCP writes, multi-agente dispatch, dangerous autostart
 review, and packaging governance.
 ## 开朝 Selection
@@ -191,7 +199,7 @@ other task modes. Those are internal court functions handled by 三省六部 and
 On the first call in a new conversation, ask only for execution approval mode
 unless the user already supplied it. Use the full Chinese prompt below:
 `already supplied` means the newest user message explicitly selects
-`approval`, `autonomous`, `super`, or `superCC`; quoting this skill's prompt, pasting a
+`approval`, `autonomous`, or `super`; quoting this skill's prompt, pasting a
 `SKILL.md`, asking whether something can be installed, or including prose that
 describes the modes is not enough.
 
@@ -200,16 +208,17 @@ describes the modes is not enough.
 - `approval`（只读权）：默认只做只读勘验、检索、读档、审议；命令执行、写入、联网、安装、配置、MCP 写操作、越工作区操作前先询问。
 - `autonomous`（管理权）：在陛下/用户给定的范围内自主执行；工作区写入、已授权路径、sandbox 提权、超工作区操作都可按任务边界办理，遇到破坏性、泄密、付费、未验证安装、私密上传或明显越旨再问。
 - `super`（完全控制权）：任务范围内自动执行，包括命令、写入、联网、配置、sandbox 提权、超工作区操作和多 agente 调度；`super` 默认请求 `yolo`/无沙盒执行，任务开始前必须说明当前 Codex 进程是否已真正以无沙盒启动；若当前进程不能热切换，则明示只能通过运行时提权门禁代行，并建议下次用 `codex --dangerously-bypass-approvals-and-sandbox` 或 `codex --sandbox danger-full-access --ask-for-approval never` 启动；是否停问由已批准边界和行为类别决定，不因多 agente 形式本身停问，只在越出路径/服务/风险/成本/隐私/外部状态边界、触及不可逆破坏、泄密、花钱、未验证安装、上传私有数据、无界代理树、明显越旨外部状态变更或宿主硬门禁时上奏。
-- `superCC`（官署权）：`super` + 运行时分流后的真实官署编排；必须由最新旨意逐次明示，不从 `super`、旧会话、默认配置或史馆记录继承。Normal `superCC` 只有 zellij+squad 官署环境：启用前确认当前在 zellij 内、有 `squad`、有所选 office client/readiness 证据、递归 agente 有界，显性核心固定为太子 agente 与三省，六部按尚书省分步计划真实派遣；监察使不再是默认启动项，只能作为显式 bounded diagnostic。Hermes CLI/desktop 与 Claude Code 可提供 client/readiness/sync 证据，但不能跳过 zellij+squad；Hermes profile 静默调用必须在对应 profile 对话/会话中留证且只算 readiness/dispatch evidence。普通并行、六部并行、recursive subagente 或多 agent 工作可是真官署办差，但不是 `superCC` runtime；它们共享同一官署本体，差别在 spawned-subagent vs visible/readiness 的实现与证据门。健康官署必须各司其职，太子主窗只转奏/综合/派发，不代三省、尚书、六部或史馆办差；尚书省必须派发六部、收齐并整理六部回奏，再统一上奏太子。活跃官署数量不再固定限为 5 个，遇 429/rate-limit 先按 `<=20/minute` 请求门禁 requeue、stagger/backoff、按上下级唤醒/重派受影响官署并记录证据，不让太子代工。设计类任务给对应六部完整但限域/脱敏的上下文包；其他任务结诏后自然释放六部；最终结诏后执行对应 runtime closeout/silence。`superCC` 不放宽破坏、泄密、付费、公网暴露、未验证安装、私密上传、危险自启或无界代理树门禁。
+行为另选 `serial|parallel`，与三权正交；`super并行` 仅表示 `authority=super, behavior=parallel, runtime=native`。
+`superCC` 不是第四权。它必须由最新旨意明确并从独立 zellij+squad startup/runtime 入口启动，携带另行选择的三权 authority 与 behavior；与 native 只共享中性官署配置 pointer/hash，不共享 task state、dossier、transport、admission 或 lifecycle，也不在同一 task/process 内切换或回退。
 默认建议：`autonomous`。任务工作流固定为 `/court`；史馆会按需查旧实录，不再单独询问归档加载。
 史馆生长树本地管理页：`web/shiguan-tree/index.html`。开朝后先用 `python -B scripts/ensure_shiguan_service_daemon.py --check-only` 探测；只有 `autonomous`/`super` 范围内或最新旨意明确批准服务写入时，才用不带 `--check-only` 的命令安装/复用隐藏登录守护进程。它后台确保局域网可访问的 8765 单端口服务与 preserve-only autosync；同机可打开 `http://127.0.0.1:8765/`，局域网设备使用脚本回报的 `lan_urls`。若守护进程确保失败，可在相同权限边界内手动运行 `python -B scripts/ensure_shiguan_web.py` 或 `python -B scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765`；不得做外网穿透或云暴露，除非陛下另有明示旨意。
 ```
 
 Do not persist the selected approval mode by default. Reuse `approval`,
 `autonomous`, or `super` within the current conversation when the task boundary
-has not changed. `superCC` is stricter: each new formal decree must explicitly
-name `superCC`, because it changes the runtime shape and may create standing
-runtime offices or supplemental Hermes/Claude readiness evidence. If the task changes, recommend an approval-policy change only when
+has not changed. Runtime selection is fixed at task/process startup and is never
+inherited or switched in place; each superCC task must explicitly enter the
+superCC runtime. If the task changes, recommend an approval-policy change only when
 the current policy cannot safely cover the new scope.
 
 After approval mode is known, immediately run the 开朝 capability check before

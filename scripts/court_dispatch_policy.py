@@ -20,6 +20,7 @@ from court_multi_agent_protocol import (
     validate_admission_instance_shape,
 )
 from court_office_bootstrap import canonical_child_office_binding_sha256
+from court_native_execution import select_native_execution
 
 
 MAX_AGENT_TREE_DEPTH = 4
@@ -28,14 +29,6 @@ DEFAULT_HIGH_PARALLEL_THREADS = 32
 # Compatibility export for the Lane G runtime until it consumes the integration
 # proposal. Dispatch policy itself never clamps a caller-supplied thread value.
 MAX_AGENT_TREE_THREADS = DEFAULT_NORMAL_PARALLEL_LIMIT
-
-
-@dataclass(frozen=True)
-class CourtMode:
-    authority: str
-    topology: str
-    runtime_family: str
-    supercc: bool
 
 
 @dataclass(frozen=True)
@@ -221,17 +214,6 @@ def _approved_binding_digest_error(
         if actual_digest != normalized_digests[instance_id]:
             return "approved_budget_binding_digest_mismatch"
     return None
-
-
-def normalize_mode(text: str) -> CourtMode:
-    normalized = " ".join(str(text).strip().casefold().replace("_", " ").split())
-    if "supercc" in normalized:
-        return CourtMode("super", "court_runtime", "visible_zellij_squad", True)
-    if "super并行" in normalized or "super parallel" in normalized:
-        return CourtMode("super", "ordinary_parallel", "spawned_subagent", False)
-    if "super" in normalized:
-        return CourtMode("super", "auto", "ordinary", False)
-    raise ValueError("explicit court authority required")
 
 
 def select_wave(
@@ -446,7 +428,7 @@ def _validate_trusted_preload_manifest(
             )
         expected_paths = {
             "profile_path": f"agents/standing-officials/{role}.toml",
-            "dossier_path": f"agents/supercc-dossiers/{role}/AGENTS.md",
+            "dossier_path": f"agents/office-dossiers/{role}/AGENTS.md",
             "skill_path": "SKILL.md",
         }
         for field, expected in expected_paths.items():
@@ -485,14 +467,14 @@ def _validate_trusted_preload_manifest(
 def validate_dispatch_plan(
     entries: list[dict[str, object]] | tuple[dict[str, object], ...],
     *,
-    mode: str = "super",
-    allow_bounded_visible_diagnostic: bool = False,
+    authority: str = "super",
+    behavior: str = "parallel",
     trusted_preload_manifest: Mapping[str, Mapping[str, object]] | None = None,
 ) -> DispatchPlan:
     if not entries:
         raise ValueError("dispatch plan must contain at least one useful role")
     _validate_trusted_preload_manifest(entries, trusted_preload_manifest)
-    court_mode = normalize_mode(mode)
+    execution = select_native_execution(authority=authority, behavior=behavior)
     role_counts: dict[str, int] = {}
     for raw in entries:
         if isinstance(raw, dict):
@@ -524,13 +506,8 @@ def validate_dispatch_plan(
         visibility = str(raw.get("visibility") or "").strip().lower()
         if visibility not in VISIBILITIES:
             raise ValueError(f"invalid visibility for {role}")
-        if not court_mode.supercc and visibility != "non_visible":
-            raise ValueError("ordinary dispatch must remain non-visible")
-        if court_mode.supercc:
-            if visibility == "visible_core" and role not in VISIBLE_CORE_ROLES:
-                raise ValueError("only taizi and three departments may be visible_core")
-            if visibility == "bounded_visible_diagnostic" and not allow_bounded_visible_diagnostic:
-                raise ValueError("bounded visible diagnostics require explicit authorization")
+        if visibility != "non_visible":
+            raise ValueError("native dispatch must remain non-visible")
         instance_key = str(raw.get("instance_key") or f"{role}#{ordinal:04d}").strip().lower()
         if not re.fullmatch(rf"{re.escape(role)}#\d{{4}}", instance_key) or instance_key in seen_instances:
             raise ValueError("office_worker_instance_identity_gate: invalid or duplicate instance_key")
@@ -585,7 +562,7 @@ def validate_dispatch_plan(
             visibility=visibility,
             runtime_family=str(
                 raw.get("runtime_family")
-                or ("visible_zellij_squad" if visibility != "non_visible" else "spawned_subagent")
+                or ("spawned_subagent" if execution.behavior == "parallel" else "inline_serial")
             ).strip(),
             role_key=str(raw.get("role_key") or role).strip().lower(),
             canonical_role_id=str(raw.get("canonical_role_id") or f"{role}#canonical").strip(),
@@ -610,7 +587,7 @@ def validate_dispatch_plan(
                 raw.get("profile_path") or f"agents/standing-officials/{role}.toml"
             ).strip(),
             dossier_path=str(
-                raw.get("dossier_path") or f"agents/supercc-dossiers/{role}/AGENTS.md"
+                raw.get("dossier_path") or f"agents/office-dossiers/{role}/AGENTS.md"
             ).strip(),
             skill_path=str(raw.get("skill_path") or "SKILL.md").strip(),
             profile_hash=profile_hash,
@@ -686,15 +663,5 @@ def validate_dispatch_plan(
             if any(item.remaining_super_giant is not True for item in instances):
                 raise ValueError(
                     "super_giant_scale_reassessment_gate: scale-out must downgrade"
-                )
-        if court_mode.supercc:
-            visible = [item for item in instances if item.visibility != "non_visible"]
-            if len(visible) > 1 or any(
-                not item.canonical_authority
-                or item.runtime_family != "visible_zellij_squad"
-                for item in visible
-            ):
-                raise ValueError(
-                    "supercc_canonical_visibility_gate: extra instances must remain ordinary non-visible workers"
                 )
     return DispatchPlan(tuple(normalized), tuple(item.role for item in normalized), ())

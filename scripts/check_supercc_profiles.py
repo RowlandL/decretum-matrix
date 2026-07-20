@@ -197,7 +197,8 @@ def validate_dossier(role_key: str) -> dict[str, object]:
         for term in (
             "user-facing",
             "三权",
-            "approval/autonomous/super/superCC",
+            "approval/autonomous/super",
+            "enter superCC only through its explicit separate runtime",
             "relay one plain clarification question",
         ):
             if term not in text:

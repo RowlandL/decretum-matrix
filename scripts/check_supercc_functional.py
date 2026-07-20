@@ -133,6 +133,17 @@ def prepare_functional_runtime_fixture(runtime_root: Path) -> None:
                 note="functional semantic checkpoint",
             )
         ).task
+        (runtime_root / "supercc-tasks.json").write_text(
+            json.dumps(
+                {
+                    "schema": "court.supercc.task_store.v1",
+                    "tasks": {task_id: FUNCTIONAL_TASK},
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
     finally:
         if previous_root is None:
             os.environ.pop("COURT_RUNTIME_ROOT", None)
@@ -149,7 +160,7 @@ def require(condition: bool, message: str) -> None:
 def functional_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     if FUNCTIONAL_RUNTIME_ROOT is not None:
-        env["COURT_RUNTIME_ROOT"] = str(FUNCTIONAL_RUNTIME_ROOT)
+        env["COURT_SUPERCC_RUNTIME_ROOT"] = str(FUNCTIONAL_RUNTIME_ROOT)
     return env
 
 

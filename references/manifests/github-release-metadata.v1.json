@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.0-hotfix-v2",
+  "latest_tag": "beta1.0.1",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -93,6 +93,19 @@
         "v1 保留不可变发布证据，v2 使用 1.0.0-beta.0.hotfix.2 取代。"
       ],
       "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix-v2 release notes。"
+    },
+    {
+      "tag": "beta1.0.1",
+      "title": "Decretum Matrix beta1.0.1",
+      "summary": "本版本修复开朝启动、三权/行为正交语义、native 与 superCC 隔离，以及 semantic revision 的零差遣失败边界。",
+      "highlights": [
+        "authority 固定为 approval/autonomous/super，behavior 固定为 serial/parallel，六种组合均由结构化 receipt 验证。",
+        "普通 super parallel 不探测 superCC；两种 runtime 仅共享中性层级和 standing-profile pointer/hash。",
+        "无效 authority revision 在 admission 前失败，dispatch_count 为 0 且不可手工绕过。",
+        "真实 capability snapshot 在三省审议前解析并缓存，覆盖 skill、MCP、plugin、CLI 和 script 分配。",
+        "npm 使用 1.0.1-beta.0，并继续通过 beta dist-tag 分发。"
+      ],
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 beta1.0.1 release notes。"
     }
   ]
 }

@@ -14,7 +14,8 @@ sys.dont_write_bytecode = True
 
 import court_agent_admission as _admission
 import court_multi_agent_protocol as _protocol
-from court_dispatch_policy import normalize_mode, select_wave as _select_wave, validate_dispatch_plan
+from court_dispatch_policy import select_wave as _select_wave, validate_dispatch_plan
+from court_native_execution import AUTHORITIES, BEHAVIORS, select_native_execution
 from court_multi_agent_protocol import admit_roles as _admit_roles
 from court_office_bootstrap import canonical_child_office_binding_sha256
 
@@ -332,18 +333,15 @@ def admit_roles(**kwargs: object) -> object:
 
 
 def check_mode_semantics() -> dict[str, object]:
-    parallel = normalize_mode("super并行")
-    require(parallel.authority == "super", "super并行 lost super authority")
-    require(parallel.topology == "ordinary_parallel", "super并行 did not select ordinary parallel topology")
-    require(parallel.runtime_family == "spawned_subagent", "super并行 selected the wrong runtime family")
-    require(not parallel.supercc, "super并行 incorrectly activated superCC")
-
-    supercc = normalize_mode("superCC")
-    require(supercc.authority == "super", "superCC lost super authority")
-    require(supercc.topology == "court_runtime", "superCC did not select court runtime topology")
-    require(supercc.runtime_family == "visible_zellij_squad", "superCC selected the wrong runtime family")
-    require(supercc.supercc, "superCC was not explicit")
-    return {"super_parallel": parallel.__dict__, "supercc": supercc.__dict__}
+    combinations: list[dict[str, object]] = []
+    for authority in sorted(AUTHORITIES):
+        for behavior in sorted(BEHAVIORS):
+            selection = select_native_execution(authority=authority, behavior=behavior)
+            require(selection.authority == authority, "structured authority drift")
+            require(selection.behavior == behavior, "structured behavior drift")
+            combinations.append(selection.as_dict())
+    require(len(combinations) == 6, "authority/behavior cartesian product incomplete")
+    return {"cartesian": combinations}
 
 
 def check_dynamic_capacity() -> dict[str, object]:
@@ -910,7 +908,7 @@ def _initialize_dispatch_preload(root: Path) -> None:
     skill_hash = hashlib.sha256(skill.read_bytes()).hexdigest()
     for role in TARGET_SUPERIORS:
         profile_rel = f"agents/standing-officials/{role}.toml"
-        dossier_rel = f"agents/supercc-dossiers/{role}/AGENTS.md"
+        dossier_rel = f"agents/office-dossiers/{role}/AGENTS.md"
         profile = root / profile_rel
         dossier = root / dossier_rel
         profile.parent.mkdir(parents=True, exist_ok=True)
@@ -942,7 +940,8 @@ def check_dispatch_plan() -> dict[str, object]:
     ]
     plan = validate_dispatch_plan(
         valid_entries,
-        mode="super并行",
+        authority="super",
+        behavior="parallel",
         trusted_preload_manifest=_dispatch_manifest(valid_entries),
     )
     require(plan.roles == ("libu", "xingbu"), "dispatch plan forced unrelated ministries")
@@ -965,7 +964,11 @@ def check_dispatch_plan() -> dict[str, object]:
         [{**dispatch_item("gongbu", "工部", "build"), "skill_path": "references/SKILL.md"}],
     ]
     try:
-        validate_dispatch_plan([dispatch_item("gongbu", "工部", "build")], mode="super并行")
+        validate_dispatch_plan(
+            [dispatch_item("gongbu", "工部", "build")],
+            authority="super",
+            behavior="parallel",
+        )
     except ValueError as exc:
         require("exact_preload_contract_gate" in str(exc), f"unexpected missing-manifest rejection: {exc!s}")
     else:
@@ -975,7 +978,8 @@ def check_dispatch_plan() -> dict[str, object]:
         try:
             validate_dispatch_plan(
                 case,
-                mode="super并行",
+                authority="super",
+                behavior="parallel",
                 trusted_preload_manifest=_dispatch_manifest(case),
             )
         except ValueError:

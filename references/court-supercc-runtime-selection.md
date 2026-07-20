@@ -30,11 +30,16 @@ working state is not an entry condition.
 
 ## Runtime Families
 
-`superCC` 不是高于 `super` 的安全权威；它是 `super` 权限内的一种官署运行形态。它和普通并行 spawned-subagent 官署指向同一个官署本体，但 `superCC` 选择了更强的可见 runtime、wake、identity、uniqueness 和 closeout 证据门禁。每次使用必须由最新旨意显式点名 `superCC`，并在开朝后先生成 `runtime_selector_result`：
+`superCC` 不是高于三权的安全权威，也不是 native runtime 的可切换模式。它是独立 startup/runtime 入口，携带一个精确 `approval|autonomous|super` authority 与一个显式 `serial|parallel` behavior。native 与 superCC 不得在同一 task/process 共存、切换或相互回退；二者只读取同一中性层级/standing-profile 配置 pointer/hash，runtime state、task store、dossier、transport、admission 与 lifecycle 均隔离。每次使用必须由最新旨意显式点名 `superCC`，并先生成结构化 execution receipt：
 
 ```text
 runtime_selection_gate: PASSED | runtime_degraded | authority_blocked
+execution_entry_path: supercc
+execution_authority: approval | autonomous | super
+execution_behavior: serial | parallel
 supercc_runtime_family: visible_zellij_squad
+state_namespace: court.supercc.task
+state_root: COURT_SUPERCC_RUNTIME_ROOT | court-runtime/supercc
 runtime_client: auto | codex | hermescli | hermes_desktop_readiness | claude | cli
 source_agent_label: Codex | Hermes | Claude | GenericCLI
 supercc_normal_env_requirement: zellij+squad
@@ -66,7 +71,7 @@ Required evidence:
 
 When the controlling process is not inside zellij, use `--zellij-session <name>` or rely on the launcher auto-selecting the newest active session containing `S Taizi #0001`. `zellij action list-panes` output that asks the caller to specify a session is not pane evidence and must be `runtime_degraded`, not a display pass.
 
-`--turn-start --reclaim-existing` is the live turn-start action, not the read-only gate. It may reopen panes, release/archive stale identities, send the squad wake/control note first, native-enter the generated wrapper receive command for 三省, and write court-runtime state; use it only after `superCC` is explicitly open and live runtime mutation is allowed.
+`--turn-start --reclaim-existing` is the live turn-start action, not the read-only gate. It may reopen panes, release/archive stale identities, send the squad wake/control note first, native-enter the generated wrapper receive command for 三省, and write only the superCC state root; use it only after `superCC` is explicitly open and live runtime mutation is allowed. It must not read or mutate native `COURT_RUNTIME_ROOT` task state.
 
 `scripts/supercc_office_state.py` owns the v1/v2 office-state schemas, normalized
 workspace+zellij-session context ids, fail-closed validation, atomic state

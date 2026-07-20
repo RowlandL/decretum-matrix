@@ -23,6 +23,9 @@ import court_open_fastpath
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path(__file__).resolve()
 ROLES = (*court_open_fastpath.THREE_DEPARTMENTS, *court_open_fastpath.SIX_MINISTRIES)
+ACCEPTED_WARM_FAST_P50_MS = 9.057
+MAX_WARM_FAST_REGRESSION_PERCENT = 10.0
+MAX_WARM_CAPABILITY_LOOKUP_P50_MS = 50.0
 
 
 class BenchmarkRuntime:
@@ -88,7 +91,7 @@ def _identity(path: Path) -> tuple[dict[str, object], list[list[str]]]:
     return (
         {
             "path": str(path.resolve()),
-            "branch": "release/beta1.0.0-hotfix-v2",
+            "branch": "release/beta1.0.1",
             "HEAD": "5" * 40,
             "index_count": 0,
             "tracked_dirty_count": 0,
@@ -102,6 +105,7 @@ def _request() -> dict[str, object]:
         "schema": court_open_fastpath.REQUEST_SCHEMA,
         "task_id": "cli-performance-fixture",
         "authority": "super",
+        "behavior": "parallel",
         "worktree": str(ROOT),
         "skill_root": str(ROOT),
         "host_capacity": 16,
@@ -112,11 +116,12 @@ def _request() -> dict[str, object]:
         "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
         "include_shangshu_ministries": True,
         "write_sets": {},
-        "expected_branch": "release/beta1.0.0-hotfix-v2",
+        "expected_branch": "release/beta1.0.1",
         "expected_head": "5" * 40,
         "expected_semantic_receipt_sha256": "1" * 64,
         "expected_plan_sha256": "4" * 64,
         "transport": "codex",
+        "task_focus": "fast court open performance fixture",
         "expires_at_utc": "2099-01-01T00:00:00+00:00",
     }
 
@@ -134,6 +139,8 @@ def _fast_operation() -> dict[str, object]:
         "packet_sha256": result["packet_sha256"],
         "operation_id": result["operation_id"],
         "python_processes": 1,
+        "capability_lookup_ms": result["capability_lookup_ms"],
+        "capability_cache_status": result["capability_cache_status"],
         "max_loaded_bytes": max(
             int(item["loaded_bytes"]) for item in result["preloads"]
         ),
@@ -251,6 +258,7 @@ def benchmark(samples: int) -> dict[str, object]:
     _legacy_operation()
     warm_fast: list[float] = []
     warm_legacy: list[float] = []
+    warm_capability_lookup: list[float] = []
     for index in range(samples):
         first, second = (
             (("fast", _fast_operation), ("legacy", _legacy_operation))
@@ -261,6 +269,7 @@ def benchmark(samples: int) -> dict[str, object]:
             elapsed, receipt = _sample(operation)
             if label == "fast":
                 warm_fast.append(elapsed)
+                warm_capability_lookup.append(float(receipt["capability_lookup_ms"]))
                 fast_receipts.append(str(receipt["packet_sha256"]))
             else:
                 warm_legacy.append(elapsed)
@@ -270,6 +279,18 @@ def benchmark(samples: int) -> dict[str, object]:
     warm = {"legacy": _summary(warm_legacy), "fast": _summary(warm_fast)}
     cold_improvement = _improvement(cold["legacy"], cold["fast"])
     warm_improvement = _improvement(warm["legacy"], warm["fast"])
+    warm_capability = _summary(warm_capability_lookup)
+    warm_fast_limit_ms = ACCEPTED_WARM_FAST_P50_MS * (
+        1.0 + MAX_WARM_FAST_REGRESSION_PERCENT / 100.0
+    )
+    warm_fast_regression = round(
+        (
+            (float(warm["fast"]["p50_ms"]) - ACCEPTED_WARM_FAST_P50_MS)
+            / ACCEPTED_WARM_FAST_P50_MS
+        )
+        * 100.0,
+        2,
+    )
     deterministic = len(set(fast_receipts)) == 1 and len(set(legacy_receipts)) == 1
     fast_probe = _fast_operation()
     legacy_probe = _legacy_operation()
@@ -281,6 +302,8 @@ def benchmark(samples: int) -> dict[str, object]:
         <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
         and cold_improvement >= 30.0
         and warm_improvement >= 30.0
+        and float(warm["fast"]["p50_ms"]) <= warm_fast_limit_ms
+        and float(warm_capability["p50_ms"]) <= MAX_WARM_CAPABILITY_LOOKUP_P50_MS
     )
     return {
         "schema": "decretum.cli_performance_check.v1",
@@ -303,6 +326,11 @@ def benchmark(samples: int) -> dict[str, object]:
         "warm": warm,
         "cold_p50_improvement_percent": cold_improvement,
         "warm_p50_improvement_percent": warm_improvement,
+        "accepted_warm_fast_p50_ms": ACCEPTED_WARM_FAST_P50_MS,
+        "warm_fast_limit_ms": round(warm_fast_limit_ms, 3),
+        "warm_fast_regression_percent": warm_fast_regression,
+        "warm_capability_lookup": warm_capability,
+        "warm_capability_lookup_limit_ms": MAX_WARM_CAPABILITY_LOOKUP_P50_MS,
         "deterministic_receipts": deterministic,
         "max_fast_preload_bytes": fast_probe["max_loaded_bytes"],
         "preload_target_bytes": court_open_fastpath.MINIMAL_PRELOAD_BYTES,

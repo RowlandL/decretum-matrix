@@ -16,7 +16,7 @@ npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 decretum-matrix --format json --help
 ```
 
-当前源码候选为 `1.0.0-beta.0.hotfix.2`。安装命令解析到 registry 已发布的 `beta`；
+当前源码候选为 `1.0.1-beta.0`。安装命令解析到 registry 已发布的 `beta`；
 实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
 `read:packages`，且不得持久化 token。
 
@@ -28,9 +28,9 @@ decretum-matrix --format json --help
 $decretum-matrix
 ```
 
-随后直接描述任务和边界。普通并行只写入 `ordinary_parallel` topology，并通过
-`child_agent` / `worktree_thread` carrier 指向普通官署 dossier；可见 CLI/pane
-运行面只能由独立的显式 runtime selector 选择。
+随后直接描述任务和边界。`approval|autonomous|super` authority 与
+`serial|parallel` behavior 独立；普通 `super parallel` 固定走 native。superCC
+只由独立显式入口启动，两种 runtime 不在同一 task/process 中切换或回退。
 
 ## 能做什么
 
@@ -58,12 +58,12 @@ $decretum-matrix
 
 ## 当前版本
 
-当前源码分支为 `release/beta1.0.0-hotfix-v2`，发布身份以 [`VERSION`](VERSION) 和
+当前源码分支为 `release/beta1.0.1`，发布身份以 [`VERSION`](VERSION) 和
 [`release-manifest.json`](release-manifest.json) 为准。tag、GitHub Release、npm
 以及线上 Wiki 的成功状态只由对应发布回执证明。
 
-`hotfix-v1` 保留不可变发布证据；`hotfix-v2` 修复其 Windows GBK npm
-`postinstall` 最终 JSON 输出失败。
+`beta1.0.1` 修复启动语义与 capability snapshot 快路；`beta1.0.0` 及两个
+hotfix tag 继续保留不可变历史证据。
 
 ## 许可
 

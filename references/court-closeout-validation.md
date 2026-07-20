@@ -323,6 +323,13 @@ metadata_precision: PASSED | PARTIAL | FAILED | NOT_APPLICABLE, with exact linea
 body_reference_policy: PASSED | PARTIAL | FAILED | NOT_APPLICABLE, confirming bodies, quotes, logs, transcripts, and imported materials were summarized or cited compactly instead of copied wholesale
 on_demand_loading: PASSED | PARTIAL | FAILED | NOT_APPLICABLE, confirming the court loaded only the needed governing references, compact Shiguan hits, source ranges, imports, or runtime artifacts
 runtime_selection_gate: NOT_APPLICABLE | PASSED | runtime_degraded | authority_blocked, with selected visible zellij+squad branch and client/readiness evidence
+execution_authority: approval | autonomous | super
+execution_behavior: serial | parallel
+execution_runtime: native | superCC, selected only by the distinct startup entry
+execution_receipt: court.execution.native.v1 | court.execution.supercc.v1, with entry_path, transport, state_namespace, and neutral office_config pointer/hash; native and superCC values must never appear as candidates or coexist in one task/process
+court_open_capability_snapshot: NOT_APPLICABLE | PASSED | FAILED, with snapshot schema/hash, registry path/hash/state, cache HIT|MISS, lookup milliseconds, proposed skill/MCP/plugin/CLI/script allocations, and proof that snapshot plus office preload completed before Three Departments deliberation
+court_open_dispatch_count: integer, required to be zero for serial behavior and every fail-closed semantic rejection
+court_open_manual_bypass_allowed: false for every fail-closed semantic rejection
 supercc_runtime_family: NOT_APPLICABLE | visible_zellij_squad
 runtime_client: NOT_APPLICABLE | auto | codex | hermescli | hermes_desktop_readiness | claude | cli
 runtime_selector_result: NOT_APPLICABLE or structured selector output path/summary

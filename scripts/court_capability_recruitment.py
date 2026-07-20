@@ -14,8 +14,8 @@ from urllib.parse import urlsplit
 sys.dont_write_bytecode = True
 
 SCHEMA = "court.capability_recruitment.v1"
-AUTHORITIES = {"unset", "approval", "autonomous", "super", "superCC"}
-NETWORK_AUTHORITIES = {"autonomous", "super", "superCC"}
+AUTHORITIES = {"approval", "autonomous", "super"}
+NETWORK_AUTHORITIES = {"autonomous", "super"}
 PUBLIC_PROVENANCE_FIELDS = (
     "kind",
     "name",
@@ -594,7 +594,7 @@ def _validate_inputs(payload: Mapping[str, object]) -> dict[str, object]:
         authority = "unset"
     else:
         authority = authority_raw.strip()
-        if authority not in AUTHORITIES:
+        if authority != "unset" and authority not in AUTHORITIES:
             errors.append("INVALID_AUTHORITY_VALUE")
             authority = "unset"
 

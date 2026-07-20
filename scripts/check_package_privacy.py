@@ -1238,7 +1238,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
     def test_root_release_allowlist_accepts_known_files_and_rejects_unknown(self) -> None:
         allowed = validation_problems(
             [
-                (f"{ROOT_NAME}/VERSION", b"beta1.0.0-hotfix-v2\n"),
+                (f"{ROOT_NAME}/VERSION", b"beta1.0.1\n"),
                 (f"{ROOT_NAME}/CHANGELOG.md", b"# Changelog\n"),
                 (f"{ROOT_NAME}/RELEASE-LOG.md", b"# Release log\n"),
                 (
@@ -1246,7 +1246,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                     (
                         '{"name":"decretum-matrix","display_name":"Decretum Matrix（诏令矩阵）",'
                         '"package_name":"decretum-matrix",'
-                        '"release_label":"beta1.0.0-hotfix-v2","artifact_name":"decretum-matrix-beta1.0.0-hotfix-v2.zip",'
+                        '"release_label":"beta1.0.1","artifact_name":"decretum-matrix-beta1.0.1.zip",'
                         '"archive_root":"decretum-matrix/","license":{"declared":"AGPL-3.0-only",'
                         '"file":"LICENSE"}}\n'
                     ).encode("utf-8"),
@@ -1266,7 +1266,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta1.0.0-hotfix-v2","licenseDeclared":"AGPL-3.0-only"}]}\n',
+                    b'"versionInfo":"beta1.0.1","licenseDeclared":"AGPL-3.0-only"}]}\n',
                 ),
             ]
         )
@@ -1299,7 +1299,7 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                 (
                     f"{ROOT_NAME}/SBOM.spdx.json",
                     b'{"spdxVersion":"SPDX-2.3","packages":[{"name":"decretum-matrix",'
-                    b'"versionInfo":"beta1.0.0-hotfix-v2","licenseDeclared":"Apache-2.0"}]}\n',
+                    b'"versionInfo":"beta1.0.1","licenseDeclared":"Apache-2.0"}]}\n',
                 )
             ]
         )
@@ -1332,12 +1332,12 @@ class PackageBuildTests(unittest.TestCase):
             getattr(package_skill, "DISPLAY_NAME", None),
             "Decretum Matrix（诏令矩阵）",
         )
-        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta1.0.0-hotfix-v2")
+        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta1.0.1")
         self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")
         self.assertEqual(package_skill.ROOT_NAME, "decretum-matrix")
         self.assertEqual(
             package_skill.default_out().name,
-            "decretum-matrix-beta1.0.0-hotfix-v2.zip",
+            "decretum-matrix-beta1.0.1.zip",
         )
         self.assertTrue(package_skill.should_skip(Path(".github"), is_dir=True))
 

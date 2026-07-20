@@ -275,11 +275,11 @@ Semantic invariants:
   It never expands the user's purpose, waives hard safety stops, authorizes
   unbounded agent trees, or converts a sandboxed Codex runtime into true
   no-sandbox execution.
-- `super并行` / `super parallel` does not add an authority. It resolves to
-  `authority=super`, `topology=ordinary_parallel`, and the ordinary
-  spawned-subagent runtime family. It must not activate zellij/`squad`, visible
-  standing offices, superCC show delays, wake choreography, or superCC closeout
-  gates.
+- Authority is exactly `approval|autonomous|super`; behavior is exactly
+  `serial|parallel`, and all six combinations are valid. `super并行` / `super
+  parallel` means only `authority=super, behavior=parallel` on the native entry.
+  Native and superCC are mutually exclusive startup/runtime environments and
+  share only the neutral standing-office configuration pointer/hash.
 - `任务边界内` requires a concrete goal plus object/path/service boundaries,
   allowed action types, and a verification or rollback story. Broad phrases such
   as "this machine", "all projects", or "everything" are not enough to justify

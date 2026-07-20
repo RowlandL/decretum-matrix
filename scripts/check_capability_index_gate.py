@@ -18,6 +18,7 @@ sys.dont_write_bytecode = True
 
 from shiguan_paths import reference_path
 from court_capability_recruitment import (
+    AUTHORITIES,
     SEARCHABLE_CANDIDATE_KINDS,
     evaluate_recruitment,
     redact_discovery_query,
@@ -906,7 +907,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--authority", choices=["unset", "approval", "autonomous", "super", "superCC"], default="unset")
+    parser.add_argument("--authority", choices=["unset", *sorted(AUTHORITIES)], default="unset")
     parser.add_argument("--network-discovery-approved", action="store_true")
     parser.add_argument("--no-network", action="store_true")
     parser.add_argument("--require-dispatchable", action="store_true")

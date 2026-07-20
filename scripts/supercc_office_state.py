@@ -19,18 +19,22 @@ from court_platform import user_data_base
 SUPERCC_STATE_SCHEMA_V1 = "court.supercc.office_state.v1"
 SUPERCC_STATE_SCHEMA = "court.supercc.office_state.v2"
 SUPERCC_HEALTH_SCHEMA = "court.supercc.turn_start_health.v1"
+SUPERCC_TASK_STORE_SCHEMA = "court.supercc.task_store.v1"
 StateEnricher = Callable[[str, dict[str, Any]], dict[str, Any]]
 AtomicWriter = Callable[[Path, str], None]
 
 
 def shiguan_runtime_path(*parts: str) -> Path:
+    configured = os.environ.get("COURT_SUPERCC_RUNTIME_ROOT")
+    if configured:
+        return Path(configured).joinpath(*parts)
     scripts_dir = Path(__file__).resolve().parent
     if str(scripts_dir) not in sys.path:
         sys.path.insert(0, str(scripts_dir))
     try:
         from shiguan_paths import reference_path  # type: ignore
 
-        return reference_path("court-runtime", *parts)
+        return reference_path("court-runtime", "supercc", *parts)
     except Exception:
         fallback = (
             user_data_base()
@@ -38,6 +42,7 @@ def shiguan_runtime_path(*parts: str) -> Path:
             / "court-capability-router"
             / "references"
             / "court-runtime"
+            / "supercc"
         )
         return fallback.joinpath(*parts)
 
@@ -52,6 +57,23 @@ def office_health_path() -> Path:
 
 def supercc_runtime_lock_path() -> Path:
     return shiguan_runtime_path("supercc-runtime.lock")
+
+
+def supercc_tasks_path() -> Path:
+    return shiguan_runtime_path("supercc-tasks.json")
+
+
+def load_supercc_tasks() -> dict[str, dict[str, Any]]:
+    path = supercc_tasks_path()
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("schema") != SUPERCC_TASK_STORE_SCHEMA:
+        raise ValueError("supercc_task_store_schema_invalid")
+    tasks = payload.get("tasks")
+    if not isinstance(tasks, dict) or any(not isinstance(value, dict) for value in tasks.values()):
+        raise ValueError("supercc_task_store_invalid")
+    return {str(key): dict(value) for key, value in tasks.items()}
 
 
 def normalized_office_context(

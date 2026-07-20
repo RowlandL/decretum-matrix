@@ -1,5 +1,17 @@
 # Release Notes
 
+## beta1.0.1
+
+- authority 精确为 `approval|autonomous|super`，behavior 精确为
+  `serial|parallel`；两者正交，六种组合均有结构化回归。
+- 普通 super parallel 只走 native；superCC 使用独立入口、task store、dossier、
+  transport、admission 和 lifecycle，不与 native 共存、切换或回退。
+- 修复 semantic template 生产者/消费者不一致；无效 authority revision 在准入前
+  fail closed，保持零 dispatch 与无手工绕过。
+- capability snapshot 在三省审议前解析并缓存，覆盖 skill、MCP、plugin、CLI 和
+  script 建议，无需为只读 snapshot 派生吏部官署。
+- npm 版本为 `1.0.1-beta.0`，继续使用 `beta` dist-tag。
+
 ## beta1.0.0-hotfix-v2
 
 状态：Windows npm online-install 修复候选；最终状态由新 tag、Release、npm 与

@@ -70,8 +70,12 @@ def main() -> int:
                 "usage-test",
                 "--decree",
                 "super parallel add usage accounting",
-                "--mode",
-                "super_parallel",
+                "--authority",
+                "super",
+                "--behavior",
+                "parallel",
+                "--runtime",
+                "native",
                 "--roles",
                 "hubu,gongbu,xingbu",
                 "--subagent-count",
@@ -136,7 +140,9 @@ def main() -> int:
         )
         summary = run(script, ["summary", "--task-id", "usage-test"], env)
         assert summary["kind"] == "usage_summary"
-        assert summary["latest_estimate"]["mode"] == "super_parallel"
+        assert summary["latest_estimate"]["authority"] == "super"
+        assert summary["latest_estimate"]["behavior"] == "parallel"
+        assert summary["latest_estimate"]["runtime"] == "native"
         assert summary["actual"]["total_tokens"] >= 150
         assert summary["actual"]["precision"] == "mixed"
         assert summary["actual"]["token_usage_precision"] == "mixed"

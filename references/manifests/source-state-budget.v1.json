@@ -92,10 +92,14 @@
   },
   "hard_limits": {
     "portable_source": {
-      "max_files": 294,
-      "max_bytes": 6600000
+      "max_files": 298,
+      "max_bytes": 6650000
     },
     "source_lines": {
+      "scripts/check_startup_fastpath_contract.py": 520,
+      "scripts/court_native_execution.py": 100,
+      "scripts/court_office_config.py": 120,
+      "scripts/court_supercc_execution.py": 100,
       "scripts/ensure_supercc_court.py": 5700,
       "scripts/supercc_dispatch_contract.py": 500,
       "scripts/supercc_dispatch_delivery.py": 1100,
