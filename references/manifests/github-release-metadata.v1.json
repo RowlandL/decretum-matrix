@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.1",
+  "latest_tag": "beta1.0.2",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -9,6 +9,18 @@
     "latest_must_match_version": true
   },
   "releases": [
+    {
+      "tag": "beta1.0.2",
+      "title": "Decretum Matrix beta1.0.2",
+      "summary": "本版本围绕诏令式多-agent 协作、场景分流、史馆/GBrain/Git 联邦边界，以及项目级发布/安装门禁分层进行整理，并保留 beta0.5.9 与后续明确新增能力。",
+      "highlights": [
+        "技能定义收敛为围绕“诏令”的多-agent 协作体系；默认正式路径仍是三省六部，并按场景分流闲聊、轻量任务、正式任务、纠正、延续和主动结诏。",
+        "beta0.5.9 已有能力和用户明确新增功能不因提速被删除；项目级 release/install/legal/package/manifest 门禁保留在项目层，不混入普通 Skill 启动链。",
+        "史馆基础记录/查询、GBrain 整理沉淀、Git 联邦管理保持分层；GBrain 不替代基础召回，Git 联邦只作为显式管理面。",
+        "外部 CWD 下 CLI 以调用者目录解析相对路径，项目级检查/发布命令仍从代码根执行。"
+      ],
+      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。"
+    },
     {
       "tag": "beta0.5.10",
       "title": "Decretum Matrix beta0.5.10",

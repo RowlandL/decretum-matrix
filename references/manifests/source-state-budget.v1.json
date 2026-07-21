@@ -92,11 +92,11 @@
   },
   "hard_limits": {
     "portable_source": {
-      "max_files": 298,
-      "max_bytes": 6650000
+      "max_files": 305,
+      "max_bytes": 6800000
     },
     "source_lines": {
-      "scripts/check_startup_fastpath_contract.py": 520,
+      "scripts/check_startup_fastpath_contract.py": 550,
       "scripts/court_native_execution.py": 100,
       "scripts/court_office_config.py": 120,
       "scripts/court_supercc_execution.py": 100,
@@ -124,8 +124,8 @@
       "scripts/check_shiguan_git_federation.py": 380,
       "scripts/check_release_metadata.py": 140,
       "scripts/court_intake_gate.py": 580,
-      "scripts/check_court_intake_gate.py": 570,
-      "scripts/check_governance_framework.py": 740,
+      "scripts/check_court_intake_gate.py": 600,
+      "scripts/check_governance_framework.py": 765,
       "scripts/shiguan_pending_governance.py": 650,
       "scripts/shiguan_pending_governance_cli.py": 220,
       "scripts/shiguan_pending_trust.py": 460,

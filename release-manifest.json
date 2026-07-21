@@ -615,8 +615,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/github-release-metadata.v1.json",
-      "sha256": "949891e2b38bb8c675f5c683b498683917bbdc4a97411057618124aa4813bb21",
-      "size": 6814
+      "sha256": "9b37a9a617746bc42b36f062578dc152dba66092086ee565dc796ca759d70876",
+      "size": 7954
     },
     {
       "mode": "100644",
@@ -645,7 +645,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "c92660d8e7cc8d88b17be8277459d480e47400fb1aa603a4ffe01405ff7d11dd",
+      "sha256": "06f7f358533afd9ce3888c207ede034a4c70c53ede6e20c4207026be7e4cdfab",
       "size": 4416
     },
     {
@@ -1840,10 +1840,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6526420,
+    "payload_bytes": 6527560,
     "payload_file_count": 301,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "46c1f76b8bd438bda006cc8d88709e6621d2659d3a5d5331863ecfac3e3df55b",
+    "payload_index_sha256": "b22e0705986539d9eb52623d6dcfb6d5516bf5b5193bd4ca042b38fecffc457b",
     "source_packaged_tracked_file_count": 293,
     "source_tracked_file_count": 335
   },
