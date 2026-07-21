@@ -27,6 +27,31 @@ GROUP_DESCRIPTIONS = {
     "release": "package and release validation commands",
     "check": "focused validation commands and the aggregate check",
 }
+PROJECT_ROOT_GROUPS = frozenset({"check", "release"})
+DAILY_HELP_COMMANDS: dict[str, tuple[str, ...]] = {
+    "court": (
+        "closeout-session",
+        "intake-schema",
+        "intake-template",
+        "intake-validate",
+        "open",
+        "status",
+    ),
+    "office": ("admit", "close", "finish", "preload-ack", "report", "start"),
+    "shiguan": (
+        "archive-checkpoint",
+        "build-shiguan-knowledge-graph",
+        "grow-shiguan-tree",
+        "memory-decision",
+        "query-shiguan-index",
+        "shiguan-git-federation",
+        "tidy-shiguan-records",
+    ),
+    "supercc": ("supercc-squad",),
+    "install": ("migrate", "rollback", "update"),
+    "release": (),
+    "check": ("all",),
+}
 COURT_RUNTIME_HINTS = (
     "admission-schema",
     "admission-template",
@@ -86,6 +111,22 @@ class InvocationResult:
     loader: str
     legacy_path: str | None
     normalization_notes: tuple[str, ...] = ()
+
+
+def command_cwd(group: str, invocation_cwd: Path) -> Path:
+    """Return the working directory for a command group.
+
+    Skill/runtime commands keep the user's invocation directory so relative
+    request files and user paths mean what the caller wrote. Project engineering
+    commands remain code-root bound because they validate this source tree.
+    """
+
+    return ROOT if group in PROJECT_ROOT_GROUPS else invocation_cwd
+
+
+def resolve_user_path(value: str, invocation_cwd: Path) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else invocation_cwd / path
 
 
 def _authority_requirement(side_effect: str) -> str:
@@ -169,16 +210,21 @@ def render_group_help(group: str) -> str:
     if group not in GROUP_ORDER:
         raise CliUsageError(f"unknown command group: {group}")
     records = load_registry()
-    commands = {command for record_group, command in records if record_group == group}
+    available = {command for record_group, command in records if record_group == group}
     if group == "court":
-        commands.update(COURT_RUNTIME_HINTS)
-        commands.add("open")
+        available.update(COURT_RUNTIME_HINTS)
+        available.update(("closeout-session", "open"))
     elif group == "office":
-        commands.update(OFFICE_RUNTIME_COMMANDS)
+        available.update(OFFICE_RUNTIME_COMMANDS)
     elif group == "install":
-        commands.update(("update", "migrate", "rollback"))
+        available.update(("update", "migrate", "rollback"))
     elif group == "check":
-        commands.add("all")
+        available.add("all")
+    commands = {
+        command
+        for command in DAILY_HELP_COMMANDS.get(group, ())
+        if command in available or group in {"court", "office", "install", "check"}
+    }
     rows = [
         f"Decretum Matrix {group} commands",
         "",
@@ -186,7 +232,18 @@ def render_group_help(group: str) -> str:
         "",
         "Commands:",
     ]
-    rows.extend(f"  {command}" for command in sorted(commands))
+    if commands:
+        rows.extend(f"  {command}" for command in sorted(commands))
+    else:
+        rows.append("  (project-stage commands are available by explicit command or direct script)")
+    if len(available) > len(commands):
+        rows.extend(
+            (
+                "",
+                "Note:",
+                "  Default help shows the daily Skill surface; compatibility adapters remain callable explicitly.",
+            )
+        )
     return "\n".join(rows)
 
 
@@ -275,7 +332,12 @@ def _extract_format(argv: Sequence[str]) -> tuple[str, list[str]]:
     return output_format, remaining
 
 
-def _capture_runtime(argv: Sequence[str], *, output_format: str) -> InvocationResult:
+def _capture_runtime(
+    argv: Sequence[str],
+    *,
+    output_format: str,
+    cwd: Path,
+) -> InvocationResult:
     normalized, notes = normalize_runtime_argv(argv)
     runtime_argv = list(normalized)
     if output_format == "json":
@@ -291,7 +353,7 @@ def _capture_runtime(argv: Sequence[str], *, output_format: str) -> InvocationRe
         receipt_schema="legacy.entrypoint.result.v1",
         compatibility_state="canonical_runtime_process",
     )
-    captured = _capture_subprocess(record, runtime_argv)
+    captured = _capture_subprocess(record, runtime_argv, cwd=cwd)
     return InvocationResult(
         returncode=captured.returncode,
         stdout=captured.stdout,
@@ -302,17 +364,22 @@ def _capture_runtime(argv: Sequence[str], *, output_format: str) -> InvocationRe
     )
 
 
-def _legacy_runtime(argv: Sequence[str]) -> int:
+def _legacy_runtime(argv: Sequence[str], *, cwd: Path) -> int:
     normalized, _ = normalize_runtime_argv(argv)
     completed = subprocess.run(
         [sys.executable, "-B", str(ROOT / "scripts" / "court_runtime.py"), *normalized],
-        cwd=ROOT,
+        cwd=cwd,
         check=False,
     )
     return int(completed.returncode)
 
 
-def _capture_court_open(arguments: Sequence[str], output_format: str) -> InvocationResult:
+def _capture_court_open(
+    arguments: Sequence[str],
+    output_format: str,
+    *,
+    cwd: Path,
+) -> InvocationResult:
     values = list(arguments)
     if output_format == "json":
         values.extend(("--format", "json"))
@@ -327,7 +394,7 @@ def _capture_court_open(arguments: Sequence[str], output_format: str) -> Invocat
         receipt_schema="court.open.fast.v2",
         compatibility_state="canonical_native_process",
     )
-    captured = _capture_subprocess(record, values)
+    captured = _capture_subprocess(record, values, cwd=cwd)
     return InvocationResult(
         returncode=captured.returncode,
         stdout=captured.stdout,
@@ -365,10 +432,15 @@ def _subprocess_command(record: CommandRecord, arguments: Sequence[str]) -> list
     raise CliUsageError(f"unsupported compatibility adapter: {record.legacy_path}")
 
 
-def _capture_subprocess(record: CommandRecord, arguments: Sequence[str]) -> InvocationResult:
+def _capture_subprocess(
+    record: CommandRecord,
+    arguments: Sequence[str],
+    *,
+    cwd: Path,
+) -> InvocationResult:
     completed = subprocess.run(
         _subprocess_command(record, arguments),
-        cwd=ROOT,
+        cwd=cwd,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -422,7 +494,12 @@ def _json_payload(text: str) -> object:
         return stripped
 
 
-def _structured_request(arguments: Sequence[str], schema: str) -> dict[str, object]:
+def _structured_request(
+    arguments: Sequence[str],
+    schema: str,
+    *,
+    invocation_cwd: Path,
+) -> dict[str, object]:
     request_json: str | None = None
     request_file: str | None = None
     index = 0
@@ -443,7 +520,7 @@ def _structured_request(arguments: Sequence[str], schema: str) -> dict[str, obje
         value = (
             json.loads(request_json)
             if request_json is not None
-            else json.loads(Path(str(request_file)).read_text(encoding="utf-8"))
+            else json.loads(resolve_user_path(str(request_file), invocation_cwd).read_text(encoding="utf-8"))
         )
     except (OSError, json.JSONDecodeError) as exc:
         raise CliUsageError(f"structured request invalid: {exc}") from exc
@@ -518,8 +595,17 @@ def invoke_install_core(
     }
 
 
-def _capture_install_core(operation: str, arguments: Sequence[str]) -> InvocationResult:
-    request = _structured_request(arguments, "decretum.install.request.v1")
+def _capture_install_core(
+    operation: str,
+    arguments: Sequence[str],
+    *,
+    invocation_cwd: Path,
+) -> InvocationResult:
+    request = _structured_request(
+        arguments,
+        "decretum.install.request.v1",
+        invocation_cwd=invocation_cwd,
+    )
     result = invoke_install_core(operation, request)
     return InvocationResult(
         returncode=0 if result.get("ok") is True else 2,
@@ -558,8 +644,16 @@ def invoke_install_rollback(
     }
 
 
-def _capture_install_rollback(arguments: Sequence[str]) -> InvocationResult:
-    request = _structured_request(arguments, "decretum.install.rollback.request.v1")
+def _capture_install_rollback(
+    arguments: Sequence[str],
+    *,
+    invocation_cwd: Path,
+) -> InvocationResult:
+    request = _structured_request(
+        arguments,
+        "decretum.install.rollback.request.v1",
+        invocation_cwd=invocation_cwd,
+    )
     result = invoke_install_rollback(request)
     return InvocationResult(
         returncode=0 if result.get("ok") is True else 2,
@@ -639,39 +733,55 @@ def _emit_usage(message: str, output_format: str, command: str | None = None) ->
     return 3
 
 
-def _resolve_and_run(group: str, command: str, arguments: Sequence[str], output_format: str) -> int:
+def _resolve_and_run(
+    group: str,
+    command: str,
+    arguments: Sequence[str],
+    output_format: str,
+    *,
+    invocation_cwd: Path,
+) -> int:
     records = load_registry()
     key = (group, command)
+    cwd = command_cwd(group, invocation_cwd)
     if group == "court" and command == "open":
-        result = _capture_court_open(arguments, output_format)
+        result = _capture_court_open(arguments, output_format, cwd=cwd)
         return _emit_invocation("court open", result, output_format)
+    if group == "court" and command == "closeout-session":
+        result = _capture_python_module(
+            "court_session_closeout",
+            arguments,
+            output_format=output_format,
+            legacy_path="scripts/court_session_closeout.py",
+        )
+        return _emit_invocation("court closeout-session", result, output_format)
     if group == "court" and key not in records:
-        result = _capture_runtime([command, *arguments], output_format=output_format)
+        result = _capture_runtime([command, *arguments], output_format=output_format, cwd=cwd)
         return _emit_invocation(f"court {command}", result, output_format)
     if group == "office" and command in OFFICE_RUNTIME_COMMANDS:
-        result = _capture_runtime(["office", command, *arguments], output_format=output_format)
+        result = _capture_runtime(["office", command, *arguments], output_format=output_format, cwd=cwd)
         return _emit_invocation(f"office {command}", result, output_format)
     if group == "install" and command in {"update", "migrate"}:
-        result = _capture_install_core(command, arguments)
+        result = _capture_install_core(command, arguments, invocation_cwd=invocation_cwd)
         return _emit_invocation(f"install {command}", result, output_format)
     if group == "install" and command == "rollback":
-        result = _capture_install_rollback(arguments)
+        result = _capture_install_rollback(arguments, invocation_cwd=invocation_cwd)
         return _emit_invocation("install rollback", result, output_format)
     if group == "check" and command == "all":
         record = records.get(("check", "quick-validate"))
         if record is None:
             raise CliUsageError("check all requires the quick-validate adapter")
-        default_arguments = list(arguments) if arguments else ["."]
-        result = _capture_subprocess(record, default_arguments)
+        default_arguments = list(arguments) if arguments else [str(ROOT)]
+        result = _capture_subprocess(record, default_arguments, cwd=cwd)
         return _emit_invocation("check all", result, output_format)
     record = records.get(key)
     if record is None:
         if group == "office":
-            result = _capture_runtime(["office", command, *arguments], output_format=output_format)
+            result = _capture_runtime(["office", command, *arguments], output_format=output_format, cwd=cwd)
             return _emit_invocation(f"office {command}", result, output_format)
         raise CliUsageError(f"unknown command: {group} {command}")
     if record.loader == "court_runtime.main":
-        result = _capture_runtime(arguments, output_format=output_format)
+        result = _capture_runtime(arguments, output_format=output_format, cwd=cwd)
     elif record.loader.startswith("python_module:"):
         result = _capture_python_module(
             record.loader.split(":", 1)[1],
@@ -680,15 +790,16 @@ def _resolve_and_run(group: str, command: str, arguments: Sequence[str], output_
             legacy_path=record.legacy_path,
         )
     else:
-        result = _capture_subprocess(record, arguments)
+        result = _capture_subprocess(record, arguments, cwd=cwd)
     return _emit_invocation(f"{group} {command}", result, output_format)
 
 
 def main(argv: list[str] | None = None) -> int:
+    invocation_cwd = Path.cwd().resolve(strict=False)
     raw = list(sys.argv[1:] if argv is None else argv)
     first, _ = _first_non_option(raw)
     if first is not None and first not in GROUP_ORDER:
-        return _legacy_runtime(raw)
+        return _legacy_runtime(raw, cwd=command_cwd("court", invocation_cwd))
     try:
         output_format, values = _extract_format(raw)
     except CliUsageError as exc:
@@ -711,7 +822,13 @@ def main(argv: list[str] | None = None) -> int:
             print(help_text)
         return 0
     try:
-        return _resolve_and_run(group, values[1], values[2:], output_format)
+        return _resolve_and_run(
+            group,
+            values[1],
+            values[2:],
+            output_format,
+            invocation_cwd=invocation_cwd,
+        )
     except (CliUsageError, OSError, ValueError) as exc:
         return _emit_usage(str(exc), output_format, f"{group} {values[1]}")
 

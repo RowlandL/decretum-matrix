@@ -342,19 +342,26 @@ governance implementation. It reuses the authoritative shared Shiguan index,
 archives, and existing memory-decision tools; it does not create a second store
 or copy native private memory bodies.
 
-`scripts/shiguan_gbrain.py` exposes the existing scoring/order behavior and a
-metadata-only `decretum.gbrain.recall.v1` envelope. Every recall sets
-`authority=advisory`, `execution_authority=false`, and
-`current_decree_precedence=true`. Matches retain source, evidence, record time,
-memory decision, applicability, and conflict status. Expired or conflicting
-memory remains discoverable with its provenance, but cannot authorize current
-actions or override the latest decree.
+`scripts/shiguan_gbrain.py` is the Shiguan intelligent query layer, not a separate
+store outside Shiguan. `scripts/query_shiguan_index.py` uses GBrain by default
+for ordered recall, while the base Shiguan scorer remains as a fallback path.
+GBrain exposes metadata-only `decretum.gbrain.recall.v1` recall and read-only
+`decretum.gbrain.settlement_candidates.v1` organization candidates. Every recall
+or settlement result sets `authority=advisory`, `execution_authority=false`, and
+`current_decree_precedence=true`; settlement also sets `write_authority=false`.
+Matches retain source, evidence, record time, memory decision, applicability,
+and conflict status, but never copy private bodies. Expired or conflicting memory
+remains discoverable for Menxia review, but cannot authorize current actions or
+override the latest decree.
 
 The same Shiguan entries and query terms must produce the same ordered recall
 content across governance implementations. Only the requesting governance id
-may differ. Memory proposal and reevaluation continue through
-`memory_decision.py`, `reevaluate_memory_decisions.py`, and Menxia approval;
-GBrain recall itself never writes durable memory.
+may differ. Memory proposal, reevaluation, and tidy settlement continue through
+`memory_decision.py`, `reevaluate_memory_decisions.py`, `tidy_shiguan_records.py`,
+and Menxia approval; GBrain recall/settlement itself never writes durable memory.
+Git Federation provenance may be triggered by GBrain when the caller explicitly
+requests a settlement/management provenance path. It is not an implicit
+dependency of ordinary lightweight recall or court-open startup.
 
 ## Shared Shiguan Git And Native Memory Federation
 

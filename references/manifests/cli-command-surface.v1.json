@@ -456,6 +456,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_court_session_closeout.py",
+      "command": "check-court-session-closeout",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_court_session_closeout.py",
+      "id": "check.check-court-session-closeout",
+      "legacy_path": "scripts/check_court_session_closeout.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_court_usage_ledger.py",
       "command": "check-court-usage-ledger",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1091,6 +1104,19 @@
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "request_dependent"
+    },
+    {
+      "authority_source": "scripts/court_session_closeout.py",
+      "command": "closeout-session",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "court",
+      "group": "court",
+      "handler": "python_module:court_session_closeout",
+      "id": "court.closeout-session",
+      "legacy_path": "scripts/court_session_closeout.py",
+      "public": true,
+      "receipt_schema": "court.session_closeout.receipt.v1",
+      "side_effect": "bounded_mutation"
     },
     {
       "authority_source": "scripts/court_usage_ledger.py",

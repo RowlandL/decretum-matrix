@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 import re
+import sys
+
+sys.dont_write_bytecode = True
 
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\\/-]{2,}|[\u4e00-\u9fff]{2,}")
@@ -1426,3 +1431,125 @@ def enrich_entry(entry: dict[str, object]) -> dict[str, object]:
     entry["facet_dimensions"] = facet_dimensions(entry)
     entry.update(capability_vector_fields(entry))
     return entry
+
+
+def index_path() -> Path:
+    from shiguan_paths import reference_path
+
+    return reference_path("shiguan-index.jsonl")
+
+
+def load_entries(path: Path | None = None) -> list[dict[str, object]]:
+    source = path or index_path()
+    if not source.exists():
+        return []
+    entries: list[dict[str, object]] = []
+    for line in source.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            enrich_entry(value)
+            entries.append(value)
+    return entries
+
+
+def score_entry(entry: dict[str, object], terms: list[str]) -> int:
+    if not terms:
+        return 0
+    weighted_parts: list[tuple[int, str]] = []
+    for key in (
+        "topic",
+        "phase",
+        "status",
+        "court_code",
+        "ancient_lineage",
+        "lineage_display",
+        "lineage_key",
+        "court_code_legend",
+    ):
+        value = entry.get(key)
+        if isinstance(value, str):
+            weighted_parts.append((4, value))
+    lineage_parts = entry.get("lineage_parts")
+    if isinstance(lineage_parts, dict):
+        weighted_parts.extend((4, str(value)) for value in lineage_parts.values())
+    facets = entry.get("facet_dimensions")
+    if isinstance(facets, dict):
+        for values in facets.values():
+            if isinstance(values, list):
+                weighted_parts.extend((4, str(value)) for value in values)
+            else:
+                weighted_parts.append((4, str(values)))
+    parts = entry.get("court_code_parts")
+    if isinstance(parts, dict):
+        weighted_parts.extend((4, str(value)) for value in parts.values())
+    for key in ("keywords", "key_actions"):
+        value = entry.get(key)
+        if isinstance(value, list):
+            weighted_parts.extend((5, str(item)) for item in value)
+    for key in ("capability_vector_terms", "capability_source_paths"):
+        value = entry.get(key)
+        if isinstance(value, list):
+            weighted_parts.extend((6, str(item)) for item in value)
+    capability_lineage = entry.get("capability_lineage")
+    if isinstance(capability_lineage, dict):
+        for value in capability_lineage.values():
+            if isinstance(value, list):
+                weighted_parts.extend((6, str(item)) for item in value)
+            else:
+                weighted_parts.append((6, str(value)))
+    for key in (
+        "capability_vector_text",
+        "vector_text",
+        "embedding_text",
+        "capability_vector_hash",
+        "capability_vector_kind",
+    ):
+        value = entry.get(key)
+        if isinstance(value, str):
+            weighted_parts.append((5, value))
+    for key in (
+        "summary",
+        "memory_content",
+        "memory_reason",
+        "display_labels_zh",
+        "display_summary_zh",
+        "display_reason_zh",
+    ):
+        value = entry.get(key)
+        if isinstance(value, str):
+            weighted_parts.append((2, value))
+    for key in ("keyword_summary_zh", "keyword_summary_en"):
+        value = entry.get(key)
+        if isinstance(value, str):
+            weighted_parts.append((4, value))
+    for key in ("keywords_zh", "keywords_en"):
+        value = entry.get(key)
+        if isinstance(value, list):
+            weighted_parts.extend((5, str(item)) for item in value)
+    for key in ("evidence", "next", "source"):
+        value = entry.get(key)
+        if isinstance(value, str):
+            weighted_parts.append((1, value))
+    score = 0
+    for weight, value in weighted_parts:
+        lowered = value.lower()
+        score += sum(weight for term in terms if term.lower() in lowered)
+    return score
+
+
+def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[dict[str, object]]:
+    if terms:
+        scored = [(score_entry(entry, terms), entry) for entry in entries]
+        matches = [(score, entry) for score, entry in scored if score > 0]
+        matches.sort(
+            key=lambda item: (item[0], str(item[1].get("time", ""))),
+            reverse=True,
+        )
+        return [entry for _, entry in matches]
+    return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)

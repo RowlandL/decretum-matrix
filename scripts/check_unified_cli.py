@@ -48,6 +48,8 @@ BOOTSTRAP_ENTRYPOINTS = (
     PurePosixPath("scripts/check_unified_cli.py"),
     PurePosixPath("scripts/court_open_fastpath.py"),
     PurePosixPath("scripts/check_court_open_fastpath.py"),
+    PurePosixPath("scripts/court_session_closeout.py"),
+    PurePosixPath("scripts/check_court_session_closeout.py"),
 )
 VOLATILE_RECEIPT_FIELDS = {
     "created_at",
@@ -104,8 +106,11 @@ def _manifest_entry(path: str) -> dict[str, object]:
         "scripts/archive_checkpoint.py",
         "scripts/court_cli.py",
         "scripts/court_runtime.py",
+        "scripts/court_session_closeout.py",
     }
     entry_name = stem.replace("_", "-").lower()
+    if path == "scripts/court_session_closeout.py":
+        entry_name = "closeout-session"
     if pure.suffix.lower() != ".py":
         entry_name = f"{entry_name}-{pure.suffix.lower().lstrip('.')}"
     return {
@@ -123,6 +128,8 @@ def _manifest_entry(path: str) -> dict[str, object]:
         "receipt_schema": (
             "decretum.cli.result.v1"
             if is_root
+            else "court.session_closeout.receipt.v1"
+            if path == "scripts/court_session_closeout.py"
             else "court.shiguan_archive_checkpoint_receipt.v1"
             if path == "scripts/archive_checkpoint.py"
             else "legacy.entrypoint.result.v1"
@@ -320,6 +327,8 @@ def evaluate_registry() -> dict[str, object]:
     problems: list[str] = []
     forbidden_loaded: list[str] = []
     record_count = 0
+    daily_help_command_count = 0
+    daily_help_forbidden_hits: list[str] = []
     help_sha256 = ""
     try:
         registry = _load_registry_module()
@@ -333,6 +342,32 @@ def evaluate_registry() -> dict[str, object]:
             problems.append("help_order_nondeterministic")
         records = registry.load_registry()
         record_count = len(records)
+        daily_help_text = "\n".join(
+            registry.render_group_help(group)
+            for group in ("court", "office", "shiguan", "supercc", "install", "release", "check")
+        )
+        daily_help_command_count = sum(
+            1
+            for line in daily_help_text.splitlines()
+            if line.startswith("  ") and line.strip() and not line.strip().startswith("decretum-matrix")
+        )
+        forbidden_daily_commands = (
+            "build-npm-package-mjs",
+            "check-cli-performance",
+            "check-release-metadata",
+            "check-startup-fastpath-contract",
+            "ensure-supercc-court",
+            "package-skill",
+            "release-payload-manifest",
+            "supercc-squad-cmd",
+        )
+        daily_help_forbidden_hits = [
+            command for command in forbidden_daily_commands if command in daily_help_text
+        ]
+        if daily_help_forbidden_hits:
+            problems.append("daily_help_exposes_project_inventory")
+        if daily_help_command_count > 32:
+            problems.append(f"daily_help_command_count_too_high:{daily_help_command_count}")
         for key, record in records.items():
             absent = sorted(field for field in REGISTRY_FIELDS if not getattr(record, field, None))
             if absent:
@@ -357,6 +392,8 @@ def evaluate_registry() -> dict[str, object]:
         "status": "PASS" if not problems else "FAIL",
         "CLI_LAZY_LOAD": "PASS" if not problems else "FAIL",
         "record_count": record_count,
+        "daily_help_command_count": daily_help_command_count,
+        "daily_help_forbidden_hits": daily_help_forbidden_hits,
         "help_sha256": help_sha256,
         "forbidden_eager_modules": forbidden_loaded,
         "problems": problems,
@@ -366,11 +403,12 @@ def evaluate_registry() -> dict[str, object]:
 def _run_cli(
     arguments: list[str],
     *,
+    cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-B", str(ROOT / "scripts" / "court_cli.py"), *arguments],
-        cwd=ROOT,
+        cwd=cwd or ROOT,
         capture_output=True,
         text=True,
         check=False,
@@ -447,6 +485,66 @@ def evaluate_parity() -> dict[str, object]:
         "CLI_LEGACY_PARITY": "PASS" if not problems else "FAIL",
         "declared_adapter_count": declared_adapters,
         "synthetic_pair": f"legacy:{parity_command}/unified:court {parity_command}",
+        "problems": problems,
+    }
+
+
+def evaluate_external_cwd_contract() -> dict[str, object]:
+    problems: list[str] = []
+    relative_problem: str | None = None
+    command_cwd_contract: dict[str, str] = {}
+    with tempfile.TemporaryDirectory(prefix="decretum-cli-外部 cwd ") as temp_text:
+        external_cwd = Path(temp_text)
+        request_path = external_cwd / "request.json"
+        request_path.write_text(
+            json.dumps({"schema": "court.open.fast.request.v2"}, ensure_ascii=True),
+            encoding="utf-8",
+        )
+        completed = _run_cli(
+            [
+                "--format",
+                "json",
+                "court",
+                "open",
+                "--fast",
+                "--request-file",
+                "request.json",
+            ],
+            cwd=external_cwd,
+        )
+        try:
+            envelope = _json_stdout(completed)
+        except AssertionError as exc:
+            problems.append(str(exc))
+            envelope = None
+        if isinstance(envelope, dict):
+            payload = envelope.get("payload")
+            if isinstance(payload, dict):
+                raw_problems = payload.get("problems")
+                if isinstance(raw_problems, list) and raw_problems:
+                    relative_problem = str(raw_problems[0])
+            if relative_problem != "task_id_required":
+                problems.append(f"relative_request_file_not_invocation_cwd:{relative_problem}")
+
+        try:
+            registry = _load_registry_module()
+            for group in ("court", "shiguan", "install"):
+                command_cwd_contract[group] = str(registry.command_cwd(group, external_cwd))
+                if Path(command_cwd_contract[group]) != external_cwd:
+                    problems.append(f"skill_group_cwd_not_invocation:{group}")
+            for group in ("check", "release"):
+                command_cwd_contract[group] = str(registry.command_cwd(group, external_cwd))
+                if Path(command_cwd_contract[group]) != ROOT:
+                    problems.append(f"project_group_cwd_not_code_root:{group}")
+        except (ImportError, OSError, ValueError, AttributeError) as exc:
+            problems.append(f"command_cwd_contract_unavailable:{type(exc).__name__}:{exc}")
+    return {
+        "schema": "decretum.cli_external_cwd_check.v1",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_EXTERNAL_CWD": "PASS" if not problems else "FAIL",
+        "relative_request_file_problem": relative_problem,
+        "command_cwd_contract": command_cwd_contract,
         "problems": problems,
     }
 
@@ -729,6 +827,113 @@ def evaluate_npm_launcher_stdio() -> dict[str, object]:
     }
 
 
+def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
+    problems: list[str] = []
+    calls: list[str] = []
+    normal_cli: str | None = None
+    postinstall_runtime: str | None = None
+    try:
+        launcher_path = ROOT / "bin" / "decretum-matrix.py"
+        spec = importlib.util.spec_from_file_location(
+            "decretum_matrix_npm_launcher_runtime_selection_check",
+            launcher_path,
+        )
+        if spec is None or spec.loader is None:
+            raise AssertionError("npm launcher import spec unavailable")
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        with tempfile.TemporaryDirectory(prefix="decretum-npm-canonical-runtime-") as temp_text:
+            home = Path(temp_text) / "home"
+            package_root = Path(temp_text) / "package"
+            canonical = home / ".agents" / "skills" / "decretum-matrix"
+            (canonical / "scripts").mkdir(parents=True)
+            (canonical / "VERSION").write_text((ROOT / "VERSION").read_text(encoding="utf-8"), encoding="utf-8")
+            (canonical / "SKILL.md").write_text("---\nname: decretum-matrix\n---\n", encoding="utf-8")
+            (canonical / "scripts" / "court_cli.py").write_text("print('canonical')\n", encoding="utf-8")
+            package_root.mkdir(parents=True)
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "@rowlandl/decretum-matrix",
+                        "decretumMatrix": {
+                            "releaseLabel": (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            selected = launcher._canonical_runtime_root(package_root, home)
+            if selected != canonical:
+                problems.append("canonical_runtime_not_selected")
+
+            def fake_release_archive(root: Path) -> tuple[Path, str]:
+                calls.append("release_archive")
+                return root / "release" / "fixture.zip", "a" * 64
+
+            def fake_extract_runtime(_archive: Path, cache_root: Path, _digest: str) -> Path:
+                calls.append("extract_runtime")
+                runtime = cache_root / "runtime"
+                (runtime / "scripts").mkdir(parents=True, exist_ok=True)
+                (runtime / "scripts" / "court_cli.py").write_text("print('fallback')\n", encoding="utf-8")
+                return runtime
+
+            def fake_run_path(path: str, run_name: str | None = None) -> dict[str, object]:
+                nonlocal normal_cli
+                calls.append("run_path")
+                normal_cli = path
+                return {}
+
+            def fake_postinstall(runtime_root: Path, digest: str) -> int:
+                nonlocal postinstall_runtime
+                calls.append("postinstall")
+                postinstall_runtime = str(runtime_root)
+                return 0
+
+            original_release_archive = launcher._release_archive
+            original_extract_runtime = launcher._extract_runtime
+            original_postinstall_home = launcher._postinstall_home
+            original_run_postinstall = launcher._run_postinstall
+            original_run_path = launcher.runpy.run_path
+            launcher._release_archive = fake_release_archive
+            launcher._extract_runtime = fake_extract_runtime
+            launcher._postinstall_home = lambda: home
+            launcher._run_postinstall = fake_postinstall
+            launcher.runpy.run_path = fake_run_path
+            try:
+                rc = launcher.main(["--help"])
+                if rc != 0:
+                    problems.append(f"normal_launcher_rc:{rc}")
+                if calls != ["run_path"]:
+                    problems.append("normal_launcher_used_archive_or_cache:" + ",".join(calls))
+                if normal_cli != str(canonical / "scripts" / "court_cli.py"):
+                    problems.append("normal_launcher_not_canonical_cli")
+                calls.clear()
+                rc = launcher.main(["--npm-postinstall"])
+                if rc != 0:
+                    problems.append(f"postinstall_launcher_rc:{rc}")
+                if calls != ["release_archive", "extract_runtime", "postinstall"]:
+                    problems.append("postinstall_did_not_use_embedded_archive:" + ",".join(calls))
+                if not postinstall_runtime or "runtime" not in postinstall_runtime:
+                    problems.append("postinstall_runtime_not_embedded_fallback")
+            finally:
+                launcher._release_archive = original_release_archive
+                launcher._extract_runtime = original_extract_runtime
+                launcher._postinstall_home = original_postinstall_home
+                launcher._run_postinstall = original_run_postinstall
+                launcher.runpy.run_path = original_run_path
+    except (AssertionError, ImportError, OSError, UnicodeError, AttributeError) as exc:
+        problems.append(f"npm_launcher_runtime_selection_unavailable:{type(exc).__name__}:{exc}")
+    return {
+        "schema": "decretum.cli_npm_runtime_selection_check.v1",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_NPM_CANONICAL_RUNTIME": "PASS" if not problems else "FAIL",
+        "normal_cli": normal_cli,
+        "postinstall_runtime": postinstall_runtime,
+        "problems": problems,
+    }
+
+
 def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
     selected = []
     if args.inventory_only:
@@ -737,21 +942,27 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
         selected.append(evaluate_registry())
     if args.parity:
         selected.append(evaluate_parity())
+    if args.external_cwd:
+        selected.append(evaluate_external_cwd_contract())
     if args.v2_normalization:
         selected.append(evaluate_v2_normalization())
     if args.install_core:
         selected.append(evaluate_install_core())
     if args.archive_receipt:
         selected.append(evaluate_archive_receipt())
+    if args.npm_runtime:
+        selected.append(evaluate_npm_launcher_runtime_selection())
     if not selected or args.all:
         selected = [
             evaluate_inventory(),
             evaluate_registry(),
             evaluate_parity(),
+            evaluate_external_cwd_contract(),
             evaluate_v2_normalization(),
             evaluate_install_core(),
             evaluate_archive_receipt(),
             evaluate_npm_launcher_stdio(),
+            evaluate_npm_launcher_runtime_selection(),
         ]
     return selected
 
@@ -788,9 +999,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--inventory-only", action="store_true")
     parser.add_argument("--registry", action="store_true")
     parser.add_argument("--parity", action="store_true")
+    parser.add_argument("--external-cwd", action="store_true")
     parser.add_argument("--v2-normalization", action="store_true")
     parser.add_argument("--install-core", action="store_true")
     parser.add_argument("--archive-receipt", action="store_true")
+    parser.add_argument("--npm-runtime", action="store_true")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--write-manifest", action="store_true")
     parser.add_argument("--json", action="store_true")

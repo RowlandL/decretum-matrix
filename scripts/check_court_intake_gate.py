@@ -31,6 +31,7 @@ EXPECTED_MESSAGE_CLASSES = frozenset(
         "TASK_CORRECTION",
         "SIDE_CHAT",
         "UNCLEAR_RELATION",
+        "EXPLICIT_CLOSEOUT",
     }
 )
 
@@ -97,6 +98,29 @@ PASS_CASES: list[tuple[str, dict[str, object]]] = [
             understanding=deepcopy(
                 court_intake_gate.minimal_formal_task_example()["understanding"]
             ),
+        ),
+    ),
+    (
+        "explicit_closeout",
+        gate(
+            "EXPLICIT_CLOSEOUT",
+            active_decree=True,
+            active_decree_state="ACTIVE",
+            relation="CONTINUES",
+            consent="EXPLICIT",
+            requires_tools=True,
+            mutates_state=True,
+            next_route="SESSION_CLOSEOUT",
+        ),
+    ),
+    (
+        "explicit_closeout_chat_only",
+        gate(
+            "EXPLICIT_CLOSEOUT",
+            consent="EXPLICIT",
+            requires_tools=True,
+            mutates_state=True,
+            next_route="SESSION_CLOSEOUT",
         ),
     ),
     (
@@ -272,6 +296,16 @@ FAIL_CASES: list[tuple[str, dict[str, object], str]] = [
         "unclear_relation_requires_active_decree",
     ),
     ("unclear_relation_without_question", changed("unclear_relation", question=""), "clarification_question"),
+    (
+        "explicit_closeout_wrong_route",
+        changed("explicit_closeout", next_route="THREE_DEPARTMENTS"),
+        "closeout_route",
+    ),
+    (
+        "explicit_closeout_with_task_target",
+        changed("explicit_closeout", target_task_id="court-task-001"),
+        "target_task_id_not_allowed",
+    ),
     ("wrong_schema", changed("formal_task", schema="court.conversation_gate.v0"), "schema"),
     ("unknown_message_class", changed("formal_task", message_class="UNKNOWN"), "message_class"),
     ("boolean_as_integer", changed("formal_task", active_decree=0), "active_decree_type"),
@@ -322,8 +356,8 @@ def expect_rejected(
 def check_matrix() -> None:
     pass_classes = {str(value["message_class"]) for _name, value in PASS_CASES}
     fail_classes = {str(value["message_class"]) for _name, value, _expected in FAIL_CASES}
-    require(pass_classes == EXPECTED_MESSAGE_CLASSES, "positive matrix does not cover all nine classes exactly")
-    require(EXPECTED_MESSAGE_CLASSES <= fail_classes, "negative matrix does not cover all nine classes")
+    require(pass_classes == EXPECTED_MESSAGE_CLASSES, "positive matrix does not cover all message classes exactly")
+    require(EXPECTED_MESSAGE_CLASSES <= fail_classes, "negative matrix does not cover all message classes")
 
     for name, value in PASS_CASES:
         original = deepcopy(value)
@@ -395,6 +429,32 @@ def check_allowed_variants_and_normalization() -> None:
 def check_specialized_gates() -> None:
     formal = require_new_formal_task_gate(PASS_BY_NAME["formal_task"])
     require(formal["message_class"] == "FORMAL_TASK", "formal task helper returned wrong class")
+    advisory = changed(
+        "formal_task",
+        understanding={
+            "schema": "court.request_understanding.v1",
+            "score": 25,
+            "threshold": 95,
+            "dimensions": {
+                "goal": "CLEAR",
+                "usage_scenario": "MISSING",
+                "key_requirements": "MISSING",
+                "acceptance_criteria": "MISSING",
+            },
+            "route": "SINGLE_QUESTION",
+            "question_target": "usage_scenario",
+            "question": "这个结果准备用在哪里？",
+            "options": [],
+            "restatement": "",
+            "confirmation_required": False,
+        },
+    )
+    expect_rejected(
+        "formal_helper_advisory_not_ready",
+        advisory,
+        "formal_understanding_required",
+        validator=require_new_formal_task_gate,
+    )
     correction = require_task_correction_gate(PASS_BY_NAME["task_correction"])
     require(correction["message_class"] == "TASK_CORRECTION", "correction helper returned wrong class")
 

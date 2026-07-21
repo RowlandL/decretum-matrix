@@ -1,5 +1,18 @@
 # Release Notes
 
+## beta1.0.2
+
+- Skill 定义收敛为围绕“诏令”的多-agent 协作体系；正式任务默认三省六部，
+  闲聊、轻量交流、正式任务、纠正、延续和主动结诏按场景分流。
+- `beta0.5.9` 已有能力和用户明确新增功能不得因提速被删除；项目级发布/安装/
+  法律/package gate 不进入普通 Skill 启动链。
+- 史馆基础记忆、GBrain 整理沉淀、Git 联邦管理分层保留；GBrain 不替代基础召回，
+  Git 联邦只作为显式史馆管理面。
+- `approval|autonomous|super` 与 `serial|parallel` 分开记录和验证；尚书统筹六部
+  仍要求按层级下派必要六部。
+- CLI 外部目录运行修复为调用者相对路径解析；项目 check/release 命令仍使用代码根。
+- npm 版本为 `1.0.2-beta.0`，继续使用 `beta` dist-tag；远端状态以后续回读为准。
+
 ## beta1.0.1
 
 - authority 精确为 `approval|autonomous|super`，behavior 精确为

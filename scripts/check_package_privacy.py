@@ -1332,12 +1332,13 @@ class PackageBuildTests(unittest.TestCase):
             getattr(package_skill, "DISPLAY_NAME", None),
             "Decretum Matrix（诏令矩阵）",
         )
-        self.assertEqual(getattr(package_skill, "RELEASE_LABEL", None), "beta1.0.1")
+        release_label = getattr(package_skill, "RELEASE_LABEL", None)
+        self.assertRegex(str(release_label), r"^beta\d+\.\d+\.\d+$")
         self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")
         self.assertEqual(package_skill.ROOT_NAME, "decretum-matrix")
         self.assertEqual(
             package_skill.default_out().name,
-            "decretum-matrix-beta1.0.1.zip",
+            f"decretum-matrix-{release_label}.zip",
         )
         self.assertTrue(package_skill.should_skip(Path(".github"), is_dir=True))
 

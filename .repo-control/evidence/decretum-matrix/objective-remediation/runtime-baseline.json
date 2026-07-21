@@ -1,0 +1,270 @@
+{
+  "schema": "decretum_matrix.runtime_baseline.v1",
+  "generated_at": "2026-07-21T00:14:10.6354147+08:00",
+  "evidence_status": "TASK1_BASELINE_RECORDED",
+  "scope": "Skill runtime and CLI baseline before further product-source remediation; focused checks against the current dirty worktree are recorded as diagnostics, not as acceptance that implementation has landed.",
+  "worktree": "D:/project/worktrees/decretum-matrix/decretum-matrix-beta1.0.1-startup-fastpath",
+  "branch": "release/beta1.0.2",
+  "target_version": "beta1.0.2",
+  "current_head": "9774a1415b906b357985e462e74efaf842f45602",
+  "beta059": {
+    "tag": "beta0.5.9",
+    "annotated_tag_object": "b30bfd9c1f9cb38e56720f1d18609cb91f5345d2",
+    "commit": "040f707e5acc7c12cfcf50afcfc111a7e49a2f00",
+    "extracted_tree": "H:/TEMP_~1/decretum-beta059-2a5eab94d50f4a14a4caf12ec6da6146",
+    "note": "Extracted with git archive; not a managed worktree."
+  },
+  "measurement_method": {
+    "timer": "Python time.perf_counter around python -B subprocess commands",
+    "stdout": "JSON outputs parsed when available; large nested payloads summarized",
+    "file_read_trace": "Not a syscall trace; major source files and process audit entries are recorded from CLI/static code evidence.",
+    "temporary_state": "Temporary files and COURT_RUNTIME_ROOT were used for CLI input/runtime probes; product source and project root were not modified by the measurements."
+  },
+  "baselines": [
+    {
+      "id": "beta059_help_court_cli",
+      "version": "beta0.5.9",
+      "scene": "cli_help",
+      "command": "python -B scripts/court_cli.py --help",
+      "cwd": "H:/TEMP_~1/decretum-beta059-2a5eab94d50f4a14a4caf12ec6da6146",
+      "elapsed_ms": 602.5,
+      "returncode": 0,
+      "scripts": ["scripts/court_cli.py"],
+      "notes": ["beta0.5.9 court_cli has no current court/intake-validate wrapper."]
+    },
+    {
+      "id": "current_help_court_cli_registry",
+      "version": "beta1.0.1_current_dirty",
+      "scene": "cli_help",
+      "command": "python -B scripts/court_cli_registry.py --help",
+      "cwd": "D:/project/worktrees/decretum-matrix/decretum-matrix-beta1.0.1-startup-fastpath",
+      "elapsed_ms": 286.7,
+      "returncode": 0,
+      "scripts": ["scripts/court_cli_registry.py"],
+      "notes": ["Unified registry help is faster than beta0.5.9 standalone court_cli help."]
+    },
+    {
+      "id": "current_help_court_group",
+      "version": "beta1.0.1_current_dirty",
+      "scene": "cli_help",
+      "command": "python -B scripts/court_cli.py court --help",
+      "elapsed_ms": 259.76,
+      "returncode": 0,
+      "scripts": ["scripts/court_cli.py", "scripts/court_cli_registry.py"]
+    },
+    {
+      "id": "current_help_check_group",
+      "version": "beta1.0.1_current_dirty",
+      "scene": "cli_help",
+      "command": "python -B scripts/court_cli.py check --help",
+      "elapsed_ms": 207.85,
+      "returncode": 0,
+      "scripts": ["scripts/court_cli.py", "scripts/court_cli_registry.py"]
+    },
+    {
+      "id": "beta059_help_query_shiguan",
+      "version": "beta0.5.9",
+      "scene": "shiguan_query_help",
+      "command": "python -B scripts/query_shiguan_index.py --help",
+      "elapsed_ms": 458.79,
+      "returncode": 0,
+      "scripts": ["scripts/query_shiguan_index.py"]
+    },
+    {
+      "id": "current_help_query_shiguan",
+      "version": "beta1.0.1_current_dirty",
+      "scene": "shiguan_query_help",
+      "command": "python -B scripts/query_shiguan_index.py --help",
+      "elapsed_ms": 362.08,
+      "returncode": 0,
+      "scripts": ["scripts/query_shiguan_index.py"],
+      "static_evidence": ["scripts/query_shiguan_index.py imports/uses scripts/shiguan_gbrain.py for current recall support."]
+    },
+    {
+      "id": "beta059_shiguan_query_nonexistent",
+      "version": "beta0.5.9",
+      "scene": "shiguan_query",
+      "command": "python -B scripts/query_shiguan_index.py baseline-nonexistent-term --format json --limit 1",
+      "elapsed_ms": 2853.16,
+      "returncode": 0,
+      "scripts": ["scripts/query_shiguan_index.py"]
+    },
+    {
+      "id": "current_shiguan_query_nonexistent",
+      "version": "beta1.0.1_current_dirty",
+      "scene": "shiguan_query",
+      "command": "python -B scripts/query_shiguan_index.py baseline-nonexistent-term --format json --limit 1",
+      "elapsed_ms": 2914.06,
+      "returncode": 0,
+      "scripts": ["scripts/query_shiguan_index.py", "scripts/shiguan_gbrain.py"],
+      "observed_delta_ms_vs_beta059": 60.9,
+      "notes": ["No functional deletion allowed; if optimized, baseline query must still work without making GBrain current-task authority."]
+    },
+    {
+      "id": "beta059_archive_no_refresh",
+      "version": "beta0.5.9",
+      "scene": "shiguan_archive",
+      "command": "python -B scripts/archive_checkpoint.py --no-refresh --format json",
+      "env": {"COURT_SHARED_SHIGUAN_ROOT": "temporary test root"},
+      "elapsed_ms": 261.62,
+      "returncode": 0,
+      "scripts": ["scripts/archive_checkpoint.py"],
+      "key_output_fields": ["ARCHIVE_OK_JSON.ancient_lineage", "court_code", "lineage_display", "ok", "path", "refresh", "source", "source_agent"],
+      "absent_output_fields": ["archive_sha256", "receipt_sha256", "closeout_identity"]
+    },
+    {
+      "id": "current_archive_no_refresh",
+      "version": "beta1.0.1_current_dirty",
+      "scene": "shiguan_archive",
+      "command": "python -B scripts/archive_checkpoint.py --no-refresh --format json",
+      "env": {"COURT_SHARED_SHIGUAN_ROOT": "temporary test root"},
+      "elapsed_ms": 379.75,
+      "returncode": 0,
+      "scripts": ["scripts/archive_checkpoint.py"],
+      "key_output_fields": ["archive_sha256", "receipt_sha256", "closeout_identity", "court_code"],
+      "observed_delta_ms_vs_beta059": 118.13,
+      "notes": ["Current receipt/hash fields are post-0.5.9 additions; they must not be removed without functional and historical-data proof."]
+    },
+    {
+      "id": "current_check_cli_performance_fast",
+      "version": "beta1.0.1_current_dirty",
+      "scene": "court_open_performance_checker",
+      "command": "python -B scripts/check_cli_performance.py --worker fast",
+      "elapsed_ms": 660.8,
+      "returncode": 0,
+      "scripts": ["scripts/check_cli_performance.py", "scripts/court_open_fastpath.py"],
+      "key_output": {
+        "capability_cache_status": "MISS",
+        "capability_lookup_ms": 324.375,
+        "max_loaded_bytes": 19950,
+        "operation_id": "court-open-822a98d333e78b9e5c6893c9",
+        "python_processes": 1
+      },
+      "notes": ["This is a project/focused checker, not proof that ordinary Skill runtime should run it."]
+    }
+  ],
+  "lightweight_variant_group": {
+    "schema": "court.conversation_gate.v1 via court intake-validate",
+    "command_shape": "python -B scripts/court_cli.py --format json court intake-validate --charter <charter> --intake-file <temp-json> --format json",
+    "scripts": ["scripts/court_cli.py", "scripts/court_cli_registry.py", "scripts/court_runtime.py", "scripts/court_intake_gate.py"],
+    "loader": "isolated_runtime_process",
+    "subprocesses_observed": 1,
+    "valid_variants": [
+      {"name": "casual_ok_canary", "charter": "OK", "message_class": "CASUAL_CHAT", "next_route": "CASUAL_REPLY", "elapsed_ms": 572.03, "returncode": 0},
+      {"name": "casual_zh_ack", "charter": "好", "message_class": "CASUAL_CHAT", "next_route": "CASUAL_REPLY", "elapsed_ms": 564.91, "returncode": 0},
+      {"name": "casual_long_no_tool", "charter": "随便聊两句，不用办任务", "message_class": "CASUAL_CHAT", "next_route": "CASUAL_REPLY", "elapsed_ms": 525.57, "returncode": 0},
+      {"name": "trivial_direct", "charter": "只回答一个简短事实", "message_class": "TRIVIAL_DIRECT", "next_route": "DIRECT_ANSWER", "elapsed_ms": 457.81, "returncode": 0},
+      {"name": "formal_short", "charter": "修 bug", "message_class": "FORMAL_TASK", "next_route": "THREE_DEPARTMENTS", "elapsed_ms": 478.73, "returncode": 0},
+      {"name": "formal_long", "charter": "请严格整改此仓库的启动流程并验证", "message_class": "FORMAL_TASK", "next_route": "THREE_DEPARTMENTS", "elapsed_ms": 485.93, "returncode": 0},
+      {"name": "task_candidate_valid", "charter": "这个也处理一下", "message_class": "TASK_CANDIDATE", "next_route": "SINGLE_QUESTION", "elapsed_ms": 501.59, "returncode": 0},
+      {"name": "explicit_closeout_valid", "charter": "结诏", "message_class": "EXPLICIT_CLOSEOUT", "next_route": "SESSION_CLOSEOUT", "elapsed_ms": 540.34, "returncode": 0}
+    ],
+    "invalid_input_controls": [
+      {"name": "task_candidate_wrong_relation", "returncode": 2, "error": "candidate_relation"},
+      {"name": "explicit_closeout_missing_side_effect_flags", "returncode": 2, "error": "closeout_relation/closeout_side_effects"}
+    ],
+    "static_special_case_search": {
+      "command": "rg -n \"OK|text ==|message_text|keyword|blacklist|whitelist|startswith\\(|endswith\\(|len\\(\" scripts/court_intake_gate.py scripts/court_open_fastpath.py scripts/court_cli_registry.py scripts/court_runtime.py",
+      "literal_ok_route_hits": 0,
+      "keyword_filter_route_hits": 0,
+      "length_based_scene_route_hits": 0,
+      "notes": ["Hits were parser/help/string-length checks, not natural-language content route selection."]
+    },
+    "current_problem": "The low-complexity validation path still uses the unified CLI adapter and an isolated runtime subprocess, costing about 0.46-0.57s even for already-structured casual/direct gates."
+  },
+  "formal_open_group": {
+    "in_process_ready_probe": {
+      "source": "prepare_fast_open() with fake runtime API from focused measurement",
+      "serial": {
+        "elapsed_ms": 515.3,
+        "status": "READY",
+        "dispatch_count": 0,
+        "department_packets": 3,
+        "ministry_packets": 0,
+        "process_audit": ["git branch --show-current", "git rev-parse HEAD", "git diff --cached --name-only", "git status --short --untracked-files=no"],
+        "capability_cache_status": "MISS",
+        "capability_load_calls": 1,
+        "admission_calls": 0
+      },
+      "parallel": {
+        "elapsed_ms": 292.59,
+        "status": "READY",
+        "dispatch_count": 9,
+        "department_packets": 3,
+        "ministry_packets": 0,
+        "process_audit": ["git branch --show-current", "git rev-parse HEAD", "git diff --cached --name-only", "git status --short --untracked-files=no"],
+        "capability_cache_status": "MISS",
+        "capability_load_calls": 1,
+        "admission_calls": 9
+      }
+    },
+    "real_cli_temp_runtime_probe": {
+      "create_task": {"elapsed_ms": 543.44, "returncode": 0},
+      "open_serial": {"elapsed_ms": 788.77, "returncode": 2, "status": "FAST_PATH_MISS:semantic_not_dispatchable", "dispatch_count": 0},
+      "open_parallel": {"elapsed_ms": 827.93, "returncode": 2, "status": "FAST_PATH_MISS:semantic_not_dispatchable", "dispatch_count": 0},
+      "notes": ["True CLI path fail-closes without a dispatchable semantic task state; this is safety evidence, not a completed ready-path performance sample."]
+    }
+  },
+  "external_cwd_group": {
+    "temp_base_used": "C:/Users/32893/AppData/Local/Temp",
+    "current_relative_request_file": {
+      "cwd": "external temp directory with request.json present",
+      "command": "python -B <repo>/scripts/court_cli.py --format json court open --fast --request-file request.json",
+      "observed_status": "request_file_invalid",
+      "problem": "Relative request-file is resolved from product ROOT because court_cli_registry invokes subprocess with cwd=ROOT."
+    },
+    "current_absolute_request_file_control": {
+      "cwd": "same external temp directory",
+      "command": "python -B <repo>/scripts/court_cli.py --format json court open --fast --request-file <absolute-temp-path>",
+      "observed_status": "task_id_required",
+      "meaning": "The file existed and was readable when absolute; failure is relative-path resolution, not file content absence."
+    },
+    "source_evidence": "scripts/court_cli_registry.py currently passes cwd=ROOT when launching the court open subprocess."
+  },
+  "focused_checkers_current_dirty": [
+    {"command": "python -B scripts/check_court_intake_gate.py", "result": "PASS", "summary": "COURT_INTAKE_GATE_OK pass_cases=11 fail_cases=32 confidence_mutation=KILLED"},
+    {"command": "python -B scripts/check_unified_cli.py --inventory-only --json", "result": "PASS", "summary": "127 manifest entries discovered/registered; load_registry effective records observed separately as 126"},
+    {"command": "python -B scripts/check_court_open_fastpath.py --json", "result": "PASS", "summary": "authority/behavior, superCC separation, fail-closed zero dispatch, and capability snapshot checks pass in focused harness"},
+    {"command": "python -B scripts/check_startup_fastpath_contract.py --json", "result": "PASS", "summary": "serial dispatch_count=0; parallel dispatch_count=9; warm_open_ms=3.854; fail_closed_zero_dispatch status FAST_PATH_MISS:semantic_not_dispatchable"},
+    {"command": "python -B scripts/check_court_session_closeout.py", "result": "PASS", "summary": "COURT_SESSION_CLOSEOUT_OK core=PASS transaction=PASS cli=PASS; untracked candidate only, not accepted integration evidence"}
+  ],
+  "task1_findings": [
+    {
+      "id": "F1",
+      "finding": "Low-complexity structured intake is not text-special-cased, but still pays unified adapter plus isolated subprocess cost.",
+      "evidence": ["lightweight_variant_group elapsed_ms range 457.81-572.03", "loader=isolated_runtime_process"],
+      "next_action": "Write RED for scenario-cost allocation and optimize path without removing intake gate or decree binding."
+    },
+    {
+      "id": "F2",
+      "finding": "Project-directory-outside CLI relative request-file is broken.",
+      "evidence": ["relative request-file from external cwd => request_file_invalid", "absolute request-file from same cwd => task_id_required", "court_cli_registry subprocess cwd=ROOT"],
+      "next_action": "Write RED for caller-cwd relative file resolution, then fix path handling."
+    },
+    {
+      "id": "F3",
+      "finding": "Current archive adds receipt/hash identity fields after beta0.5.9 and is slower in no-refresh probe.",
+      "evidence": ["beta0.5.9 archive no-refresh 261.62 ms", "current archive no-refresh 379.75 ms", "current key_output_fields include archive_sha256/receipt_sha256/closeout_identity"],
+      "next_action": "Classify these fields by function/history value before any merge/removal; do not delete by default."
+    },
+    {
+      "id": "F4",
+      "finding": "True CLI formal open requires existing dispatchable semantic runtime state and fail-closes with zero dispatch when absent.",
+      "evidence": ["temp COURT_RUNTIME_ROOT task created", "court open serial/parallel => FAST_PATH_MISS:semantic_not_dispatchable dispatch_count=0"],
+      "next_action": "Keep fail-closed semantics while optimizing valid ready path and avoiding non-Git/general-cwd breakage."
+    },
+    {
+      "id": "F5",
+      "finding": "Project/focused checker results exist, but they are not ordinary Skill runtime obligations.",
+      "evidence": ["check_cli_performance.py --worker fast output", "check_startup_fastpath_contract.py PASS"],
+      "next_action": "Move project/check/release gates out of ordinary Skill runtime chains during Task 2 review."
+    }
+  ],
+  "status_after_measurement": {
+    "product_source_modified_by_task1_measurement": false,
+    "pending_product_diff_before_task1_preserved": true,
+    "root_dirty_preserved": true,
+    "child_index_expected_empty": true,
+    "root_index_expected_empty": true
+  }
+}

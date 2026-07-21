@@ -1,5 +1,31 @@
 # Changelog
 
+## beta1.0.2 - 2026-07-21
+
+### Changed
+
+- Reframed Decretum Matrix as an edict-centered multi-agent collaboration
+  skill whose default formal path is Three Departments and Six Ministries, with
+  scene-appropriate routing for casual chat, light tasks, formal tasks,
+  corrections, continuations, and explicit closeout.
+- Preserved beta0.5.9 capabilities and explicit later additions while
+  separating ordinary skill runtime from project-level release, install, legal,
+  manifest, and package gates.
+- Restored Shiguan base memory as the normal record/query layer, kept GBrain as
+  a consolidation/organization layer, and kept Shiguan Git Federation as an
+  explicit management function.
+- Tightened authority/behavior wording so `approval|autonomous|super` remain
+  authorization boundaries and `serial|parallel` remain execution modes.
+- Repaired external-CWD CLI behavior so user relative paths are resolved from
+  the caller directory while project check/release commands still run from the
+  code root.
+
+### Release identity
+
+- Product/tag/artifact version: `beta1.0.2`.
+- npm version: `1.0.2-beta.0` on the `beta` dist-tag.
+- Remote publication status is proven only by later remote rereads.
+
 ## beta1.0.1 - 2026-07-20
 
 ### Fixed

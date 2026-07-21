@@ -16,7 +16,7 @@ npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 decretum-matrix --format json --help
 ```
 
-当前源码候选为 `1.0.1-beta.0`。安装命令解析到 registry 已发布的 `beta`；
+当前源码候选为 `1.0.2-beta.0`。安装命令解析到 registry 已发布的 `beta`；
 实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
 `read:packages`，且不得持久化 token。
 
@@ -28,9 +28,12 @@ decretum-matrix --format json --help
 $decretum-matrix
 ```
 
-随后直接描述任务和边界。`approval|autonomous|super` authority 与
-`serial|parallel` behavior 独立；普通 `super parallel` 固定走 native。superCC
-只由独立显式入口启动，两种 runtime 不在同一 task/process 中切换或回退。
+随后直接描述任务和边界。三权是授权边界：`approval` 为审批权，默认只读和等
+待批准；`autonomous` 为自主权，在给定范围内本地实施；`super` 为超级执行权，
+可在明确边界内连续推进。运行方式另选：`serial` 为串行，不并行开子 agente；
+`parallel` 为并行，按层级派生子/孙 agente。权力不是运行方式；二者独立。
+普通 `super parallel` 固定走 native。superCC 只由独立显式入口启动，两种
+runtime 不在同一 task/process 中切换或回退。
 
 ## 能做什么
 
@@ -58,11 +61,12 @@ $decretum-matrix
 
 ## 当前版本
 
-当前源码分支为 `release/beta1.0.1`，发布身份以 [`VERSION`](VERSION) 和
+当前源码分支为 `release/beta1.0.2`，发布身份以 [`VERSION`](VERSION) 和
 [`release-manifest.json`](release-manifest.json) 为准。tag、GitHub Release、npm
 以及线上 Wiki 的成功状态只由对应发布回执证明。
 
-`beta1.0.1` 修复启动语义与 capability snapshot 快路；`beta1.0.0` 及两个
+`beta1.0.2` 整改启动语义、场景成本、目录外 CLI 和尚书统六部语义；`beta1.0.1`
+作为上一问题基线保留历史证据，`beta1.0.0` 及两个
 hotfix tag 继续保留不可变历史证据。
 
 ## 许可

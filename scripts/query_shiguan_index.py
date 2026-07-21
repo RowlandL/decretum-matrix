@@ -8,7 +8,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
-from shiguan_gbrain import index_path, load_entries, score_entry, select_matches
+from shiguan_entry_utils import index_path, load_entries, score_entry, select_matches as fallback_select_matches
 
 
 def truncate(value: object, limit: int) -> str:
@@ -50,6 +50,29 @@ def print_detail(entry: dict[str, object], summary_chars: int) -> None:
     print(f"  memory: {entry.get('memory_decision', '')} {truncate(entry.get('memory_content', ''), summary_chars)}")
 
 
+def select_query_matches(
+    entries: list[dict[str, object]],
+    terms: list[str],
+    *,
+    mode: str = "gbrain",
+) -> list[dict[str, object]]:
+    """Select query matches through GBrain, with the Shiguan base query as fallback."""
+
+    if mode not in {"gbrain", "fallback"}:
+        raise ValueError("query_mode_invalid")
+    if mode == "gbrain":
+        try:
+            from shiguan_gbrain import select_matches as gbrain_select_matches
+        except (ImportError, OSError, RuntimeError, ValueError):
+            pass
+        else:
+            return gbrain_select_matches(entries, terms)
+    return fallback_select_matches(entries, terms)
+
+
+select_matches = select_query_matches
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -59,6 +82,12 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--summary-chars", type=int, default=160)
     parser.add_argument("--format", choices=["compact", "detail", "json"], default="compact")
+    parser.add_argument(
+        "--query-mode",
+        choices=["gbrain", "fallback"],
+        default="gbrain",
+        help="Use GBrain as the Shiguan query layer by default; fallback keeps the base Shiguan scorer.",
+    )
     args = parser.parse_args()
 
     entries = load_entries()
@@ -67,7 +96,7 @@ def main() -> int:
         return 1
 
     terms = [term for term in args.terms if term.strip()]
-    matches = select_matches(entries, terms)[: max(args.limit, 1)]
+    matches = select_query_matches(entries, terms, mode=args.query_mode)[: max(args.limit, 1)]
 
     if args.format == "json":
         print(json.dumps(matches, ensure_ascii=False, indent=2))

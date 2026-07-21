@@ -44,13 +44,16 @@ MESSAGE_CLASSES = frozenset(
         "TASK_CORRECTION",
         "SIDE_CHAT",
         "UNCLEAR_RELATION",
+        "EXPLICIT_CLOSEOUT",
     }
 )
 ACTIVE_DECREE_STATES = frozenset({"NONE", "ACTIVE", "PAUSED", "BLOCKED", "WAITING_USER"})
 CONFIDENCE_LEVELS = frozenset({"HIGH", "MEDIUM", "LOW"})
 RELATIONS = frozenset({"NONE", "CONTINUES", "CORRECTS", "SIDE_CHAT", "NEW_TASK", "UNCLEAR"})
 TASKIZATION_CONSENTS = frozenset({"NOT_REQUIRED", "EXPLICIT", "PENDING"})
-NEXT_ROUTES = frozenset({"CASUAL_REPLY", "DIRECT_ANSWER", "THREE_DEPARTMENTS", "SINGLE_QUESTION"})
+NEXT_ROUTES = frozenset(
+    {"CASUAL_REPLY", "DIRECT_ANSWER", "THREE_DEPARTMENTS", "SINGLE_QUESTION", "SESSION_CLOSEOUT"}
+)
 
 _REQUIRED_FIELDS = frozenset(
     {
@@ -488,11 +491,22 @@ def validate_conversation_gate(value: object) -> dict[str, object]:
         _require(not requires_tools and not mutates_state and not risk_present, "clarification_side_effects")
         _require_no_target(target_task_id)
 
+    elif message_class == "EXPLICIT_CLOSEOUT":
+        if active_decree:
+            _require(relation == "CONTINUES", "closeout_relation")
+        else:
+            _require(relation == "NONE", "closeout_relation")
+        _require(consent == "EXPLICIT", "closeout_consent")
+        _require(next_route == "SESSION_CLOSEOUT", "closeout_route")
+        _require(requires_tools and mutates_state, "closeout_side_effects")
+        _require_no_question(question, "closeout_question")
+        _require_no_target(target_task_id)
+
     return normalized
 
 
 def require_new_formal_task_gate(value: object) -> dict[str, object]:
-    """Require FORMAL_TASK + EXPLICIT consent + THREE_DEPARTMENTS route."""
+    """Require FORMAL_TASK ready for direct execution through Three Departments."""
 
     gate = validate_conversation_gate(value)
     _require(gate["message_class"] == "FORMAL_TASK", "new_formal_task_gate_required")

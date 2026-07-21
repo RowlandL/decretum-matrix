@@ -331,7 +331,7 @@ def resolve_capability_snapshot(
 ) -> tuple[dict[str, object], str, float]:
     started = time.perf_counter_ns()
     if capability_loader is None:
-        from check_capability_index_gate import route_registry_first
+        from court_capability_recruitment import route_registry_first
 
         capability_loader = route_registry_first
     manifest = _canonical_capability_manifest(normalized)
@@ -342,7 +342,7 @@ def resolve_capability_snapshot(
         elapsed = (time.perf_counter_ns() - started) / 1_000_000
         return deepcopy(cached), "HIT", elapsed
 
-    from check_capability_index_gate import default_source_roots
+    from court_capability_recruitment import default_source_roots
 
     query = str(normalized.get("capability_query") or normalized["task_focus"])
     source_roots: dict[str, object] = dict(default_source_roots())
@@ -775,6 +775,30 @@ def _miss(reason: str, problems: Sequence[str] = ()) -> dict[str, object]:
     }
 
 
+def _shangshu_ministry_coordination(
+    normalized: Mapping[str, object],
+    ministry_packets: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    selected_ministries = [str(packet.get("role")) for packet in ministry_packets]
+    return {
+        "schema": "court.shangshu_ministry_coordination.v1",
+        "coordinator": "shangshu",
+        "authority": normalized["authority"],
+        "behavior": normalized["behavior"],
+        "selection_policy": "result_required_six_ministry_responsibilities",
+        "selected_ministries": selected_ministries,
+        "simple_shangshu_only_allowed": False,
+        "simple_shangshu_only_reason": "",
+        "dispatch_initiator": "shangshu",
+        "dispatch_target_kind": "six_ministry_child_offices",
+        "taizi_direct_ministry_dispatch_allowed": False,
+        "direct_superior_policy": "six_ministries_only_direct_superior_is_shangshu",
+        "integration_owner": "shangshu",
+        "evidence_return": "shangshu_integrates_then_reports_to_taizi",
+        "ministry_packet_count": len(selected_ministries),
+    }
+
+
 def prepare_fast_open(
     value: object,
     *,
@@ -914,11 +938,17 @@ def prepare_fast_open(
                     packet["serial_action"] = "inline_deliberation"
                     admission_decisions.append({"role": role, "decision": "serial_inline"})
                 ministry_packets.append(packet)
+        shangshu_ministry_coordination = (
+            _shangshu_ministry_coordination(normalized, ministry_packets)
+            if ministry_packets
+            else None
+        )
 
         packet_digest = _sha256_bytes(_canonical_bytes({
             "operation_id": normalized["operation_id"],
             "departments": department_packets,
             "ministries": ministry_packets,
+            "shangshu_ministry_coordination": shangshu_ministry_coordination,
         }))
         return {
             "schema": RECEIPT_SCHEMA,
@@ -940,6 +970,7 @@ def prepare_fast_open(
             "preloads": [_preload_payload(preloads[role]) for role in roles],
             "department_packets": department_packets,
             "shangshu_ministry_packets": ministry_packets,
+            "shangshu_ministry_coordination": shangshu_ministry_coordination,
             "admission_decisions": admission_decisions,
             "mutations": [],
             "dispatch_count": len(admission_decisions) if normalized["behavior"] == "parallel" else 0,

@@ -1,0 +1,151 @@
+{
+  "schema": "decretum_matrix.skill_level_acceptance.v1",
+  "generated_at_local": "2026-07-21T11:15:27+08:00",
+  "worktree": "D:/project/worktrees/decretum-matrix/decretum-matrix-beta1.0.1-startup-fastpath",
+  "branch": "release/beta1.0.2",
+  "head": "9774a1415b906b357985e462e74efaf842f45602",
+  "target_version": "beta1.0.2",
+  "scope": "Local Skill-level acceptance only. Project release/install/package/remote publication gates are out of scope here unless separately authorized.",
+  "pending_body_access": "NO",
+  "remote_actions": {
+    "push": "NOT_RUN",
+    "tag": "NOT_RUN",
+    "github_release": "NOT_RUN",
+    "npm_publish": "NOT_RUN",
+    "wiki_push": "NOT_RUN"
+  },
+  "feature_preservation_gate": {
+    "SKILL_FEATURE_PRESERVATION": "PASS",
+    "checker_script_created": false,
+    "reason": "Task 0 did not approve a new ordinary checker. Preservation is proven by feature inventory, post-0.5.9 script review, and focused live gates; no new check script enters court open, casual chat, lightweight routing, or ordinary Skill runtime.",
+    "beta059_capability_lost": 0,
+    "explicit_feature_lost": 0,
+    "historical_data_unreadable": 0,
+    "retained_contract_regression": 0,
+    "value_unknown": 0,
+    "evidence_files": [
+      "docs/plans/2026-07-20-decretum-matrix-feature-inventory.md",
+      "docs/plans/2026-07-20-decretum-matrix-semantic-boundary-matrix.md",
+      "docs/plans/2026-07-20-decretum-matrix-post-059-script-review.md",
+      ".repo-control/evidence/decretum-matrix/objective-remediation/post-059-script-review.json",
+      ".repo-control/evidence/decretum-matrix/objective-remediation/runtime-baseline.json"
+    ]
+  },
+  "results": {
+    "SKILL_SEMANTIC_CONTRACT": "PASS",
+    "SKILL_FEATURE_PRESERVATION": "PASS",
+    "POST_059_SCRIPT_REVIEW": "PASS",
+    "SCENE_COST_ALLOCATION": "PASS",
+    "SCENE_ROUTING": "PASS",
+    "FORMAL_COURT_FLOW": "PASS",
+    "OFFICE_IDENTITY": "PASS",
+    "SESSION_CLOSEOUT": "PASS",
+    "SHIGUAN_BASE_MEMORY": "PASS",
+    "GBRAIN": "PASS",
+    "SHIGUAN_GIT_FEDERATION": "PASS",
+    "EXTERNAL_CWD": "PASS",
+    "NATIVE": "PASS",
+    "SUPERCC_STANDARD": "NOT_STANDARD_ENVIRONMENT"
+  },
+  "live_commands": [
+    {
+      "command": "python -B scripts/check_court_intake_gate.py",
+      "status": "PASS",
+      "summary": "COURT_INTAKE_GATE_OK pass_cases=11 fail_cases=32 confidence_mutation=KILLED"
+    },
+    {
+      "command": "python -B scripts/check_court_session_closeout.py",
+      "status": "PASS",
+      "summary": "COURT_SESSION_CLOSEOUT_OK core=PASS transaction=PASS cli=PASS"
+    },
+    {
+      "command": "python -B scripts/check_court_open_fastpath.py --json",
+      "status": "PASS",
+      "summary": "FAST_OPEN_SINGLE_PROCESS=PASS; SHANGSHU_FIRST_DISPATCH=PASS; SIX_MINISTRY_DIRECT_SUPERIOR=PASS; production_capability_not_checker_import=true"
+    },
+    {
+      "command": "python -B scripts/check_startup_fastpath_contract.py --json",
+      "status": "PASS",
+      "summary": "STARTUP_SEMANTIC_FASTPATH=PASS; authority/behavior cartesian_count=6; capability snapshot before deliberation; fail-closed zero dispatch"
+    },
+    {
+      "command": "python -B scripts/check_unified_cli.py --all --json",
+      "status": "PASS",
+      "summary": "CLI_ENTRYPOINT_COVERAGE=PASS; CLI_EXTERNAL_CWD=PASS; CLI_NPM_CANONICAL_RUNTIME=PASS; CLI_LAZY_LOAD=PASS; registered_count=129; record_count=128"
+    },
+    {
+      "command": "python -B scripts/check_governance_framework.py --json",
+      "status": "PASS",
+      "summary": "SEMANTIC_CLEANLINESS_GATE=PASS; 48 checks passed including GBrain-Shiguan query integration, fallback query path, advisory/current-decree precedence, explicit Git Federation trigger, settlement candidates, and formal understanding gates"
+    },
+    {
+      "command": "python -B scripts/check_governance_framework.py --only gbrain --json",
+      "status": "PASS",
+      "summary": "13 GBrain checks passed: Shiguan query integration, base fallback, metadata-only recall, advisory authority, current-decree precedence, conflict preservation, explicit Git Federation trigger, no ordinary implicit Git trigger, and settlement candidates"
+    },
+    {
+      "command": "python -B scripts/check_court_office_assignment_binding.py --json",
+      "status": "PASS",
+      "summary": "COURT_OFFICE_ASSIGNMENT_BINDING_OK"
+    },
+    {
+      "command": "python -B scripts/check_semantic_continuity.py --json",
+      "status": "PASS",
+      "summary": "ok=true; SEMANTIC_BINDING_CORE_PASS; pending_body_access=NO"
+    },
+    {
+      "command": "python -B scripts/check_p00_semantic_dispatch_context.py",
+      "status": "PASS",
+      "summary": "status=PASSED; invariant capsule and bounded context packet preserved"
+    },
+    {
+      "command": "python -B scripts/check_court_dispatch_hierarchy.py --json",
+      "status": "PASS",
+      "summary": "status=PASSED; shared validator and hierarchy manifest accepted"
+    },
+    {
+      "command": "python -B scripts/check_shiguan_git_federation.py --json",
+      "status": "PASS",
+      "summary": "gate=PASSED; 20 Git Federation checks passed"
+    },
+    {
+      "command": "python -B scripts/query_shiguan_index.py baseline-nonexistent-term --format json --limit 1",
+      "status": "PASS",
+      "summary": "Returned [] with exit code 0; default Shiguan query uses GBrain ordering without granting execution authority"
+    },
+    {
+      "command": "python -B scripts/query_shiguan_index.py baseline-nonexistent-term --query-mode fallback --format json --limit 1",
+      "status": "PASS",
+      "summary": "Returned [] with exit code 0; base Shiguan scorer remains available as an explicit fallback path"
+    },
+    {
+      "command": "python -B scripts/check_portability.py",
+      "status": "PASS",
+      "summary": "ok=true; platform roots, portable package text, bytecode disabling, and wrapper-relative superCC shell contract passed"
+    },
+    {
+      "command": "python -B scripts/quick_validate.py .",
+      "status": "PASS",
+      "summary": "Skill is valid; response few-shot format, draft fixtures, context compression survival, and usage ledger are valid"
+    },
+    {
+      "command": "python -B scripts/check_catalog.py --strict",
+      "status": "PASS",
+      "summary": "CODEX_SKILLS_OK; AGENT_SKILLS_OK; CODEX_AGENTS_OK; MAP_OK"
+    },
+    {
+      "command": "Get-ChildItem -Recurse -Force -Include __pycache__,*.pyc",
+      "status": "PASS",
+      "summary": "No active skill-root __pycache__ or .pyc paths were reported"
+    },
+    {
+      "command": "python -B scripts/check_cli_performance.py --json",
+      "status": "PASS",
+      "summary": "CLI_PERFORMANCE_GATE=PASS; samples=3; max_fast_preload_bytes=20452/20480; fast_python_processes=1; legacy_python_processes=9; cold_fast_p50_ms=369.444; cold_p50_improvement_percent=74.67; warm_fast_p50_ms=2.589"
+    }
+  ],
+  "supercc": {
+    "standard_acceptance": "NOT_STANDARD_ENVIRONMENT",
+    "reason": "Current desktop context is not an actually compatible terminal/zellij+squad superCC environment. superCC remains a distinct optional entry path and is not used as native Skill acceptance proof."
+  }
+}

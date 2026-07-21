@@ -318,8 +318,17 @@ def _check_gbrain() -> list[str]:
         },
     ]
     terms = ["governance", "adapter"]
-    legacy_order = [item["record_uid"] for item in query.select_matches(deepcopy(entries), terms)]
+    query_source = Path(query.__file__).read_text(encoding="utf-8")
+    assert "shiguan_gbrain" in query_source, "gbrain_not_integrated_with_shiguan_query"
+    legacy_order = [
+        item["record_uid"]
+        for item in query.select_query_matches(deepcopy(entries), terms, mode="fallback")
+    ]
     assert legacy_order == ["r-current", "r-expired"]
+    assert [
+        item["record_uid"]
+        for item in query.select_query_matches(deepcopy(entries), terms, mode="gbrain")
+    ] == legacy_order
     assert [item["record_uid"] for item in gbrain.select_matches(deepcopy(entries), terms)] == legacy_order
     assert [gbrain.score_entry(item, terms) for item in entries[:2]] == [13, 11]
 
@@ -364,11 +373,50 @@ def _check_gbrain() -> list[str]:
     assert official["memory_git"]["managed_store_count"] == 3
     assert official["memory_git"]["stores"][0]["memory_store_id"] == "codex-native-memory"
     assert "native_root" not in json.dumps(official["memory_git"], ensure_ascii=False)
+    no_git_common = {key: value for key, value in common.items() if key != "memory_git_provenance"}
+    implicit = gbrain.build_recall_context(governance_id=DEFAULT_ID, **no_git_common)
+    assert implicit["memory_git"]["registry_available"] is False
+    assert implicit["memory_git"]["stores"] == []
+    assert implicit["memory_git"]["trigger_mode"] == "not_requested"
+    triggered = gbrain.build_recall_context(
+        governance_id=DEFAULT_ID,
+        **no_git_common,
+        include_memory_git=True,
+        memory_git_shared_root=Path("fixture-shared-root"),
+        memory_git_loader=lambda shared_root: common["memory_git_provenance"],
+    )
+    assert triggered["memory_git"]["trigger_mode"] == "gbrain_triggered"
+    assert triggered["memory_git"]["managed_store_count"] == 3
     official_without_id = {key: value for key, value in official.items() if key != "governance_id"}
     direct_without_id = {key: value for key, value in direct.items() if key != "governance_id"}
     assert official_without_id == direct_without_id
+    settlement = gbrain.build_settlement_candidates(
+        deepcopy(entries),
+        terms,
+        current_decree_sha256=_digest("decree"),
+        as_of="2026-07-19T12:00:00+08:00",
+        limit=5,
+        include_memory_git=True,
+        memory_git_shared_root=Path("fixture-shared-root"),
+        memory_git_loader=lambda shared_root: common["memory_git_provenance"],
+    )
+    assert settlement["schema"] == "decretum.gbrain.settlement_candidates.v1"
+    assert settlement["authority"] == "advisory"
+    assert settlement["execution_authority"] is False
+    assert settlement["write_authority"] is False
+    assert settlement["current_decree_precedence"] is True
+    assert settlement["derived_from"] == "existing_shiguan_records"
+    assert "scripts/tidy_shiguan_records.py" in settlement["existing_toolchain"]
+    assert [item["record_uid"] for item in settlement["candidates"]] == legacy_order
+    assert settlement["candidates"][0]["disposition"] == "candidate_long_term_memory"
+    assert settlement["candidates"][1]["disposition"] == "preserve_conflict_for_menxia_review"
+    assert settlement["memory_git"]["trigger_mode"] == "gbrain_triggered"
+    assert settlement["memory_git"]["managed_store_count"] == 3
+    assert "private body" not in json.dumps(settlement, ensure_ascii=False)
+    assert "must not be projected" not in json.dumps(settlement, ensure_ascii=False)
     return [
-        "gbrain_query_compatibility",
+        "gbrain_shiguan_query_integration",
+        "gbrain_base_query_fallback",
         "gbrain_metadata_only_recall",
         "gbrain_advisory_authority",
         "gbrain_current_decree_precedence",
@@ -376,6 +424,9 @@ def _check_gbrain() -> list[str]:
         "gbrain_conflict_preservation",
         "gbrain_memory_git_provenance",
         "gbrain_memory_git_path_privacy",
+        "gbrain_explicit_git_federation_trigger",
+        "gbrain_no_ordinary_git_federation_trigger",
+        "gbrain_settlement_candidates",
         "gbrain_cross_governance_continuity",
     ]
 
@@ -520,7 +571,7 @@ def _check_documentation_contract() -> list[str]:
 
     skill = texts["SKILL.md"]
     assert "governance-implementations.v1.json" in skill
-    assert "史馆 GBrain" in skill and "不取得当前任务执行权" in skill
+    assert "史馆 GBrain" in skill and ("不取得当前任务执行权" in skill or "无执行权" in skill)
     assert "scripts/check_governance_framework.py" in skill
     understanding_terms = (
         "目标、使用场景、关键要求和验收标准",

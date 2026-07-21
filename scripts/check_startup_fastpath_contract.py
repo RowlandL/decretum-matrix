@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused regressions for beta1.0.1 startup and semantic fast paths."""
+"""Focused regressions for beta1.0.2 startup and semantic fast paths."""
 
 from __future__ import annotations
 
@@ -134,7 +134,13 @@ def check_cli_process_isolation() -> dict[str, object]:
     stdout = io.StringIO()
     stderr = io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        result = registry._resolve_and_run("court", "open", ["--help"], "text")
+        result = registry._resolve_and_run(
+            "court",
+            "open",
+            ["--help"],
+            "text",
+            invocation_cwd=Path.cwd().resolve(strict=False),
+        )
     require(result == 0, "native court help failed through unified CLI")
     loaded = sorted(module for module in watched if module in sys.modules)
     require(not loaded, "unified CLI imported a runtime instead of process-dispatching:" + ",".join(loaded))
@@ -419,6 +425,29 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
                 expected_dispatch = 9 if behavior == "parallel" else 0
                 require(receipt.get("dispatch_count") == expected_dispatch, "behavior dispatch count drift")
                 require(runtime.admission_calls == expected_dispatch, "behavior admission count drift")
+                if behavior == "parallel":
+                    coordination = receipt.get("shangshu_ministry_coordination")
+                    require(isinstance(coordination, dict), "parallel shangshu coordination missing")
+                    require(
+                        coordination.get("schema") == "court.shangshu_ministry_coordination.v1",
+                        "parallel shangshu coordination schema drift",
+                    )
+                    require(
+                        coordination.get("dispatch_initiator") == "shangshu",
+                        "parallel ministries were not dispatched by shangshu",
+                    )
+                    require(
+                        coordination.get("dispatch_target_kind") == "six_ministry_child_offices",
+                        "parallel ministry target kind drift",
+                    )
+                    require(
+                        coordination.get("taizi_direct_ministry_dispatch_allowed") is False,
+                        "taizi direct ministry dispatch leaked into parallel receipt",
+                    )
+                    require(
+                        coordination.get("selected_ministries") == list(court_open_fastpath.SIX_MINISTRIES),
+                        "parallel selected ministries drift",
+                    )
                 results.append({"authority": authority, "behavior": behavior, "dispatch_count": expected_dispatch})
     return {"ok": True, "cartesian_count": len(results), "results": results}
 

@@ -88,6 +88,43 @@ def _release_archive(package_root: Path) -> tuple[Path, str]:
     return archive, actual
 
 
+def _packaged_version(package_root: Path) -> str:
+    version_path = package_root / "VERSION"
+    try:
+        version = version_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        version = ""
+    if version:
+        return version
+    try:
+        package_json = json.loads((package_root / "package.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    metadata = package_json.get("decretumMatrix") if isinstance(package_json, dict) else None
+    if not isinstance(metadata, dict):
+        return ""
+    return str(metadata.get("releaseLabel") or "").strip()
+
+
+def _canonical_runtime_root(package_root: Path, home: Path | None = None) -> Path | None:
+    expected_version = _packaged_version(package_root)
+    if not expected_version:
+        return None
+    root = (home or _postinstall_home()) / ".agents" / "skills" / "decretum-matrix"
+    version_path = root / "VERSION"
+    cli = root / "scripts" / "court_cli.py"
+    skill = root / "SKILL.md"
+    try:
+        installed_version = version_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if installed_version != expected_version:
+        return None
+    if not cli.is_file() or not skill.is_file():
+        return None
+    return root
+
+
 def _member_parts(name: str) -> tuple[str, ...]:
     if "\\" in name or "\x00" in name:
         raise LauncherError("release ZIP member path invalid")
@@ -361,15 +398,24 @@ def _run_postinstall(runtime_root: Path, digest: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     package_root = Path(__file__).resolve().parents[1]
-    archive, digest = _release_archive(package_root)
-    cache_base = Path(
-        os.environ.get("DECRETUM_MATRIX_NPM_CACHE_ROOT")
-        or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
-    ).resolve(strict=False)
-    runtime_root = _extract_runtime(archive, cache_base / digest, digest)
     effective_argv = sys.argv[1:] if argv is None else argv
     if effective_argv == ["--npm-postinstall"]:
+        archive, digest = _release_archive(package_root)
+        cache_base = Path(
+            os.environ.get("DECRETUM_MATRIX_NPM_CACHE_ROOT")
+            or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
+        ).resolve(strict=False)
+        runtime_root = _extract_runtime(archive, cache_base / digest, digest)
         return _run_postinstall(runtime_root, digest)
+    digest = ""
+    runtime_root = _canonical_runtime_root(package_root)
+    if runtime_root is None:
+        archive, digest = _release_archive(package_root)
+        cache_base = Path(
+            os.environ.get("DECRETUM_MATRIX_NPM_CACHE_ROOT")
+            or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
+        ).resolve(strict=False)
+        runtime_root = _extract_runtime(archive, cache_base / digest, digest)
     cli = runtime_root / "scripts" / "court_cli.py"
     sys.path.insert(0, str(cli.parent))
     sys.argv = [str(cli), *effective_argv]

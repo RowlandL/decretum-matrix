@@ -77,7 +77,7 @@ def _identity(path: Path) -> tuple[dict[str, object], list[list[str]]]:
     return (
         {
             "path": str(path.resolve()),
-            "branch": "release/beta1.0.1",
+            "branch": "release/beta1.0.2",
             "HEAD": "5" * 40,
             "index_count": 0,
             "tracked_dirty_count": 0,
@@ -161,7 +161,7 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
         "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
         "include_shangshu_ministries": True,
         "write_sets": {},
-        "expected_branch": "release/beta1.0.1",
+        "expected_branch": "release/beta1.0.2",
         "expected_head": "5" * 40,
         "expected_semantic_receipt_sha256": "1" * 64,
         "expected_plan_sha256": "4" * 64,
@@ -207,6 +207,40 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         checks["six_ministries"] = len(first.get("shangshu_ministry_packets", [])) == 6
         checks["ministry_superiors"] = all(
             packet["hierarchy"]["direct_superior"] == "shangshu"
+            for packet in first.get("shangshu_ministry_packets", [])
+        )
+        coordination = first.get("shangshu_ministry_coordination")
+        checks["shangshu_coordination_present"] = (
+            isinstance(coordination, dict)
+            and coordination.get("schema") == "court.shangshu_ministry_coordination.v1"
+            and coordination.get("coordinator") == "shangshu"
+            and coordination.get("behavior") == request["behavior"]
+        )
+        checks["shangshu_selects_ministries"] = (
+            isinstance(coordination, dict)
+            and coordination.get("selected_ministries") == list(court_open_fastpath.SIX_MINISTRIES)
+            and coordination.get("simple_shangshu_only_allowed") is False
+        )
+        checks["shangshu_dispatches_ministry_children"] = (
+            isinstance(coordination, dict)
+            and coordination.get("dispatch_initiator") == "shangshu"
+            and coordination.get("dispatch_target_kind") == "six_ministry_child_offices"
+            and coordination.get("taizi_direct_ministry_dispatch_allowed") is False
+        )
+        checks["shangshu_integrates_ministries"] = (
+            isinstance(coordination, dict)
+            and coordination.get("integration_owner") == "shangshu"
+            and coordination.get("evidence_return") == "shangshu_integrates_then_reports_to_taizi"
+        )
+        checks["ministry_admission_caller_is_shangshu"] = all(
+            packet.get("admission", {}).get("calling_office") == "shangshu"
+            for packet in first.get("shangshu_ministry_packets", [])
+        )
+        checks["ministry_binding_superior_is_shangshu"] = all(
+            packet.get("admission", {})
+            .get("requested_bindings", [{}])[0]
+            .get("direct_superior")
+            == "shangshu"
             for packet in first.get("shangshu_ministry_packets", [])
         )
         checks["preload_target"] = all(
@@ -279,6 +313,10 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             concurrent_preload=False,
         )
         checks["preload_budget_miss"] = large_miss.get("status") == "FAST_PATH_MISS:preload_budget_exceeded"
+        source_text = Path(court_open_fastpath.__file__).read_text(encoding="utf-8")
+        checks["production_capability_not_checker_import"] = (
+            "check_capability_index_gate" not in source_text
+        )
 
     for name, passed in checks.items():
         if passed is not True:
@@ -295,6 +333,7 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             "semantic_miss",
             "preload_budget_miss",
             "compact_metadata",
+            "production_capability_not_checker_import",
         )
     )
     shangshu_gate = all(
@@ -302,6 +341,12 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         for name in (
             "six_ministries",
             "ministry_superiors",
+            "shangshu_coordination_present",
+            "shangshu_selects_ministries",
+            "shangshu_dispatches_ministry_children",
+            "shangshu_integrates_ministries",
+            "ministry_admission_caller_is_shangshu",
+            "ministry_binding_superior_is_shangshu",
             "ministry_atomic_miss",
             "exact_retry",
         )

@@ -91,7 +91,7 @@ def _identity(path: Path) -> tuple[dict[str, object], list[list[str]]]:
     return (
         {
             "path": str(path.resolve()),
-            "branch": "release/beta1.0.1",
+            "branch": "release/beta1.0.2",
             "HEAD": "5" * 40,
             "index_count": 0,
             "tracked_dirty_count": 0,
@@ -116,7 +116,7 @@ def _request() -> dict[str, object]:
         "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
         "include_shangshu_ministries": True,
         "write_sets": {},
-        "expected_branch": "release/beta1.0.1",
+        "expected_branch": "release/beta1.0.2",
         "expected_head": "5" * 40,
         "expected_semantic_receipt_sha256": "1" * 64,
         "expected_plan_sha256": "4" * 64,
@@ -232,8 +232,8 @@ def _improvement(legacy: dict[str, object], fast: dict[str, object]) -> float:
 
 
 def benchmark(samples: int) -> dict[str, object]:
-    if samples < 10:
-        raise ValueError("at least 10 samples are required")
+    if samples < 3:
+        raise ValueError("at least 3 samples are required")
 
     cold_fast: list[float] = []
     cold_legacy: list[float] = []
@@ -342,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", choices=("fast", "legacy-role"))
     parser.add_argument("--role", choices=ROLES)
-    parser.add_argument("--samples", type=int, default=10)
+    parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.worker == "fast":

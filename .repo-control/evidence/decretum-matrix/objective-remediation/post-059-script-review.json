@@ -1,0 +1,291 @@
+{
+  "schema": "decretum_matrix.post_059_script_review.v1",
+  "generated_at": "2026-07-21T00:52:00+08:00",
+  "evidence_status": "TASK2_REVIEW_RECORDED",
+  "scope": "Review of beta0.5.9..9774a1415b906b357985e462e74efaf842f45602 scripts, checks, gates, manifests, adapters, npm launcher, and current dirty closeout candidates. This file records classification and remediation boundaries; it does not claim cleanup is complete.",
+  "worktree": "D:/project/worktrees/decretum-matrix/decretum-matrix-beta1.0.1-startup-fastpath",
+  "branch": "release/beta1.0.2",
+  "target_version": "beta1.0.2",
+  "current_head": "9774a1415b906b357985e462e74efaf842f45602",
+  "beta059_commit": "040f707e5acc7c12cfcf50afcfc111a7e49a2f00",
+  "commands": [
+    "git diff --name-status -M --find-renames beta0.5.9..9774a1415b906b357985e462e74efaf842f45602 -- scripts references/manifests bin package.json release-manifest.json",
+    "python -B scripts/check_unified_cli.py --inventory-only --json",
+    "python -B scripts/check_court_open_fastpath.py --json",
+    "python -B scripts/check_startup_fastpath_contract.py --json",
+    "rg -n \"def _legacy_runtime|def _capture_subprocess|cwd=ROOT|def _structured_request|def render_group_help|def _resolve_and_run\" scripts/court_cli_registry.py",
+    "rg -n \"def prepare_fast_open|check_capability_index_gate|live_worktree_identity|include_shangshu_ministries\" scripts/court_open_fastpath.py",
+    "rg -n \"from shiguan_gbrain|recall_provenance|governance_id\" scripts/query_shiguan_index.py scripts/shiguan_gbrain.py scripts/shiguan_git_federation.py"
+  ],
+  "diff_summary": {
+    "scripts_added": 52,
+    "scripts_modified": 65,
+    "scripts_deleted": 0,
+    "added_check_scripts": 26,
+    "large_modified_scripts_ge_500_changed_lines": 19,
+    "new_reference_manifests": 7,
+    "cli_manifest_entries": 127,
+    "cli_manifest_public_entries": 127,
+    "cli_effective_registry_records_observed": 126,
+    "added_scripts_wrapped_by_cli_manifest": 31,
+    "release_gate_steps": 50,
+    "release_gate_always_steps": 48,
+    "release_gate_total_timeout_seconds": 9180,
+    "release_manifest_files": 299,
+    "release_manifest_scripts": 165,
+    "generated_portable_seed_paths": 8
+  },
+  "path_call_chains": {
+    "lightweight_structured_intake": {
+      "scripts": [
+        "scripts/court_cli.py",
+        "scripts/court_cli_registry.py",
+        "scripts/court_runtime.py",
+        "scripts/court_intake_gate.py"
+      ],
+      "loader": "isolated_runtime_process",
+      "elapsed_ms_range": [457.81, 572.03],
+      "classification": "Skill runtime, but adapter/subprocess cost is remediation target",
+      "unrelated_checkers_observed": 0,
+      "literal_input_special_case_observed": false
+    },
+    "formal_open": {
+      "scripts": [
+        "scripts/court_cli.py",
+        "scripts/court_cli_registry.py",
+        "scripts/court_open_fastpath.py",
+        "scripts/check_capability_index_gate.py"
+      ],
+      "git_calls": [
+        "git branch --show-current",
+        "git rev-parse HEAD",
+        "git diff --cached --name-only",
+        "git status --short --untracked-files=no"
+      ],
+      "current_risk": "Production fast open imports a checker module for capability routing and performs Git identity probing even when the caller is outside a product Git worktree.",
+      "classification": "Skill runtime with coupling to be split; keep capability snapshot semantics but remove project-only/checker burden from ordinary path"
+    },
+    "shiguan_query": {
+      "scripts": [
+        "scripts/query_shiguan_index.py",
+        "scripts/shiguan_gbrain.py",
+        "scripts/shiguan_entry_utils.py"
+      ],
+      "head_risk": "At accepted HEAD, GBrain was overloaded as both search helper and governance envelope without a clear fallback/authority boundary.",
+      "current_implementation": "query_shiguan_index.py now defaults to the GBrain intelligent query layer and keeps shiguan_entry_utils.py as --query-mode fallback; shiguan_gbrain.py provides recall/advisory and read-only settlement candidates.",
+      "classification": "Baseline Shiguan recall plus explicit GBrain boundary remediation"
+    },
+    "gbrain_git_federation": {
+      "scripts": [
+        "scripts/shiguan_gbrain.py",
+        "scripts/shiguan_git_federation.py"
+      ],
+      "head_risk": "GBrain provenance path lacked a clear distinction between ordinary recall and explicit management/settlement provenance.",
+      "current_implementation": "GBrain can trigger Git Federation provenance when include_memory_git is explicitly requested by a settlement/management caller; ordinary lightweight recall and court-open startup do not run the heavy Git management path implicitly.",
+      "classification": "Explicit added features; decouple trigger path, do not delete"
+    },
+    "project_engineering": {
+      "scripts": [
+        "scripts/check_release_gate.py",
+        "scripts/release_gate_manifest.py",
+        "scripts/check_npm_package.mjs",
+        "scripts/build_npm_package.mjs",
+        "scripts/check_package_privacy.py",
+        "scripts/check_release_legal.py"
+      ],
+      "classification": "Project-level engineering; retain for Task 9, remove from casual/light/formal Skill runtime and daily help surface"
+    },
+    "external_cwd": {
+      "head_evidence": "At accepted HEAD 9774a141, relative --request-file request.json from an external temp cwd returned request_file_invalid, while the same absolute file reached task_id_required.",
+      "head_root_cause": "scripts/court_cli_registry.py _legacy_runtime and _capture_subprocess used cwd=ROOT.",
+      "current_dirty_candidate": {
+        "files": [
+          "scripts/court_cli_registry.py",
+          "scripts/check_unified_cli.py"
+        ],
+        "focused_command": "python -B scripts/check_unified_cli.py --external-cwd --json",
+        "focused_result": "PASS",
+        "observed_relative_request_file_problem": "task_id_required",
+        "command_cwd_contract": {
+          "court": "invocation_cwd",
+          "shiguan": "invocation_cwd",
+          "install": "invocation_cwd",
+          "check": "ROOT",
+          "release": "ROOT"
+        },
+        "acceptance_note": "This is current dirty-worktree candidate evidence, not yet accepted as landed implementation."
+      },
+      "classification": "Task 5 RED exists against HEAD; current dirty candidate is GREEN and still needs full CLI/public-surface acceptance"
+    }
+  },
+  "added_script_candidates": [
+    {"path": "scripts/build_npm_package.mjs", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "npm/package production and checks; not Skill runtime"},
+    {"path": "scripts/check_cli_performance.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_EXPLICIT_CHECK_ONLY", "reason": "performance checker; uses focused/harness evidence; never ordinary runtime"},
+    {"path": "scripts/check_court_capability_recruitment.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "capability recruitment validation"},
+    {"path": "scripts/check_court_complexity_budget.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_CHECK_ONLY", "reason": "project/source maintenance budget"},
+    {"path": "scripts/check_court_dispatch_hierarchy.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "direct-superior invariant verification"},
+    {"path": "scripts/check_court_intake_gate.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY_WITH_REVISION", "reason": "scene routing and closeout RED/GREEN; current formal-understanding relaxation must be rechecked"},
+    {"path": "scripts/check_court_multi_instance_dispatch.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "parallel/runtime acceptance; not ordinary startup"},
+    {"path": "scripts/check_court_office_assignment_binding.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "office name and semantic binding verification"},
+    {"path": "scripts/check_court_open_fastpath.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "formal fast-open contract verifier; not runtime prerequisite"},
+    {"path": "scripts/check_court_outcome_gate.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "five-result outcome semantics verifier"},
+    {"path": "scripts/check_court_preload_semantics.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "office preload semantics verifier"},
+    {"path": "scripts/check_court_result_semantics.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "result semantics verifier"},
+    {"path": "scripts/check_court_runtime_completion.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "runtime lifecycle completion verifier"},
+    {"path": "scripts/check_governance_framework.py", "value": "VALUE_DUPLICATE", "decision": "DEMOTE_FROM_DEFAULT_RUNTIME", "reason": "generic governance verifier duplicates default three-departments runtime for ordinary Skill path"},
+    {"path": "scripts/check_install_current_agent_copy.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "install/rollback validation"},
+    {"path": "scripts/check_install_prompt.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "install prompt validation"},
+    {"path": "scripts/check_npm_package.mjs", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "npm packaging validation"},
+    {"path": "scripts/check_p00_semantic_dispatch_context.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "semantic continuity/revision boundary verifier"},
+    {"path": "scripts/check_release_metadata.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "release metadata validation"},
+    {"path": "scripts/check_semantic_continuity.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "revision fail-closed and semantic continuity verifier"},
+    {"path": "scripts/check_shiguan_git_federation.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "Git Federation explicit feature verifier"},
+    {"path": "scripts/check_shiguan_host_memory_and_child_trace.py", "value": "VALUE_HISTORY", "decision": "KEEP_HISTORY_CHECK_ONLY", "reason": "host memory projection/child trace verification"},
+    {"path": "scripts/check_shiguan_migration_gate.py", "value": "VALUE_HISTORY", "decision": "KEEP_HISTORY_CHECK_ONLY", "reason": "Shiguan migration/history data verification"},
+    {"path": "scripts/check_skill_identity.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "installation/package identity validation"},
+    {"path": "scripts/check_source_budget_refactor.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "source maintenance budget validation"},
+    {"path": "scripts/check_startup_fastpath_contract.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY", "reason": "authority/behavior/superCC separation and fastpath semantic verifier"},
+    {"path": "scripts/check_unified_cli.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY_WITH_EXTERNAL_CWD_GREEN", "reason": "CLI surface verifier; HEAD external-cwd RED is covered and current cwd contract is GREEN"},
+    {"path": "scripts/court_agent_admission.py", "value": "VALUE_EXPLICIT", "decision": "MERGE_FUNCTION", "reason": "real dispatch admission only; not casual/light runtime"},
+    {"path": "scripts/court_agent_admission_contract.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_CHECK_CONTRACT_ONLY", "reason": "contract fixture/check support"},
+    {"path": "scripts/court_capability_recruitment.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT_DEMAND_LOAD", "reason": "capability allocation advice before deliberation; libu-hr not spawned just for snapshot"},
+    {"path": "scripts/court_cli_registry.py", "value": "VALUE_EXPLICIT", "decision": "MERGE_FUNCTION", "reason": "unified CLI must remain; public surface and cwd behavior need remediation"},
+    {"path": "scripts/court_complexity_budget.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "maintenance accounting; not Skill startup"},
+    {"path": "scripts/court_dispatch_hierarchy.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT", "reason": "direct-superior hierarchy enforcement"},
+    {"path": "scripts/court_intake_gate.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT_WITH_FORMAL_GATE_REVIEW", "reason": "Taizi scene classification and active closeout; formal clarity gate regression must be checked"},
+    {"path": "scripts/court_native_execution.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT", "reason": "native runtime entry separation"},
+    {"path": "scripts/court_office_config.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT", "reason": "neutral office config/shared pointer for native and superCC"},
+    {"path": "scripts/court_open_fastpath.py", "value": "VALUE_EXPLICIT", "decision": "MERGE_FUNCTION", "reason": "formal fast path remains, but checker imports/Git identity/all-office preload are remediation targets"},
+    {"path": "scripts/court_operation_journal.py", "value": "VALUE_HISTORY", "decision": "KEEP_PER_TASK_ONLY", "reason": "runtime operation durability; must not become shared mutable ledger"},
+    {"path": "scripts/court_outcome_gate.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT", "reason": "five-result outcome semantics"},
+    {"path": "scripts/court_result_semantics.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT", "reason": "structured result semantics"},
+    {"path": "scripts/court_safe_fs.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_LIBRARY_ONLY", "reason": "safety helper library, invoked only where needed"},
+    {"path": "scripts/court_safe_fs_windows.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_LIBRARY_ONLY", "reason": "Windows safety helper library, invoked only where needed"},
+    {"path": "scripts/court_semantic_continuity.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT", "reason": "revision/semantic continuity fail-closed enforcement"},
+    {"path": "scripts/court_supercc_execution.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT", "reason": "separate superCC runtime entry"},
+    {"path": "scripts/governance_framework.py", "value": "VALUE_DUPLICATE", "decision": "DEMOTE_FROM_DEFAULT_RUNTIME", "reason": "generic reference framework must not alter default three-departments runtime"},
+    {"path": "scripts/install_current_agent_copy.py", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE", "reason": "install/update/rollback execution"},
+    {"path": "scripts/shiguan_gbrain.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT_INTEGRATED_SHIGUAN_QUERY", "reason": "GBrain retained as Shiguan intelligent query/recall and read-only settlement layer; shiguan_entry_utils.py remains fallback; Git Federation provenance is explicit settlement/management trigger"},
+    {"path": "scripts/shiguan_git_federation.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT_DEMAND_LOAD", "reason": "Shiguan Git Federation management feature"},
+    {"path": "scripts/shiguan_host_memory_projection.py", "value": "VALUE_HISTORY", "decision": "KEEP_HISTORY_STAGE", "reason": "host memory projection/history migration support"},
+    {"path": "scripts/shiguan_migration_gate.py", "value": "VALUE_HISTORY", "decision": "KEEP_HISTORY_STAGE", "reason": "Shiguan migration gate"},
+    {"path": "scripts/supercc_dispatch_contract.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_SUPERCC_EXPLICIT", "reason": "superCC contract; separate runtime only"},
+    {"path": "scripts/supercc_dispatch_delivery.py", "value": "VALUE_EXPLICIT", "decision": "KEEP_SUPERCC_EXPLICIT", "reason": "superCC delivery; separate runtime only"}
+  ],
+  "large_modified_candidates": [
+    {"path": "scripts/court_runtime.py", "changed_lines": 6863, "value": "VALUE_BASELINE", "decision": "KEEP_AND_TARGETED_REFACTOR_ONLY"},
+    {"path": "scripts/check_court_agent_lifecycle.py", "changed_lines": 2510, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY"},
+    {"path": "scripts/check_court_dispatch_policy.py", "changed_lines": 1850, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY"},
+    {"path": "scripts/check_supercc_ministry_dispatch.py", "changed_lines": 1799, "value": "VALUE_EXPLICIT", "decision": "KEEP_SUPERCC_CHECK_ONLY"},
+    {"path": "scripts/check_court_runtime.py", "changed_lines": 1599, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY"},
+    {"path": "scripts/migrate_shared_shiguan.py", "changed_lines": 1443, "value": "VALUE_HISTORY", "decision": "KEEP_HISTORY_STAGE"},
+    {"path": "scripts/ensure_supercc_court.py", "changed_lines": 1238, "value": "VALUE_EXPLICIT", "decision": "KEEP_SUPERCC_EXPLICIT"},
+    {"path": "scripts/shiguan_paths.py", "changed_lines": 1193, "value": "VALUE_BASELINE", "decision": "KEEP_AND_PORTABILITY_REVIEW"},
+    {"path": "scripts/check_package_privacy.py", "changed_lines": 1071, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"},
+    {"path": "scripts/ensure_portable_court_bootstrap.py", "changed_lines": 828, "value": "VALUE_HISTORY", "decision": "KEEP_INSTALL_HISTORY_STAGE"},
+    {"path": "scripts/check_capability_index_gate.py", "changed_lines": 824, "value": "VALUE_BASELINE", "decision": "SPLIT_LIBRARY_FROM_CHECKER"},
+    {"path": "scripts/check_court_intervention_matrix.py", "changed_lines": 759, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY"},
+    {"path": "scripts/check_release_manifest.py", "changed_lines": 569, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"},
+    {"path": "scripts/refresh_capability_registry.py", "changed_lines": 636, "value": "VALUE_BASELINE", "decision": "KEEP_EXPLICIT_MAINTENANCE"},
+    {"path": "scripts/build_release_artifacts.py", "changed_lines": 531, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"},
+    {"path": "scripts/check_court_agent_config.py", "changed_lines": 518, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_FOCUSED_CHECK_ONLY"},
+    {"path": "scripts/check_release_gate.py", "changed_lines": 508, "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"}
+  ],
+  "manifest_candidates": [
+    {"path": "references/manifests/cli-command-surface.v1.json", "value": "VALUE_EXPLICIT", "decision": "KEEP_REGISTRY_SPLIT_PUBLIC_SURFACE"},
+    {"path": "references/manifests/court-dispatch-hierarchy.v1.json", "value": "VALUE_EXPLICIT", "decision": "KEEP"},
+    {"path": "references/manifests/direct-review-governance.v1.json", "value": "VALUE_DUPLICATE", "decision": "DEMOTE_REFERENCE_ONLY"},
+    {"path": "references/manifests/governance-implementations.v1.json", "value": "VALUE_DUPLICATE", "decision": "DEMOTE_REFERENCE_ONLY"},
+    {"path": "references/manifests/install-projection.v1.json", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"},
+    {"path": "references/manifests/github-release-metadata.v1.json", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"},
+    {"path": "references/manifests/skill-identity.v1.json", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"},
+    {"path": "references/manifests/release-gates.v1.json", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE_NOT_SKILL_RUNTIME"},
+    {"path": "references/manifests/source-state-budget.v1.json", "value": "VALUE_PROJECT_ONLY", "decision": "KEEP_PROJECT_STAGE"}
+  ],
+  "formerly_quarantined_candidates": [
+    {"path": "scripts/court_session_closeout.py", "state": "untracked_current_worktree", "value": "VALUE_EXPLICIT", "decision": "KEEP_EXPLICIT_AFTER_TASK3_GREEN"},
+    {"path": "scripts/check_court_session_closeout.py", "state": "untracked_current_worktree", "value": "VALUE_EXPLICIT", "decision": "KEEP_FOCUSED_CHECK_ONLY"},
+    {"path": "scripts/court_cli_registry.py", "state": "modified_current_worktree", "value": "VALUE_EXPLICIT", "decision": "manifest_closed_and_external_cwd_green"},
+    {"path": "scripts/check_unified_cli.py", "state": "modified_current_worktree", "value": "VALUE_EXPLICIT", "decision": "external_cwd_daily_help_manifest_and_npm_runtime_green"},
+    {"path": "scripts/court_intake_gate.py", "state": "modified_current_worktree", "value": "VALUE_EXPLICIT", "decision": "closeout_classification_green_and_formal_clarity_gate_retained"},
+    {"path": "scripts/check_court_intake_gate.py", "state": "modified_current_worktree", "value": "VALUE_EXPLICIT", "decision": "closeout_and_formal_understanding_regressions_green"}
+  ],
+  "value_counts": {
+    "VALUE_BASELINE": 4,
+    "VALUE_EXPLICIT": 27,
+    "VALUE_HISTORY": 7,
+    "VALUE_PROJECT_ONLY": 27,
+    "VALUE_DUPLICATE": 4,
+    "VALUE_NONE": 0,
+    "VALUE_UNKNOWN": 0
+  },
+  "required_remediation_boundaries": [
+    "Do not delete beta0.5.9 capabilities.",
+    "Do not keep a script merely because a beta1.0.1 file exists.",
+    "Demote project release/install/legal/npm checks from ordinary Skill runtime and daily help surface while preserving them for project Task 9.",
+    "Keep GBrain and Git Federation, integrate GBrain with Shiguan query, keep base scorer fallback, and make Git Federation provenance an explicit settlement/management trigger.",
+    "Keep unified CLI, but split compatibility inventory from daily public help and fix caller cwd semantics.",
+    "Keep decree binding and invalid-revision zero-dispatch; do not implement fast path with text filters or model judgment.",
+    "Session closeout is accepted only through the focused Task3 boundary: session-derived cursor, no public cursor injection, no second ledger, explicit archive writer, and no ordinary derived-tree refresh."
+  ],
+  "current_green_evidence": {
+    "recorded_at": "2026-07-21T11:15:27+08:00",
+    "commands": [
+      "python -B scripts/check_court_intake_gate.py",
+      "python -B scripts/check_court_session_closeout.py",
+      "python -B scripts/check_unified_cli.py --all --json",
+      "python -B scripts/check_court_open_fastpath.py --json",
+      "python -B scripts/check_startup_fastpath_contract.py --json",
+      "python -B scripts/check_governance_framework.py --json",
+      "python -B scripts/check_governance_framework.py --only gbrain --json",
+      "python -B scripts/query_shiguan_index.py baseline-nonexistent-term --format json --limit 1",
+      "python -B scripts/query_shiguan_index.py baseline-nonexistent-term --query-mode fallback --format json --limit 1",
+      "python -B scripts/check_cli_performance.py --json",
+      "python -B scripts/check_shiguan_git_federation.py --json",
+      "python -B scripts/check_court_preload_semantics.py"
+    ],
+    "results": {
+      "COURT_INTAKE_GATE_OK": true,
+      "COURT_SESSION_CLOSEOUT_OK": true,
+      "CLI_ENTRYPOINT_COVERAGE": "PASS",
+      "CLI_LAZY_LOAD": "PASS",
+      "CLI_EXTERNAL_CWD": "PASS",
+      "CLI_NPM_CANONICAL_RUNTIME": "PASS",
+      "daily_help_command_count": 32,
+      "daily_help_forbidden_hits": [],
+      "registry_record_count": 128,
+      "manifest_registered_count": 129,
+      "FAST_OPEN_SINGLE_PROCESS": "PASS",
+      "SHANGSHU_FIRST_DISPATCH": "PASS",
+      "SIX_MINISTRY_DIRECT_SUPERIOR": "PASS",
+      "STARTUP_SEMANTIC_FASTPATH": "PASS",
+      "SEMANTIC_CLEANLINESS_GATE": "PASS",
+      "governance_check_count": 48,
+      "gbrain_check_count": 13,
+      "GBRAIN_SHIGUAN_QUERY_DEFAULT": "PASS",
+      "GBRAIN_BASE_QUERY_FALLBACK": "PASS",
+      "SHIGUAN_GIT_FEDERATION": "PASSED",
+      "CLI_PERFORMANCE_GATE": "PASS",
+      "max_fast_preload_bytes": "20452/20480",
+      "COURT_PRELOAD_SEMANTICS_OK": true
+    },
+    "excluded_surfaces": [
+      "project packaging",
+      "local install",
+      "global install",
+      "GitHub Release",
+      "npm publish",
+      "remote reread"
+    ]
+  },
+  "acceptance_status": {
+    "POST_059_SCRIPT_REVIEW": "PASS",
+    "beta059_capability_lost": 0,
+    "explicit_feature_lost": 0,
+    "historical_data_unreadable": 0,
+    "value_unknown": 0,
+    "lightweight_unrelated_script_calls": 0,
+    "literal_input_special_cases": 0,
+    "user_output_changed": 0
+  }
+}

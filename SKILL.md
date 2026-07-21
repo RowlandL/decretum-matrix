@@ -22,10 +22,12 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 4. `super并行` 仅为 `authority=super, behavior=parallel, parallel_topology=native`；native 与 superCC 入口互斥且不探测、切换或回退。
 5. Production ordinary routing is V2 or `serial`. V2 隐藏 model-reserved `agent_type/model/reasoning_effort/service_tier`; V2 树不得同时提交旧式 agent-type override。子 agente 继承主线程 model/effort，除非独立 fresh-session worker 通过精确 host proof。
 
+三权是授权边界：`approval`=审批/默认只读，`autonomous`=自主/范围内实施，`super`=超级执行/范围内连续推进；运行方式另选：`serial`=串行不派生，`parallel`=并行按层级派生。权力≠运行方式；尚书统六部=下派六部子/孙官署并汇总，六部直属尚书。
+
 ## Pinned Initial Court Anchors
 
 - 最新旨意优先。独立解析 `authority`、`behavior`、`runtime`；runtime 只信结构化 startup receipt，不按文本推导。权限不明时首次写入/外部动作前只问一次三权。
-- 固定层级：用户 -> 太子；太子只调中书省、门下省、尚书省；尚书省调六部；六部只调本部工坊/工匠。任何 direct-superior 违规结果都隔离，不得集成。
+- 固定层级：用户 -> 太子 -> 三省；尚书 -> 六部；六部 -> 本部工坊/工匠。六部直属尚书；统六部是下派并汇总，不是尚书代办。direct-superior 违规结果隔离，不集成。
 - 每次普通派生前运行 `scripts/court_cli.py agent-admit`，核验 P00、层级、容量、预算、写集、preload、实例与停止条件。
 - 开朝读取 `libu-hr` 维护的 `references/court-capability-registry.md` registry-first 当前工具索引；缓存只读 capability snapshot，并与 profile/dossier preload 一同在三省审议前完成。
 - 通用任务治理框架通过 `references/manifests/governance-implementations.v1.json` 装载治理实现；`three-departments-six-ministries` 是唯一默认官方实现。参考实现不得改变当前 runtime、证据、权限、直接上级或史馆权威。
@@ -36,7 +38,7 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 
 本 skill 是三省六部语义路由器。用户侧默认简体中文；路径、命令、API、字段和代码契约保持原文。官署名是责任/证据契约，未履职时标记 `NOT_APPLICABLE`、`runtime_degraded` 或 `authority_blocked`。
 
-普通 preload 仅含完整根 `SKILL.md`、本角色 dossier/profile、邻接/registry 元数据和当前唯一 reference；禁止全量 references、他署/他工具 profile 及 pending/private 正文。固定面须 `<=20 KiB`，较 76,990-byte 基线降至少 70%。
+加载目标是路径清晰、按场景一次走对。普通 preload=本文件+本角色 profile/dossier+邻接/registry+当前 reference；正式任务/结诏/superCC/安装/发布再按下表二次加载。禁无条件全量 references、他署 profile、pending/private 正文；入口保留首次路由边界并守 `<=20 KiB`。
 
 ## Progressive Loading Map
 
@@ -103,8 +105,8 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 
 - 权威 runtime Shiguan root 由 `scripts/shiguan_paths.py` 解析，默认 `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`；skill-local `references/` 只含 governing references 与 portable seeds。
 - Formal decree 用统一 CLI `shiguan archive-checkpoint` 记录；其 v1 receipt 是用户侧编号/谱系唯一来源，且不覆盖最新旨意或 governing source。
-- 史馆 GBrain 只提供 metadata-first 召回与认知支持，不取得当前任务执行权；`decretum.gbrain.recall.v1` 必须保持 advisory、无执行权且最新旨意优先。
-- 史馆 Git 联邦入口：`scripts/shiguan_git_federation.py`；共享 hub 无 remote，原生记忆仓独立。
+- 史馆 GBrain 是智能查询/召回/整理候选层；`query_shiguan_index.py` 默认调用，基础 scorer 为 fallback；输出只 advisory、无执行权/写权，最新旨意优先。
+- Git 联邦入口：`scripts/shiguan_git_federation.py`；共享 hub 无 remote，原生记忆仓独立。GBrain 仅在显式整理/管理模式触发 provenance；普通轻量/开朝不隐式跑重型 Git。
 - `references/shiguan-imports/pending/` 仅允许 metadata governance。没有不可伪造 host capability 时，真实 pending/private bodies 必须保持 unopened、unhashed、unmoved、undeleted、unmarked-seen；fixture authorization 不是 production authorization。
 - Obsidian 是 preserve-only 管理面，不是权威。导入回到 pending，需三省会审/门下复核。
 - 每个 decree 结束时裁定 `记忆裁定：WRITE | PROPOSE | SKIP | DEFERRED`。WRITE 需要最新边界与门下批准；不存 secrets、raw private logs、一次性输出、未验证推测或未经许可的个人数据。
