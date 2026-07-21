@@ -8260,7 +8260,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     decree_open = sub.add_parser(
         "decree-open",
-        help="idempotently allocate one main decree number in current task authority",
+        help="runtime-internal idempotent main decree number allocation; public startup is court open",
     )
     decree_open.set_defaults(format="json")
     decree_open.add_argument("--task-id", required=True)

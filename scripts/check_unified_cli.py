@@ -549,6 +549,79 @@ def evaluate_external_cwd_contract() -> dict[str, object]:
     }
 
 
+def evaluate_public_open_command() -> dict[str, object]:
+    problems: list[str] = []
+    court_help = ""
+    open_markdown = ""
+    fast_help = ""
+    runtime_help = ""
+    try:
+        registry = _load_registry_module()
+        court_help = registry.render_group_help("court")
+        if "\n  open\n" not in court_help:
+            problems.append("public_court_open_missing")
+        if "decree-open" in court_help:
+            problems.append("runtime_internal_decree_open_exposed_in_public_help")
+
+        open_envelope = _json_stdout(_run_cli(["--format", "json", "court", "open"]))
+        if open_envelope.get("command") != "court open":
+            problems.append("court_open_envelope_command_drift")
+        payload = open_envelope.get("payload")
+        if not isinstance(payload, dict) or payload.get("schema") != "court.open.guidance.v1":
+            problems.append("court_open_guidance_payload_missing")
+            payload = {}
+        open_markdown = str(payload.get("markdown") or "")
+        if not open_markdown.startswith("# Decretum Matrix court open"):
+            problems.append("court_open_markdown_missing")
+        if payload.get("progressive_loading") is not True:
+            problems.append("court_open_progressive_loading_missing")
+        if payload.get("fastpath_executed") is not False:
+            problems.append("court_open_unexpected_fastpath_execution")
+        if payload.get("mutations") != []:
+            problems.append("court_open_guidance_mutated_state")
+        if payload.get("dispatch_count") != 0 or payload.get("physical_child_dispatch_count") != 0:
+            problems.append("court_open_guidance_claimed_spawn")
+        if "decree-open" in open_markdown:
+            problems.append("court_open_guidance_mentions_decree_open")
+
+        fast_envelope = _json_stdout(
+            _run_cli(["--format", "json", "court", "open", "--fast", "--help"])
+        )
+        if fast_envelope.get("command") != "court open":
+            problems.append("court_open_fast_envelope_command_drift")
+        fast_help = str(fast_envelope.get("payload") or "")
+        if "--request-json" not in fast_help or "--request-file" not in fast_help:
+            problems.append("court_open_fast_help_missing_request_sources")
+
+        runtime = subprocess.run(
+            [sys.executable, "-B", str(ROOT / "scripts" / "court_runtime.py"), "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        runtime_help = runtime.stdout
+        if runtime.returncode != 0:
+            problems.append(f"runtime_help_failed:{runtime.returncode}")
+        if "runtime-internal" not in runtime_help or "public startup is court open" not in runtime_help:
+            problems.append("decree_open_internal_label_missing")
+    except (AssertionError, ImportError, OSError, ValueError, AttributeError, subprocess.SubprocessError) as exc:
+        problems.append(f"public_open_command_unavailable:{type(exc).__name__}:{exc}")
+    return {
+        "schema": "decretum.cli_public_open_command_check.v1",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_PUBLIC_OPEN_COMMAND": "PASS" if not problems else "FAIL",
+        "court_help_has_open": "\n  open\n" in court_help,
+        "public_help_exposes_decree_open": "decree-open" in court_help,
+        "open_guidance_markdown": bool(open_markdown),
+        "open_fast_help_bound": "--request-json" in fast_help,
+        "runtime_help_labels_decree_open_internal": "runtime-internal" in runtime_help,
+        "problems": problems,
+    }
+
+
 def evaluate_v2_normalization() -> dict[str, object]:
     problems: list[str] = []
     normalized_arguments: list[str] = []
@@ -944,6 +1017,8 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
         selected.append(evaluate_parity())
     if args.external_cwd:
         selected.append(evaluate_external_cwd_contract())
+    if args.public_open:
+        selected.append(evaluate_public_open_command())
     if args.v2_normalization:
         selected.append(evaluate_v2_normalization())
     if args.install_core:
@@ -958,6 +1033,7 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
             evaluate_registry(),
             evaluate_parity(),
             evaluate_external_cwd_contract(),
+            evaluate_public_open_command(),
             evaluate_v2_normalization(),
             evaluate_install_core(),
             evaluate_archive_receipt(),
@@ -1000,6 +1076,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--registry", action="store_true")
     parser.add_argument("--parity", action="store_true")
     parser.add_argument("--external-cwd", action="store_true")
+    parser.add_argument("--public-open", action="store_true")
     parser.add_argument("--v2-normalization", action="store_true")
     parser.add_argument("--install-core", action="store_true")
     parser.add_argument("--archive-receipt", action="store_true")

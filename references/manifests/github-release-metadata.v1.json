@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.2",
+  "latest_tag": "beta1.0.3",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -9,6 +9,17 @@
     "latest_must_match_version": true
   },
   "releases": [
+    {
+      "tag": "beta1.0.3",
+      "title": "Decretum Matrix beta1.0.3",
+      "summary": "本版本保留既有渐进式三省六部流程，收回普通开朝中过度前置的脚本检查，并修正动态六部与真实派遣证据边界。",
+      "highlights": [
+        "普通开朝只加载 SKILL 与当前行为卷；Git、史馆服务、pending、YOLO、registry、安装和发布工具按场景触发。",
+        "court open --fast 降为可选差遣前预检，不负责三权提问、语义规划或真实宿主派遣。",
+        "六部由尚书从最终结果倒推必要子集，packet/admission 数不再冒充 physical spawn。"
+      ],
+      "asset_note": "当前仅为源码候选；是否创建远端 release 与资产由后续明确授权决定。"
+    },
     {
       "tag": "beta1.0.2",
       "title": "Decretum Matrix beta1.0.2",

@@ -31,10 +31,11 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
    behavior=parallel`; it never selects runtime. Native and superCC are mutually
    exclusive entry paths and share only the neutral standing-office
    configuration pointer/hash.
-   User-facing 开朝 text must show the complete reminder before the current
-   selection: `approval（审批/默认只读） | autonomous（自主/范围内实施） |
-   super（超级执行/范围内连续推进）`; behavior must be rendered as
-   `serial（串行） | parallel（并行）`.
+   User-facing 开朝 text must preserve the authority-selection question when the
+   latest user message has not explicitly selected a current authority:
+   `请选择执行权限（三权）：approval（审批/默认只读） | autonomous（自主/范围内实施）
+   | super（超级执行/范围内连续推进）`. Behavior remains a separate field and
+   must be rendered as `serial（串行） | parallel（并行）`.
 2. Determine the approval policy:
    - If they specified `approval`, `autonomous`, or `super`, honor it inside the
      unchanged current decree/boundary. An explicit `superCC` selects the separate
@@ -46,106 +47,28 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
      installed, or appears to be a simple capability query still does not count
      as approval-mode selection unless it explicitly says `approval`,
      `autonomous`, or `super` in the newest user message. Do not inherit a mode
-     from older conversations, 史馆 records, current sandbox posture, a pasted
-     prompt that merely describes the three modes, or an installation/config
-     intention. Do not execute shell commands, write files, browse the web,
-     install tools, or mutate the capability registry before this gate, except
-     for the minimum read-only skill-file loading required by the skill system
-     itself.
+     from older conversations, 史馆 records, memory records, current sandbox
+     posture, a pasted prompt that merely describes the three modes, or an
+     installation/config intention. Do not execute shell commands, write files,
+     browse the web, install tools, or mutate the capability registry before
+     this gate, except for the minimum read-only skill-file loading required by
+     the skill system itself.
    - Treat any user-supplied `/auto`, `/plan`, `/goal`, `/memories`, `/execute`,
      `/research`, `/debug`, or `/catalog` token as an intent hint inside
      `/court`, not as a separate workflow.
-2. Run 开朝 capability classification:
-   - Before 三省会审, derive one bounded capability query from the current
-     charter/task focus and call the pure registry-first query surface directly.
-     Cache a read-only capability snapshot when the canonical manifest is current;
-     `libu-hr` remains registry owner/maintainer and is not spawned merely to read
-     that snapshot. Profile/dossier preload may run concurrently with lookup, but
-     all three departments must receive the same receipt-bound snapshot before
-     deliberation. Missing/stale/corrupt/drift/no-match may create exactly one
-     bounded maintenance assignment and must not create a second registry.
-   - 户部/史馆 ensures the shared Shiguan root exists with
-     `scripts/shiguan_paths.py` / `ensure_shared_seed()`. The default root is
-     `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`; all
-     Codex/Hermes/Agent Skills installs must read and write Shiguan records
-     through that shared root unless `COURT_SHARED_SHIGUAN_ROOT` or
-     `SHIGUAN_SHARED_ROOT` explicitly overrides it.
-   - 史馆 checks the shared Shiguan service daemon at startup when filesystem
-     tools are available. Under `approval`, use
-     `python -B scripts/ensure_shiguan_service_daemon.py --check-only` unless the
-     newest decree explicitly permits startup/service writes. Under
-     `autonomous` and `super`, ensure the daemon only when that local service
-     state is in scope. The hidden
-     user-logon task `CourtShiguanDaemon` starts `shiguan_service_daemon.py`,
-     which keeps the single 8765 Shiguan WebUI and independent Obsidian
-     preserve-only autosync daemon alive. Each sync cycle must report
-     `preserve_only=true` and `removed=0`; it must not process pending imports
-     into official records.
-   - 开朝 records the intake token/time estimate for the decree before planning
-     or dispatch. This is a fixed intake/runtime gate, not a new office,
-     subagent, or dispatch target. Use `python -B scripts/court_usage_ledger.py estimate --task-id
-     <court-task-or-snapshot-id> --decree "<latest decree>" --authority
-     <approval|autonomous|super> --behavior <serial|parallel> --runtime
-     <native|superCC>` when filesystem writeback
-     is available; otherwise report the same fields manually as
-     `decree_usage_estimate=runtime_degraded`. The estimate must name assumptions,
-     expected offices/subagents, expected tool calls, and source=`heuristic`.
-   - 户部/史馆 reports the Shiguan web manager URL from the service daemon or
-     `ensure_shiguan_web.py`. Under `approval`, perform status/path probes only
-     and reuse an already-running service without starting one unless the newest
-     decree explicitly permits the state change. Under `autonomous` and `super`,
-     start or reuse the read/state local/LAN service only when it is in scope,
-     then report the actual local URL plus any returned `lan_urls`. Management
-     writes, imports, token handling, non-loopback admin actions, and public
-     exposure remain gated.
-   - 史馆/户部 checks pending direct imports with
-     `python -B scripts/check_shiguan_import_queue.py --format json` before raw
-     imported text is read. Report whether there are new `.md`/`.txt` or
-     Obsidian-derived materials, the pending count, new count, metadata-sidecar
-     token estimate, queue path, and representative filenames. If no valid
-     metadata sidecar exists, report the estimate as `unknown`; never open
-     `text`/`raw_text` body content merely to estimate tokens. If pending material exists,
-     太子 must ask or route whether to process it; ordinary 开朝 recall must
-     not silently load or summarize the raw text. After this queue state is
-     reported, mark current pending IDs as seen only when the active authority
-     permits writing the shared Shiguan queue ledger; otherwise report that the
-     seen ledger was not written.
-   - 户部/刑部 checks `python -B scripts/ensure_codex_yolo_startup_task.py`. In
-     `approval`, use `--check-only`. In `autonomous` and `super`, generate
-     review artifacts when the Windows startup task is missing. Registration of
-     `codex --dangerously-bypass-approvals-and-sandbox` as an AtLogOn task is a
-     persistent dangerous external-state change; no-sandbox autostart requires
-     explicit confirmation and must not be performed merely because the skill
-     was installed, enabled, or invoked with `super`.
-   - 史馆 loads only relevant prior records when they can affect the decree.
-     When searching prior records, query `references/shiguan-index.jsonl` through
-     `scripts/query_shiguan_index.py` before falling back to manual archive reads.
-     Use `scripts/rebuild_shiguan_index.py` when the prior archives may not have
-     been fully converted into the growth-tree model.
-   - After prior-record recall, 太子 writes a compact `意图初判` with
-     likely_intent, memory_clues, confidence, likely_non_goals, and next_step.
-     This is a routing aid, not a final decision; 三省 may correct it in
-     三省会审. If clues are weak or conflicting, report `历史线索不足`.
-   - 户部 performs the light capability-registry refresh described below. This
-     is a mandatory pre-routing gate after approval mode is known, not an
-     optional optimization. If the refresh cannot run, 太子 must report
-     `capability_registry_refresh: FAILED | authority_blocked |
-     runtime_degraded`, explain the reason, and route with an explicit stale
-     catalog caveat rather than silently using unknown capability state.
-   - 户部 confirms `find-skills` and system `skill-creator`; if missing, 吏部
-     opens recruitment/remediation instead of silently degrading.
-   - 吏部 reads the catalog's `Court Department Capability Map` and capability
-     registry dimensions. If that section is missing, use
-     `references/department-map.md`.
-   - Keep the map and personnel/capability dimensions available for the current
-     task.
-3. Locate the capability catalog:
-   - Prefer this skill's own `references/installed-capabilities-catalog.md`.
-   - If this skill is not installed under the active skills root, use
-     `<CODEX_HOME>\skills\decretum-matrix\references\installed-capabilities-catalog.md`.
-   - If `CODEX_HOME` is unset, use `%USERPROFILE%\.codex`.
-   - If the catalog is missing, use `references/department-map.md` as the
-     fallback department map and run a light local scan only when needed.
+3. Load only the current behavior path:
+   - 普通开朝 reads this skill and the one governing reference selected by the
+     Progressive Loading Map. It does not run Git probes, service checks, usage
+     ledgers, pending-queue scans, YOLO checks, registry refreshes, or portable
+     bootstrap merely because a conversation opened.
+   - Read the current office profile/dossier only when that office is actually
+     assigned. Query the capability registry only when the task needs a
+     skill/MCP/CLI/script choice. Query Shiguan/GBrain only when prior evidence or
+     memory can affect the decree.
+   - Invoke admission, hierarchy, capacity, write-set, service, install, release,
+     or migration scripts at their real I/O boundary. A script receipt proves the
+     machine fact it checked; it does not replace semantic planning or host spawn
+     evidence.
 4. Convene the court:
    `太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录`.
    At `太子定性`, instantiate the semantic charter from the Core Semantic
@@ -205,7 +128,8 @@ unless the user already supplied it. Use the full Chinese prompt below:
 `already supplied` means the newest user message explicitly selects
 `approval`, `autonomous`, or `super`; quoting this skill's prompt, pasting a
 `SKILL.md`, asking whether something can be installed, or including prose that
-describes the modes is not enough.
+describes the modes is not enough. A memory or 史馆 clue can remind the court to
+ask; it cannot answer the question for the user.
 
 ```text
 请选择执行权限（三权）：
@@ -215,44 +139,32 @@ describes the modes is not enough.
 行为另选 `serial（串行） | parallel（并行）`，与三权正交；`super并行` 仅表示 `authority=super, behavior=parallel, runtime=native`。
 `superCC` 不是第四权。它必须由最新旨意明确并从独立 zellij+squad startup/runtime 入口启动，携带另行选择的三权 authority 与 behavior；与 native 只共享中性官署配置 pointer/hash，不共享 task state、dossier、transport、admission 或 lifecycle，也不在同一 task/process 内切换或回退。
 默认建议：`autonomous`。任务工作流固定为 `/court`；史馆会按需查旧实录，不再单独询问归档加载。
-史馆生长树本地管理页：`web/shiguan-tree/index.html`。开朝后先用 `python -B scripts/ensure_shiguan_service_daemon.py --check-only` 探测；只有 `autonomous`/`super` 范围内或最新旨意明确批准服务写入时，才用不带 `--check-only` 的命令安装/复用隐藏登录守护进程。它后台确保局域网可访问的 8765 单端口服务与 preserve-only autosync；同机可打开 `http://127.0.0.1:8765/`，局域网设备使用脚本回报的 `lan_urls`。若守护进程确保失败，可在相同权限边界内手动运行 `python -B scripts/ensure_shiguan_web.py` 或 `python -B scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765`；不得做外网穿透或云暴露，除非陛下另有明示旨意。
+史馆生长树本地管理页为 `web/shiguan-tree/index.html`；只有任务涉及史馆管理、同步或服务状态时，才按 `court-shiguan-memory.md` 探测或启动对应服务。普通开朝不探测端口、守护进程或 Obsidian。
 ```
 
 Do not persist the selected approval mode by default. Reuse `approval`,
-`autonomous`, or `super` within the current conversation when the task boundary
-has not changed. Runtime selection is fixed at task/process startup and is never
+`autonomous`, or `super` only within the current conversation when the task
+boundary has not changed and the receipt records
+`authority_source=same_conversation_same_boundary`; otherwise ask the 开朝
+question again. Runtime selection is fixed at task/process startup and is never
 inherited or switched in place; each superCC task must explicitly enter the
-superCC runtime. If the task changes, recommend an approval-policy change only when
-the current policy cannot safely cover the new scope.
+superCC runtime. If the task changes, recommend an approval-policy change only
+when the current policy cannot safely cover the new scope.
 
-After approval mode is known, immediately run the 开朝 capability check before
-answering, planning, installing, editing, or dispatching a formal decree. In
-user-facing court speech, this skill's startup/activation is called `开朝`; use
-`startup` only when naming code, scripts, fields, logs, or external APIs.
-If the current turn skipped the approval-mode question or skipped 开朝 because
-the user supplied a long skill body, a direct install command, or an apparently
-simple capability query, treat that as semantic drift: stop new execution,
-report the drift, obtain or infer only an explicit mode from the newest user
-wording, then run a catch-up 开朝 checkpoint and record it in 史馆 before
-  continuing. On a blank portable install, run
-`ensure_portable_court_bootstrap.py --check-only` for audit. Run
-`ensure_portable_court_bootstrap.py --apply` only when the decree separately
-asks to replicate or repair the complete feature set; this establishes
-the shared Shiguan, Obsidian registration, Codex/Hermes native memory flags,
-metadata-only bridge checkpoint, Shiguan service daemon, and superCC dependency
-substrate. Under `super`, run independent 开朝 checks in parallel when tooling
-allows it, but serialize shared writes and report any host-enforced approval
-dialog as a runtime gate. Under `superCC`, run the runtime selection gate after
-the normal 开朝 checks and before claiming standing 官署 operation: Codex uses
-`ensure_supercc_court.py`; Hermes uses `ensure_hermes_supercc.py`.
+After authority is known, continue from the Progressive Loading Map. Ordinary
+开朝 performs no blanket capability, Git, Shiguan service, pending queue, YOLO,
+portable-bootstrap, install, release, or superCC check. The numbered items below
+are a conditional trigger map, not a startup checklist; run only the item whose
+named behavior is present in the newest decree. In user-facing court speech,
+call skill activation `开朝`; reserve `startup` for code, fields, logs, or APIs.
 
-0. 太子/户部 checks the currently open agente/subagent threads. Release or close
+0. Before a real parallel dispatch, 太子/户部 checks the currently open agente/subagent threads. Release or close
    useless, completed, stale, duplicate, or orphaned agente before opening new
    work. Do not close an agente that is still producing evidence, waiting for a
    required user answer, guarding a long-running command, or holding an
    unresolved safety/verification task. Record any runtime inability to inspect
    or close threads as `agente清理受限`.
-1. 户部/史馆 ensures the shared Shiguan root exists and, when permitted, ensures
+1. When the decree uses Shiguan storage or service integration, 户部/史馆 ensures the shared Shiguan root exists and, when permitted, ensures
    the shared Shiguan service daemon:
    `python -B scripts/ensure_shiguan_service_daemon.py --check-only` for
    read-only audit, or `python -B scripts/ensure_shiguan_service_daemon.py` only
@@ -263,7 +175,7 @@ the normal 开朝 checks and before claiming standing 官署 operation: Codex us
    configured Obsidian cache, never deletes user notes, and never converts
    Obsidian edits directly into official Shiguan records. Edits and imports must
    enter shared `shiguan-imports\pending`.
-2. 户部/史馆 checks whether the local/LAN Shiguan web manager is available. Under
+2. When the decree requests the Shiguan web manager, 户部/史馆 checks whether the local/LAN service is available. Under
    `approval`, perform only status/path probes unless the newest decree permits
    service startup. Under `autonomous` and `super`, start or reuse the read/state
    Shiguan web service in the background when it is in scope and not already
@@ -286,10 +198,10 @@ the normal 开朝 checks and before claiming standing 官署 operation: Codex us
    never expose the token in `/api/state`, graph labels, logs, 史馆 records, or
    final memorials. JSON request bodies must have a hard size cap, and large
    imports must stay in the pending queue until 三省会审 and 门下复核.
-3. 史馆/户部 checks the direct-import pending queue with
+3. When the decree asks to inspect/process imports or pending material is relevant, 史馆/户部 checks the direct-import pending queue with
    `python -B scripts/check_shiguan_import_queue.py --format json` before
-   loading imported raw text. This check is mandatory on every 开朝
-   because direct Obsidian, `.md`, and `.txt` imports are pending Codex materials
+   loading imported raw text. This check is not part of ordinary 开朝;
+   direct Obsidian, `.md`, and `.txt` imports are pending Codex materials
    rather than official 史馆 entries. Report
    `shiguan_import_queue: NONE | PENDING | FAILED`, the pending count,
    metadata-sidecar token estimate or `unknown`, new count, new-token estimate,
@@ -307,7 +219,7 @@ the normal 开朝 checks and before claiming standing 官署 operation: Codex us
    proposing official 史馆 entries or memory candidates, and then submitting the
    result through 三省会审、门下复核, and 史馆实录. Do not silently process pending
    imports as part of ordinary 开朝 recall.
-4. 户部/刑部 checks the dangerous Codex no-sandbox startup-task state with
+4. Only for an explicit Codex startup/no-sandbox task, 户部/刑部 checks the dangerous startup-task state with
    `python -B scripts/ensure_codex_yolo_startup_task.py`. Under `approval`, run
    `--check-only` and report whether the Windows task exists. Under
    `autonomous` and `super`, if the task is missing, automatically generate the
@@ -338,12 +250,10 @@ the normal 开朝 checks and before claiming standing 官署 operation: Codex us
    decree type. If no reliable memory clue is found, say so plainly and default
    to the newest user request instead of inventing intent. This first judgment
    is provisional and must not skip 三省会审, user clarification, or safety gates.
-6. 户部 runs a light capability-registry refresh. If skill, agent, MCP, CLI,
-   or script roots changed, run `scripts/refresh_capability_registry.py` before
-   routing so newly installed skills are classified into the court's 官籍 and
-   can be invoked by 三省六部. This root-change refresh is a standing 开朝 duty and
-   does not need a separate user authorization merely because the local
-   capability roots changed. Its authority is narrow: read local skill/agent
+6. When the decree needs capability selection and skill, agent, MCP, CLI,
+   or script roots may have changed, 户部 runs a light capability-registry refresh
+   with `scripts/refresh_capability_registry.py`. This is a bounded capability
+   lookup, not a standing 开朝 duty. Its narrow authority is to read local skill/agent
    roots, `SKILL.md` frontmatter, agent `.toml` summaries, this skill's
    `agents/standing-officials`, known MCP/CLI/script presence, and the existing
    capability map; then rewrite only this skill's local 官籍/catalog artifacts as
@@ -359,7 +269,7 @@ the normal 开朝 checks and before claiming standing 官署 operation: Codex us
    or the reason it could not be trusted. A formal decree may proceed after a
    failed refresh only with 门下省's explicit stale-catalog caveat and a scoped
    fallback map; it must not pretend that 官籍 was current.
-7. 户部 verifies the minimum portable environment: `find-skills` under
+7. Only during capability recruitment, install, or portability repair, 户部 verifies the minimum portable environment: `find-skills` under
    `%CODEX_HOME%\skills\find-skills` and system `skill-creator` under
    `%CODEX_HOME%\skills\.system\skill-creator`. If `CODEX_HOME` is unset, use
    `%USERPROFILE%\.codex`.
@@ -369,14 +279,9 @@ the normal 开朝 checks and before claiming standing 官署 operation: Codex us
    `https://www.skills.sh/vercel-labs/skills/find-skills` and the install
    command `npx skills add https://github.com/vercel-labs/skills --skill
    find-skills`.
-8. 吏部 reads or rebuilds the `Court Department Capability Map` and the官籍/铨选
+8. When capability routing is active, 吏部 reads or rebuilds the `Court Department Capability Map` and the官籍/铨选
    capability dimensions.
-9. Summarize only the relevant routing state: active approval mode, fixed
-    `/court` workflow, capability-registry freshness, map source, and any
-    stale/missing capability warnings, the Shiguan web service status and URL,
-    LAN URLs, the decree token/time estimate, plus the `历史线索初判` when it affects the task. When useful, include the
-   local Shiguan web entry path `web/shiguan-tree/index.html`, the editable
-   server command, whether the graph view is available, and the
-   `codex_yolo_startup_task` state. Always include the import queue state when
-   it is pending or failed; when it is empty, a compact `待处理导入：无` is enough.
+9. Summarize only routing state actually used by the decree. Capability freshness,
+   Shiguan URLs, usage estimates, history clues, YOLO state, and import-queue
+   state appear only when their corresponding conditional step ran.
 10. Continue through the court hierarchy.

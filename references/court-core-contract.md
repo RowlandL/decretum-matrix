@@ -145,6 +145,10 @@ Semantic invariants:
   draft the concrete issues/questions and acceptance criteria, 门下省 must test
   necessity/risk/scope drift, 尚书省 must state dispatch/resource impact, then the
   result must be submitted as `三省上奏` and synthesized as `太子回奏`.
+- Casual chat is only a narrow intake classification for the latest message. It
+  must not be generalized into a durable user preference, used to suppress a
+  formal decree, or used to bypass the 开朝三权 question when the next message
+  opens or resumes real work.
 - Any non-explicit task must enter the 强反问 gate before planning or execution.
   A task is non-explicit when the newest decree lacks a concrete goal, object or
   path boundary, behavior class, allowed action type, acceptance criteria,

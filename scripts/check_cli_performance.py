@@ -22,7 +22,9 @@ import court_open_fastpath
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path(__file__).resolve()
-ROLES = (*court_open_fastpath.THREE_DEPARTMENTS, *court_open_fastpath.SIX_MINISTRIES)
+BENCHMARK_DEPARTMENTS = court_open_fastpath.THREE_DEPARTMENTS[:2]
+BENCHMARK_MINISTRIES: tuple[str, ...] = ()
+ROLES = (*BENCHMARK_DEPARTMENTS, *BENCHMARK_MINISTRIES)
 ACCEPTED_WARM_FAST_P50_MS = 9.057
 MAX_WARM_FAST_REGRESSION_PERCENT = 10.0
 MAX_WARM_CAPABILITY_LOOKUP_P50_MS = 50.0
@@ -88,16 +90,7 @@ def _task() -> dict[str, object]:
 
 
 def _identity(path: Path) -> tuple[dict[str, object], list[list[str]]]:
-    return (
-        {
-            "path": str(path.resolve()),
-            "branch": "release/beta1.0.2-hotfix-v1",
-            "HEAD": "5" * 40,
-            "index_count": 0,
-            "tracked_dirty_count": 0,
-        },
-        [["git", "benchmark-fixture"]],
-    )
+    raise AssertionError(f"Git identity probe was not explicitly requested: {path}")
 
 
 def _request() -> dict[str, object]:
@@ -105,6 +98,7 @@ def _request() -> dict[str, object]:
         "schema": court_open_fastpath.REQUEST_SCHEMA,
         "task_id": "cli-performance-fixture",
         "authority": "super",
+        "authority_source": "explicit_latest_user",
         "behavior": "parallel",
         "worktree": str(ROOT),
         "skill_root": str(ROOT),
@@ -113,11 +107,11 @@ def _request() -> dict[str, object]:
         "host_retained_agents": 0,
         "host_reclamation_status": "verified",
         "system_memory_percent": 40.0,
-        "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
-        "include_shangshu_ministries": True,
+        "requested_offices": list(BENCHMARK_DEPARTMENTS),
+        "ministry_assignments": list(BENCHMARK_MINISTRIES),
         "write_sets": {},
-        "expected_branch": "release/beta1.0.2-hotfix-v1",
-        "expected_head": "5" * 40,
+        "git_check_requested": False,
+        "capability_check_requested": False,
         "expected_semantic_receipt_sha256": "1" * 64,
         "expected_plan_sha256": "4" * 64,
         "transport": "codex",
@@ -138,9 +132,14 @@ def _fast_operation() -> dict[str, object]:
     return {
         "packet_sha256": result["packet_sha256"],
         "operation_id": result["operation_id"],
-        "python_processes": 1,
+        "python_processes": 1 + int(result["python_child_processes"]),
         "capability_lookup_ms": result["capability_lookup_ms"],
         "capability_cache_status": result["capability_cache_status"],
+        "capability_check_requested": result["capability_check_requested"],
+        "git_check_requested": result["git_check_requested"],
+        "planned_ministry_count": result["planned_ministry_count"],
+        "dispatch_count": result["dispatch_count"],
+        "physical_child_dispatch_count": result["physical_child_dispatch_count"],
         "max_loaded_bytes": max(
             int(item["loaded_bytes"]) for item in result["preloads"]
         ),
@@ -298,6 +297,11 @@ def benchmark(samples: int) -> dict[str, object]:
         deterministic
         and int(fast_probe["python_processes"]) == 1
         and int(legacy_probe["python_processes"]) == len(ROLES)
+        and fast_probe["git_check_requested"] is False
+        and fast_probe["capability_check_requested"] is False
+        and int(fast_probe["planned_ministry_count"]) == len(BENCHMARK_MINISTRIES)
+        and int(fast_probe["dispatch_count"]) == 0
+        and int(fast_probe["physical_child_dispatch_count"]) == 0
         and int(fast_probe["max_loaded_bytes"])
         <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
         and cold_improvement >= 30.0
@@ -315,8 +319,11 @@ def benchmark(samples: int) -> dict[str, object]:
         "definitions": {
             "cold": "fresh Python process per command; no model or real child startup",
             "warm": "primed filesystem/import state; fast repeats in one interpreter",
-            "legacy": "nine serial role-local Python commands loading the exact compact preload and hierarchy",
-            "fast": "one Python interpreter prepares all department/ministry preload, semantic admission, and packets",
+            "legacy": f"{len(ROLES)} serial role-local Python commands loading the exact compact preload and hierarchy",
+            "fast": (
+                f"one Python interpreter prepares {len(BENCHMARK_DEPARTMENTS)} departments and "
+                f"{len(BENCHMARK_MINISTRIES)} explicitly selected ministries"
+            ),
         },
         "process_counts": {
             "legacy_python_processes": legacy_probe["python_processes"],

@@ -153,13 +153,15 @@ fingerprints, branch, and start head. Worktree receipts carry a unique
 metadata-first Shiguan pointer only; they do not create a second task/event
 ledger, store a transcript body, or give the CLI thread/process/Git control.
 
-`decree-open` freezes `main_court_code`, `lineage_parts`, `lineage_key`, and
-`lineage_version=1`. Admission atomically allocates one monotonic `child_no` and
-inherits `parent_court_code=main_court_code`. Summary/topic changes never
-reclassify this lineage. Duplicate instance ids, active/unconsumed write claims,
-dispatch attempts, wrong task/epoch/dispatch, invalid worktree proof, or a
-different repository common-dir fail closed; stale structured results are
-quarantined without advancing the office instance.
+Public startup uses unified `court open` / `court open --fast`; the
+runtime-internal `decree-open` operation only freezes `main_court_code`,
+`lineage_parts`, `lineage_key`, and `lineage_version=1`. Admission atomically
+allocates one monotonic `child_no` and inherits
+`parent_court_code=main_court_code`. Summary/topic changes never reclassify this
+lineage. Duplicate instance ids, active/unconsumed write claims, dispatch
+attempts, wrong task/epoch/dispatch, invalid worktree proof, or a different
+repository common-dir fail closed; stale structured results are quarantined
+without advancing the office instance.
 
 Lifecycle event ids are independently generated per append, so multiple legal
 reports from the same instance in the same timestamp second remain distinct.

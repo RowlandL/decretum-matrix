@@ -928,6 +928,13 @@ billing errors, open the task circuit, do not retry in the same task, interrupt
 remaining siblings, and immediately reconcile court ledger fields
 `finished_at`, `closed_at`, `final_status`, and `release_status`. Provider URLs,
 request ids, balances, credentials, and raw error bodies must not be persisted.
+Serial execution is a physical runtime constraint, not a cancellation of court
+offices. A serial decree still records 三省 deliberation, 尚书 dispatch judgment,
+六部 responsibility packets when applicable, and the concrete reason physical
+child spawn/reuse/wake/follow-up was not used. Receipts should distinguish
+`dispatch_count=0` and `physical_child_dispatch_count=0` from
+`office_assignment_count>0`; do not report "no sub-offices" merely because the
+work ran through `serial_inline` evidence.
 ## 协同上朝
 
 `/court` is the default multi-office court session, not 独办朝务. For any
@@ -950,19 +957,20 @@ authority_blocked` with the reason.
 
 Court assembly:
 
-1. **太子定性**：太子收束旨意；开朝后先结合史馆检索线索作简短
-   `意图初判`，列明可能意图、依据、置信度、非目标和下一步；若需要开朝，
-   拟定初始诏令。
+1. **太子定性**：太子收束最新旨意并拟定结果章程。仅当既有实录可能影响
+   当前任务时才按需检索史馆，并把线索作为可纠正的依据，不作为固定开朝前置。
 2. **三省会审**：每次非琐碎用户提问均先入三省会审。中书省拟旨、拆解、
    考据和验收标准；门下省封驳假设、风险、缺口和批准条件；尚书省评估
    可分派性、资源、顺序、并行空间和六部差遣。三省必须讨论具体细节后
    向太子请示或回奏，不直接面对用户。
-3. **尚书统六部**：门下批准后，尚书省按能力官籍和部门图谱派出吏部、户部、
-   礼部、兵部、刑部、工部。严格历史制下六部归尚书省统辖，中书省和门下省
-   不直接调六部。
+3. **尚书统六部**：三省上奏、太子回奏并批准执行后，尚书省从最终结果倒推
+   必要且相关的六部，只派有明确职责、证据和依赖关系的子集；不得默认派满六部。
+   严格历史制下六部归尚书省统辖，中书省和门下省不直接调六部。
 4. **工坊办差**：六部按差遣调工坊/工匠 agente、skills、MCPs、CLIs、scripts。
    工坊工匠是实际办事层，必须有明确授权和证据要求。
-5. **门下复核**：门下省复核六部结果、验收证据、风险和史馆状态。
+5. **门下复核**：门下省复核尚书统合结果、验收证据、风险和史馆状态；裁定
+   `RETURN_FOR_REWORK | PARTIAL | BLOCKED | PASSED_WITH_CONCERNS | PASSED`，
+   前两者回到相关尚书/六部环节，`BLOCKED` 保留原因，只有后两者进入史馆实录。
 6. **史馆实录**：史馆三省共监、门下主审，记录实录、本纪、表、书/志、列传、
    史官按语、记忆候选、记忆裁定和考课。
 
@@ -1099,11 +1107,12 @@ worktree/write set/lease, and preload hashes. A current bound child result uses
 results are quarantined rather than rebased.
 
 `court_operation_journal.py` is a disposable idempotency/recovery artifact, not
-a task ledger, event ledger, or sequence authority. `court decree-open` writes
-the allocated main number and receipt into the current task under the runtime
-lock; same-operation replay returns the original receipt, while a changed
-payload fails closed. Allocation recovery is forward-only, so gaps are allowed
-but an allocated number is never silently reused.
+a task ledger, event ledger, or sequence authority. Public startup uses the
+unified `court open` / `court open --fast` surface. Runtime-internal
+`decree-open` writes the allocated main number and receipt into the current task
+under the runtime lock; same-operation replay returns the original receipt,
+while a changed payload fails closed. Allocation recovery is forward-only, so
+gaps are allowed but an allocated number is never silently reused.
 
 Phase-1 closeout validation uses only `court synthetic-closeout` and a
 `synthetic-*` root beneath the temporary runtime root. It proves

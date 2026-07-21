@@ -35,6 +35,18 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def _fixture_roots(temp_text: str) -> tuple[Path, Path]:
+    root, worktree = Path(temp_text) / "skill", Path(temp_text) / "worktree"
+    root.mkdir(); worktree.mkdir(); fixture._write_skill(root)
+    return root, worktree
+
+
+def _prepare_fast(request: dict[str, object], runtime: object, **kwargs: object) -> dict[str, object]:
+    return court_open_fastpath.prepare_fast_open(
+        request, runtime_api=runtime, identity_loader=fixture._identity, concurrent_preload=False, **kwargs
+    )
+
+
 def _run_case(
     name: str,
     function: Callable[[], dict[str, object]],
@@ -147,6 +159,54 @@ def check_cli_process_isolation() -> dict[str, object]:
     return {"ok": True, "dispatcher_runtime_imports": loaded}
 
 
+def check_optional_fast_flag_is_preparation_only() -> dict[str, object]:
+    request = {"schema": court_open_fastpath.REQUEST_SCHEMA}
+    original_prepare = court_open_fastpath.prepare_fast_open
+    calls: list[object] = []
+
+    def prepared(value: object, **_kwargs: object) -> dict[str, object]:
+        calls.append(value)
+        return {
+            "schema": court_open_fastpath.RECEIPT_SCHEMA,
+            "ok": True,
+            "status": "READY",
+            "preparation_only": True,
+            "dispatch_count": 0,
+            "physical_child_dispatch_count": 0,
+        }
+
+    outputs: list[dict[str, object]] = []
+    court_open_fastpath.prepare_fast_open = prepared
+    try:
+        for optional in ([], ["--fast"]):
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = court_open_fastpath.main(
+                    [
+                        *optional,
+                        "--request-json",
+                        json.dumps(request),
+                        "--format",
+                        "json",
+                    ]
+                )
+            require(code == 0, f"optional --fast invocation failed:{optional}")
+            outputs.append(json.loads(stdout.getvalue()))
+    finally:
+        court_open_fastpath.prepare_fast_open = original_prepare
+    require(len(calls) == 2, "optional --fast did not reach preparation twice")
+    require(
+        all(
+            item.get("preparation_only") is True
+            and item.get("dispatch_count") == 0
+            and item.get("physical_child_dispatch_count") == 0
+            for item in outputs
+        ),
+        "optional --fast path claimed host dispatch",
+    )
+    return {"ok": True, "invocation_count": len(outputs)}
+
+
 def _import_graph(module: str, exact: tuple[str, ...], prefixes: tuple[str, ...]) -> list[str]:
     code = (
         "import importlib,json,sys;"
@@ -238,21 +298,12 @@ class RejectRuntime(fixture.FakeRuntime):
 
 def check_fail_closed_zero_dispatch() -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="semantic-zero-dispatch-") as temp_text:
-        root = Path(temp_text) / "skill"
-        worktree = Path(temp_text) / "worktree"
-        root.mkdir()
-        worktree.mkdir()
-        fixture._write_skill(root)
+        root, worktree = _fixture_roots(temp_text)
         request = fixture._request(root, worktree)
         request["behavior"] = "parallel"
         request["task_focus"] = "semantic checkpoint boundary"
         runtime = RejectRuntime()
-        result = court_open_fastpath.prepare_fast_open(
-            request,
-            runtime_api=runtime,
-            identity_loader=fixture._identity,
-            concurrent_preload=False,
-        )
+        result = _prepare_fast(request, runtime)
     require(result.get("ok") is False, "invalid semantic state reached READY")
     require(runtime.admission_calls == 0, "invalid semantic state reached admission")
     require(result.get("dispatch_count") == 0, "fail-closed receipt does not prove zero dispatch")
@@ -272,7 +323,6 @@ class OrderedRuntime(fixture.FakeRuntime):
         request: dict[str, object],
     ) -> dict[str, object]:
         self.events.append("deliberation:" + str(request.get("calling_office")))
-        self.admission_calls += 1
         return super().validate_fast_admission(task, request)
 
 
@@ -323,33 +373,15 @@ def check_capability_snapshot_before_deliberation() -> dict[str, object]:
     clear_cache = getattr(court_open_fastpath, "clear_capability_snapshot_cache")
     clear_cache()
     with tempfile.TemporaryDirectory(prefix="capability-before-deliberation-") as temp_text:
-        root = Path(temp_text) / "skill"
-        worktree = Path(temp_text) / "worktree"
-        root.mkdir()
-        worktree.mkdir()
-        fixture._write_skill(root)
+        root, worktree = _fixture_roots(temp_text)
         request = fixture._request(root, worktree)
         request["behavior"] = "parallel"
         request["task_focus"] = "startup semantic release fastpath"
         request["capability_manifest_state"] = "current"
         runtime = OrderedRuntime(events)
-        first = court_open_fastpath.prepare_fast_open(
-            request,
-            runtime_api=runtime,
-            identity_loader=fixture._identity,
-            preload_loader=preload_loader,
-            capability_loader=capability_loader,
-            concurrent_preload=False,
-        )
+        first = _prepare_fast(request, runtime, preload_loader=preload_loader, capability_loader=capability_loader)
         started = time.perf_counter_ns()
-        second = court_open_fastpath.prepare_fast_open(
-            request,
-            runtime_api=OrderedRuntime([]),
-            identity_loader=fixture._identity,
-            preload_loader=preload_loader,
-            capability_loader=capability_loader,
-            concurrent_preload=False,
-        )
+        second = _prepare_fast(request, OrderedRuntime([]), preload_loader=preload_loader, capability_loader=capability_loader)
         warm_ms = (time.perf_counter_ns() - started) / 1_000_000
     require(first.get("ok") is True and second.get("ok") is True, "capability fast open not READY")
     require(capability_calls == 1, f"warm cache reloaded capability index:{capability_calls}")
@@ -397,11 +429,7 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
     results: list[dict[str, object]] = []
     clear_cache = getattr(court_open_fastpath, "clear_capability_snapshot_cache")
     with tempfile.TemporaryDirectory(prefix="execution-cartesian-") as temp_text:
-        root = Path(temp_text) / "skill"
-        worktree = Path(temp_text) / "worktree"
-        root.mkdir()
-        worktree.mkdir()
-        fixture._write_skill(root)
+        root, worktree = _fixture_roots(temp_text)
         for authority in AUTHORITIES:
             for behavior in BEHAVIORS:
                 clear_cache()
@@ -410,83 +438,77 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
                 request["behavior"] = behavior
                 request["task_focus"] = f"{authority} {behavior} startup"
                 runtime = OrderedRuntime([])
-                receipt = court_open_fastpath.prepare_fast_open(
-                    request,
-                    runtime_api=runtime,
-                    identity_loader=fixture._identity,
-                    capability_loader=_capability_result,
-                    concurrent_preload=False,
-                )
+                receipt = _prepare_fast(request, runtime, capability_loader=_capability_result)
                 require(receipt.get("ok") is True, f"cartesian open failed:{authority}:{behavior}")
                 execution = receipt.get("execution")
                 require(isinstance(execution, dict), "execution receipt missing")
-                require(execution.get("authority") == authority, "receipt authority drift")
-                require(execution.get("behavior") == behavior, "receipt behavior drift")
-                reminder = receipt.get("authority_reminder")
-                require(isinstance(reminder, dict), "startup authority reminder missing")
-                require(
-                    reminder.get("three_authorities_text")
-                    == "approval（审批/默认只读） | autonomous（自主/范围内实施） | super（超级执行/范围内连续推进）",
-                    "startup three-authority reminder drift",
-                )
-                require(
-                    reminder.get("selected_authority_display")
-                    == f"{authority}（{'审批/默认只读' if authority == 'approval' else '自主/范围内实施' if authority == 'autonomous' else '超级执行/范围内连续推进'}）",
-                    "selected authority display drift",
-                )
-                require(
-                    reminder.get("behavior_options_text") == "serial（串行） | parallel（并行）",
-                    "startup behavior display format drift",
-                )
-                expected_dispatch = 9 if behavior == "parallel" else 0
-                require(receipt.get("dispatch_count") == expected_dispatch, "behavior dispatch count drift")
-                require(runtime.admission_calls == expected_dispatch, "behavior admission count drift")
+                require(execution.get("authority") == authority and execution.get("behavior") == behavior, "execution drift")
+                authority_gate = receipt.get("authority_selection_gate")
+                require(isinstance(authority_gate, dict), "startup authority selection gate missing")
+                expected_gate = {
+                    "schema": "court.startup.authority_selection_gate.v1",
+                    "authority_source": "explicit_latest_user",
+                    "source_policy": "latest_explicit_or_current_question_or_same_conversation_same_boundary",
+                    "semantic_owner": "SKILL.md",
+                    "selected_authority": authority,
+                    "selected_behavior": behavior,
+                    "authority_behavior_orthogonal": True,
+                }
+                for key, expected in expected_gate.items():
+                    require(authority_gate.get(key) == expected, f"startup authority gate drift:{key}")
+                require("prompt" not in authority_gate, "fastpath duplicated the authority prompt")
+                require("must_not_inherit_from" not in authority_gate, "fastpath duplicated authority exclusions")
+                expected_admissions = 3 if behavior == "parallel" else 0
+                require(receipt.get("preparation_only") is True, "court open ceased to be preparation-only")
+                require(receipt.get("host_spawn_performed") is False, "preparation claimed a host spawn")
+                require(receipt.get("dispatch_count") == 0, "preparation claimed dispatch")
+                require(receipt.get("physical_child_dispatch_count") == 0, "preparation claimed physical dispatch")
+                require(receipt.get("planned_department_count") == 3, "department plan count drift")
+                require(receipt.get("planned_ministry_count") == 0, "default ministry plan is not empty")
+                require(receipt.get("planned_office_count") == 3, "office plan count drift")
+                require(receipt.get("admission_check_count") == expected_admissions, "admission count drift")
+                require(runtime.admission_calls == expected_admissions, "behavior admission count drift")
                 if behavior == "parallel":
-                    coordination = receipt.get("shangshu_ministry_coordination")
-                    require(isinstance(coordination, dict), "parallel shangshu coordination missing")
                     require(
-                        coordination.get("schema") == "court.shangshu_ministry_coordination.v1",
-                        "parallel shangshu coordination schema drift",
+                        receipt.get("shangshu_ministry_coordination") is None,
+                        "default open prepared unrequested ministries",
                     )
                     require(
-                        coordination.get("dispatch_initiator") == "shangshu",
-                        "parallel ministries were not dispatched by shangshu",
+                        all(
+                            packet.get("physical_child_agent_spawned") is False
+                            and packet.get("host_spawn_status")
+                            == "NOT_PERFORMED_PREPARATION_ONLY"
+                            for packet in receipt.get("department_packets", [])
+                        ),
+                        "parallel preparation packet claimed host spawn",
                     )
+                else:
+                    require(receipt.get("serial_office_duty_count") == 3, "serial office duty count drift")
+                    packets = receipt.get("department_packets", []) + receipt.get("shangshu_ministry_packets", [])
                     require(
-                        coordination.get("dispatch_target_kind") == "six_ministry_child_offices",
-                        "parallel ministry target kind drift",
+                        all(
+                            packet.get("serial_action") == "serial_inline_office_duty"
+                            and packet.get("office_duty_preserved") is True
+                            and packet.get("physical_child_agent_spawned") is False
+                            for packet in packets
+                        ),
+                        "serial erased office duty or spawned physical child",
                     )
-                    require(
-                        coordination.get("taizi_direct_ministry_dispatch_allowed") is False,
-                        "taizi direct ministry dispatch leaked into parallel receipt",
-                    )
-                    require(
-                        coordination.get("selected_ministries") == list(court_open_fastpath.SIX_MINISTRIES),
-                        "parallel selected ministries drift",
-                    )
-                    hierarchy = receipt.get("agent_hierarchy")
-                    require(isinstance(hierarchy, dict), "parallel hierarchy tree missing")
-                    require(
-                        hierarchy.get("six_ministries_are_shangshu_child_agents") is True,
-                        "parallel ministries are not marked as shangshu child agents",
-                    )
-                    require(
-                        hierarchy.get("rendering_contract")
-                        == "render_six_ministries_nested_under_shangshu_not_as_taizi_siblings",
-                        "hierarchy rendering contract drift",
-                    )
-                results.append({"authority": authority, "behavior": behavior, "dispatch_count": expected_dispatch})
+                results.append(
+                    {
+                        "authority": authority,
+                        "behavior": behavior,
+                        "dispatch_count": 0,
+                        "admission_check_count": expected_admissions,
+                    }
+                )
     return {"ok": True, "cartesian_count": len(results), "results": results}
 
 
 def check_bounded_maintenance_paths() -> dict[str, object]:
     outcomes: dict[str, object] = {}
     with tempfile.TemporaryDirectory(prefix="capability-maintenance-") as temp_text:
-        root = Path(temp_text) / "skill"
-        worktree = Path(temp_text) / "worktree"
-        root.mkdir()
-        worktree.mkdir()
-        fixture._write_skill(root)
+        root, worktree = _fixture_roots(temp_text)
         manifests = {
             "missing": Path(temp_text) / "missing.json",
             "stale": Path(temp_text) / "stale.json",
@@ -503,12 +525,7 @@ def check_bounded_maintenance_paths() -> dict[str, object]:
             request["capability_manifest"] = str(manifest)
             request["capability_manifest_state"] = state
             runtime = OrderedRuntime([])
-            receipt = court_open_fastpath.prepare_fast_open(
-                request,
-                runtime_api=runtime,
-                identity_loader=fixture._identity,
-                concurrent_preload=False,
-            )
+            receipt = _prepare_fast(request, runtime)
             require(receipt.get("ok") is True, f"maintenance open failed:{state}")
             snapshot = receipt.get("capability_snapshot")
             maintenance = snapshot.get("maintenance") if isinstance(snapshot, dict) else None
@@ -537,6 +554,7 @@ def run_checks() -> dict[str, object]:
         ("structured_execution_contract", check_structured_execution_contract),
         ("distinct_runtime_entries", check_distinct_runtime_entries),
         ("cli_process_isolation", check_cli_process_isolation),
+        ("optional_fast_flag_is_preparation_only", check_optional_fast_flag_is_preparation_only),
         ("runtime_import_graph", check_runtime_import_graph),
         ("semantic_template_roundtrip", check_semantic_template_roundtrip),
         ("fail_closed_zero_dispatch", check_fail_closed_zero_dispatch),

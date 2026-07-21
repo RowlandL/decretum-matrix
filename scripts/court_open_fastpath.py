@@ -30,17 +30,11 @@ DEFAULT_THREAD_CEILING = 16
 THREE_DEPARTMENTS = ("zhongshu", "menxia", "shangshu")
 SIX_MINISTRIES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 CAPABILITY_KINDS = ("skill", "mcp", "plugin", "cli", "script")
-AUTHORITY_ORDER = ("approval", "autonomous", "super")
-BEHAVIOR_ORDER = ("serial", "parallel")
-AUTHORITY_DISPLAYS = {
-    "approval": "approval（审批/默认只读）",
-    "autonomous": "autonomous（自主/范围内实施）",
-    "super": "super（超级执行/范围内连续推进）",
-}
-BEHAVIOR_DISPLAYS = {
-    "serial": "serial（串行）",
-    "parallel": "parallel（并行）",
-}
+AUTHORITY_SOURCE_VALUES = frozenset({
+    "explicit_latest_user",
+    "startup_question_answered",
+    "same_conversation_same_boundary",
+})
 AGENT_REUSE_CONTEXT_OCCUPANCY_LIMIT = 0.80
 TASK_REUSE_RELATED_VALUES = frozenset(
     {"same", "related", "continuation", "overlapping", "overlap"}
@@ -124,6 +118,14 @@ def _required_int(value: object, field: str, *, minimum: int = 0) -> int:
     return value
 
 
+def _optional_bool(value: object, field: str, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise FastPathInvalid(f"{field}_invalid")
+    return value
+
+
 def normalize_request(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise FastPathInvalid("request_must_be_object")
@@ -133,6 +135,9 @@ def normalize_request(value: object) -> dict[str, object]:
     authority = _required_text(value.get("authority"), "authority")
     if authority not in AUTHORITIES:
         raise FastPathInvalid("authority_invalid")
+    authority_source = _required_text(value.get("authority_source"), "authority_source").casefold()
+    if authority_source not in AUTHORITY_SOURCE_VALUES:
+        raise FastPathInvalid("authority_source_invalid")
     behavior = _required_text(value.get("behavior"), "behavior")
     if behavior not in BEHAVIORS:
         raise FastPathInvalid("behavior_invalid")
@@ -145,18 +150,36 @@ def normalize_request(value: object) -> dict[str, object]:
     offices = tuple(_required_text(role, "requested_office").lower() for role in requested_offices)
     if len(offices) != len(set(offices)):
         raise FastPathInvalid("requested_offices_duplicate")
+    ministry_assignments_value = value.get("ministry_assignments", [])
+    if not isinstance(ministry_assignments_value, list):
+        raise FastPathInvalid("ministry_assignments_invalid")
+    ministry_assignments = tuple(
+        _required_text(role, "ministry_assignment").lower()
+        for role in ministry_assignments_value
+    )
+    if len(ministry_assignments) != len(set(ministry_assignments)):
+        raise FastPathInvalid("ministry_assignments_duplicate")
+    invalid_ministries = [
+        role for role in ministry_assignments if role not in SIX_MINISTRIES
+    ]
+    if invalid_ministries:
+        raise FastPathInvalid(
+            "ministry_assignment_invalid:" + ",".join(invalid_ministries)
+        )
+    if ministry_assignments and "shangshu" not in offices:
+        raise FastPathInvalid("ministry_assignments_require_shangshu")
     write_sets_value = value.get("write_sets", {})
     if not isinstance(write_sets_value, dict):
         raise FastPathInvalid("write_sets_invalid")
     write_sets: dict[str, list[str]] = {}
-    for role in (*offices, *SIX_MINISTRIES):
+    for role in dict.fromkeys((*offices, *ministry_assignments)):
         raw = write_sets_value.get(role, [])
         if not isinstance(raw, list) or any(not isinstance(path, str) or not path.strip() for path in raw):
             raise FastPathInvalid(f"write_set_invalid:{role}")
-        normalized = [Path(path).as_posix() for path in raw]
-        if len(normalized) != len(set(normalized)):
+        normalized_paths = [Path(path).as_posix() for path in raw]
+        if len(normalized_paths) != len(set(normalized_paths)):
             raise FastPathInvalid(f"write_set_duplicate:{role}")
-        write_sets[role] = normalized
+        write_sets[role] = normalized_paths
     expires_at = _required_text(value.get("expires_at_utc"), "expires_at_utc")
     try:
         expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
@@ -164,10 +187,21 @@ def normalize_request(value: object) -> dict[str, object]:
         raise FastPathInvalid("expires_at_utc_invalid") from exc
     if expires.tzinfo is None:
         raise FastPathInvalid("expires_at_utc_timezone_required")
+    capability_query = str(value.get("capability_query") or "").strip()
+    capability_manifest = str(value.get("capability_manifest") or "").strip()
+    capability_check_requested = _optional_bool(
+        value.get("capability_check_requested"),
+        "capability_check_requested",
+    ) or bool(capability_query or capability_manifest)
+    git_check_requested = _optional_bool(
+        value.get("git_check_requested"),
+        "git_check_requested",
+    ) or bool(value.get("expected_branch") or value.get("expected_head"))
     normalized: dict[str, object] = {
         "schema": REQUEST_SCHEMA,
         "task_id": task_id,
         "authority": authority,
+        "authority_source": authority_source,
         "behavior": behavior,
         "worktree": worktree,
         "skill_root": str(Path(str(value.get("skill_root") or ROOT)).resolve()),
@@ -177,16 +211,18 @@ def normalize_request(value: object) -> dict[str, object]:
         "host_reclamation_status": _required_text(value.get("host_reclamation_status"), "host_reclamation_status"),
         "system_memory_percent": float(value.get("system_memory_percent", 0.0)),
         "requested_offices": list(offices),
-        "include_shangshu_ministries": bool(value.get("include_shangshu_ministries", True)),
+        "ministry_assignments": list(ministry_assignments),
         "write_sets": write_sets,
+        "git_check_requested": git_check_requested,
         "expected_branch": value.get("expected_branch"),
         "expected_head": value.get("expected_head"),
         "expected_semantic_receipt_sha256": value.get("expected_semantic_receipt_sha256"),
         "expected_plan_sha256": value.get("expected_plan_sha256"),
         "transport": str(value.get("transport") or "codex"),
         "task_focus": _required_text(value.get("task_focus"), "task_focus"),
-        "capability_query": str(value.get("capability_query") or "").strip(),
-        "capability_manifest": str(value.get("capability_manifest") or "").strip(),
+        "capability_check_requested": capability_check_requested,
+        "capability_query": capability_query,
+        "capability_manifest": capability_manifest,
         "capability_manifest_state": str(value.get("capability_manifest_state") or "current").strip().casefold(),
         "expires_at_utc": expires.isoformat(),
     }
@@ -382,6 +418,29 @@ def resolve_capability_snapshot(
     return snapshot, "MISS", elapsed
 
 
+def capability_snapshot_not_requested() -> dict[str, object]:
+    body: dict[str, object] = {
+        "schema": "court.capability.snapshot.v1",
+        "owner": "libu-hr",
+        "status": "NOT_REQUESTED",
+        "query": "",
+        "registry": None,
+        "selection_source": None,
+        "fallback_reason": None,
+        "dispatchable": False,
+        "proposed_allocations": {kind: [] for kind in CAPABILITY_KINDS},
+        "maintenance": {
+            "invoked": False,
+            "call_count": 0,
+            "assignment": None,
+            "second_registry": False,
+            "daemon": False,
+        },
+    }
+    body["snapshot_sha256"] = _sha256_bytes(_canonical_bytes(body))
+    return body
+
+
 def _run_git(worktree: Path, arguments: Sequence[str], audit: list[list[str]]) -> str:
     command = ["git", "-C", str(worktree), *arguments]
     audit.append(command)
@@ -567,12 +626,14 @@ def _preload_payload(value: RolePreload) -> dict[str, object]:
         "metadata": json.loads(value.metadata_json),
         "metadata_hash": value.metadata_sha256,
         "metadata_bytes": value.metadata_bytes,
-        "loaded_paths": [
+        "verified_source_paths": [
             value.skill_path,
             value.dossier_path,
             value.profile_path,
             *value.metadata_sources[1:],
         ],
+        "preload_evidence_kind": "dispatcher_source_validation",
+        "child_preload_ack_status": "NOT_AVAILABLE_PRE_SPAWN",
         "loaded_bytes": value.loaded_bytes,
         "target_bytes": MINIMAL_PRELOAD_BYTES,
         "target_met": value.loaded_bytes <= MINIMAL_PRELOAD_BYTES,
@@ -624,7 +685,7 @@ def _lease(
     task_id = str(normalized["task_id"])
     instance_id = f"{role}#{operation_id[-12:]}"
     write_set = list(normalized["write_sets"].get(role, []))  # type: ignore[union-attr]
-    read_scope = ["SKILL.md", preload.dossier_path, preload.profile_path, "references"]
+    read_scope = ["SKILL.md", preload.dossier_path, preload.profile_path]
     access_mode = "read_write" if write_set else "read_only"
     binding = {
         "role": role,
@@ -784,6 +845,11 @@ def _miss(reason: str, problems: Sequence[str] = ()) -> dict[str, object]:
         "problems": list(problems) or [reason],
         "mutations": [],
         "dispatch_count": 0,
+        "physical_child_dispatch_count": 0,
+        "planned_office_count": 0,
+        "admission_check_count": 0,
+        "preparation_only": True,
+        "host_spawn_performed": False,
         "manual_bypass_allowed": False,
         "python_child_processes": 0,
         "FAST_OPEN_SINGLE_PROCESS": "FAIL",
@@ -803,12 +869,15 @@ def _shangshu_ministry_coordination(
         "coordinator": "shangshu",
         "authority": normalized["authority"],
         "behavior": normalized["behavior"],
-        "selection_policy": "result_required_six_ministry_responsibilities",
+        "selection_policy": "bounded_ministries_selected_by_shangshu_after_taizi_reply",
         "selected_ministries": selected_ministries,
         "simple_shangshu_only_allowed": False,
         "simple_shangshu_only_reason": "",
-        "dispatch_initiator": "shangshu",
+        "dispatch_initiator": None,
+        "planned_dispatch_initiator": "shangshu",
         "dispatch_target_kind": "six_ministry_child_offices",
+        "host_dispatch_performed": False,
+        "dispatch_status": "PREPARED_NOT_PERFORMED",
         "taizi_direct_ministry_dispatch_allowed": False,
         "direct_superior_policy": "six_ministries_only_direct_superior_is_shangshu",
         "integration_owner": "shangshu",
@@ -817,35 +886,14 @@ def _shangshu_ministry_coordination(
     }
 
 
-def _startup_authority_reminder(normalized: Mapping[str, object]) -> dict[str, object]:
-    authority = str(normalized["authority"])
-    behavior = str(normalized["behavior"])
+def _authority_selection_gate(normalized: Mapping[str, object]) -> dict[str, object]:
     return {
-        "schema": "court.startup.authority_reminder.v1",
-        "three_authorities": [
-            {
-                "authority": key,
-                "display": display,
-                "selected": key == authority,
-            }
-            for key in AUTHORITY_ORDER
-            for display in (AUTHORITY_DISPLAYS[key],)
-        ],
-        "three_authorities_text": " | ".join(AUTHORITY_DISPLAYS[key] for key in AUTHORITY_ORDER),
-        "selected_authority": authority,
-        "selected_authority_display": AUTHORITY_DISPLAYS[authority],
-        "behavior_options": [
-            {
-                "behavior": key,
-                "display": display,
-                "selected": key == behavior,
-            }
-            for key in BEHAVIOR_ORDER
-            for display in (BEHAVIOR_DISPLAYS[key],)
-        ],
-        "behavior_options_text": " | ".join(BEHAVIOR_DISPLAYS[key] for key in BEHAVIOR_ORDER),
-        "selected_behavior": behavior,
-        "selected_behavior_display": BEHAVIOR_DISPLAYS[behavior],
+        "schema": "court.startup.authority_selection_gate.v1",
+        "authority_source": normalized["authority_source"],
+        "source_policy": "latest_explicit_or_current_question_or_same_conversation_same_boundary",
+        "semantic_owner": "SKILL.md",
+        "selected_authority": normalized["authority"],
+        "selected_behavior": normalized["behavior"],
         "authority_behavior_orthogonal": True,
         "super_parallel_contract": "authority=super, behavior=parallel, runtime=native",
     }
@@ -879,8 +927,11 @@ def _agent_hierarchy_tree(
         "nodes": nodes,
         "three_department_parent": "taizi",
         "six_ministry_parent": "shangshu",
-        "six_ministries_are_shangshu_child_agents": bool(ministry_packets)
-        and all(node["parent_role"] == "shangshu" for node in nodes if node["role"] in SIX_MINISTRIES),
+        "six_ministries_are_shangshu_child_agents": all(
+            node["parent_role"] == "shangshu"
+            for node in nodes
+            if node["role"] in SIX_MINISTRIES
+        ),
         "host_sidebar_may_flatten_display": True,
         "rendering_contract": "render_six_ministries_nested_under_shangshu_not_as_taizi_siblings",
     }
@@ -979,10 +1030,11 @@ def prepare_fast_open(
         if float(normalized["system_memory_percent"]) >= 99.0:
             raise FastPathMiss("resource_pressure", "system_memory_percent")
         requested = tuple(normalized["requested_offices"])
+        ministry_assignments = tuple(normalized["ministry_assignments"])
         if any(role not in THREE_DEPARTMENTS for role in requested):
             raise FastPathMiss("hierarchy_incomplete", "taizi_may_dispatch_only_three_departments")
         if normalized["behavior"] == "parallel":
-            total_roles = len(requested) + (len(SIX_MINISTRIES) if normalized["include_shangshu_ministries"] else 0)
+            total_roles = len(requested) + len(ministry_assignments)
             effective_capacity = min(DEFAULT_THREAD_CEILING, int(normalized["host_capacity"]))
             available = effective_capacity - int(normalized["host_active_agents"])
             if available < total_roles:
@@ -990,22 +1042,30 @@ def prepare_fast_open(
         _validate_write_sets(normalized["write_sets"])
 
         worktree = Path(str(normalized["worktree"]))
-        identity, process_audit = identity_loader(worktree)
-        python_children = sum(
-            1
-            for command in process_audit
-            if command and Path(command[0]).name.lower().startswith(("python", "py.exe"))
-        )
-        if python_children:
-            raise FastPathMiss("python_subprocess_detected", str(python_children))
-        if identity.get("path") != str(worktree.resolve()):
-            raise FastPathMiss("worktree_identity_mismatch")
-        if int(identity.get("index_count") or 0) != 0:
-            raise FastPathMiss("index_not_empty")
-        if normalized.get("expected_branch") and identity.get("branch") != normalized["expected_branch"]:
-            raise FastPathMiss("branch_drift")
-        if normalized.get("expected_head") and identity.get("HEAD") != normalized["expected_head"]:
-            raise FastPathMiss("head_drift")
+        if normalized["git_check_requested"]:
+            identity, process_audit = identity_loader(worktree)
+            python_children = sum(
+                1
+                for command in process_audit
+                if command and Path(command[0]).name.lower().startswith(("python", "py.exe"))
+            )
+            if python_children:
+                raise FastPathMiss("python_subprocess_detected", str(python_children))
+            if identity.get("path") != str(worktree.resolve()):
+                raise FastPathMiss("worktree_identity_mismatch")
+            if int(identity.get("index_count") or 0) != 0:
+                raise FastPathMiss("index_not_empty")
+            if normalized.get("expected_branch") and identity.get("branch") != normalized["expected_branch"]:
+                raise FastPathMiss("branch_drift")
+            if normalized.get("expected_head") and identity.get("HEAD") != normalized["expected_head"]:
+                raise FastPathMiss("head_drift")
+        else:
+            identity = {
+                "path": str(worktree.resolve()),
+                "status": "NOT_REQUESTED",
+            }
+            process_audit = []
+            python_children = 0
 
         if runtime_api is None:
             import court_runtime as runtime_api
@@ -1024,10 +1084,11 @@ def prepare_fast_open(
         if normalized.get("expected_plan_sha256") and receipt.get("plan_sha256") != normalized["expected_plan_sha256"]:
             raise FastPathMiss("plan_drift")
 
-        roles = list(requested)
-        if normalized["include_shangshu_ministries"]:
-            roles.extend(SIX_MINISTRIES)
-        if concurrent_preload:
+        roles = [*requested, *ministry_assignments]
+        capability_requested = bool(
+            normalized["capability_check_requested"] or capability_loader is not None
+        )
+        if concurrent_preload and capability_requested:
             with ThreadPoolExecutor(max_workers=2) as executor:
                 capability_future = executor.submit(
                     resolve_capability_snapshot,
@@ -1042,12 +1103,21 @@ def prepare_fast_open(
                 )
                 capability_snapshot, capability_cache_status, capability_lookup_ms = capability_future.result()
                 preloads = preload_future.result()
-        else:
+        elif capability_requested:
             capability_snapshot, capability_cache_status, capability_lookup_ms = resolve_capability_snapshot(
                 normalized,
                 capability_loader=capability_loader,
             )
             preloads = preload_loader(skill_root, roles, concurrent=False)
+        else:
+            capability_snapshot = capability_snapshot_not_requested()
+            capability_cache_status = "NOT_REQUESTED"
+            capability_lookup_ms = 0.0
+            preloads = preload_loader(
+                skill_root,
+                roles,
+                concurrent=concurrent_preload,
+            )
         oversized = [role for role in roles if preloads[role].loaded_bytes > MINIMAL_PRELOAD_BYTES]
         if oversized:
             raise FastPathMiss("preload_budget_exceeded", *oversized)
@@ -1065,6 +1135,9 @@ def prepare_fast_open(
                 "hierarchy": hierarchy,
                 "execution_sha256": execution_sha256,
                 "capability_snapshot_sha256": capability_snapshot["snapshot_sha256"],
+                "preparation_only": True,
+                "physical_child_agent_spawned": False,
+                "host_spawn_status": "NOT_PERFORMED_PREPARATION_ONLY",
             }
             if normalized["behavior"] == "parallel":
                 admission = _admission_request(runtime_api, task, normalized, role, "taizi", preloads[role], ordinal)
@@ -1073,35 +1146,39 @@ def prepare_fast_open(
                 admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
             else:
                 packet["admission"] = None
-                packet["serial_action"] = "inline_deliberation"
-                admission_decisions.append({"role": role, "decision": "serial_inline"})
+                packet["serial_action"] = "serial_inline_office_duty"
+                packet["office_duty_preserved"] = True
+                packet["dispatch_evidence_status"] = "serial_inline_no_physical_child"
             department_packets.append(packet)
-        if normalized["include_shangshu_ministries"]:
-            for role in SIX_MINISTRIES:
-                ordinal += 1
-                hierarchy = _hierarchy_decision("shangshu", role)
-                packet = {
-                    "role": role,
-                    "hierarchy": hierarchy,
-                    "execution_sha256": execution_sha256,
-                    "capability_snapshot_sha256": capability_snapshot["snapshot_sha256"],
-                }
-                if normalized["behavior"] == "parallel":
-                    admission = _admission_request(runtime_api, task, normalized, role, "shangshu", preloads[role], ordinal)
-                    decision = _validate_admission(runtime_api, task, admission)
-                    packet["admission"] = admission
-                    admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
-                else:
-                    packet["admission"] = None
-                    packet["serial_action"] = "inline_deliberation"
-                    admission_decisions.append({"role": role, "decision": "serial_inline"})
-                ministry_packets.append(packet)
+        for role in ministry_assignments:
+            ordinal += 1
+            hierarchy = _hierarchy_decision("shangshu", role)
+            packet = {
+                "role": role,
+                "hierarchy": hierarchy,
+                "execution_sha256": execution_sha256,
+                "capability_snapshot_sha256": capability_snapshot["snapshot_sha256"],
+                "preparation_only": True,
+                "physical_child_agent_spawned": False,
+                "host_spawn_status": "NOT_PERFORMED_PREPARATION_ONLY",
+            }
+            if normalized["behavior"] == "parallel":
+                admission = _admission_request(runtime_api, task, normalized, role, "shangshu", preloads[role], ordinal)
+                decision = _validate_admission(runtime_api, task, admission)
+                packet["admission"] = admission
+                admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
+            else:
+                packet["admission"] = None
+                packet["serial_action"] = "serial_inline_office_duty"
+                packet["office_duty_preserved"] = True
+                packet["dispatch_evidence_status"] = "serial_inline_no_physical_child"
+            ministry_packets.append(packet)
         shangshu_ministry_coordination = (
             _shangshu_ministry_coordination(normalized, ministry_packets)
             if ministry_packets
             else None
         )
-        authority_reminder = _startup_authority_reminder(normalized)
+        authority_selection_gate = _authority_selection_gate(normalized)
         agent_hierarchy = _agent_hierarchy_tree(department_packets, ministry_packets)
         agent_reuse_policy = agent_reuse_policy_payload()
 
@@ -1110,26 +1187,31 @@ def prepare_fast_open(
             "departments": department_packets,
             "ministries": ministry_packets,
             "shangshu_ministry_coordination": shangshu_ministry_coordination,
-            "authority_reminder": authority_reminder,
+            "authority_selection_gate": authority_selection_gate,
             "agent_hierarchy": agent_hierarchy,
             "agent_reuse_policy": agent_reuse_policy,
+            "preparation_only": True,
         }))
+        planned_office_count = len(department_packets) + len(ministry_packets)
         return {
             "schema": RECEIPT_SCHEMA,
             "ok": True,
-            "status": "READY",
+            "status": "READY_FOR_AGENT_ADMIT",
             "receipt_id": "court-open-" + _sha256_bytes(str(normalized["operation_id"]).encode("utf-8"))[:24],
             "operation_id": normalized["operation_id"],
             "request_sha256": _sha256_bytes(_canonical_bytes(normalized)),
             "packet_sha256": packet_digest,
             "task_id": normalized["task_id"],
             "execution": execution,
-            "authority_reminder": authority_reminder,
+            "preparation_only": True,
+            "host_spawn_performed": False,
+            "authority_selection_gate": authority_selection_gate,
             "semantic_receipt_id": receipt.get("receipt_id"),
             "semantic_receipt_sha256": receipt.get("receipt_sha256"),
             "plan_cursor": receipt.get("plan_cursor"),
             "worktree": identity,
             "capability_snapshot": capability_snapshot,
+            "capability_check_requested": capability_requested,
             "capability_cache_status": capability_cache_status,
             "capability_lookup_ms": round(capability_lookup_ms, 3),
             "preloads": [_preload_payload(preloads[role]) for role in roles],
@@ -1140,15 +1222,31 @@ def prepare_fast_open(
             "agent_reuse_policy": agent_reuse_policy,
             "admission_decisions": admission_decisions,
             "mutations": [],
-            "dispatch_count": len(admission_decisions) if normalized["behavior"] == "parallel" else 0,
+            "dispatch_count": 0,
+            "physical_child_dispatch_count": 0,
+            "planned_department_count": len(department_packets),
+            "planned_ministry_count": len(ministry_packets),
+            "planned_office_count": planned_office_count,
+            "office_assignment_count": planned_office_count,
+            "admission_check_count": len(admission_decisions),
+            "serial_office_duty_count": planned_office_count if normalized["behavior"] == "serial" else 0,
             "manual_bypass_allowed": False,
+            "git_check_requested": normalized["git_check_requested"],
             "process_audit": process_audit,
             "python_child_processes": python_children,
             "FAST_OPEN_SINGLE_PROCESS": "PASS",
-            "SHANGSHU_FIRST_DISPATCH": "PASS" if len(ministry_packets) == len(SIX_MINISTRIES) else "NOT_REQUESTED",
-            "SIX_MINISTRY_DIRECT_SUPERIOR": "PASS" if all(
-                packet["hierarchy"]["direct_superior"] == "shangshu" for packet in ministry_packets
-            ) else "FAIL",
+            "SHANGSHU_FIRST_DISPATCH": (
+                "NOT_PERFORMED_PREPARATION_ONLY" if ministry_packets else "NOT_REQUESTED"
+            ),
+            "SIX_MINISTRY_DIRECT_SUPERIOR": (
+                "PASS"
+                if ministry_packets
+                and all(
+                    packet["hierarchy"]["direct_superior"] == "shangshu"
+                    for packet in ministry_packets
+                )
+                else "NOT_REQUESTED"
+            ),
             "pending_body_access": "NO",
         }
     except FastPathMiss as exc:
@@ -1171,35 +1269,30 @@ def _request_value(args: argparse.Namespace) -> object:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fast", action="store_true")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Optional compatibility marker; court open is always preparation-only.",
+    )
     parser.add_argument("--request-json")
     parser.add_argument("--request-file")
     parser.add_argument("--serial-preload", action="store_true")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
-    if not args.fast:
-        result: dict[str, object] = {
+    try:
+        result = prepare_fast_open(
+            _request_value(args),
+            concurrent_preload=not args.serial_preload,
+        )
+        exit_code = 0 if result["ok"] else 2
+    except FastPathInvalid as exc:
+        result = {
             "schema": RECEIPT_SCHEMA,
             "ok": False,
             "status": "INVALID",
-            "problems": ["--fast is required"],
+            "problems": [str(exc)],
         }
         exit_code = 3
-    else:
-        try:
-            result = prepare_fast_open(
-                _request_value(args),
-                concurrent_preload=not args.serial_preload,
-            )
-            exit_code = 0 if result["ok"] else 2
-        except FastPathInvalid as exc:
-            result = {
-                "schema": RECEIPT_SCHEMA,
-                "ok": False,
-                "status": "INVALID",
-                "problems": [str(exc)],
-            }
-            exit_code = 3
     if args.format == "json":
         print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
     else:

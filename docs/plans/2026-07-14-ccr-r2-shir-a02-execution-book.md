@@ -68,7 +68,8 @@ RESUME_AFTER: PASSED_A02_PHASE1_CONTINUATION_ACTIVE
 本合同把多对话、child agent 与 worktree thread 的诏令编号、古制谱系、runtime event 和史馆 closeout 收敛到现有权威链；它不新建第二 cluster、第二账本、第二编号权威或第二数据库。
 
 - 唯一 runtime authority 仍是 `tasks.json` 当前 task 加 append-only `court_events.jsonl`。允许新增一个最小 `scripts/court_operation_journal.py`，但它只能保存幂等 operation/recovery receipt，不能保存另一份 task 状态、event history、编号序列或每-worktree 独立 runtime ledger。最小绑定字段为 `operation_id, payload_sha256, expected_task_revision, decree_id/main_court_code, parent_court_code, child_no, lineage_key, lineage_version`。
-- `court decree-open` 对同一旨意只分配一次主诏令编号并冻结 `main_court_code/lineage_key/lineage_version`；重试复用同一 `operation_id` 和已分配结果。只有显式 `reclassify` 操作可以产生下一 lineage version；不得改写历史 `court_code`，也不得因对话、carrier 或 worktree 改变而重编号。
+- 统一 CLI 开朝入口是 `court open` / `court open --fast`。
+  Runtime-internal `decree-open` operation 对同一旨意只分配一次主诏令编号并冻结 `main_court_code/lineage_key/lineage_version`。重试复用同一 `operation_id` 和已分配结果。只有显式 `reclassify` 操作可以产生下一 lineage version；不得改写历史 `court_code`，也不得因对话、carrier 或 worktree 改变而重编号。
 - 通用 lifecycle API 固定为 `court office admit|start|report|finish|close`。现有 `agent-*` 命令继续作为 `carrier_kind=child_agent` 的兼容包装；`worktree_thread` 只在同构 receipt 上增加 `thread_id, worktree_fingerprint, branch, start_head` proof，不另建 task/event 文件。
 - closeout 使用三段可恢复 saga：`PREPARED`（持 runtime lock，CAS 校验 `expected_task_revision` 并固化 compound intent） -> `ARCHIVE_COMMITTED`（持 Shiguan lock，提交唯一 archive/index side effect） -> `TASK_EVENT_COMMITTED`（重新持 runtime lock，提交 task/event paired receipt）。`court closeout-recover --operation-id <id>` 从最后一个已验证阶段继续；每个 allocation/archive/index/task/event killpoint 重放均必须 exactly-once。
 - repair-cluster 映射固定而不新增 cluster：RC2 拥有 generic semantic/operation interface、CAS、compound receipt 和 closeout recovery；RC4 在 RC2 之后串行拥有 `office_instance` 的 `child_agent|worktree_thread` lifecycle 与冻结谱系；RC6 拥有 local authority realm/root fingerprint 与 root-mismatch fail-closed。既有 same-root file lock 和 32-process allocator uniqueness 只作为正回归，不重复实现。
@@ -569,7 +570,7 @@ Phase 1 不实现共享 ledger 的 corruption/LKG/stable-snapshot/CAS restore；
 
 Phase 1 的编号/谱系 GREEN 继续沿既有 cluster 串行：
 
-1. **RC2 first**：在现有 runtime lock/CAS 与 semantic receipt 上实现通用 operation interface、最小 `court_operation_journal.py`、decree-open 幂等分配、compound receipt、三段 closeout 与 `closeout-recover --operation-id`。Phase 1 只用临时 local roots 验证 allocation/task/event 和 synthetic archive/index killpoints，不读取真实史馆或 pending body。
+1. **RC2 first**：在现有 runtime lock/CAS 与 semantic receipt 上实现通用 operation interface、最小 `court_operation_journal.py`、runtime-internal `decree-open` 幂等分配、compound receipt、三段 closeout 与 `closeout-recover --operation-id`。Phase 1 只用临时 local roots 验证 allocation/task/event 和 synthetic archive/index killpoints，不读取真实史馆或 pending body。
 2. **RC4 after RC2**：串行修改共享 `court_runtime.py`，统一 `office admit|start|report|finish|close`，冻结 `main_court_code/parent_court_code/child_no/lineage_key/version`；`agent-*` 保持 child-agent 兼容包装，worktree 只增加 thread/worktree/branch/start-head proof。至少两个 child 与两个 worktree 的 schema/lifecycle 必须同构。
 3. **RC6 bounded**：Phase 1 实现 local authority realm/root fingerprint 的纯函数和 fixture，root mismatch fail closed；真实 `.agents` authority-root fingerprint 与 RC2 archive transaction 只能在 Phase 2/3 pending、quiescence、migration gate 通过后由单 writer 串行接入。
 4. 既有 same-root file lock 与 32-process allocator uniqueness 保持正回归；新增 32-way same-operation replay、record_uid collision 和 allocation/archive/index/task/event killpoints，不重写已工作的锁或 allocator。
@@ -954,7 +955,7 @@ local_filesystem_only_fail_closed_gate
 
 配置分支的局部停止语义：若 controller ownership、DB schema、effective precedence、current values、兼容语义、backup/rollback、实际文件 reread/parse 或可用 runtime probe 不能证明，立即停止或回滚该配置分支，报告精确不确定项并输出 `REMINDER_ONLY`/`compliance_claimed=false`；其他互不依赖任务继续。只改 leaf TOML 或只验证 DB 永不构成合规。
 
-编号/谱系分支立即停止条件：同一 operation 产生第二副作用；`record_uid` 碰撞；decree-open 重分配或历史 `court_code` 被改写；child/worktree lineage 漂移；task/event/archive/index receipt 分叉；worktree lifecycle 缺失；authority realm/root fingerprint 不匹配；运行于跨主机、NFS、SMB 或需要 distributed lock 的文件系统。此时返回稳定 `BLOCKED|UNSUPPORTED` reason code，只允许同一 `operation_id` 的只读 reconcile/恢复，不得另建 ledger、SQLite、HTTP/MQ service 或绕过 Git/Codex authority。
+编号/谱系分支立即停止条件：同一 operation 产生第二副作用；`record_uid` 碰撞；runtime-internal `decree-open` 重分配或历史 `court_code` 被改写；child/worktree lineage 漂移；task/event/archive/index receipt 分叉；worktree lifecycle 缺失；authority realm/root fingerprint 不匹配；运行于跨主机、NFS、SMB 或需要 distributed lock 的文件系统。此时返回稳定 `BLOCKED|UNSUPPORTED` reason code，只允许同一 `operation_id` 的只读 reconcile/恢复，不得另建 ledger、SQLite、HTTP/MQ service 或绕过 Git/Codex authority。
 
 ## 7. 最终验收命令族
 
@@ -1002,7 +1003,7 @@ task-point false accept, post-revoke activity, unauthorized scope escape, and du
 with at least 30 fixture/accepted samples, capsule resolve+read+hash+binding p95 is <=1000 ms; every context-saving claim includes chars and UTF-8 bytes and satisfies the 80% break-even rule
 task-point capsules exclude pending/private bodies, full prompts/diffs/private logs and add no plugin, daemon, database, second store, or authority
 child_agent and worktree_thread carriers use equivalent dispatch/communication/result bindings without duplicate authority or writer
-decree-open allocates one immutable main_court_code per decree; only explicit reclassify advances lineage_version and historical court_code values remain unchanged
+runtime-internal decree-open allocates one immutable main_court_code per decree; only explicit reclassify advances lineage_version and historical court_code values remain unchanged
 default 16 means root plus 15 children, explicit 17 means root plus 16 children, and explicit 18 means root plus 17 children; explicit counts are never reinterpreted as child slots
 32 concurrent allocator calls preserve uniqueness and 32 replays of one operation produce exactly one allocation/archive/index/task/event side effect
 allocation, archive, index, task, and event killpoints recover exactly once through PREPARED -> ARCHIVE_COMMITTED -> TASK_EVENT_COMMITTED and closeout-recover --operation-id

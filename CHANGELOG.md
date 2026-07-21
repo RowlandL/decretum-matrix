@@ -1,5 +1,24 @@
 # Changelog
 
+## beta1.0.3 - 2026-07-21
+
+### Fixed
+
+- Kept the established progressive court flow while removing blanket startup
+  probes for Git, Shiguan services, pending imports, YOLO, capability refresh,
+  portable bootstrap, install, and release tooling.
+- Reframed `court open --fast` as optional pre-dispatch preparation. It no
+  longer selects every ministry by default or reports packet/admission checks as
+  physical child dispatch.
+- Kept the Three Departments flow intact and moved Six Ministry selection to
+  Shangshu's result-driven, bounded subset after the Taizi reply.
+
+### Release identity
+
+- Product/tag/artifact version: `beta1.0.3`.
+- npm version: `1.0.3-beta.0` on the `beta` dist-tag.
+- This branch is a local candidate; publication requires separate authorization.
+
 ## beta1.0.2 - 2026-07-21
 
 ### Changed

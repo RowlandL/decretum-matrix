@@ -588,12 +588,13 @@ clarification request and the user's answers as 实录 checkpoints.
   Gongbu office and multiple Gongbu workers may therefore start concurrently
   when instance ids, shards, hierarchy, and write sets are independent, while
   duplicate instance/shard identities or overlapping writes remain invalid.
-- `decree-open` freezes `main_court_code`, `lineage_parts`, `lineage_key`, and
-  `lineage_version=1`. Every admitted ordinary carrier inherits that root plus
-  `parent_court_code=main_court_code` and one atomically allocated `child_no`.
-  A changed summary, topic, sidebar title, carrier, or worktree must not
-  reclassify lineage; reclassification requires a separate explicit future
-  operation.
+- Public startup uses unified `court open` / `court open --fast`; the
+  runtime-internal `decree-open` operation only freezes `main_court_code`,
+  `lineage_parts`, `lineage_key`, and `lineage_version=1`. Every admitted
+  ordinary carrier inherits that root plus `parent_court_code=main_court_code`
+  and one atomically allocated `child_no`. A changed summary, topic, sidebar
+  title, carrier, or worktree must not reclassify lineage; reclassification
+  requires a separate explicit future operation.
 - Ordinary `super` / `super并行` entries are always `visibility=non_visible` and
   never create zellij panes. In `superCC`, only 太子 and 三省 may be
   `visible_core`; 六部 remain `non_visible` by default. A
@@ -941,11 +942,10 @@ clarification request and the user's answers as 实录 checkpoints.
   verification whenever a formal decree opens. Serialize only shared-file edits,
   MCP writes, installs, config changes, destructive operations, and external
   application state.
-- After 三省上奏/太子回奏 approves execution, 尚书省 must first look for meaningful
-  六部并行: 吏部/户部 for capability and environment, 礼部 for wording/docs, 兵部 for
-  tactics, 刑部 for risk, 工部 for implementation/verification. If parallelism is
-  not useful or runtime-limited, state the reason rather than silently running
-  as a single lane.
+- After 三省上奏/太子回奏 approves execution, 尚书省从最终结果倒推必要且相关的
+  六部职责，只选择有具体 duty、证据契约和依赖关系的部。可并行的独立职责并行，
+  共享写入与依赖链串行；不得把六部枚举当作默认全选。确无六部专责的简单任务可由
+  尚书串行承办，但须记录结构化理由。
 - Network/web research is an evidence dispatch decision. 中书省/户部 must choose
   it automatically when current or external facts matter, and must mark
   `web_research: USED | NOT_NEEDED | BLOCKED_BY_AUTHORITY` in the relevant

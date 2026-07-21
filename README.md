@@ -16,7 +16,7 @@ npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 decretum-matrix --format json --help
 ```
 
-当前源码候选为 `1.0.2-beta.0`。安装命令解析到 registry 已发布的 `beta`；
+当前源码候选为 `1.0.3-beta.0`。安装命令解析到 registry 已发布的 `beta`；
 实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
 `read:packages`，且不得持久化 token。
 
@@ -28,10 +28,12 @@ decretum-matrix --format json --help
 $decretum-matrix
 ```
 
-随后直接描述任务和边界。三权提醒：`approval（审批/默认只读）`、
-`autonomous（自主/范围内实施）`、`super（超级执行/范围内连续推进）`。
-三权是授权边界；运行方式另选 `serial（串行）` / `parallel（并行）`。
-`serial（串行）` 不并行开子 agente；`parallel（并行）` 按层级派生子/孙
+随后直接描述任务和边界。新会话首次开朝或边界变化时，若最新用户消息没有
+显式选择 `approval`、`autonomous` 或 `super`，先问三权：
+`approval（审批/默认只读） | autonomous（自主/范围内实施） |
+super（超级执行/范围内连续推进）`。三权是授权边界；运行方式另选
+`serial（串行）` / `parallel（并行）`。`serial（串行）` 不并行开物理子
+agente，但保留三省、尚书和六部责任链；`parallel（并行）` 按层级派生子/孙
 agente。权力不是运行方式；二者独立。
 普通 `super parallel` 固定走 native。superCC 只由独立显式入口启动，两种
 runtime 不在同一 task/process 中切换或回退。
@@ -66,8 +68,8 @@ runtime 不在同一 task/process 中切换或回退。
 [`release-manifest.json`](release-manifest.json) 为准；分支名只是当前工作载体。
 tag、GitHub Release、npm 以及线上 Wiki 的成功状态只由对应发布回执证明。
 
-`beta1.0.2` 整改启动语义、场景成本、目录外 CLI 和尚书统六部语义；`beta1.0.1`
-作为上一问题基线保留历史证据，`beta1.0.0` 及两个
+`beta1.0.3` 保留既有渐进式流程，并移除普通开朝的固定脚本体检、全六部预载和
+伪物理派遣计数；`beta1.0.2` 作为上一问题基线保留历史证据，`beta1.0.0` 及两个
 hotfix tag 继续保留不可变历史证据。
 
 ## 许可

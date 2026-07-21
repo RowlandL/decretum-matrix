@@ -52,6 +52,18 @@ DAILY_HELP_COMMANDS: dict[str, tuple[str, ...]] = {
     "release": (),
     "check": ("all",),
 }
+COURT_OPEN_GUIDANCE_MARKDOWN = """# Decretum Matrix court open
+
+1. Load `SKILL.md` and only the governing reference for the current behavior.
+2. If the latest user message does not select `approval`, `autonomous`, or `super`, ask for that choice and stop.
+3. Route a formal task through the Three Departments before implementation.
+4. After the Taizi reply, Shangshu selects only the ministries that add evidence or execution value.
+5. Run machine admission immediately before a real host spawn; packets and admission checks are not spawn evidence.
+
+Optional preparation-only preflight:
+
+`decretum-matrix court open --fast --request-file <request.json>`
+"""
 COURT_RUNTIME_HINTS = (
     "admission-schema",
     "admission-template",
@@ -381,6 +393,56 @@ def _capture_court_open(
     cwd: Path,
 ) -> InvocationResult:
     values = list(arguments)
+    if "--fast" not in values:
+        unexpected = [value for value in values if value not in {"-h", "--help"}]
+        if unexpected:
+            message = "technical court-open arguments require explicit --fast"
+            if output_format == "json":
+                payload = {
+                    "schema": "court.open.guidance.v1",
+                    "ok": False,
+                    "status": "INVALID",
+                    "problems": [message],
+                    "mutations": [],
+                    "dispatch_count": 0,
+                    "physical_child_dispatch_count": 0,
+                }
+                return InvocationResult(
+                    returncode=3,
+                    stdout=json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n",
+                    stderr="",
+                    loader="markdown_progressive_loading_guidance",
+                    legacy_path=None,
+                )
+            return InvocationResult(
+                returncode=3,
+                stdout="",
+                stderr=message + "\n",
+                loader="markdown_progressive_loading_guidance",
+                legacy_path=None,
+            )
+        if output_format == "json":
+            payload = {
+                "schema": "court.open.guidance.v1",
+                "ok": True,
+                "status": "GUIDANCE",
+                "markdown": COURT_OPEN_GUIDANCE_MARKDOWN,
+                "progressive_loading": True,
+                "fastpath_executed": False,
+                "mutations": [],
+                "dispatch_count": 0,
+                "physical_child_dispatch_count": 0,
+            }
+            stdout = json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n"
+        else:
+            stdout = COURT_OPEN_GUIDANCE_MARKDOWN
+        return InvocationResult(
+            returncode=0,
+            stdout=stdout,
+            stderr="",
+            loader="markdown_progressive_loading_guidance",
+            legacy_path=None,
+        )
     if output_format == "json":
         values.extend(("--format", "json"))
     record = CommandRecord(

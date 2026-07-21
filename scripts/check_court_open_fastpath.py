@@ -19,6 +19,7 @@ class FakeRuntime:
     def __init__(self, task: dict[str, object]) -> None:
         self.task = task
         self.load_calls = 0
+        self.admission_calls = 0
 
     def load_tasks(self) -> dict[str, dict[str, object]]:
         self.load_calls += 1
@@ -43,8 +44,12 @@ class FakeRuntime:
             "root_id": "taizi",
         }
 
-    @staticmethod
-    def validate_fast_admission(task: dict[str, object], request: dict[str, object]) -> dict[str, object]:
+    def validate_fast_admission(
+        self,
+        task: dict[str, object],
+        request: dict[str, object],
+    ) -> dict[str, object]:
+        self.admission_calls += 1
         binding = request["requested_bindings"][0]
         return {
             "allowed": True,
@@ -150,6 +155,7 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
         "schema": court_open_fastpath.REQUEST_SCHEMA,
         "task_id": "fast-open-fixture",
         "authority": "super",
+        "authority_source": "explicit_latest_user",
         "behavior": "parallel",
         "worktree": str(worktree),
         "skill_root": str(root),
@@ -159,7 +165,6 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
         "host_reclamation_status": "verified",
         "system_memory_percent": 40.0,
         "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
-        "include_shangshu_ministries": True,
         "write_sets": {},
         "expected_branch": "release/beta1.0.2-hotfix-v1",
         "expected_head": "5" * 40,
@@ -204,12 +209,67 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             and first.get("packet_sha256") == second.get("packet_sha256")
         )
         checks["three_departments"] = len(first.get("department_packets", [])) == 3
-        checks["six_ministries"] = len(first.get("shangshu_ministry_packets", [])) == 6
+        checks["default_zero_ministries"] = (
+            first.get("shangshu_ministry_packets") == []
+            and first.get("shangshu_ministry_coordination") is None
+            and first.get("planned_ministry_count") == 0
+            and first.get("planned_office_count") == 3
+            and first.get("admission_check_count") == 3
+            and len(first.get("preloads", [])) == 3
+        )
+        checks["preparation_never_claims_spawn"] = (
+            first.get("preparation_only") is True
+            and first.get("host_spawn_performed") is False
+            and first.get("dispatch_count") == 0
+            and first.get("physical_child_dispatch_count") == 0
+            and all(
+                packet.get("physical_child_agent_spawned") is False
+                and packet.get("host_spawn_status") == "NOT_PERFORMED_PREPARATION_ONLY"
+                for packet in first.get("department_packets", [])
+            )
+        )
+
+        one_request = {**request, "ministry_assignments": ["gongbu"]}
+        one_runtime = FakeRuntime(_task())
+        one = court_open_fastpath.prepare_fast_open(
+            one_request,
+            runtime_api=one_runtime,
+            identity_loader=_identity,
+            concurrent_preload=concurrent_probes,
+        )
+        checks["one_ministry_assignment"] = (
+            [packet.get("role") for packet in one.get("shangshu_ministry_packets", [])]
+            == ["gongbu"]
+            and one.get("planned_ministry_count") == 1
+            and one.get("planned_office_count") == 4
+            and one.get("admission_check_count") == 4
+            and one_runtime.admission_calls == 4
+            and one.get("dispatch_count") == 0
+            and one.get("physical_child_dispatch_count") == 0
+        )
+
+        two_request = {**request, "ministry_assignments": ["hubu", "gongbu"]}
+        two_runtime = FakeRuntime(_task())
+        two = court_open_fastpath.prepare_fast_open(
+            two_request,
+            runtime_api=two_runtime,
+            identity_loader=_identity,
+            concurrent_preload=concurrent_probes,
+        )
+        checks["two_ministry_assignments"] = (
+            [packet.get("role") for packet in two.get("shangshu_ministry_packets", [])]
+            == ["hubu", "gongbu"]
+            and two.get("planned_ministry_count") == 2
+            and two.get("planned_office_count") == 5
+            and two.get("admission_check_count") == 5
+            and two_runtime.admission_calls == 5
+            and len(two.get("preloads", [])) == 5
+        )
         checks["ministry_superiors"] = all(
             packet["hierarchy"]["direct_superior"] == "shangshu"
-            for packet in first.get("shangshu_ministry_packets", [])
+            for packet in two.get("shangshu_ministry_packets", [])
         )
-        coordination = first.get("shangshu_ministry_coordination")
+        coordination = two.get("shangshu_ministry_coordination")
         checks["shangshu_coordination_present"] = (
             isinstance(coordination, dict)
             and coordination.get("schema") == "court.shangshu_ministry_coordination.v1"
@@ -218,13 +278,17 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         )
         checks["shangshu_selects_ministries"] = (
             isinstance(coordination, dict)
-            and coordination.get("selected_ministries") == list(court_open_fastpath.SIX_MINISTRIES)
-            and coordination.get("simple_shangshu_only_allowed") is False
+            and coordination.get("selected_ministries") == ["hubu", "gongbu"]
+            and coordination.get("selection_policy")
+            == "bounded_ministries_selected_by_shangshu_after_taizi_reply"
         )
-        checks["shangshu_dispatches_ministry_children"] = (
+        checks["shangshu_prepares_ministry_children_without_dispatch"] = (
             isinstance(coordination, dict)
-            and coordination.get("dispatch_initiator") == "shangshu"
+            and coordination.get("dispatch_initiator") is None
+            and coordination.get("planned_dispatch_initiator") == "shangshu"
             and coordination.get("dispatch_target_kind") == "six_ministry_child_offices"
+            and coordination.get("host_dispatch_performed") is False
+            and coordination.get("dispatch_status") == "PREPARED_NOT_PERFORMED"
             and coordination.get("taizi_direct_ministry_dispatch_allowed") is False
         )
         checks["shangshu_integrates_ministries"] = (
@@ -234,27 +298,30 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         )
         checks["ministry_admission_caller_is_shangshu"] = all(
             packet.get("admission", {}).get("calling_office") == "shangshu"
-            for packet in first.get("shangshu_ministry_packets", [])
+            for packet in two.get("shangshu_ministry_packets", [])
         )
         checks["ministry_binding_superior_is_shangshu"] = all(
             packet.get("admission", {})
             .get("requested_bindings", [{}])[0]
             .get("direct_superior")
             == "shangshu"
-            for packet in first.get("shangshu_ministry_packets", [])
+            for packet in two.get("shangshu_ministry_packets", [])
         )
-        authority_reminder = first.get("authority_reminder")
-        checks["startup_three_authority_reminder"] = (
-            isinstance(authority_reminder, dict)
-            and authority_reminder.get("schema") == "court.startup.authority_reminder.v1"
-            and authority_reminder.get("three_authorities_text")
-            == "approval（审批/默认只读） | autonomous（自主/范围内实施） | super（超级执行/范围内连续推进）"
-            and authority_reminder.get("selected_authority_display") == "super（超级执行/范围内连续推进）"
-            and authority_reminder.get("behavior_options_text") == "serial（串行） | parallel（并行）"
-            and authority_reminder.get("selected_behavior_display") == "parallel（并行）"
-            and authority_reminder.get("authority_behavior_orthogonal") is True
+        authority_gate = first.get("authority_selection_gate")
+        checks["startup_authority_binding_only"] = (
+            isinstance(authority_gate, dict)
+            and authority_gate.get("schema") == "court.startup.authority_selection_gate.v1"
+            and authority_gate.get("authority_source") == "explicit_latest_user"
+            and authority_gate.get("source_policy")
+            == "latest_explicit_or_current_question_or_same_conversation_same_boundary"
+            and authority_gate.get("semantic_owner") == "SKILL.md"
+            and authority_gate.get("selected_authority") == "super"
+            and authority_gate.get("selected_behavior") == "parallel"
+            and authority_gate.get("authority_behavior_orthogonal") is True
+            and "prompt" not in authority_gate
+            and "must_not_inherit_from" not in authority_gate
         )
-        agent_hierarchy = first.get("agent_hierarchy")
+        agent_hierarchy = two.get("agent_hierarchy")
         hierarchy_nodes = agent_hierarchy.get("nodes", []) if isinstance(agent_hierarchy, dict) else []
         ministry_parent_map = {
             node.get("role"): node.get("parent_role")
@@ -267,7 +334,7 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             and agent_hierarchy.get("six_ministry_parent") == "shangshu"
             and agent_hierarchy.get("six_ministries_are_shangshu_child_agents") is True
             and ministry_parent_map
-            == {role: "shangshu" for role in court_open_fastpath.SIX_MINISTRIES}
+            == {"hubu": "shangshu", "gongbu": "shangshu"}
             and agent_hierarchy.get("rendering_contract")
             == "render_six_ministries_nested_under_shangshu_not_as_taizi_siblings"
         )
@@ -328,8 +395,41 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             and preload["metadata_bytes"] > 0
             and preload.get("metadata", {}).get("registry_policy") == "registry-first"
             and "references/manifests/court-dispatch-hierarchy.v1.json"
-            in preload.get("loaded_paths", [])
+            in preload.get("verified_source_paths", [])
+            and preload.get("preload_evidence_kind") == "dispatcher_source_validation"
+            and preload.get("child_preload_ack_status") == "NOT_AVAILABLE_PRE_SPAWN"
             for preload in first.get("preloads", [])
+        )
+
+        no_probe_request = dict(request)
+        no_probe_request.pop("expected_branch")
+        no_probe_request.pop("expected_head")
+        original_capability_resolver = court_open_fastpath.resolve_capability_snapshot
+
+        def forbidden_identity(_path: Path) -> tuple[dict[str, object], list[list[str]]]:
+            raise AssertionError("default preparation attempted a Git probe")
+
+        def forbidden_capability(*_args: object, **_kwargs: object) -> tuple[dict[str, object], str, float]:
+            raise AssertionError("default preparation attempted a capability probe")
+
+        court_open_fastpath.resolve_capability_snapshot = forbidden_capability
+        try:
+            no_probe = court_open_fastpath.prepare_fast_open(
+                no_probe_request,
+                runtime_api=FakeRuntime(_task()),
+                identity_loader=forbidden_identity,
+                concurrent_preload=False,
+            )
+        finally:
+            court_open_fastpath.resolve_capability_snapshot = original_capability_resolver
+        checks["capability_and_git_checks_are_opt_in"] = (
+            no_probe.get("ok") is True
+            and no_probe.get("git_check_requested") is False
+            and no_probe.get("worktree", {}).get("status") == "NOT_REQUESTED"
+            and no_probe.get("process_audit") == []
+            and no_probe.get("capability_check_requested") is False
+            and no_probe.get("capability_cache_status") == "NOT_REQUESTED"
+            and no_probe.get("capability_snapshot", {}).get("status") == "NOT_REQUESTED"
         )
 
         capacity = dict(request)
@@ -362,21 +462,89 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         )
         checks["semantic_miss"] = stale_miss.get("status") == "FAST_PATH_MISS:semantic_receipt_drift"
 
-        wrong_root = Path(tmp_text) / "wrong-skill"
-        wrong_root.mkdir()
-        _write_skill(wrong_root, wrong_ministry="gongbu")
-        wrong = dict(request)
-        wrong["skill_root"] = str(wrong_root)
-        wrong_miss = court_open_fastpath.prepare_fast_open(
-            wrong,
+        missing_authority_source = dict(request)
+        missing_authority_source.pop("authority_source")
+        try:
+            court_open_fastpath.prepare_fast_open(
+                missing_authority_source,
+                runtime_api=FakeRuntime(_task()),
+                identity_loader=_identity,
+                concurrent_preload=False,
+            )
+        except court_open_fastpath.FastPathInvalid as exc:
+            checks["authority_source_required"] = str(exc) == "authority_source_required"
+        else:
+            checks["authority_source_required"] = False
+
+        serial = dict(request)
+        serial["behavior"] = "serial"
+        serial_result = court_open_fastpath.prepare_fast_open(
+            serial,
             runtime_api=FakeRuntime(_task()),
             identity_loader=_identity,
             concurrent_preload=False,
         )
-        checks["ministry_atomic_miss"] = (
+        serial_packets = (
+            serial_result.get("department_packets", [])
+            + serial_result.get("shangshu_ministry_packets", [])
+        )
+        checks["serial_preserves_office_duties_without_child_spawn"] = (
+            serial_result.get("ok") is True
+            and serial_result.get("dispatch_count") == 0
+            and serial_result.get("physical_child_dispatch_count") == 0
+            and serial_result.get("planned_office_count") == 3
+            and serial_result.get("admission_check_count") == 0
+            and serial_result.get("serial_office_duty_count") == 3
+            and all(
+                packet.get("serial_action") == "serial_inline_office_duty"
+                and packet.get("office_duty_preserved") is True
+                and packet.get("physical_child_agent_spawned") is False
+                for packet in serial_packets
+            )
+        )
+
+        wrong_root = Path(tmp_text) / "wrong-skill"
+        wrong_root.mkdir()
+        _write_skill(wrong_root, wrong_ministry="gongbu")
+        unselected_wrong = {**request, "skill_root": str(wrong_root)}
+        unselected_result = court_open_fastpath.prepare_fast_open(
+            unselected_wrong,
+            runtime_api=FakeRuntime(_task()),
+            identity_loader=_identity,
+            concurrent_preload=False,
+        )
+        selected_wrong = {
+            **unselected_wrong,
+            "ministry_assignments": ["gongbu"],
+        }
+        wrong_miss = court_open_fastpath.prepare_fast_open(
+            selected_wrong,
+            runtime_api=FakeRuntime(_task()),
+            identity_loader=_identity,
+            concurrent_preload=False,
+        )
+        checks["unselected_broken_profile_not_loaded"] = (
+            unselected_result.get("ok") is True
+            and [preload.get("role") for preload in unselected_result.get("preloads", [])]
+            == list(court_open_fastpath.THREE_DEPARTMENTS)
+        )
+        checks["selected_broken_profile_fails_atomically"] = (
             wrong_miss.get("status") == "FAST_PATH_MISS:hierarchy_incomplete"
             and wrong_miss.get("mutations") == []
         )
+
+        invalid_ministry = {**request, "ministry_assignments": ["not-a-ministry"]}
+        duplicate_ministry = {**request, "ministry_assignments": ["gongbu", "gongbu"]}
+        bounded_errors: list[str] = []
+        for candidate in (invalid_ministry, duplicate_ministry):
+            try:
+                court_open_fastpath.normalize_request(candidate)
+            except court_open_fastpath.FastPathInvalid as exc:
+                bounded_errors.append(str(exc))
+        checks["ministry_assignments_are_bounded"] = bounded_errors == [
+            "ministry_assignment_invalid:not-a-ministry",
+            "ministry_assignments_duplicate",
+        ]
 
         large_root = Path(tmp_text) / "large-skill"
         large_root.mkdir()
@@ -394,6 +562,9 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         checks["production_capability_not_checker_import"] = (
             "check_capability_index_gate" not in source_text
         )
+        checks["legacy_include_ministries_path_removed"] = (
+            "include_shangshu_ministries" not in source_text
+        )
 
     for name, passed in checks.items():
         if passed is not True:
@@ -408,30 +579,39 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             "capacity_miss",
             "overlap_miss",
             "semantic_miss",
+            "authority_source_required",
+            "default_zero_ministries",
+            "preparation_never_claims_spawn",
+            "capability_and_git_checks_are_opt_in",
+            "serial_preserves_office_duties_without_child_spawn",
             "preload_budget_miss",
             "compact_metadata",
             "production_capability_not_checker_import",
+            "legacy_include_ministries_path_removed",
         )
     )
     shangshu_gate = all(
         checks.get(name) is True
         for name in (
-            "six_ministries",
+            "one_ministry_assignment",
+            "two_ministry_assignments",
             "ministry_superiors",
             "shangshu_coordination_present",
             "shangshu_selects_ministries",
-            "shangshu_dispatches_ministry_children",
+            "shangshu_prepares_ministry_children_without_dispatch",
             "shangshu_integrates_ministries",
             "ministry_admission_caller_is_shangshu",
             "ministry_binding_superior_is_shangshu",
-            "startup_three_authority_reminder",
+            "startup_authority_binding_only",
             "agent_tree_ministries_under_shangshu",
             "agent_reuse_policy_present",
             "agent_reuse_decision_reuses_related_live",
             "agent_reuse_decision_blocks_80_percent_context",
             "agent_reuse_decision_blocks_unrelated_task",
             "agent_reuse_decision_allows_fresh_large_parallel",
-            "ministry_atomic_miss",
+            "unselected_broken_profile_not_loaded",
+            "selected_broken_profile_fails_atomically",
+            "ministry_assignments_are_bounded",
             "exact_retry",
         )
     )
