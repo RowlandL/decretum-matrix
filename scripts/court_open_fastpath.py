@@ -193,6 +193,10 @@ def normalize_request(value: object) -> dict[str, object]:
         value.get("capability_check_requested"),
         "capability_check_requested",
     ) or bool(capability_query or capability_manifest)
+    admission_precheck_requested = _optional_bool(
+        value.get("admission_precheck_requested"),
+        "admission_precheck_requested",
+    )
     git_check_requested = _optional_bool(
         value.get("git_check_requested"),
         "git_check_requested",
@@ -221,6 +225,7 @@ def normalize_request(value: object) -> dict[str, object]:
         "transport": str(value.get("transport") or "codex"),
         "task_focus": _required_text(value.get("task_focus"), "task_focus"),
         "capability_check_requested": capability_check_requested,
+        "admission_precheck_requested": admission_precheck_requested,
         "capability_query": capability_query,
         "capability_manifest": capability_manifest,
         "capability_manifest_state": str(value.get("capability_manifest_state") or "current").strip().casefold(),
@@ -1125,6 +1130,7 @@ def prepare_fast_open(
         department_packets: list[dict[str, object]] = []
         ministry_packets: list[dict[str, object]] = []
         admission_decisions: list[dict[str, object]] = []
+        admission_precheck = bool(normalized["admission_precheck_requested"]) and normalized["behavior"] == "parallel"
         execution_sha256 = _sha256_bytes(_canonical_bytes(execution))
         ordinal = 0
         for role in requested:
@@ -1138,17 +1144,24 @@ def prepare_fast_open(
                 "preparation_only": True,
                 "physical_child_agent_spawned": False,
                 "host_spawn_status": "NOT_PERFORMED_PREPARATION_ONLY",
+                "host_dispatch_required_for_done": normalized["behavior"] == "parallel",
+                "admission_precheck_requested": admission_precheck,
             }
-            if normalized["behavior"] == "parallel":
+            if admission_precheck:
                 admission = _admission_request(runtime_api, task, normalized, role, "taizi", preloads[role], ordinal)
                 decision = _validate_admission(runtime_api, task, admission)
                 packet["admission"] = admission
+                packet["admission_status"] = "EXPLICIT_PRECHECK_ONLY"
                 admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
-            else:
+            elif normalized["behavior"] == "serial":
                 packet["admission"] = None
                 packet["serial_action"] = "serial_inline_office_duty"
                 packet["office_duty_preserved"] = True
                 packet["dispatch_evidence_status"] = "serial_inline_no_physical_child"
+            else:
+                packet["admission"] = None
+                packet["admission_status"] = "NOT_REQUESTED_PREPARATION_ONLY"
+                packet["dispatch_evidence_status"] = "host_dispatch_required"
             department_packets.append(packet)
         for role in ministry_assignments:
             ordinal += 1
@@ -1161,17 +1174,24 @@ def prepare_fast_open(
                 "preparation_only": True,
                 "physical_child_agent_spawned": False,
                 "host_spawn_status": "NOT_PERFORMED_PREPARATION_ONLY",
+                "host_dispatch_required_for_done": normalized["behavior"] == "parallel",
+                "admission_precheck_requested": admission_precheck,
             }
-            if normalized["behavior"] == "parallel":
+            if admission_precheck:
                 admission = _admission_request(runtime_api, task, normalized, role, "shangshu", preloads[role], ordinal)
                 decision = _validate_admission(runtime_api, task, admission)
                 packet["admission"] = admission
+                packet["admission_status"] = "EXPLICIT_PRECHECK_ONLY"
                 admission_decisions.append({"role": role, "decision": decision.get("decision", "admitted")})
-            else:
+            elif normalized["behavior"] == "serial":
                 packet["admission"] = None
                 packet["serial_action"] = "serial_inline_office_duty"
                 packet["office_duty_preserved"] = True
                 packet["dispatch_evidence_status"] = "serial_inline_no_physical_child"
+            else:
+                packet["admission"] = None
+                packet["admission_status"] = "NOT_REQUESTED_PREPARATION_ONLY"
+                packet["dispatch_evidence_status"] = "host_dispatch_required"
             ministry_packets.append(packet)
         shangshu_ministry_coordination = (
             _shangshu_ministry_coordination(normalized, ministry_packets)
@@ -1196,7 +1216,7 @@ def prepare_fast_open(
         return {
             "schema": RECEIPT_SCHEMA,
             "ok": True,
-            "status": "READY_FOR_AGENT_ADMIT",
+            "status": "READY_FOR_HOST_DISPATCH",
             "receipt_id": "court-open-" + _sha256_bytes(str(normalized["operation_id"]).encode("utf-8"))[:24],
             "operation_id": normalized["operation_id"],
             "request_sha256": _sha256_bytes(_canonical_bytes(normalized)),
@@ -1205,6 +1225,14 @@ def prepare_fast_open(
             "execution": execution,
             "preparation_only": True,
             "host_spawn_performed": False,
+            "host_dispatch_required_for_done": normalized["behavior"] == "parallel",
+            "agent_admission_satisfies_office_work": False,
+            "admission_precheck_requested": admission_precheck,
+            "admission_scope": (
+                "explicit_machine_precheck_only"
+                if admission_precheck
+                else "not_requested_preparation_only"
+            ),
             "authority_selection_gate": authority_selection_gate,
             "semantic_receipt_id": receipt.get("receipt_id"),
             "semantic_receipt_sha256": receipt.get("receipt_sha256"),

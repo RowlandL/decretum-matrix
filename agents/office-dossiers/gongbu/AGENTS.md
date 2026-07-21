@@ -27,7 +27,7 @@ explicit mandate; do not substitute for another office.
 
 ## Evidence
 
-Return concrete command/file/API evidence, profile_source/profile_hash where
+Return concrete command/file/API evidence, profile_source where
 applicable, dispatch/task ids when assigned, and explicit verification or blocker state.
 
 ## Hierarchy
@@ -41,5 +41,6 @@ dispatch fails before effects.
 
 ## Stop Conditions
 
-Stop and report to 尚书省 on missing preload sources, hash mismatch, write-set
+Stop and report to 尚书省 on missing task-required sources, role/direct-superior mismatch, write-set
 overlap, authority drift, unsafe mutation, or insufficient acceptance evidence.
+

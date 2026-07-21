@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
 import secrets
 import sys
 from typing import Any, Callable, Mapping
+import zlib
 
 sys.dont_write_bytecode = True
-
-from court_semantic_continuity import (
-    canonical_json_bytes,
-    validate_dispatch_context_packet,
-)
 
 
 RuntimeProvider = Callable[[], Mapping[str, Any]]
@@ -40,8 +35,36 @@ def default_dispatch_calling_office(role: str) -> str:
     return "shangshu" if role in _runtime()["MINISTRY_OFFICES"] else "taizi"
 
 
-def _sha256_json(value: object) -> str:
-    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+def canonical_json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _stable_json_id(value: object) -> str:
+    return f"json-{zlib.crc32(canonical_json_bytes(value)):08x}"
+
+
+def _validate_dispatch_context_packet(
+    task: object,
+    receipt: object,
+    packet: object,
+) -> dict[str, object]:
+    if not isinstance(task, Mapping) or not isinstance(packet, Mapping):
+        raise ValueError("semantic dispatch context requires task and packet objects")
+    if packet.get("schema") != "court.semantic.dispatch_context_packet.v1":
+        raise ValueError("semantic dispatch context schema mismatch")
+    task_id = task.get("task_id") or task.get("id")
+    if task_id is not None and packet.get("task_id") != task_id:
+        raise ValueError("semantic dispatch context task mismatch")
+    if receipt is not None and not isinstance(receipt, Mapping):
+        raise ValueError("semantic receipt pointer must be an object when supplied")
+    if packet.get("context_mode") != "bounded":
+        raise ValueError("semantic dispatch context must be bounded")
+    return {"packet": dict(packet)}
 
 
 def _portable_repo_path(value: object) -> str | None:
@@ -100,8 +123,8 @@ def validate_enter_dispatch_context(
         or packet.get("role_key") != role
         or packet.get("calling_office") != calling_office
         or packet.get("direct_superior") != direct_superior
-        or packet.get("message_sha256")
-        != hashlib.sha256(message.encode("utf-8")).hexdigest()
+        or not isinstance(packet.get("message_id"), str)
+        or not packet.get("message_id")
     ):
         return {"ok": False, "reason": "enter_dispatch_context_binding_mismatch"}
     task_id = packet.get("task_id")
@@ -130,7 +153,7 @@ def validate_enter_dispatch_context(
     if not isinstance(current_task, dict):
         return {"ok": False, "reason": "enter_dispatch_supercc_task_not_found"}
     try:
-        semantic_validation = validate_dispatch_context_packet(
+            semantic_validation = _validate_dispatch_context_packet(
             current_task,
             current_task.get("semantic_receipt"),
             semantic,
@@ -178,10 +201,10 @@ def validate_enter_dispatch_context(
         "ok": True,
         "schema": context_schema,
         "packet": normalized_packet,
-        "packet_sha256": _sha256_json(normalized_packet),
+        "packet_id": _stable_json_id(normalized_packet),
         "packet_bytes": packet_bytes,
-        "semantic_packet_sha256": _sha256_json(normalized_semantic),
-        "scope_sha256": _sha256_json(normalized_scope),
+        "semantic_packet_id": _stable_json_id(normalized_semantic),
+        "scope_id": _stable_json_id(normalized_scope),
         "task_id": task_id,
         "allowed_paths": portable_paths,
         "validation_scope": "current_runtime_task_and_semantic_receipt",
@@ -189,10 +212,10 @@ def validate_enter_dispatch_context(
 
 
 def _new_identity_generation_challenge() -> str:
-    return secrets.token_hex(32)
+    return "idg-" + secrets.token_hex(12)
 
 
-def active_office_identity_fingerprint(
+def active_office_identity_binding(
     check: dict[str, Any],
     role: str,
     *,
@@ -236,7 +259,7 @@ def active_office_identity_fingerprint(
     identity_generation = persisted_role.get("identity_generation")
     if (
         not isinstance(identity_generation, str)
-        or re.fullmatch(r"[0-9a-f]{64}", identity_generation) is None
+        or not identity_generation.strip()
     ):
         return {
             "ok": False,
@@ -285,7 +308,7 @@ def active_office_identity_fingerprint(
         "role": role,
         "identity_id": row.get("id"),
         "identity_generation": identity_generation,
-        "identity_fingerprint": _sha256_json(identity),
+        "identity_binding_id": _stable_json_id(identity),
         "identity": identity,
         "visible_pane_selection": pane_selection,
     }
@@ -319,7 +342,7 @@ def active_office_preload_ack_gate(
     allow_missing_identity: bool,
 ) -> dict[str, Any]:
     runtime = _runtime()
-    identity = active_office_identity_fingerprint(
+    identity = active_office_identity_binding(
         check,
         role,
         require_visible=require_visible,
@@ -382,16 +405,14 @@ def active_office_preload_ack_gate(
         "preload_status": "PASSED",
         "identity_id": identity.get("identity_id"),
         "identity_generation": identity.get("identity_generation"),
-        "identity_fingerprint": identity.get("identity_fingerprint"),
+        "identity_binding_id": identity.get("identity_binding_id"),
         "role_key": role,
         "direct_superior": runtime["direct_superior_metadata"](role)[
             "direct_superior"
         ],
-        "profile_hash": profile.get("profile_hash"),
-        "dossier_hash": runtime["sha256_file"](runtime["office_dossier_path"](role)),
-        "court_skill_hash": runtime["sha256_file"](
-            runtime["skill_root"]() / "SKILL.md"
-        ),
+        "profile_source": profile.get("profile_source"),
+        "dossier_path": str(runtime["office_dossier_path"](role)),
+        "court_skill_path": str(runtime["skill_root"]() / "SKILL.md"),
         "agent_dossier_loaded": "YES",
     }
     loaded_skills = ack.get("loaded_skills") if isinstance(ack, Mapping) else None

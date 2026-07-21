@@ -32,7 +32,7 @@ source_release_gates:
   - shiguan_concurrency
   - shiguan_http_security
   - codex_agent_roles
-  - active_copy_hashes
+  - active_copy_sync
 conditional_runtime_release_gates:
   - supercc_runtime_truth_strict
 package_release_gates:

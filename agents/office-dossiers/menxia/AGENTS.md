@@ -26,7 +26,7 @@ do not substitute for another office.
 
 ## Evidence
 
-Return concrete command/file/API evidence, profile_source/profile_hash where applicable,
+Return concrete command/file/API evidence, profile_source where applicable,
 dispatch/task ids when assigned, and explicit verification or blocker state.
 
 ## Hierarchy
@@ -38,5 +38,6 @@ state mutation.
 
 ## Stop Conditions
 
-Stop and report to 太子 on missing preload sources, hash mismatch, write-set overlap,
+Stop and report to 太子 on missing task-required sources, role/direct-superior mismatch, write-set overlap,
 authority drift, unsafe mutation, or insufficient acceptance evidence.
+

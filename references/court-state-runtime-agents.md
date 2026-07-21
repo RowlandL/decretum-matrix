@@ -9,7 +9,7 @@
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
-原始来源：`SKILL.md` sha256 `64c7a9089275de004bbd2fc4e9c59633d2bbfe9e2a355178816c3da65f6563c9`。本卷章节：`State Machine`, `Codex Agent Hierarchy`, `协同上朝`。
+本卷章节：`State Machine`, `Codex Agent Hierarchy`, `协同上朝`。
 
 ## Contents
 
@@ -30,19 +30,23 @@ authority, durable store, daemon, or second state machine.
 
 - `runtime_inline_capsule=EXISTING_SEMANTIC_AUTHORITY`: the runtime uses the
   exact current `court.semantic.invariant_capsule.v1` already bound to
-  `semantic_epoch == charter_revision`, `charter_sha256`, and
-  `invariant_capsule_sha256`. Its canonical JSON stays within 2,048 UTF-8 bytes.
-  `tasks.json` plus append-only runtime events remain authoritative; a compact
-  summary, prompt, message, Shiguan note, or projection cannot replace them.
+  `semantic_epoch == charter_revision`, charter revision, and invariant capsule
+  id. Its canonical JSON stays within 2,048 UTF-8 bytes.
+  For mutation-bearing runtime work, the active per-task runtime record plus
+  append-only events remain the machine-checkable authority; a compact summary,
+  prompt, message, Shiguan note, projection, or legacy shared ledger view cannot
+  replace them. Ordinary startup, office selection, and host-native office reply
+  do not inspect or create runtime ledger state merely to prove that offices can
+  answer.
 - Low-token dispatch and long-context recovery consume that same capsule. The
   transient `court.semantic.dispatch_context_packet.v1` carries `task_id`, a
-  stable `sub_id`, current semantic epoch, capsule hash, current semantic receipt
-  id/hash, authority and plan hashes, `plan_cursor`, `fork_context`, and exact
-  relative `path`/SHA-256 pointers. The runtime task carries the inline capsule;
+  stable `sub_id`, current semantic epoch, capsule id, current semantic receipt
+  id, authority and plan pointers, `plan_cursor`, `fork_context`, and exact
+  relative path pointers. The runtime task carries the inline capsule;
   the packet binds it rather than defining another capsule.
 - `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: after the
   Shiguan migration, a task-point record may durably project the same task/sub-id,
-  capsule hash, receipt, cursor, and pointer evidence. It is a later append-only
+  capsule id, receipt, cursor, and pointer evidence. It is a later append-only
   trace/recall projection, never the inline runtime capsule and never execution
   authority. Projection absence cannot be repaired by inventing another capsule.
 
@@ -52,7 +56,7 @@ authority, durable store, daemon, or second state machine.
   only for the smallest directly necessary context. `fork_turns=all`, inherited
   transcript, full main-thread history, and unbounded context are forbidden.
 - The default packet is bounded and structured. It contains exact identity,
-  task/sub-id, receipt, `plan_cursor`, and path/hash pointers, plus at most a
+  task/sub-id, receipt, `plan_cursor`, and path pointers, plus at most a
   receipt-bound compact summary. The normal path must not include
   `full_agent_list`, `full_diff`, `full_file`, raw logs, private bodies, complete
   prompts, or unrelated source text. Ordinary `super parallel` gives each office
@@ -66,26 +70,29 @@ authority, durable store, daemon, or second state machine.
   That independent compatibility gate remains unchanged and cannot be used as
   permission to send full context.
 
-### Resume and authority-hash reload
+### Resume and authority pointer reload
 
 - Compaction/resume first rereads the current inline capsule and `plan_cursor`,
   verifies the current semantic receipt, and compares exact pointers with the
-  previous packet. Reload only pointers whose authority hashes changed. Do not
+  previous packet. Reload only pointers whose authority revision changed. Do not
   reload unchanged plan/source files, the full transcript, or every governing
-  document. Missing required reloads, extra reloads, hash mismatch, alternate
+  document. Missing required reloads, extra reloads, pointer mismatch, alternate
   capsule authority, or an unbound summary fails closed and returns through
   `REVERIFY`/`QUARANTINED` as the existing guard requires.
-- A permission-only authority update may advance authority revision/hash without
+- A permission-only authority update may advance authority revision without
   inventing a new semantic epoch. A decree/body correction still follows the
   existing correction contract and updates `charter_revision`, `semantic_epoch`,
   capsule, and receipt together.
 
 ### Dispatch integration gates
 
-- Capability selection is `registry-first`; load the exact current skill and
-  smallest role-local dossier/profile, then only triggered governing references.
+- Capability selection is `registry-first` only when the decree needs a
+  skill/MCP/CLI/script/agent choice. Otherwise load the exact current skill and
+  only the triggered governing references. For office work, dispatch with compact
+  role/direct-superior/task-boundary context, then let the assigned office load
+  the smallest role-local dossier/profile only when the duty needs it.
   `compatible_instance_policy=REUSE_FIRST`: prefer a compatible live instance
-  with matching task, role, receipt, lease, write set, and preload hashes before
+  with matching task, role, receipt, lease, write set, and role acknowledgement before
   creating another. Do not reuse when `context_occupancy_ratio >= 0.80`, when
   the next task is unrelated to the candidate's prior task, or when large-scale
   parallelism has first checked context occupancy and task relation and host
@@ -98,8 +105,8 @@ authority, durable store, daemon, or second state machine.
   granted share to subordinates. Budget affects concurrency/context allowance,
   not semantic authority. Capacity is a ceiling, never a fill target.
 - `carrier_receipt_parity=REQUIRED`: `child_agent` and `worktree_thread` consume
-  the same capsule hash, current semantic receipt, task/sub-id, budget/lease,
-  write-set, preload, result, and stop contract. A worktree is an isolation
+  the same capsule id, current semantic receipt, task/sub-id, budget/lease,
+  write-set, role acknowledgement, result, and stop contract. A worktree is an isolation
   carrier, not another authority or concurrent writer.
 - `carrier_pointer_resolution=MECHANICAL`: the shared standing profile remains one
   identity/configuration source. `child_agent|worktree_thread` resolve only
@@ -110,7 +117,7 @@ authority, durable store, daemon, or second state machine.
   selects `superCC`, its annex, profiles, dossiers, scripts, watchdog, daemon, and
   visible-office runtime are not loaded or probed by this path.
 - `bounded_child_trace=REQUIRED`: each dispatch/result records only stable ids,
-  role/superior, timestamps, capsule/receipt/cursor hashes, approved write set,
+  role/superior, timestamps, capsule/receipt/cursor refs, approved write set,
   status, compact action/evidence pointers, and terminal disposition. Do not copy
   full prompts, full diffs, full files, transcripts, or private bodies into the
   child trace.
@@ -122,12 +129,12 @@ authority, durable store, daemon, or second state machine.
   delivery, pane wake, or state mutation. The normal graph is exactly
   `user -> taizi`, `taizi -> zhongshu|menxia|shangshu`, `shangshu -> 六部`, and
   `owning_ministry -> same_owner_bounded_child_office`; every other normal edge
-  is denied with the same schema/hash/reason in both modes.
+  is denied with the same schema/reason in both modes.
 - A non-canonical worker carries `court.child_office_profile.v1` with
   `owner_role == direct_superior`, `canonical_authority=false`, bounded portable
   mandate/read/write scope, terminal condition, and bound task/dispatch/profile/
-  dossier/skill evidence. The admission-time child-profile/binding digest is
-  immutable evidence and is revalidated under the lifecycle mutation lock.
+  dossier/skill source evidence. Role, superior, scope, and delivery evidence
+  are revalidated under the lifecycle mutation lock.
 - The child profile binds the existing P00
   `court.semantic.dispatch_context_packet.v1`, semantic receipt, and one
   `court.semantic.invariant_capsule.v1`; it never introduces a second capsule,
@@ -295,8 +302,7 @@ Use a stricter historical model by default:
 - Ordinary `super` parallel subagents use `%USERPROFILE%\.codex\agents\*.toml`
   as one-file-per-role discovery shims. Do not merge those TOML files into a
   single file. When the dispatcher can pass local-file context, include the
-  role's `agent_dossier_path` and `agent_dossier_hash` from
-  `agents/supercc-dossiers/<role>/AGENTS.md`; the subagent should read that
+  role's `agent_dossier_path` from `agents/supercc-dossiers/<role>/AGENTS.md`; the subagent should read that
   dossier before substantive work. If the multi-agent host cannot attach/read
   the file or set cwd to the dossier directory, keep the compact TOML mandate as
   the fallback and report `agent_dossier_loaded=NO` instead of pretending the
@@ -385,7 +391,7 @@ Use a stricter historical model by default:
   including when the compatibility `--full-log-archive` flag is supplied. That
   flag may request full non-secret context, but it never authorizes plaintext
   credentials, tokens, cookies, private keys, or other secrets. Keep only the
-  redacted log plus summary/path/hash/facets in 史馆. Any future forensic raw-data
+  redacted log plus summary/path/facets in 史馆. Any future forensic raw-data
   mechanism requires a separately designed encrypted quarantine, explicit
   confirmation, bounded retention, and independent 门下复核; this CLI does not
   provide such a mechanism.
@@ -465,7 +471,7 @@ Environment gate:
   `court.dispatch_hierarchy.v1` decision as ordinary admission. An explicit
   caller option may narrow or accurately state authority but cannot make
   `taizi -> 六部` or a cross-owner child edge legal. Denial returns the shared
-  schema/hash/edge/reason evidence with zero delivery and zero state mutation.
+  schema/edge/reason evidence with zero delivery and zero state mutation.
 - The standard probe is `python -B scripts/ensure_supercc_court.py --check-only`
   from this skill root. The complete record must preserve
   `visible_display_gate: PASSED | runtime_degraded | authority_blocked`,
@@ -580,19 +586,17 @@ Environment gate:
   release paths; it must not delete zellij sessions. Dispatch metadata must
   preserve `direct_superior_source` so `calling_office`/sender is not conflated
   with the assigned office's profile `direct_superior`.
-- Office profile/soul loading is part of standing-office validity. Each
-  zellij-launched Codex office must have an auto-loaded per-office
+- Office profile/soul loading is part of standing-office context. Each
+  zellij-launched Codex office should have an auto-loaded per-office
   `agents/supercc-dossiers/<role>/AGENTS.md` dossier containing the standing
-  profile source, `profile_hash`, `profile_version`, duties, prohibitions,
-  report contract, evidence contract, heartbeat contract, dispatch-channel
-  policy, and release policy. The launch prompt carries only the compact
-  manifest (`office_dossier_path`, `office_dossier_hash`, `profile_source`,
-  `profile_hash`, `light_bootstrap_policy`) plus current dispatch fields.
-  Office state records must preserve `office_profile_loaded`, `profile_source`,
-  `profile_hash`, `profile_version`, `office_dossier_path`,
-  `office_dossier_hash`, and `light_bootstrap_policy`; a missing profile,
-  dossier, or hash is runtime-degraded and cannot support a `DONE` claim for
-  named office work.
+  profile source, `profile_version`, duties, prohibitions, report contract,
+  evidence contract, heartbeat contract, dispatch-channel policy, and release
+  policy. The launch prompt carries only the compact manifest
+  (`office_dossier_path`, `profile_source`, `light_bootstrap_policy`) plus
+  current dispatch fields. Office state records preserve
+  `office_profile_loaded`, `profile_source`, `profile_version`,
+  `office_dossier_path`, and `light_bootstrap_policy`; a missing profile or
+  dossier is degraded only when its mandate is needed for the claimed work.
 - Native enter dispatch is the preferred superCC wake path for a visible office
   pane, but the assignment payload is queued through `squad` first.
   `ENTER_DISPATCH` first creates the structured `squad task` and mirror send,
@@ -755,7 +759,7 @@ Six-ministry lifecycle:
   blocked, or requeued before `package-ready`. Record this as
   `six_ministry_step_plan_policy` in superCC evidence.
 - A 六部 dispatch packet must also include `dispatch_uid`,
-   `dispatch_delivery_channel`, `profile_source`, `profile_hash`,
+   `dispatch_delivery_channel`, `profile_source`,
    `expected_pane_title`, `expected_pane_id`, `squad_evidence`,
    `task_evidence`, `office_uniqueness_gate`, heartbeat expectation, and release
   condition. If a ministry was explicitly made visible, it additionally needs
@@ -826,7 +830,7 @@ V2 is the production startup protocol. Each production write creates a
 byte-for-byte, exclusive, immutable backup and must preserve the normal
 16-thread default or the current explicit user count, plus the hidden-metadata
 V2 shape without legacy `agents.max_threads`. Record backup
-path, SHA256, attributes, and the exact changed keys in shared Shiguan without
+path, attributes, and the exact changed keys in shared Shiguan without
 copying the secret-bearing config body. The former bidirectional V1/V2 switch
 is deprecated: retain V1 code, fixtures, prior config, and backups as dormant
 recovery evidence, but do not select V1 or advertise a switch command unless a
@@ -846,20 +850,24 @@ explicit `unlimited/解限` switch may raise only the thread ceiling. Stale task
 state, prior memory, an implicit host setting, or an old switch fails closed.
 The override never creates a lease, bypasses resource or memory-pressure
 downgrade, changes the hierarchy/write-set/trace gates, or auto-fills the host.
-Ordinary spawned work uses `court_cli.py agent-admit` before every
-wave with `wave_policy=dynamic_by_duty_and_capacity`, `static_wave_cap=null`,
-live host capacity/current whole-tree occupancy, retained terminal-node count,
-reclamation evidence, proposed `next_depth`, and optional user/provider launch
-budgets. Clamp reported host capacity to the configured `max_threads`; validate
-every recursive proposal with `next_depth<=4`; capacity, occupancy, retained
-count, reclamation status, or depth unknown means fail closed. Retained nodes
-whose reclamation is not verified consume physical capacity. No
-mode defines a fixed office count. Dispatch defaults remain `fork_turns=none`, a
-600-second deadline, and an eight-tool-call budget. Long context begins at
-32,000 tokens and must not inherit conversation
-turns; pass a bounded dossier/path/hash and compact assignment instead. A short
-task may explicitly inherit only the latest one to three turns. `fork_turns=all`
-is forbidden for ordinary court dispatch.
+Ordinary spawned work selects a concrete, useful wave first, then uses
+`court_cli.py agent-admit` as the final gate immediately before the corresponding
+host-native spawn/reuse/wake/follow-up. The wave records
+`wave_policy=dynamic_by_duty_and_capacity`, `static_wave_cap=null`, the
+requested or duty-derived office set, live host capacity/current whole-tree
+occupancy, retained terminal-node count, reclamation evidence, proposed
+`next_depth`, and optional user/provider launch budgets. Admission is not a
+scripted search phase: if there is no next host delivery action, do not run more
+admission/semantic/ledger probes to simulate dispatch. Clamp reported host
+capacity to the configured `max_threads`; validate every recursive proposal with
+`next_depth<=4`; capacity, occupancy, retained count, reclamation status, or
+depth unknown means fail closed. Retained nodes whose reclamation is not
+verified consume physical capacity. No mode defines a fixed office count.
+Dispatch defaults remain `fork_turns=none`, a 600-second deadline, and an
+eight-tool-call budget. Long context begins at 32,000 tokens and must not inherit
+conversation turns; pass bounded dossier/path pointers and a compact assignment
+instead. A short task may explicitly inherit only the latest one to three turns.
+`fork_turns=all` is forbidden for ordinary court dispatch.
 
 Every `agent-admit` wave also applies
 `court.agent.dispatch_message_budget.v1` to the largest exact final message in
@@ -884,15 +892,15 @@ Every ordinary Codex office admission also carries the task-aware
 recommendation at that model's real highest supported effort, but the current
 model-visible V2 spawn inherits the main thread model and effort because the
 reserved schema hides `agent_type/model/reasoning_effort`. The spawn message
-must instead carry the explicit `role_key`, office dossier path/hash, and
-preload contract; `/root/*` remains only a collaboration address.
-`agent-start` records the route and `agent-preload-ack` must match
+must instead carry the explicit `role_key`, direct superior, office dossier path
+when useful, and role acknowledgement contract; `/root/*` remains only a collaboration address.
+`agent-start` records the route and `agent-role-ack` must match
 `model_route_id`, `model_override_applied=NO`, the reserved-schema inheritance
-policy, and all office identity hashes before status changes to running. Claude
+policy, role identity, and direct superior before status changes to running. Claude
 Code and Hermes likewise acknowledge main-thread/main-profile inheritance.
 When actual model application is required, the separate fresh-session leaf
 worker may apply a proved top-level route only with an exact native binary,
-host-proof SHA256, matching dossier cwd, disabled multi-agent features, and
+host-proof path evidence, matching dossier cwd, disabled multi-agent features, and
 session `turn_context` evidence. It is not a V1/V2 child or same-session switch.
 Full details and the pre-launched superCC boundary are in
 [court-office-model-routing.md](court-office-model-routing.md).
@@ -916,6 +924,13 @@ host refuses the spawn before an agente lifecycle record exists, use
 `agent-spawn-failed` to block the wave and defer its remaining roles without
 creating a fake agent record. Ledger closure proves court lifecycle
 reconciliation, not physical host reclamation.
+
+For office self-check, connectivity, readiness, and exact short-reply decrees,
+the runtime acceptance surface is the office wave itself: selected offices must
+produce matching replies through their direct-superior path, or the superior
+must record why that office was serial-inline, deferred, or runtime-degraded.
+CLI/script receipts may support an office's evidence, but a session with many
+probes and zero host office delivery is not an executed court wave.
 
 The newest user instruction may select fully serial execution. In that case the
 formal-decree parallel obligation is satisfied only by recording
@@ -1078,16 +1093,20 @@ Agent group rules:
 
 ## RC2 Semantic Continuity And Operation Authority
 
-`tasks.json` current-task records and append-only `court_events.jsonl` remain
-the only runtime authority. Unbound runtime-schema v2/v3 records are diagnostic
-only. Mutations fail with `legacy_semantic_binding_read_only` except the audited
-`revise-charter` revision `0 -> 1` bootstrap when every binding key is absent
-and the exact old charter hash matches; normalization never upgrades bytes.
+For mutation-bearing lifecycle work, the current bound runtime task and
+append-only event stream remain the runtime authority. Legacy `tasks.json`
+views are compatibility surfaces only when the runtime substrate itself opens
+that task; ordinary 开朝, office self-check, capability hints, or status
+conversation do not gain authority by reading or rewriting a shared ledger.
+Unbound runtime-schema v2/v3 records are diagnostic only. Mutations fail with
+`legacy_semantic_binding_read_only` except the audited `revise-charter`
+revision `0 -> 1` bootstrap when every binding key is absent and the exact old
+charter identity matches; normalization never upgrades bytes.
 
 A writable task binds `charter_revision == semantic_epoch`, the exact charter
-SHA-256, and an invariant capsule of at most 2 KiB. The capsule carries the
+revision, and an invariant capsule of at most 2 KiB. The capsule carries the
 latest decree anchor, non-goals, boundaries, allowed/forbidden actions,
-acceptance/evidence/stop gates, write set, and governing hashes. Checkpoint and
+acceptance/evidence/stop gates, write set, and governing pointers. Checkpoint and
 verification receipts keep authority, plan, Git/worktree, recovery, and
 Shiguan evidence in separate fields. The supported JSON interface is:
 
@@ -1101,8 +1120,8 @@ persisted as `QUARANTINED`; correction and resume return through
 only to `REVERIFY`; it cannot directly restore `DISPATCHABLE`.
 
 Admission and lifecycle receipts bind task id, semantic epoch, charter/capsule
-hashes, checkpoint id, dispatch uid, attempt, office instance, direct superior,
-worktree/write set/lease, and preload hashes. A current bound child result uses
+ids, checkpoint id, dispatch uid, attempt, office instance, direct superior,
+worktree/write set/lease, and role acknowledgement. A current bound child result uses
 `court.office.result.v1`; free text cannot bypass that envelope, and stale
 results are quarantined rather than rebased.
 

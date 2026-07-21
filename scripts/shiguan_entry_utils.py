@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import re
+import zlib
 import sys
 
 sys.dont_write_bytecode = True
@@ -170,9 +170,6 @@ CAPABILITY_TOOL_TERMS = [
     "check_catalog.py",
     "refresh_capability_registry.py",
     "ensure_court_agent_config.py",
-    "ensure_shiguan_web.py",
-    "ensure_shiguan_service_daemon.py",
-    "sync_shiguan_obsidian_vault.py",
     "memory_decision.py",
     "court-capability-router",
     "codex",
@@ -762,7 +759,7 @@ def base36(value: int) -> str:
 
 def stable_base36_digest(material: str, length: int = 4) -> str:
     size = max(int(length), 1)
-    value = int(hashlib.sha1(material.encode("utf-8")).hexdigest(), 16) % (36**size)
+    value = zlib.crc32(material.encode("utf-8")) % (36**size)
     return base36(value).zfill(size)
 
 
@@ -1058,14 +1055,13 @@ def list_values(value: object) -> list[str]:
     return []
 
 
-def hashed_sparse_vector(terms: list[str], dimensions: int = 64) -> list[dict[str, object]]:
+def bucketed_sparse_vector(terms: list[str], dimensions: int = 64) -> list[dict[str, object]]:
     buckets: dict[int, float] = {}
     for term in terms:
         normalized = str(term or "").strip().lower()
         if not normalized:
             continue
-        digest = hashlib.sha256(normalized.encode("utf-8", errors="ignore")).digest()
-        index = int.from_bytes(digest[:4], "big") % dimensions
+        index = zlib.crc32(normalized.encode("utf-8", errors="ignore")) % dimensions
         buckets[index] = buckets.get(index, 0.0) + 1.0
     return [{"i": index, "w": round(weight, 3)} for index, weight in sorted(buckets.items())]
 
@@ -1140,8 +1136,7 @@ def capability_vector_fields(entry: dict[str, object]) -> dict[str, object]:
         "capability_source_paths": source_paths,
         "capability_vector_terms": vector_terms,
         "capability_vector_text": vector_text,
-        "capability_vector_sparse": hashed_sparse_vector(weighted_terms),
-        "capability_vector_hash": hashlib.sha256(vector_text.encode("utf-8", errors="ignore")).hexdigest()[:16],
+        "capability_vector_sparse": bucketed_sparse_vector(weighted_terms),
         "vector_text": vector_text,
         "embedding_text": vector_text,
     }
@@ -1507,7 +1502,6 @@ def score_entry(entry: dict[str, object], terms: list[str]) -> int:
         "capability_vector_text",
         "vector_text",
         "embedding_text",
-        "capability_vector_hash",
         "capability_vector_kind",
     ):
         value = entry.get(key)

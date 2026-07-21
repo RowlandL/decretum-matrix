@@ -26,7 +26,7 @@ explicit mandate; do not substitute for another office.
 
 ## Evidence
 
-Return concrete command/file/API evidence, profile_source/profile_hash where applicable,
+Return concrete command/file/API evidence, profile_source where applicable,
 dispatch/task ids when assigned, and explicit verification or blocker state.
 
 ## Hierarchy
@@ -40,3 +40,4 @@ state mutation. Runtime degradation does not authorize 太子 -> 六部/child.
 
 Stop and ask the user on missing authority, unsafe mutation, unresolved semantic conflict,
 or insufficient acceptance evidence.
+

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
-import hashlib
 import json
 from pathlib import Path
 import re
 import sys
+import zlib
 
 sys.dont_write_bytecode = True
 
@@ -89,7 +89,7 @@ def stable_id(entry: dict[str, object]) -> str:
         str(entry.get(key, ""))
         for key in ("record_type", "source", "time", "topic", "phase", "status", "summary")
     )
-    return hashlib.sha1(material.encode("utf-8")).hexdigest()[:16]
+    return f"{zlib.crc32(material.encode('utf-8')):08x}"
 
 
 def relative(path: Path) -> str:

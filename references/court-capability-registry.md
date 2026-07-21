@@ -2,7 +2,7 @@
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
-原始来源：`SKILL.md` sha256 `64c7a9089275de004bbd2fc4e9c59633d2bbfe9e2a355178816c3da65f6563c9`。本卷章节：`Capability Registry And Personnel System`, `Catalog Refresh`。
+本卷章节：`Capability Registry And Personnel System`, `Catalog Refresh`。
 
 ## Contents
 
@@ -55,15 +55,14 @@ Use this four-stage personnel model:
      because Codex role discovery expects separate role files. Treat each TOML
      as a compact discovery shim. Shared long-form standing rules may live in
      per-role `agents/supercc-dossiers/<role>/AGENTS.md` dossiers referenced by
-     `agent_dossier_path` / `agent_dossier_hash`; ordinary `super` subagents use
+     `agent_dossier_path`; ordinary `super` subagents use
      those dossiers only when the dispatcher attaches/reads the file or launches
      a child Codex session with that dossier directory as cwd. Standing officials
      must still have a structured
      profile/soul contract in the template source with
      `role_key`, `office_zh`, `direct_superior`, duty, allowed/prohibited
      actions, procedure, authority basis, report/evidence/heartbeat contracts,
-     dispatch-channel policy, release policy, `profile_version`, and
-     `profile_hash`. The profile is part of 官籍 evidence, not decorative prompt
+     dispatch-channel policy, release policy, and `profile_version`. The profile is part of 官籍 evidence, not decorative prompt
      text.
    - `zellij`, `squad`, and `codex`: under `superCC`, the local court substrate
      for visible panes, 奏折/message traffic, and real Codex official sessions.
@@ -123,13 +122,12 @@ Authorities:
   standing official/agent, writing durable memory, or changing the court's
   standing registry rules.
 - Subagente profile contract: when a standing profile or spawned subagente is
-  used, 尚书省/上级 office must cite `profile_source`, `profile_hash`,
-  `direct_superior`, allowed actions, forbidden actions, evidence contract,
-  heartbeat contract, release policy, and the active dispatch channel. A
-  subagente without a profile hash or evidence contract is not fully registered
-  for successful court work.
+  used, 尚书省/上级 office must cite `profile_source`, `direct_superior`, allowed
+  actions, forbidden actions, evidence contract, heartbeat contract, release
+  policy, and the active dispatch channel. A subagente without a profile source
+  or evidence contract is not fully registered for successful court work.
 - Registry entries are metadata-first under the token three-level optimization
-  policy. A capability record should carry precise source/path/version/hash,
+  policy. A capability record should carry precise source/path/version,
   office fit, permissions, risks, dependencies, and evidence handles; it should
   not inline entire skill bodies, raw logs, or full external docs. Load the full
   source only after the registry metadata is insufficient for the current
@@ -184,7 +182,7 @@ capability is dispatchable.
 source_roots, bounded_discovery)` surface selects at most one verified,
 non-stale, sufficient, current-tool-compatible record. Its result preserves
 `owner=libu-hr`, the injected registry path, `selection_source`,
-`fallback_reason`, verification/hash/version evidence, and `dispatchable`.
+`fallback_reason`, verification/version evidence, and `dispatchable`.
 It never writes a second registry or starts a daemon.
 
 Bounded discovery runs exactly once only for `missing`, `stale`, `corrupt`, or
@@ -199,7 +197,7 @@ to these refresh boundaries:
 | --- | --- |
 | `dispatch_failure` (dispatch failure), `phase_closeout` (phase closeout) | Light refresh of manifest/catalog and cheap local state. |
 | `skill_install`, `skill_upgrade` | Incremental update of affected capability entries and department rows. |
-| Single-source `hash_drift`, `version_drift` | Incremental verification/update of affected entries. |
+| Single-source `source_drift`, `version_drift` | Incremental verification/update of affected entries. |
 | Missing/corrupt manifest, untrusted manifest state, or broad unknown drift | Full refresh of declared local roots. |
 
 All maintenance remains local/offline, preserves the one canonical registry,
@@ -212,31 +210,26 @@ evidence.
 
 Match the original selector's two-level catalog behavior:
 
-- **Light refresh**: Run at 开朝 and before routing. Check whether known
-  catalog files exist, whether their mtimes changed, whether active Codex MCPs
-  are readable, and whether cheap CLI/version state changed. Then read the
-  cached `Court Department Capability Map` and classify the current task's
-  likely departments. If nothing changed, use the cached catalog. If skill,
-  agent, MCP, CLI, or script roots, frontmatter, agent `.toml`, this skill's
-  `agents/standing-officials`, or catalog files changed, run
-   `python -B scripts/refresh_capability_registry.py` automatically as a standing
-   开朝 duty; no separate user authorization is required for this local 官籍/catalog
-   refresh. This light refresh inherits the narrow 开朝 boundary above: read local
-   capability roots and rewrite only this skill's local 官籍/catalog artifacts; do
-   not execute every skill, install/update capabilities, browse, expose secrets,
-   mutate external state, or write outside this skill's local references.
-   If the newest decree explicitly says read-only, no file edits, no catalog
-   writes, or no audit writes, do not run the refresh writer; report
-   `authority_blocked` and use live root scans or the cached manifest with a
-   staleness warning.
-  The light refresh is a gate with evidence: every first court turn must either
-  run it, prove the cached manifest is current, or report why it is
-  `authority_blocked`/`runtime_degraded`. Skipping it because the user asked an
-  apparently narrow question, supplied a raw command, pasted a skill body, or
-  omitted the word `/court` is semantic drift. If drift is discovered later in
-  the same conversation, perform the catch-up refresh immediately under the
-  active authority, record the correction, and cite the corrected registry
-  state in the next 太子回奏.
+- **Light refresh**: Run only when the newest decree actually needs capability
+  recruitment, skill/MCP/CLI/script selection, install/repair, or registry-drift
+  review. It is not a standing 开朝 duty and not required for direct answers,
+  planning, office self-check, connectivity, or short office replies. When active,
+  check whether known catalog files exist, whether their mtimes changed, whether
+  active Codex MCPs are readable, and whether cheap CLI/version state changed.
+  Then read the cached `Court Department Capability Map` and classify the current
+  task's likely departments. If nothing changed, use the cached catalog. If
+  skill, agent, MCP, CLI, or script roots, frontmatter, agent `.toml`, this
+  skill's `agents/standing-officials`, or catalog files changed, run
+  `python -B scripts/refresh_capability_registry.py` under the active authority.
+  This light refresh may read local capability roots and rewrite only this
+  skill's local 官籍/catalog artifacts; do not execute every skill, install/update
+  capabilities, browse, expose secrets, mutate external state, or write outside
+  this skill's local references. If the newest decree explicitly says read-only,
+  no file edits, no catalog writes, or no audit writes, do not run the refresh
+  writer; report `authority_blocked` and use live root scans or the cached
+  manifest with a staleness warning. If drift is discovered later in the same
+  conversation, perform the catch-up refresh only when that drift affects the
+  active decree.
 - **Skill recruitment refresh**: After any new skill is installed or copied into
   `%CODEX_HOME%\skills` or `%USERPROFILE%\.agents\skills`, 户部/吏部 must run
   `python -B scripts/refresh_capability_registry.py`. The script reads local

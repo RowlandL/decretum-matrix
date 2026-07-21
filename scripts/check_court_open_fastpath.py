@@ -214,7 +214,9 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             and first.get("shangshu_ministry_coordination") is None
             and first.get("planned_ministry_count") == 0
             and first.get("planned_office_count") == 3
-            and first.get("admission_check_count") == 3
+            and first.get("admission_check_count") == 0
+            and first.get("admission_precheck_requested") is False
+            and first.get("agent_admission_satisfies_office_work") is False
             and len(first.get("preloads", [])) == 3
         )
         checks["preparation_never_claims_spawn"] = (
@@ -242,8 +244,8 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             == ["gongbu"]
             and one.get("planned_ministry_count") == 1
             and one.get("planned_office_count") == 4
-            and one.get("admission_check_count") == 4
-            and one_runtime.admission_calls == 4
+            and one.get("admission_check_count") == 0
+            and one_runtime.admission_calls == 0
             and one.get("dispatch_count") == 0
             and one.get("physical_child_dispatch_count") == 0
         )
@@ -261,8 +263,8 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             == ["hubu", "gongbu"]
             and two.get("planned_ministry_count") == 2
             and two.get("planned_office_count") == 5
-            and two.get("admission_check_count") == 5
-            and two_runtime.admission_calls == 5
+            and two.get("admission_check_count") == 0
+            and two_runtime.admission_calls == 0
             and len(two.get("preloads", [])) == 5
         )
         checks["ministry_superiors"] = all(
@@ -297,14 +299,13 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             and coordination.get("evidence_return") == "shangshu_integrates_then_reports_to_taizi"
         )
         checks["ministry_admission_caller_is_shangshu"] = all(
-            packet.get("admission", {}).get("calling_office") == "shangshu"
+            packet.get("admission") is None
+            and packet.get("admission_status") == "NOT_REQUESTED_PREPARATION_ONLY"
+            and packet.get("host_dispatch_required_for_done") is True
             for packet in two.get("shangshu_ministry_packets", [])
         )
         checks["ministry_binding_superior_is_shangshu"] = all(
-            packet.get("admission", {})
-            .get("requested_bindings", [{}])[0]
-            .get("direct_superior")
-            == "shangshu"
+            packet.get("hierarchy", {}).get("direct_superior") == "shangshu"
             for packet in two.get("shangshu_ministry_packets", [])
         )
         authority_gate = first.get("authority_selection_gate")

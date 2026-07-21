@@ -2,7 +2,7 @@
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
-原始来源：`SKILL.md` sha256 `64c7a9089275de004bbd2fc4e9c59633d2bbfe9e2a355178816c3da65f6563c9`。本卷章节：`Quick Start`, `Approval Policy Details`, `开朝 Selection`。
+本卷章节：`Quick Start`, `Approval Policy Details`, `开朝 Selection`。
 
 ## Contents
 
@@ -30,7 +30,7 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
    `runtime=native|superCC`. `super并行` sets only `authority=super,
    behavior=parallel`; it never selects runtime. Native and superCC are mutually
    exclusive entry paths and share only the neutral standing-office
-   configuration pointer/hash.
+   configuration pointer.
    User-facing 开朝 text must preserve the authority-selection question when the
    latest user message has not explicitly selected a current authority:
    `请选择执行权限（三权）：approval（审批/默认只读） | autonomous（自主/范围内实施）
@@ -69,16 +69,28 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
      or migration scripts at their real I/O boundary. A script receipt proves the
      machine fact it checked; it does not replace semantic planning or host spawn
      evidence.
+   - Requests for office self-check, connectivity, status, or exact short replies
+     are routed as office-duty decrees when they ask named offices to answer.
+     After authority is known, 太子 forms the hierarchy path, 三省/尚书 select the
+     requested office set dynamically, and the runtime attempts real host
+     dispatch or records a bounded `serial_inline`/`runtime_degraded` reason.
+     Capability, Git, semantic-verify, ledger, or service scripts run only when
+     a selected office needs that machine fact for its assigned duty.
+   - Exact short replies and connectivity checks are ordinary office-duty
+     decrees. They are not capability routing, release validation, package
+     validation, archive closeout, or profile/dossier audits. Dispatch first with
+     a compact role/direct-superior assignment; each office then replies exactly
+     as requested or the parent reports the host dispatch failure.
 4. Convene the court:
    `太子定性 -> 三省会审 -> 三省上奏 -> 太子回奏 -> 尚书统六部 -> 工坊办差 -> 门下复核 -> 史馆实录`.
    At `太子定性`, instantiate the semantic charter from the Core Semantic
    Contract and carry it through 三省会审, dispatch, review, and the final
    memorial. If the charter changes because the user corrects the decree, return
    the corrected charter to 三省 before execution continues.
-5. Use the department map and the官籍/铨选 registry to select candidate skills,
-   MCPs, agents, CLIs, scripts, or worker agents. A capability can be multi-fit;
-   assign it by explicit 差遣 for this decree rather than by a permanent single
-   department label.
+5. When the decree actually needs a skill, MCP, agent, CLI, script, or worker
+   choice, use the department map and the官籍/铨选 registry to select candidate
+   capabilities. A capability can be multi-fit; assign it by explicit 差遣 for
+   this decree rather than by a permanent single department label.
 6. Before risky actions, stop according to the active approval policy. Treat the
    three modes as court execution authorities:
    - `approval` is read-only authority.
@@ -137,7 +149,7 @@ ask; it cannot answer the question for the user.
 - `autonomous（自主/范围内实施）`：在陛下/用户给定的范围内自主执行；工作区写入、已授权路径、sandbox 提权、超工作区操作都可按任务边界办理，遇到破坏性、泄密、付费、未验证安装、私密上传或明显越旨再问。
 - `super（超级执行/范围内连续推进）`：任务范围内自动执行，包括命令、写入、联网、配置、sandbox 提权、超工作区操作和多 agente 调度；`super` 默认请求 `yolo`/无沙盒执行，任务开始前必须说明当前 Codex 进程是否已真正以无沙盒启动；若当前进程不能热切换，则明示只能通过运行时提权门禁代行，并建议下次用 `codex --dangerously-bypass-approvals-and-sandbox` 或 `codex --sandbox danger-full-access --ask-for-approval never` 启动；是否停问由已批准边界和行为类别决定，不因多 agente 形式本身停问，只在越出路径/服务/风险/成本/隐私/外部状态边界、触及不可逆破坏、泄密、花钱、未验证安装、上传私有数据、无界代理树、明显越旨外部状态变更或宿主硬门禁时上奏。
 行为另选 `serial（串行） | parallel（并行）`，与三权正交；`super并行` 仅表示 `authority=super, behavior=parallel, runtime=native`。
-`superCC` 不是第四权。它必须由最新旨意明确并从独立 zellij+squad startup/runtime 入口启动，携带另行选择的三权 authority 与 behavior；与 native 只共享中性官署配置 pointer/hash，不共享 task state、dossier、transport、admission 或 lifecycle，也不在同一 task/process 内切换或回退。
+`superCC` 不是第四权。它必须由最新旨意明确并从独立 zellij+squad startup/runtime 入口启动，携带另行选择的三权 authority 与 behavior；与 native 只共享中性官署配置 pointer，不共享 task state、dossier、transport、admission 或 lifecycle，也不在同一 task/process 内切换或回退。
 默认建议：`autonomous`。任务工作流固定为 `/court`；史馆会按需查旧实录，不再单独询问归档加载。
 史馆生长树本地管理页为 `web/shiguan-tree/index.html`；只有任务涉及史馆管理、同步或服务状态时，才按 `court-shiguan-memory.md` 探测或启动对应服务。普通开朝不探测端口、守护进程或 Obsidian。
 ```
@@ -164,23 +176,13 @@ call skill activation `开朝`; reserve `startup` for code, fields, logs, or API
    required user answer, guarding a long-running command, or holding an
    unresolved safety/verification task. Record any runtime inability to inspect
    or close threads as `agente清理受限`.
-1. When the decree uses Shiguan storage or service integration, 户部/史馆 ensures the shared Shiguan root exists and, when permitted, ensures
-   the shared Shiguan service daemon:
-   `python -B scripts/ensure_shiguan_service_daemon.py --check-only` for
-   read-only audit, or `python -B scripts/ensure_shiguan_service_daemon.py` only
-   when startup/service writes are authorized. This hidden user-logon
-   watchdog starts or reuses both the 8765 WebUI and the preserve-only Obsidian
-   autosync daemon. One-shot sync remains
-   `python -B scripts/sync_shiguan_obsidian_vault.py`; it writes only the
-   configured Obsidian cache, never deletes user notes, and never converts
-   Obsidian edits directly into official Shiguan records. Edits and imports must
-   enter shared `shiguan-imports\pending`.
-2. When the decree requests the Shiguan web manager, 户部/史馆 checks whether the local/LAN service is available. Under
-   `approval`, perform only status/path probes unless the newest decree permits
-   service startup. Under `autonomous` and `super`, start or reuse the read/state
-   Shiguan web service in the background when it is in scope and not already
-   available through the service daemon, with `python -B scripts/ensure_shiguan_web.py`
-   as the direct fallback.
+1. When the decree uses Shiguan storage, 户部/史馆 ensures the shared Shiguan root
+   exists only when storage is actually in scope. Ordinary startup does not
+   start services, refresh Obsidian, or run one-shot sync. Obsidian edits and
+   imports, when separately authorized, must enter shared `shiguan-imports\pending`.
+2. When the decree explicitly requests the Shiguan web manager or Obsidian
+   refresh, treat it as a source-tree maintenance extension and report whether
+   the required helper is installed locally before attempting any service write.
    If port 8765 is already serving this skill, reuse it. If port 8765 is held
    by an unknown process, do not kill it and do not drift to other ports; report
    `史馆图谱服务：FAILED` with the unknown owner and manual remediation. If

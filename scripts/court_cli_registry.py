@@ -640,7 +640,6 @@ def invoke_install_core(
         projection_manifest=Path(str(request["projection_manifest"])),
         write=bool(request["write"]),
         fanout=False,
-        source_package_sha256=request.get("source_package_sha256"),
         platform_context=request.get("platform_context"),
         backup_root=(
             Path(str(request["backup_root"]))

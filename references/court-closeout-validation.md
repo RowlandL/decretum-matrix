@@ -9,7 +9,7 @@
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
-原始来源：`SKILL.md` sha256 `64c7a9089275de004bbd2fc4e9c59633d2bbfe9e2a355178816c3da65f6563c9`。本卷章节：`Long Conversation Drift Guard`, `Completion/Pause Semantic Reload`, `Official Report Contract`, `Memorial Format`, `Installation And Validation`。
+本卷章节：`Long Conversation Drift Guard`, `Completion/Pause Semantic Reload`, `Official Report Contract`, `Memorial Format`, `Installation And Validation`。
 
 ## Contents
 
@@ -47,6 +47,15 @@ This is mandatory for `/court` whenever a decree is completed, paused, blocked,
 cancelled, handed off, interrupted, or about to emit a final memorial after a
 long context. It counters context drift by reloading the court's bottom-layer
 semantics immediately before the user-facing close or pause report.
+
+Light exception: no-write exact short-reply and connectivity tests do not use
+the full two-layer closeout unless the newest
+decree asks for archival, validation, installation, release, memory maintenance,
+or durable behavior change. Their closeout is a compact inline record containing
+the requested offices, actual host dispatch/reuse/wake evidence, exact replies,
+and any degraded host reason. Do not start Shiguan services, inspect pending
+queues, run archive/checkpoint helpers, reload all closeout shards, or require
+the fourteen-line memorial merely to report the short probe result.
 
 Semantic reload source:
 
@@ -134,7 +143,7 @@ in `Memorial Format`. Its first `诏令编号` line is the user-facing Shiguan
 record anchor; `source` and `record_uid` are auxiliary indexes for the complete
 Shiguan record, not user-facing anchors. The user-side `史馆` line shows only
 the usable Shiguan Web address: `local_url` plus any `lan_urls` reported by
-`scripts/ensure_shiguan_web.py`. If the service is unavailable or unknown, show
+the source-tree Shiguan web extension when explicitly requested. If the service is unavailable or unknown, show
 the ensure command, the manual LAN server command, and the static fallback path
 instead of silently omitting the Web address.
 Showing a Web address does not approve public exposure, tunneling, management
@@ -175,7 +184,7 @@ approval unless already covered by the active decree.
   `watchdog_log_jsonl`, `watchdog_pid_file`, `watchdog_daemon_start`,
   `watchdog_daemon_stop`, `watchdog_no_visible_window`, `watchdog_actions`,
   `watchdog_abnormal_roles`, `functional_check_mode`, `supercc_side_effects`,
-  `taizi_history_roundtrip_evidence`, `active_copy_hashes`,
+  `taizi_history_roundtrip_evidence`, `active_copy_sync`,
   `legacy_patrol_visible_pane`,
   `taizi_stale_explanation`,
   `supercc_concurrency_limit`,
@@ -185,8 +194,8 @@ approval unless already covered by the active decree.
   `temporary_ministry_release`, plus
   `rate_limit_wake_hierarchy`, `redispatch_actions`,
   `recommended_cleanup`, `noncurrent_inactive_pane_cleanup`,
-  `office_profile_loaded`, `profile_source`, `profile_hash`,
-  `office_dossier_path`, `office_dossier_hash`, `light_bootstrap_policy`,
+  `office_profile_loaded`, `profile_source`, `office_dossier_path`,
+  `light_bootstrap_policy`,
   `office_uniqueness_gate`, `task_evidence`, `direct_superior_source`, `dispatch_delivery_channel`,
   `native_enter_dispatch`, `post_dispatch_physical_enter_delay_seconds`,
   `squad_evidence`, `taizi_no_silence`, `three_departments_no_silence`,
@@ -197,8 +206,7 @@ approval unless already covered by the active decree.
   missing selected office-client evidence where Codex, Hermes CLI, or Claude Code panes are selected, missing
   zellij+`squad` normal-environment evidence for any normal superCC claim, missing
   Hermes profile/session evidence where Hermes readiness or profile dispatch is claimed, missing
-  三省 standing pane evidence, missing
-  profile hash, missing native-enter/squad delivery evidence, missing second
+  三省 standing pane evidence, missing native-enter/squad delivery evidence, missing second
   physical Enter evidence, missing message/task/reply/heartbeat evidence for a
   named office result, failed office uniqueness gate, duplicate active office
   identity, duplicate canonical pane, missing structured task/direct assignment
@@ -212,7 +220,7 @@ approval unless already covered by the active decree.
   `runtime_degraded`, `authority_blocked`, or `DONE_WITH_CONCERNS` with
   preserved evidence and next action. If `office_duty_enforcement=FAILED` or
   `taizi_substitution=FAILED`, the closeout status must not be `DONE`. If
-  `office_profile_loaded=FAILED`, `profile_hash` is missing, or required
+  `office_profile_loaded=FAILED` for a task that needed that profile, or required
   dispatch delivery evidence is missing, the closeout status must not be
   `DONE`.
 
@@ -314,20 +322,20 @@ wall_clock_actual: elapsed user-visible decree time when start/end evidence exis
 worker_elapsed_sum: sum of elapsed office/subagent worker times; do not present it as wall-clock time under parallel execution
 shiguan_web_service: RUNNING | REUSED | STARTED | NOT_STARTED | CHECK_ONLY | FAILED, with URL or fallback command; NOT_STARTED means the newest user boundary forbids service startup, while CHECK_ONLY means runtime/host limits allowed only probing
 shiguan_import_queue: NONE | PENDING | FAILED, with pending_count, new_count, estimated_tokens, new_estimated_tokens, queue_root, samples, and whether 太子 asked/routed processing before raw text was loaded
-pending_governance: NOT_APPLICABLE | METADATA_ONLY | HOST_CAPABILITY_REQUIRED_FAIL_CLOSED | AUTHORIZED, with ledger schema, trusted actor evidence, event/hash/head verification, independently recomputed binding, body-operation counters, and explicit source-retention/no-delete result
+pending_governance: NOT_APPLICABLE | METADATA_ONLY | HOST_CAPABILITY_REQUIRED_FAIL_CLOSED | AUTHORIZED, with ledger schema, trusted actor evidence, event/head verification, independently recomputed binding, body-operation counters, and explicit source-retention/no-delete result
 obsidian_config_transaction: NOT_APPLICABLE | PASSED | FAILED | runtime_degraded, with config lock, base/current/committed revisions, three-way CAS conflicts, unrelated-field merge, secret-free public projection, post-write verification, and staging/parent durability evidence
 peer_credential_lifecycle: NOT_APPLICABLE | PASSED | FAILED | runtime_degraded, with durable-view requirement, delivery state, plaintext/nonce persistence count, expiry validation, revoke-before-regenerate, duplicate replacement gate, protocol-switch credential gate, and confirmation that renew/extend/permanent cannot reactivate a revoked key
 codex_yolo_startup_task: TASK_EXISTS | MISSING | GENERATED_REVIEW_TASK | REGISTRATION_REFUSED | REGISTERED | FAILED, with task name, generated review artifacts, log path, revoke command, or refusal reason
 token_optimization_policy: PASSED | PARTIAL | FAILED | authority_blocked, with the three-level verdict for metadata precision, concise body references, and on-demand loading
-metadata_precision: PASSED | PARTIAL | FAILED | NOT_APPLICABLE, with exact lineage/court_code/keywords/key_actions/source paths/hashes/task ids/evidence pointers needed for retrieval
+metadata_precision: PASSED | PARTIAL | FAILED | NOT_APPLICABLE, with exact lineage/court_code/keywords/key_actions/source paths/task ids/evidence pointers needed for retrieval
 body_reference_policy: PASSED | PARTIAL | FAILED | NOT_APPLICABLE, confirming bodies, quotes, logs, transcripts, and imported materials were summarized or cited compactly instead of copied wholesale
 on_demand_loading: PASSED | PARTIAL | FAILED | NOT_APPLICABLE, confirming the court loaded only the needed governing references, compact Shiguan hits, source ranges, imports, or runtime artifacts
 runtime_selection_gate: NOT_APPLICABLE | PASSED | runtime_degraded | authority_blocked, with selected visible zellij+squad branch and client/readiness evidence
 execution_authority: approval | autonomous | super
 execution_behavior: serial | parallel
 execution_runtime: native | superCC, selected only by the distinct startup entry
-execution_receipt: court.execution.native.v1 | court.execution.supercc.v1, with entry_path, transport, state_namespace, and neutral office_config pointer/hash; native and superCC values must never appear as candidates or coexist in one task/process
-court_open_capability_snapshot: NOT_APPLICABLE | PASSED | FAILED, with snapshot schema/hash, registry path/hash/state, cache HIT|MISS, lookup milliseconds, proposed skill/MCP/plugin/CLI/script allocations, and proof that snapshot plus office preload completed before Three Departments deliberation
+execution_receipt: court.execution.native.v1 | court.execution.supercc.v1, with entry_path, transport, state_namespace, and neutral office_config pointer; native and superCC values must never appear as candidates or coexist in one task/process
+court_open_capability_snapshot: NOT_APPLICABLE | PASSED | FAILED, with snapshot schema, registry path/state, cache HIT|MISS, lookup milliseconds, proposed skill/MCP/plugin/CLI/script allocations, and proof that the selected office context completed before Three Departments deliberation
 court_open_dispatch_count: integer, required to be zero for serial behavior and every fail-closed semantic rejection
 court_open_manual_bypass_allowed: false for every fail-closed semantic rejection
 supercc_runtime_family: NOT_APPLICABLE | visible_zellij_squad
@@ -369,7 +377,7 @@ watchdog_abnormal_roles: none, list, or runtime_degraded, with 429/abnormal-clos
 functional_check_mode: NOT_APPLICABLE | read_only_audit | live_mutating | runtime_degraded, with `check_supercc_functional.py` command evidence when superCC validation is part of the decree
 supercc_side_effects: NOT_APPLICABLE | PASSED | FAILED | runtime_degraded, with `court.supercc.side_effects.v1` schema evidence, selected_action, dry_run, mutates_runtime, planned_if_live, and applied; read-only checks must have `mutates_runtime=false` and no applied runtime changes
 taizi_history_roundtrip_evidence: NOT_APPLICABLE | PASSED | PARTIAL | unavailable, using `squad history taizi --since <timestamp>` as the preferred end-to-end proof when terminal-visible Taizi-to-office roundtrips are claimed; pane output alone is weaker and must be labeled partial when history is available but not checked
-active_copy_hashes: NOT_APPLICABLE | PASSED | FAILED | runtime_degraded, with `scripts/check_active_copy_hashes.py` evidence for `.agents`, `.codex`, `.claude`, `.hermes`, and the platform Hermes user-data copy when present
+active_copy_sync: NOT_APPLICABLE | PASSED | FAILED | runtime_degraded, with `scripts/sync_active_copies.py --json` evidence for `.agents`, `.codex`, `.claude`, `.hermes`, and the platform Hermes user-data copy when present
 legacy_patrol_visible_pane: disabled
 taizi_stale_explanation: NOT_APPLICABLE or explanation distinguishing visible S Taizi pane activity from stale squad last_seen heartbeat
 supercc_concurrency_limit: NOT_APPLICABLE | PASSED | PARTIAL | runtime_degraded, with live Codex office session count, max allowed, 429 evidence, and requeue/stagger/backoff actions
@@ -386,11 +394,9 @@ rate_limit_wake_hierarchy: NOT_APPLICABLE or zhongshu/taizi/three_departments/mi
 redispatch_actions: none, or 中书/太子/尚书-directed report/reminder/requeue/stagger/backoff/wake/repair or SQUAD_ONLY_FALLBACK_DEGRADED actions with evidence
 recommended_cleanup: none, or read-only cleanup recommendations with mutation policy
 noncurrent_inactive_pane_cleanup: NOT_APPLICABLE or dry-run evaluator results; candidates must be non-current or not visible/current, inactive/stale, and free of unresolved task/evidence/heartbeat or probe-failure blockers
-office_profile_loaded: NOT_APPLICABLE | PASSED | PARTIAL | FAILED | runtime_degraded, with every claimed office's profile source/hash/version
+office_profile_loaded: NOT_APPLICABLE | PASSED | PARTIAL | FAILED | runtime_degraded, with every claimed office's profile source/version when profile detail was needed
 profile_source: NOT_APPLICABLE or standing-official TOML path(s) used for claimed offices
-profile_hash: NOT_APPLICABLE or sha256/profile digest(s); missing hash blocks DONE for named office work
 office_dossier_path: NOT_APPLICABLE or per-office `agents/supercc-dossiers/<role>/AGENTS.md` path(s) auto-loaded by the selected office client
-office_dossier_hash: NOT_APPLICABLE or sha256 digest(s) for the per-office AGENTS.md dossier(s); missing hash blocks DONE for terminal-visible named office work
 light_bootstrap_policy: NOT_APPLICABLE or confirmation that long standing mandates are loaded from per-office AGENTS.md and launch prompts carry only compact manifest/current dispatch fields
 office_uniqueness_gate: NOT_APPLICABLE | PASSED | FAILED | runtime_degraded, with active squad identities for the role, duplicate role-N identities, current-session canonical pane count, and whether dispatch was blocked or repaired
 task_evidence: NOT_APPLICABLE | PASSED | FAILED | runtime_degraded, with structured squad task id or equivalent direct assignment evidence for execution dispatch; freeform squad messages alone are insufficient for claimed office execution

@@ -9,8 +9,8 @@ Hermes likewise remain model-neutral and inherit their parent/main settings.
 
 from __future__ import annotations
 
-import hashlib
 import json
+import zlib
 from typing import Mapping
 
 
@@ -90,7 +90,7 @@ def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
 
 def _route_id(payload: Mapping[str, object]) -> str:
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return "cmr-" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:20]
+    return f"cmr-{zlib.crc32(canonical.encode('utf-8')):08x}"
 
 
 def route_office_model(

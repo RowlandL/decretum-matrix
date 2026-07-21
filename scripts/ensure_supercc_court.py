@@ -14,11 +14,10 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
-import hashlib
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import random
 import re
 import shlex
@@ -38,11 +37,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 
 from court_file_lock import atomic_write_text
 from court_dispatch_hierarchy import validate_dispatch_hierarchy
-from court_office_bootstrap import SUPERCC_CLI_CARRIER, resolve_office_dossier_locator
 from court_supercc_execution import select_supercc_execution
 from supercc_dispatch_contract import (
     _new_identity_generation_challenge,
-    active_office_identity_fingerprint,
+    active_office_identity_binding,
     active_office_preload_ack_gate,
     configure_runtime as _configure_dispatch_contract_runtime,
     default_dispatch_calling_office,
@@ -229,10 +227,11 @@ SUPERCC_RATE_LIMIT_STRESS_SCRIPT = "stress_supercc_rate_limit.py"
 SUPERCC_WATCHDOG_SCRIPT = "supercc_watchdog.py"
 SUPERCC_DOSSIER_ROOT_NAME = "supercc-dossiers"
 SUPERCC_DOSSIER_FILE_NAME = "AGENTS.md"
+SUPERCC_CLI_CARRIER = "supercc_cli_office"
 SUPERCC_ENTRY_SCHEMA = "court.supercc.entry_plan.v1"
 SUPERCC_LIGHT_BOOTSTRAP_POLICY = (
     "all office transports use per-office AGENTS.md dossiers as the long standing "
-    "mandate; prompts carry an explicit role plus profile/dossier/SKILL path/hash "
+    "mandate; prompts carry an explicit role plus profile/dossier/SKILL source "
     "manifest, and the office must return a preload ack before running."
 )
 OFFICE_PRELOAD_ACK_SCHEMA = "court.office.preload_ack.v1"
@@ -245,7 +244,7 @@ ENTER_DISPATCH_CONTEXT_FIELDS = {
     "role_key",
     "calling_office",
     "direct_superior",
-    "message_sha256",
+    "message_id",
     "semantic_packet",
     "scope",
 }
@@ -262,12 +261,12 @@ OFFICE_PRELOAD_ACK_REQUIRED_FIELDS = {
     "preload_status",
     "identity_id",
     "identity_generation",
-    "identity_fingerprint",
+    "identity_binding_id",
     "role_key",
     "direct_superior",
-    "profile_hash",
-    "dossier_hash",
-    "court_skill_hash",
+    "profile_source",
+    "dossier_path",
+    "court_skill_path",
     "agent_dossier_loaded",
     "loaded_skills",
 }
@@ -358,7 +357,6 @@ PROFILE_REQUIRED_FIELDS = (
     "dispatch_channel_policy",
     "release_policy",
     "profile_version",
-    "profile_hash",
     "preload_contract_version",
     "dispatch_selection_policy",
     "capacity_admission_policy",
@@ -425,6 +423,28 @@ def office_dossiers_root() -> Path:
 
 def office_dossier_dir(role: str) -> Path:
     return office_dossiers_root() / role
+
+
+def resolve_office_dossier_locator(
+    role: str,
+    *,
+    carrier_kind: str,
+    supercc_enabled: bool,
+) -> PurePosixPath:
+    normalized = str(role).strip().casefold()
+    if (
+        normalized != role
+        or normalized not in AGENT_DOSSIER_ROLES
+        or carrier_kind != SUPERCC_CLI_CARRIER
+        or not supercc_enabled
+    ):
+        raise ValueError("supercc_dossier_locator_invalid")
+    return PurePosixPath(
+        "agents",
+        SUPERCC_DOSSIER_ROOT_NAME,
+        normalized,
+        SUPERCC_DOSSIER_FILE_NAME,
+    )
 
 
 def office_dossier_path(role: str) -> Path:
@@ -591,13 +611,6 @@ def ensure_claude_project_trust(paths: list[Path], *, dry_run: bool = False) -> 
     }
 
 
-def sha256_file(path: Path) -> str | None:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
-
-
 def read_toml(path: Path) -> dict[str, Any]:
     if tomllib is None or not path.exists():
         return {}
@@ -615,7 +628,6 @@ def profile_metadata(role: str) -> dict[str, Any]:
     return {
         "office_profile_loaded": bool(profile) and not missing,
         "profile_source": str(path),
-        "profile_hash": sha256_file(path),
         "profile_version": profile.get("profile_version") or STANDING_PROFILE_VERSION,
         "profile_fields": profile,
         "profile_missing_fields": missing,
@@ -639,7 +651,6 @@ def profile_prompt_block(role: str) -> str:
     lines = [
         "Office profile:",
         f"- profile_source: {skill_relative_path(Path(str(meta['profile_source'])))}",
-        f"- profile_hash: {meta.get('profile_hash') or 'missing'}",
         f"- profile_version: {meta.get('profile_version')}",
         f"- office_profile_loaded: {meta.get('office_profile_loaded')}",
     ]
@@ -694,21 +705,17 @@ def office_display_info(role: str) -> dict[str, str]:
 def profile_manifest_block(role: str) -> str:
     meta = profile_metadata(role)
     dossier = office_dossier_path(role)
-    dossier_hash = sha256_file(dossier)
     court_skill = skill_root() / "SKILL.md"
     return "\n".join(
         [
             "Mode-neutral office preload manifest:",
             f"- preload_contract_version: {OFFICE_PRELOAD_ACK_SCHEMA}",
             f"- dossier_path: {skill_relative_path(dossier)}",
-            f"- dossier_hash: {dossier_hash or 'missing'}",
             f"- profile_source: {skill_relative_path(Path(str(meta['profile_source'])))}",
-            f"- profile_hash: {meta.get('profile_hash') or 'missing'}",
             f"- profile_version: {meta.get('profile_version')}",
             f"- office_profile_loaded: {meta.get('office_profile_loaded')}",
             f"- court_skill_path: {skill_relative_path(court_skill)}",
-            f"- court_skill_hash: {sha256_file(court_skill) or 'missing'}",
-            "- preload_ack: required before status=running; report role_key, direct_superior, all three hashes, agent_dossier_loaded=YES, and loaded_skills including court-capability-router.",
+            "- preload_ack: required before status=running; report role_key, direct_superior, dossier/source acknowledgement, agent_dossier_loaded=YES, and loaded_skills including court-capability-router.",
             "- collaboration_task_path: `/root/*` is routing only and never proves office identity.",
             "- ordinary_codex_model_route: keep reserved V2 spawn metadata hidden for schema compatibility; record the task-aware recommendation, require route-id plus inheritance acknowledgement, and inherit the main thread model/effort unless a host-managed override path is proven compatible.",
             "- claude_model_boundary: no office-level model override; inherit the main Claude thread model.",
@@ -848,7 +855,7 @@ def office_dossier_text(role: str) -> str:
         f"""
         # Mode-neutral Office Dossier: {office['office_zh']} ({role})
 
-        This per-office `{SUPERCC_DOSSIER_FILE_NAME}` is the long standing mandate for terminal-visible superCC panes and explicitly selected superCC carriers. Ordinary spawned offices use `agents/office-dossiers/<role>/AGENTS.md`, not this superCC dossier. A collaboration address such as `/root/{role}_wave` is only routing metadata; office identity exists only after profile/dossier/court-skill hashes match and preload ack passes.
+        This per-office `{SUPERCC_DOSSIER_FILE_NAME}` is the long standing mandate for terminal-visible superCC panes and explicitly selected superCC carriers. Ordinary spawned offices use `agents/office-dossiers/<role>/AGENTS.md`, not this superCC dossier. A collaboration address such as `/root/{role}_wave` is only routing metadata; office identity exists only after role key, direct superior, dossier path, current assignment, and role acknowledgement match.
 
         ## Identity
 
@@ -858,7 +865,7 @@ def office_dossier_text(role: str) -> str:
         - lineage: {office['lineage']}
         - direct_superior: {rules['superior']}
         - preload_contract_version: {OFFICE_PRELOAD_ACK_SCHEMA}
-        - preload_ack: first report must include preload_status=PASSED, role_key={role}, matching profile_hash/dossier_hash/court_skill_hash, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix.
+        - preload_ack: first report must include preload_status=PASSED, role_key={role}, profile_source, dossier_path, court_skill_path, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix.
         - light_bootstrap_policy: {SUPERCC_LIGHT_BOOTSTRAP_POLICY}
 
         ## Standing Mandate
@@ -870,7 +877,7 @@ def office_dossier_text(role: str) -> str:
         - {OFFICE_VOICE_POLICY}
         - {office_clarify_rule(role)}
         - Do not expand scope, spawn descendants, install tools, expose services, spend money, handle secrets, or perform destructive work without an approved 太子回奏 and matching court gate.
-        - Treat superCC as a separate startup/runtime carrying one exact three-authority value and one behavior. It shares only the neutral hierarchy/standing-profile configuration pointer and hashes with native; task state, dossier, transport, admission, and lifecycle remain isolated.
+        - Treat superCC as a separate startup/runtime carrying one exact three-authority value and one behavior. It shares only the neutral hierarchy/standing-profile configuration pointer with native; task state, dossier, transport, admission, and lifecycle remain isolated.
         - Hierarchy parity: ordinary and superCC use the same validator, `validate_dispatch_hierarchy`, under `court.dispatch_hierarchy.v1`; transport evidence may add pane/squad/native-enter fields but may not reinterpret the decision.
         - {rules['hierarchy_rule']}
         - Design-task 六部 dispatch requires a complete but bounded context packet; exclude secrets, credentials, private vaults, unrelated logs, and unrelated projects.
@@ -902,9 +909,11 @@ def office_dossier_text(role: str) -> str:
 def ensure_office_dossier(role: str, *, dry_run: bool = False) -> dict[str, Any]:
     path = office_dossier_path(role)
     text = office_dossier_text(role)
-    old_hash = sha256_file(path)
-    new_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    changed = old_hash != new_hash
+    try:
+        existing = path.read_text(encoding="utf-8")
+    except OSError:
+        existing = None
+    changed = existing != text
     if not dry_run and changed:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8", newline="\n")
@@ -912,8 +921,8 @@ def ensure_office_dossier(role: str, *, dry_run: bool = False) -> dict[str, Any]
         "ok": True,
         "role": role,
         "path": str(path),
-        "hash": new_hash,
-        "old_hash": old_hash,
+        "old_size": len(existing.encode("utf-8")) if existing is not None else None,
+        "new_size": len(text.encode("utf-8")),
         "changed": changed,
         "written": changed and not dry_run,
         "dry_run": dry_run,
@@ -943,7 +952,6 @@ def with_office_dossier_state(role: str, state: dict[str, Any]) -> dict[str, Any
     dossier = office_dossier_path(role)
     enriched = dict(state)
     enriched["office_dossier_path"] = str(dossier)
-    enriched["office_dossier_hash"] = sha256_file(dossier)
     enriched["light_bootstrap_policy"] = SUPERCC_LIGHT_BOOTSTRAP_POLICY
     return enriched
 
@@ -2232,7 +2240,7 @@ def role_pane_process_binding(check: dict[str, Any], visible: dict[str, list[dic
     Zellij's stable public evidence here is pane id/title/session. It does not
     expose a child OS PID through `list-panes`, so process evidence is explicit:
     when an OS PID cannot be obtained without unsafe host-specific probing, the
-    binding is pane_id + canonical title + active squad id + profile hash.
+    binding is pane_id + canonical title + active squad id + profile source.
     """
     pane_selection = select_unique_visible_pane(visible, role)
     row = active_canonical_agent_row(check, role)
@@ -2246,10 +2254,9 @@ def role_pane_process_binding(check: dict[str, Any], visible: dict[str, list[dic
         "active_squad_id": row.get("id") if row else None,
         "active_squad_role": row.get("role") if row else None,
         "profile_source": profile.get("profile_source"),
-        "profile_hash": profile.get("profile_hash"),
         "profile_version": profile.get("profile_version"),
         "process_id": None,
-        "process_id_evidence": "zellij list-panes does not expose child OS PID on this host; using current-session pane_id + canonical title + squad identity + profile hash binding",
+        "process_id_evidence": "zellij list-panes does not expose child OS PID on this host; using current-session pane_id + canonical title + squad identity + profile source binding",
         "binding_ok": bool(pane_selection.get("ok")) and row is not None and bool(profile.get("office_profile_loaded")),
     }
 
@@ -3131,7 +3138,6 @@ def build_mode_records(
             {
                 "office_profile_loaded": profile["office_profile_loaded"],
                 "profile_source": profile["profile_source"],
-                "profile_hash": profile["profile_hash"],
                 "profile_version": profile["profile_version"],
                 "profile_missing_fields": profile["profile_missing_fields"],
             }
@@ -4647,7 +4653,6 @@ RATE_LIMIT_SIGNAL_KEYS = {
     "traceback",
 }
 RATE_LIMIT_SKIP_KEY_FRAGMENTS = (
-    "hash",
     "path",
     "source",
     "joined_at",

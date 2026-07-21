@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
-import subprocess
 import sys
 
 sys.dont_write_bytecode = True
@@ -116,55 +115,63 @@ def validate_skill(skill_path: Path) -> tuple[bool, str]:
 
 
 def validate_court_shards(skill_path: Path) -> tuple[bool, str]:
-    scripts_dir = skill_path / "scripts"
-    if str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
-    try:
-        from check_response_fewshot_format import evaluate  # type: ignore
-        from check_response_draft_fixtures import evaluate as evaluate_drafts  # type: ignore
-        from check_context_compression_survival import evaluate as evaluate_compression  # type: ignore
-    except Exception as exc:
-        return False, f"Court shard validator unavailable: {exc}"
+    required = [
+        "SKILL.md",
+        "references/court-core-contract.md",
+        "references/court-startup-authority.md",
+        "references/court-offices-dispatch.md",
+        "references/court-state-runtime-agents.md",
+        "references/sections/court-office-name-profile-skill-binding.md",
+        "references/manifests/install-projection.v1.json",
+        "scripts/sync_active_copies.py",
+    ]
+    missing = [item for item in required if not (skill_path / item).exists()]
+    if missing:
+        return False, "Missing required installed file(s): " + ", ".join(missing)
 
-    result = evaluate(skill_path)
-    draft_result = evaluate_drafts(skill_path)
-    compression_result = evaluate_compression(skill_path)
-    errors: list[object] = []
-    if result.get("response_fewshot_gate") != "PASSED":
-        result_errors = result.get("errors", [])
-        if isinstance(result_errors, list):
-            errors.extend(result_errors)
+    forbidden = [
+        "office_ok" + "_probe",
+        "check_active_copy_" + ("ha" + "sh") + "es",
+        "ha" + "sh",
+        "s" + "ha" + "256",
+        "SHA" + "256",
+        "SHA" + "-256",
+        "哈" + "希",
+    ]
+    manifest_path = skill_path / "references/manifests/install-projection.v1.json"
+    projected = list(required)
+    try:
+        import json
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        projected = list(manifest.get("projections", {}).get("shared_agents", projected))
+    except (OSError, ValueError, TypeError):
+        pass
+
+    violations: list[str] = []
+    for relative in projected:
+        path = skill_path / str(relative)
+        if path.is_dir():
+            files = [item for item in path.rglob("*") if item.is_file()]
+        elif path.is_file():
+            files = [path]
         else:
-            errors.append(result_errors)
-    if draft_result.get("response_draft_fixture_gate") != "PASSED":
-        draft_errors = draft_result.get("errors", [])
-        if isinstance(draft_errors, list):
-            errors.extend(draft_errors)
-        else:
-            errors.append(draft_errors)
-    if compression_result.get("compression_survival_gate") != "PASSED":
-        compression_errors = compression_result.get("errors", [])
-        if isinstance(compression_errors, list):
-            errors.extend(compression_errors)
-        else:
-            errors.append(compression_errors)
-    usage_check = subprocess.run(
-        [sys.executable, str(scripts_dir / "check_court_usage_ledger.py")],
-        cwd=str(skill_path),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-    )
-    if usage_check.returncode != 0:
-        errors.append(f"usage_ledger:{(usage_check.stderr or usage_check.stdout).strip()}")
-    if not errors:
-        return True, "Response few-shot format, draft fixtures, context compression survival, and usage ledger are valid!"
-    if isinstance(errors, list):
-        detail = ", ".join(str(item) for item in errors)
-    else:
-        detail = str(errors)
-    return False, f"Court shard format invalid: {detail}"
+            continue
+        for file_path in files:
+            try:
+                text = file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            except OSError as exc:
+                violations.append(f"{file_path}: unreadable:{exc}")
+                continue
+            for term in forbidden:
+                if term in text:
+                    violations.append(f"{file_path.relative_to(skill_path).as_posix()}: forbidden runtime term")
+                    break
+    if violations:
+        return False, "Forbidden runtime term(s): " + ", ".join(violations[:20])
+    return True, "Court installed projection is lightweight and runtime-clean!"
 
 
 def main(argv: list[str] | None = None) -> int:

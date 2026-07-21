@@ -2,7 +2,7 @@
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
-原始来源：`SKILL.md` sha256 `64c7a9089275de004bbd2fc4e9c59633d2bbfe9e2a355178816c3da65f6563c9`。本卷章节：`Overview`, `Semantic Structure And Reading Order / 语义结构与阅读顺序`, `Core Semantic Contract`。
+本卷章节：`Overview`, `Semantic Structure And Reading Order / 语义结构与阅读顺序`, `Core Semantic Contract`。
 
 ## Contents
 
@@ -283,7 +283,7 @@ Semantic invariants:
   `serial|parallel`, and all six combinations are valid. `super并行` / `super
   parallel` means only `authority=super, behavior=parallel` on the native entry.
   Native and superCC are mutually exclusive startup/runtime environments and
-  share only the neutral standing-office configuration pointer/hash.
+  share only the neutral standing-office configuration pointer.
 - `任务边界内` requires a concrete goal plus object/path/service boundaries,
   allowed action types, and a verification or rollback story. Broad phrases such
   as "this machine", "all projects", or "everything" are not enough to justify
@@ -348,14 +348,15 @@ Semantic invariants:
   "不要改文件", "review only", or an equivalent boundary, do not start background
   services, mark import queues as seen, rebuild indexes, change catalogs, or
   mutate task files merely because the normal `/court` 开朝 recipe mentions
-  them. A compact 史馆 trace checkpoint is still mandatory because it is the
-  court's audit substrate, not optional task mutation. This read-only narrowing
-  also does not disable standing 开朝 prerequisites explicitly defined by this
-  skill, such as the read/state local/LAN 史馆 web manager; management writes,
-  imports, token handling, non-loopback admin actions, public exposure, and other
-  task-new services remain gated. If the newest user wording explicitly says
-  "不要启动任何服务", "不要局域网服务", or an equivalent service ban, honor that
-  newest boundary and report `史馆图谱服务：NOT_STARTED/user_read_only_override`.
+  them. A compact 史馆 trace checkpoint is mandatory only when the decree changes
+  durable behavior, performs substantive work with replay value, writes memory,
+  or explicitly asks for archival evidence. Direct answers, short office replies,
+  and lightweight planning may close inline. This read-only narrowing also means
+  no Shiguan web/service prerequisite runs unless the newest decree concerns
+  Shiguan management, sync, service state, archive inspection, or another
+  behavior that needs it. If the newest user wording explicitly says "不要启动任何服务",
+  "不要局域网服务", or an equivalent service ban, honor that newest boundary and
+  report `史馆图谱服务：NOT_STARTED/user_read_only_override`.
   If the newest user wording explicitly bans Shiguan/audit file writes, report
   `史馆实录：authority_blocked/no-audit-write-boundary`; otherwise write the
   compact trace. For ordinary writes or task-new services, the only exception is

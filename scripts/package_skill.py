@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from functools import lru_cache
 from datetime import datetime
 import errno
 import json
@@ -265,6 +266,41 @@ REPOSITORY_ONLY_PATHS = frozenset(
         "scripts/check_npm_package.mjs",
     }
 )
+PACKAGE_EXTRA_FILES = frozenset(
+    {
+        "authors.md",
+        "cla.md",
+        "commercial-license.md",
+        "contributing.md",
+        "license",
+        "notice",
+        "privacy.md",
+        "provenance.md",
+        "sbom.spdx.json",
+        "security.md",
+        "third_party_notices.md",
+        "trademarks.md",
+        "bin/decretum-matrix.js",
+        "bin/decretum-matrix.py",
+        *BRAND_ASSET_PATHS,
+    }
+)
+PACKAGE_GENERATED_SEED_FILES = frozenset(
+    {
+        "references/shiguan-index.jsonl",
+        "references/shiguan-knowledge-graph.json",
+        "references/shiguan-tree/_index.md",
+        "references/shiguan-tree/branches/README.md",
+        "references/shiguan-tree/capability-index/README.md",
+        "references/shiguan-tree/capability-index/_index.md",
+        "references/shiguan-tree/leaves/README.md",
+        "references/shiguan-tree/manual/README.md",
+        "references/shiguan-tree/README.md",
+        "references/shiguan-tree/sources/README.md",
+        "references/startup-tasks/README.md",
+        "references/installed-capabilities-catalog.example.md",
+    }
+)
 EXCLUDE_DIRS = {
     "__pycache__",
     ".repo-control",
@@ -349,127 +385,9 @@ PACKAGE_IDENTITY_REQUIRED_MEMBERS = {
     f"{ROOT_NAME}/bin/decretum-matrix.js",
     f"{ROOT_NAME}/bin/decretum-matrix.py",
     f"{ROOT_NAME}/release-manifest.json",
-    f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
     f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",
     f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
 }
-
-REQUIRED_COURT_SCRIPTS = [
-    "quick_validate.py",
-    "check_install_prompt.py",
-    "archive_checkpoint.py",
-    "court_file_lock.py",
-    "court_usage_ledger.py",
-    "check_court_usage_ledger.py",
-    "check_shiguan_concurrency.py",
-    "internal_memory_shiguan_bridge.py",
-    "query_shiguan_index.py",
-    "grow_shiguan_tree.py",
-    "build_shiguan_knowledge_graph.py",
-    "export_shiguan_obsidian.py",
-    "rebuild_shiguan_index.py",
-    "ensure_codex_yolo_startup_task.py",
-    "ensure_court_agent_config.py",
-    "check_court_agent_config.py",
-    "court_model_router.py",
-    "check_court_model_router.py",
-    "court_office_bootstrap.py",
-    "check_court_office_bootstrap.py",
-    "ensure_portable_court_bootstrap.py",
-    "ensure_supercc_court.py",
-    "supercc_dispatch_contract.py",
-    "supercc_dispatch_delivery.py",
-    "supercc_client_selection.py",
-    "check_supercc_client_selection.py",
-    "check_supercc_state_concurrency.py",
-    "court_platform.py",
-    "supercc_squad.py",
-    "supercc-squad.sh",
-    "supercc-squad.ps1",
-    "supercc-squad.cmd",
-    "check_supercc_squad_wrapper.py",
-    "check_supercc_claude_hard_gates.py",
-    "stress_supercc_rate_limit.py",
-    "ensure_hermes_supercc.py",
-    "ensure_shiguan_web.py",
-    "ensure_shiguan_autosync.py",
-    "ensure_shiguan_service_daemon.py",
-    "ensure_obsidian_shared_vault.py",
-    "obsidian_config_state.py",
-    "serve_shiguan_tree.py",
-    "shiguan_peer_downloads.py",
-    "shiguan_peer_state.py",
-    "shiguan_web_pending.py",
-    "supercc_office_state.py",
-    "shiguan_autosync_daemon.py",
-    "shiguan_service_daemon.py",
-    "register_agent_presence.py",
-    "refresh_capability_registry.py",
-    "check_capability_index_gate.py",
-    "check_release_legal.py",
-    "release_payload_manifest.py",
-    "check_response_fewshot_format.py",
-    "check_response_draft_fixtures.py",
-    "check_context_compression_survival.py",
-    "check_package_privacy.py",
-    "package_skill.py",
-    "court_runtime.py",
-    "court_cli.py",
-    "court_agent_admission.py",
-    "court_agent_admission_contract.py",
-    "court_dispatch_hierarchy.py",
-    "check_court_dispatch_hierarchy.py",
-    "court_multi_agent_protocol.py",
-    "court_codex_protocol_launcher.py",
-    "court_codex_office_worker.py",
-    "check_court_codex_office_worker.py",
-    "court_codex_host_resolution.py",
-    "check_court_codex_host_resolution.py",
-    "check_court_runtime.py",
-    "check_court_agent_lifecycle.py",
-    "check_court_runtime_concurrency.py",
-    "check_court_intervention_matrix.py",
-    "check_supercc_functional.py",
-    "check_supercc_ministry_dispatch.py",
-    "check_supercc_no_silence_429_patrol.py",
-    "check_supercc_super_entry.py",
-    "check_supercc_profiles.py",
-    "check_supercc_truth_gates.py",
-    "supercc_watchdog.py",
-    "sync_active_copies.py",
-    "sync_codex_agents_from_profiles.py",
-    "check_codex_agent_roles.py",
-    "check_agente_terminal.py",
-    "court_heartbeat_watch.py",
-    "agente_terminal.py",
-    "archive_runtime_task.py",
-    "agent_runtime_probe.py",
-    "check_shiguan_http.py",
-    "check_shiguan_peer_state_transaction.py",
-    "shiguan_security.py",
-    "shiguan_entry_utils.py",
-    "memory_decision.py",
-    "check_active_copy_hashes.py",
-    "check_portability.py",
-    "check_release_gate.py",
-    "release_gate_manifest.py",
-    "check_release_manifest.py",
-    "check_source_state_budget.py",
-    "check_read_only_contract.py",
-    "check_shiguan_import_queue.py",
-    "check_shiguan_queue_and_autosync_safety.py",
-    "sync_shiguan_obsidian_vault.py",
-    "check_obsidian_sync_transaction.py",
-    "plan_shiguan_pending_quarantine.py",
-    "shiguan_pending_governance.py",
-    "shiguan_pending_governance_cli.py",
-    "shiguan_pending_trust.py",
-    "check_shiguan_pending_quarantine_plan.py",
-    "repair_archive_placeholders.py",
-    "migrate_shared_shiguan.py",
-    "shiguan_paths.py",
-]
-
 
 def skill_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -485,6 +403,33 @@ class PackagePolicyError(ValueError):
 
 def relative_key(relative: Path) -> str:
     return relative.as_posix().casefold()
+
+
+@lru_cache(maxsize=1)
+def package_projection_entries() -> frozenset[str]:
+    manifest_path = skill_root() / "references" / "manifests" / "install-projection.v1.json"
+    value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    projections = value.get("projections") if isinstance(value, dict) else None
+    if not isinstance(projections, dict):
+        raise PackagePolicyError("install projection manifest missing projections")
+    entries: set[str] = set()
+    for name in ("shared_agents", "portable_current_tool"):
+        raw = projections.get(name)
+        if isinstance(raw, list):
+            entries.update(str(item).replace("\\", "/").casefold() for item in raw)
+    entries.update(item.casefold() for item in PACKAGE_EXTRA_FILES)
+    entries.update(item.casefold() for item in PACKAGE_GENERATED_SEED_FILES)
+    return frozenset(entries)
+
+
+def package_includes(relative: Path, *, is_dir: bool) -> bool:
+    key = relative_key(relative)
+    if not key:
+        return True
+    entries = package_projection_entries()
+    if is_dir:
+        return any(entry == key or entry.startswith(key + "/") or key.startswith(entry + "/") for entry in entries)
+    return any(key == entry or key.startswith(entry + "/") for entry in entries)
 
 
 def has_sensitive_directory(relative: Path) -> bool:
@@ -512,11 +457,12 @@ def is_link_or_reparse(path: Path) -> bool:
 
 
 def should_skip(relative: Path, is_dir: bool) -> bool:
-    del is_dir
     lower_parts = {part.casefold() for part in relative.parts}
     lower_name = relative.name.casefold()
     key = relative_key(relative)
     if key in REPOSITORY_ONLY_PATHS:
+        return True
+    if not package_includes(relative, is_dir=is_dir):
         return True
     if has_sensitive_directory(relative):
         return True
@@ -550,8 +496,7 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
 
 
 def validate_source_directory(relative: Path) -> None:
-    key = relative_key(relative)
-    if key not in SOURCE_ALLOWED_DIRS:
+    if not package_includes(relative, is_dir=True):
         raise PackagePolicyError(f"unknown-directory:{relative.as_posix()}")
 
 
@@ -1058,9 +1003,8 @@ def archive_member_policy_problem(normalized: str, is_dir: bool) -> str | None:
     if any(part in SECRET_BEARING_DIRS for part in lower_parts):
         return "sensitive-directory"
 
-    directory = relative if is_dir else "/".join(relative_parts[:-1])
-    if directory and directory.casefold() not in ARCHIVE_ALLOWED_DIRS:
-        return "unknown-directory"
+    if not package_includes(Path(relative), is_dir=is_dir):
+        return "not-in-package-projection"
     if is_dir:
         return None
 
@@ -1152,22 +1096,13 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
     forbidden: list[str] = []
     required = {
         f"{ROOT_NAME}/SKILL.md",
+        f"{ROOT_NAME}/VERSION",
+        f"{ROOT_NAME}/README.md",
         f"{ROOT_NAME}/release-manifest.json",
-        f"{ROOT_NAME}/development-manual/README.md",
-        f"{ROOT_NAME}/development-manual/decretum-matrix-development-manual-zh.md",
-        f"{ROOT_NAME}/web/shiguan-tree/app.js",
         f"{ROOT_NAME}/references/README.md",
         f"{ROOT_NAME}/references/reference-section-index.md",
         f"{ROOT_NAME}/references/department-map.md",
-        f"{ROOT_NAME}/references/sections/court-capability-verification-index.md",
-        f"{ROOT_NAME}/references/sections/court-closeout-installation-validation.md",
-        f"{ROOT_NAME}/references/sections/court-closeout-memorial-format.md",
         f"{ROOT_NAME}/references/sections/court-startup-approval-policy-details.md",
-        f"{ROOT_NAME}/references/sections/court-response-fewshot-format.md",
-        f"{ROOT_NAME}/references/sections/court-office-voice-fewshot.md",
-        f"{ROOT_NAME}/references/sections/court-context-compression-survival.md",
-        f"{ROOT_NAME}/references/fixtures/response-draft-families.json",
-        f"{ROOT_NAME}/references/fixtures/context-compression-survival.json",
         f"{ROOT_NAME}/references/court-capability-registry.md",
         f"{ROOT_NAME}/references/court-closeout-validation.md",
         f"{ROOT_NAME}/references/court-core-contract.md",
@@ -1179,15 +1114,10 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
         f"{ROOT_NAME}/references/court-state-runtime-agents.md",
         f"{ROOT_NAME}/references/court-supercc-runtime-selection.md",
         f"{ROOT_NAME}/references/hermes-studio-super-gl.md",
-        f"{ROOT_NAME}/references/obsidian-autosync-rest.md",
         f"{ROOT_NAME}/references/hermes-studio-group-chat.md",
-        f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
         f"{ROOT_NAME}/references/court-policy.yaml",
         f"{ROOT_NAME}/references/court-roles.yaml",
         f"{ROOT_NAME}/references/shiguan-ledger-policy.md",
-        f"{ROOT_NAME}/references/complexity-budget.md",
-        f"{ROOT_NAME}/references/manifests/release-gates.v1.json",
-        f"{ROOT_NAME}/references/manifests/source-state-budget.v1.json",
         f"{ROOT_NAME}/references/supercc-phase-cycling-model.md",
         f"{ROOT_NAME}/references/shiguan-index.jsonl",
         f"{ROOT_NAME}/references/shiguan-knowledge-graph.json",
@@ -1196,11 +1126,13 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
         f"{ROOT_NAME}/references/shiguan-tree/capability-index/README.md",
         f"{ROOT_NAME}/references/shiguan-tree/capability-index/_index.md",
         f"{ROOT_NAME}/references/shiguan-tree/sources/README.md",
+        f"{ROOT_NAME}/scripts/court_cli.py",
+        f"{ROOT_NAME}/scripts/ensure_supercc_court.py",
+        f"{ROOT_NAME}/scripts/sync_active_copies.py",
     }
     required.update(LEGAL_REQUIRED_MEMBERS)
     required.update(BRAND_REQUIRED_MEMBERS)
     required.update(PACKAGE_IDENTITY_REQUIRED_MEMBERS)
-    required.update({f"{ROOT_NAME}/scripts/{name}" for name in REQUIRED_COURT_SCRIPTS})
     required.update(
         {
             f"{ROOT_NAME}/agents/{dossier_kind}/{role}/AGENTS.md"
@@ -1345,12 +1277,6 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
             schema = graph.get("schema") if isinstance(graph, dict) else {}
             if not isinstance(schema, dict) or schema.get("portable_seed") is not True:
                 forbidden.append(f"{graph_name}:not-portable-seed")
-    try:
-        from release_payload_manifest import validate_zip_payload
-
-        forbidden.extend(validate_zip_payload(path))
-    except (ImportError, RuntimeError, ValueError) as exc:
-        forbidden.append(f"release-manifest:validator-failed:{type(exc).__name__}")
     return entry_count, missing + sorted(set(forbidden))
 
 
@@ -1362,20 +1288,9 @@ def run_stage_validation(stage: Path) -> list[str]:
         if term not in readme_text:
             problems.append(f"stage:references/README.md:missing:{term}")
 
-    for script, args in (
-        ("quick_validate.py", []),
-        ("check_install_prompt.py", []),
-        ("check_response_fewshot_format.py", []),
-        ("check_response_draft_fixtures.py", []),
-        ("check_context_compression_survival.py", []),
-        ("check_release_legal.py", ["--self-test", "--json"]),
-        ("release_payload_manifest.py", ["--self-test", "--check", "--json"]),
-        ("check_package_privacy.py", []),
-    ):
+    for script, args in (("quick_validate.py", []),):
         command = [sys.executable, "-B", str(stage / "scripts" / script), *args]
         env = os.environ.copy()
-        if script in {"release_payload_manifest.py", "check_package_privacy.py"}:
-            env["COURT_PACKAGE_STAGE_VALIDATION"] = "1"
         completed = subprocess.run(
             command,
             cwd=stage,

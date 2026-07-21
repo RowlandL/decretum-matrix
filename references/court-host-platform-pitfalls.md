@@ -23,14 +23,14 @@ This reference owns host-specific pitfalls that are too detailed for the entrypo
   while Python or another host using `CreateProcess("codex")` skips those shims
   and reaches a later stale `codex.exe`. Treat matching version text alone as
   insufficient. `scripts/court_codex_host_resolution.py` requires the first
-  executable beside the npm shim to share file identity, SHA256, and version
-  with the verified npm-native binary, and verifies the bare subprocess path as
-  well. Its explicit repair mode first tries a symbolic link, falls back to a
+  executable beside the npm shim to match the selected native binary path and
+  version evidence, and verifies the bare subprocess path as well. Its explicit
+  repair mode first tries a symbolic link, falls back to a
   same-volume hard link, and migrates any conflicting executable into the
   shared Shiguan host-capability backup tree; it never deletes the conflict.
   Re-run the live gate after every npm Codex upgrade because a hard link can
   otherwise remain attached to the previous binary. Fresh office workers still
-  execute an exact native path and recheck the host-proof SHA256 at launch.
+  execute an exact native path and report the resolved host proof at launch.
 - Native Windows Python, POSIX-compatible shells on Windows, and Linux/macOS Python disagree about path syntax. Do not teach an office pane to translate workspace paths by hand. For superCC `squad` calls, route through `scripts/supercc_squad.py` or the `.sh`/`.ps1`/`.cmd` wrapper from the role dossier directory; the wrapper resolves the host program and environment. For process inspection, do not assume POSIX `ps` exists on Windows; use the platform's native process tool.
 - Claude Code Bash on Windows may be a POSIX shell even when the task workspace is a native Windows directory. The generated Shell Contract must therefore point to the wrapper scripts, not to shell-specific absolute workspace paths. On Linux/macOS the same wrapper should resolve the normal `squad` binary from PATH.
 - If Claude Code or another CLI transcript shows a command copied from an older prompt, for example a bare office inbox command, `cd` into a Windows home path, or manual `/mnt/c`/`/c`/`C:\...` conversion, treat that transcript as stale drift evidence. Repair the generated dossier or shell contract instead of adding another host-specific path pattern. The durable command surface is the wrapper path relative to the role dossier plus the task workspace exposed separately through environment/add-dir mechanisms.

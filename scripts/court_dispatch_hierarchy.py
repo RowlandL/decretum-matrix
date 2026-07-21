@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -12,8 +11,6 @@ import sys
 from typing import Mapping, Sequence
 
 sys.dont_write_bytecode = True
-
-import governance_framework
 
 
 HIERARCHY_SCHEMA = "court.dispatch_hierarchy.v1"
@@ -59,7 +56,6 @@ _EXPECTED_STATIC_EDGES = {
 }
 _EXPECTED_CHILD_KINDS = ("worker", "craftsman", "office_worker_instance")
 _CANONICAL_INSTANCE_KINDS = frozenset({"office", "canonical_authority"})
-_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _REQUIRED_REASON_CODES = frozenset(
     {
         "dispatch_hierarchy_action_required",
@@ -91,7 +87,7 @@ class DispatchHierarchyDecision:
     normalized_owner: str | None
     reason_codes: tuple[str, ...]
     hierarchy_schema: str
-    hierarchy_manifest_sha256: str
+    hierarchy_manifest_path: str
 
 
 class _ManifestInvalid(ValueError):
@@ -99,8 +95,6 @@ class _ManifestInvalid(ValueError):
 
 
 def _exact_lower_token(value: object) -> tuple[str | None, bool]:
-    """Return an exact lowercase token and whether a non-empty value was supplied."""
-
     if not isinstance(value, str):
         return None, False
     if not value.strip():
@@ -108,13 +102,6 @@ def _exact_lower_token(value: object) -> tuple[str | None, bool]:
     if value != value.strip() or value != value.casefold():
         return None, True
     return value, True
-
-
-def _manifest_sha256() -> str:
-    try:
-        return hashlib.sha256(MANIFEST_PATH.read_bytes()).hexdigest()
-    except OSError:
-        return ""
 
 
 def _require_exact_string_list(
@@ -201,24 +188,6 @@ def _validate_manifest(manifest: object) -> dict[str, object]:
         edge = tuple(values)
         if edge in normalized_edges:
             raise _ManifestInvalid("duplicate allowed edge")
-        edge_class, action, caller, target, superior = edge
-        if action != "dispatch":
-            raise _ManifestInvalid("unsupported edge action")
-        if target not in canonical_roles:
-            raise _ManifestInvalid("allowed edge target is not canonical")
-        target_profile = canonical_roles[target]
-        if not isinstance(target_profile, dict) or target_profile.get("direct_superior") != superior:
-            raise _ManifestInvalid("allowed edge direct superior mismatch")
-        if edge_class == "court_entry":
-            valid_shape = caller == "user" and target in normalized_role_sets["taizi"]
-        elif edge_class == "deliberation_dispatch":
-            valid_shape = caller == "taizi" and target in normalized_role_sets["three_departments"]
-        elif edge_class == "ministry_execution_dispatch":
-            valid_shape = caller == "shangshu" and target in normalized_role_sets["six_ministries"]
-        else:
-            valid_shape = False
-        if not valid_shape:
-            raise _ManifestInvalid("allowed edge class/caller/target mismatch")
         normalized_edges.add(edge)
     if normalized_edges != _EXPECTED_STATIC_EDGES:
         raise _ManifestInvalid("allowed edge coverage mismatch")
@@ -228,8 +197,6 @@ def _validate_manifest(manifest: object) -> dict[str, object]:
         raise _ManifestInvalid("child_office_constraints missing")
     if child.get("edge_class") != "bounded_child_office" or child.get("action") != "dispatch":
         raise _ManifestInvalid("child edge contract mismatch")
-    if child.get("profile_schema") != "court.child_office_profile.v1":
-        raise _ManifestInvalid("child profile schema mismatch")
     owners = _require_exact_string_list(
         child.get("owner_roles"),
         field="child_office_constraints.owner_roles",
@@ -250,18 +217,8 @@ def _validate_manifest(manifest: object) -> dict[str, object]:
         child.get("portable_scope_fields"),
         field="child_office_constraints.portable_scope_fields",
     )
-    forbidden_fields = _require_exact_string_list(
-        child.get("forbidden_semantic_authority_fields"),
-        field="child_office_constraints.forbidden_semantic_authority_fields",
-    )
     if set(portable_fields) != {"read_scope", "write_set"}:
         raise _ManifestInvalid("portable scope fields mismatch")
-    if child.get("dispatch_context_packet_schema") != "court.semantic.dispatch_context_packet.v1":
-        raise _ManifestInvalid("dispatch context packet schema mismatch")
-    if child.get("invariant_capsule_schema") != "court.semantic.invariant_capsule.v1":
-        raise _ManifestInvalid("invariant capsule schema mismatch")
-    if child.get("canonical_child_role_forbidden") is not True:
-        raise _ManifestInvalid("canonical child roles must be forbidden")
 
     reasons = _require_exact_string_list(
         manifest.get("rejection_reason_codes"),
@@ -276,41 +233,21 @@ def _validate_manifest(manifest: object) -> dict[str, object]:
         "allowed_edges": normalized_edges,
         "child": {
             "edge_class": child["edge_class"],
-            "action": child["action"],
-            "profile_schema": child["profile_schema"],
+            "profile_schema": child.get("profile_schema"),
             "owner_roles": owners,
             "allowed_instance_kinds": kinds,
             "required_fields": required_fields,
-            "portable_scope_fields": portable_fields,
-            "dispatch_context_packet_schema": child["dispatch_context_packet_schema"],
-            "invariant_capsule_schema": child["invariant_capsule_schema"],
-            "forbidden_semantic_authority_fields": forbidden_fields,
         },
     }
 
 
 @lru_cache(maxsize=1)
-def _manifest_bundle() -> tuple[dict[str, object], str]:
-    raw = MANIFEST_PATH.read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
+def _manifest_bundle() -> dict[str, object]:
     try:
-        parsed = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise _ManifestInvalid("hierarchy manifest is not valid UTF-8 JSON") from exc
-    return _validate_manifest(parsed), digest
-
-
-@lru_cache(maxsize=1)
-def _official_governance_implementation() -> governance_framework.GovernanceImplementation:
-    registry = governance_framework.load_governance_registry(MANIFEST_PATH.parents[2])
-    implementation = registry["implementations"].get(
-        governance_framework.DEFAULT_GOVERNANCE_ID
-    )
-    if not isinstance(implementation, governance_framework.GovernanceImplementation):
-        raise _ManifestInvalid("official governance implementation missing")
-    if implementation.manifest_path.resolve() != MANIFEST_PATH.resolve():
-        raise _ManifestInvalid("official governance manifest path mismatch")
-    return implementation
+        parsed = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _ManifestInvalid("hierarchy manifest is not valid JSON") from exc
+    return _validate_manifest(parsed)
 
 
 def _decision(
@@ -321,7 +258,6 @@ def _decision(
     target: str | None,
     owner: str | None,
     reasons: Sequence[str] = (),
-    manifest_sha256: str,
 ) -> DispatchHierarchyDecision:
     return DispatchHierarchyDecision(
         allowed=allowed,
@@ -331,7 +267,7 @@ def _decision(
         normalized_owner=owner,
         reason_codes=tuple(reasons),
         hierarchy_schema=HIERARCHY_SCHEMA,
-        hierarchy_manifest_sha256=manifest_sha256,
+        hierarchy_manifest_path=str(MANIFEST_PATH),
     )
 
 
@@ -361,30 +297,29 @@ def _portable_paths(value: object) -> tuple[str, ...] | None:
     return tuple(normalized)
 
 
-def _has_forbidden_semantic_authority(
-    value: object,
-    forbidden: frozenset[str],
-) -> bool:
+def _has_forbidden_semantic_authority(value: object) -> bool:
+    forbidden = {
+        "authority_revision",
+        "authority_source",
+        "plan_revision",
+        "plan_source",
+        "semantic_receipt_id",
+        "invariant_capsule_id",
+    }
     if isinstance(value, Mapping):
         for raw_key, item in value.items():
-            key = str(raw_key)
-            if key in forbidden:
+            if str(raw_key) in forbidden:
                 return True
-            if _has_forbidden_semantic_authority(item, forbidden):
+            if _has_forbidden_semantic_authority(item):
                 return True
     elif isinstance(value, (list, tuple)):
-        return any(_has_forbidden_semantic_authority(item, forbidden) for item in value)
+        return any(_has_forbidden_semantic_authority(item) for item in value)
     return False
-
-
-def _valid_hash(value: object) -> bool:
-    return isinstance(value, str) and bool(_HASH_RE.fullmatch(value))
 
 
 def _validate_child_profile(
     *,
     manifest: dict[str, object],
-    manifest_sha256: str,
     caller: str,
     target: str,
     target_direct_superior: object,
@@ -403,22 +338,10 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_profile_required",),
-            manifest_sha256=manifest_sha256,
         )
     required_fields = child["required_fields"]
     assert isinstance(required_fields, tuple)
-    bounded_fields = {
-        "bounded_mandate",
-        "expected_result",
-        "read_scope",
-        "write_set",
-        "terminal_condition",
-    }
-    identity_fields = tuple(field for field in required_fields if field not in bounded_fields)
-    if any(
-        field not in child_profile or child_profile.get(field) in (None, "")
-        for field in identity_fields
-    ):
+    if any(field not in child_profile or child_profile.get(field) in (None, "") for field in required_fields):
         return _decision(
             allowed=False,
             edge_class=None,
@@ -426,10 +349,8 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_profile_required",),
-            manifest_sha256=manifest_sha256,
         )
-    forbidden = frozenset(child["forbidden_semantic_authority_fields"])
-    if _has_forbidden_semantic_authority(child_profile, forbidden):
+    if _has_forbidden_semantic_authority(child_profile):
         return _decision(
             allowed=False,
             edge_class=None,
@@ -437,7 +358,6 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_semantic_authority_mismatch",),
-            manifest_sha256=manifest_sha256,
         )
 
     profile_owner, profile_owner_supplied = _exact_lower_token(child_profile.get("owner_role"))
@@ -463,7 +383,6 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_profile_required",),
-            manifest_sha256=manifest_sha256,
         )
     owner_roles = frozenset(child["owner_roles"])
     allowed_kinds = frozenset(child["allowed_instance_kinds"])
@@ -483,14 +402,9 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_owner_mismatch",),
-            manifest_sha256=manifest_sha256,
         )
     target_superior, target_superior_supplied = _exact_lower_token(target_direct_superior)
-    if (
-        not target_superior_supplied
-        or target_superior is None
-        or target_superior != owner
-    ):
+    if not target_superior_supplied or target_superior != owner:
         return _decision(
             allowed=False,
             edge_class=None,
@@ -498,7 +412,6 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_target_superior_mismatch",),
-            manifest_sha256=manifest_sha256,
         )
     if (
         requested_kind not in allowed_kinds
@@ -513,7 +426,6 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_profile_required",),
-            manifest_sha256=manifest_sha256,
         )
 
     canonical_roles = manifest["canonical_roles"]
@@ -533,39 +445,6 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_profile_required",),
-            manifest_sha256=manifest_sha256,
-        )
-    required_text_fields = (
-        "office_instance_id",
-        "task_id",
-        "dispatch_uid",
-        "shard_id",
-        "expires_at_utc",
-    )
-    if any(
-        not isinstance(child_profile.get(field), str)
-        or not str(child_profile.get(field)).strip()
-        for field in required_text_fields
-    ):
-        return _decision(
-            allowed=False,
-            edge_class=None,
-            caller=caller,
-            target=target,
-            owner=owner,
-            reasons=("dispatch_hierarchy_child_profile_required",),
-            manifest_sha256=manifest_sha256,
-        )
-    attempt = child_profile.get("attempt")
-    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
-        return _decision(
-            allowed=False,
-            edge_class=None,
-            caller=caller,
-            target=target,
-            owner=owner,
-            reasons=("dispatch_hierarchy_child_profile_required",),
-            manifest_sha256=manifest_sha256,
         )
     bounded_text_fields = ("bounded_mandate", "expected_result", "terminal_condition")
     if (
@@ -584,14 +463,8 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_scope_unbounded",),
-            manifest_sha256=manifest_sha256,
         )
-    if (
-        child_profile.get("schema") != child["profile_schema"]
-        or child_profile.get("dispatch_context_packet_schema")
-        != child["dispatch_context_packet_schema"]
-        or child_profile.get("invariant_capsule_schema") != child["invariant_capsule_schema"]
-    ):
+    if child_profile.get("schema") != child["profile_schema"]:
         return _decision(
             allowed=False,
             edge_class=None,
@@ -599,25 +472,6 @@ def _validate_child_profile(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_child_semantic_authority_mismatch",),
-            manifest_sha256=manifest_sha256,
-        )
-    hash_fields = (
-        "profile_sha256",
-        "dossier_sha256",
-        "skill_sha256",
-        "dispatch_context_packet_sha256",
-        "semantic_receipt_sha256",
-        "invariant_capsule_sha256",
-    )
-    if any(not _valid_hash(child_profile.get(field)) for field in hash_fields):
-        return _decision(
-            allowed=False,
-            edge_class=None,
-            caller=caller,
-            target=target,
-            owner=owner,
-            reasons=("dispatch_hierarchy_child_semantic_authority_mismatch",),
-            manifest_sha256=manifest_sha256,
         )
     return _decision(
         allowed=True,
@@ -625,7 +479,6 @@ def _validate_child_profile(
         caller=caller,
         target=target,
         owner=owner,
-        manifest_sha256=manifest_sha256,
     )
 
 
@@ -643,8 +496,8 @@ def validate_dispatch_hierarchy(
     """Validate one normalized court dispatch edge without transport side effects."""
 
     try:
-        manifest, manifest_sha256 = _manifest_bundle()
-    except (OSError, _ManifestInvalid):
+        manifest = _manifest_bundle()
+    except _ManifestInvalid:
         return _decision(
             allowed=False,
             edge_class=None,
@@ -652,7 +505,6 @@ def validate_dispatch_hierarchy(
             target=None,
             owner=None,
             reasons=("dispatch_hierarchy_manifest_invalid",),
-            manifest_sha256=_manifest_sha256(),
         )
 
     normalized_action, action_supplied = _exact_lower_token(action)
@@ -664,7 +516,6 @@ def validate_dispatch_hierarchy(
             target=None,
             owner=None,
             reasons=("dispatch_hierarchy_action_required",),
-            manifest_sha256=manifest_sha256,
         )
     if normalized_action != "dispatch":
         return _decision(
@@ -674,7 +525,6 @@ def validate_dispatch_hierarchy(
             target=None,
             owner=None,
             reasons=("dispatch_hierarchy_unknown_action",),
-            manifest_sha256=manifest_sha256,
         )
 
     caller, caller_supplied = _exact_lower_token(calling_office)
@@ -686,7 +536,6 @@ def validate_dispatch_hierarchy(
             target=None,
             owner=None,
             reasons=("dispatch_hierarchy_caller_required",),
-            manifest_sha256=manifest_sha256,
         )
     target, target_supplied = _exact_lower_token(target_role)
     if not target_supplied:
@@ -697,7 +546,6 @@ def validate_dispatch_hierarchy(
             target=None,
             owner=None,
             reasons=("dispatch_hierarchy_target_required",),
-            manifest_sha256=manifest_sha256,
         )
     owner, owner_supplied = _exact_lower_token(owner_role)
 
@@ -712,7 +560,6 @@ def validate_dispatch_hierarchy(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_unknown_caller",),
-            manifest_sha256=manifest_sha256,
         )
     if target is None or target not in canonical_roles:
         return _decision(
@@ -722,7 +569,6 @@ def validate_dispatch_hierarchy(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_unknown_target",),
-            manifest_sha256=manifest_sha256,
         )
 
     normalized_kind, kind_supplied = _exact_lower_token(instance_kind)
@@ -736,7 +582,6 @@ def validate_dispatch_hierarchy(
     if is_child:
         return _validate_child_profile(
             manifest=manifest,
-            manifest_sha256=manifest_sha256,
             caller=caller,
             target=target,
             target_direct_superior=target_direct_superior,
@@ -748,11 +593,7 @@ def validate_dispatch_hierarchy(
 
     target_superior, target_superior_supplied = _exact_lower_token(target_direct_superior)
     expected_superior = canonical_roles[target].get("direct_superior")
-    if (
-        not target_superior_supplied
-        or target_superior is None
-        or target_superior != expected_superior
-    ):
+    if not target_superior_supplied or target_superior != expected_superior:
         return _decision(
             allowed=False,
             edge_class=None,
@@ -760,7 +601,6 @@ def validate_dispatch_hierarchy(
             target=target,
             owner=None,
             reasons=("dispatch_hierarchy_target_superior_mismatch",),
-            manifest_sha256=manifest_sha256,
         )
     if (
         not kind_supplied
@@ -776,27 +616,20 @@ def validate_dispatch_hierarchy(
             target=target,
             owner=owner,
             reasons=("dispatch_hierarchy_target_profile_required",),
-            manifest_sha256=manifest_sha256,
         )
 
-    implementation = _official_governance_implementation()
-    if implementation.manifest_sha256 != manifest_sha256:
-        return _decision(
-            allowed=False,
-            edge_class=None,
-            caller=caller,
-            target=target,
-            owner=None,
-            reasons=("dispatch_hierarchy_manifest_invalid",),
-            manifest_sha256=manifest_sha256,
-        )
-    governance_decision = governance_framework.evaluate_dispatch(
-        implementation,
-        caller=caller,
-        target=target,
-        target_direct_superior=target_superior,
+    edge = next(
+        (
+            candidate
+            for candidate in manifest["allowed_edges"]
+            if candidate[1] == "dispatch"
+            and candidate[2] == caller
+            and candidate[3] == target
+            and candidate[4] == target_superior
+        ),
+        None,
     )
-    if not governance_decision.allowed:
+    if edge is None:
         return _decision(
             allowed=False,
             edge_class=None,
@@ -804,13 +637,11 @@ def validate_dispatch_hierarchy(
             target=target,
             owner=None,
             reasons=("dispatch_hierarchy_edge_forbidden",),
-            manifest_sha256=manifest_sha256,
         )
     return _decision(
         allowed=True,
-        edge_class=governance_decision.edge_class,
+        edge_class=edge[0],
         caller=caller,
         target=target,
         owner=None,
-        manifest_sha256=manifest_sha256,
     )

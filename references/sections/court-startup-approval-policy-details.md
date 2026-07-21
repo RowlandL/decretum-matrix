@@ -50,7 +50,7 @@ configuration work or the active authority allows that change.
 `superCC` is not an authority class. It is a distinct startup/runtime entry that
 carries one exact three-authority value and one explicit behavior. Normal superCC requires
 zellij panes, `squad`, and selected client/readiness evidence. Native and superCC
-may read the same neutral standing-office configuration pointer/hash, but must
+may read the same neutral standing-office configuration pointer, but must
 not share runtime state, dossiers, transports, admissions, or lifecycle paths.
 
 ## Capability Invocation

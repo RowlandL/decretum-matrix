@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 import os
 from pathlib import Path
 import sys
+import zlib
 
 sys.dont_write_bytecode = True
 from typing import Any, Callable
@@ -90,7 +90,7 @@ def normalized_office_context(
         separators=(",", ":"),
         sort_keys=True,
     )
-    context_id = "ctx-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    context_id = f"ctx-{zlib.crc32(identity.encode('utf-8')):08x}"
     return resolved, normalized_session, context_id
 
 

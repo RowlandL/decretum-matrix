@@ -30,7 +30,7 @@ working state is not an entry condition.
 
 ## Runtime Families
 
-`superCC` 不是高于三权的安全权威，也不是 native runtime 的可切换模式。它是独立 startup/runtime 入口，携带一个精确 `approval|autonomous|super` authority 与一个显式 `serial|parallel` behavior。native 与 superCC 不得在同一 task/process 共存、切换或相互回退；二者只读取同一中性层级/standing-profile 配置 pointer/hash，runtime state、task store、dossier、transport、admission 与 lifecycle 均隔离。每次使用必须由最新旨意显式点名 `superCC`，并先生成结构化 execution receipt：
+`superCC` 不是高于三权的安全权威，也不是 native runtime 的可切换模式。它是独立 startup/runtime 入口，携带一个精确 `approval|autonomous|super` authority 与一个显式 `serial|parallel` behavior。native 与 superCC 不得在同一 task/process 共存、切换或相互回退；二者只读取同一中性层级/standing-profile 配置指针，runtime state、task store、dossier、transport、admission 与 lifecycle 均隔离。每次使用必须由最新旨意显式点名 `superCC`，并先生成结构化 execution receipt：
 
 ```text
 runtime_selection_gate: PASSED | runtime_degraded | authority_blocked
@@ -52,7 +52,7 @@ supercc_normal_env_requirement: zellij+squad
 - `--office-client auto` 是默认入口：先尊重 `COURT_OFFICE_CLIENT` / `COURT_SOURCE_CLI` / `COURT_OFFICE_CLIENT_COMMAND` 等显式环境，再让 `CODEX_THREAD_ID` 等当前会话强信号优先于只表示 provider 可用性的 `ANTHROPIC_*` / `CLAUDE_*` 弱环境标记，随后才按 Windows 父进程链、skill 路径和其他信号推断当前 CLI。全局存在某供应商凭据或模型变量不等于当前控制线程就是该 CLI；无法识别时保持 host fallback，而不是冒充已知 client。
 - Hermes desktop/profile/session evidence 是 readiness/supplemental evidence。它可以证明 Hermes profile、session、skills、taizi policy 是否可用，但不能单独把 desktop/profile-native 会话升格为 normal `superCC`。
 - 不允许只靠旧史馆记录、旧计划、静态包名、普通并行任务、Hermes profile readiness、Claude 普通会话或 desktop 会话声称 normal `superCC`。
-- 不允许为支持 Hermes 或 Claude 而放宽 visible pane、`squad`、profile hash、`ENTER_DISPATCH`、task evidence、office uniqueness、request-rate gate、层级监督与 closeout 规则。
+- 不允许为支持 Hermes 或 Claude 而放宽 visible pane、`squad`、role acknowledgement、`ENTER_DISPATCH`、task evidence、office uniqueness、request-rate gate、层级监督与 closeout 规则。
 
 ## Normal Environment Gate
 
@@ -98,7 +98,7 @@ Codex client evidence is required only when `runtime_client=codex`. The Codex cl
 
 - Codex CLI availability.
 - visible core panes: 太子 and 三省; legacy inspection identities are not part of the default runtime shape.
-- office profile/soul hash.
+- office role/profile source acknowledgement.
 - `ENTER_DISPATCH` `SQUAD_TASK_AND_SEND_BEFORE_NATIVE_ENTER`, native-entered `SUPERCC_SQUAD_RECEIVE_COMMAND`, one second delayed second Enter, and `squad` mirror.
 - structured `task_evidence` or equivalent direct assignment evidence for execution claims.
 - `model_triggering_requests <= 20/minute` with explicit total budgets for stress tests and provider queue/backoff evidence. `--office-show-delay` is presentation-only, defaults to one second, has a hard 0-5 second range, and never becomes a provider throttle. The first office has no artificial cooldown; ordinary spawned agents always use zero presentation delay. A wait beyond five seconds must be labeled `queued_rate_limit` or provider retry/backoff, never hidden as office stagger.
@@ -129,7 +129,7 @@ Hermes rules:
 - `ensure_hermes_supercc.py` is read-only. Its `hermes_profile_readiness_evidence=PASSED` means readiness only; actual named office work additionally requires `hermes_profile_dispatch_evidence` or visible zellij dispatch evidence for each claimed role.
 - If the only evidence is profile readiness, set `profile_native_evidence_scope=readiness_only_not_dispatch_not_normal_without_zellij_squad` and named office execution must be `NOT_RUN` or `runtime_degraded`, not `PASSED`.
 - A single merged subagent, combined-office review, or plain `delegate_task` without per-role profile/session evidence is `office_duty_enforcement=PARTIAL|FAILED`.
-- Memory/conversation bridge records remain metadata-only: path, profile, session id, hash, lineages, keywords, and status. Do not copy raw Hermes conversations, auth files, tokens, cookies, API keys, private vaults, or full memory bodies into Shiguan/package artifacts.
+- Memory/conversation bridge records remain metadata-only: path, profile, session id, lineage, keywords, timestamps, sizes when useful, and status. Do not copy raw Hermes conversations, auth files, tokens, cookies, API keys, private vaults, or full memory bodies into Shiguan/package artifacts.
 
 ## Claude Code Client And Sync
 
@@ -210,7 +210,7 @@ The portable package must include the unified zellij+`squad` normal gate:
 - `scripts/ensure_supercc_court.py` for zellij+`squad` and selected visible office-client gates (`auto`, built-in `codex`/`hermescli`/`claude`, or generic `cli`).
 - `scripts/supercc_office_state.py` for the portable v1/v2 context-partitioned state store used by the launcher and watchdog.
 - `scripts/ensure_hermes_supercc.py` for Hermes CLI/desktop readiness that does not pass normal `superCC` alone.
-- `scripts/check_active_copy_hashes.py` including `.agents`, `.codex`, `.claude`, `.hermes`, and the platform user-data Hermes skill target when present.
+- `scripts/sync_active_copies.py` for the governed projection to `.agents`, `.codex`, `.claude`, `.hermes`, and the platform user-data Hermes skill target when present.
 - `agents/supercc-dossiers/<role>/AGENTS.md` for terminal-visible light bootstrap.
 - package validation that excludes host-local Shiguan bodies, raw logs, private profile records, secrets, tokens, cookies, API keys, memory decisions, import queues, and generated local indexes.
 

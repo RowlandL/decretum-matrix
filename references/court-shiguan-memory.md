@@ -2,7 +2,7 @@
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
-原始来源：`SKILL.md` sha256 `64c7a9089275de004bbd2fc4e9c59633d2bbfe9e2a355178816c3da65f6563c9`。本卷章节：`Shiguan Lineage And Court Code`, `史馆实录`, `Memory Decision Gate`。
+原始来源：`SKILL.md` 的史馆与记忆章节。本文是该语义迁移后的 governing reference。
 
 ## Contents
 
@@ -98,7 +98,7 @@ controlled vocabulary makes that unambiguous, but a layer has no fixed maximum
 length. Increase that layer's representative code when a single character would
 be ambiguous, capped, overloaded, or generated from an unknown term. Unknown
 Chinese lineage values must not collapse to generic `X`; use a deterministic
-stable fallback such as `U` plus base36/hash material, or add the term to the
+stable fallback such as `U` plus a short normalized code, or add the term to the
 controlled vocabulary. `X` must never mean both "unknown" and a concrete
 category such as `星图`.
 
@@ -260,12 +260,11 @@ Before planning similar work, query it:
 python -B scripts/rebuild_shiguan_index.py
 python -B scripts/query_shiguan_index.py "<keyword>" "<key-action>"
 python -B scripts/grow_shiguan_tree.py
-python -B scripts/export_shiguan_obsidian.py --out "./Court-Shiguan-export" --check --zip
 ```
 
-Obsidian participates through a preserve-only cache and import queue:
-`scripts/sync_shiguan_obsidian_vault.py` refreshes the configured vault from the
-shared Shiguan source without deleting user notes, while Obsidian edits/imports
+Obsidian participates only as a source-tree maintenance extension unless the
+newest decree explicitly requests it. Default installed skill roots do not run
+Obsidian refresh during startup or ordinary closeout. Obsidian edits/imports
 must enter shared `shiguan-imports/pending/` and wait for 三省会审/门下复核 before
 becoming official records.
 
@@ -315,8 +314,8 @@ token optimization policy:
    retrieve and verify without loading the whole body. Required metadata normally
    includes `court_code`, `lineage_display`, `lineage_key`, `lineage_parts`,
    bilingual keywords, `key_actions`, source path, source kind, source agent,
-   evidence command/path, hashes or prefix hashes when useful, mtimes/sizes, task
-   ids, profile/dossier hashes, and risk/knowledge/priority grades.
+   evidence command/path, mtimes/sizes when useful, task ids, profile/dossier
+   source paths, and risk/knowledge/priority grades.
 2. **正文精简引用 / `body_reference_policy`**: keep record bodies compact. Use
    summaries, path+line anchors, short excerpts, and evidence handles. Do not
    copy full transcripts, raw logs, private Shiguan bodies, full Codex/Hermes
@@ -365,20 +364,14 @@ dependency of ordinary lightweight recall or court-open startup.
 
 ## Shared Shiguan Git And Native Memory Federation
 
-`scripts/shiguan_git_federation.py` manages one local-only Git repository at the
-authoritative shared `references` root and links it to independent native memory
-repositories for `codex`, `claude-code`, and `hermes`. The shared repository is
-the management hub, not a replacement memory store: it tracks only the explicit
-Shiguan allowlist, has no remote, and excludes `court-runtime`, pending/import,
-Obsidian configuration, peer state, logs, packages, and native Git objects.
-
-Governed commands are:
-
-```powershell
-python -B scripts/shiguan_git_federation.py probe --json
-python -B scripts/shiguan_git_federation.py apply --allow-host-mutation --json
-python -B scripts/shiguan_git_federation.py verify --json
-```
+The Shiguan Git federation is a source-tree maintenance extension for linking
+the authoritative shared `references` root to independent native memory
+repositories for `codex`, `claude-code`, and `hermes`. It is not installed into
+ordinary skill roots and is never contacted during lightweight recall, startup,
+or closeout. The shared repository remains a management hub, not a replacement
+memory store: it tracks only the explicit Shiguan allowlist, has no remote, and
+excludes `court-runtime`, pending/import, Obsidian configuration, peer state,
+logs, packages, and native Git objects.
 
 On a blank host, `probe` remains read-only and reports missing canonical stores.
 Only explicit `apply --allow-host-mutation` may create
@@ -444,21 +437,21 @@ carry:
   `keyword_summary_en`, and `key_actions` for keyword search.
 - `capability_vector_schema`, `capability_vector_kind`,
   `capability_lineage`, `capability_vector_terms`,
-  `capability_vector_text`, `capability_vector_sparse`, and
-  `capability_vector_hash` for capability-lineage vector or hybrid search.
+  `capability_vector_text`, and `capability_vector_sparse` for
+  capability-lineage vector or hybrid search.
   This vector is about 三省六部/官籍/能力类型/工具/skill/script/agent/史馆谱系,
   not a generic full-text embedding.
 - `capability_source_paths` and evidence fields for local source paths, such as
   a Codex session JSONL,
   `memories_1.sqlite`, Hermes `MEMORY.md`/`USER.md`, or a profile memory file.
-- Optional `original_sha256`, `original_size`, and `original_mtime` in evidence
-  or full-record when the file exists.
+- Optional `original_size` and `original_mtime` in evidence or full-record when
+  the file exists.
 - For live append-only sources such as the active Codex session JSONL, do not
-  present a whole-file sha256 as a durable invariant. Record
-  `live_prefix_size`, `live_prefix_sha256`, and `live_prefix_mtime_utc`, then
-  verify future recall by hashing only the first `live_prefix_size` bytes. This
-  keeps the source path auditable without copying the private transcript body
-  and remains valid when later turns append to the same JSONL.
+  present a whole-file checksum as a durable invariant. Record
+  `live_prefix_size`, `live_prefix_mtime_utc`, and a source path/fingerprint
+  note when useful. This keeps the source path auditable without copying the
+  private transcript body and remains valid when later turns append to the same
+  JSONL.
 - Searchable bilingual keywords such as `能力谱系向量`, `内容级桥接`,
   `古制谱系`, `诏令编号`, `source path`, and the file basename when paths matter.
 - A clear privacy note that recall points to the source path; reading that
@@ -475,14 +468,14 @@ Default bridge semantics:
 
 - Codex bridge reads `%CODEX_HOME%` or `%USERPROFILE%\.codex`, records
   `features.memories`, `[memories] generate_memories/use_memories`, and
-  metadata for `memories_1.sqlite`, including hash, size, mtime, table names,
+  metadata for `memories_1.sqlite`, including size, mtime, table names,
   columns, and row counts.
 - Hermes bridge reads the actual `config.yaml` under `%HERMES_HOME%` or
   `%LOCALAPPDATA%\hermes`, records the `memory:` block, built-in provider
   status, root memory file metadata, and profile memory file metadata.
 - `metadata` mode never copies `MEMORY.md`, `USER.md`, Codex SQLite rows, raw
   logs, or private profile facts into Shiguan. It stores only enablement state,
-  paths, hashes, sizes, mtimes, counts, and inventory.
+  paths, sizes, mtimes, counts, and inventory.
 - If Codex `memories_1.sqlite` has no rows in the candidate body table
   `stage1_outputs`, record `content_recall_status=empty_store_no_body_rows`
   and `memory_body_rows=0`. If rows exist, record `body_table_state` with the
@@ -509,13 +502,13 @@ Default bridge semantics:
 ## Pending Import Governance Trust Boundary
 
 Pending bodies remain raw materials. The metadata planner may inspect filenames,
-`lstat` fingerprints, and bounded sidecar JSON only; it may not open, read, hash,
+`lstat` fingerprints, and bounded sidecar JSON only; it may not open, read,
 move, delete, or mark-seen a body. The v3 governance ledger adds:
 
 - exact court-runtime actor identity evidence derived from a live task and a
   passed office preload record;
-- per-event HMAC authentication, globally contiguous sequence numbers, an event
-  hash chain, unique UUIDs, and timezone-aware nondecreasing timestamps;
+- per-event authentication, globally contiguous sequence numbers, unique UUIDs,
+  and timezone-aware nondecreasing timestamps;
 - an authenticated append-only head under the private runtime root, outside the
   append-only governance ledger directory;
 - independent recomputation of the candidate binding from the current pending
@@ -595,9 +588,9 @@ Current downgrade rules:
 - Skill-local `references/` may contain imported snapshots, portable seed files,
   or host-local archive remnants. Writable authoritative Shiguan data lives in
   the shared root resolved by `scripts/shiguan_paths.py`; packages and active-copy
-  hash checks must exclude raw private Shiguan bodies, memory decisions, plan
-  archives, runtime ledgers, logs, Obsidian config/API keys, peer/import state,
-  generated local indexes, and `references.imported-*`.
+  sync must exclude raw private Shiguan bodies, memory decisions, plan archives,
+  runtime ledgers, logs, Obsidian config/API keys, peer/import state, generated
+  local indexes, and `references.imported-*`.
 ## Memory Decision Gate
 
 史馆实录 and long-term memories are different:

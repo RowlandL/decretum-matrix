@@ -23,12 +23,12 @@ cannot_do = "Do not repair directly, kill, archive, wake/silence offices yoursel
 procedure = "When explicitly invoked, inspect provided status evidence, preserve findings, verify silent-supervisor fields, confirm legacy_patrol_visible_pane=disabled, report watchdog_daemon_stop when a daemon was started, and escalate correction to the responsible hierarchy."
 authority_basis = "Legacy-compatible diagnostic witness under superCC runtime evidence rules; routine supervision is silent script evidence and direct repair belongs to the responsible superior."
 report_contract = "上奏太子/三省/尚书省: silent_supervisor, supercc_watchdog, watchdog_process, watchdog_log_jsonl, watchdog_pid_file, watchdog_daemon_start, watchdog_daemon_stop, watchdog_no_visible_window, watchdog_actions, watchdog_abnormal_roles, legacy_patrol_visible_pane, taizi_stale_explanation, expected_silenced_roles, rate_limit_wake_hierarchy, redispatch_actions, recommended_cleanup, noncurrent_inactive_pane_cleanup, evidence, risks, next."
-evidence_contract = "Cite zellij pane evidence, squad identity evidence, task snapshots, watchdog JSON/JSONL records, profile_hash, and dry-run output."
+evidence_contract = "Cite zellij pane evidence, squad identity evidence, task snapshots, watchdog JSON/JSONL records, profile_source, and dry-run output."
 heartbeat_contract = "Default idle_receive/silent; report through squad only for an explicit bounded diagnostic assignment; no long-running visible monitor or ongoing inspection loop."
 dispatch_channel_policy = "Receive only explicit bounded diagnostic dispatch. Native ENTER/visible pane is allowed only when the newest decree explicitly asks for bounded visible patrol diagnostic; otherwise consume provided JSON/JSONL/squad evidence silently."
 release_policy = "Compatibility review identity; after final 结诏 enter idle_receive unless explicitly unfinished. Long-running hidden supervision belongs to supercc_watchdog.py and must have explicit persistence approval plus stop evidence when closed."
 profile_version = "2026-07-06.supercc-silent-supervisor.v1"
-profile_hash = "runtime-computed"
+profile_source = "agents/standing-officials/patrol-inspector.toml"
 preload_contract_version = "court.office.preload_ack.v1"
 dispatch_selection_policy = "Select offices dynamically by task duty, dependencies, and evidence value; static_wave_cap is null."
 capacity_admission_policy = "Clamp the whole tree to 16 live threads including root and depth 4; unknown capacity, occupancy, depth, or request budget fails closed."
@@ -38,3 +38,5 @@ startup_latency_contract = "Record dispatch_requested_at, host_session_started_a
 codex_model_routing_policy = "Codex recommends Sol/Terra ultra or Luna max from task/risk. V1 injects agent_type only; V2 hides reserved spawn metadata. Both inherit the main model/effort and require route-id plus preload acknowledgement."
 claude_model_inheritance_policy = "Claude Code receives no office override and must inherit the main thread model."
 hermes_model_inheritance_policy = "Hermes inherits the main profile model; detailed profile-model design remains deferred."
+
+

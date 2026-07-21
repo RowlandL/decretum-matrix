@@ -132,8 +132,8 @@ def dispatch_target_profile_gate(role: str, profile: dict[str, Any]) -> dict[str
 
     fields = profile.get("profile_fields")
     fields = fields if isinstance(fields, dict) else {}
-    profile_hash = profile.get("profile_hash")
-    dossier_hash = sha256_file(office_dossier_path(role))
+    profile_source = profile.get("profile_source")
+    dossier_path = office_dossier_path(role)
     reasons: list[str] = []
     if profile.get("office_profile_loaded") is not True:
         reasons.append("standing_profile_not_loaded")
@@ -141,17 +141,15 @@ def dispatch_target_profile_gate(role: str, profile: dict[str, Any]) -> dict[str
         reasons.append("standing_profile_role_mismatch")
     if fields.get("direct_superior") != fallback_direct_superior(role):
         reasons.append("standing_profile_direct_superior_mismatch")
-    if not isinstance(profile_hash, str) or re.fullmatch(r"[0-9a-f]{64}", profile_hash) is None:
-        reasons.append("standing_profile_hash_missing")
-    if not isinstance(dossier_hash, str) or re.fullmatch(r"[0-9a-f]{64}", dossier_hash) is None:
-        reasons.append("supercc_dossier_hash_missing")
+    if not isinstance(profile_source, str) or not profile_source:
+        reasons.append("standing_profile_source_missing")
+    if not dossier_path.is_file():
+        reasons.append("supercc_dossier_missing")
     return {
         "ok": not reasons,
         "role": role,
         "profile_source": profile.get("profile_source"),
-        "profile_hash": profile_hash,
         "office_dossier_path": str(office_dossier_path(role)),
-        "office_dossier_hash": dossier_hash,
         "reason": "ok" if not reasons else ",".join(reasons),
         "reason_codes": reasons,
     }
@@ -219,11 +217,9 @@ def special_lifecycle_dispatch_authority(
         "direct_superior": superior["direct_superior"],
         "allowed_callers": [],
         "hierarchy_manifest_path": str(manifest_path),
-        "hierarchy_manifest_sha256": shared.hierarchy_manifest_sha256,
+        "hierarchy_manifest_path": shared.hierarchy_manifest_path,
         "court_roles_path": str(roles_path),
-        "court_roles_sha256": sha256_file(roles_path),
         "standing_profile_path": profile.get("profile_source"),
-        "standing_profile_sha256": profile.get("profile_hash"),
         "court_roles_entry": "unknown",
         "gate": "FAILED",
     }
@@ -242,7 +238,7 @@ def special_lifecycle_dispatch_authority(
             normalized_owner=None,
             reason_codes=("dispatch_hierarchy_manifest_invalid",),
             hierarchy_schema=shared.hierarchy_schema,
-            hierarchy_manifest_sha256=shared.hierarchy_manifest_sha256,
+            hierarchy_manifest_path=shared.hierarchy_manifest_path,
         )
         authority["reason"] = "dispatch_hierarchy_manifest_invalid"
         return decision, authority
@@ -267,7 +263,7 @@ def special_lifecycle_dispatch_authority(
             normalized_owner=None,
             reason_codes=("dispatch_hierarchy_manifest_invalid",),
             hierarchy_schema=shared.hierarchy_schema,
-            hierarchy_manifest_sha256=shared.hierarchy_manifest_sha256,
+            hierarchy_manifest_path=shared.hierarchy_manifest_path,
         )
         authority["reason"] = "special_lifecycle_authority_mismatch"
         return decision, authority
@@ -287,7 +283,7 @@ def special_lifecycle_dispatch_authority(
         normalized_owner=None,
         reason_codes=(),
         hierarchy_schema=shared.hierarchy_schema,
-        hierarchy_manifest_sha256=shared.hierarchy_manifest_sha256,
+        hierarchy_manifest_path=shared.hierarchy_manifest_path,
     )
     authority["gate"] = "PASSED"
     authority["reason"] = "ok"
@@ -357,7 +353,7 @@ def supercc_transport_preflight(
                 else "REJECTED"
             ),
             "hierarchy_schema": decision.hierarchy_schema if decision else None,
-            "hierarchy_manifest_sha256": decision.hierarchy_manifest_sha256 if decision else None,
+            "hierarchy_manifest_path": decision.hierarchy_manifest_path if decision else None,
             "hierarchy_edge_class": decision.edge_class if decision else None,
             "hierarchy_calling_office": decision.normalized_caller if decision else calling_office,
             "hierarchy_target_role": decision.normalized_target if decision else role,
@@ -468,10 +464,8 @@ def build_dispatch_payload(
         f"expected_pane_title={OFFICES[role]['title'] if role not in (*MINISTRY_OFFICES, *SPECIAL_LIFECYCLE_OFFICES) else ('NON_VISIBLE_MINISTRY_BY_CONTRACT' if role in MINISTRY_OFFICES else 'NON_VISIBLE_SPECIAL_LIFECYCLE_BY_CONTRACT')}",
         f"expected_pane_id={(pane or {}).get('pane_id', 'non_visible_structured_dispatch' if role in (*MINISTRY_OFFICES, *SPECIAL_LIFECYCLE_OFFICES) else 'missing')}",
         f"profile_source={profile['profile_source']}",
-        f"profile_hash={profile.get('profile_hash') or 'missing'}",
         f"profile_version={profile.get('profile_version')}",
         f"office_dossier_path={office_dossier_path(role)}",
-        f"office_dossier_hash={sha256_file(office_dossier_path(role)) or 'missing'}",
         f"light_bootstrap_policy={SUPERCC_LIGHT_BOOTSTRAP_POLICY}",
         f"six_ministry_step_plan_required={'true' if role in MINISTRY_OFFICES else 'false'}",
     ]
@@ -479,10 +473,10 @@ def build_dispatch_payload(
         lines.extend(
             [
                 f"dispatch_context_packet_schema={dispatch_context['schema']}",
-                f"dispatch_context_packet_sha256={dispatch_context['packet_sha256']}",
+                f"dispatch_context_packet_id={dispatch_context['packet_id']}",
                 f"dispatch_context_packet_bytes={dispatch_context['packet_bytes']}",
-                f"semantic_dispatch_context_packet_sha256={dispatch_context['semantic_packet_sha256']}",
-                f"bounded_scope_sha256={dispatch_context['scope_sha256']}",
+                f"semantic_dispatch_context_packet_id={dispatch_context['semantic_packet_id']}",
+                f"bounded_scope_id={dispatch_context['scope_id']}",
                 "dispatch_context_packet_json="
                 + json.dumps(
                     dispatch_context["packet"],
@@ -497,7 +491,7 @@ def build_dispatch_payload(
             [
                 "hierarchy_gate=PASSED",
                 f"hierarchy_schema={hierarchy.hierarchy_schema}",
-                f"hierarchy_manifest_sha256={hierarchy.hierarchy_manifest_sha256}",
+                f"hierarchy_manifest_path={hierarchy.hierarchy_manifest_path}",
                 f"hierarchy_edge_class={hierarchy.edge_class}",
                 f"hierarchy_calling_office={hierarchy.normalized_caller}",
                 f"hierarchy_target_role={hierarchy.normalized_target}",
@@ -575,7 +569,7 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
             "dispatch_hierarchy_reason": reason,
             "hierarchy_gate": "REJECTED",
             "hierarchy_schema": hierarchy.hierarchy_schema,
-            "hierarchy_manifest_sha256": hierarchy.hierarchy_manifest_sha256,
+            "hierarchy_manifest_path": hierarchy.hierarchy_manifest_path,
             "hierarchy_edge_class": hierarchy.edge_class,
             "hierarchy_calling_office": hierarchy.normalized_caller,
             "hierarchy_target_role": hierarchy.normalized_target,
@@ -589,7 +583,7 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         {
             "hierarchy_gate": "PASSED",
             "hierarchy_schema": hierarchy.hierarchy_schema,
-            "hierarchy_manifest_sha256": hierarchy.hierarchy_manifest_sha256,
+            "hierarchy_manifest_path": hierarchy.hierarchy_manifest_path,
             "hierarchy_edge_class": hierarchy.edge_class,
             "hierarchy_calling_office": hierarchy.normalized_caller,
             "hierarchy_target_role": hierarchy.normalized_target,
@@ -599,7 +593,7 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         else {
             "hierarchy_gate": "NOT_APPLICABLE_SPECIAL_LIFECYCLE",
             "hierarchy_schema": None,
-            "hierarchy_manifest_sha256": None,
+            "hierarchy_manifest_path": None,
             "hierarchy_edge_class": None,
             "hierarchy_calling_office": calling_office,
             "hierarchy_target_role": role,
@@ -937,12 +931,12 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         "preload_ack": ack_gate.get("preload_ack"),
         "dispatch_uid": dispatch_uid,
         "dispatch_context_packet_schema": dispatch_context["schema"],
-        "dispatch_context_packet_sha256": dispatch_context["packet_sha256"],
+        "dispatch_context_packet_id": dispatch_context["packet_id"],
         "dispatch_context_packet_bytes": dispatch_context["packet_bytes"],
-        "semantic_dispatch_context_packet_sha256": dispatch_context[
-            "semantic_packet_sha256"
+        "semantic_dispatch_context_packet_id": dispatch_context[
+            "semantic_packet_id"
         ],
-        "bounded_scope_sha256": dispatch_context["scope_sha256"],
+        "bounded_scope_id": dispatch_context["scope_id"],
         "bounded_scope_allowed_paths": dispatch_context["allowed_paths"],
         "office_uniqueness_gate": uniqueness,
         "dispatch_delivery_channel": delivery_channel,
@@ -1049,10 +1043,8 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
         "expected_pane_id": None if non_visible_structured_dispatch else (pane or {}).get("pane_id"),
         "office_profile_loaded": profile["office_profile_loaded"],
         "profile_source": profile["profile_source"],
-        "profile_hash": profile["profile_hash"],
         "profile_version": profile["profile_version"],
         "office_dossier_path": str(office_dossier_path(role)),
-        "office_dossier_hash": sha256_file(office_dossier_path(role)),
         "light_bootstrap_policy": SUPERCC_LIGHT_BOOTSTRAP_POLICY,
         "native_enter_dispatch": native_enter_dispatch,
         "physical_enter_byte": PHYSICAL_ENTER_BYTE,

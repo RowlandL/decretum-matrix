@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-import hashlib
 import json
 from pathlib import Path
-import re
 import sys
+import zlib
 
 sys.dont_write_bytecode = True
 
@@ -17,7 +16,6 @@ from shiguan_paths import reference_path
 
 RECALL_SCHEMA = "decretum.gbrain.recall.v1"
 SETTLEMENT_SCHEMA = "decretum.gbrain.settlement_candidates.v1"
-_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -64,7 +62,7 @@ def _record_uid(entry: dict[str, object]) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "recall-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
+    return f"recall-{zlib.crc32(material.encode('utf-8')):08x}"
 
 
 def _load_memory_git_provenance(shared_root: Path | None = None) -> dict[str, object]:
@@ -140,7 +138,7 @@ def build_recall_context(
     terms: list[str],
     *,
     governance_id: str,
-    current_decree_sha256: str,
+    current_decree_id: str,
     as_of: str,
     limit: int = 5,
     memory_git_provenance: dict[str, object] | None = None,
@@ -150,8 +148,8 @@ def build_recall_context(
 ) -> dict[str, object]:
     if not isinstance(governance_id, str) or not governance_id.strip():
         raise ValueError("governance_id_required")
-    if not _DIGEST_RE.fullmatch(current_decree_sha256):
-        raise ValueError("current_decree_sha256_invalid")
+    if not isinstance(current_decree_id, str) or not current_decree_id.strip():
+        raise ValueError("current_decree_id_required")
     instant = _timestamp(as_of)
     if instant is None:
         raise ValueError("as_of_invalid")
@@ -183,7 +181,7 @@ def build_recall_context(
     return {
         "schema": RECALL_SCHEMA,
         "governance_id": governance_id,
-        "current_decree_sha256": current_decree_sha256,
+        "current_decree_id": current_decree_id.strip(),
         "current_decree_precedence": True,
         "authority": "advisory",
         "execution_authority": False,
@@ -221,7 +219,7 @@ def build_settlement_candidates(
     entries: list[dict[str, object]],
     terms: list[str],
     *,
-    current_decree_sha256: str,
+    current_decree_id: str,
     as_of: str,
     limit: int = 10,
     include_memory_git: bool = False,
@@ -231,8 +229,8 @@ def build_settlement_candidates(
 ) -> dict[str, object]:
     """Return read-only GBrain organization candidates without writing memory."""
 
-    if not _DIGEST_RE.fullmatch(current_decree_sha256):
-        raise ValueError("current_decree_sha256_invalid")
+    if not isinstance(current_decree_id, str) or not current_decree_id.strip():
+        raise ValueError("current_decree_id_required")
     instant = _timestamp(as_of)
     if instant is None:
         raise ValueError("as_of_invalid")
@@ -275,7 +273,7 @@ def build_settlement_candidates(
         "execution_authority": False,
         "write_authority": False,
         "current_decree_precedence": True,
-        "current_decree_sha256": current_decree_sha256,
+        "current_decree_id": current_decree_id.strip(),
         "as_of": as_of,
         "terms": normalized_terms,
         "derived_from": "existing_shiguan_records",

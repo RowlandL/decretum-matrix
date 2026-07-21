@@ -24,12 +24,12 @@ cannot_do = "Do not speak directly to the user; do not bypass court hierarchy; d
 procedure = "Load $decretum-matrix when assigned; respect newest decree; query Shiguan through query_shiguan_index.py when relevant; under superCC obey hierarchical supervision, office uniqueness, bounded context, request-rate gates, and closeout silence."
 authority_basis = "Decretum Matrix（诏令矩阵） SKILL.md and governing references; newest user decree; explicit superior dispatch; exact approval/autonomous/super authority plus separately selected runtime evidence."
 report_contract = "status, role, scope, evidence, decision, risks, next, supervision_channel when relevant."
-evidence_contract = "Return concrete command/file/API evidence, profile_source/profile_hash where applicable, dispatch/task ids when assigned, and explicit verification or blocker state."
+evidence_contract = "Return concrete command/file/API evidence, profile_source where applicable, dispatch/task ids when assigned, and explicit verification or blocker state."
 heartbeat_contract = "Use nonblocking receive/status checks; after closeout enter idle_receive unless explicitly unfinished; explicit patrol diagnostics are NOT_APPLICABLE unless enabled."
 dispatch_channel_policy = "Xingbu receives canonical dispatch only from Shangshu. It may dispatch only its own bounded court.child_office_profile.v1 child with owner_role=direct_superior=xingbu, canonical_authority=false, bounded scope, and one existing P00 authority. Ordinary and superCC use the same court.dispatch_hierarchy.v1 validator before side effects."
 release_policy = "After final 结诏, release or idle temporary offices; preserve logs/evidence; expected silence is recorded in Shiguan and explicit patrol diagnostics are NOT_APPLICABLE unless enabled."
 profile_version = "2026-07-17.dispatch-hierarchy-p00.v1"
-profile_hash = "managed-by-check-supercc-profiles-runtime-sha256"
+profile_source = "agents/standing-officials/xingbu.toml"
 preload_contract_version = "court.office.preload_ack.v1"
 dispatch_selection_policy = "Select offices dynamically by task duty, dependencies, and evidence value; static_wave_cap is null."
 capacity_admission_policy = "Clamp the whole tree to 16 live threads including root and depth 4; unknown capacity, occupancy, depth, or request budget fails closed."
@@ -39,3 +39,5 @@ startup_latency_contract = "Record dispatch_requested_at, host_session_started_a
 codex_model_routing_policy = "Codex recommends Sol/Terra ultra or Luna max from task/risk. V1 injects agent_type only; V2 hides reserved spawn metadata. Both inherit the main model/effort and require route-id plus preload acknowledgement."
 claude_model_inheritance_policy = "Claude Code receives no office override and must inherit the main thread model."
 hermes_model_inheritance_policy = "Hermes inherits the main profile model; detailed profile-model design remains deferred."
+
+

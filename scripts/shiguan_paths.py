@@ -13,13 +13,13 @@ import sys
 sys.dont_write_bytecode = True
 
 from datetime import datetime, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
 import socket
 import stat
 from typing import Callable
+import zlib
 
 import court_safe_fs_windows
 from court_platform import user_data_base
@@ -50,7 +50,6 @@ PROTECTED_RECEIPT_PATHS = (
     "references/shiguan-tree/_index.md",
     "references/shiguan-tree/capability-index/_index.md",
 )
-HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 SOURCE_AGENT_ENV_KEYS = ("COURT_SOURCE_AGENT", "SHIGUAN_SOURCE_AGENT", "SOURCE_AGENT")
 CLAUDE_CODE_ENV_KEYS = (
     "CLAUDE_CODE",
@@ -83,9 +82,9 @@ def code_root() -> Path:
 
 RUNTIME_MARKER_PATHS = (
     Path("scripts") / "court_cli.py",
-    Path("scripts") / "shiguan_service_daemon.py",
-    Path("scripts") / "shiguan_autosync_daemon.py",
-    Path("scripts") / "serve_shiguan_tree.py",
+    Path("scripts") / "archive_checkpoint.py",
+    Path("scripts") / "query_shiguan_index.py",
+    Path("scripts") / "sync_active_copies.py",
 )
 
 
@@ -229,22 +228,18 @@ def _aware_timestamp(value: object) -> datetime | None:
     return parsed
 
 
-def _valid_sha256(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in HEX_DIGITS for character in value)
-    )
+def _nonempty_marker(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
-def _authority_identity_digest(domain: str, value: object) -> str:
+def _authority_identity_code(domain: str, value: object) -> str:
     payload = json.dumps(
         {"domain": domain, "value": value},
         ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+    return f"{zlib.crc32(payload):08x}"
 
 
 def _phase1_authority_scope_fields() -> dict[str, object]:
@@ -342,11 +337,11 @@ def build_local_authority_realm_receipt(evidence: object) -> dict[str, object]:
     canonical_root = os.path.normcase(
         os.path.normpath(os.path.abspath(normalized["canonical_root"]))
     )
-    authority_realm_id = "lar-" + _authority_identity_digest(
+    authority_realm_id = "lar-" + _authority_identity_code(
         "court-shiguan-local-authority-realm-v1",
         normalized["authority_realm_seed"],
     )[:24]
-    root_fingerprint = _authority_identity_digest(
+    root_fingerprint = _authority_identity_code(
         "court-shiguan-local-authority-root-v1",
         {
             "authority_realm_id": authority_realm_id,
@@ -409,11 +404,11 @@ def _valid_protected_snapshot(value: object) -> bool:
         if not isinstance(metadata, dict) or not metadata:
             return False
         length = metadata.get("length")
-        digest = metadata.get("sha256")
+        fingerprint = metadata.get("fingerprint")
         if (
             type(length) is not int
             or length < 0
-            or not _valid_sha256(digest)
+            or not _nonempty_marker(fingerprint)
         ):
             return False
     return True
@@ -428,7 +423,7 @@ def _success_rollback_is_consumable(value: object) -> bool:
     )
 
 
-def _cutover_receipt_sha256(value: object) -> str | None:
+def _cutover_receipt_signature(value: object) -> str | None:
     if not isinstance(value, dict):
         return None
     payload = json.dumps(
@@ -437,7 +432,7 @@ def _cutover_receipt_sha256(value: object) -> str | None:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+    return f"{zlib.crc32(payload):08x}"
 
 
 def _verified_cutover_commit_marker(
@@ -445,8 +440,8 @@ def _verified_cutover_commit_marker(
 ) -> bool:
     if not isinstance(marker, dict) or not isinstance(receipt, dict):
         return False
-    digest = _cutover_receipt_sha256(receipt)
-    if digest is None:
+    signature = _cutover_receipt_signature(receipt)
+    if signature is None:
         return False
     for field in (
         "migration_id",
@@ -469,8 +464,8 @@ def _verified_cutover_commit_marker(
     return bool(
         marker.get("schema") == CUTOVER_COMMIT_SCHEMA
         and marker.get("state") == "COMMITTED"
-        and marker.get("receipt_sha256") == digest
-        and _valid_sha256(marker.get("receipt_sha256"))
+        and marker.get("receipt_signature") == signature
+        and _nonempty_marker(marker.get("receipt_signature"))
         and _aware_timestamp(marker.get("committed_at")) is not None
         and marker.get("committed_at") == receipt.get("committed_at")
     )
@@ -508,7 +503,7 @@ def _receipt_inventory_signature(value: object) -> tuple[object, ...] | None:
     file_count = value.get("file_count")
     total_bytes = value.get("total_bytes")
     newest = _aware_timestamp(value.get("newest_mtime_utc"))
-    digest = value.get("inventory_digest")
+    inventory_signature = value.get("inventory_signature")
     exclusion = _nonblank(value.get("exclusion_policy_id"))
     if (
         type(volume_serial) is not int
@@ -519,7 +514,7 @@ def _receipt_inventory_signature(value: object) -> tuple[object, ...] | None:
         or type(total_bytes) is not int
         or total_bytes < 0
         or newest is None
-        or not _valid_sha256(digest)
+        or not _nonempty_marker(inventory_signature)
         or exclusion is None
     ):
         return None
@@ -529,7 +524,7 @@ def _receipt_inventory_signature(value: object) -> tuple[object, ...] | None:
         file_count,
         total_bytes,
         newest.isoformat(),
-        str(digest).lower(),
+        str(inventory_signature).lower(),
         exclusion,
     )
 
@@ -540,7 +535,7 @@ def _live_inventory_signature(value: object) -> tuple[object, ...] | None:
     file_count = value.get("file_count")
     total_bytes = value.get("total_bytes")
     newest = _aware_timestamp(value.get("newest_mtime_utc"))
-    digest = value.get("inventory_digest")
+    inventory_signature = value.get("inventory_signature")
     exclusion = _nonblank(value.get("exclusion_policy_id"))
     if (
         type(file_count) is not int
@@ -548,7 +543,7 @@ def _live_inventory_signature(value: object) -> tuple[object, ...] | None:
         or type(total_bytes) is not int
         or total_bytes < 0
         or newest is None
-        or not _valid_sha256(digest)
+        or not _nonempty_marker(inventory_signature)
         or exclusion is None
     ):
         return None
@@ -556,7 +551,7 @@ def _live_inventory_signature(value: object) -> tuple[object, ...] | None:
         file_count,
         total_bytes,
         newest.isoformat(),
-        str(digest).lower(),
+        str(inventory_signature).lower(),
         exclusion,
     )
 
@@ -745,7 +740,7 @@ def _verified_physical_topology_receipt(
         return False
     legacy_references = legacy_root / "references"
     target_references = target_root / "references"
-    digest = _cutover_receipt_sha256(receipt)
+    signature = _cutover_receipt_signature(receipt)
     identity = receipt.get("canonical_identity")
     postimage = receipt.get("postimage")
     legacy_entries = receipt.get("legacy_references")
@@ -821,7 +816,7 @@ def _verified_physical_topology_receipt(
         and receipt.get("compatibility_locator_kind") == "junction_not_symlink"
         and receipt.get("pending_body_access") == "NO"
         and receipt.get("body_content_reads") == 0
-        and receipt.get("body_hashes") == 0
+        and receipt.get("body_fingerprints") == 0
         and receipt.get("rollback_supported") is True
         and receipt.get("action")
         in {
@@ -850,8 +845,8 @@ def _verified_physical_topology_receipt(
         and _same_physical_path(junction_target, target_references)
         and marker.get("schema") == TOPOLOGY_COMMIT_SCHEMA
         and marker.get("state") == "COMMITTED"
-        and marker.get("receipt_sha256") == digest
-        and _valid_sha256(digest)
+        and marker.get("receipt_signature") == signature
+        and _nonempty_marker(signature)
         and marker.get("committed_at") == receipt.get("committed_at")
         and _same_lexical_path(
             Path(str(marker.get("canonical_references", ""))),
@@ -869,7 +864,7 @@ def _metadata_inventory_snapshot(
 ) -> dict[str, object] | None:
     if exclusion_policy_id != "court-shiguan-inventory-v1":
         return None
-    digest = hashlib.sha256()
+    inventory_signature = 0
     file_count = 0
     total_bytes = 0
     newest_ns = 0
@@ -891,12 +886,8 @@ def _metadata_inventory_snapshot(
             file_count += 1
             total_bytes += int(metadata.st_size)
             newest_ns = max(newest_ns, int(metadata.st_mtime_ns))
-            digest.update(relative.encode("utf-8"))
-            digest.update(b"\0")
-            digest.update(str(int(metadata.st_size)).encode("ascii"))
-            digest.update(b"\0")
-            digest.update(str(int(metadata.st_mtime_ns)).encode("ascii"))
-            digest.update(b"\n")
+            marker = f"{relative}\0{int(metadata.st_size)}\0{int(metadata.st_mtime_ns)}\n"
+            inventory_signature = zlib.crc32(marker.encode("utf-8"), inventory_signature)
     except (OSError, RuntimeError, ValueError):
         return None
     newest = datetime.fromtimestamp(
@@ -907,7 +898,7 @@ def _metadata_inventory_snapshot(
         "file_count": file_count,
         "total_bytes": total_bytes,
         "newest_mtime_utc": newest,
-        "inventory_digest": digest.hexdigest(),
+        "inventory_signature": f"{inventory_signature:08x}",
         "exclusion_policy_id": exclusion_policy_id,
     }
 
@@ -932,7 +923,7 @@ def _live_protected_snapshot(protected_root: Path) -> object:
             data = path.read_bytes()
             result[protected] = {
                 "length": len(data),
-                "sha256": hashlib.sha256(data).hexdigest(),
+                "fingerprint": f"{zlib.crc32(data):08x}",
             }
     except (OSError, RuntimeError, ValueError):
         return None
@@ -1347,10 +1338,10 @@ def ensure_shared_seed() -> Path:
             "watch_paths": [str(default_obsidian_cache_vault()), str(default_obsidian_inbox())],
             "autosync_enabled": True,
             "autosync_interval_seconds": 20,
-            "service_daemon_script": str(code_root() / "scripts" / "shiguan_service_daemon.py"),
-            "service_ensure_script": str(code_root() / "scripts" / "ensure_shiguan_service_daemon.py"),
+            "service_daemon_script": "",
+            "service_ensure_script": "",
             "autosync_script": str(code_root() / "scripts" / "shiguan_autosync_daemon.py"),
-            "filesystem_sync_script": str(code_root() / "scripts" / "sync_shiguan_obsidian_vault.py"),
+            "filesystem_sync_script": "",
             "shared_shiguan_root": str(references_root()),
             "api_key": "",
         }

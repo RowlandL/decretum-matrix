@@ -21,7 +21,6 @@ a substitute for contributor, employer/client, copyrightability or legal review.
 - Fixed reviewed commit: `14a207557719c046af0f993a7bff1cc5a5015b33`
 - License: MIT
 - LICENSE Git blob SHA-1: `69499c3250cbecc6079c69dc0e5a0f7a4be716da`
-- LICENSE SHA-256: `5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c`
 - Original copyright: `Copyright (c) 2026 openclaw-sansheng-liubu contributors`
 - Runtime dependency: `false`
 - Governing source: `false`
@@ -41,8 +40,8 @@ same `222` payload-blob scope. A current 18-file semantic-core review against
 all 113 upstream Markdown/Python files found no normalized-text, token-shingle
 or structure score at its review threshold. Fifteen long-line containment
 flags were manually adjudicated as the single standard directive
-`from __future__ import annotations`. The current manifest/upstream whole-file
-SHA-256 intersection was also `0`.
+`from __future__ import annotations`. The current review found no identical
+whole file in the reviewed scope.
 
 That result means only that no identical whole file was found. It does not exclude rewritten fragments, structural influence, concept selection or semantic borrowing. The user explicitly confirmed that earlier versions were influenced by the upstream project, so this project permanently retains the upstream MIT notice and classifies the affected semantic architecture as `upstream-inspired`.
 
@@ -60,7 +59,7 @@ That result means only that no identical whole file was found. It does not exclu
 | Packaging, deterministic release, SBOM, manifest, legal/privacy checkers | `original / locally developed` | Project-specific release engineering; third-party notices remain separate inputs. |
 | Standing profiles, office dossiers, fixtures, user/development manuals and bilingual documentation | `original or generated from local sources` | Generated files must trace to their local generator; current brand surfaces use Decretum Matrix（诏令矩阵） while historical/path locators are allowlisted. |
 | Current A02 uncommitted changes | `AI-assisted / directed local work` | Produced under the direction of 孙华清 in this workspace; copyrightability and commercial relicensing treatment remain subject to legal review. |
-| `assets/brand/decretum-matrix-icon.svg`, PNG, ICO and README | `project-directed original/generated artwork / LEGAL_REVIEW_REQUIRED` | Selected from user task `019f6691-258f-71a1-b63d-f7ad0b881d70`, latest v2 after node-alignment/symmetry repair. Exact hashes and maintainer declaration are in the bounded receipt. No third-party source is asserted; this is not independent title proof and is not cft0808/edict material. |
+| `assets/brand/decretum-matrix-icon.svg`, PNG, ICO and README | `project-directed original/generated artwork / LEGAL_REVIEW_REQUIRED` | Selected from user task `019f6691-258f-71a1-b63d-f7ad0b881d70`, latest v2 after node-alignment/symmetry repair. The maintainer declaration is in the bounded receipt. No third-party source is asserted; this is not independent title proof and is not cft0808/edict material. |
 | Any file later shown to copy or adapt protected upstream expression | `modified-derived / MIT` | No such file was identified in the bounded review. If later evidence supports this classification, preserve upstream copyright/MIT and supersede the current matrix; never interpret zero current identifications as zero borrowing. |
 | Any future external contribution | `unknown-needs-review until DCO + CLA accepted` | No inclusion in dual/commercial licensing until contribution and rights gates pass. |
 
@@ -95,9 +94,9 @@ identified). Gate:
 ## Logo, artwork and brand-asset provenance gate
 
 The product name is separate from rights in logo artwork and other assets. The
-four files under `assets/brand/` now have an exact source-task/revision/hash
-receipt in the bounded review and are classified as project-directed
-original/generated artwork under the maintainer declaration. Their legal title,
+four files under `assets/brand/` are traced to their source task and revision in
+the bounded review and are classified as project-directed original/generated
+artwork under the maintainer declaration. Their legal title,
 copyrightability and trademark enforceability remain `LEGAL_REVIEW_REQUIRED`;
 no registered status or third-party source is claimed. Gate:
 `LOGO_AND_ASSET_PROVENANCE_GATE=PASS_WITH_LEGAL_REVIEW_REQUIRED`.

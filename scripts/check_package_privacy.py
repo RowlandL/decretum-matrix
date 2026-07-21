@@ -1052,14 +1052,16 @@ class SourceTreePrivacyTests(unittest.TestCase):
             src = tmp / "src"
             dst = tmp / "dst"
             (src / "scripts" / "sessions").mkdir(parents=True)
-            (src / "scripts" / "ok.py").write_text("print('ok')\n", encoding="utf-8")
+            (src / "scripts" / "quick_validate.py").write_text("print('ok')\n", encoding="utf-8")
+            (src / "scripts" / "ok.py").write_text("print('not projected')\n", encoding="utf-8")
             (src / "scripts" / "sessions" / "private.jsonl").write_text(
                 '{"private": true}\n', encoding="utf-8"
             )
 
             package_skill.copy_portable_tree(src, dst)
 
-            self.assertTrue((dst / "scripts" / "ok.py").is_file())
+            self.assertTrue((dst / "scripts" / "quick_validate.py").is_file())
+            self.assertFalse((dst / "scripts" / "ok.py").exists())
             self.assertFalse((dst / "scripts" / "sessions").exists())
 
     def test_unknown_directory_fails_closed(self) -> None:
@@ -1075,6 +1077,8 @@ class SourceTreePrivacyTests(unittest.TestCase):
 
     def test_binary_defaults_to_reject_but_known_docx_is_excluded(self) -> None:
         self.assertTrue(package_skill.should_skip(Path("references/user-manual-zh.docx"), is_dir=False))
+        self.assertTrue(package_skill.should_skip(Path("scripts/blob.bin"), is_dir=False))
+        self.assertTrue(package_skill.should_skip(Path("scripts/blob.unknown"), is_dir=False))
         self.assertFalse(package_skill.should_scan_content(f"{ROOT_NAME}/scripts/blob.bin"))
         self.assertFalse(package_skill.should_scan_content(f"{ROOT_NAME}/scripts/blob.unknown"))
         self.assertTrue(package_skill.should_scan_content(f"{ROOT_NAME}/scripts/check.py"))
@@ -1090,8 +1094,8 @@ class SourceTreePrivacyTests(unittest.TestCase):
                 dst = tmp / "dst"
                 (src / "scripts").mkdir(parents=True)
                 (src / "scripts" / filename).write_bytes(b"not portable text")
-                with self.assertRaises(ValueError):
-                    package_skill.copy_portable_tree(src, dst)
+                package_skill.copy_portable_tree(src, dst)
+                self.assertFalse((dst / "scripts" / filename).exists())
 
     def test_symlink_or_reparse_entry_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory(prefix="court-package-source-") as tmp_text:

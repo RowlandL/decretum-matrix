@@ -46,7 +46,6 @@ def print_detail(entry: dict[str, object], summary_chars: int) -> None:
     print(f"  key_actions: {', '.join(str(item) for item in entry.get('key_actions', []))}")
     print(f"  capability_vector_terms: {', '.join(str(item) for item in entry.get('capability_vector_terms', []))}")
     print(f"  capability_source_paths: {', '.join(str(item) for item in entry.get('capability_source_paths', []))}")
-    print(f"  capability_vector_hash: {entry.get('capability_vector_hash', '')}")
     print(f"  memory: {entry.get('memory_decision', '')} {truncate(entry.get('memory_content', ''), summary_chars)}")
 
 

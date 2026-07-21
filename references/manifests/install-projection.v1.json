@@ -8,29 +8,18 @@
     "extra_targets": "explicit_latest_user_request_only",
     "fanout": "forbidden"
   },
-  "protected_shared_agents_seeds": {
-    "references/shiguan-index.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "references/shiguan-knowledge-graph.json": "2f0454eec5355fb502624fb3658c477386da668920836fd0e33ff9ad47ec4922",
-    "references/shiguan-tree/_index.md": "ce5671b2da87093f9b0d6a17d030be39c5a0632db98cff6d3a0671a671fb4169",
-    "references/shiguan-tree/capability-index/_index.md": "01bc65df443e52103fc08b86de8f5250b8630e13dde4b3b6c5b5dc7ed09aef7a"
-  },
+  "protected_shared_agents_seeds": [],
   "projections": {
     "shared_agents": [
       "SKILL.md",
       "VERSION",
       "LICENSE",
       "NOTICE",
-      "COMMERCIAL-LICENSE.md",
-      "THIRD_PARTY_NOTICES.md",
-      "PROVENANCE.md",
-      "TRADEMARKS.md",
-      "AUTHORS.md",
       "README.md",
       "INSTALL-PROMPT.md",
       "release-manifest.json",
       "agents",
       "references/README.md",
-      "references/complexity-budget.md",
       "references/court-capability-registry.md",
       "references/court-closeout-validation.md",
       "references/court-core-contract.md",
@@ -47,33 +36,66 @@
       "references/hermes-studio-group-chat.md",
       "references/hermes-studio-super-gl.md",
       "references/install.md",
-      "references/obsidian-autosync-rest.md",
       "references/reference-section-index.md",
       "references/shiguan-ledger-policy.md",
       "references/supercc-phase-cycling-model.md",
-      "references/user-manual-zh.md",
-      "references/benchmarks",
-      "references/fixtures",
-      "references/manifests",
-      "references/sections",
-      "scripts"
+      "references/manifests/cli-command-surface.v1.json",
+      "references/manifests/court-dispatch-hierarchy.v1.json",
+      "references/manifests/governance-implementations.v1.json",
+      "references/manifests/install-projection.v1.json",
+      "references/manifests/skill-identity.v1.json",
+      "references/sections/court-office-name-profile-skill-binding.md",
+      "references/sections/court-startup-approval-policy-details.md",
+      "scripts/archive_checkpoint.py",
+      "scripts/archive_runtime_task.py",
+      "scripts/build_shiguan_knowledge_graph.py",
+      "scripts/court_cli.py",
+      "scripts/court_cli_registry.py",
+      "scripts/court_dispatch_hierarchy.py",
+      "scripts/court_file_lock.py",
+      "scripts/court_intake_gate.py",
+      "scripts/court_model_router.py",
+      "scripts/court_native_execution.py",
+      "scripts/court_office_config.py",
+      "scripts/court_platform.py",
+      "scripts/court_safe_fs_windows.py",
+      "scripts/court_session_closeout.py",
+      "scripts/court_supercc_execution.py",
+      "scripts/court_usage_ledger.py",
+      "scripts/ensure_hermes_supercc.py",
+      "scripts/ensure_supercc_court.py",
+      "scripts/grow_shiguan_tree.py",
+      "scripts/memory_decision.py",
+      "scripts/query_shiguan_index.py",
+      "scripts/quick_validate.py",
+      "scripts/rebuild_shiguan_index.py",
+      "scripts/reevaluate_memory_decisions.py",
+      "scripts/register_agent_presence.py",
+      "scripts/shiguan_entry_utils.py",
+      "scripts/shiguan_gbrain.py",
+      "scripts/shiguan_paths.py",
+      "scripts/shiguan_security.py",
+      "scripts/supercc_dispatch_contract.py",
+      "scripts/supercc_dispatch_delivery.py",
+      "scripts/supercc_office_state.py",
+      "scripts/supercc-squad.cmd",
+      "scripts/supercc-squad.ps1",
+      "scripts/supercc-squad.sh",
+      "scripts/supercc_client_selection.py",
+      "scripts/supercc_squad.py",
+      "scripts/supercc_watchdog.py",
+      "scripts/sync_active_copies.py"
     ],
     "portable_current_tool": [
       "SKILL.md",
       "VERSION",
       "LICENSE",
       "NOTICE",
-      "COMMERCIAL-LICENSE.md",
-      "THIRD_PARTY_NOTICES.md",
-      "PROVENANCE.md",
-      "TRADEMARKS.md",
-      "AUTHORS.md",
       "README.md",
       "INSTALL-PROMPT.md",
       "release-manifest.json",
       "agents",
       "references/README.md",
-      "references/complexity-budget.md",
       "references/court-capability-registry.md",
       "references/court-closeout-validation.md",
       "references/court-core-contract.md",
@@ -90,16 +112,55 @@
       "references/hermes-studio-group-chat.md",
       "references/hermes-studio-super-gl.md",
       "references/install.md",
-      "references/obsidian-autosync-rest.md",
       "references/reference-section-index.md",
       "references/shiguan-ledger-policy.md",
       "references/supercc-phase-cycling-model.md",
-      "references/user-manual-zh.md",
-      "references/benchmarks",
-      "references/fixtures",
-      "references/manifests",
-      "references/sections",
-      "scripts"
+      "references/manifests/cli-command-surface.v1.json",
+      "references/manifests/court-dispatch-hierarchy.v1.json",
+      "references/manifests/governance-implementations.v1.json",
+      "references/manifests/install-projection.v1.json",
+      "references/manifests/skill-identity.v1.json",
+      "references/sections/court-office-name-profile-skill-binding.md",
+      "references/sections/court-startup-approval-policy-details.md",
+      "scripts/archive_checkpoint.py",
+      "scripts/archive_runtime_task.py",
+      "scripts/build_shiguan_knowledge_graph.py",
+      "scripts/court_cli.py",
+      "scripts/court_cli_registry.py",
+      "scripts/court_dispatch_hierarchy.py",
+      "scripts/court_file_lock.py",
+      "scripts/court_intake_gate.py",
+      "scripts/court_model_router.py",
+      "scripts/court_native_execution.py",
+      "scripts/court_office_config.py",
+      "scripts/court_platform.py",
+      "scripts/court_safe_fs_windows.py",
+      "scripts/court_session_closeout.py",
+      "scripts/court_supercc_execution.py",
+      "scripts/court_usage_ledger.py",
+      "scripts/ensure_hermes_supercc.py",
+      "scripts/ensure_supercc_court.py",
+      "scripts/grow_shiguan_tree.py",
+      "scripts/memory_decision.py",
+      "scripts/query_shiguan_index.py",
+      "scripts/quick_validate.py",
+      "scripts/rebuild_shiguan_index.py",
+      "scripts/reevaluate_memory_decisions.py",
+      "scripts/register_agent_presence.py",
+      "scripts/shiguan_entry_utils.py",
+      "scripts/shiguan_gbrain.py",
+      "scripts/shiguan_paths.py",
+      "scripts/shiguan_security.py",
+      "scripts/supercc_dispatch_contract.py",
+      "scripts/supercc_dispatch_delivery.py",
+      "scripts/supercc_office_state.py",
+      "scripts/supercc-squad.cmd",
+      "scripts/supercc-squad.ps1",
+      "scripts/supercc-squad.sh",
+      "scripts/supercc_client_selection.py",
+      "scripts/supercc_squad.py",
+      "scripts/supercc_watchdog.py",
+      "scripts/sync_active_copies.py"
     ],
     "repository_only": [
       ".git",
@@ -107,96 +168,102 @@
       "docs",
       "work",
       "references/agente-logs",
+      "references/benchmarks",
+      "references/fixtures",
       "references/court-runtime",
       "references/memory-decisions",
       "references/shiguan-imports",
-      "references/shiguan-tree"
+      "references/shiguan-tree",
+      "references/manifests/github-release-metadata.v1.json",
+      "references/manifests/release-gates.v1.json",
+      "references/manifests/source-state-budget.v1.json",
+      "references/manifests/direct-review-governance.v1.json"
     ]
   },
   "persistent_bindings": [
     {
-      "role_key": "bingbu",
       "profile_source": "agents/standing-officials/bingbu.toml",
       "dossier_path": "agents/office-dossiers/bingbu/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "bingbu"
     },
     {
-      "role_key": "gongbu",
       "profile_source": "agents/standing-officials/gongbu.toml",
       "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "gongbu"
     },
     {
-      "role_key": "hubu",
       "profile_source": "agents/standing-officials/hubu.toml",
       "dossier_path": "agents/office-dossiers/hubu/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "hubu"
     },
     {
-      "role_key": "libu",
       "profile_source": "agents/standing-officials/libu.toml",
       "dossier_path": "agents/office-dossiers/libu/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "libu"
     },
     {
-      "role_key": "libu-hr",
       "profile_source": "agents/standing-officials/libu-hr.toml",
       "dossier_path": "agents/office-dossiers/libu-hr/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "libu-hr"
     },
     {
-      "role_key": "menxia",
       "profile_source": "agents/standing-officials/menxia.toml",
       "dossier_path": "agents/office-dossiers/menxia/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "menxia"
     },
     {
-      "role_key": "patrol-inspector",
       "profile_source": "agents/standing-officials/patrol-inspector.toml",
       "dossier_path": "agents/office-dossiers/patrol-inspector/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "patrol-inspector"
     },
     {
-      "role_key": "shangshu",
       "profile_source": "agents/standing-officials/shangshu.toml",
       "dossier_path": "agents/office-dossiers/shangshu/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "shangshu"
     },
     {
-      "role_key": "shiguan",
       "profile_source": "agents/standing-officials/shiguan.toml",
       "dossier_path": "agents/office-dossiers/shiguan/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "shiguan"
     },
     {
-      "role_key": "shiguan-hermes",
       "profile_source": "agents/standing-officials/shiguan-hermes.toml",
       "dossier_path": "agents/office-dossiers/shiguan-hermes/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "shiguan-hermes"
     },
     {
-      "role_key": "taizi",
       "profile_source": "agents/standing-officials/taizi.toml",
       "dossier_path": "agents/office-dossiers/taizi/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "taizi"
     },
     {
-      "role_key": "xingbu",
       "profile_source": "agents/standing-officials/xingbu.toml",
       "dossier_path": "agents/office-dossiers/xingbu/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "xingbu"
     },
     {
-      "role_key": "zaochao",
       "profile_source": "agents/standing-officials/zaochao.toml",
       "dossier_path": "agents/office-dossiers/zaochao/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "zaochao"
     },
     {
-      "role_key": "zhongshu",
       "profile_source": "agents/standing-officials/zhongshu.toml",
       "dossier_path": "agents/office-dossiers/zhongshu/AGENTS.md",
-      "court_skill_path": "SKILL.md"
+      "court_skill_path": "SKILL.md",
+      "role_key": "zhongshu"
     }
   ]
 }

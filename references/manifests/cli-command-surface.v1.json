@@ -92,19 +92,6 @@
       "side_effect": "bounded_mutation"
     },
     {
-      "authority_source": "scripts/check_active_copy_hashes.py",
-      "command": "check-active-copy-hashes",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "check",
-      "group": "check",
-      "handler": "isolated_subprocess:scripts/check_active_copy_hashes.py",
-      "id": "check.check-active-copy-hashes",
-      "legacy_path": "scripts/check_active_copy_hashes.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "read_only"
-    },
-    {
       "authority_source": "scripts/check_agente_terminal.py",
       "command": "check-agente-terminal",
       "compatibility_state": "unified_compatibility_adapter",
@@ -703,19 +690,6 @@
       "side_effect": "read_only"
     },
     {
-      "authority_source": "scripts/check_shiguan_git_federation.py",
-      "command": "check-shiguan-git-federation",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "check",
-      "group": "check",
-      "handler": "isolated_subprocess:scripts/check_shiguan_git_federation.py",
-      "id": "check.check-shiguan-git-federation",
-      "legacy_path": "scripts/check_shiguan_git_federation.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "read_only"
-    },
-    {
       "authority_source": "scripts/check_shiguan_host_memory_and_child_trace.py",
       "command": "check-shiguan-host-memory-and-child-trace",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1197,45 +1171,6 @@
       "side_effect": "bounded_mutation"
     },
     {
-      "authority_source": "scripts/ensure_shiguan_autosync.py",
-      "command": "ensure-shiguan-autosync",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/ensure_shiguan_autosync.py",
-      "id": "shiguan.ensure-shiguan-autosync",
-      "legacy_path": "scripts/ensure_shiguan_autosync.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
-      "authority_source": "scripts/ensure_shiguan_service_daemon.py",
-      "command": "ensure-shiguan-service-daemon",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/ensure_shiguan_service_daemon.py",
-      "id": "shiguan.ensure-shiguan-service-daemon",
-      "legacy_path": "scripts/ensure_shiguan_service_daemon.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
-      "authority_source": "scripts/ensure_shiguan_web.py",
-      "command": "ensure-shiguan-web",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/ensure_shiguan_web.py",
-      "id": "shiguan.ensure-shiguan-web",
-      "legacy_path": "scripts/ensure_shiguan_web.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
       "authority_source": "scripts/ensure_supercc_court.py",
       "command": "ensure-supercc-court",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1244,19 +1179,6 @@
       "handler": "isolated_subprocess:scripts/ensure_supercc_court.py",
       "id": "supercc.ensure-supercc-court",
       "legacy_path": "scripts/ensure_supercc_court.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
-      "authority_source": "scripts/export_shiguan_obsidian.py",
-      "command": "export-shiguan-obsidian",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/export_shiguan_obsidian.py",
-      "id": "shiguan.export-shiguan-obsidian",
-      "legacy_path": "scripts/export_shiguan_obsidian.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
@@ -1457,19 +1379,6 @@
       "side_effect": "read_only"
     },
     {
-      "authority_source": "scripts/serve_shiguan_tree.py",
-      "command": "serve-shiguan-tree",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/serve_shiguan_tree.py",
-      "id": "shiguan.serve-shiguan-tree",
-      "legacy_path": "scripts/serve_shiguan_tree.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
       "authority_source": "scripts/shiguan_autosync_daemon.py",
       "command": "shiguan-autosync-daemon",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1478,19 +1387,6 @@
       "handler": "isolated_subprocess:scripts/shiguan_autosync_daemon.py",
       "id": "shiguan.shiguan-autosync-daemon",
       "legacy_path": "scripts/shiguan_autosync_daemon.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
-      "authority_source": "scripts/shiguan_git_federation.py",
-      "command": "shiguan-git-federation",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/shiguan_git_federation.py",
-      "id": "shiguan.shiguan-git-federation",
-      "legacy_path": "scripts/shiguan_git_federation.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
@@ -1530,19 +1426,6 @@
       "handler": "isolated_subprocess:scripts/shiguan_pending_governance_cli.py",
       "id": "shiguan.shiguan-pending-governance-cli",
       "legacy_path": "scripts/shiguan_pending_governance_cli.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
-      "authority_source": "scripts/shiguan_service_daemon.py",
-      "command": "shiguan-service-daemon",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/shiguan_service_daemon.py",
-      "id": "shiguan.shiguan-service-daemon",
-      "legacy_path": "scripts/shiguan_service_daemon.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
@@ -1647,19 +1530,6 @@
       "handler": "isolated_subprocess:scripts/sync_codex_agents_from_profiles.py",
       "id": "office.sync-codex-agents-from-profiles",
       "legacy_path": "scripts/sync_codex_agents_from_profiles.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
-      "authority_source": "scripts/sync_shiguan_obsidian_vault.py",
-      "command": "sync-shiguan-obsidian-vault",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/sync_shiguan_obsidian_vault.py",
-      "id": "shiguan.sync-shiguan-obsidian-vault",
-      "legacy_path": "scripts/sync_shiguan_obsidian_vault.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"

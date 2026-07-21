@@ -385,9 +385,10 @@ def check_capability_snapshot_before_deliberation() -> dict[str, object]:
         warm_ms = (time.perf_counter_ns() - started) / 1_000_000
     require(first.get("ok") is True and second.get("ok") is True, "capability fast open not READY")
     require(capability_calls == 1, f"warm cache reloaded capability index:{capability_calls}")
-    first_deliberation = next(index for index, value in enumerate(events) if value.startswith("deliberation:"))
-    require(events.index("capability") < first_deliberation, "capability snapshot resolved after deliberation")
-    require(events.index("preload") < first_deliberation, "office preload resolved after deliberation")
+    require(runtime.admission_calls == 0, "capability snapshot path performed admission precheck")
+    require(all(not value.startswith("deliberation:") for value in events), "preparation path entered admission deliberation")
+    require("capability" in events, "capability snapshot was not resolved")
+    require("preload" in events, "office preload was not resolved")
     snapshot = first.get("capability_snapshot")
     require(isinstance(snapshot, dict), "capability snapshot missing")
     allocations = snapshot.get("proposed_allocations") if isinstance(snapshot, dict) else None
@@ -458,7 +459,7 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
                     require(authority_gate.get(key) == expected, f"startup authority gate drift:{key}")
                 require("prompt" not in authority_gate, "fastpath duplicated the authority prompt")
                 require("must_not_inherit_from" not in authority_gate, "fastpath duplicated authority exclusions")
-                expected_admissions = 3 if behavior == "parallel" else 0
+                expected_admissions = 0
                 require(receipt.get("preparation_only") is True, "court open ceased to be preparation-only")
                 require(receipt.get("host_spawn_performed") is False, "preparation claimed a host spawn")
                 require(receipt.get("dispatch_count") == 0, "preparation claimed dispatch")
@@ -469,6 +470,12 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
                 require(receipt.get("admission_check_count") == expected_admissions, "admission count drift")
                 require(runtime.admission_calls == expected_admissions, "behavior admission count drift")
                 if behavior == "parallel":
+                    require(receipt.get("status") == "READY_FOR_HOST_DISPATCH", "parallel open did not wait for host dispatch")
+                    require(receipt.get("host_dispatch_required_for_done") is True, "parallel open missing host dispatch requirement")
+                    require(
+                        receipt.get("agent_admission_satisfies_office_work") is False,
+                        "parallel open treated admission as office work",
+                    )
                     require(
                         receipt.get("shangshu_ministry_coordination") is None,
                         "default open prepared unrequested ministries",
@@ -483,6 +490,7 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
                         "parallel preparation packet claimed host spawn",
                     )
                 else:
+                    require(receipt.get("host_dispatch_required_for_done") is False, "serial open required host dispatch")
                     require(receipt.get("serial_office_duty_count") == 3, "serial office duty count drift")
                     packets = receipt.get("department_packets", []) + receipt.get("shangshu_ministry_packets", [])
                     require(

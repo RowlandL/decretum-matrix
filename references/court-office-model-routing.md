@@ -13,10 +13,10 @@ Claude Code or Hermes model configuration.
 - Current model-reserved `collaboration.spawn_agent` exposes only the compatible
   task fields (`message`, `task_name`, and `fork_turns`). It hides
   `agent_type`, `model`, `reasoning_effort`, and `service_tier`.
-- The parent must put the explicit `role_key`, corresponding dossier path/hash,
-  skill path/hash, assignment, and preload-ack contract in the bounded task
-  message. The child must load that office's `AGENTS.md` dossier before it may
-  acknowledge the office identity.
+- The parent must put the explicit `role_key`, direct superior, assignment,
+  expected result, and useful dossier/skill source pointers in the bounded task
+  message. The child acknowledges the office identity from that assignment and
+  reads the office dossier only when the current duty needs its detail.
 - Role files under `%CODEX_HOME%/agents/*.toml` remain model-neutral. They are
   retained for native role discovery on compatible host-managed or legacy
   paths, but current model-visible V2 spawn must not claim that `agent_type`
@@ -66,7 +66,7 @@ worker below may apply the recommendation at top level; it is not a child.
 The model-visible call is limited to:
 
 ```text
-message = <bounded assignment plus role/dossier/preload manifest>
+message = <bounded assignment plus role/dossier context pointers>
 task_name = <unique collaboration task name>
 fork_turns = none
 ```
@@ -127,10 +127,10 @@ never relabels an already-open session.
 transport for tasks whose model recommendation must actually be applied. Its
 execution gate requires all of the following:
 
-- a host proof covering the exact Codex version, native-binary SHA256, and each
-  allowed model/effort pair;
-- an exact native `codex.exe` path whose current SHA256 still matches that proof;
-- `-C` set to the selected office dossier directory and a preload manifest for
+- a host proof covering the exact Codex version and each allowed model/effort
+  pair;
+- an exact native `codex.exe` path that matches that proof's path evidence;
+- `-C` set to the selected office dossier directory and a role context packet for
   that role;
 - both `multi_agent_v2` and legacy `multi_agent` disabled for the worker;
 - no `resume`, `--last`, or `--ephemeral` selector;
@@ -144,20 +144,27 @@ Raw stderr is not persisted.
 
 ## Acknowledgement And Failure
 
-Before an ordinary Codex office enters `running`, its preload acknowledgement
-must match:
+Before an ordinary Codex office enters substantive `running`, its role
+acknowledgement must match:
 
 - `model_route_id`
 - `model_override_applied=NO`
 - V2: `inheritance_policy=inherit_main_thread_model_reserved_schema`
 - V1: `inheritance_policy=inherit_main_thread_model_v1_agent_type`
-- the explicit `role_key`, office dossier/profile hashes, court skill hash, and
-  `agent_dossier_loaded=YES`
+- the explicit `role_key`, `direct_superior`, task boundary, expected result,
+  and `agent_dossier_loaded=YES|NO|NOT_NEEDED`.
+
+For exact short reply connectivity tests, the parent sends a compact assignment
+with role_key, direct_superior, task boundary, expected exact reply, and
+skill/dossier pointers only when already useful. Host acceptance plus the child
+office's exact reply is sufficient for the light duty. Missing optional dossier
+context must be recorded as `agent_dossier_loaded=NOT_NEEDED`, not inflated into
+a failure or a reason to run bulk validation first.
 
 The active model and effort may be recorded as evidence when the host exposes
 them, but they are not accepted as proof of a model override. Claude Code and
 Hermes acknowledge their own exact inheritance policies. Any mismatch sets
-`model_route_status=FAILED`, fails preload, closes that agent record, and must
+`model_route_status=FAILED`, fails role acknowledgement, closes that agent record, and must
 not be reported as completed office work.
 
 ## Implementation Surfaces

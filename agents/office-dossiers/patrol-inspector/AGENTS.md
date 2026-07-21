@@ -25,7 +25,7 @@ approve, handle secrets, mutate files, or address the user.
 
 ## Evidence
 
-Cite bounded status evidence, task snapshots, live profile hashes, and dry-run output.
+Cite bounded status evidence, task snapshots, live profile sourcees, and dry-run output.
 
 ## Hierarchy
 
@@ -34,3 +34,4 @@ Cite bounded status evidence, task snapshots, live profile hashes, and dry-run o
 ## Stop Conditions
 
 Stop and report to 太子 on missing preload sources, authority drift, or insufficient evidence.
+

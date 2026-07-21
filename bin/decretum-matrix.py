@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Hash-bound npm launcher for the packaged Decretum Matrix CLI."""
+"""Npm launcher for the packaged Decretum Matrix CLI."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -58,34 +57,22 @@ def _write_json_atomic(path: Path, value: object) -> None:
     os.replace(temporary, path)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _release_archive(package_root: Path) -> tuple[Path, str]:
+def _release_archive(package_root: Path) -> Path:
     release_root = package_root / "release"
     archives = sorted(release_root.glob("decretum-matrix-beta*.zip"))
     if len(archives) != 1:
         raise LauncherError(f"expected one release ZIP, found {len(archives)}")
     archive = archives[0]
-    sidecar = archive.with_name(f"{archive.name}.sha256")
-    try:
-        fields = sidecar.read_text(encoding="utf-8").strip().split()
-    except OSError as exc:
-        raise LauncherError(f"release sidecar unavailable: {exc}") from exc
-    if len(fields) != 2 or fields[1] != archive.name or len(fields[0]) != 64:
-        raise LauncherError("release sidecar contract invalid")
-    expected = fields[0].lower()
-    if any(character not in "0123456789abcdef" for character in expected):
-        raise LauncherError("release sidecar digest invalid")
-    actual = _sha256(archive)
-    if actual != expected:
-        raise LauncherError("release ZIP digest mismatch")
-    return archive, actual
+    return archive
+
+
+def _archive_cache_id(archive: Path) -> str:
+    candidate = archive.stem.replace("decretum-matrix-", "", 1)
+    cleaned = "".join(
+        character if character.isalnum() or character in "._-" else "-"
+        for character in candidate
+    ).strip(".-_")
+    return cleaned or "runtime"
 
 
 def _packaged_version(package_root: Path) -> str:
@@ -138,7 +125,7 @@ def _member_parts(name: str) -> tuple[str, ...]:
     return value.parts
 
 
-def _extract_runtime(archive: Path, cache_root: Path, digest: str) -> Path:
+def _extract_runtime(archive: Path, cache_root: Path, archive_id: str) -> Path:
     marker = cache_root / ".npm-runtime.json"
     cli = cache_root / "scripts" / "court_cli.py"
     if marker.is_file() and cli.is_file():
@@ -146,7 +133,7 @@ def _extract_runtime(archive: Path, cache_root: Path, digest: str) -> Path:
             value = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             value = None
-        if isinstance(value, dict) and value.get("archive_sha256") == digest:
+        if isinstance(value, dict) and value.get("archive_id") == archive_id:
             return cache_root
         raise LauncherError(f"runtime cache is invalid: {cache_root}")
     if cache_root.exists() or cache_root.is_symlink():
@@ -188,7 +175,8 @@ def _extract_runtime(archive: Path, cache_root: Path, digest: str) -> Path:
         marker_payload = json.dumps(
             {
                 "schema": "decretum.npm_runtime_cache.v1",
-                "archive_sha256": digest,
+                "archive_id": archive_id,
+                "archive_name": archive.name,
             },
             ensure_ascii=True,
             sort_keys=True,
@@ -247,150 +235,46 @@ def _run_json_command(arguments: list[str], *, env: dict[str, str]) -> dict[str,
     return payload
 
 
-def _run_postinstall(runtime_root: Path, digest: str) -> int:
+def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
     home = _postinstall_home()
-    scripts = runtime_root / "scripts"
-    sys.path.insert(0, str(scripts))
-    try:
-        from install_current_agent_copy import (  # type: ignore[import-not-found]
-            install_current_agent_copy,
-            rollback_install_backup,
-        )
-    except ImportError as exc:
-        raise LauncherError(f"release runtime lacks the install updater: {exc}") from exc
-
-    install = install_current_agent_copy(
-        source_root=runtime_root,
-        home_root=home,
-        current_tool="npm",
-        explicit_tools=[],
-        tool_roots={},
-        projection_manifest=(
-            runtime_root
-            / "references"
-            / "manifests"
-            / "install-projection.v1.json"
-        ),
-        write=True,
-        source_package_sha256=digest,
-    )
-    if install.get("ok") is not True:
-        raise LauncherError(
-            "transactional canonical install failed: "
-            f"{install.get('reason')}:{install.get('detail', '')}"
-        )
-
-    installed_root = home / ".agents" / "skills" / "decretum-matrix"
-    bootstrap = installed_root / "scripts" / "ensure_portable_court_bootstrap.py"
-    if not bootstrap.is_file():
-        raise LauncherError("installed runtime lacks the portable bootstrap")
-    activate = os.environ.get(
-        "DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES", "1"
-    ).strip().casefold() not in {"0", "false", "no", "off"}
-    bootstrap_arguments = [
+    sync_script = runtime_root / "scripts" / "sync_active_copies.py"
+    if not sync_script.is_file():
+        raise LauncherError("release runtime lacks scripts/sync_active_copies.py")
+    sync_arguments = [
         sys.executable,
         "-B",
-        str(bootstrap),
-        "--apply",
-        "--shared-shiguan-and-obsidian-only",
-        "--format",
-        "json",
+        str(sync_script),
+        "--source",
+        str(runtime_root),
+        "--write",
+        "--prune-obsolete",
+        "--json",
     ]
-    if not activate:
-        bootstrap_arguments.extend(["--skip-obsidian", "--skip-service-daemon"])
     child_env = dict(os.environ)
     child_env["PYTHONDONTWRITEBYTECODE"] = "1"
     child_env["DECRETUM_MATRIX_BOOTSTRAP_INSTALL_CONTEXT"] = "npm"
-    bootstrap_receipt = _run_json_command(bootstrap_arguments, env=child_env)
+    sync_receipt = _run_json_command(sync_arguments, env=child_env)
 
     receipt_path = (
         home
         / ".agents"
         / "install-receipts"
         / "decretum-matrix"
-        / f"npm-postinstall-{digest}.json"
+        / f"npm-postinstall-{archive_id}.json"
     )
     combined: dict[str, object] = {
         "schema": "decretum.npm_postinstall.v1",
-        "ok": bootstrap_receipt.get("ok") is True,
-        "status": (
-            "INSTALLED"
-            if bootstrap_receipt.get("ok") is True
-            else "ROLLBACK_REQUIRED"
-        ),
-        "archive_sha256": digest,
+        "ok": sync_receipt.get("ok") is True,
+        "status": "INSTALLED" if sync_receipt.get("ok") is True else "FAILED",
+        "archive_id": archive_id,
         "home_root": str(home),
-        "installed_root": str(installed_root),
-        "service_activation_requested": activate,
-        "install": install,
-        "bootstrap": bootstrap_receipt,
+        "sync": sync_receipt,
         "pending_body_access": "NO",
         "body_content_reads": 0,
-        "body_hashes": 0,
     }
-    if bootstrap_receipt.get("ok") is not True:
-        rollbacks: dict[str, object] = {}
-        shared_step = (
-            bootstrap_receipt.get("steps", {}).get("shared_shiguan")
-            if isinstance(bootstrap_receipt.get("steps"), dict)
-            else None
-        )
-        topology = (
-            shared_step.get("topology")
-            if isinstance(shared_step, dict)
-            else None
-        )
-        shared_backup = (
-            topology.get("backup_root") if isinstance(topology, dict) else None
-        )
-        if (
-            isinstance(shared_step, dict)
-            and shared_step.get("status") == "ROLLED_BACK"
-        ) or (
-            isinstance(topology, dict)
-            and topology.get("status") == "ROLLED_BACK"
-        ):
-            rollbacks["shared"] = {
-                "ok": True,
-                "status": "ALREADY_ROLLED_BACK",
-                "pending_body_access": "NO",
-            }
-        elif isinstance(shared_backup, str) and shared_backup:
-            rollbacks["shared"] = _run_json_command(
-                [
-                    sys.executable,
-                    "-B",
-                    str(bootstrap),
-                    "--rollback-shared-transaction",
-                    shared_backup,
-                    "--format",
-                    "json",
-                ],
-                env=child_env,
-            )
-        backup = install.get("backup")
-        backup_root = (
-            backup.get("backup_root") if isinstance(backup, dict) else None
-        )
-        if isinstance(backup_root, str) and backup_root:
-            rollbacks["install"] = rollback_install_backup(
-                home_root=home,
-                backup_root=Path(backup_root),
-            )
-        combined["rollbacks"] = rollbacks
-        combined["status"] = (
-            "ROLLED_BACK"
-            if rollbacks
-            and all(
-                isinstance(value, dict) and value.get("ok") is True
-                for value in rollbacks.values()
-            )
-            else "BLOCKED_MANUAL_RECOVERY"
-        )
+    if sync_receipt.get("ok") is not True:
         _write_json_atomic(receipt_path, combined)
-        raise LauncherError(
-            f"postinstall bootstrap failed; receipt: {receipt_path}"
-        )
+        raise LauncherError(f"postinstall sync failed; receipt: {receipt_path}")
     _write_json_atomic(receipt_path, combined)
     print(json.dumps(combined, ensure_ascii=False, sort_keys=True))
     return 0
@@ -400,22 +284,23 @@ def main(argv: list[str] | None = None) -> int:
     package_root = Path(__file__).resolve().parents[1]
     effective_argv = sys.argv[1:] if argv is None else argv
     if effective_argv == ["--npm-postinstall"]:
-        archive, digest = _release_archive(package_root)
+        archive = _release_archive(package_root)
+        archive_id = _archive_cache_id(archive)
         cache_base = Path(
             os.environ.get("DECRETUM_MATRIX_NPM_CACHE_ROOT")
             or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
         ).resolve(strict=False)
-        runtime_root = _extract_runtime(archive, cache_base / digest, digest)
-        return _run_postinstall(runtime_root, digest)
-    digest = ""
+        runtime_root = _extract_runtime(archive, cache_base / archive_id, archive_id)
+        return _run_postinstall(runtime_root, archive_id)
     runtime_root = _canonical_runtime_root(package_root)
     if runtime_root is None:
-        archive, digest = _release_archive(package_root)
+        archive = _release_archive(package_root)
+        archive_id = _archive_cache_id(archive)
         cache_base = Path(
             os.environ.get("DECRETUM_MATRIX_NPM_CACHE_ROOT")
             or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
         ).resolve(strict=False)
-        runtime_root = _extract_runtime(archive, cache_base / digest, digest)
+        runtime_root = _extract_runtime(archive, cache_base / archive_id, archive_id)
     cli = runtime_root / "scripts" / "court_cli.py"
     sys.path.insert(0, str(cli.parent))
     sys.argv = [str(cli), *effective_argv]

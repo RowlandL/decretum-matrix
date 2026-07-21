@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -67,14 +66,6 @@ def refresh_request_path() -> Path:
 
 def archive_path(topic: str, date_text: str) -> Path:
     return archive_dir() / f"plan-{date_text}-{slugify(topic)}-1.md"
-
-
-def sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
-def sha256_file(path: Path) -> str:
-    return sha256_bytes(path.read_bytes())
 
 
 def split_terms(value: str | None) -> list[str]:
@@ -500,7 +491,6 @@ def build_archive_receipt(
         "receipt_id": f"shiguan:{court_code}",
         "path": str(path),
         "source": relative_to_data(path),
-        "archive_sha256": sha256_file(path),
         "court_code": court_code,
         "ancient_lineage": str(entry.get("ancient_lineage") or ""),
         "lineage_display": lineage_display,
@@ -509,14 +499,6 @@ def build_archive_receipt(
         "closeout_identity": closeout_identity,
         "refresh": refresh,
     }
-    receipt["receipt_sha256"] = sha256_bytes(
-        json.dumps(
-            receipt,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    )
     return receipt
 
 

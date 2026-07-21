@@ -3,7 +3,7 @@
 ## Unified Dynamic Dispatch Semantics
 
 1. 官署按任务职责、依赖和证据价值动态分配。`authority` 精确为 `approval|autonomous|super`，`behavior` 精确为 `serial|parallel`，两者正交；每种 authority 均可选择任一 behavior。
-2. `super并行` 只表示 `authority=super, behavior=parallel, runtime=native`。superCC 是独立 startup/runtime，不是第四权，也不是 native 候选；同一 task/process 不得共存、切换或回退。二者只共享中性层级/standing-profile 配置 pointer/hash，runtime state、dossier、transport、admission 和 lifecycle 全部隔离。
+2. `super并行` 只表示 `authority=super, behavior=parallel, runtime=native`。superCC 是独立 startup/runtime，不是第四权，也不是 native 候选；同一 task/process 不得共存、切换或回退。二者只共享中性层级/standing-profile 配置 pointer，runtime state、dossier、transport、admission 和 lifecycle 全部隔离。
 3. 正常 whole-tree 并行默认最多 16 个线程（含 root），只有最新用户明确指定大于 16 的数量或明确开启 `unlimited/解限` 才可抬高该上限。override 只改变 ceiling，不提供预算 lease，不得绕过宿主容量/拒绝、资源压力、层级、写集、preload、实例追溯或 max_depth，也不得自动开满；未知关键证据时 fail closed。
    `explicit_count` 也是 whole-tree 数量：root 已占 1 时，`17` 最多准入 16 个 child，准入第 17 个 child 需要最新用户明确 `explicit_count=18`。控制来源使用 `current_user_explicit`；`latest_user_explicit` 仅作兼容别名。系统内存达到 99% 时仍降回默认 16。
 4. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
@@ -11,7 +11,7 @@
 
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
-原始来源：`SKILL.md` sha256 `64c7a9089275de004bbd2fc4e9c59633d2bbfe9e2a355178816c3da65f6563c9`。本卷章节：`三省六部 Semantic Bedrock`, `Court Roles`, `Court Semantics`, `Court Voice And Pronouns`, `Internal Court Functions`, `Clarification Loop`, `Dispatch Rules`。
+本卷章节：`三省六部 Semantic Bedrock`, `Court Roles`, `Court Semantics`, `Court Voice And Pronouns`, `Internal Court Functions`, `Clarification Loop`, `Dispatch Rules`。
 
 ## Contents
 
@@ -57,7 +57,7 @@ delivery, pane wake, or state mutation. The deny-by-default normal graph is
 `owning_ministry -> same_owner_bounded_child_office`. A task/thread name,
 display title, `--calling-office` override, special lifecycle role, or transport
 mode never creates another edge. Rejections preserve the shared hierarchy
-schema/hash/reason and leave delivery/runtime bytes unchanged.
+schema/reason and leave delivery/runtime bytes unchanged.
 
 `shangshu_six_ministries_hierarchy_gate` requires every ministry assignment to
 record `direct_superior=shangshu`. `ministry_craftsman_hierarchy_gate` requires
@@ -70,7 +70,8 @@ peer review offices and never acquire 六部 dispatch authority.
 Every non-canonical worker/craftsman also carries
 `schema=court.child_office_profile.v1`, `owner_role == direct_superior`,
 `canonical_authority=false`, bounded portable `read_scope`/`write_set`, terminal
-conditions, and bound profile/dossier/skill hashes. It reuses the existing
+conditions, and source pointers for any profile/dossier/skill material the task
+actually needs. It reuses the existing
 `court.semantic.dispatch_context_packet.v1`, semantic receipt, and single
 `court.semantic.invariant_capsule.v1` under P00. A child charter override,
 second capsule/receipt authority, widened scope, peer/cross-owner dispatch, or
@@ -78,19 +79,18 @@ child-owned durable ledger fails closed before side effects. GongBu-GongJiang
 remains the compatibility example: canonical role `gongbu`, owner/direct
 superior `gongbu`, and no canonical authority.
 
-Before any of the 14 official roles performs named-office work, the dispatcher
-and child must prove the exact role binding: canonical role key, standing
-profile source/hash, role-specific `AGENTS.md` dossier path/hash, governing
-`SKILL.md` path/hash, direct superior, and the required loaded-skill set. The
-child must read those exact files and return a matching preload acknowledgement
-before its lifecycle becomes running. Persist repository-relative profile,
-dossier, and skill paths so a worktree or portable install remains valid;
-absolute host paths are runtime resolution evidence only. A task name, role
-label, inherited conversation, pane title, or generic capability match is not
-preload proof. The same rule applies to ordinary spawned offices, recursive
-ministries and workers, terminal-visible `superCC`, and other supported office
-carriers; carrier-specific sections below only add transport evidence and do
-not weaken this contract.
+Before any of the 14 official roles performs substantive named-office work, the
+dispatcher and child must bind the same canonical role key, direct superior,
+task boundary, expected result, and host delivery evidence. Standing profiles,
+role-specific `AGENTS.md` dossiers, and governing `SKILL.md` are semantic
+sources: read them when the current assignment needs their detail, cite their
+repository-relative paths when useful, and report unavailable sources as
+context drift rather than a startup failure. A task name, role label, inherited
+conversation, pane title, or generic capability match is not office acceptance.
+The same rule applies to ordinary spawned offices, recursive ministries and
+workers, terminal-visible `superCC`, and other supported office carriers;
+carrier-specific sections below only add transport evidence and do not weaken
+this contract.
 
 Historical basis and adaptation boundary:
 
@@ -251,15 +251,17 @@ hierarchy.
   `.txt` files are raw materials until Codex processes them through the court.
   Direct browser imports of `.md`/`.txt` enter
   `references/shiguan-imports/pending/` as pending Codex materials, not official
-  史馆实录. On every 开朝 of this skill, the 开朝 check must report
-  whether this pending queue has new material, the count, representative
+  史馆实录. Report the pending queue only when the newest decree involves Shiguan
+  management, imports, memory triage, or prior-material processing. Ordinary
+  开朝 and ordinary office short replies do not scan or summarize this queue. When the queue
+  is in scope, report whether it has new material, the count, representative
   filenames, queue path, and approximate token cost before loading raw text into
   context. 太子 must ask or route whether to process the materials; do not
   silently consume large imported text or promote it into official 史馆 without
   三省会审、门下复核, and a resulting 史馆 checkpoint.
 - Shiguan peer sharing keys are local web artifacts, not chat text. Generate and
   export them as `.shiguan-key` files through the web manager; the sharing
-  service must keep only server-side verification material such as token hashes,
+  service must keep only server-side verification material such as token records,
   role, endpoint, clock/expiry, and revoked state. Do not expose raw peer tokens
   or Obsidian API keys in `/api/state`, user-facing reports, logs, graph labels,
   or memory candidates. Share endpoints and generated key files must use the
@@ -270,13 +272,13 @@ hierarchy.
   `.shiguan-key` v2 file. Obsidian connection checks must be explicit sync/test
   actions; they must not block the normal `/api/state` page load or graph
   rendering.
-- `scripts/shiguan_peer_downloads.py` owns the plaintext download boundary.
+- Source-tree peer service code owns the plaintext download boundary.
   Encoded key-file text and its one-time nonce are process-memory-only and are
   never durable peer state. A consumed, expired, cleaned, or restart-lost
   credential must report `download_ready=false` plus
   `download_state=consumed|regenerate_required`; the operator deletes or revokes
   any unusable old durable key and generates a replacement. Never repair this
-  boundary by persisting plaintext, reconstructing a token from its hash, or
+  boundary by persisting plaintext, reconstructing a token from its verification record, or
   treating a durable key record as proof that the downloadable file still
   exists.
 - Actual consumption requires a current canonical durable-key view and accepts
@@ -526,16 +528,23 @@ clarification request and the user's answers as 实录 checkpoints.
   `parallel_dispatch=NOT_APPLICABLE/user_serial_override`) overrides the default
   attempt for that decree. 尚书 records the reason and must not spawn, reuse,
   wake, or follow up child agents.
-- Ordinary dispatch requires a successful `court_cli.py office admit` record
-  before a child-agent spawn or worktree-thread start. Existing `agent-admit`
-  remains a `child_agent` compatibility alias. Default `fork_turns=none`; never use `all`.
+- Ordinary dispatch first selects useful roles from the decree, hierarchy,
+  dependencies, and evidence contract, then applies `court_cli.py office admit`
+  only as the final bounded gate immediately before a real host
+  spawn/reuse/wake or worktree-thread start. Existing `agent-admit` remains a
+  `child_agent` compatibility alias. It is not a discovery loop, status
+  dashboard, semantic substitute, or way to emulate offices when the host will
+  not dispatch them. Default `fork_turns=none`; never use `all`.
   No mode defines a fixed office count. Each wave is selected from useful roles
-  by live host capacity, current occupancy, retained terminal-node count,
-  reclamation evidence, explicit user budget, and provider launch budget;
-  unknown retained/reclamation state fails closed, and non-reclaimed nodes
-  consume capacity. Deferred roles remain recorded. Each assignment carries a
-  bounded dossier/context packet, deadline, eight-tool-call budget, stop
-  condition, evidence contract, and release rule.
+  by the requested office set, live host capacity, current occupancy, retained
+  terminal-node count, reclamation evidence, explicit user budget, and provider
+  launch budget; unknown retained/reclamation state fails closed, and
+  non-reclaimed nodes consume capacity. Deferred roles remain recorded. Each
+  assignment carries a bounded dossier/context packet, deadline,
+  eight-tool-call budget, stop condition, evidence contract, and release rule.
+  If admission passes but no host-native delivery is attempted, or the host
+  rejects delivery, the affected roles are `runtime_degraded`/deferred rather
+  than satisfied by additional CLI/script probes.
 - For Codex Multi-Agent V2, `/root/*` is only the collaboration address and the
   model-reserved spawn schema must keep `agent_type/model/reasoning_effort`
   hidden. Admission and start record assignment, task focus, complexity, risk,
@@ -543,9 +552,9 @@ clarification request and the user's answers as 实录 checkpoints.
   the `ultra` recommendations and Luna remains the `max` recommendation, but
   the compatible model-visible child inherits the main thread model/effort.
   The bounded spawn message must carry the explicit `role_key`, matching office
-  `AGENTS.md` dossier path/hash, skill hash, and preload contract. The child is
-  not running until its route-id, inheritance policy, and identity hashes all
-  pass acknowledgement. Claude Code inherits the main thread model; Hermes
+  `AGENTS.md` dossier path when useful, governing skill name, and role
+  acknowledgement contract. The child is running when its route-id, inheritance
+  policy, role key, direct superior, and task boundary are acknowledged. Claude Code inherits the main thread model; Hermes
   inherits the main profile model and its detailed profile-model design is
   deferred. A separate fresh-session Codex leaf may apply a host-proved
   model/effort route with an exact native binary and post-run session evidence;
@@ -622,6 +631,20 @@ clarification request and the user's answers as 实录 checkpoints.
   script allowed by its mandate and evidence contract, but it may not bypass
   太子/三省/尚书省 hierarchy, host authorization, recursion/depth budget, or a
   required 逐一上奏/待朱批 gate.
+- For self-check, connectivity, readiness, and "reply OK" decrees, the selected
+  office set is dynamic: use the newest request plus the current hierarchy and
+  manifest, with 六部 selected by 尚书省 only when they are requested or useful.
+  Success is measured by the requested offices that actually produced matching
+  office replies or by an explicit serial/degraded record for offices the host
+  could not materialize; a smaller accidental prior run, a static role count, or
+  a bundle of script receipts is not the acceptance authority.
+- Short-reply and connectivity dispatch order is positive and short: classify
+  authority and runtime, select requested offices, send compact host-native
+  assignments through the proper direct superior, wait for the exact replies,
+  then report requested/answered/degraded. It does not call `court open --fast`,
+  registry refresh, `agent-admit`, Shiguan pending scans, or closeout/archive
+  scripts unless the latest decree asks for those machine facts in addition to
+  the office reply.
 - Office admission follows the three-proof contract in
   [court-office-name-profile-skill-binding.md](sections/court-office-name-profile-skill-binding.md).
   task_name is routing metadata; name_binding does not prove profile_binding or skill_binding.
@@ -629,7 +652,7 @@ clarification request and the user's answers as 实录 checkpoints.
   or required skills were loaded, acknowledged, or fresh.
 - Under ordinary `approval`/`autonomous`/`super` parallelism,
   `office_instance_kind=child_agent|worktree_thread` shares one
-  admit/start/preload/report/finish/close lifecycle and one RC2 semantic/result
+  admit/start/ack/report/finish/close lifecycle and one RC2 semantic/result
   binding. Child proof contains only `agent_id`; worktree proof adds
   `thread_id`, canonical worktree id/path, repo/common-dir/worktree fingerprints,
   branch, and start head. A worktree has an independent metadata-first Shiguan
@@ -792,9 +815,8 @@ clarification request and the user's answers as 实录 checkpoints.
 - For Codex terminal-visible superCC offices, the standing part of that packet
   belongs in the role's auto-loaded `agents/supercc-dossiers/<role>/AGENTS.md`.
   The dispatcher should send only the current bounded task context and the
-  manifest fields (`office_dossier_path`, `office_dossier_hash`,
-  `profile_source`, `profile_hash`, `light_bootstrap_policy`,
-  `zellij_visible_layout_policy`) instead of re-sending the whole standing
+  manifest fields (`office_dossier_path`, `profile_source`,
+  `light_bootstrap_policy`, `zellij_visible_layout_policy`) instead of re-sending the whole standing
   profile on every wake. The role dossier owns the standing mandate and fast
   dispatch protocol: one non-blocking receive on wake, structured task ack before
   execution, scoped action for `ENTER_DISPATCH`, concise evidence, upward-only
@@ -814,13 +836,12 @@ clarification request and the user's answers as 实录 checkpoints.
   superior, visible-pane identity, fallback reporting, or release metadata is
   incomplete and must be returned for补证 before execution.
 - The dispatch packet must additionally carry `dispatch_uid`,
-  `delivery_channel`, `profile_source`, `profile_hash`, `expected_pane_id`,
-  `office_dossier_path`, `office_dossier_hash`, `light_bootstrap_policy`,
-  `native_enter_evidence`, `squad_evidence`, `heartbeat_contract`,
-  `release_policy`, and the `subagente profile contract` when a spawned or
-  standing profile is used. Missing
-  `profile_hash`, missing `office_dossier_hash`, or missing delivery evidence
-  prevents the result from closing as `DONE`.
+  `delivery_channel`, `profile_source`, `expected_pane_id`,
+  `office_dossier_path`, `light_bootstrap_policy`, `native_enter_evidence`,
+  `squad_evidence`, `heartbeat_contract`, `release_policy`, and the
+  `subagente profile contract` when a spawned or standing profile is used.
+  Missing direct-superior evidence, missing task acceptance, or missing delivery
+  evidence prevents the result from closing as `DONE`.
 - Standing intake no-silence is fixed for 太子 and 三省 while a decree is open:
   `no_silence_roles=[taizi, zhongshu, menxia, shangshu]`, with
   `taizi_no_silence=true` and `three_departments_no_silence=true`.
