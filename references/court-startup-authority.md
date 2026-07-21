@@ -31,6 +31,10 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
    behavior=parallel`; it never selects runtime. Native and superCC are mutually
    exclusive entry paths and share only the neutral standing-office
    configuration pointer/hash.
+   User-facing 开朝 text must show the complete reminder before the current
+   selection: `approval（审批/默认只读） | autonomous（自主/范围内实施） |
+   super（超级执行/范围内连续推进）`; behavior must be rendered as
+   `serial（串行） | parallel（并行）`.
 2. Determine the approval policy:
    - If they specified `approval`, `autonomous`, or `super`, honor it inside the
      unchanged current decree/boundary. An explicit `superCC` selects the separate
@@ -205,10 +209,10 @@ describes the modes is not enough.
 
 ```text
 请选择执行权限（三权）：
-- `approval`（只读权）：默认只做只读勘验、检索、读档、审议；命令执行、写入、联网、安装、配置、MCP 写操作、越工作区操作前先询问。
-- `autonomous`（管理权）：在陛下/用户给定的范围内自主执行；工作区写入、已授权路径、sandbox 提权、超工作区操作都可按任务边界办理，遇到破坏性、泄密、付费、未验证安装、私密上传或明显越旨再问。
-- `super`（完全控制权）：任务范围内自动执行，包括命令、写入、联网、配置、sandbox 提权、超工作区操作和多 agente 调度；`super` 默认请求 `yolo`/无沙盒执行，任务开始前必须说明当前 Codex 进程是否已真正以无沙盒启动；若当前进程不能热切换，则明示只能通过运行时提权门禁代行，并建议下次用 `codex --dangerously-bypass-approvals-and-sandbox` 或 `codex --sandbox danger-full-access --ask-for-approval never` 启动；是否停问由已批准边界和行为类别决定，不因多 agente 形式本身停问，只在越出路径/服务/风险/成本/隐私/外部状态边界、触及不可逆破坏、泄密、花钱、未验证安装、上传私有数据、无界代理树、明显越旨外部状态变更或宿主硬门禁时上奏。
-行为另选 `serial|parallel`，与三权正交；`super并行` 仅表示 `authority=super, behavior=parallel, runtime=native`。
+- `approval（审批/默认只读）`：默认只做只读勘验、检索、读档、审议；命令执行、写入、联网、安装、配置、MCP 写操作、越工作区操作前先询问。
+- `autonomous（自主/范围内实施）`：在陛下/用户给定的范围内自主执行；工作区写入、已授权路径、sandbox 提权、超工作区操作都可按任务边界办理，遇到破坏性、泄密、付费、未验证安装、私密上传或明显越旨再问。
+- `super（超级执行/范围内连续推进）`：任务范围内自动执行，包括命令、写入、联网、配置、sandbox 提权、超工作区操作和多 agente 调度；`super` 默认请求 `yolo`/无沙盒执行，任务开始前必须说明当前 Codex 进程是否已真正以无沙盒启动；若当前进程不能热切换，则明示只能通过运行时提权门禁代行，并建议下次用 `codex --dangerously-bypass-approvals-and-sandbox` 或 `codex --sandbox danger-full-access --ask-for-approval never` 启动；是否停问由已批准边界和行为类别决定，不因多 agente 形式本身停问，只在越出路径/服务/风险/成本/隐私/外部状态边界、触及不可逆破坏、泄密、花钱、未验证安装、上传私有数据、无界代理树、明显越旨外部状态变更或宿主硬门禁时上奏。
+行为另选 `serial（串行） | parallel（并行）`，与三权正交；`super并行` 仅表示 `authority=super, behavior=parallel, runtime=native`。
 `superCC` 不是第四权。它必须由最新旨意明确并从独立 zellij+squad startup/runtime 入口启动，携带另行选择的三权 authority 与 behavior；与 native 只共享中性官署配置 pointer/hash，不共享 task state、dossier、transport、admission 或 lifecycle，也不在同一 task/process 内切换或回退。
 默认建议：`autonomous`。任务工作流固定为 `/court`；史馆会按需查旧实录，不再单独询问归档加载。
 史馆生长树本地管理页：`web/shiguan-tree/index.html`。开朝后先用 `python -B scripts/ensure_shiguan_service_daemon.py --check-only` 探测；只有 `autonomous`/`super` 范围内或最新旨意明确批准服务写入时，才用不带 `--check-only` 的命令安装/复用隐藏登录守护进程。它后台确保局域网可访问的 8765 单端口服务与 preserve-only autosync；同机可打开 `http://127.0.0.1:8765/`，局域网设备使用脚本回报的 `lan_urls`。若守护进程确保失败，可在相同权限边界内手动运行 `python -B scripts/ensure_shiguan_web.py` 或 `python -B scripts/serve_shiguan_tree.py --host 0.0.0.0 --port 8765`；不得做外网穿透或云暴露，除非陛下另有明示旨意。

@@ -91,7 +91,7 @@ def _identity(path: Path) -> tuple[dict[str, object], list[list[str]]]:
     return (
         {
             "path": str(path.resolve()),
-            "branch": "release/beta1.0.2",
+            "branch": "release/beta1.0.2-hotfix-v1",
             "HEAD": "5" * 40,
             "index_count": 0,
             "tracked_dirty_count": 0,
@@ -116,7 +116,7 @@ def _request() -> dict[str, object]:
         "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
         "include_shangshu_ministries": True,
         "write_sets": {},
-        "expected_branch": "release/beta1.0.2",
+        "expected_branch": "release/beta1.0.2-hotfix-v1",
         "expected_head": "5" * 40,
         "expected_semantic_receipt_sha256": "1" * 64,
         "expected_plan_sha256": "4" * 64,

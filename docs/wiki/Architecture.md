@@ -64,7 +64,8 @@ Codex、Hermes、CLI、superCC、skills、MCP 和 scripts 将有界差遣映射�
 pending body 边界或治理实现的角色职责。
 
 执行路由固定为三个相互独立的结构化维度：`authority` 只能是
-`approval|autonomous|super`，`behavior` 只能是 `serial|parallel`，`runtime`
+`approval（审批/默认只读）|autonomous（自主/范围内实施）|super（超级执行/范围内连续推进）`，
+`behavior` 只能是 `serial（串行）|parallel（并行）`，`runtime`
 只能由启动入口确定为 `native|superCC`。`super parallel` 仅表示
 `authority=super, behavior=parallel, runtime=native`，不得探测或选择 superCC。
 superCC 只能从自己的 zellij+squad 入口启动；同一 task/process 不得在 native 与

@@ -9,9 +9,9 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 
 `P00_HIGHEST_PRIORITY=REQUIRED`. Before dispatch/resume/handoff, bind the existing `court.semantic.invariant_capsule.v1`, SHA-256, semantic receipt, authority/plan hashes, and `plan_cursor`; require `semantic_epoch == charter_revision`. Capsule and packet are each at most 2,048 UTF-8 bytes.
 
-- New work carries exact `task_id`/`sub_id`, bounded scope/write set, receipt pointers, changed authority pointers, and `fork_turns=none` by default. Never send a full transcript, full file, full diff, or full agent list by default.
+- New work carries exact ids, bounded scope/write set, receipt/authority pointers, and `fork_turns=none`. Never send full transcript/file/diff/agent list by default.
 - `child_agent` and `worktree_thread` share capsule, receipt, hierarchy, preload, and bounded trace; neither creates a second authority.
-- Reuse a compatible live instance first; keep in-flight instances until completion or explicit recall. Full context needs a bounded user/太子 override and never changes hierarchy, safety, or write authority.
+- Reuse a compatible live instance first; keep in-flight instances until completion or recall. Do not reuse at about 80% context, unrelated next task, or large-scale parallel where those two checks pass and performance permits fresh. Full context needs user/太子 override and never changes hierarchy, safety, or write authority.
 - `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: Shiguan may retain a durable projection after migration, but it is not the inline runtime authority.
 
 ## Unified Dynamic Dispatch Semantics
@@ -20,14 +20,14 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 2. 正常 whole-tree 上限为 16（含 root），`max_depth=4`；只有最新用户明确指定大于 16 的数量或 `unlimited/解限` 才可提高 ceiling，且预算、资源压力、层级、写集、preload、trace 门禁仍然有效。
 3. `execution_authority`=`approval|autonomous|super`；`behavior`=`serial|parallel`。二者正交；serial 不派生子 agente。
 4. `super并行` 仅为 `authority=super, behavior=parallel, parallel_topology=native`；native 与 superCC 入口互斥且不探测、切换或回退。
-5. Production ordinary routing is V2 or `serial`. V2 隐藏 model-reserved `agent_type/model/reasoning_effort/service_tier`; V2 树不得同时提交旧式 agent-type override。子 agente 继承主线程 model/effort，除非独立 fresh-session worker 通过精确 host proof。
+5. Production ordinary routing is V2 or `serial`; V2 hides model-reserved override fields. 子 agente 继承主线程 model/effort，除非 fresh-session worker 有精确 host proof。
 
-三权是授权边界：`approval`=审批/默认只读，`autonomous`=自主/范围内实施，`super`=超级执行/范围内连续推进；运行方式另选：`serial`=串行不派生，`parallel`=并行按层级派生。权力≠运行方式；尚书统六部=下派六部子/孙官署并汇总，六部直属尚书。
+三权提醒：`approval（审批/默认只读）`、`autonomous（自主/范围内实施）`、`super（超级执行/范围内连续推进）`。三权是授权边界；运行方式另选：`serial（串行）`=不派生，`parallel（并行）`=按层级派生。权力≠运行方式；尚书下派并汇总六部，六部直属尚书，不作太子同层直派。
 
 ## Pinned Initial Court Anchors
 
 - 最新旨意优先。独立解析 `authority`、`behavior`、`runtime`；runtime 只信结构化 startup receipt，不按文本推导。权限不明时首次写入/外部动作前只问一次三权。
-- 固定层级：用户 -> 太子 -> 三省；尚书 -> 六部；六部 -> 本部工坊/工匠。六部直属尚书；统六部是下派并汇总，不是尚书代办。direct-superior 违规结果隔离，不集成。
+- 固定层级：用户 -> 太子 -> 三省；尚书 -> 六部；六部 -> 本部工坊/工匠。UI 可平铺线程，但 receipt/奏报须标记六部为 Shangshu child agents；direct-superior 违规隔离。
 - 每次普通派生前运行 `scripts/court_cli.py agent-admit`，核验 P00、层级、容量、预算、写集、preload、实例与停止条件。
 - 开朝读取 `libu-hr` 维护的 `references/court-capability-registry.md` registry-first 当前工具索引；缓存只读 capability snapshot，并与 profile/dossier preload 一同在三省审议前完成。
 - 通用任务治理框架通过 `references/manifests/governance-implementations.v1.json` 装载治理实现；`three-departments-six-ministries` 是唯一默认官方实现。参考实现不得改变当前 runtime、证据、权限、直接上级或史馆权威。
@@ -38,7 +38,7 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 
 本 skill 是三省六部语义路由器。用户侧默认简体中文；路径、命令、API、字段和代码契约保持原文。官署名是责任/证据契约，未履职时标记 `NOT_APPLICABLE`、`runtime_degraded` 或 `authority_blocked`。
 
-加载目标是路径清晰、按场景一次走对。普通 preload=本文件+本角色 profile/dossier+邻接/registry+当前 reference；正式任务/结诏/superCC/安装/发布再按下表二次加载。禁无条件全量 references、他署 profile、pending/private 正文；入口保留首次路由边界并守 `<=20 KiB`。
+加载目标是路径清晰、按场景一次走对。普通 preload=本文件+本角色 profile/dossier+邻接/registry+当前 reference；正式任务/结诏/superCC/安装/发布再按表二次加载。禁无条件全量 references、他署 profile、pending/private 正文；入口守 `<=20 KiB`。
 
 ## Progressive Loading Map
 
@@ -63,9 +63,9 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 ## Common Hard Gates
 
 - Formal decree 先形成紧凑 semantic charter：`旨意`、`非目标`、`任务边界`、`允许动作`、`禁止动作`、`验收标准`、`证据要求`、`停止门禁`、`史馆记录策略`。
-- 非平凡 intake 先评估“目标、使用场景、关键要求和验收标准”；低于 95 时一次只问一个影响结果的问题，可给 2–4 个互斥选项；达到 95 后简要复述确认。已清楚或免确认则直接执行、不强行提问。
-- 非平凡任务先经三省：中书省拟旨/验收，门下省封驳风险/隐私/漂移，尚书省评估派遣/资源/回滚；随后 `三省上奏`，太子综合为 `太子回奏`。缺失的高影响决定按 `太子上奏下一项问题：...` 一次只问一项。
-- `approval` 只读；`autonomous` 可在范围内写入；`super` 可自动执行范围内动作；三权均可 serial/parallel，均不授权破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
+- 非平凡 intake 先评估“目标、使用场景、关键要求和验收标准”；低于 95 时一次只问一个影响结果的问题。已清楚或免确认则直接执行。
+- 非平凡任务先经三省：中书拟旨/验收，门下封驳风险/隐私/漂移，尚书评估派遣/资源/回滚；随后 `三省上奏`，太子综合为 `太子回奏`。缺失的高影响决定按 `太子上奏下一项问题：...` 一次只问一项。
+- `approval` 只读；`autonomous` 可在范围内写入；`super` 可自动执行范围内动作；三权均可 `serial（串行）`/`parallel（并行）`，均不授权破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
 - `superCC` 是独立 startup/runtime，不是第四权。它携带三权之一和一个 behavior，须最新旨意与 zellij+squad/client 证据；与 native 只共享中性官署配置 pointer/hash，不共享运行状态或生命周期。
 - `super GL` 仅在已确认 Hermes Studio group-chat room 时使用真实同房 `@profile` 回复；不模拟回复、不默认 `@all`、不无限催促。
 - 显式只读边界禁止任务文件写入、服务启动、队列 seen、索引重建、catalog 变更和其他状态突变，除非最新旨意逐项授权。若同时禁止史馆/audit 写入，报告 `史馆实录：authority_blocked/no-audit-write-boundary`。
@@ -94,8 +94,8 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 
 ## Dispatch, Preload, And Runtime
 
-- 官署绑定身份/上级、边界、三类 hash、P00、lease、证据和 stop。native/superCC 仅共享中性层级/profile pointer/hash，各用 `office-dossiers` / `supercc-dossiers`。
-- 普通 child 默认 `fork_turns=none`；共享写入、安装、MCP 写入、破坏性动作和外部应用状态必须串行。宿主拒绝、线程上限、资源压力、401/402/403 或语义不连续时停止当前 wave，不循环重试。
+- 官署绑定身份/上级、边界、三类 hash、P00、lease、证据和 stop。native/superCC 仅共享中性层级/profile pointer/hash，各用 `office-dossiers`/`supercc-dossiers`。
+- 普通 child 默认 `fork_turns=none`；已开启且兼容的三省/六部优先复用，但上下文约 80%、任务无关、大规模并行且性能允许 fresh 时不复用。共享写入、安装、MCP 写入、破坏性动作和外部应用状态必须串行。宿主拒绝、线程上限、资源压力、401/402/403 或语义不连续时停 wave，不循环重试。
 - preload acknowledgement 在状态进入 `running` 前必须匹配 role、model route/inheritance、dossier/profile/skill hashes。过期、错角色、缺 hash 或未加载 dossier 的结果不得验收。
 - `court open --fast` 用单 Python 解释器；真实 capability snapshot/preload 须先于三省审议，direct-superior 与 mutation 前门禁 fail closed，exact retry deterministic。
 - 仅 `runtime=superCC, entry_path=supercc` receipt 可加载 superCC；`entry_path=court` 不加载、探测或回显。Old Claude/Codex logs、裸 `squad` 或手写 pane 输入仅是 drift evidence。

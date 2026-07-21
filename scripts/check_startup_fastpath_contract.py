@@ -422,6 +422,22 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
                 require(isinstance(execution, dict), "execution receipt missing")
                 require(execution.get("authority") == authority, "receipt authority drift")
                 require(execution.get("behavior") == behavior, "receipt behavior drift")
+                reminder = receipt.get("authority_reminder")
+                require(isinstance(reminder, dict), "startup authority reminder missing")
+                require(
+                    reminder.get("three_authorities_text")
+                    == "approval（审批/默认只读） | autonomous（自主/范围内实施） | super（超级执行/范围内连续推进）",
+                    "startup three-authority reminder drift",
+                )
+                require(
+                    reminder.get("selected_authority_display")
+                    == f"{authority}（{'审批/默认只读' if authority == 'approval' else '自主/范围内实施' if authority == 'autonomous' else '超级执行/范围内连续推进'}）",
+                    "selected authority display drift",
+                )
+                require(
+                    reminder.get("behavior_options_text") == "serial（串行） | parallel（并行）",
+                    "startup behavior display format drift",
+                )
                 expected_dispatch = 9 if behavior == "parallel" else 0
                 require(receipt.get("dispatch_count") == expected_dispatch, "behavior dispatch count drift")
                 require(runtime.admission_calls == expected_dispatch, "behavior admission count drift")
@@ -447,6 +463,17 @@ def check_authority_behavior_end_to_end() -> dict[str, object]:
                     require(
                         coordination.get("selected_ministries") == list(court_open_fastpath.SIX_MINISTRIES),
                         "parallel selected ministries drift",
+                    )
+                    hierarchy = receipt.get("agent_hierarchy")
+                    require(isinstance(hierarchy, dict), "parallel hierarchy tree missing")
+                    require(
+                        hierarchy.get("six_ministries_are_shangshu_child_agents") is True,
+                        "parallel ministries are not marked as shangshu child agents",
+                    )
+                    require(
+                        hierarchy.get("rendering_contract")
+                        == "render_six_ministries_nested_under_shangshu_not_as_taizi_siblings",
+                        "hierarchy rendering contract drift",
                     )
                 results.append({"authority": authority, "behavior": behavior, "dispatch_count": expected_dispatch})
     return {"ok": True, "cartesian_count": len(results), "results": results}

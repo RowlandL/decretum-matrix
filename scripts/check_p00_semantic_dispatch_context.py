@@ -60,6 +60,8 @@ def _check_reference(root: Path, errors: list[str]) -> None:
         "fork_turns=none",
         "registry-first",
         "compatible_instance_policy=REUSE_FIRST",
+        "context_occupancy_ratio >= 0.80",
+        "parent_role=shangshu",
         "inflight_instance_policy=KEEP_UNTIL_COMPLETE_OR_EXPLICIT_RECALL",
         "carrier_receipt_parity=REQUIRED",
         "disabled_supercc_zero_load=REQUIRED",

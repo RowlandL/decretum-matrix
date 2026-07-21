@@ -86,7 +86,10 @@ authority, durable store, daemon, or second state machine.
   smallest role-local dossier/profile, then only triggered governing references.
   `compatible_instance_policy=REUSE_FIRST`: prefer a compatible live instance
   with matching task, role, receipt, lease, write set, and preload hashes before
-  creating another.
+  creating another. Do not reuse when `context_occupancy_ratio >= 0.80`, when
+  the next task is unrelated to the candidate's prior task, or when large-scale
+  parallelism has first checked context occupancy and task relation and host
+  performance permits a fresh instance.
 - `inflight_instance_policy=KEEP_UNTIL_COMPLETE_OR_EXPLICIT_RECALL`: an admitted
   or in-flight instance retains its allocated budget until completion, explicit
   superior recall, hard safety/authority failure, or machine-proven terminal
@@ -1008,6 +1011,12 @@ Agent group rules:
   六部 may request 工坊/工匠 only within budget, risk, and audit constraints.
   No office may create unbounded descendants or permanently install a standing
   official without 太子回奏 and user approval.
+- When 尚书省 dispatches 六部 in ordinary Codex/V2 mode, each 六部 agente is a
+  child/successor of 尚书省, not a peer of 三省 in the court hierarchy. Host
+  sidebars may visually flatten live threads; receipts, dispatch packets, and
+  reports must still carry `parent_role=shangshu`, `direct_superior=shangshu`,
+  and a rendering contract equivalent to
+  `render_six_ministries_nested_under_shangshu_not_as_taizi_siblings`.
 - Direct superiors control their direct subordinates inside the approved decree:
   六部 report to 尚书省, 工坊/工匠 report to their named ministry, and each direct
   superior may demand real-time reports, request evidence, narrow scope,

@@ -28,10 +28,11 @@ decretum-matrix --format json --help
 $decretum-matrix
 ```
 
-随后直接描述任务和边界。三权是授权边界：`approval` 为审批权，默认只读和等
-待批准；`autonomous` 为自主权，在给定范围内本地实施；`super` 为超级执行权，
-可在明确边界内连续推进。运行方式另选：`serial` 为串行，不并行开子 agente；
-`parallel` 为并行，按层级派生子/孙 agente。权力不是运行方式；二者独立。
+随后直接描述任务和边界。三权提醒：`approval（审批/默认只读）`、
+`autonomous（自主/范围内实施）`、`super（超级执行/范围内连续推进）`。
+三权是授权边界；运行方式另选 `serial（串行）` / `parallel（并行）`。
+`serial（串行）` 不并行开子 agente；`parallel（并行）` 按层级派生子/孙
+agente。权力不是运行方式；二者独立。
 普通 `super parallel` 固定走 native。superCC 只由独立显式入口启动，两种
 runtime 不在同一 task/process 中切换或回退。
 
@@ -61,9 +62,9 @@ runtime 不在同一 task/process 中切换或回退。
 
 ## 当前版本
 
-当前源码分支为 `release/beta1.0.2`，发布身份以 [`VERSION`](VERSION) 和
-[`release-manifest.json`](release-manifest.json) 为准。tag、GitHub Release、npm
-以及线上 Wiki 的成功状态只由对应发布回执证明。
+当前源码发布身份以 [`VERSION`](VERSION) 和
+[`release-manifest.json`](release-manifest.json) 为准；分支名只是当前工作载体。
+tag、GitHub Release、npm 以及线上 Wiki 的成功状态只由对应发布回执证明。
 
 `beta1.0.2` 整改启动语义、场景成本、目录外 CLI 和尚书统六部语义；`beta1.0.1`
 作为上一问题基线保留历史证据，`beta1.0.0` 及两个

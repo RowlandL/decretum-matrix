@@ -77,7 +77,7 @@ def _identity(path: Path) -> tuple[dict[str, object], list[list[str]]]:
     return (
         {
             "path": str(path.resolve()),
-            "branch": "release/beta1.0.2",
+            "branch": "release/beta1.0.2-hotfix-v1",
             "HEAD": "5" * 40,
             "index_count": 0,
             "tracked_dirty_count": 0,
@@ -161,7 +161,7 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
         "requested_offices": list(court_open_fastpath.THREE_DEPARTMENTS),
         "include_shangshu_ministries": True,
         "write_sets": {},
-        "expected_branch": "release/beta1.0.2",
+        "expected_branch": "release/beta1.0.2-hotfix-v1",
         "expected_head": "5" * 40,
         "expected_semantic_receipt_sha256": "1" * 64,
         "expected_plan_sha256": "4" * 64,
@@ -242,6 +242,83 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             .get("direct_superior")
             == "shangshu"
             for packet in first.get("shangshu_ministry_packets", [])
+        )
+        authority_reminder = first.get("authority_reminder")
+        checks["startup_three_authority_reminder"] = (
+            isinstance(authority_reminder, dict)
+            and authority_reminder.get("schema") == "court.startup.authority_reminder.v1"
+            and authority_reminder.get("three_authorities_text")
+            == "approval（审批/默认只读） | autonomous（自主/范围内实施） | super（超级执行/范围内连续推进）"
+            and authority_reminder.get("selected_authority_display") == "super（超级执行/范围内连续推进）"
+            and authority_reminder.get("behavior_options_text") == "serial（串行） | parallel（并行）"
+            and authority_reminder.get("selected_behavior_display") == "parallel（并行）"
+            and authority_reminder.get("authority_behavior_orthogonal") is True
+        )
+        agent_hierarchy = first.get("agent_hierarchy")
+        hierarchy_nodes = agent_hierarchy.get("nodes", []) if isinstance(agent_hierarchy, dict) else []
+        ministry_parent_map = {
+            node.get("role"): node.get("parent_role")
+            for node in hierarchy_nodes
+            if isinstance(node, dict) and node.get("role") in court_open_fastpath.SIX_MINISTRIES
+        }
+        checks["agent_tree_ministries_under_shangshu"] = (
+            isinstance(agent_hierarchy, dict)
+            and agent_hierarchy.get("schema") == "court.agent_hierarchy_tree.v1"
+            and agent_hierarchy.get("six_ministry_parent") == "shangshu"
+            and agent_hierarchy.get("six_ministries_are_shangshu_child_agents") is True
+            and ministry_parent_map
+            == {role: "shangshu" for role in court_open_fastpath.SIX_MINISTRIES}
+            and agent_hierarchy.get("rendering_contract")
+            == "render_six_ministries_nested_under_shangshu_not_as_taizi_siblings"
+        )
+        reuse_policy = first.get("agent_reuse_policy")
+        checks["agent_reuse_policy_present"] = (
+            isinstance(reuse_policy, dict)
+            and reuse_policy.get("schema") == "court.agent.reuse_policy.v1"
+            and reuse_policy.get("compatible_instance_policy") == "REUSE_FIRST"
+            and reuse_policy.get("context_occupancy_limit") == 0.80
+            and "context_occupancy_ratio >= 0.80" in reuse_policy.get("do_not_reuse_if", [])
+        )
+        reuse_candidate = {
+            "status": "running",
+            "role": "gongbu",
+            "direct_superior": "shangshu",
+            "context_occupancy_ratio": 0.42,
+            "task_relation": "related",
+        }
+        checks["agent_reuse_decision_reuses_related_live"] = (
+            court_open_fastpath.evaluate_agent_reuse_candidate(
+                reuse_candidate,
+                {"role": "gongbu", "direct_superior": "shangshu", "next_task_relation": "related"},
+            ).get("decision")
+            == "REUSE"
+        )
+        checks["agent_reuse_decision_blocks_80_percent_context"] = (
+            court_open_fastpath.evaluate_agent_reuse_candidate(
+                {**reuse_candidate, "context_occupancy_ratio": 0.80},
+                {"role": "gongbu", "direct_superior": "shangshu", "next_task_relation": "related"},
+            ).get("reason_codes")
+            == ["context_occupancy_at_or_above_80_percent"]
+        )
+        checks["agent_reuse_decision_blocks_unrelated_task"] = (
+            court_open_fastpath.evaluate_agent_reuse_candidate(
+                reuse_candidate,
+                {"role": "gongbu", "direct_superior": "shangshu", "next_task_relation": "unrelated"},
+            ).get("reason_codes")
+            == ["next_task_unrelated"]
+        )
+        checks["agent_reuse_decision_allows_fresh_large_parallel"] = (
+            court_open_fastpath.evaluate_agent_reuse_candidate(
+                reuse_candidate,
+                {
+                    "role": "gongbu",
+                    "direct_superior": "shangshu",
+                    "next_task_relation": "related",
+                    "large_scale_parallel": True,
+                    "performance_allows_fresh_instance": True,
+                },
+            ).get("reason_codes")
+            == ["large_scale_parallel_fresh_instance_preferred"]
         )
         checks["preload_target"] = all(
             preload.get("target_met") is True for preload in first.get("preloads", [])
@@ -347,6 +424,13 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             "shangshu_integrates_ministries",
             "ministry_admission_caller_is_shangshu",
             "ministry_binding_superior_is_shangshu",
+            "startup_three_authority_reminder",
+            "agent_tree_ministries_under_shangshu",
+            "agent_reuse_policy_present",
+            "agent_reuse_decision_reuses_related_live",
+            "agent_reuse_decision_blocks_80_percent_context",
+            "agent_reuse_decision_blocks_unrelated_task",
+            "agent_reuse_decision_allows_fresh_large_parallel",
             "ministry_atomic_miss",
             "exact_retry",
         )

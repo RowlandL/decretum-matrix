@@ -30,6 +30,24 @@ DEFAULT_THREAD_CEILING = 16
 THREE_DEPARTMENTS = ("zhongshu", "menxia", "shangshu")
 SIX_MINISTRIES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 CAPABILITY_KINDS = ("skill", "mcp", "plugin", "cli", "script")
+AUTHORITY_ORDER = ("approval", "autonomous", "super")
+BEHAVIOR_ORDER = ("serial", "parallel")
+AUTHORITY_DISPLAYS = {
+    "approval": "approval（审批/默认只读）",
+    "autonomous": "autonomous（自主/范围内实施）",
+    "super": "super（超级执行/范围内连续推进）",
+}
+BEHAVIOR_DISPLAYS = {
+    "serial": "serial（串行）",
+    "parallel": "parallel（并行）",
+}
+AGENT_REUSE_CONTEXT_OCCUPANCY_LIMIT = 0.80
+TASK_REUSE_RELATED_VALUES = frozenset(
+    {"same", "related", "continuation", "overlapping", "overlap"}
+)
+TASK_REUSE_UNRELATED_VALUES = frozenset(
+    {"unrelated", "none", "different", "disjoint"}
+)
 ROLE_SUPERIORS = {
     **{role: "taizi" for role in THREE_DEPARTMENTS},
     **{role: "shangshu" for role in SIX_MINISTRIES},
@@ -799,6 +817,146 @@ def _shangshu_ministry_coordination(
     }
 
 
+def _startup_authority_reminder(normalized: Mapping[str, object]) -> dict[str, object]:
+    authority = str(normalized["authority"])
+    behavior = str(normalized["behavior"])
+    return {
+        "schema": "court.startup.authority_reminder.v1",
+        "three_authorities": [
+            {
+                "authority": key,
+                "display": display,
+                "selected": key == authority,
+            }
+            for key in AUTHORITY_ORDER
+            for display in (AUTHORITY_DISPLAYS[key],)
+        ],
+        "three_authorities_text": " | ".join(AUTHORITY_DISPLAYS[key] for key in AUTHORITY_ORDER),
+        "selected_authority": authority,
+        "selected_authority_display": AUTHORITY_DISPLAYS[authority],
+        "behavior_options": [
+            {
+                "behavior": key,
+                "display": display,
+                "selected": key == behavior,
+            }
+            for key in BEHAVIOR_ORDER
+            for display in (BEHAVIOR_DISPLAYS[key],)
+        ],
+        "behavior_options_text": " | ".join(BEHAVIOR_DISPLAYS[key] for key in BEHAVIOR_ORDER),
+        "selected_behavior": behavior,
+        "selected_behavior_display": BEHAVIOR_DISPLAYS[behavior],
+        "authority_behavior_orthogonal": True,
+        "super_parallel_contract": "authority=super, behavior=parallel, runtime=native",
+    }
+
+
+def _agent_hierarchy_tree(
+    department_packets: Sequence[Mapping[str, object]],
+    ministry_packets: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    nodes: list[dict[str, object]] = [
+        {
+            "role": str(packet.get("role")),
+            "parent_role": "taizi",
+            "level": 1,
+            "relation": "taizi_child",
+        }
+        for packet in department_packets
+    ]
+    nodes.extend(
+        {
+            "role": str(packet.get("role")),
+            "parent_role": "shangshu",
+            "level": 2,
+            "relation": "shangshu_child_ministry",
+        }
+        for packet in ministry_packets
+    )
+    return {
+        "schema": "court.agent_hierarchy_tree.v1",
+        "root_role": "taizi",
+        "nodes": nodes,
+        "three_department_parent": "taizi",
+        "six_ministry_parent": "shangshu",
+        "six_ministries_are_shangshu_child_agents": bool(ministry_packets)
+        and all(node["parent_role"] == "shangshu" for node in nodes if node["role"] in SIX_MINISTRIES),
+        "host_sidebar_may_flatten_display": True,
+        "rendering_contract": "render_six_ministries_nested_under_shangshu_not_as_taizi_siblings",
+    }
+
+
+def agent_reuse_policy_payload() -> dict[str, object]:
+    return {
+        "schema": "court.agent.reuse_policy.v1",
+        "default_action": "reuse_compatible_live_instance_first",
+        "compatible_instance_policy": "REUSE_FIRST",
+        "context_occupancy_limit": AGENT_REUSE_CONTEXT_OCCUPANCY_LIMIT,
+        "do_not_reuse_if": [
+            "context_occupancy_ratio >= 0.80",
+            "next_task_relation in unrelated|none|different|disjoint",
+            "large_scale_parallel and performance_allows_fresh_instance after the context and task-relation checks",
+        ],
+        "large_scale_parallel_rule": (
+            "after checking context occupancy and task relatedness, prefer a fresh "
+            "instance when large-scale parallelism and host performance allow it"
+        ),
+        "hierarchy_preserved": True,
+    }
+
+
+def evaluate_agent_reuse_candidate(
+    candidate: Mapping[str, object],
+    request: Mapping[str, object],
+) -> dict[str, object]:
+    """Decide whether an already-open office instance should be reused."""
+
+    reasons: list[str] = []
+    status = str(candidate.get("status") or "").strip().lower()
+    if status in {"completed", "failed", "cancelled", "closed"}:
+        reasons.append("candidate_not_live")
+    candidate_role = str(candidate.get("role") or "").strip().lower()
+    request_role = str(request.get("role") or "").strip().lower()
+    if not candidate_role or candidate_role != request_role:
+        reasons.append("role_mismatch")
+    candidate_superior = str(candidate.get("direct_superior") or "").strip().lower()
+    request_superior = str(request.get("direct_superior") or "").strip().lower()
+    if request_superior and candidate_superior != request_superior:
+        reasons.append("direct_superior_mismatch")
+    raw_ratio = candidate.get("context_occupancy_ratio")
+    if isinstance(raw_ratio, bool) or not isinstance(raw_ratio, (int, float)):
+        reasons.append("context_occupancy_unknown")
+    else:
+        ratio = float(raw_ratio)
+        if ratio >= AGENT_REUSE_CONTEXT_OCCUPANCY_LIMIT:
+            reasons.append("context_occupancy_at_or_above_80_percent")
+    relation = str(
+        request.get("next_task_relation")
+        or candidate.get("next_task_relation")
+        or request.get("task_relation")
+        or candidate.get("task_relation")
+        or ""
+    ).strip().casefold()
+    if relation in TASK_REUSE_UNRELATED_VALUES:
+        reasons.append("next_task_unrelated")
+    elif relation and relation not in TASK_REUSE_RELATED_VALUES:
+        reasons.append("task_relation_unknown")
+    if (
+        bool(request.get("large_scale_parallel"))
+        and bool(request.get("performance_allows_fresh_instance"))
+        and not reasons
+    ):
+        reasons.append("large_scale_parallel_fresh_instance_preferred")
+    decision = "REUSE" if not reasons else "DO_NOT_REUSE"
+    return {
+        "schema": "court.agent.reuse_decision.v1",
+        "decision": decision,
+        "reuse": decision == "REUSE",
+        "reason_codes": reasons or ["compatible_live_instance_reuse_first"],
+        "policy": agent_reuse_policy_payload(),
+    }
+
+
 def prepare_fast_open(
     value: object,
     *,
@@ -943,12 +1101,18 @@ def prepare_fast_open(
             if ministry_packets
             else None
         )
+        authority_reminder = _startup_authority_reminder(normalized)
+        agent_hierarchy = _agent_hierarchy_tree(department_packets, ministry_packets)
+        agent_reuse_policy = agent_reuse_policy_payload()
 
         packet_digest = _sha256_bytes(_canonical_bytes({
             "operation_id": normalized["operation_id"],
             "departments": department_packets,
             "ministries": ministry_packets,
             "shangshu_ministry_coordination": shangshu_ministry_coordination,
+            "authority_reminder": authority_reminder,
+            "agent_hierarchy": agent_hierarchy,
+            "agent_reuse_policy": agent_reuse_policy,
         }))
         return {
             "schema": RECEIPT_SCHEMA,
@@ -960,6 +1124,7 @@ def prepare_fast_open(
             "packet_sha256": packet_digest,
             "task_id": normalized["task_id"],
             "execution": execution,
+            "authority_reminder": authority_reminder,
             "semantic_receipt_id": receipt.get("receipt_id"),
             "semantic_receipt_sha256": receipt.get("receipt_sha256"),
             "plan_cursor": receipt.get("plan_cursor"),
@@ -971,6 +1136,8 @@ def prepare_fast_open(
             "department_packets": department_packets,
             "shangshu_ministry_packets": ministry_packets,
             "shangshu_ministry_coordination": shangshu_ministry_coordination,
+            "agent_hierarchy": agent_hierarchy,
+            "agent_reuse_policy": agent_reuse_policy,
             "admission_decisions": admission_decisions,
             "mutations": [],
             "dispatch_count": len(admission_decisions) if normalized["behavior"] == "parallel" else 0,
