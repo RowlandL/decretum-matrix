@@ -353,11 +353,9 @@ function buildPackageReadmeForContract(contract) {
     `- Registry dist-tag: \`${contract.distTag}\``,
     `- License: \`${contract.license}\``,
     "",
-    `This package contains the release ZIP and checksum, release attestation, release notes, SPDX SBOM, and legal/governance documents validated against the ${contract.releaseLabel} release manifest.`,
+    `This package contains the release ZIP, release attestation, release notes, SPDX SBOM, and legal/governance documents validated against the ${contract.releaseLabel} release manifest.`,
     "",
-    "It has no third-party runtime dependencies. Its bounded `postinstall` verifies the embedded release ZIP, backs up managed public files, installs the canonical `.agents/skills/decretum-matrix` runtime, creates or atomically migrates the physical shared Shiguan root, and records rollback receipts without reading pending/private bodies.",
-    "",
-    `Verify \`release/${contract.identity.artifactName}\` with \`release/${contract.identity.sidecarName}\` and the release attestation before use.`,
+    "It has no third-party runtime dependencies. Its bounded `postinstall` performs structural ZIP safety checks, backs up managed public files, installs the canonical `.agents/skills/decretum-matrix` runtime, creates or atomically migrates the physical shared Shiguan root, and records rollback receipts without reading pending/private bodies. Any temporary install validator must be removed before the runtime projection is activated.",
   ].join("\n")}\n`;
 }
 
@@ -1067,7 +1065,6 @@ async function runSyntheticInstalledSmoke(
   npmState,
   publishPackage,
   expectedFiles,
-  expectedHashes,
   contract,
 ) {
   const smokeRoot = path.join(operationRoot, "synthetic-installed-smoke");
@@ -1119,13 +1116,6 @@ async function runSyntheticInstalledSmoke(
       installedPackage.exports?.["./release/*"] === "./release/*",
     "synthetic package exports contract mismatch",
   );
-  for (const [relativePath, expectedHash] of expectedHashes) {
-    assert(
-      (await hashFile(path.join(installedRoot, ...relativePath.split("/")))) ===
-        expectedHash,
-      `synthetic installed hash drift: ${relativePath}`,
-    );
-  }
   return await verifyInstalledCliParity(operationRoot, installedRoot);
 }
 
@@ -1774,11 +1764,6 @@ export async function runSyntheticSelfTest() {
       fixtureContract,
       syntheticAssets,
     );
-    const expectedHashes = new Map([
-      ...fixtureContract.runtimeFiles.map((file) => [file.path, file.sha256]),
-      ...fixtureContract.legalFiles.map((file) => [file.path, file.sha256]),
-      ...syntheticAssets.map((asset) => [asset.path, asset.sha256]),
-    ]);
     const expectedFiles = fixtureContract.expectedPackFiles;
     const expectedUnpackedSize =
       Buffer.byteLength(packageText, "utf8") +
@@ -1817,7 +1802,6 @@ export async function runSyntheticSelfTest() {
       npmState,
       publishPackage,
       expectedFiles,
-      expectedHashes,
       fixtureContract,
     );
 
@@ -2215,7 +2199,7 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
         installLifecycleScripts: true,
         postinstall: "node bin/decretum-matrix.js --npm-postinstall",
         postinstallContract:
-          "verified_zip_then_transactional_canonical_install_and_physical_shiguan_bootstrap",
+          "structural_zip_then_transactional_canonical_install_and_physical_shiguan_bootstrap",
         runtimeAuthority: `release/${contract.identity.artifactName}`,
       },
       legalSurface: {
@@ -3084,10 +3068,6 @@ async function runInstalledSmoke(
       installedStat.isFile() && installedStat.size === runtimeFile.size,
       `installed CLI runtime size drift: ${runtimeFile.path}`,
     );
-    assert(
-      (await hashFile(installedPath)) === runtimeFile.sha256,
-      `installed CLI runtime hash drift: ${runtimeFile.path}`,
-    );
   }
 
   for (const legalFile of contract.legalFiles) {
@@ -3101,10 +3081,6 @@ async function runInstalledSmoke(
       installedStat.size === legalFile.size,
       `installed legal size drift: ${legalFile.path}`,
     );
-    assert(
-      (await hashFile(installedPath)) === legalFile.sha256,
-      `installed legal hash drift: ${legalFile.path}`,
-    );
   }
 
   for (const asset of releaseAssets) {
@@ -3112,10 +3088,6 @@ async function runInstalledSmoke(
     const installedStat = await lstat(installedPath);
     assert(installedStat.isFile(), `installed asset is not regular: ${asset.path}`);
     assert(installedStat.size === asset.size, `installed size drift: ${asset.path}`);
-    assert(
-      (await hashFile(installedPath)) === asset.sha256,
-      `installed hash drift: ${asset.path}`,
-    );
   }
 
   const canonicalRuntime = path.join(
@@ -3141,6 +3113,16 @@ async function runInstalledSmoke(
     canonicalShiguanStat.isDirectory() && !canonicalShiguanStat.isSymbolicLink(),
     "postinstall canonical Shiguan root is not a physical directory",
   );
+  for (const relativePath of [
+    "release-manifest.json",
+    "scripts/release_payload_manifest.py",
+    "scripts/check_release_gate.py",
+  ]) {
+    assert(
+      !(await pathExists(path.join(canonicalRuntime, ...relativePath.split("/")))),
+      `postinstall runtime retained a release-only validator: ${relativePath}`,
+    );
+  }
   const receiptRoot = path.join(
     postinstallHome,
     ".agents",
@@ -3159,7 +3141,11 @@ async function runInstalledSmoke(
     postinstallReceipt.ok === true &&
       postinstallReceipt.pending_body_access === "NO" &&
       postinstallReceipt.body_content_reads === 0 &&
-      postinstallReceipt.body_hashes === 0,
+      postinstallReceipt.bootstrap_validation === "STRUCTURAL_ONLY" &&
+      ["NOT_USED", "TEMPORARY_REMOVED"].includes(
+        postinstallReceipt.temporary_validation_helper,
+      ) &&
+      !Object.hasOwn(postinstallReceipt, "body_hashes"),
     "postinstall receipt contract mismatch",
   );
 

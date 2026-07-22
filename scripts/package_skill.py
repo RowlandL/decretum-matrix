@@ -276,6 +276,7 @@ PACKAGE_EXTRA_FILES = frozenset(
         "notice",
         "privacy.md",
         "provenance.md",
+        "release-manifest.json",
         "sbom.spdx.json",
         "security.md",
         "third_party_notices.md",
@@ -309,13 +310,17 @@ EXCLUDE_DIRS = {
     ".mypy_cache",
     ".ruff_cache",
     ".git",
+    "development-manual",
     "docs",
     "manual",
+    "web",
 }
 EXCLUDE_REFERENCE_DIRS = {
     "agente-logs",
+    "benchmarks",
     "capability-index",
     "court-runtime",
+    "fixtures",
     "hermes-standing-agents",
     "memory-decisions",
     "obsidian-sync",
@@ -462,8 +467,6 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
     key = relative_key(relative)
     if key in REPOSITORY_ONLY_PATHS:
         return True
-    if not package_includes(relative, is_dir=is_dir):
-        return True
     if has_sensitive_directory(relative):
         return True
     if lower_parts & {part.casefold() for part in EXCLUDE_DIRS}:
@@ -492,6 +495,8 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
         return True
     if any(token in lower_name for token in ("token", "secret", "credential", "cookie")):
         return True
+    if not package_includes(relative, is_dir=is_dir):
+        return not is_dir
     return False
 
 
@@ -1003,13 +1008,12 @@ def archive_member_policy_problem(normalized: str, is_dir: bool) -> str | None:
     if any(part in SECRET_BEARING_DIRS for part in lower_parts):
         return "sensitive-directory"
 
-    if not package_includes(Path(relative), is_dir=is_dir):
-        return "not-in-package-projection"
-    if is_dir:
-        return None
-
     lower_name = relative_parts[-1].casefold()
     is_brand_asset = lower_relative in BRAND_ASSET_PATHS
+    if len(relative_parts) > 1 and not package_includes(Path(relative_parts[0]), is_dir=True):
+        return "unknown-directory"
+    if is_dir:
+        return None if package_includes(Path(relative), is_dir=True) else "unknown-directory"
     if lower_relative.startswith("assets/") and not is_brand_asset:
         return "brand-asset-not-allowed"
     if len(relative_parts) == 1 and lower_name not in ROOT_ALLOWED_FILES:
@@ -1040,6 +1044,10 @@ def archive_member_policy_problem(normalized: str, is_dir: bool) -> str | None:
     ):
         if lower_relative not in ARCHIVE_EXACT_REGENERATED_FILES:
             return "regenerated-path-not-allowed"
+    if not package_includes(Path(relative), is_dir=is_dir):
+        return "not-in-package-projection"
+    if is_dir:
+        return None
     return None
 
 

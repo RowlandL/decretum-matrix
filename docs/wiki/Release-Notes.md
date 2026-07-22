@@ -8,6 +8,10 @@
   选择层，适合支持方向键或鼠标点击的客户端。
 - 安装面继续收敛到 manifest 投影的运行面，旧 active-copy 校验门不再作为
   默认安装后步骤出现。
+- Hermes 共享史馆结诏修复：旧 locator 已是 junction 且指向 canonical 根时，
+  不再因缺少旧 cutover 凭据导致编号和古制谱系退化。
+- 空白机 npm 首次安装仅保留结构性 ZIP 安全检查；临时 bootstrap 校验器若启用，
+  必须在运行时投影前删除，安装后的 skill 不保留发布校验文件。
 
 ## beta1.0.2
 

@@ -12,13 +12,19 @@
   in the supported client surfaces.
 - Kept the installed runtime surface narrow and removed the old active-copy
   hash-check gate from release manifests and install-facing guidance.
+- Accepted an already-migrated shared Shiguan topology when legacy locators are
+  junctions to the canonical root, so Hermes closeout can generate `court_code`
+  and `ancient_lineage` instead of reporting missing cutover evidence.
+- Blank-host npm installation now accepts only structural ZIP checks at runtime;
+  any future temporary bootstrap validator must be removed before activation, and
+  the installed skill keeps no release manifest or release-validation helper.
 
 ### Release identity
 
 - Product/tag/artifact version: `beta1.0.4`.
 - npm version: `1.0.4-beta.0` on the `beta` dist-tag.
-- This branch is still a local candidate; publication needs separate
-  authorization.
+- Published as the `beta1.0.4` prerelease with its matching branch, tag, assets,
+  and npm package on the `beta` dist-tag.
 
 ## beta1.0.3 - 2026-07-21
 

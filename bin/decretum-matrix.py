@@ -271,6 +271,8 @@ def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
         "sync": sync_receipt,
         "pending_body_access": "NO",
         "body_content_reads": 0,
+        "bootstrap_validation": "STRUCTURAL_ONLY",
+        "temporary_validation_helper": "NOT_USED",
     }
     if sync_receipt.get("ok") is not True:
         _write_json_atomic(receipt_path, combined)

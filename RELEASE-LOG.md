@@ -12,8 +12,14 @@
    便于 Codex、Claude 和 Hermes 的方向键/鼠标式提交。
 3. 安装和 release gate 不再把旧 active-copy hash-check 门带进安装面；安装后只
    保留 manifest 投影里的运行路径，旧校验 helper 由 prune 清理。
-4. 产品版本为 `beta1.0.4`，npm 映射为 `1.0.4-beta.0`。本地五根安装完成后
-   停止，发布、tag、push 和 PR 仍等待另行授权。
+4. Hermes 运行时接受已经完成物理迁移的共享史馆拓扑：旧 locator 为 junction
+   并指向 canonical 根时，不再因缺少旧 cutover 凭据导致 `court_code` 和
+   `ancient_lineage` 退化为 `partial_or_not_run`。
+5. 空白机 npm 首次安装只允许结构性 ZIP 安全检查；若未来启用临时 bootstrap
+   校验器，必须在运行时投影激活前自删除。安装后的 skill 不保留 release
+   manifest 或 release-validation helper。
+6. 产品版本为 `beta1.0.4`，npm 映射为 `1.0.4-beta.0`。本地五根安装、分支、
+   tag、GitHub beta Release 和 npm 发布按本次明确授权办理；不创建 PR。
 
 ## beta1.0.3 - 2026-07-21
 

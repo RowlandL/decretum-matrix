@@ -125,6 +125,7 @@ def obsolete_managed_files(root: Path, desired_files: set[Path]) -> set[Path]:
         if path.is_dir():
             continue
         if "__pycache__" in path.parts or path.suffix.lower() == ".pyc":
+            obsolete.add(path.relative_to(root))
             continue
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"refusing to prune non-regular managed path: {path}")

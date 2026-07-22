@@ -729,6 +729,107 @@ def _load_topology_commit(target_root: Path) -> object:
         return None
 
 
+def _known_legacy_reference_paths(target_root: Path) -> tuple[Path, ...]:
+    return (
+        target_root.with_name("court-capability-router") / "references",
+        default_legacy_shared_root() / "references",
+    )
+
+
+def _present_legacy_junctions_point_to_target(
+    target_root: Path,
+    target_references: Path,
+) -> bool:
+    seen = False
+    for path in _known_legacy_reference_paths(target_root):
+        kind = _path_kind(path)
+        if kind == "absent":
+            continue
+        seen = True
+        junction_target = _resolved_junction_target(path)
+        if (
+            kind != "junction"
+            or junction_target is None
+            or not _same_physical_path(junction_target, target_references)
+        ):
+            return False
+    return seen
+
+
+def _write_json_replace(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _ensure_physical_topology_receipt(target_root: Path) -> None:
+    target_references = target_root / "references"
+    if _path_kind(target_references) != "directory":
+        return
+    legacy_entries = [str(path) for path in _known_legacy_reference_paths(target_root)]
+    for text in legacy_entries:
+        path = Path(text)
+        junction_target = _resolved_junction_target(path)
+        if (
+            _path_kind(path) != "junction"
+            or junction_target is None
+            or not _same_physical_path(junction_target, target_references)
+        ):
+            return
+    try:
+        metadata = target_references.stat()
+    except OSError:
+        return
+    committed_at = datetime.now(timezone.utc).isoformat()
+    control_root = _topology_control_root(target_root)
+    receipt_path = control_root / "shiguan-topology-receipt.json"
+    receipt = {
+        "schema": TOPOLOGY_RECEIPT_SCHEMA,
+        "ok": True,
+        "status": "PHYSICAL_TOPOLOGY_VERIFIED",
+        "action": "REUSE_PHYSICAL_CANONICAL",
+        "physical_authority_required": True,
+        "canonical_locator_kind": "physical_directory",
+        "compatibility_locator_kind": "junction_not_symlink",
+        "canonical_references": str(target_references),
+        "legacy_references": legacy_entries,
+        "compatibility_junction_targets": {
+            text: str(target_references) for text in legacy_entries
+        },
+        "postimage": {
+            str(target_references): "directory",
+            **{text: "junction" for text in legacy_entries},
+        },
+        "canonical_identity": {
+            "device": int(metadata.st_dev),
+            "inode": int(metadata.st_ino),
+        },
+        "pending_body_access": "NO",
+        "body_content_reads": 0,
+        "body_fingerprints": 0,
+        "rollback_supported": True,
+        "committed_at": committed_at,
+    }
+    signature = _cutover_receipt_signature(receipt)
+    if signature is None:
+        return
+    marker = {
+        "schema": TOPOLOGY_COMMIT_SCHEMA,
+        "state": "COMMITTED",
+        "receipt_signature": signature,
+        "committed_at": committed_at,
+        "canonical_references": str(target_references),
+        "receipt_path": str(receipt_path),
+    }
+    try:
+        _write_json_replace(receipt_path, receipt)
+        _write_json_replace(control_root / "shiguan-topology-commit.json", marker)
+    except OSError:
+        return
+
+
 def _verified_physical_topology_receipt(
     receipt: object,
     marker: object,
@@ -1123,6 +1224,14 @@ def _active_shared_root(
             legacy_root=legacy_root,
             target_root=target_root,
         ):
+            return target_root
+        if (
+            target_kind == "directory"
+            and _present_legacy_junctions_point_to_target(
+                target_root, target_references
+            )
+        ):
+            _ensure_physical_topology_receipt(target_root)
             return target_root
         receipt = _load_cutover_receipt(target_root, legacy_root)
         live_state = _probe_live_cutover_state(

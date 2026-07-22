@@ -48,7 +48,6 @@ PACKAGE_IDENTITY_REQUIRED = {
     f"{ROOT_NAME}/bin/decretum-matrix.js",
     f"{ROOT_NAME}/bin/decretum-matrix.py",
     f"{ROOT_NAME}/release-manifest.json",
-    f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
     f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",
     f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
 }
