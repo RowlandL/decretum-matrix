@@ -1,7 +1,7 @@
 {
   "archive_root": "decretum-matrix/",
-  "artifact_name": "decretum-matrix-beta1.0.4-hotfix-v1.zip",
-  "attestation_name": "decretum-matrix-beta1.0.4-hotfix-v1.release-attestation.json",
+  "artifact_name": "decretum-matrix-beta1.0.5.zip",
+  "attestation_name": "decretum-matrix-beta1.0.5.release-attestation.json",
   "authors": "AUTHORS.md",
   "build": {
     "atomic_publish": "same_directory_hard_link_no_replace",
@@ -16,7 +16,7 @@
   "contributing": "CONTRIBUTING.md",
   "contributor_license_agreement": "CLA.md",
   "display_name": "Decretum Matrix（诏令矩阵）",
-  "expected_final_tag": "refs/tags/beta1.0.4-hotfix-v1",
+  "expected_final_tag": "refs/tags/beta1.0.5",
   "files": [
     {
       "mode": "100644",
@@ -75,14 +75,14 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "757b26fe4d5cbd5099bb5f75afc329599bfa951c27e7be100ac62e0c14bae70e",
-      "size": 4255
+      "sha256": "c25328b728a7b361f0514e72ff6f0268862c446df3ca81b60ffab5d1c3edc1eb",
+      "size": 4239
     },
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "8a669fb93daaa62dc51e92a708bbe618cdbef802c0f4dca0ed85f40800a0dc55",
-      "size": 905
+      "sha256": "f5e812b956e02484131a13dcfcdb95476a0fcbd0c9c2bc139ad18eda0b581d19",
+      "size": 875
     },
     {
       "mode": "100644",
@@ -111,8 +111,8 @@
     {
       "mode": "100644",
       "path": "VERSION",
-      "sha256": "ba26fc0f17ec6a1980634f0c3f4e7baadccfa28cc3da33f2dd85b7084452c644",
-      "size": 20
+      "sha256": "df4b84b2f76e30dfd14bb7606bb4e6f312a89cf2d22249fc53113b1607ecf173",
+      "size": 10
     },
     {
       "mode": "100644",
@@ -898,10 +898,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 1680777,
+    "payload_bytes": 1680721,
     "payload_file_count": 144,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "7aba5248decfacbe10da15fc13da5dd0693bc6f7f33d0dd537eb98077179bde2",
+    "payload_index_sha256": "fe327ae559853a61afc04e18d1765fc098e05839e3d96394c14ecc5d355e0a18",
     "source_packaged_tracked_file_count": 136,
     "source_tracked_file_count": 334
   },
@@ -913,7 +913,7 @@
   "package_name": "decretum-matrix",
   "privacy_policy": "PRIVACY.md",
   "provenance": "PROVENANCE.md",
-  "release_label": "beta1.0.4-hotfix-v1",
+  "release_label": "beta1.0.5",
   "repository_only_files": [
     ".github/CODEOWNERS",
     ".gitignore",
@@ -1117,8 +1117,8 @@
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
   "security_policy": "SECURITY.md",
-  "sidecar_name": "decretum-matrix-beta1.0.4-hotfix-v1.zip.sha256",
+  "sidecar_name": "decretum-matrix-beta1.0.5.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
-  "version_core": "1.0.4"
+  "version_core": "1.0.5"
 }

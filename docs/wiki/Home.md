@@ -4,7 +4,7 @@ Decretum Matrix（诏令矩阵）是一个本地 skill 路由与可验证协作�
 分配给太子、三省、尚书省、六部和有界工坊，并把权限、证据、隐私与收口门禁
 绑定到同一任务语义。
 
-当前源码与发布目标：`beta1.0.4-hotfix-v1`（npm `1.0.4-beta.0.hotfix.1`，`beta` dist-tag）。远端
+当前源码与发布目标：`beta1.0.5`（npm `1.0.5-beta.0`，`beta` dist-tag）。远端
 Latest、package 与 Wiki 状态只以发布后的远端回读为准。
 
 ## 最短路径

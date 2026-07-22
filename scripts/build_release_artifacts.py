@@ -526,11 +526,11 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         "canonical_display_name_required": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
         "canonical_current_artifact_required": (
-            release_payload_manifest.RELEASE_LABEL == "beta1.0.4-hotfix-v1"
+            release_payload_manifest.RELEASE_LABEL == "beta1.0.5"
             and release_payload_manifest.ARTIFACT_NAME
-            == "decretum-matrix-beta1.0.4-hotfix-v1.zip"
+            == "decretum-matrix-beta1.0.5.zip"
         ),
-        "major_release_label_supported": RELEASE_RE.fullmatch("beta1.0.4") is not None,
+        "major_release_label_supported": RELEASE_RE.fullmatch("beta1.0.5") is not None,
         "hotfix_release_label_supported": RELEASE_RE.fullmatch("beta1.0.0-hotfix-v2") is not None,
         "malformed_release_labels_rejected": all(
             RELEASE_RE.fullmatch(value) is None

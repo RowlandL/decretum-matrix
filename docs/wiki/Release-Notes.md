@@ -1,5 +1,11 @@
 # Release Notes
 
+## beta1.0.5
+
+- npm 版本更新为 `1.0.5-beta.0`，作为新的 GitHub Packages 载体发布。
+- 首次安装仍会自动安装或复用 `zellij` 与 `squad`，并在回执中保留致谢和仓库链接。
+- macOS / Linux 安装路径与依赖资产选择随 npm 载体同步更新，安装后依旧不引入任何哈希校验类脚本。
+
 ## beta1.0.4-hotfix-v1
 
 - `cft0808/edict` 的工程参考记录恢复进入 ZIP、npm 载体和五根安装投影。

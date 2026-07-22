@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.4-hotfix-v1",
+  "latest_tag": "beta1.0.5",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -9,6 +9,17 @@
     "latest_must_match_version": true
   },
   "releases": [
+    {
+      "tag": "beta1.0.5",
+      "title": "Decretum Matrix beta1.0.5",
+      "summary": "本版本将 GitHub Packages npm 载体提升到 1.0.5-beta.0，并同步 macOS / Linux 安装路径与依赖资产选择，同时保留首次安装依赖致谢和无安装后哈希校验的运行面。",
+      "highlights": [
+        "npm beta 新增 1.0.5-beta.0，不覆盖既有 1.0.4-beta.0.hotfix.1。",
+        "首次安装继续安装或复用 zellij 与 squad，并在回执中写入开源项目致谢和链接。",
+        "macOS / Linux 安装路径和依赖资产选择随 npm 载体更新，不引入安装后的哈希校验脚本。"
+      ],
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向本版本的独立不可变包。"
+    },
     {
       "tag": "beta1.0.4-hotfix-v1",
       "title": "Decretum Matrix beta1.0.4-hotfix-v1",

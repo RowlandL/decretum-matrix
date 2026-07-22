@@ -1,5 +1,15 @@
 # Changelog
 
+## beta1.0.5 - 2026-07-23
+
+### Added
+
+- Reissued the npm carrier as `1.0.5-beta.0` on the `beta` dist-tag.
+- Kept first-install `zellij` and `squad` bootstrap plus the open-source acknowledgements on the
+  install receipt.
+- Refreshed macOS and Linux install-path and dependency selection in the new carrier while keeping the installed
+  surface free of post-install hash checkers.
+
 ## beta1.0.4-hotfix-v1 - 2026-07-22
 
 ### Fixed
