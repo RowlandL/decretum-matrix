@@ -21,6 +21,7 @@ a substitute for contributor, employer/client, copyrightability or legal review.
 - Fixed reviewed commit: `14a207557719c046af0f993a7bff1cc5a5015b33`
 - License: MIT
 - LICENSE Git blob SHA-1: `69499c3250cbecc6079c69dc0e5a0f7a4be716da`
+- LICENSE SHA-256: `5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c`
 - Original copyright: `Copyright (c) 2026 openclaw-sansheng-liubu contributors`
 - Runtime dependency: `false`
 - Governing source: `false`

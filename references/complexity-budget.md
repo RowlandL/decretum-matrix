@@ -5,7 +5,7 @@ unrelated Web/API/security work and generated, private, or pending state.
 
 Fast path: `quick_validate.py`, `check_catalog.py --strict`,
 `check_portability.py`, `check_supercc_profiles.py`,
-`check_codex_agent_roles.py`, `check_active_copy_hashes.py --json`, and
+`check_codex_agent_roles.py`, `sync_active_copies.py --json`, and
 `check_supercc_functional.py --workspace . --json --diagnose`.
 
 ## Measured History

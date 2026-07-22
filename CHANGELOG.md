@@ -1,5 +1,25 @@
 # Changelog
 
+## beta1.0.4 - 2026-07-22
+
+### Fixed
+
+- Restored short no-write closeout as a real `结诏` path: even compact probes now
+  carry `史馆实录` and `记忆裁定`, with a lightweight archive checkpoint when
+  the host can write.
+- Restored the opening choice surface to authority plus explanation, with a
+  separate `serial/parallel` selector that can be driven from keyboard or mouse
+  in the supported client surfaces.
+- Kept the installed runtime surface narrow and removed the old active-copy
+  hash-check gate from release manifests and install-facing guidance.
+
+### Release identity
+
+- Product/tag/artifact version: `beta1.0.4`.
+- npm version: `1.0.4-beta.0` on the `beta` dist-tag.
+- This branch is still a local candidate; publication needs separate
+  authorization.
+
 ## beta1.0.3 - 2026-07-21
 
 ### Fixed

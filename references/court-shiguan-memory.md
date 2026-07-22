@@ -134,7 +134,10 @@ four-character meaning so future operators do not confuse the repeated letters.
 ## 史馆实录
 
 史馆 records every meaningful stage result. This is not optional bookkeeping; it
-is part of `/court` state progression.
+is part of `/court` state progression. `结诏` is an objective terminal behavior:
+when a decree completes, pauses, blocks, cancels, hands off, or is packaged, the
+court records what happened, the evidence used, and the memory decision even
+when the user-facing reply is intentionally short.
 
 Current implementation root:
 
@@ -447,7 +450,7 @@ carry:
 - Optional `original_size` and `original_mtime` in evidence or full-record when
   the file exists.
 - For live append-only sources such as the active Codex session JSONL, do not
-  present a whole-file checksum as a durable invariant. Record
+  present a whole-file fingerprint as a durable invariant. Record
   `live_prefix_size`, `live_prefix_mtime_utc`, and a source path/fingerprint
   note when useful. This keeps the source path auditable without copying the
   private transcript body and remains valid when later turns append to the same
@@ -606,10 +609,13 @@ Current downgrade rules:
 Every decree must end with one memory decision, but not every intermediate
 stage needs a durable-memory candidate. When a checkpoint is written, it still
 must carry `memory_decision`, `memory_content`, and `memory_reason` fields; for
-pure evidence, read-only diagnostics, transient status corrections, and routine
-verification, fill them as `SKIP`, `none`, and a concise reason such as `pure
-evidence`. When no checkpoint is written because the newest decree forbids audit
-writes, report the skipped Shiguan/memory fields in the user-facing closeout.
+pure evidence, read-only diagnostics, transient status corrections, exact short
+replies, connectivity checks, and routine verification, fill them as `SKIP`,
+`none`, and a concise reason such as `pure evidence`. When no checkpoint is
+written because the newest decree forbids audit writes or the runtime lacks
+writable filesystem access, report the skipped Shiguan/memory fields in the
+user-facing closeout instead of treating the decree as if it had no objective
+closeout.
 When a checkpoint changes stable rules, user preferences, capability inventory,
 safety policy, or recurring workflow behavior, 史馆 proposes memory candidates,
 户部 checks durable value, 礼部 edits them into concise neutral wording, 刑部

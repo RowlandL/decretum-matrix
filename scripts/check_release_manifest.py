@@ -279,9 +279,9 @@ def release_surface_contract() -> dict[str, bool]:
         "canonical_display_name": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
         "canonical_artifact_name": release_payload_manifest.ARTIFACT_NAME
-        == "decretum-matrix-beta1.0.3.zip",
+        == "decretum-matrix-beta1.0.4.zip",
         "canonical_release_label": release_payload_manifest.RELEASE_LABEL
-        == "beta1.0.3",
+        == "beta1.0.4",
         "agpl_only": getattr(release_payload_manifest, "LICENSE_ID", None) == "AGPL-3.0-only",
         "artifact_builder_identity": build_release_artifacts.NAME == "decretum-matrix",
         "tagless_candidate_builder": (
@@ -638,7 +638,6 @@ def main() -> int:
             "codex_privacy_contract",
             "codex_host_resolution_live",
             "codex_agent_roles",
-            "active_copy_hashes",
             "supercc_runtime_truth",
         }
         if candidate_names.intersection(forbidden_candidate):
@@ -646,7 +645,7 @@ def main() -> int:
         post_install_steps = [
             step for step in all_steps if step.get("gate_class") in {"installation", "runtime"}
         ]
-        if len(post_install_steps) != 5:
+        if len(post_install_steps) != 4:
             raise AssertionError(f"post-install step count drifted: {len(post_install_steps)}")
     except (ReleaseGateManifestError, AssertionError) as exc:
         if args.json:

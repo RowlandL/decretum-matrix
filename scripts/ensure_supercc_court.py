@@ -4916,7 +4916,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="Allow launch diagnostics even if the environment gate fails.")
     parser.add_argument("--dangerous-yolo", action="store_true", help="Use Codex dangerous no-sandbox for child panes. Requires explicit user approval.")
     parser.add_argument("--no-auto-install-deps", action="store_true", help="Do not auto-bootstrap missing zellij/squad dependencies.")
-    parser.add_argument("--allow-unverified-release-asset", action="store_true", help="Pass through to the portable bootstrap when a GitHub release asset lacks a checksum.")
+    parser.add_argument("--allow-unverified-release-asset", action="store_true", help="Pass through to the portable bootstrap when a GitHub release asset lacks an integrity sidecar.")
     parser.add_argument("--court-code", help="Optional Shiguan court code to include in child prompts.")
     parser.add_argument("--office-show-delay", type=float, help="Presentation-only seconds between adjacent visible office starts. Default: 1; hard range: 0-5.")
     parser.add_argument("--launch-delay", type=float, help="Deprecated compatibility alias for --office-show-delay.")

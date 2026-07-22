@@ -8,6 +8,7 @@ Status: `ACTIVE / LEGAL_REVIEW_REQUIRED`
 - Reviewed commit: `14a207557719c046af0f993a7bff1cc5a5015b33`
 - License: MIT
 - LICENSE Git blob SHA-1: `69499c3250cbecc6079c69dc0e5a0f7a4be716da`
+- LICENSE SHA-256: `5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c`
 - Copyright: `Copyright (c) 2026 openclaw-sansheng-liubu contributors`
 
 The project is recorded as an engineering-semantic benchmark. This package

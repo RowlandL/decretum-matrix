@@ -3,8 +3,8 @@
   "name": "decretum-matrix",
   "display_name": "Decretum Matrix（诏令矩阵）",
   "package_name": "decretum-matrix",
-  "release_label": "beta1.0.3",
-  "artifact_name": "decretum-matrix-beta1.0.3.zip",
+  "release_label": "beta1.0.4",
+  "artifact_name": "decretum-matrix-beta1.0.4.zip",
   "archive_root": "decretum-matrix/",
   "license": {
     "declared": "AGPL-3.0-only",
@@ -12,8 +12,8 @@
   },
   "install_projection": "references/manifests/install-projection.v1.json",
   "summary": [
-    "Ordinary office dispatch no longer depends on file digest gates.",
-    "Installed runtime surface is narrowed to active office, Shiguan/GBrain, superCC, and synchronization paths.",
-    "Release and deep validation helpers remain source-tree engineering assets instead of default installed startup tools."
+    "Closeout again treats 结诏 as the objective terminal state for every decree, including short no-write office replies.",
+    "Opening selection renders authority with explanations and serial/parallel behavior as a separate choice.",
+    "Installed runtime keeps only the manifest-projected execution, Shiguan/GBrain, superCC, and synchronization surface."
   ]
 }

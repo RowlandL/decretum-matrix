@@ -31,11 +31,13 @@ keeps these anchors for startup-time lookup; detailed bodies remain sharded.
    behavior=parallel`; it never selects runtime. Native and superCC are mutually
    exclusive entry paths and share only the neutral standing-office
    configuration pointer.
-   User-facing 开朝 text must preserve the authority-selection question when the
-   latest user message has not explicitly selected a current authority:
-   `请选择执行权限（三权）：approval（审批/默认只读） | autonomous（自主/范围内实施）
-   | super（超级执行/范围内连续推进）`. Behavior remains a separate field and
-   must be rendered as `serial（串行） | parallel（并行）`.
+   User-facing 开朝 text must preserve a two-step selection when the latest user
+   message has not explicitly selected a current authority. First render
+   `请选择执行权限（三权）：` as selectable rows, each row carrying the authority and
+   its explanation. Then render `请选择执行方式：` as a separate selectable row set
+   for `serial（串行）` and `parallel（并行）`. Keep each choice on its own line so
+   Codex, Claude, and Hermes surfaces can submit by arrow-key focus or mouse
+   click when their host UI supports it.
 2. Determine the approval policy:
    - If they specified `approval`, `autonomous`, or `super`, honor it inside the
      unchanged current decree/boundary. An explicit `superCC` selects the separate
@@ -148,7 +150,12 @@ ask; it cannot answer the question for the user.
 - `approval（审批/默认只读）`：默认只做只读勘验、检索、读档、审议；命令执行、写入、联网、安装、配置、MCP 写操作、越工作区操作前先询问。
 - `autonomous（自主/范围内实施）`：在陛下/用户给定的范围内自主执行；工作区写入、已授权路径、sandbox 提权、超工作区操作都可按任务边界办理，遇到破坏性、泄密、付费、未验证安装、私密上传或明显越旨再问。
 - `super（超级执行/范围内连续推进）`：任务范围内自动执行，包括命令、写入、联网、配置、sandbox 提权、超工作区操作和多 agente 调度；`super` 默认请求 `yolo`/无沙盒执行，任务开始前必须说明当前 Codex 进程是否已真正以无沙盒启动；若当前进程不能热切换，则明示只能通过运行时提权门禁代行，并建议下次用 `codex --dangerously-bypass-approvals-and-sandbox` 或 `codex --sandbox danger-full-access --ask-for-approval never` 启动；是否停问由已批准边界和行为类别决定，不因多 agente 形式本身停问，只在越出路径/服务/风险/成本/隐私/外部状态边界、触及不可逆破坏、泄密、花钱、未验证安装、上传私有数据、无界代理树、明显越旨外部状态变更或宿主硬门禁时上奏。
-行为另选 `serial（串行） | parallel（并行）`，与三权正交；`super并行` 仅表示 `authority=super, behavior=parallel, runtime=native`。
+
+请选择执行方式：
+- `serial（串行）`：不物理并发开启 child agente；仍保留太子、三省、尚书、六部责任链，并记录 `serial_inline` 主体、职责和原因。
+- `parallel（并行）`：按固定层级真实 spawn/reuse/wake；太子只调三省，尚书统六部，六部再调工坊/工匠。
+
+三权与执行方式正交；`super并行` 仅表示 `authority=super, behavior=parallel, runtime=native`。
 `superCC` 不是第四权。它必须由最新旨意明确并从独立 zellij+squad startup/runtime 入口启动，携带另行选择的三权 authority 与 behavior；与 native 只共享中性官署配置 pointer，不共享 task state、dossier、transport、admission 或 lifecycle，也不在同一 task/process 内切换或回退。
 默认建议：`autonomous`。任务工作流固定为 `/court`；史馆会按需查旧实录，不再单独询问归档加载。
 史馆生长树本地管理页为 `web/shiguan-tree/index.html`；只有任务涉及史馆管理、同步或服务状态时，才按 `court-shiguan-memory.md` 探测或启动对应服务。普通开朝不探测端口、守护进程或 Obsidian。

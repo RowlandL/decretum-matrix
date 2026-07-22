@@ -23,7 +23,7 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 5. Production ordinary routing is V2 or `serial`; V2 hides model-reserved override fields. 子 agente 继承主线程 model/effort，除非 fresh-session worker 有精确 host proof。
 6. 开朝、自检、复核或状态类任务先判定目标是“官署履职回奏”还是“机器事实核验”。需要官署回奏时，主线是按层级形成真实 host-native spawn/reuse/wake 或明确 `serial_inline` 责任；CLI/script 只是对应官署在职责内调用的工具，不能替代官署履职、派遣证据或回奏。
 
-开朝三权：最新消息未明选 `approval|autonomous|super` 时先问 `请选择执行权限（三权）：approval（审批/默认只读） | autonomous（自主/范围内实施） | super（超级执行/范围内连续推进）`；不从旧会话、史馆/记忆、sandbox、prompt 或安装意图继承。`serial` 无物理并发但有责任链；`parallel` 按层级派生。权力≠运行方式；六部直属尚书。
+开朝三权：最新消息未明选 `approval|autonomous|super` 时先问三权，并以“权力 + 解释”的可选项呈现：`approval（审批/默认只读）：只读勘验，执行/写入/联网/安装前上奏`、`autonomous（自主/范围内实施）：按用户给定边界自主办理，越界再问`、`super（超级执行/范围内连续推进）：范围内连续推进，高风险或越旨时上奏`。随后单独呈现行为选择：`serial（串行）：不物理并发，保留官署责任链与 serial_inline 证据`、`parallel（并行）：按层级真实 spawn/reuse/wake`。每个选项独立成行，以便 Codex/Claude/Hermes 用方向键或鼠标提交；不从旧会话、史馆/记忆、sandbox、prompt 或安装意图继承。权力≠运行方式；六部直属尚书。
 
 ## Pinned Initial Court Anchors
 
@@ -115,7 +115,7 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 
 ## Closeout Skeleton
 
-完成、暂停、阻塞、取消、handoff 或包装前，按任务类型重载本文件及当前引用并经门下复核。无写入、无外部状态变化的短回奏只需说明请求、实际 host dispatch/reuse/wake 或 `serial_inline` 原因、官署回奏与未做持久写入；不启动史馆服务、不写 archive checkpoint，除非用户另有归档旨意。完整十四行 memorial、归属、runtime、package-ready 和安装门见 [court-closeout-validation.md](references/court-closeout-validation.md)；行名/顺序不得改。仅门下接受的当前报告可标记 `MenxiaReview`；最终交付始终为 `TaiziReply`。无有效 archive receipt 时不得发送十四行或自分配编号，改用 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause` 并说明归档门。
+完成、暂停、阻塞、取消、handoff 或包装前，按任务类型重载本文件及当前引用并经门下复核。结诏是客观终态行为；只要 decree 进入终态，就形成史馆实录与记忆裁定。无写入、无外部状态变化的短回奏走轻量结诏：说明请求、实际 host dispatch/reuse/wake 或 `serial_inline` 原因、官署回奏、未做持久写入，并写入紧凑 archive checkpoint；不启动 Shiguan Web、Obsidian、GBrain、pending 队列或全量树。完整十四行 memorial、归属、runtime、package-ready 和安装门见 [court-closeout-validation.md](references/court-closeout-validation.md)；行名/顺序不得改。仅门下接受的当前报告可标记 `MenxiaReview`；最终交付始终为 `TaiziReply`。无有效 archive receipt 时不得发送十四行或自分配编号，改用 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause` 并说明归档门。
 
 ## Validation And Packaging
 

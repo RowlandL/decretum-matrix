@@ -48,14 +48,18 @@ cancelled, handed off, interrupted, or about to emit a final memorial after a
 long context. It counters context drift by reloading the court's bottom-layer
 semantics immediately before the user-facing close or pause report.
 
-Light exception: no-write exact short-reply and connectivity tests do not use
-the full two-layer closeout unless the newest
-decree asks for archival, validation, installation, release, memory maintenance,
-or durable behavior change. Their closeout is a compact inline record containing
-the requested offices, actual host dispatch/reuse/wake evidence, exact replies,
-and any degraded host reason. Do not start Shiguan services, inspect pending
-queues, run archive/checkpoint helpers, reload all closeout shards, or require
-the fourteen-line memorial merely to report the short probe result.
+Light closeout: no-write exact short-reply and connectivity tests may use a
+compact two-layer closeout, but they still reach `结诏`, `史馆实录`, and
+`记忆裁定`. The compact user-facing record contains the requested offices,
+actual host dispatch/reuse/wake evidence, exact replies, any degraded host
+reason, and the fact that no durable target file or external state was changed.
+The Shiguan layer writes a small archive checkpoint with `memory_decision=SKIP`
+unless filesystem writing is unavailable or the newest decree explicitly blocks
+audit writes; in that case report `史馆实录：FAILED` or
+`史馆实录：authority_blocked` with the reason. Keep this light path cheap: do not
+start Shiguan Web services, inspect pending queues, run Obsidian/GBrain/tree
+refresh, reload all closeout shards, or require the full fourteen-line memorial
+merely to report the short probe result.
 
 Semantic reload source:
 

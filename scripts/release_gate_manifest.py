@@ -262,12 +262,6 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         "always",
     ),
     (
-        "active_copy_hashes",
-        "installation",
-        ("$PYTHON", "scripts/check_active_copy_hashes.py", "--json"),
-        "active_copies_enabled",
-    ),
-    (
         "supercc_runtime_truth",
         "runtime",
         ("$PYTHON", "scripts/check_supercc_functional.py", "--workspace", ".", "--json", "--strict"),

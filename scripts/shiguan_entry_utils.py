@@ -757,7 +757,7 @@ def base36(value: int) -> str:
     return "".join(reversed(digits))
 
 
-def stable_base36_digest(material: str, length: int = 4) -> str:
+def stable_base36_code(material: str, length: int = 4) -> str:
     size = max(int(length), 1)
     value = zlib.crc32(material.encode("utf-8")) % (36**size)
     return base36(value).zfill(size)
@@ -790,8 +790,8 @@ def daily_sequence(entry: dict[str, object]) -> str:
             if re.fullmatch(r"[0-9A-Z]+", text):
                 return text
     material = "|".join(str(entry.get(key, "")) for key in ("source", "time", "topic", "phase", "summary"))
-    checksum = sum((index + 1) * ord(char) for index, char in enumerate(material))
-    return base36(checksum % (36 * 36 * 36))
+    control_sum = sum((index + 1) * ord(char) for index, char in enumerate(material))
+    return base36(control_sum % (36 * 36 * 36))
 
 
 def stable_entry_material(entry: dict[str, object]) -> str:
@@ -808,12 +808,12 @@ def stable_entry_material(entry: dict[str, object]) -> str:
 
 def kb_uid(entry: dict[str, object]) -> str:
     existing = compact_base36_value(entry.get("kb_uid"), 4) or compact_base36_value(entry.get("knowledge_base_uid"), 4)
-    return existing or stable_base36_digest(stable_entry_material(entry), 4)
+    return existing or stable_base36_code(stable_entry_material(entry), 4)
 
 
 def record_uid(entry: dict[str, object]) -> str:
     existing = compact_base36_value(entry.get("record_uid"), 8)
-    return existing or stable_base36_digest(stable_entry_material(entry), 8)
+    return existing or stable_base36_code(stable_entry_material(entry), 8)
 
 
 def level(value: object, default: str = "C") -> str:
@@ -1309,8 +1309,8 @@ def lineage_code(entry: dict[str, object]) -> str:
         value = str(parts.get(key, ""))
         code = LINEAGE_CODE_OVERRIDES.get(value)
         if not code:
-            code = "U" + stable_base36_digest(value or key, 2)
-        code = re.sub(r"[^A-Z0-9]", "", code.upper()) or ("U" + stable_base36_digest(value or key, 2))
+            code = "U" + stable_base36_code(value or key, 2)
+        code = re.sub(r"[^A-Z0-9]", "", code.upper()) or ("U" + stable_base36_code(value or key, 2))
         codes.append(code)
     return "".join(codes[:7])
 

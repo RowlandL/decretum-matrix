@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.3",
+  "latest_tag": "beta1.0.4",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -9,6 +9,17 @@
     "latest_must_match_version": true
   },
   "releases": [
+    {
+      "tag": "beta1.0.4",
+      "title": "Decretum Matrix beta1.0.4",
+      "summary": "本版本把短回奏重新收回到客观结诏与史馆实录，并将三权选择恢复为权力加解释、串并行独立选择，同时继续收敛安装后的运行面。",
+      "highlights": [
+        "短回奏不再绕开结诏、史馆实录和记忆裁定；轻量终态也保留客观记录。",
+        "开朝三权以“权力 + 解释”呈现，行为 `serial/parallel` 独立选择。",
+        "安装投影继续保持窄面，旧 active-copy 校验门不再进入安装后路径。"
+      ],
+      "asset_note": "当前仅为源码候选；是否创建远端 release 与资产由后续明确授权决定。"
+    },
     {
       "tag": "beta1.0.3",
       "title": "Decretum Matrix beta1.0.3",

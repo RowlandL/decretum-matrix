@@ -99,7 +99,7 @@ skill，规范 skill 名与调用为 `decretum-matrix` / `$decretum-matrix`。�
 ```powershell
 python -B scripts/check_catalog.py --strict
 python -B scripts/check_portability.py .
-python -B scripts/check_active_copy_hashes.py
+python -B scripts/sync_active_copies.py --json
 python -B scripts/check_supercc_functional.py
 ```
 
@@ -322,7 +322,7 @@ python -B scripts/package_skill.py --out "%USERPROFILE%\decretum-matrix-skill.zi
 python -m py_compile scripts/*.py
 python -B scripts/check_catalog.py --strict
 python -B scripts/check_portability.py .
-python -B scripts/check_active_copy_hashes.py
+python -B scripts/sync_active_copies.py --json
 python -B scripts/package_skill.py --out "%USERPROFILE%\decretum-matrix-skill.zip"
 ```
 
@@ -341,7 +341,7 @@ Get-Content references/README.md
 
 ```powershell
 python -B scripts/check_catalog.py --strict
-python -B scripts/check_active_copy_hashes.py
+python -B scripts/sync_active_copies.py --json
 python -B scripts/refresh_capability_registry.py --help
 ```
 

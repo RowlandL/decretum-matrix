@@ -157,7 +157,6 @@ REQUIRED_COURT_SCRIPTS = [
     "shiguan_security.py",
     "shiguan_entry_utils.py",
     "memory_decision.py",
-    "check_active_copy_hashes.py",
     "check_portability.py",
     "check_release_gate.py",
     "release_gate_manifest.py",

@@ -391,14 +391,6 @@
       "condition": "always"
     },
     {
-      "name": "active_copy_hashes",
-      "gate_class": "installation",
-      "command": ["$PYTHON", "scripts/check_active_copy_hashes.py", "--json"],
-      "timeout": 180,
-      "allowed_returncodes": [0],
-      "condition": "active_copies_enabled"
-    },
-    {
       "name": "supercc_runtime_truth",
       "gate_class": "runtime",
       "command": ["$PYTHON", "scripts/check_supercc_functional.py", "--workspace", ".", "--json", "--strict"],
