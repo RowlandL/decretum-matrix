@@ -317,7 +317,6 @@ EXCLUDE_DIRS = {
 }
 EXCLUDE_REFERENCE_DIRS = {
     "agente-logs",
-    "benchmarks",
     "capability-index",
     "court-runtime",
     "fixtures",
@@ -392,6 +391,9 @@ PACKAGE_IDENTITY_REQUIRED_MEMBERS = {
     f"{ROOT_NAME}/release-manifest.json",
     f"{ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json",
     f"{ROOT_NAME}/references/manifests/skill-identity.v1.json",
+}
+FROZEN_REFERENCE_REQUIRED_MEMBERS = {
+    f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
 }
 
 def skill_root() -> Path:
@@ -1141,6 +1143,7 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
     required.update(LEGAL_REQUIRED_MEMBERS)
     required.update(BRAND_REQUIRED_MEMBERS)
     required.update(PACKAGE_IDENTITY_REQUIRED_MEMBERS)
+    required.update(FROZEN_REFERENCE_REQUIRED_MEMBERS)
     required.update(
         {
             f"{ROOT_NAME}/agents/{dossier_kind}/{role}/AGENTS.md"

@@ -22,6 +22,12 @@ authority_boundary:
     - references/court-core-contract.md
     - references/court-offices-dispatch.md
 
+installation:
+  delivery: release_and_install_projection
+  state: frozen_reference
+  runtime_loading: false
+  update_policy: release_replacement_only
+
 adopted_dimensions:
   - mandatory_review
   - legal_state_transitions

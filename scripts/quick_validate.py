@@ -121,6 +121,7 @@ def validate_court_shards(skill_path: Path) -> tuple[bool, str]:
         "references/court-startup-authority.md",
         "references/court-offices-dispatch.md",
         "references/court-state-runtime-agents.md",
+        "references/benchmarks/cft0808-edict.yaml",
         "references/sections/court-office-name-profile-skill-binding.md",
         "references/manifests/install-projection.v1.json",
         "scripts/sync_active_copies.py",
@@ -140,15 +141,39 @@ def validate_court_shards(skill_path: Path) -> tuple[bool, str]:
     ]
     manifest_path = skill_path / "references/manifests/install-projection.v1.json"
     projected = list(required)
+    frozen_references: set[str] = set()
+    violations: list[str] = []
     try:
         import json
 
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         projected = list(manifest.get("projections", {}).get("shared_agents", projected))
+        declared_frozen = manifest.get("frozen_install_references", [])
+        if not isinstance(declared_frozen, list) or not all(isinstance(item, str) for item in declared_frozen):
+            violations.append("install projection has invalid frozen_install_references")
+        for item in declared_frozen if isinstance(declared_frozen, list) else []:
+            relative = Path(item)
+            normalized = relative.as_posix()
+            if (
+                relative.is_absolute()
+                or ".." in relative.parts
+                or not normalized.startswith("references/benchmarks/")
+                or normalized not in projected
+            ):
+                violations.append(f"invalid frozen reference: {item}")
+                continue
+            reference_path = skill_path / relative
+            if not reference_path.is_file():
+                violations.append(f"missing frozen reference: {normalized}")
+                continue
+            reference_text = reference_path.read_text(encoding="utf-8", errors="replace")
+            for marker in ("state: frozen_reference", "runtime_loading: false"):
+                if marker not in reference_text:
+                    violations.append(f"frozen reference missing {marker}: {normalized}")
+            frozen_references.add(normalized)
     except (OSError, ValueError, TypeError):
         pass
 
-    violations: list[str] = []
     for relative in projected:
         path = skill_path / str(relative)
         if path.is_dir():
@@ -158,6 +183,9 @@ def validate_court_shards(skill_path: Path) -> tuple[bool, str]:
         else:
             continue
         for file_path in files:
+            relative_path = file_path.relative_to(skill_path).as_posix()
+            if relative_path in frozen_references:
+                continue
             try:
                 text = file_path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
@@ -167,7 +195,7 @@ def validate_court_shards(skill_path: Path) -> tuple[bool, str]:
                 continue
             for term in forbidden:
                 if term in text:
-                    violations.append(f"{file_path.relative_to(skill_path).as_posix()}: forbidden runtime term")
+                    violations.append(f"{relative_path}: forbidden runtime term")
                     break
     if violations:
         return False, "Forbidden runtime term(s): " + ", ".join(violations[:20])

@@ -9,6 +9,9 @@
     "fanout": "forbidden"
   },
   "protected_shared_agents_seeds": [],
+  "frozen_install_references": [
+    "references/benchmarks/cft0808-edict.yaml"
+  ],
   "projections": {
     "shared_agents": [
       "SKILL.md",
@@ -19,6 +22,7 @@
       "INSTALL-PROMPT.md",
       "agents",
       "references/README.md",
+      "references/benchmarks/cft0808-edict.yaml",
       "references/court-capability-registry.md",
       "references/court-closeout-validation.md",
       "references/court-core-contract.md",
@@ -94,6 +98,7 @@
       "INSTALL-PROMPT.md",
       "agents",
       "references/README.md",
+      "references/benchmarks/cft0808-edict.yaml",
       "references/court-capability-registry.md",
       "references/court-closeout-validation.md",
       "references/court-core-contract.md",
@@ -166,7 +171,6 @@
       "docs",
       "work",
       "references/agente-logs",
-      "references/benchmarks",
       "references/fixtures",
       "references/court-runtime",
       "references/memory-decisions",

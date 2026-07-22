@@ -11,6 +11,7 @@ import argparse
 import json
 from pathlib import Path
 import shutil
+import stat
 import sys
 
 sys.dont_write_bytecode = True
@@ -21,6 +22,7 @@ from court_platform import user_data_base
 CANONICAL_INSTALL_DIRECTORY_NAME = "decretum-matrix"
 LEGACY_INSTALL_DIRECTORY_NAME = "court-capability-router"
 PROJECTION_MANIFEST_RELATIVE = Path("references/manifests/install-projection.v1.json")
+FROZEN_INSTALL_REFERENCES_KEY = "frozen_install_references"
 
 
 def default_roots() -> list[Path]:
@@ -81,8 +83,8 @@ def projection_entries(manifest: dict[str, object]) -> set[str]:
     return entries
 
 
-def iter_projected_files(source: Path) -> list[Path]:
-    entries = projection_entries(load_projection(source))
+def iter_projected_files(source: Path, manifest: dict[str, object] | None = None) -> list[Path]:
+    entries = projection_entries(manifest or load_projection(source))
     files: set[Path] = set()
     for relative_text in sorted(entries):
         relative = Path(relative_text)
@@ -100,6 +102,34 @@ def iter_projected_files(source: Path) -> list[Path]:
             if child.is_file() and "__pycache__" not in child.parts and child.suffix.lower() != ".pyc":
                 files.add(child.relative_to(source))
     return sorted(files)
+
+
+def frozen_install_references(manifest: dict[str, object], source_files: set[Path]) -> set[Path]:
+    raw = manifest.get(FROZEN_INSTALL_REFERENCES_KEY, [])
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        raise ValueError(f"{FROZEN_INSTALL_REFERENCES_KEY} must be a list of relative paths")
+    frozen: set[Path] = set()
+    for item in raw:
+        relative = Path(item)
+        if relative.is_absolute() or ".." in relative.parts or relative == Path("."):
+            raise ValueError(f"invalid frozen install reference: {item}")
+        if relative not in source_files:
+            raise ValueError(f"frozen install reference is not projected: {item}")
+        frozen.add(relative)
+    return frozen
+
+
+def make_writable(path: Path) -> None:
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        return
+    path.chmod(mode | stat.S_IWUSR)
+
+
+def freeze_installed_reference(path: Path) -> None:
+    mode = path.stat().st_mode
+    path.chmod(mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
 
 
 def same_bytes(left: Path, right: Path) -> bool:
@@ -154,6 +184,7 @@ def prune_obsolete_managed_files(root: Path, desired_files: set[Path], *, write:
             raise ValueError(f"refusing to prune outside root: {path}")
         removed.append(relative.as_posix())
         if write:
+            make_writable(path)
             path.unlink()
     if write:
         remove_empty_managed_dirs(root)
@@ -164,6 +195,7 @@ def sync_target(
     source: Path,
     target: Path,
     source_files: set[Path],
+    frozen_files: set[Path],
     *,
     write: bool,
     prune_obsolete: bool,
@@ -181,7 +213,15 @@ def sync_target(
         copied.append(relative.as_posix())
         if write:
             dst.parent.mkdir(parents=True, exist_ok=True)
+            make_writable(dst)
             shutil.copy2(src, dst)
+
+    frozen: list[str] = []
+    for relative in sorted(frozen_files):
+        dst = target / relative
+        if write:
+            freeze_installed_reference(dst)
+        frozen.append(relative.as_posix())
 
     if prune_obsolete:
         removed.extend(prune_obsolete_managed_files(target, source_files, write=write))
@@ -193,7 +233,9 @@ def sync_target(
         "copied_count": len(copied),
         "removed_count": len(removed),
         "unchanged_count": unchanged,
+        "frozen_count": len(frozen),
         "copied": copied,
+        "frozen": frozen,
         "removed": removed,
     }
 
@@ -227,12 +269,15 @@ def main() -> int:
     conflicts = legacy_locator_conflicts(targets)
     if conflicts:
         raise SystemExit(f"legacy install locator conflicts with canonical authority: {conflicts}")
-    source_files = set(iter_projected_files(source))
+    manifest = load_projection(source)
+    source_files = set(iter_projected_files(source, manifest))
+    frozen_files = frozen_install_references(manifest, source_files)
     results = [
         sync_target(
             source,
             target,
             source_files,
+            frozen_files,
             write=args.write,
             prune_obsolete=args.prune_obsolete,
         )
@@ -245,6 +290,7 @@ def main() -> int:
         "source_files": len(source_files),
         "write": args.write,
         "prune_obsolete": args.prune_obsolete,
+        "frozen_install_references": [item.as_posix() for item in sorted(frozen_files)],
         "targets": results,
     }
     if args.json:

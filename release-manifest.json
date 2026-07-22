@@ -416,6 +416,12 @@
     },
     {
       "mode": "100644",
+      "path": "references/benchmarks/cft0808-edict.yaml",
+      "sha256": "2a3da97b72589d02fd9259f371ce580968b3eebfa0875194c852922f0a42c007",
+      "size": 1588
+    },
+    {
+      "mode": "100644",
       "path": "references/court-capability-registry.md",
       "sha256": "45817cfee0ead60358f8db3e64df84a6898945b5e62cf0ca16a6a680c9437434",
       "size": 16297
@@ -537,8 +543,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "feb80bf44928cd88f2cc409994d31c76cf2d67ec9fd5d2970a32dd0f0f9b23d6",
-      "size": 10277
+      "sha256": "12c4c3a1938a87edea877e339a463e6de5a46e04fe7b91338019dac7a6b98ac6",
+      "size": 10419
     },
     {
       "mode": "100644",
@@ -771,8 +777,8 @@
     {
       "mode": "100644",
       "path": "scripts/quick_validate.py",
-      "sha256": "8d8f5829bcd9c40faee00111c874a0b0ae6ec0f76fabbf5784c205df5e3a695a",
-      "size": 6771
+      "sha256": "97fef00a7636f4dc9dd0da4520b65ecf54b1690f2b2f81184586ef87dd6c499a",
+      "size": 8297
     },
     {
       "mode": "100644",
@@ -873,8 +879,8 @@
     {
       "mode": "100644",
       "path": "scripts/sync_active_copies.py",
-      "sha256": "fdb0d682cbe977801487754b6ac7b3438419996f35c96c564ca77bcd66e6f2d0",
-      "size": 9266
+      "sha256": "cfcbcef419f3af0c05e677613232f9d488d2caa1ee6db8641f5bc7cef810a148",
+      "size": 11056
     }
   ],
   "generated_portable_seed_paths": [
@@ -892,11 +898,11 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 1661991,
-    "payload_file_count": 143,
+    "payload_bytes": 1667037,
+    "payload_file_count": 144,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "788f25a884d23f003dde884bc150d7727c8a3b0cb5c91fd69a57725513ec1aba",
-    "source_packaged_tracked_file_count": 135,
+    "payload_index_sha256": "c2a07983eca4fb96a0769985de97b5a528d9ece706618d3aaf430275b2192a7c",
+    "source_packaged_tracked_file_count": 136,
     "source_tracked_file_count": 334
   },
   "license": {
@@ -954,7 +960,6 @@
     "docs/wiki/check-sync.ps1",
     "package-lock.json",
     "package.json",
-    "references/benchmarks/cft0808-edict.yaml",
     "references/complexity-budget.md",
     "references/edict-registry-import.md",
     "references/fixtures/capability-recruitment-cases.json",
