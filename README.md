@@ -68,10 +68,10 @@ runtime 不在同一 task/process 中切换或回退。
 [`release-manifest.json`](release-manifest.json) 为准；分支名只是当前工作载体。
 tag、GitHub Release、npm 以及线上 Wiki 的成功状态只由对应发布回执证明。
 
-`beta1.0.4` 在保留既有渐进式流程的同时，修正短回奏的结诏/史馆语义，并把三权
-选择恢复为“权力 + 解释”加独立串并行；`beta1.0.3` 保留既有安装收敛与移除旧校验
-门的历史证据，`beta1.0.2` 作为上一问题基线保留历史证据，`beta1.0.0` 及两个
-hotfix tag 继续保留不可变历史证据。
+`beta1.0.4-hotfix-v1` 以 `beta1.0.4` 的渐进式流程、结诏/史馆语义和三权选择为
+基线，将 `cft0808/edict` 参考恢复为随 ZIP、npm 载体和五根投影交付的冻结文件；
+它安装后只读、不作为运行依赖，也不触发安装后的文件完整性比对。`beta1.0.4`、
+`beta1.0.3`、`beta1.0.2` 与更早 hotfix tag 保留为不可变历史证据。
 
 ## 许可
 

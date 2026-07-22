@@ -1336,7 +1336,7 @@ class PackageBuildTests(unittest.TestCase):
             "Decretum Matrix（诏令矩阵）",
         )
         release_label = getattr(package_skill, "RELEASE_LABEL", None)
-        self.assertRegex(str(release_label), r"^beta\d+\.\d+\.\d+$")
+        self.assertRegex(str(release_label), r"^beta\d+\.\d+\.\d+(?:-hotfix-v[1-9]\d*)?$")
         self.assertEqual(getattr(package_skill, "LICENSE_ID", None), "AGPL-3.0-only")
         self.assertEqual(package_skill.ROOT_NAME, "decretum-matrix")
         self.assertEqual(

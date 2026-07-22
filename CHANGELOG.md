@@ -1,5 +1,22 @@
 # Changelog
 
+## beta1.0.4-hotfix-v1 - 2026-07-22
+
+### Fixed
+
+- Restored `references/benchmarks/cft0808-edict.yaml` to the release ZIP, npm
+  carrier, and all five installation projections as a frozen reference.
+- The installer makes that reference read-only after each sync and temporarily
+  unfreezes it only to apply a later release replacement.
+- The frozen reference remains outside runtime loading and does not restore any
+  post-install hash-validation behavior.
+
+### Release identity
+
+- Product/tag/artifact version: `beta1.0.4-hotfix-v1`.
+- npm version: `1.0.4-beta.0.hotfix.1` on the `beta` dist-tag.
+- `beta1.0.4` and `1.0.4-beta.0` remain immutable predecessor evidence.
+
 ## beta1.0.4 - 2026-07-22
 
 ### Fixed
