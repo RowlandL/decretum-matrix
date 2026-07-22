@@ -907,7 +907,7 @@ _HIERARCHY_FORMAL_ROLES = frozenset(
 _HIERARCHY_EVIDENCE_FIELDS = (
     "hierarchy_gate",
     "hierarchy_schema",
-    "hierarchy_manifest_sha256",
+    "hierarchy_manifest_path",
     "hierarchy_edge_class",
     "hierarchy_calling_office",
     "hierarchy_target_role",
@@ -948,7 +948,7 @@ def _dispatch_hierarchy_evidence(
     return {
         "hierarchy_gate": "PASSED",
         "hierarchy_schema": decision.hierarchy_schema,
-        "hierarchy_manifest_sha256": decision.hierarchy_manifest_sha256,
+        "hierarchy_manifest_path": decision.hierarchy_manifest_path,
         "hierarchy_edge_class": decision.edge_class,
         "hierarchy_calling_office": decision.normalized_caller,
         "hierarchy_target_role": decision.normalized_target,
@@ -6216,7 +6216,7 @@ def agent_event(
                                 in {
                                     "hierarchy_gate",
                                     "hierarchy_schema",
-                                    "hierarchy_manifest_sha256",
+                                    "hierarchy_manifest_path",
                                 }
                                 else "dispatch_hierarchy_edge_forbidden"
                             )

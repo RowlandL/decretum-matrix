@@ -10,6 +10,9 @@
   unfreezes it only to apply a later release replacement.
 - The frozen reference remains outside runtime loading and does not restore any
   post-install hash-validation behavior.
+- Replaced stale hierarchy-receipt hash references with the existing manifest
+  path provenance, restoring the fast startup and admission paths without
+  reintroducing runtime hash checks.
 
 ### Release identity
 

@@ -168,29 +168,31 @@ def run() -> dict[str, object]:
         }
     )
 
-    hierarchy_scripts = {
-        "court_dispatch_hierarchy.py",
-        "check_court_dispatch_hierarchy.py",
-    }
+    hierarchy_runtime = Path("scripts/court_dispatch_hierarchy.py")
+    hierarchy_checker = Path("scripts/check_court_dispatch_hierarchy.py")
     hierarchy_manifest_member = (
         f"{package_skill.ROOT_NAME}/references/manifests/court-dispatch-hierarchy.v1.json"
     )
     hierarchy_paths = (
-        Path("scripts/court_dispatch_hierarchy.py"),
-        Path("scripts/check_court_dispatch_hierarchy.py"),
+        hierarchy_runtime,
+        hierarchy_checker,
         Path("references/manifests/court-dispatch-hierarchy.v1.json"),
     )
     checks.append(
         {
-            "name": "dispatch hierarchy checker module and manifest are mandatory portable members",
+            "name": "dispatch hierarchy runtime module and manifest match the install projection",
             "ok": (
-                hierarchy_scripts.issubset(set(package_skill.REQUIRED_COURT_SCRIPTS))
+                package_skill.package_includes(hierarchy_runtime, is_dir=False)
                 and hierarchy_manifest_member in package_skill.PACKAGE_IDENTITY_REQUIRED_MEMBERS
                 and all((ROOT / path).is_file() for path in hierarchy_paths)
-                and all(not package_skill.should_skip(path, False) for path in hierarchy_paths)
+                and not package_skill.should_skip(hierarchy_runtime, False)
+                and not package_skill.should_skip(
+                    Path("references/manifests/court-dispatch-hierarchy.v1.json"), False
+                )
             ),
             "details": {
-                "required_scripts": sorted(hierarchy_scripts),
+                "runtime_script": hierarchy_runtime.as_posix(),
+                "source_checker": hierarchy_checker.as_posix(),
                 "required_manifest": hierarchy_manifest_member,
             },
         }

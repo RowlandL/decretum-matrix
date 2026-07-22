@@ -465,7 +465,7 @@ def check_dispatch_evidence() -> None:
         expected_hierarchy_fields = {
             "hierarchy_gate": "PASSED",
             "hierarchy_schema": expected_hierarchy.hierarchy_schema,
-            "hierarchy_manifest_sha256": expected_hierarchy.hierarchy_manifest_sha256,
+            "hierarchy_manifest_path": expected_hierarchy.hierarchy_manifest_path,
             "hierarchy_edge_class": expected_hierarchy.edge_class,
             "hierarchy_calling_office": expected_hierarchy.normalized_caller,
             "hierarchy_target_role": expected_hierarchy.normalized_target,

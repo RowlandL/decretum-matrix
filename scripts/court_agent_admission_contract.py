@@ -125,7 +125,7 @@ def _special_lifecycle_hierarchy_decision(
         normalized_owner=decision.normalized_owner,
         reason_codes=(),
         hierarchy_schema=decision.hierarchy_schema,
-        hierarchy_manifest_sha256=decision.hierarchy_manifest_sha256,
+        hierarchy_manifest_path=decision.hierarchy_manifest_path,
     )
 
 
@@ -199,7 +199,7 @@ def scoped_hierarchy_denial(
                 normalized_owner=decision.normalized_owner,
                 reason_codes=(profile_error,),
                 hierarchy_schema=decision.hierarchy_schema,
-                hierarchy_manifest_sha256=decision.hierarchy_manifest_sha256,
+                hierarchy_manifest_path=decision.hierarchy_manifest_path,
             )
     return None
 

@@ -284,8 +284,14 @@ def run_watchdog(workspace: Path) -> dict[str, object]:
 def assert_dispatch(payload: dict[str, object]) -> None:
     require(payload.get("hierarchy_gate") == "PASSED", "dispatch missing passed hierarchy gate")
     require(payload.get("hierarchy_schema") == "court.dispatch_hierarchy.v1", "dispatch hierarchy schema drifted")
-    hierarchy_hash = payload.get("hierarchy_manifest_sha256")
-    require(isinstance(hierarchy_hash, str) and len(hierarchy_hash) == 64, "dispatch hierarchy manifest hash missing")
+    hierarchy_path = payload.get("hierarchy_manifest_path")
+    require(
+        isinstance(hierarchy_path, str)
+        and hierarchy_path.replace("\\", "/").endswith(
+            "/references/manifests/court-dispatch-hierarchy.v1.json"
+        ),
+        "dispatch hierarchy manifest path missing",
+    )
     require(payload.get("hierarchy_calling_office") == payload.get("calling_office"), "dispatch hierarchy caller diverged from transport caller")
     require(payload.get("hierarchy_target_role") == payload.get("role"), "dispatch hierarchy target diverged from transport target")
     target_profile_gate = payload.get("target_profile_gate")

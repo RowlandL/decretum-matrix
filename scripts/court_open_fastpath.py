@@ -675,7 +675,7 @@ def _hierarchy_decision(caller: str, role: str) -> dict[str, object]:
         "target": role,
         "direct_superior": ROLE_SUPERIORS[role],
         "edge_class": decision.edge_class,
-        "manifest_sha256": decision.hierarchy_manifest_sha256,
+        "manifest_path": decision.hierarchy_manifest_path,
     }
 
 

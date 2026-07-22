@@ -710,9 +710,10 @@ def check_admission_binding() -> None:
     for hierarchy_record in (route, stored_route):
         assert hierarchy_record["hierarchy_gate"] == "PASSED"
         assert hierarchy_record["hierarchy_schema"] == "court.dispatch_hierarchy.v1"
-        assert re.fullmatch(
-            r"[0-9a-f]{64}",
-            str(hierarchy_record["hierarchy_manifest_sha256"]),
+        assert str(hierarchy_record["hierarchy_manifest_path"]).replace(
+            "\\", "/"
+        ).endswith(
+            "/references/manifests/court-dispatch-hierarchy.v1.json"
         )
         assert hierarchy_record["hierarchy_edge_class"] == "ministry_execution_dispatch"
         assert hierarchy_record["hierarchy_calling_office"] == "shangshu"
@@ -819,7 +820,7 @@ def check_admission_binding() -> None:
     for field in (
         "hierarchy_gate",
         "hierarchy_schema",
-        "hierarchy_manifest_sha256",
+        "hierarchy_manifest_path",
         "hierarchy_edge_class",
         "hierarchy_calling_office",
         "hierarchy_target_role",
@@ -1746,12 +1747,12 @@ def check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write() -> Non
     create_task(task_id)
     admission = admit(task_id, wave_id, role="gongbu")
 
-    def tamper_manifest_hash(task: dict[str, object]) -> None:
+    def tamper_manifest_path(task: dict[str, object]) -> None:
         task["agent_admissions"][wave_id]["selected_bindings"][0][
-            "hierarchy_manifest_sha256"
-        ] = "0" * 64
+            "hierarchy_manifest_path"
+        ] = "references/manifests/other-hierarchy.json"
 
-    set_task_field(task_id, tamper_manifest_hash)
+    set_task_field(task_id, tamper_manifest_path)
     reject_runtime_bytes_unchanged(
         lambda: court_runtime.agent_start(
             start_args(
@@ -1911,7 +1912,7 @@ def check_unified_office_instance_lifecycle() -> None:
     hierarchy_fields = {
         "hierarchy_gate",
         "hierarchy_schema",
-        "hierarchy_manifest_sha256",
+        "hierarchy_manifest_path",
         "hierarchy_edge_class",
         "hierarchy_calling_office",
         "hierarchy_target_role",

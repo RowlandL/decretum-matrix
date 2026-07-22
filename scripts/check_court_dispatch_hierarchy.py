@@ -468,7 +468,7 @@ def _check_shared_validator(errors: list[str]) -> dict[str, object]:
 
     evaluated = 0
     manifest_schemas: set[str] = set()
-    manifest_hashes: set[str] = set()
+    manifest_paths: set[str] = set()
     for case in CASES:
         projections: dict[str, tuple[object, tuple[object, ...], object]] = {}
         for adapter_label in ("ordinary", "supercc"):
@@ -483,11 +483,11 @@ def _check_shared_validator(errors: list[str]) -> dict[str, object]:
             projection = _decision_projection(decision)
             projections[adapter_label] = projection
             manifest_schema = getattr(decision, "hierarchy_schema", None)
-            manifest_sha256 = getattr(decision, "hierarchy_manifest_sha256", None)
+            manifest_path = getattr(decision, "hierarchy_manifest_path", None)
             if isinstance(manifest_schema, str):
                 manifest_schemas.add(manifest_schema)
-            if isinstance(manifest_sha256, str):
-                manifest_hashes.add(manifest_sha256)
+            if isinstance(manifest_path, str):
+                manifest_paths.add(manifest_path)
             allowed, reason_codes, _edge_class = projection
             if allowed is not case.expected_allowed:
                 errors.append(
@@ -504,18 +504,15 @@ def _check_shared_validator(errors: list[str]) -> dict[str, object]:
             errors.append(f"HIERARCHY_ADAPTER_PARITY_MISMATCH:{case.name}:{projections}")
     if manifest_schemas != {"court.dispatch_hierarchy.v1"}:
         errors.append(f"HIERARCHY_SCHEMA_DRIFT:{sorted(manifest_schemas)}")
-    if len(manifest_hashes) != 1 or any(
-        len(value) != 64 or any(char not in "0123456789abcdef" for char in value)
-        for value in manifest_hashes
-    ):
-        errors.append(f"HIERARCHY_MANIFEST_HASH_DRIFT:{sorted(manifest_hashes)}")
+    if manifest_paths != {str(hierarchy.MANIFEST_PATH)}:
+        errors.append(f"HIERARCHY_MANIFEST_PATH_DRIFT:{sorted(manifest_paths)}")
     manifest_validation = _check_manifest_fail_closed(hierarchy, errors)
     return {
         "module": str(Path(hierarchy.__file__).resolve()),
         "status": "LOADED",
         "evaluated_adapter_cases": evaluated,
         "hierarchy_schema": next(iter(manifest_schemas), None),
-        "hierarchy_manifest_sha256": next(iter(manifest_hashes), None),
+        "hierarchy_manifest_path": next(iter(manifest_paths), None),
         "manifest_validation": manifest_validation,
     }
 
