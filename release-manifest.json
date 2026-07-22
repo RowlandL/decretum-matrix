@@ -75,8 +75,8 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "0de8e6bf204c215a43c9cad027926032e4eda565626fc0df5585b5e61fecc469",
-      "size": 4096
+      "sha256": "757b26fe4d5cbd5099bb5f75afc329599bfa951c27e7be100ac62e0c14bae70e",
+      "size": 4255
     },
     {
       "mode": "100644",
@@ -405,8 +405,8 @@
     {
       "mode": "100644",
       "path": "bin/decretum-matrix.py",
-      "sha256": "640fdd8914717932f1850ac3bd32a5c1c3428e0ea6f4086d71a7a8d1e4712c99",
-      "size": 12720
+      "sha256": "614a6004f133d07ddbfc71ae2633eed7c63f170cb975814832a4b1fefb3dc176",
+      "size": 25439
     },
     {
       "mode": "100644",
@@ -513,8 +513,8 @@
     {
       "mode": "100644",
       "path": "references/install.md",
-      "sha256": "1b8c96c9435e2f1859da925719ffb6cf871d0f292d5cd85feb32cb1e8ffea37b",
-      "size": 2241
+      "sha256": "da7d4012f33ba1c8541093dda47a4f89c3e339415dc02c341b1c5e8acaa5d4ec",
+      "size": 3040
     },
     {
       "mode": "100644",
@@ -898,10 +898,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 1667100,
+    "payload_bytes": 1680777,
     "payload_file_count": 144,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "3a8fa68abcfa9f2c5c13f4df2f1705956fdf106b97345b8cea904a2d7b2d77b6",
+    "payload_index_sha256": "7aba5248decfacbe10da15fc13da5dd0693bc6f7f33d0dd537eb98077179bde2",
     "source_packaged_tracked_file_count": 136,
     "source_tracked_file_count": 334
   },

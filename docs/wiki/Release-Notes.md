@@ -10,6 +10,12 @@
   路径和身份绑定。
 - 结诏收据校验保留编号、路径、谱系与结诏身份，不再要求旧摘要字段。
 - npm 版本为 `1.0.4-beta.0.hotfix.1`，保留 `1.0.4-beta.0` 的不可变历史。
+- 安装文档和运行 reference 改为 Windows/macOS/Linux 路径矩阵，不再把
+  `%USERPROFILE%`、`%LOCALAPPDATA%` 或 Windows Task Scheduler 语义写成通用路径。
+- 首次 npm 安装会安装或复用 superCC 依赖 `zellij` 与 `squad`；安装回执写入对
+  Zellij 与 squad 开源项目的感谢和仓库链接。
+- macOS/Linux 发布包使用同一官署、史馆和五根投影结构，只调整平台路径、工具资产
+  和安装说明；不引入安装后的哈希校验脚本。
 
 ## beta1.0.4
 

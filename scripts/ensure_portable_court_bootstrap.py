@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import platform as host_platform
 from pathlib import Path
 import re
 import shutil
@@ -21,6 +22,7 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
+import tarfile
 import tempfile
 import urllib.error
 import urllib.request
@@ -48,6 +50,20 @@ ZELLIJ_REPO = "zellij-org/zellij"
 ZELLIJ_ASSET = "zellij-x86_64-pc-windows-msvc.zip"
 SQUAD_REPO = os.environ.get("COURT_SQUAD_GITHUB_REPO", "mco-org/squad")
 SQUAD_ASSET = "squad-x86_64-pc-windows-msvc.zip"
+OPTIONAL_SUPERCC_DEPENDENCIES = [
+    {
+        "name": "zellij",
+        "project": "Zellij",
+        "url": "https://github.com/zellij-org/zellij",
+        "purpose": "optional terminal workspace for visible superCC panes",
+    },
+    {
+        "name": "squad",
+        "project": "squad",
+        "url": "https://github.com/mco-org/squad",
+        "purpose": "optional structured task/message bus for superCC dispatch evidence",
+    },
+]
 
 
 def now_stamp() -> str:
@@ -1269,32 +1285,99 @@ def verify_download(name: str, data: bytes, expected: str, allow_unverified: boo
     }
 
 
-def extract_exe_from_zip(zip_bytes: bytes, exe_name: str, install_dir: Path) -> dict[str, Any]:
+def normalized_host_arch() -> str:
+    machine = host_platform.machine().lower()
+    if machine in {"amd64", "x64", "x86-64"}:
+        return "x86_64"
+    if machine in {"arm64", "aarch64"}:
+        return "aarch64"
+    return machine or "unknown"
+
+
+def host_release_target(tool: str) -> dict[str, str]:
+    arch = normalized_host_arch()
+    if sys.platform == "win32":
+        if arch != "x86_64":
+            return {"ok": "false", "reason": f"{tool} Windows bootstrap supports x86_64 only", "arch": arch}
+        return {"ok": "true", "triple": "x86_64-pc-windows-msvc", "archive": "zip", "binary": f"{tool}.exe"}
+    if sys.platform == "darwin":
+        if arch not in {"x86_64", "aarch64"}:
+            return {"ok": "false", "reason": f"{tool} macOS bootstrap does not know arch {arch}", "arch": arch}
+        return {"ok": "true", "triple": f"{arch}-apple-darwin", "archive": "tar.gz", "binary": tool}
+    if sys.platform.startswith("linux"):
+        if tool == "squad" and arch != "x86_64":
+            return {"ok": "false", "reason": "squad Linux bootstrap currently has no known aarch64 release asset", "arch": arch}
+        if arch not in {"x86_64", "aarch64"}:
+            return {"ok": "false", "reason": f"{tool} Linux bootstrap does not know arch {arch}", "arch": arch}
+        return {"ok": "true", "triple": f"{arch}-unknown-linux-musl", "archive": "tar.gz", "binary": tool}
+    return {"ok": "false", "reason": f"unsupported platform for {tool}: {sys.platform}", "arch": arch}
+
+
+def release_asset_patterns(tool: str, target: dict[str, str]) -> tuple[str, list[str]]:
+    triple = target["triple"]
+    archive = target["archive"]
+    if archive == "zip":
+        fallback = f"{tool}-{triple}.zip"
+        return fallback, [rf"^{re.escape(tool)}-{re.escape(triple)}\.zip$"]
+    fallback = f"{tool}-{triple}.tar.gz"
+    return fallback, [rf"^{re.escape(tool)}-{re.escape(triple)}\.tar\.gz$"]
+
+
+def extract_binary_from_zip(zip_bytes: bytes, binary_name: str, install_dir: Path) -> dict[str, Any]:
     install_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="court-tool-install-") as temp_text:
         temp = Path(temp_text)
         archive_path = temp / "tool.zip"
         archive_path.write_bytes(zip_bytes)
         with zipfile.ZipFile(archive_path) as archive:
-            candidates = [name for name in archive.namelist() if Path(name).name.lower() == exe_name.lower()]
+            candidates = [name for name in archive.namelist() if Path(name).name.lower() == binary_name.lower()]
             if not candidates:
-                return {"ok": False, "reason": f"{exe_name} not found in zip"}
-            archive.extract(candidates[0], temp)
-            source = temp / candidates[0]
-            target = install_dir / exe_name
+                return {"ok": False, "reason": f"{binary_name} not found in zip"}
+            target = install_dir / binary_name
             if target.exists():
                 backup_file(target)
-            shutil.copy2(source, target)
-    return {"ok": True, "target": str(install_dir / exe_name)}
+            with archive.open(candidates[0], "r") as source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+    return finalize_installed_binary(install_dir / binary_name)
 
 
-def install_windows_zip_tool(
+def extract_binary_from_tar(tar_bytes: bytes, binary_name: str, install_dir: Path) -> dict[str, Any]:
+    install_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="court-tool-install-") as temp_text:
+        temp = Path(temp_text)
+        archive_path = temp / "tool.tar.gz"
+        archive_path.write_bytes(tar_bytes)
+        with tarfile.open(archive_path, mode="r:*") as archive:
+            candidates = [
+                member
+                for member in archive.getmembers()
+                if member.isfile() and Path(member.name).name.lower() == binary_name.lower()
+            ]
+            if not candidates:
+                return {"ok": False, "reason": f"{binary_name} not found in tar archive"}
+            source = archive.extractfile(candidates[0])
+            if source is None:
+                return {"ok": False, "reason": f"{binary_name} could not be extracted"}
+            target = install_dir / binary_name
+            if target.exists():
+                backup_file(target)
+            with source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+    return finalize_installed_binary(install_dir / binary_name)
+
+
+def finalize_installed_binary(target: Path) -> dict[str, Any]:
+    if not target.is_file():
+        return {"ok": False, "reason": f"binary was not installed: {target}"}
+    if sys.platform != "win32":
+        target.chmod(target.stat().st_mode | 0o755)
+    return {"ok": True, "target": str(target)}
+
+
+def install_release_archive_tool(
     *,
     tool: str,
-    exe_name: str,
     repo: str,
-    fallback_asset: str,
-    regexes: list[str],
     install_dir: Path,
     apply: bool,
     allow_unverified: bool,
@@ -1304,8 +1387,10 @@ def install_windows_zip_tool(
     if available_before:
         version = run_command([tool, *version_args], timeout=20, install_dir=install_dir)
         return {"ok": True, "tool": tool, "available_before": True, "changed": False, "version": version}
-    if sys.platform != "win32":
-        return {"ok": False, "tool": tool, "changed": False, "reason": "automatic zip install is Windows-only"}
+    target = host_release_target(tool)
+    if target.get("ok") != "true":
+        return {"ok": False, "tool": tool, "changed": False, "target": target, "reason": target.get("reason")}
+    fallback_asset, regexes = release_asset_patterns(tool, target)
     asset = select_asset(repo, fallback_asset, regexes)
     if not apply:
         return {
@@ -1316,14 +1401,15 @@ def install_windows_zip_tool(
             "would_install": True,
             "repo": repo,
             "asset": asset,
+            "target": target,
             "install_dir": str(install_dir),
         }
     try:
-        zip_bytes = http_get_bytes(asset["url"], timeout=120)
+        archive_bytes = http_get_bytes(asset["url"], timeout=120)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return {"ok": False, "tool": tool, "changed": False, "repo": repo, "asset": asset, "reason": str(exc)}
     expected = checksum_from_digest(asset.get("digest", "")) or checksum_from_sidecar(asset["url"])
-    verification = verify_download(tool, zip_bytes, expected, allow_unverified)
+    verification = verify_download(tool, archive_bytes, expected, allow_unverified)
     if not verification["ok"]:
         return {
             "ok": False,
@@ -1331,9 +1417,13 @@ def install_windows_zip_tool(
             "changed": False,
             "repo": repo,
             "asset": asset,
+            "target": target,
             "verification": verification,
         }
-    install = extract_exe_from_zip(zip_bytes, exe_name, install_dir)
+    if str(target["archive"]) == "zip":
+        install = extract_binary_from_zip(archive_bytes, str(target["binary"]), install_dir)
+    else:
+        install = extract_binary_from_tar(archive_bytes, str(target["binary"]), install_dir)
     version = run_command([tool, *version_args], timeout=20, install_dir=install_dir) if install.get("ok") else {}
     return {
         "ok": bool(install.get("ok")) and bool(version.get("ok")),
@@ -1342,6 +1432,7 @@ def install_windows_zip_tool(
         "changed": bool(install.get("ok")),
         "repo": repo,
         "asset": asset,
+        "target": target,
         "verification": verification,
         "install": install,
         "version": version,
@@ -1372,27 +1463,17 @@ def ensure_squad_workspace(workspace: Path, install_dir: Path, apply: bool) -> d
 def ensure_supercc_deps(args: argparse.Namespace) -> dict[str, Any]:
     install_dir = Path(args.install_dir).resolve()
     workspace = Path(args.workspace).resolve()
-    zellij = install_windows_zip_tool(
+    zellij = install_release_archive_tool(
         tool="zellij",
-        exe_name="zellij.exe",
         repo=ZELLIJ_REPO,
-        fallback_asset=ZELLIJ_ASSET,
-        regexes=[r"zellij.*x86_64.*windows.*msvc.*\.zip$", r"zellij-x86_64-pc-windows-msvc\.zip$"],
         install_dir=install_dir,
         apply=args.apply,
         allow_unverified=args.allow_unverified_release_asset,
         version_args=["--version"],
     )
-    squad = install_windows_zip_tool(
+    squad = install_release_archive_tool(
         tool="squad",
-        exe_name="squad.exe",
         repo=SQUAD_REPO,
-        fallback_asset=SQUAD_ASSET,
-        regexes=[
-            r"squad.*x86_64.*windows.*msvc.*\.zip$",
-            r"squad.*windows.*x86_64.*\.zip$",
-            r"squad-x86_64-pc-windows-msvc\.zip$",
-        ],
         install_dir=install_dir,
         apply=args.apply,
         allow_unverified=args.allow_unverified_release_asset,
@@ -1415,6 +1496,7 @@ def ensure_supercc_deps(args: argparse.Namespace) -> dict[str, Any]:
             "zellij": f"https://github.com/{ZELLIJ_REPO}/releases/latest",
             "squad": f"https://github.com/{SQUAD_REPO}/releases/latest",
         },
+        "open_source_acknowledgements": OPTIONAL_SUPERCC_DEPENDENCIES,
     }
 
 
@@ -1502,11 +1584,11 @@ def render_text(payload: dict[str, Any]) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apply", action="store_true", help="Write configs, install missing tools, and record the bridge.")
+    parser.add_argument("--apply", action="store_true", help="Write configs, install first-run superCC dependencies, and record the bridge.")
     parser.add_argument("--check-only", action="store_true", help="Inspect/plan without changing host state.")
     parser.add_argument("--supercc-deps-only", action="store_true", help="Only install/check zellij+squad and initialize the squad workspace.")
     parser.add_argument("--workspace", default=str(user_home()), help="Workspace for squad init and superCC runtime. Defaults to the current user's home directory.")
-    parser.add_argument("--install-dir", default=str(default_install_dir()), help="Directory for zellij.exe and squad.exe. Defaults to C:\\Tools\\bin on Windows.")
+    parser.add_argument("--install-dir", default=str(default_install_dir()), help="Directory for zellij and squad. Defaults to C:\\Tools\\bin on Windows and ~/.local/bin on POSIX.")
     parser.add_argument("--skip-supercc-deps", action="store_true")
     parser.add_argument("--skip-obsidian", action="store_true")
     parser.add_argument("--skip-service-daemon", action="store_true")

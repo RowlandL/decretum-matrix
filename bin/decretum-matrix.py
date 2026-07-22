@@ -3,15 +3,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import platform
 from pathlib import Path, PurePosixPath
+import re
 import runpy
 import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
+import urllib.error
+import urllib.request
 import uuid
 import zipfile
 
@@ -40,6 +46,26 @@ FORBIDDEN_PARTS = {
     "private",
     "shiguan-imports",
 }
+GITHUB_API = "https://api.github.com/repos/{repo}/releases/latest"
+GITHUB_LATEST_DOWNLOAD = "https://github.com/{repo}/releases/latest/download/{asset}"
+SUPERCC_DEPENDENCY_REPOS = {
+    "zellij": "zellij-org/zellij",
+    "squad": os.environ.get("COURT_SQUAD_GITHUB_REPO", "mco-org/squad"),
+}
+OPEN_SOURCE_ACKNOWLEDGEMENTS = [
+    {
+        "name": "zellij",
+        "project": "Zellij",
+        "url": "https://github.com/zellij-org/zellij",
+        "thanks": "Decretum Matrix thanks the Zellij project for the optional terminal workspace used by visible superCC panes.",
+    },
+    {
+        "name": "squad",
+        "project": "squad",
+        "url": "https://github.com/mco-org/squad",
+        "thanks": "Decretum Matrix thanks the squad project for the optional structured task/message bus used by superCC dispatch evidence.",
+    },
+]
 
 
 class LauncherError(RuntimeError):
@@ -253,6 +279,266 @@ def _ensure_shared_shiguan_seed(runtime_root: Path) -> Path:
             sys.path.remove(str(scripts_root))
 
 
+def _tool_install_dir(home: Path) -> Path:
+    if os.name == "nt":
+        return Path(os.environ.get("COURT_TOOL_INSTALL_DIR", r"C:\Tools\bin")).resolve(strict=False)
+    return Path(os.environ.get("COURT_TOOL_INSTALL_DIR", str(home / ".local" / "bin"))).expanduser().resolve(strict=False)
+
+
+def _tool_path_env(install_dir: Path) -> str:
+    current = os.environ.get("PATH", "")
+    return str(install_dir) + (os.pathsep + current if current else "")
+
+
+def _resolve_tool_command(tool: str, install_dir: Path) -> list[str]:
+    resolved = shutil.which(tool, path=_tool_path_env(install_dir)) or tool
+    suffix = Path(resolved).suffix.lower()
+    if suffix in {".cmd", ".bat"}:
+        return [os.environ.get("ComSpec") or "cmd.exe", "/d", "/c", resolved]
+    return [resolved]
+
+
+def _run_tool_version(tool: str, install_dir: Path) -> dict[str, object]:
+    command = [*_resolve_tool_command(tool, install_dir), "--version"]
+    try:
+        result = subprocess.run(
+            command,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            env={**os.environ, "PATH": _tool_path_env(install_dir)},
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "reason": f"{type(exc).__name__}:{exc}", "command": command}
+    return {
+        "ok": result.returncode == 0,
+        "returncode": result.returncode,
+        "command": command[:1] + ["..."],
+        "stdout": (result.stdout or "").strip()[-1200:],
+        "stderr": (result.stderr or "").strip()[-1200:],
+    }
+
+
+def _normalized_arch() -> str:
+    machine = platform.machine().lower()
+    if machine in {"amd64", "x64", "x86-64"}:
+        return "x86_64"
+    if machine in {"arm64", "aarch64"}:
+        return "aarch64"
+    return machine or "unknown"
+
+
+def _tool_target(tool: str) -> dict[str, str]:
+    arch = _normalized_arch()
+    if os.name == "nt":
+        if arch != "x86_64":
+            return {"ok": "false", "reason": f"{tool} Windows asset target is not known for {arch}"}
+        return {"ok": "true", "triple": "x86_64-pc-windows-msvc", "archive": "zip", "binary": f"{tool}.exe"}
+    if sys.platform == "darwin":
+        if arch not in {"x86_64", "aarch64"}:
+            return {"ok": "false", "reason": f"{tool} macOS asset target is not known for {arch}"}
+        return {"ok": "true", "triple": f"{arch}-apple-darwin", "archive": "tar.gz", "binary": tool}
+    if sys.platform.startswith("linux"):
+        if tool == "squad" and arch != "x86_64":
+            return {"ok": "false", "reason": "squad Linux asset target is only known for x86_64"}
+        if arch not in {"x86_64", "aarch64"}:
+            return {"ok": "false", "reason": f"{tool} Linux asset target is not known for {arch}"}
+        return {"ok": "true", "triple": f"{arch}-unknown-linux-musl", "archive": "tar.gz", "binary": tool}
+    return {"ok": "false", "reason": f"{tool} asset target is not known for platform {sys.platform}"}
+
+
+def _asset_name_and_pattern(tool: str, target: dict[str, str]) -> tuple[str, re.Pattern[str]]:
+    suffix = "zip" if target["archive"] == "zip" else "tar.gz"
+    name = f"{tool}-{target['triple']}.{suffix}"
+    return name, re.compile(rf"^{re.escape(name)}$", re.IGNORECASE)
+
+
+def _http_json(url: str) -> dict[str, object]:
+    request = urllib.request.Request(url, headers={"User-Agent": "decretum-matrix-postinstall"})
+    with urllib.request.urlopen(request, timeout=45) as response:  # noqa: S310 - user-approved first-install dependency fetch.
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _http_bytes(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": "decretum-matrix-postinstall"})
+    with urllib.request.urlopen(request, timeout=180) as response:  # noqa: S310 - user-approved first-install dependency fetch.
+        return response.read()
+
+
+def _select_release_asset(tool: str, repo: str, target: dict[str, str]) -> dict[str, str]:
+    fallback_name, pattern = _asset_name_and_pattern(tool, target)
+    try:
+        release = _http_json(GITHUB_API.format(repo=repo))
+        assets = release.get("assets")
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
+        assets = []
+    if isinstance(assets, list):
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            name = str(asset.get("name") or "")
+            if pattern.fullmatch(name):
+                return {
+                    "name": name,
+                    "url": str(asset.get("browser_download_url") or GITHUB_LATEST_DOWNLOAD.format(repo=repo, asset=name)),
+                    "digest": str(asset.get("digest") or ""),
+                    "source": "github_api",
+                }
+    return {
+        "name": fallback_name,
+        "url": GITHUB_LATEST_DOWNLOAD.format(repo=repo, asset=fallback_name),
+        "digest": "",
+        "source": "latest_download_fallback",
+    }
+
+
+def _digest_sha256(digest: str) -> str:
+    value = digest.strip()
+    if value.lower().startswith("sha256:"):
+        return value.split(":", 1)[1].lower()
+    if re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        return value.lower()
+    return ""
+
+
+def _sidecar_candidates(asset_url: str) -> list[str]:
+    candidates = [asset_url + ".sha256sum", asset_url + ".sha256", asset_url + ".sha256.txt"]
+    for suffix in (".tar.gz", ".zip"):
+        if asset_url.endswith(suffix):
+            stem = asset_url[: -len(suffix)]
+            candidates.append(stem + ".sha256sum")
+            candidates.append(stem + ".sha256")
+    return candidates
+
+
+def _sidecar_sha256(asset_url: str) -> str:
+    for url in _sidecar_candidates(asset_url):
+        try:
+            text = _http_bytes(url).decode("utf-8", errors="replace")
+        except (OSError, TimeoutError, urllib.error.URLError):
+            continue
+        match = re.search(r"\b([0-9a-fA-F]{64})\b", text)
+        if match:
+            return match.group(1).lower()
+    return ""
+
+
+def _verify_dependency_download(tool: str, data: bytes, asset: dict[str, str]) -> dict[str, object]:
+    actual = hashlib.sha256(data).hexdigest()
+    expected = _digest_sha256(asset.get("digest", "")) or _sidecar_sha256(asset["url"])
+    if not expected:
+        return {
+            "ok": False,
+            "status": "checksum_unavailable",
+            "sha256": actual,
+            "reason": f"{tool} release asset did not expose a sha256 digest or sidecar",
+        }
+    return {
+        "ok": actual == expected,
+        "status": "verified" if actual == expected else "mismatch",
+        "sha256": actual,
+        "expected_sha256": expected,
+    }
+
+
+def _install_archive_binary(tool: str, archive_bytes: bytes, target: dict[str, str], install_dir: Path) -> dict[str, object]:
+    binary = target["binary"]
+    destination = install_dir / binary
+    install_dir.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        backup = destination.with_name(destination.name + ".decretum-backup")
+        shutil.copy2(destination, backup)
+    with tempfile.TemporaryDirectory(prefix="decretum-dep-install-") as temp_text:
+        temp = Path(temp_text)
+        archive_path = temp / ("tool.zip" if target["archive"] == "zip" else "tool.tar.gz")
+        archive_path.write_bytes(archive_bytes)
+        if target["archive"] == "zip":
+            with zipfile.ZipFile(archive_path) as archive:
+                names = [name for name in archive.namelist() if Path(name).name.lower() == binary.lower()]
+                if not names:
+                    return {"ok": False, "reason": f"{binary} not found in {tool} archive"}
+                with archive.open(names[0], "r") as source, destination.open("wb") as handle:
+                    shutil.copyfileobj(source, handle)
+        else:
+            with tarfile.open(archive_path, mode="r:*") as archive:
+                members = [
+                    member
+                    for member in archive.getmembers()
+                    if member.isfile() and Path(member.name).name.lower() == binary.lower()
+                ]
+                if not members:
+                    return {"ok": False, "reason": f"{binary} not found in {tool} archive"}
+                source = archive.extractfile(members[0])
+                if source is None:
+                    return {"ok": False, "reason": f"{binary} could not be extracted"}
+                with source, destination.open("wb") as handle:
+                    shutil.copyfileobj(source, handle)
+    if os.name != "nt":
+        destination.chmod(destination.stat().st_mode | 0o755)
+    return {"ok": True, "target": str(destination)}
+
+
+def _install_supercc_tool(tool: str, install_dir: Path) -> dict[str, object]:
+    existing = shutil.which(tool, path=_tool_path_env(install_dir))
+    if existing:
+        return {
+            "ok": True,
+            "tool": tool,
+            "changed": False,
+            "available_before": True,
+            "path": existing,
+            "version": _run_tool_version(tool, install_dir),
+        }
+    repo = SUPERCC_DEPENDENCY_REPOS[tool]
+    target = _tool_target(tool)
+    if target.get("ok") != "true":
+        return {"ok": False, "tool": tool, "changed": False, "target": target, "reason": target.get("reason")}
+    asset = _select_release_asset(tool, repo, target)
+    try:
+        archive_bytes = _http_bytes(asset["url"])
+    except (OSError, TimeoutError, urllib.error.URLError) as exc:
+        return {"ok": False, "tool": tool, "changed": False, "asset": asset, "reason": f"{type(exc).__name__}:{exc}"}
+    verification = _verify_dependency_download(tool, archive_bytes, asset)
+    if verification.get("ok") is not True:
+        return {"ok": False, "tool": tool, "changed": False, "asset": asset, "verification": verification}
+    install = _install_archive_binary(tool, archive_bytes, target, install_dir)
+    version = _run_tool_version(tool, install_dir) if install.get("ok") is True else {"ok": False, "status": "NOT_RUN"}
+    return {
+        "ok": install.get("ok") is True and version.get("ok") is True,
+        "tool": tool,
+        "changed": install.get("ok") is True,
+        "asset": asset,
+        "target": target,
+        "verification": verification,
+        "install": install,
+        "version": version,
+    }
+
+
+def _install_supercc_dependencies(home: Path) -> dict[str, object]:
+    install_dir = _tool_install_dir(home)
+    if os.environ.get("DECRETUM_MATRIX_SKIP_SUPERCC_DEPS") == "1":
+        return {
+            "ok": True,
+            "status": "SKIPPED",
+            "reason": "DECRETUM_MATRIX_SKIP_SUPERCC_DEPS=1",
+            "install_dir": str(install_dir),
+            "open_source_acknowledgements": OPEN_SOURCE_ACKNOWLEDGEMENTS,
+        }
+    zellij = _install_supercc_tool("zellij", install_dir)
+    squad = _install_supercc_tool("squad", install_dir)
+    return {
+        "ok": zellij.get("ok") is True and squad.get("ok") is True,
+        "status": "INSTALLED_OR_PRESENT" if zellij.get("ok") is True and squad.get("ok") is True else "FAILED",
+        "install_dir": str(install_dir),
+        "zellij": zellij,
+        "squad": squad,
+        "open_source_acknowledgements": OPEN_SOURCE_ACKNOWLEDGEMENTS,
+    }
+
+
 def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
     home = _postinstall_home()
     sync_script = runtime_root / "scripts" / "sync_active_copies.py"
@@ -284,6 +570,15 @@ def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
             shared_shiguan = {"status": "FAILED", "reason": str(exc)}
     else:
         shared_shiguan = {"status": "NOT_RUN"}
+    if sync_receipt.get("ok") is True and shared_shiguan["status"] == "SEEDED":
+        supercc_dependencies = _install_supercc_dependencies(home)
+    else:
+        supercc_dependencies = {
+            "ok": False,
+            "status": "NOT_RUN",
+            "reason": "runtime sync or shared Shiguan seed failed first",
+            "open_source_acknowledgements": OPEN_SOURCE_ACKNOWLEDGEMENTS,
+        }
 
     receipt_path = (
         home
@@ -292,18 +587,21 @@ def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
         / "decretum-matrix"
         / f"npm-postinstall-{archive_id}.json"
     )
+    installed_ok = (
+        sync_receipt.get("ok") is True
+        and shared_shiguan["status"] == "SEEDED"
+        and supercc_dependencies.get("ok") is True
+    )
     combined: dict[str, object] = {
         "schema": "decretum.npm_postinstall.v1",
-        "ok": sync_receipt.get("ok") is True and shared_shiguan["status"] == "SEEDED",
-        "status": (
-            "INSTALLED"
-            if sync_receipt.get("ok") is True and shared_shiguan["status"] == "SEEDED"
-            else "FAILED"
-        ),
+        "ok": installed_ok,
+        "status": "INSTALLED" if installed_ok else "FAILED",
         "archive_id": archive_id,
         "home_root": str(home),
         "sync": sync_receipt,
         "shared_shiguan": shared_shiguan,
+        "supercc_dependencies": supercc_dependencies,
+        "open_source_acknowledgements": OPEN_SOURCE_ACKNOWLEDGEMENTS,
         "pending_body_access": "NO",
         "body_content_reads": 0,
         "bootstrap_validation": "STRUCTURAL_ONLY",

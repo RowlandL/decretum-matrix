@@ -20,6 +20,9 @@
 6. 九项仅供源码维护的史馆服务/检查脚本不再作为公开 CLI 兼容 adapter；superCC
    回归证据改以 profile/dossier/SKILL 路径和身份绑定为准。
 7. 结诏校验保留诏令编号、路径、谱系与结诏身份，不再断言旧的 receipt/archive 摘要字段。
+8. Windows/macOS/Linux 安装说明统一为平台路径矩阵；首次 npm 安装安装或复用
+   `zellij` 与 `squad`，并在回执中感谢 Zellij 与 squad 开源项目、附对应 GitHub
+   链接。该依赖摘要校验只在解包前发生，不进入安装后的启动校验面。
 
 ## beta1.0.4 - 2026-07-22
 

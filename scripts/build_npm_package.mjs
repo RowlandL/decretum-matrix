@@ -355,7 +355,7 @@ function buildPackageReadmeForContract(contract) {
     "",
     `This package contains the release ZIP, release attestation, release notes, SPDX SBOM, and legal/governance documents validated against the ${contract.releaseLabel} release manifest.`,
     "",
-    "It has no third-party runtime dependencies. Its bounded `postinstall` performs structural ZIP safety checks, backs up managed public files, installs the canonical `.agents/skills/decretum-matrix` runtime, creates or atomically migrates the physical shared Shiguan root, and records rollback receipts without reading pending/private bodies. Any temporary install validator must be removed before the runtime projection is activated.",
+    "It bundles no third-party binaries. Its bounded `postinstall` performs structural ZIP safety checks, backs up managed public files, installs the canonical `.agents/skills/decretum-matrix` runtime, creates or atomically migrates the physical shared Shiguan root, installs or reuses the first-run superCC `zellij` and `squad` dependencies, and records rollback receipts without reading pending/private bodies. The install receipt thanks the Zellij and squad open source projects and links to their repositories. Any temporary install validator must be removed before the runtime projection is activated.",
   ].join("\n")}\n`;
 }
 
@@ -3006,9 +3006,30 @@ async function runInstalledSmoke(
   const postinstallCache = path.join(smokeRoot, "postinstall-cache");
   const localAppData = path.join(postinstallHome, "AppData", "Local");
   const roamingAppData = path.join(postinstallHome, "AppData", "Roaming");
+  const toolInstallDir = path.join(smokeRoot, "tool-bin");
   await mkdir(postinstallHome, { recursive: true });
   await mkdir(localAppData, { recursive: true });
   await mkdir(roamingAppData, { recursive: true });
+  await mkdir(toolInstallDir, { recursive: true });
+  if (process.platform === "win32") {
+    for (const tool of ["zellij", "squad"]) {
+      await writeFile(
+        path.join(toolInstallDir, `${tool}.cmd`),
+        `@echo off\r\necho ${tool} smoke-stub 0.0.0\r\nexit /b 0\r\n`,
+        { encoding: "utf8", flag: "wx", mode: 0o644 },
+      );
+    }
+  } else {
+    for (const tool of ["zellij", "squad"]) {
+      const toolPath = path.join(toolInstallDir, tool);
+      await writeFile(
+        toolPath,
+        `#!/bin/sh\necho "${tool} smoke-stub 0.0.0"\n`,
+        { encoding: "utf8", flag: "wx", mode: 0o755 },
+      );
+      await chmod(toolPath, 0o755);
+    }
+  }
 
   runNpm(
     ["install", "--package-lock=false", "--save=false", tarballPath],
@@ -3016,6 +3037,7 @@ async function runInstalledSmoke(
     npmState,
     {
       APPDATA: roamingAppData,
+      COURT_TOOL_INSTALL_DIR: toolInstallDir,
       DECRETUM_MATRIX_NPM_CACHE_ROOT: postinstallCache,
       DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES: "0",
       HOME: postinstallHome,
@@ -3142,6 +3164,16 @@ async function runInstalledSmoke(
       postinstallReceipt.pending_body_access === "NO" &&
       postinstallReceipt.body_content_reads === 0 &&
       postinstallReceipt.bootstrap_validation === "STRUCTURAL_ONLY" &&
+      postinstallReceipt.supercc_dependencies?.ok === true &&
+      Array.isArray(
+        postinstallReceipt.supercc_dependencies?.open_source_acknowledgements,
+      ) &&
+      postinstallReceipt.supercc_dependencies.open_source_acknowledgements.some(
+        (entry) => entry?.url === "https://github.com/zellij-org/zellij",
+      ) &&
+      postinstallReceipt.supercc_dependencies.open_source_acknowledgements.some(
+        (entry) => entry?.url === "https://github.com/mco-org/squad",
+      ) &&
       ["NOT_USED", "TEMPORARY_REMOVED"].includes(
         postinstallReceipt.temporary_validation_helper,
       ) &&

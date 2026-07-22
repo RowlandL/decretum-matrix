@@ -19,6 +19,11 @@
   identity bindings instead of obsolete profile or dossier digest fields.
 - Kept archive closeout verification on its objective receipt id, path, lineage,
   and closeout identity; it no longer expects retired receipt or archive digests.
+- Replaced Windows-only installation wording with Windows/macOS/Linux path
+  matrices and platform-specific Hermes/tool roots.
+- First npm install now installs or reuses the superCC `zellij` and `squad`
+  dependencies, records upstream acknowledgements and links, and keeps that
+  pre-activation dependency verification out of the installed startup surface.
 
 ### Release identity
 

@@ -11,14 +11,17 @@ GBrain 为不同治理实现提供共享但无执行权的长期认知。
 
 ## 安装
 
-```powershell
+```sh
 npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 decretum-matrix --format json --help
 ```
 
-当前源码候选为 `1.0.4-beta.0`。安装命令解析到 registry 已发布的 `beta`；
+当前源码候选为 `1.0.4-beta.0.hotfix.1`。安装命令解析到 registry 已发布的 `beta`；
 实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
 `read:packages`，且不得持久化 token。
+
+首次 npm 安装会安装或复用 superCC 依赖 `zellij` 与 `squad`，并在安装回执中写明
+对 Zellij 与 squad 开源项目的感谢和链接。
 
 ## 开始使用
 
