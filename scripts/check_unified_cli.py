@@ -51,6 +51,21 @@ BOOTSTRAP_ENTRYPOINTS = (
     PurePosixPath("scripts/court_session_closeout.py"),
     PurePosixPath("scripts/check_court_session_closeout.py"),
 )
+# These source-only maintenance tools deliberately have no public compatibility
+# adapter. They remain callable by their owning maintenance workflow.
+RETIRED_COMPATIBILITY_ENTRYPOINTS = frozenset(
+    {
+        "scripts/check_shiguan_git_federation.py",
+        "scripts/ensure_shiguan_autosync.py",
+        "scripts/ensure_shiguan_service_daemon.py",
+        "scripts/ensure_shiguan_web.py",
+        "scripts/export_shiguan_obsidian.py",
+        "scripts/serve_shiguan_tree.py",
+        "scripts/shiguan_git_federation.py",
+        "scripts/shiguan_service_daemon.py",
+        "scripts/sync_shiguan_obsidian_vault.py",
+    }
+)
 VOLATILE_RECEIPT_FIELDS = {
     "created_at",
     "generated_at",
@@ -187,6 +202,8 @@ def _is_python_entrypoint(path: Path) -> bool:
 def discover_executable_entrypoints() -> list[str]:
     entrypoints: list[str] = []
     for relative in _tracked_script_paths():
+        if str(relative) in RETIRED_COMPATIBILITY_ENTRYPOINTS:
+            continue
         if relative.suffix.lower() not in SCRIPT_SUFFIXES:
             continue
         path = ROOT.joinpath(*relative.parts)
@@ -205,10 +222,12 @@ def write_manifest() -> dict[str, object]:
         "groups": list(PUBLIC_GROUPS),
         "entries": [_manifest_entry(path) for path in discover_executable_entrypoints()],
     }
+    existing = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else b""
+    newline = "\r\n" if b"\r\n" in existing else "\n"
     MANIFEST_PATH.write_text(
         json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
-        newline="\n",
+        newline=newline,
     )
     return manifest
 
@@ -843,8 +862,7 @@ def evaluate_archive_receipt() -> dict[str, object]:
                         problems.append("archive_receipt_schema")
                     for field in (
                         "receipt_id",
-                        "receipt_sha256",
-                        "archive_sha256",
+                        "path",
                         "court_code",
                         "lineage_display",
                         "closeout_identity",
@@ -939,11 +957,11 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             if selected != canonical:
                 problems.append("canonical_runtime_not_selected")
 
-            def fake_release_archive(root: Path) -> tuple[Path, str]:
+            def fake_release_archive(root: Path) -> Path:
                 calls.append("release_archive")
-                return root / "release" / "fixture.zip", "a" * 64
+                return root / "release" / "fixture.zip"
 
-            def fake_extract_runtime(_archive: Path, cache_root: Path, _digest: str) -> Path:
+            def fake_extract_runtime(_archive: Path, cache_root: Path, _archive_id: str) -> Path:
                 calls.append("extract_runtime")
                 runtime = cache_root / "runtime"
                 (runtime / "scripts").mkdir(parents=True, exist_ok=True)

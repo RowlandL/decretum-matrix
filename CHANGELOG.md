@@ -13,6 +13,12 @@
 - Replaced stale hierarchy-receipt hash references with the existing manifest
   path provenance, restoring the fast startup and admission paths without
   reintroducing runtime hash checks.
+- Retired nine source-only Shiguan service and checker compatibility adapters
+  from the public CLI surface.
+- Updated superCC profile/dossier regression evidence to use declared paths and
+  identity bindings instead of obsolete profile or dossier digest fields.
+- Kept archive closeout verification on its objective receipt id, path, lineage,
+  and closeout identity; it no longer expects retired receipt or archive digests.
 
 ### Release identity
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 import sys
 
@@ -48,7 +47,7 @@ REQUIRED_PROFILE_FIELDS = (
     "dispatch_channel_policy",
     "release_policy",
     "profile_version",
-    "profile_hash",
+    "profile_source",
     "preload_contract_version",
     "dispatch_selection_policy",
     "capacity_admission_policy",
@@ -102,10 +101,6 @@ def read_toml(path: Path) -> dict[str, object]:
         raise AssertionError(f"{path.name}: invalid TOML: {exc}") from exc
 
 
-def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def validate_profile(path: Path) -> dict[str, object]:
     if not path.exists():
         raise AssertionError(f"{path.name}: missing")
@@ -130,6 +125,9 @@ def validate_profile(path: Path) -> dict[str, object]:
     expected_superior = EXPECTED_SUPERIORS.get(role_key)
     if expected_superior and str(profile["direct_superior"]) != expected_superior:
         raise AssertionError(f"{path.name}: direct_superior {profile['direct_superior']!r} != {expected_superior!r}")
+    expected_source = path.relative_to(ROOT).as_posix()
+    if str(profile["profile_source"]) != expected_source:
+        raise AssertionError(f"{path.name}: profile_source {profile['profile_source']!r} != {expected_source!r}")
 
     text = path.read_text(encoding="utf-8", errors="replace")
     missing_text = [term for term in REQUIRED_TEXT if term not in text]
@@ -167,7 +165,7 @@ def validate_profile(path: Path) -> dict[str, object]:
         "role_key": role_key,
         "direct_superior": profile["direct_superior"],
         "profile_version": profile["profile_version"],
-        "profile_hash": sha256_file(path),
+        "profile_source": profile["profile_source"],
     }
 
 
@@ -225,7 +223,7 @@ def validate_dossier(role_key: str) -> dict[str, object]:
     return {
         "path": str(path),
         "role_key": role_key,
-        "dossier_hash": sha256_file(path),
+        "dossier_path": str(path),
     }
 
 

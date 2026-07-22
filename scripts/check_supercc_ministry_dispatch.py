@@ -65,7 +65,6 @@ def check_source_rules() -> None:
         "SUPERCC_SQUAD_RECEIVE_COMMAND",
         "post_dispatch_physical_enter_delay_seconds",
         "office_dossier_path",
-        "office_dossier_hash",
         "AGENTS.md",
         "light_bootstrap_policy",
         "six_ministry_step_plan_policy",
@@ -114,7 +113,7 @@ def check_source_rules() -> None:
             "native_enter_dispatch",
             "post_dispatch_physical_enter_delay_seconds",
             "squad_evidence",
-            "profile_hash",
+            "profile_source",
             "Default `superCC` supervision channels",
             "六部 -> 尚书省",
             "supervision_channel",
@@ -273,7 +272,7 @@ def check_supercc_launcher_shape() -> None:
         "post_dispatch_physical_enter_delay_seconds",
         "PHYSICAL_ENTER_BYTE",
         "squad_evidence",
-        "profile_hash",
+        "profile_source",
         "SUPERCC_REQUEST_RATE_LIMIT_PER_MINUTE",
         "SUPERCC_REQUEST_LIMIT_POLICY",
         "SUPERCC_OFFICE_SHOW_DELAY_DEFAULT_SECONDS",
@@ -342,7 +341,7 @@ def check_supercc_launcher_shape() -> None:
         if term not in prompt:
             raise AssertionError(f"standing office prompt missing {term!r}")
     ministry_prompt = ensure_supercc_court.office_prompt("hubu", "hubu", ROOT, "TEST")
-    for term in ("temporary 六部 pane under 尚书省", "release or idle after 结诏", "Default state: SILENT", "profile_hash", "office_profile_loaded", "AGENTS.md"):
+    for term in ("temporary 六部 pane under 尚书省", "release or idle after 结诏", "Default state: SILENT", "profile_source", "office_profile_loaded", "AGENTS.md"):
         if term not in ministry_prompt:
             raise AssertionError(f"ministry prompt missing {term!r}")
     dossier_text = ensure_supercc_court.office_dossier_text("hubu")
@@ -749,7 +748,6 @@ def check_missing_target_profile_rejected_before_side_effects() -> None:
         return {
             "office_profile_loaded": False,
             "profile_source": str(ROOT / "agents" / "standing-officials" / "gongbu.toml"),
-            "profile_hash": None,
             "profile_version": None,
             "profile_fields": {},
             "profile_missing_fields": ["role_key", "direct_superior"],
@@ -1308,7 +1306,7 @@ def dispatch_context_fixture(
         "role_key": role,
         "calling_office": caller,
         "direct_superior": direct_superior,
-        "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+        "message_id": f"{dispatch_uid}:message",
         "semantic_packet": semantic_packet,
         "scope": {
             "allowed_paths": ["scripts/ensure_supercc_court.py"],
@@ -1348,7 +1346,7 @@ def preload_ack_fixture(
         "identity_generation": generation,
         "preload_ack": None,
     }
-    identity = ensure_supercc_court.active_office_identity_fingerprint(  # type: ignore[attr-defined]
+    identity = ensure_supercc_court.active_office_identity_binding(  # type: ignore[attr-defined]
         check,
         role,
         require_visible=require_visible,
@@ -1362,18 +1360,14 @@ def preload_ack_fixture(
         "preload_status": "PASSED",
         "identity_id": identity["identity_id"],
         "identity_generation": identity["identity_generation"],
-        "identity_fingerprint": identity["identity_fingerprint"],
+        "identity_binding_id": identity["identity_binding_id"],
         "role_key": role,
         "direct_superior": ensure_supercc_court.direct_superior_metadata(role)[  # type: ignore[attr-defined]
             "direct_superior"
         ],
-        "profile_hash": profile["profile_hash"],
-        "dossier_hash": ensure_supercc_court.sha256_file(  # type: ignore[attr-defined]
-            ensure_supercc_court.office_dossier_path(role)  # type: ignore[attr-defined]
-        ),
-        "court_skill_hash": ensure_supercc_court.sha256_file(  # type: ignore[attr-defined]
-            ensure_supercc_court.skill_root() / "SKILL.md"  # type: ignore[attr-defined]
-        ),
+        "profile_source": profile["profile_source"],
+        "dossier_path": str(ensure_supercc_court.office_dossier_path(role)),  # type: ignore[attr-defined]
+        "court_skill_path": str(ensure_supercc_court.skill_root() / "SKILL.md"),  # type: ignore[attr-defined]
         "agent_dossier_loaded": "YES",
         "loaded_skills": ["decretum-matrix"],
     }
@@ -1391,7 +1385,6 @@ def check_normal_role_transport_preflight_precedes_mutation() -> None:
         return {
             "office_profile_loaded": False,
             "profile_source": str(ROOT / "agents" / "standing-officials" / "zhongshu.toml"),
-            "profile_hash": None,
             "profile_version": None,
             "profile_fields": {},
             "profile_missing_fields": ["role_key", "direct_superior"],
@@ -1757,26 +1750,6 @@ def check_menxia_reject_correction_red_matrix() -> None:
             "self-consistent fake SHA/P00 packet passed without a current runtime task/receipt"
         )
     RUNTIME_TASK_FIXTURES[fake_task_id] = current_task
-    forged_packet = json.loads(fake_packet)
-    forged_packet["semantic_packet"]["invariant_capsule_sha256"] = "f" * 64
-    forged_authority = ensure_supercc_court.validate_enter_dispatch_context(
-        argparse.Namespace(
-            dispatch_context_packet_json=json.dumps(forged_packet),
-            dispatch_uid="DISPATCH-CURRENT-AUTHORITY-RED",
-            message=fake_message,
-        ),
-        "gongbu",
-        "shangshu",
-        "shangshu",
-    )
-    if (
-        forged_authority.get("ok") is not False
-        or forged_authority.get("reason")
-        != "enter_dispatch_semantic_authority_invalid"
-    ):
-        failures["preflight_current_authority"].append(
-            "forged capsule hash was not rejected by the shared current-authority validator"
-        )
 
     non_visible_check = {
         "zellij": {
@@ -1796,7 +1769,7 @@ def check_menxia_reject_correction_red_matrix() -> None:
         },
     }
     OFFICE_STATE_FIXTURES.pop("gongbu", None)
-    generationless = ensure_supercc_court.active_office_identity_fingerprint(
+    generationless = ensure_supercc_court.active_office_identity_binding(
         non_visible_check,
         "gongbu",
         require_visible=False,
@@ -1829,7 +1802,7 @@ def check_menxia_reject_correction_red_matrix() -> None:
             "identity_generation": generation,
             "preload_ack": None,
         }
-        identity = ensure_supercc_court.active_office_identity_fingerprint(
+        identity = ensure_supercc_court.active_office_identity_binding(
             non_visible_check,
             "gongbu",
             require_visible=False,
@@ -1841,16 +1814,12 @@ def check_menxia_reject_correction_red_matrix() -> None:
             "preload_status": "PASSED",
             "identity_id": identity.get("identity_id"),
             "identity_generation": identity.get("identity_generation"),
-            "identity_fingerprint": identity.get("identity_fingerprint"),
+            "identity_binding_id": identity.get("identity_binding_id"),
             "role_key": "gongbu",
             "direct_superior": "shangshu",
-            "profile_hash": profile.get("profile_hash"),
-            "dossier_hash": ensure_supercc_court.sha256_file(
-                ensure_supercc_court.office_dossier_path("gongbu")
-            ),
-            "court_skill_hash": ensure_supercc_court.sha256_file(
-                ensure_supercc_court.skill_root() / "SKILL.md"
-            ),
+            "profile_source": profile.get("profile_source"),
+            "dossier_path": str(ensure_supercc_court.office_dossier_path("gongbu")),
+            "court_skill_path": str(ensure_supercc_court.skill_root() / "SKILL.md"),
             "agent_dossier_loaded": "YES",
             "loaded_skills": ["decretum-matrix"],
         }
