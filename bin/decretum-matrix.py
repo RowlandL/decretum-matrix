@@ -235,6 +235,24 @@ def _run_json_command(arguments: list[str], *, env: dict[str, str]) -> dict[str,
     return payload
 
 
+def _ensure_shared_shiguan_seed(runtime_root: Path) -> Path:
+    scripts_root = runtime_root / "scripts"
+    if not (scripts_root / "shiguan_paths.py").is_file():
+        raise LauncherError("release runtime lacks scripts/shiguan_paths.py")
+    inserted = str(scripts_root) not in sys.path
+    if inserted:
+        sys.path.insert(0, str(scripts_root))
+    try:
+        import shiguan_paths
+
+        return shiguan_paths.ensure_shared_seed()
+    except (OSError, RuntimeError) as exc:
+        raise LauncherError(f"shared Shiguan seed failed: {exc}") from exc
+    finally:
+        if inserted:
+            sys.path.remove(str(scripts_root))
+
+
 def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
     home = _postinstall_home()
     sync_script = runtime_root / "scripts" / "sync_active_copies.py"
@@ -254,6 +272,18 @@ def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
     child_env["PYTHONDONTWRITEBYTECODE"] = "1"
     child_env["DECRETUM_MATRIX_BOOTSTRAP_INSTALL_CONTEXT"] = "npm"
     sync_receipt = _run_json_command(sync_arguments, env=child_env)
+    shared_shiguan: dict[str, object]
+    if sync_receipt.get("ok") is True:
+        try:
+            references = _ensure_shared_shiguan_seed(runtime_root)
+            shared_shiguan = {
+                "status": "SEEDED",
+                "references": str(references),
+            }
+        except LauncherError as exc:
+            shared_shiguan = {"status": "FAILED", "reason": str(exc)}
+    else:
+        shared_shiguan = {"status": "NOT_RUN"}
 
     receipt_path = (
         home
@@ -264,17 +294,22 @@ def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
     )
     combined: dict[str, object] = {
         "schema": "decretum.npm_postinstall.v1",
-        "ok": sync_receipt.get("ok") is True,
-        "status": "INSTALLED" if sync_receipt.get("ok") is True else "FAILED",
+        "ok": sync_receipt.get("ok") is True and shared_shiguan["status"] == "SEEDED",
+        "status": (
+            "INSTALLED"
+            if sync_receipt.get("ok") is True and shared_shiguan["status"] == "SEEDED"
+            else "FAILED"
+        ),
         "archive_id": archive_id,
         "home_root": str(home),
         "sync": sync_receipt,
+        "shared_shiguan": shared_shiguan,
         "pending_body_access": "NO",
         "body_content_reads": 0,
         "bootstrap_validation": "STRUCTURAL_ONLY",
         "temporary_validation_helper": "NOT_USED",
     }
-    if sync_receipt.get("ok") is not True:
+    if combined["ok"] is not True:
         _write_json_atomic(receipt_path, combined)
         raise LauncherError(f"postinstall sync failed; receipt: {receipt_path}")
     _write_json_atomic(receipt_path, combined)
