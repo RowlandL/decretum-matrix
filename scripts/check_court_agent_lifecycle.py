@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from argparse import Namespace
+from argparse import ArgumentParser, Namespace
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import io
@@ -63,6 +64,68 @@ FIXTURE_EXPLICIT_WRITE_SET = (
     "fixture-writes/independent-writer.py",
     "fixture-writes/independent-attempt.py",
 )
+
+NATIVE_HOST_LIFECYCLE_SCHEMA = "court.agent_lifecycle_check.v1"
+NATIVE_HOST_LIFECYCLE_CONTRACT = "COURT_NATIVE_HOST_LIFECYCLE"
+NATIVE_HOST_LIFECYCLE_SELECTION = "native-host-lifecycle"
+NATIVE_HOST_LIFECYCLE_NOT_EVALUATED = [
+    "office-assignment-binding-governing-reference",
+]
+
+
+def evaluate_native_host_lifecycle() -> dict[str, object]:
+    """Evaluate only host-delivery/lifecycle binding without legacy fixtures."""
+
+    from check_court_native_host_dispatch import load_bridge
+
+    global TASK_SPECIFIC_SKILL_PATH
+    failures: list[str] = []
+    bridge, bridge_failures = load_bridge()
+    failures.extend(bridge_failures)
+    office_followup = getattr(court_runtime, "office_followup", None)
+    if not callable(office_followup):
+        failures.append("native_host_followup_consumer_missing")
+    evidence: dict[str, object] = {
+        "bridge_loaded": bridge is not None,
+        "office_start_symbol": callable(getattr(court_runtime, "office_start", None)),
+        "office_followup_symbol": callable(office_followup),
+        "agent_spawn_failed_symbol": callable(
+            getattr(court_runtime, "agent_spawn_failed", None)
+        ),
+        "semantic_quarantine_symbol": callable(
+            getattr(court_runtime, "semantic_quarantine_task", None)
+        ),
+        "behavior_evaluated": False,
+    }
+    with tempfile.TemporaryDirectory(prefix="court-native-host-lifecycle-") as temp_dir:
+        fixture_root = Path(temp_dir)
+        task_skill = fixture_root / "skills" / "native-host-lifecycle" / "SKILL.md"
+        task_skill.parent.mkdir(parents=True)
+        task_skill.write_text("# native host lifecycle fixture\n", encoding="utf-8")
+        TASK_SPECIFIC_SKILL_PATH = task_skill
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: fixture_root / "runtime"  # type: ignore[assignment]
+        try:
+            runtime_failures, runtime_evidence = _run_native_host_lifecycle_contract(
+                bridge=bridge if not bridge_failures else None,
+                office_followup=office_followup if callable(office_followup) else None,
+            )
+            failures.extend(runtime_failures)
+            evidence.update(runtime_evidence)
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+            TASK_SPECIFIC_SKILL_PATH = None
+
+    return {
+        "schema": NATIVE_HOST_LIFECYCLE_SCHEMA,
+        "ok": not failures,
+        "status": "PASS" if not failures else "FAIL",
+        "contract": NATIVE_HOST_LIFECYCLE_CONTRACT,
+        "selection": NATIVE_HOST_LIFECYCLE_SELECTION,
+        "failures": failures,
+        "not_evaluated": list(NATIVE_HOST_LIFECYCLE_NOT_EVALUATED),
+        "evidence": evidence,
+    }
 
 
 def check_import_root_isolation() -> None:
@@ -2868,6 +2931,744 @@ def check_office_lifecycle_json_cli() -> None:
     )
 
 
+def _native_host_office_fixture(
+    task_id: str,
+    wave_id: str,
+    instance_id: str,
+) -> tuple[dict[str, object], Namespace]:
+    create_task(task_id)
+    open_decree(task_id)
+    carrier_proof = {"agent_id": instance_id}
+    admission = admit(
+        task_id,
+        wave_id,
+        office_api=True,
+        office_instance_kind="child_agent",
+        office_instance_id=instance_id,
+        collaboration_task_name=f"{instance_id.replace('-', '_')}_native_host",
+        carrier_proof=carrier_proof,
+    )
+    start = start_args(
+        admission,
+        task_id,
+        wave_id,
+        instance_id,
+        instance_id=instance_id,
+        collaboration_task_name=f"{instance_id.replace('-', '_')}_native_host",
+        office_instance_kind="child_agent",
+        office_instance_id=instance_id,
+        carrier_proof=carrier_proof,
+    )
+    return admission, start
+
+
+def _runtime_ledger_bytes() -> tuple[bytes | None, bytes | None]:
+    task_path = court_runtime.tasks_path()
+    event_path = court_runtime.events_path()
+    return (
+        task_path.read_bytes() if task_path.exists() else None,
+        event_path.read_bytes() if event_path.exists() else None,
+    )
+
+
+def _native_receipt_rejection_probe(
+    call: Callable[[], object],
+) -> dict[str, object]:
+    before_tasks, before_events = _runtime_ledger_bytes()
+    try:
+        call()
+    except (TypeError, ValueError) as exc:
+        detail = str(exc)
+        rejected = "native_host_action_receipt" in detail
+    else:
+        detail = None
+        rejected = False
+    after_tasks, after_events = _runtime_ledger_bytes()
+    return {
+        "rejected": rejected,
+        "error": detail,
+        "tasks_unchanged": before_tasks == after_tasks,
+        "events_unchanged": before_events == after_events,
+    }
+
+
+def _semantic_quarantine_args(task_id: str) -> Namespace:
+    task = court_runtime.load_tasks()[task_id]
+    receipt = task["semantic_receipt"]
+    return Namespace(
+        task_id=task_id,
+        expected_semantic_epoch=task["semantic_epoch"],
+        expected_charter_sha256=task["charter_sha256"],
+        expected_invariant_capsule_sha256=task["invariant_capsule_sha256"],
+        expected_checkpoint_id=receipt["checkpoint_id"],
+        trigger="native_host_lifecycle_commit_failed",
+        reason_code=["native_host_lifecycle_commit_failed"],
+        actor="shangshu",
+        evidence="host succeeded but lifecycle commit failed",
+        note="native host lifecycle compensation fixture",
+    )
+
+
+def _native_host_request(
+    admission: dict[str, object],
+    *,
+    task_id: str,
+    wave_id: str,
+    instance_id: str,
+    compatible_live_instances: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    task = court_runtime.load_tasks()[task_id]
+    stored = task["agent_admissions"][wave_id]
+    bindings = stored.get("selected_bindings") or admission.get("selected_bindings") or []
+    binding = next(
+        item
+        for item in bindings
+        if isinstance(item, dict) and item.get("instance_id") == instance_id
+    )
+    preload = dict(binding.get("preload_hashes") or {})
+    model_inputs = dict(admission.get("model_route_inputs") or ROUTE)
+    return {
+        "schema": "court.native_host_dispatch_request.v1",
+        "task_id": task_id,
+        "wave_id": wave_id,
+        "dispatch_uid": admission["dispatch_uid"],
+        "attempt": admission["attempt"],
+        "role": binding["role"],
+        "instance_id": instance_id,
+        "direct_superior": binding["direct_superior"],
+        "semantic_epoch": admission["semantic_epoch"],
+        "charter_sha256": admission["charter_sha256"],
+        "invariant_capsule_sha256": admission["invariant_capsule_sha256"],
+        "lease_id": binding["lease_id"],
+        "assignment": model_inputs["assignment"],
+        "duty_scope": list(binding.get("read_scope") or binding["write_set"]),
+        "write_set": list(binding["write_set"]),
+        "role_ack": {
+            "role": binding["role"],
+            "direct_superior": binding["direct_superior"],
+            "profile_sha256": preload.get("profile_hash"),
+            "dossier_sha256": preload.get("dossier_hash"),
+        },
+        "admission_anchor": {
+            "schema": "court.agent.admission_receipt.v1",
+            "receipt_id": admission["event_id"],
+            "receipt_sha256": admission["admission_immutable_anchor_sha256"],
+        },
+        "compatible_live_instances": compatible_live_instances or [],
+    }
+
+
+def _mint_native_host_receipt(
+    bridge: object,
+    request: dict[str, object],
+    *,
+    host_result: dict[str, object],
+) -> tuple[dict[str, object] | None, dict[str, object]]:
+    dispatch = getattr(bridge, "dispatch_native_host_action", None)
+    validate = getattr(bridge, "validate_native_host_action_receipt", None)
+    if not callable(dispatch) or not callable(validate):
+        return None, {"error": "bridge_symbols_missing"}
+
+    class Host:
+        def __init__(self) -> None:
+            self.spawn_calls = 0
+            self.followup_calls = 0
+
+        def spawn(self, _request: dict[str, object]) -> dict[str, object]:
+            self.spawn_calls += 1
+            return deepcopy(host_result)
+
+        def followup(
+            self,
+            host_instance_id: str,
+            _request: dict[str, object],
+        ) -> dict[str, object]:
+            self.followup_calls += 1
+            result = deepcopy(host_result)
+            result["host_instance_id"] = host_instance_id
+            return result
+
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.start_calls = 0
+            self.followup_calls = 0
+            self.spawn_failed_calls = 0
+
+        def start(self, _receipt: dict[str, object]) -> dict[str, object]:
+            self.start_calls += 1
+            return {"ok": True, "action": "fixture_start"}
+
+        def followup(self, _receipt: dict[str, object]) -> dict[str, object]:
+            self.followup_calls += 1
+            return {"ok": True, "action": "fixture_followup"}
+
+        def spawn_failed(
+            self,
+            _request: dict[str, object],
+            _failure: dict[str, object],
+        ) -> dict[str, object]:
+            self.spawn_failed_calls += 1
+            return {"ok": True, "action": "fixture_spawn_failed"}
+
+        def quarantine(
+            self,
+            _receipt: dict[str, object],
+            _error: Exception,
+        ) -> dict[str, object]:
+            return {"ok": True}
+
+        def reconcile(
+            self,
+            _receipt: dict[str, object],
+            _error: Exception,
+        ) -> dict[str, object]:
+            return {"ok": True}
+
+    host = Host()
+    lifecycle = Lifecycle()
+    try:
+        result = dispatch(deepcopy(request), host=host, lifecycle=lifecycle)
+    except Exception as exc:
+        return None, {
+            "error": f"dispatch:{type(exc).__name__}:{exc}",
+            "spawn_calls": host.spawn_calls,
+            "followup_calls": host.followup_calls,
+        }
+    receipt = result.get("host_action_receipt") if isinstance(result, dict) else None
+    if not isinstance(receipt, dict):
+        return None, {
+            "error": "receipt_missing",
+            "spawn_calls": host.spawn_calls,
+            "followup_calls": host.followup_calls,
+        }
+    try:
+        accepted = validate(
+            deepcopy(receipt),
+            expected=deepcopy(request),
+            replay_guard=set(),
+        )
+    except Exception as exc:
+        return None, {
+            "error": f"validate:{type(exc).__name__}:{exc}",
+            "spawn_calls": host.spawn_calls,
+            "followup_calls": host.followup_calls,
+        }
+    if accepted is False:
+        return None, {
+            "error": "valid_receipt_rejected",
+            "spawn_calls": host.spawn_calls,
+            "followup_calls": host.followup_calls,
+        }
+    return deepcopy(receipt), {
+        "error": None,
+        "spawn_calls": host.spawn_calls,
+        "followup_calls": host.followup_calls,
+        "lifecycle_start_calls": lifecycle.start_calls,
+        "lifecycle_followup_calls": lifecycle.followup_calls,
+        "lifecycle_spawn_failed_calls": lifecycle.spawn_failed_calls,
+    }
+
+
+def _native_receipt_persisted(
+    record: dict[str, object],
+    receipt: dict[str, object],
+) -> bool:
+    stored = record.get("native_host_action_receipt")
+    if stored == receipt:
+        return True
+    return all(
+        record.get(field) == receipt.get(source)
+        for field, source in (
+            ("native_host_action_receipt_id", "receipt_id"),
+            ("native_host_action_receipt_sha256", "receipt_sha256"),
+            ("native_host_request_sha256", "request_sha256"),
+            ("native_host_result_sha256", "result_sha256"),
+            ("native_host_instance_id", "host_instance_id"),
+        )
+    )
+
+
+def _run_native_host_positive_lifecycle_cases(
+    *,
+    bridge: object,
+    office_followup: object | None,
+) -> tuple[list[str], dict[str, object]]:
+    failures: list[str] = []
+    evidence: dict[str, object] = {}
+
+    spawn_task = "native-host-valid-spawn-consume"
+    spawn_wave = "native-host-valid-spawn-wave"
+    spawn_instance = "gongbu-native-valid-spawn"
+    spawn_admission, spawn_start = _native_host_office_fixture(
+        spawn_task,
+        spawn_wave,
+        spawn_instance,
+    )
+    spawn_request = _native_host_request(
+        spawn_admission,
+        task_id=spawn_task,
+        wave_id=spawn_wave,
+        instance_id=spawn_instance,
+    )
+    token = uuid.uuid4().hex
+    spawn_host_result = {
+        "ok": True,
+        "host_task_id": f"host-task-{token}",
+        "host_thread_id": f"host-thread-{token}",
+        "host_instance_id": f"host-instance-{token}",
+        "host_action_id": f"host-action-{token}",
+    }
+    spawn_receipt, spawn_mint = _mint_native_host_receipt(
+        bridge,
+        spawn_request,
+        host_result=spawn_host_result,
+    )
+    evidence["valid_spawn_mint"] = spawn_mint
+    if spawn_receipt is None:
+        failures.append("native_host_valid_spawn_receipt_mint_failed")
+    else:
+        spawn_start.native_host_action_receipt = deepcopy(spawn_receipt)
+        try:
+            court_runtime.office_start(spawn_start)
+        except (TypeError, ValueError) as exc:
+            failures.append("native_host_valid_spawn_receipt_rejected")
+            evidence["valid_spawn_consume_error"] = str(exc)
+        else:
+            spawn_record = court_runtime.load_tasks()[spawn_task]["agents"].get(
+                spawn_instance
+            )
+            if not isinstance(spawn_record, dict) or not _native_receipt_persisted(
+                spawn_record,
+                spawn_receipt,
+            ):
+                failures.append("native_host_valid_spawn_receipt_not_persisted")
+            replay_probe = _native_receipt_rejection_probe(
+                lambda: court_runtime.office_start(spawn_start)
+            )
+            evidence["valid_spawn_replay"] = replay_probe
+            if not bool(replay_probe["rejected"]):
+                failures.append("native_host_start_receipt_replay_not_rejected")
+            if not bool(replay_probe["tasks_unchanged"]) or not bool(
+                replay_probe["events_unchanged"]
+            ):
+                failures.append("native_host_start_replay_mutated_runtime")
+
+    refusal_task = "native-host-valid-refusal-consume"
+    refusal_wave = "native-host-valid-refusal-wave"
+    create_task(refusal_task)
+    refusal_admission = admit(refusal_task, refusal_wave, role="gongbu")
+    refusal_request = _native_host_request(
+        refusal_admission,
+        task_id=refusal_task,
+        wave_id=refusal_wave,
+        instance_id="gongbu",
+    )
+    refusal_token = uuid.uuid4().hex
+    refusal_host_result = {
+        "ok": False,
+        "error_code": "capacity",
+        "reason": "fixture native host capacity refusal",
+        "host_task_id": f"host-task-refusal-{refusal_token}",
+        "host_thread_id": f"host-thread-refusal-{refusal_token}",
+        "host_instance_id": f"host-instance-refusal-{refusal_token}",
+        "host_action_id": f"host-action-refusal-{refusal_token}",
+    }
+    refusal_receipt, refusal_mint = _mint_native_host_receipt(
+        bridge,
+        refusal_request,
+        host_result=refusal_host_result,
+    )
+    evidence["valid_refusal_mint"] = refusal_mint
+    if refusal_receipt is None:
+        failures.append("native_host_valid_refusal_receipt_mint_failed")
+    else:
+        refusal_args = Namespace(
+            task_id=refusal_task,
+            wave_id=refusal_wave,
+            role="gongbu",
+            instance_id="gongbu",
+            error_kind="capacity",
+            result="fixture native host capacity refusal",
+            actor="shangshu",
+            evidence="valid native host refusal receipt",
+            note="native host refusal consume",
+            native_host_action_receipt=deepcopy(refusal_receipt),
+        )
+        try:
+            court_runtime.agent_spawn_failed(refusal_args)
+        except (TypeError, ValueError) as exc:
+            failures.append("native_host_valid_refusal_receipt_rejected")
+            evidence["valid_refusal_consume_error"] = str(exc)
+        else:
+            refusal_state = court_runtime.load_tasks()[refusal_task]
+            stored_admission = refusal_state["agent_admissions"][refusal_wave]
+            failed = stored_admission.get("failed_instances") or {}
+            block = (refusal_state.get("agent_wave_blocks") or {}).get(refusal_wave)
+            if "gongbu" in refusal_state.get("agents", {}):
+                failures.append("native_host_refusal_created_agent_record")
+            if "gongbu" not in failed or not isinstance(block, dict):
+                failures.append("native_host_refusal_lifecycle_not_persisted")
+            elif not _native_receipt_persisted(failed["gongbu"], refusal_receipt):
+                failures.append("native_host_refusal_receipt_not_persisted")
+            refusal_replay = _native_receipt_rejection_probe(
+                lambda: court_runtime.agent_spawn_failed(refusal_args)
+            )
+            evidence["valid_refusal_replay"] = refusal_replay
+            if not bool(refusal_replay["rejected"]):
+                failures.append("native_host_refusal_receipt_replay_not_rejected")
+            if not bool(refusal_replay["tasks_unchanged"]) or not bool(
+                refusal_replay["events_unchanged"]
+            ):
+                failures.append("native_host_refusal_replay_mutated_runtime")
+
+    if spawn_receipt is not None and callable(office_followup):
+        missing_followup = event_args(spawn_task, spawn_instance)
+        missing_followup.office_instance_kind = "child_agent"
+        missing_followup.office_instance_id = spawn_instance
+        missing_followup.carrier_proof = {"agent_id": spawn_instance}
+        missing_followup.assignment = spawn_request["assignment"]
+        missing_followup.duty_scope = deepcopy(spawn_request["duty_scope"])
+        missing_followup_probe = _native_receipt_rejection_probe(
+            lambda: office_followup(missing_followup)  # type: ignore[operator]
+        )
+        forged_followup = event_args(spawn_task, spawn_instance)
+        forged_followup.office_instance_kind = "child_agent"
+        forged_followup.office_instance_id = spawn_instance
+        forged_followup.carrier_proof = {"agent_id": spawn_instance}
+        forged_followup.assignment = spawn_request["assignment"]
+        forged_followup.duty_scope = deepcopy(spawn_request["duty_scope"])
+        forged_followup.native_host_action_receipt = deepcopy(
+            spawn_admission.get("receipt") or spawn_admission
+        )
+        forged_followup_probe = _native_receipt_rejection_probe(
+            lambda: office_followup(forged_followup)  # type: ignore[operator]
+        )
+        evidence["office_followup_receipt_gate"] = {
+            "missing": missing_followup_probe,
+            "forged": forged_followup_probe,
+        }
+        if not bool(missing_followup_probe["rejected"]) or not bool(
+            forged_followup_probe["rejected"]
+        ):
+            failures.append("native_host_followup_receipt_required")
+        if not all(
+            bool(probe[field])
+            for probe in (missing_followup_probe, forged_followup_probe)
+            for field in ("tasks_unchanged", "events_unchanged")
+        ):
+            failures.append("native_host_followup_rejection_mutated_runtime")
+
+        before_state = court_runtime.load_tasks()[spawn_task]
+        before_agents = dict(before_state.get("agents") or {})
+        live_record = before_agents.get(spawn_instance)
+        if isinstance(live_record, dict):
+            candidate = {
+                "host_task_id": spawn_host_result["host_task_id"],
+                "host_thread_id": spawn_host_result["host_thread_id"],
+                "host_instance_id": spawn_host_result["host_instance_id"],
+                "task_id": spawn_task,
+                "role": spawn_request["role"],
+                "direct_superior": spawn_request["direct_superior"],
+                "assignment": spawn_request["assignment"],
+                "duty_scope": deepcopy(spawn_request["duty_scope"]),
+                "semantic_receipt": {
+                    "semantic_epoch": spawn_request["semantic_epoch"],
+                    "charter_sha256": spawn_request["charter_sha256"],
+                    "invariant_capsule_sha256": spawn_request[
+                        "invariant_capsule_sha256"
+                    ],
+                },
+                "lease_id": spawn_request["lease_id"],
+                "write_set": deepcopy(spawn_request["write_set"]),
+                "role_ack": deepcopy(spawn_request["role_ack"]),
+                "context_utilization": 0.42,
+                "status": "running",
+            }
+            reuse_request = _native_host_request(
+                spawn_admission,
+                task_id=spawn_task,
+                wave_id=spawn_wave,
+                instance_id=spawn_instance,
+                compatible_live_instances=[candidate],
+            )
+            reuse_host_result = {
+                "ok": True,
+                "host_task_id": spawn_host_result["host_task_id"],
+                "host_thread_id": spawn_host_result["host_thread_id"],
+                "host_instance_id": spawn_host_result["host_instance_id"],
+                "host_action_id": f"host-action-followup-{uuid.uuid4().hex}",
+            }
+            reuse_receipt, reuse_mint = _mint_native_host_receipt(
+                bridge,
+                reuse_request,
+                host_result=reuse_host_result,
+            )
+            evidence["valid_followup_mint"] = reuse_mint
+            if reuse_receipt is None:
+                failures.append("native_host_valid_followup_receipt_mint_failed")
+            else:
+                before_ledger = live_record.get("native_host_followups")
+                before_ledger_count = len(before_ledger) if isinstance(before_ledger, list) else 0
+                followup_args = event_args(spawn_task, spawn_instance)
+                followup_args.office_instance_kind = "child_agent"
+                followup_args.office_instance_id = spawn_instance
+                followup_args.carrier_proof = {"agent_id": spawn_instance}
+                followup_args.native_host_action_receipt = deepcopy(reuse_receipt)
+                followup_args.assignment = reuse_request["assignment"]
+                followup_args.duty_scope = deepcopy(reuse_request["duty_scope"])
+                try:
+                    office_followup(followup_args)  # type: ignore[operator]
+                except (TypeError, ValueError) as exc:
+                    failures.append("native_host_valid_followup_receipt_rejected")
+                    evidence["valid_followup_consume_error"] = str(exc)
+                else:
+                    after_agents = court_runtime.load_tasks()[spawn_task].get("agents") or {}
+                    after_record = after_agents.get(spawn_instance)
+                    if set(after_agents) != set(before_agents) or len(after_agents) != len(
+                        before_agents
+                    ):
+                        failures.append("native_host_followup_created_second_agent")
+                    after_ledger = (
+                        after_record.get("native_host_followups")
+                        if isinstance(after_record, dict)
+                        else None
+                    )
+                    if not isinstance(after_ledger, list) or len(after_ledger) != (
+                        before_ledger_count + 1
+                    ):
+                        failures.append("native_host_followup_ledger_not_incremented_once")
+                    else:
+                        entry = after_ledger[-1]
+                        if not isinstance(entry, dict) or (
+                            entry.get("receipt_id") != reuse_receipt.get("receipt_id")
+                            or entry.get("receipt_sha256")
+                            != reuse_receipt.get("receipt_sha256")
+                            or entry.get("assignment") != reuse_request["assignment"]
+                            or entry.get("duty_scope") != reuse_request["duty_scope"]
+                        ):
+                            failures.append("native_host_followup_ledger_binding_invalid")
+                    followup_replay = _native_receipt_rejection_probe(
+                        lambda: office_followup(followup_args)  # type: ignore[operator]
+                    )
+                    evidence["valid_followup_replay"] = followup_replay
+                    if not bool(followup_replay["rejected"]):
+                        failures.append("native_host_followup_receipt_replay_not_rejected")
+                    if not bool(followup_replay["tasks_unchanged"]) or not bool(
+                        followup_replay["events_unchanged"]
+                    ):
+                        failures.append("native_host_followup_replay_mutated_runtime")
+
+    return failures, evidence
+
+
+def _run_native_host_lifecycle_contract(
+    *,
+    bridge: object | None,
+    office_followup: object | None,
+) -> tuple[list[str], dict[str, object]]:
+    failures: list[str] = []
+    evidence: dict[str, object] = {"behavior_evaluated": True}
+
+    if bridge is not None:
+        positive_failures, positive_evidence = (
+            _run_native_host_positive_lifecycle_cases(
+                bridge=bridge,
+                office_followup=office_followup,
+            )
+        )
+        failures.extend(positive_failures)
+        evidence["positive_runtime_cases"] = positive_evidence
+
+    missing_admission, missing_start = _native_host_office_fixture(
+        "native-host-start-receipt-missing",
+        "native-host-start-missing-wave",
+        "gongbu-native-start-missing",
+    )
+    missing_probe = _native_receipt_rejection_probe(
+        lambda: court_runtime.office_start(missing_start)
+    )
+    forged_admission, forged_start = _native_host_office_fixture(
+        "native-host-start-receipt-forged",
+        "native-host-start-forged-wave",
+        "gongbu-native-start-forged",
+    )
+    forged_start.native_host_action_receipt = deepcopy(
+        forged_admission.get("receipt") or forged_admission
+    )
+    forged_probe = _native_receipt_rejection_probe(
+        lambda: court_runtime.office_start(forged_start)
+    )
+    if not bool(missing_probe["rejected"]) or not bool(forged_probe["rejected"]):
+        failures.append("native_host_start_receipt_required")
+    if not all(
+        bool(probe[field])
+        for probe in (missing_probe, forged_probe)
+        for field in ("tasks_unchanged", "events_unchanged")
+    ):
+        failures.append("native_host_start_rejection_mutated_runtime")
+    evidence["office_start_receipt_gate"] = {
+        "missing": missing_probe,
+        "forged": forged_probe,
+    }
+
+    refusal_results: dict[str, object] = {}
+    for label, forged in (("missing", False), ("forged", True)):
+        task_id = f"native-host-refusal-receipt-{label}"
+        wave_id = f"native-host-refusal-{label}-wave"
+        create_task(task_id)
+        admission = admit(task_id, wave_id, role="gongbu")
+        args = Namespace(
+            task_id=task_id,
+            wave_id=wave_id,
+            role="gongbu",
+            instance_id="gongbu",
+            error_kind="capacity",
+            result="fixture host refused before lifecycle start",
+            actor="shangshu",
+            evidence="native host refusal receipt fixture",
+            note="native host refusal receipt gate",
+        )
+        if forged:
+            args.native_host_action_receipt = deepcopy(
+                admission.get("receipt") or admission
+            )
+        probe = _native_receipt_rejection_probe(
+            lambda args=args: court_runtime.agent_spawn_failed(args)
+        )
+        refusal_results[label] = probe
+    if not all(bool(result["rejected"]) for result in refusal_results.values()):
+        failures.append("native_host_refusal_receipt_required")
+    if not all(
+        bool(result[field])
+        for result in refusal_results.values()
+        for field in ("tasks_unchanged", "events_unchanged")
+    ):
+        failures.append("native_host_refusal_rejection_mutated_runtime")
+    evidence["agent_spawn_failed_receipt_gate"] = refusal_results
+
+    quarantine_task = "native-host-lifecycle-quarantine-binding"
+    create_task(quarantine_task)
+    quarantine_result = court_runtime.semantic_quarantine_task(
+        _semantic_quarantine_args(quarantine_task)
+    )
+    quarantined_task = court_runtime.load_tasks()[quarantine_task]
+    quarantine_event = quarantine_result.event
+    evidence["semantic_quarantine_probe"] = {
+        "state": quarantined_task.get("semantic_state"),
+        "event_action": quarantine_event.get("action"),
+    }
+    if (
+        quarantined_task.get("semantic_state") != "QUARANTINED"
+        or quarantine_event.get("action") != "semantic_quarantine"
+    ):
+        raise RuntimeError("semantic_quarantine_fixture_did_not_persist")
+
+    if bridge is None:
+        failures.append("native_host_lifecycle_quarantine_binding_missing")
+    else:
+        dispatch = getattr(bridge, "dispatch_native_host_action", None)
+        if not callable(dispatch):
+            failures.append("native_host_lifecycle_quarantine_binding_missing")
+        else:
+            integration_task = "native-host-lifecycle-quarantine-integration"
+            create_task(integration_task)
+            task = court_runtime.load_tasks()[integration_task]
+            host_result = {
+                "ok": True,
+                "host_task_id": "host-task-runtime-quarantine",
+                "host_thread_id": "host-thread-runtime-quarantine",
+                "host_instance_id": "host-instance-runtime-quarantine",
+                "host_action_id": f"host-action-runtime-quarantine-{uuid.uuid4().hex}",
+            }
+            request = {
+                "schema": "court.native_host_dispatch_request.v1",
+                "task_id": integration_task,
+                "wave_id": "native-host-quarantine-wave",
+                "dispatch_uid": "native-host-quarantine-dispatch",
+                "attempt": 1,
+                "role": "gongbu",
+                "instance_id": "gongbu-native-quarantine",
+                "direct_superior": "shangshu",
+                "semantic_epoch": task["semantic_epoch"],
+                "charter_sha256": task["charter_sha256"],
+                "invariant_capsule_sha256": task["invariant_capsule_sha256"],
+                "lease_id": "native-host-quarantine-lease",
+                "assignment": "native host lifecycle quarantine integration",
+                "duty_scope": ["scripts/court_runtime.py"],
+                "write_set": ["scripts/court_runtime.py"],
+                "role_ack": {
+                    "role": "gongbu",
+                    "direct_superior": "shangshu",
+                    "profile_sha256": "b" * 64,
+                    "dossier_sha256": "d" * 64,
+                },
+                "admission_anchor": {
+                    "schema": "court.agent.admission_receipt.v1",
+                    "receipt_id": "native-host-quarantine-admission",
+                    "receipt_sha256": "a" * 64,
+                },
+                "compatible_live_instances": [],
+            }
+
+            class Host:
+                def spawn(self, _request: dict[str, object]) -> dict[str, object]:
+                    return deepcopy(host_result)
+
+                def followup(
+                    self,
+                    _host_instance_id: str,
+                    _request: dict[str, object],
+                ) -> dict[str, object]:
+                    raise AssertionError("quarantine fixture must not follow up")
+
+            class Lifecycle:
+                def start(self, _receipt: dict[str, object]) -> dict[str, object]:
+                    raise RuntimeError("fixture lifecycle commit failed")
+
+                def followup(self, _receipt: dict[str, object]) -> dict[str, object]:
+                    raise AssertionError("quarantine fixture must not follow up")
+
+                def spawn_failed(
+                    self,
+                    _request: dict[str, object],
+                    _failure: dict[str, object],
+                ) -> dict[str, object]:
+                    raise AssertionError("successful host action is not a refusal")
+
+                def quarantine(
+                    self,
+                    _receipt: dict[str, object],
+                    _error: Exception,
+                ) -> object:
+                    return court_runtime.semantic_quarantine_task(
+                        _semantic_quarantine_args(integration_task)
+                    )
+
+                def reconcile(
+                    self,
+                    _receipt: dict[str, object],
+                    _error: Exception,
+                ) -> dict[str, object]:
+                    return {"ok": True, "existing_agent": False}
+
+            try:
+                dispatch(deepcopy(request), host=Host(), lifecycle=Lifecycle())
+            except Exception:
+                pass
+            integration_state = court_runtime.load_tasks()[integration_task].get(
+                "semantic_state"
+            )
+            evidence["quarantine_integration_state"] = integration_state
+            if integration_state != "QUARANTINED":
+                failures.append("native_host_lifecycle_quarantine_binding_missing")
+
+    if office_followup is None:
+        evidence["office_followup"] = "missing"
+    else:
+        evidence["office_followup"] = "available"
+    return failures, evidence
+
+
 def run_agent_lifecycle_checks() -> None:
     global TASK_SPECIFIC_SKILL_PATH
     check_import_root_isolation()
@@ -2909,7 +3710,39 @@ def run_agent_lifecycle_checks() -> None:
             TASK_SPECIFIC_SKILL_PATH = None
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--only",
+        choices=(NATIVE_HOST_LIFECYCLE_SELECTION,),
+        help="run one isolated lifecycle contract instead of the legacy suite",
+    )
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    if args.only == NATIVE_HOST_LIFECYCLE_SELECTION:
+        try:
+            result = evaluate_native_host_lifecycle()
+        except Exception as exc:
+            result = {
+                "schema": NATIVE_HOST_LIFECYCLE_SCHEMA,
+                "ok": False,
+                "status": "ERROR",
+                "contract": NATIVE_HOST_LIFECYCLE_CONTRACT,
+                "selection": NATIVE_HOST_LIFECYCLE_SELECTION,
+                "failures": [
+                    f"native_host_lifecycle_checker_error:{type(exc).__name__}:{exc}"
+                ],
+                "not_evaluated": list(NATIVE_HOST_LIFECYCLE_NOT_EVALUATED),
+            }
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(f"{NATIVE_HOST_LIFECYCLE_CONTRACT}={result['status']}")
+            for failure in result["failures"]:
+                print(failure)
+        return 0 if result["ok"] else 1
+
     run_agent_lifecycle_checks()
     print("COURT_AGENT_LIFECYCLE_OK")
     return 0
