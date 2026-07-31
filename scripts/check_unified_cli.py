@@ -922,8 +922,13 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
     problems: list[str] = []
     calls: list[str] = []
     normal_cli: str | None = None
+    fallback_cli: str | None = None
     postinstall_runtime: str | None = None
+    probe_identity: dict[str, object] | None = None
     try:
+        from contextlib import redirect_stdout
+        import zipfile
+
         launcher_path = ROOT / "bin" / "decretum-matrix.py"
         spec = importlib.util.spec_from_file_location(
             "decretum_matrix_npm_launcher_runtime_selection_check",
@@ -937,11 +942,18 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             home = Path(temp_text) / "home"
             package_root = Path(temp_text) / "package"
             canonical = home / ".agents" / "skills" / "decretum-matrix"
-            (canonical / "scripts").mkdir(parents=True)
-            (canonical / "VERSION").write_text((ROOT / "VERSION").read_text(encoding="utf-8"), encoding="utf-8")
-            (canonical / "SKILL.md").write_text("---\nname: decretum-matrix\n---\n", encoding="utf-8")
-            (canonical / "scripts" / "court_cli.py").write_text("print('canonical')\n", encoding="utf-8")
-            package_root.mkdir(parents=True)
+            version_payload = (ROOT / "VERSION").read_bytes()
+            skill_payload = b"---\nname: decretum-matrix\n---\n"
+            cli_payload = b"print('canonical')\n"
+
+            def write_identity(root: Path) -> None:
+                (root / "scripts").mkdir(parents=True, exist_ok=True)
+                (root / "VERSION").write_bytes(version_payload)
+                (root / "SKILL.md").write_bytes(skill_payload)
+                (root / "scripts" / "court_cli.py").write_bytes(cli_payload)
+
+            write_identity(package_root)
+            write_identity(canonical)
             (package_root / "package.json").write_text(
                 json.dumps(
                     {
@@ -956,6 +968,76 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             selected = launcher._canonical_runtime_root(package_root, home)
             if selected != canonical:
                 problems.append("canonical_runtime_not_selected")
+            probe_identity = launcher.runtime_identity_probe(
+                package_root,
+                home=home,
+                cache_base=Path(temp_text) / "probe-cache",
+            )
+            if (
+                probe_identity.get("schema") != "court.runtime_identity.v1"
+                or probe_identity.get("root") != str(canonical.resolve())
+                or probe_identity.get("source_kind") != "installed"
+                or not probe_identity.get("content_digest")
+            ):
+                problems.append("canonical_runtime_identity_invalid")
+
+            embedded_package_root = Path(temp_text) / "embedded-package"
+            (embedded_package_root / "bin").mkdir(parents=True)
+            release_root = embedded_package_root / "release"
+            release_root.mkdir()
+            embedded_version = version_payload.decode("utf-8").strip()
+            embedded_package_json = embedded_package_root / "package.json"
+            embedded_package_json.write_text(
+                json.dumps(
+                    {
+                        "name": "@rowlandl/decretum-matrix",
+                        "decretumMatrix": {"releaseLabel": embedded_version},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            embedded_archive = release_root / "decretum-matrix-beta-test.zip"
+            with zipfile.ZipFile(embedded_archive, "w") as archive:
+                archive.writestr("decretum-matrix/VERSION", version_payload)
+                archive.writestr("decretum-matrix/SKILL.md", skill_payload)
+                archive.writestr("decretum-matrix/scripts/court_cli.py", cli_payload)
+            embedded_expected = launcher._expected_runtime_identity(embedded_package_root)
+            if (
+                launcher._canonical_runtime_root(embedded_package_root, home) != canonical
+                or not isinstance(embedded_expected, dict)
+                or embedded_expected.get("source_kind") != "embedded_package"
+                or embedded_expected.get("version") != embedded_version
+                or embedded_expected.get("content_digest") != probe_identity.get("content_digest")
+            ):
+                problems.append("embedded_package_identity_not_supported")
+            embedded_package_json.write_text(
+                json.dumps(
+                    {
+                        "name": "@rowlandl/decretum-matrix",
+                        "decretumMatrix": {"releaseLabel": "beta-metadata-mismatch"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            if (
+                launcher._expected_runtime_identity(embedded_package_root) is not None
+                or launcher._canonical_runtime_root(embedded_package_root, home) is not None
+            ):
+                problems.append("embedded_package_metadata_mismatch_not_rejected")
+            embedded_package_json.write_text(
+                json.dumps(
+                    {
+                        "name": "@rowlandl/decretum-matrix",
+                        "decretumMatrix": {"releaseLabel": embedded_version},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            (canonical / "SKILL.md").write_text("divergent installed skill\n", encoding="utf-8")
+            if launcher._canonical_runtime_root(package_root, home) is not None:
+                problems.append("same_version_divergent_runtime_selected")
+            (canonical / "SKILL.md").write_bytes(skill_payload)
 
             def fake_release_archive(root: Path) -> Path:
                 calls.append("release_archive")
@@ -964,14 +1046,16 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             def fake_extract_runtime(_archive: Path, cache_root: Path, _archive_id: str) -> Path:
                 calls.append("extract_runtime")
                 runtime = cache_root / "runtime"
-                (runtime / "scripts").mkdir(parents=True, exist_ok=True)
-                (runtime / "scripts" / "court_cli.py").write_text("print('fallback')\n", encoding="utf-8")
+                write_identity(runtime)
                 return runtime
 
             def fake_run_path(path: str, run_name: str | None = None) -> dict[str, object]:
-                nonlocal normal_cli
+                nonlocal fallback_cli, normal_cli
                 calls.append("run_path")
-                normal_cli = path
+                if "runtime" in path and str(canonical) not in path:
+                    fallback_cli = path
+                else:
+                    normal_cli = path
                 return {}
 
             def fake_postinstall(runtime_root: Path, digest: str) -> int:
@@ -985,19 +1069,172 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             original_postinstall_home = launcher._postinstall_home
             original_run_postinstall = launcher._run_postinstall
             original_run_path = launcher.runpy.run_path
+            original_runtime_identity = launcher._runtime_identity
+            original_launcher_file = launcher.__file__
             launcher._release_archive = fake_release_archive
             launcher._extract_runtime = fake_extract_runtime
             launcher._postinstall_home = lambda: home
             launcher._run_postinstall = fake_postinstall
             launcher.runpy.run_path = fake_run_path
+            launcher.__file__ = str(package_root / "bin" / "decretum-matrix.py")
             try:
-                rc = launcher.main(["--help"])
+                original_expected_runtime_identity = launcher._expected_runtime_identity
+                expected_a = original_expected_runtime_identity(package_root)
+                if not isinstance(expected_a, dict):
+                    raise AssertionError("package expected identity unavailable")
+                expected_b = dict(expected_a)
+                expected_b["content_digest"] = "f" * 64
+
+                installed_expected_reads = 0
+
+                def alternating_installed_expected(root: Path) -> dict[str, object] | None:
+                    nonlocal installed_expected_reads
+                    installed_expected_reads += 1
+                    return expected_a if installed_expected_reads == 1 else expected_b
+
+                launcher._expected_runtime_identity = alternating_installed_expected
+                calls.clear()
+                try:
+                    selected_root, selected_identity = launcher._select_runtime(
+                        package_root,
+                        home=home,
+                        cache_base=Path(temp_text) / "single-read-installed-cache",
+                    )
+                finally:
+                    launcher._expected_runtime_identity = original_expected_runtime_identity
+                if installed_expected_reads != 1:
+                    problems.append(
+                        f"expected_identity_installed_read_count:{installed_expected_reads}"
+                    )
+                if (
+                    selected_root != canonical
+                    or selected_identity.get("source_kind") != "installed"
+                    or calls
+                ):
+                    problems.append("expected_identity_installed_snapshot_not_preserved")
+
+                (canonical / "SKILL.md").write_text(
+                    "divergent installed skill\n",
+                    encoding="utf-8",
+                )
+                fallback_expected_reads = 0
+
+                def alternating_fallback_expected(root: Path) -> dict[str, object] | None:
+                    nonlocal fallback_expected_reads
+                    fallback_expected_reads += 1
+                    return expected_a if fallback_expected_reads == 1 else expected_b
+
+                launcher._expected_runtime_identity = alternating_fallback_expected
+                calls.clear()
+                try:
+                    selected_root, selected_identity = launcher._select_runtime(
+                        package_root,
+                        home=home,
+                        cache_base=Path(temp_text) / "single-read-fallback-cache",
+                    )
+                finally:
+                    launcher._expected_runtime_identity = original_expected_runtime_identity
+                    (canonical / "SKILL.md").write_bytes(skill_payload)
+                if fallback_expected_reads != 1:
+                    problems.append(
+                        f"expected_identity_fallback_read_count:{fallback_expected_reads}"
+                    )
+                if (
+                    selected_root == canonical
+                    or selected_identity.get("source_kind") != "embedded_cache"
+                    or calls != ["release_archive", "extract_runtime"]
+                ):
+                    problems.append("expected_identity_fallback_snapshot_not_preserved")
+
+                installed_a = original_runtime_identity(
+                    canonical,
+                    source_kind="installed",
+                )
+                if not isinstance(installed_a, dict):
+                    raise AssertionError("installed runtime identity unavailable")
+                installed_b = dict(installed_a)
+                installed_b["content_digest"] = "e" * 64
+                installed_candidate_reads = 0
+
+                def alternating_installed_candidate(
+                    root: Path,
+                    *,
+                    source_kind: str,
+                ) -> dict[str, object] | None:
+                    nonlocal installed_candidate_reads
+                    if root.resolve() == canonical.resolve() and source_kind == "installed":
+                        installed_candidate_reads += 1
+                        return (
+                            installed_a
+                            if installed_candidate_reads == 1
+                            else installed_b
+                        )
+                    return original_runtime_identity(root, source_kind=source_kind)
+
+                launcher._runtime_identity = alternating_installed_candidate
+                calls.clear()
+                try:
+                    selected_root, selected_identity = launcher._select_runtime(
+                        package_root,
+                        home=home,
+                        cache_base=Path(temp_text) / "single-read-candidate-cache",
+                    )
+                finally:
+                    launcher._runtime_identity = original_runtime_identity
+                if installed_candidate_reads != 1:
+                    problems.append(
+                        f"installed_candidate_read_count:{installed_candidate_reads}"
+                    )
+                if (
+                    selected_root != canonical
+                    or selected_identity != installed_a
+                    or calls
+                ):
+                    problems.append("installed_candidate_snapshot_not_preserved")
+
+                calls.clear()
+                normal_stdout = io.StringIO()
+                with redirect_stdout(normal_stdout):
+                    rc = launcher.main(["--help"])
                 if rc != 0:
                     problems.append(f"normal_launcher_rc:{rc}")
+                if normal_stdout.getvalue():
+                    problems.append("normal_launcher_polluted_stdout")
                 if calls != ["run_path"]:
                     problems.append("normal_launcher_used_archive_or_cache:" + ",".join(calls))
                 if normal_cli != str(canonical / "scripts" / "court_cli.py"):
                     problems.append("normal_launcher_not_canonical_cli")
+
+                calls.clear()
+                probe_stdout = io.StringIO()
+                with redirect_stdout(probe_stdout):
+                    rc = launcher.main(["--runtime-identity"])
+                if rc != 0:
+                    problems.append(f"identity_probe_rc:{rc}")
+                if calls:
+                    problems.append("identity_probe_invoked_cli_or_fallback:" + ",".join(calls))
+                try:
+                    emitted_identity = json.loads(probe_stdout.getvalue())
+                except json.JSONDecodeError:
+                    emitted_identity = None
+                if emitted_identity != probe_identity:
+                    problems.append("identity_probe_payload_mismatch")
+
+                (canonical / "SKILL.md").write_text("divergent installed skill\n", encoding="utf-8")
+                calls.clear()
+                fallback_stdout = io.StringIO()
+                with redirect_stdout(fallback_stdout):
+                    rc = launcher.main(["--help"])
+                if rc != 0:
+                    problems.append(f"fallback_launcher_rc:{rc}")
+                if fallback_stdout.getvalue():
+                    problems.append("fallback_launcher_polluted_stdout")
+                if calls != ["release_archive", "extract_runtime", "run_path"]:
+                    problems.append("divergent_runtime_did_not_fallback:" + ",".join(calls))
+                if not fallback_cli or "runtime" not in fallback_cli:
+                    problems.append("fallback_runtime_not_selected")
+                (canonical / "SKILL.md").write_bytes(skill_payload)
+
                 calls.clear()
                 rc = launcher.main(["--npm-postinstall"])
                 if rc != 0:
@@ -1012,6 +1249,9 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                 launcher._postinstall_home = original_postinstall_home
                 launcher._run_postinstall = original_run_postinstall
                 launcher.runpy.run_path = original_run_path
+                launcher._expected_runtime_identity = original_expected_runtime_identity
+                launcher._runtime_identity = original_runtime_identity
+                launcher.__file__ = original_launcher_file
     except (AssertionError, ImportError, OSError, UnicodeError, AttributeError) as exc:
         problems.append(f"npm_launcher_runtime_selection_unavailable:{type(exc).__name__}:{exc}")
     return {
@@ -1020,6 +1260,8 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
         "status": "PASS" if not problems else "FAIL",
         "CLI_NPM_CANONICAL_RUNTIME": "PASS" if not problems else "FAIL",
         "normal_cli": normal_cli,
+        "fallback_cli": fallback_cli,
+        "runtime_identity": probe_identity,
         "postinstall_runtime": postinstall_runtime,
         "problems": problems,
     }

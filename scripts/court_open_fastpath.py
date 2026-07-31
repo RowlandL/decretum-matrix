@@ -16,6 +16,7 @@ from threading import Lock
 import time
 import tomllib
 from typing import Callable, Mapping, Sequence
+import weakref
 
 sys.dont_write_bytecode = True
 
@@ -126,6 +127,122 @@ def _optional_bool(value: object, field: str, *, default: bool = False) -> bool:
     return value
 
 
+def _request_boundary() -> tuple[Callable[[argparse.Namespace], object], Callable[[dict[str, object]], dict[str, str] | None]]:
+    seal = object()
+    sealed_path_bases: dict[
+        int,
+        tuple[weakref.ReferenceType[object], tuple[str, str]],
+    ] = {}
+
+    class RequestEnvelope(dict[str, object]):
+        def __init__(
+            self,
+            payload: Mapping[str, object],
+            *,
+            path_basis: Mapping[str, str],
+            _seal: object,
+        ) -> None:
+            if _seal is not seal:
+                raise TypeError("request_file_loader_required")
+            super().__init__(payload)
+            sealed_basis = (
+                str(path_basis["kind"]),
+                str(Path(path_basis["path"]).expanduser().resolve(strict=False)),
+            )
+            dict.__setitem__(
+                self,
+                "path_basis",
+                {"kind": sealed_basis[0], "path": sealed_basis[1]},
+            )
+            identity = id(self)
+
+            def forget(_reference: object, *, key: int = identity) -> None:
+                sealed_path_bases.pop(key, None)
+
+            sealed_path_bases[identity] = (
+                weakref.ref(self, forget),
+                sealed_basis,
+            )
+
+        def __setitem__(self, key: str, value: object) -> None:
+            if key == "path_basis" and key in self:
+                raise TypeError("path_basis_reserved")
+            super().__setitem__(key, value)
+
+        def __copy__(self) -> object:
+            raise TypeError("request_file_envelope_not_copyable")
+
+        def __deepcopy__(self, memo: dict[int, object]) -> object:
+            raise TypeError("request_file_envelope_not_copyable")
+
+    def trusted_path_basis(value: dict[str, object]) -> dict[str, str] | None:
+        raw = value.get("path_basis")
+        if type(value) is RequestEnvelope:
+            sealed = sealed_path_bases.get(id(value))
+            if sealed is None or sealed[0]() is not value:
+                raise FastPathInvalid("path_basis_unsealed")
+            if raw is None:
+                raise FastPathInvalid("path_basis_mutated")
+        elif raw is None:
+            return None
+        else:
+            raise FastPathInvalid("path_basis_caller_forbidden")
+        if not isinstance(raw, dict) or set(raw) != {"kind", "path"}:
+            raise FastPathInvalid("path_basis_invalid")
+        kind = _required_text(raw.get("kind"), "path_basis_kind")
+        path = Path(_required_text(raw.get("path"), "path_basis_path")).expanduser()
+        if kind != "request_file_parent" or not path.is_absolute():
+            raise FastPathInvalid("path_basis_invalid")
+        normalized_basis = {
+            "kind": kind,
+            "path": str(path.resolve(strict=False)),
+        }
+        if (normalized_basis["kind"], normalized_basis["path"]) != sealed[1]:
+            raise FastPathInvalid("path_basis_mutated")
+        return normalized_basis
+
+    def request_value(args: argparse.Namespace) -> object:
+        if bool(args.request_json) == bool(args.request_file):
+            raise FastPathInvalid("exactly_one_request_source_required")
+        if args.request_json:
+            try:
+                value = json.loads(args.request_json)
+            except json.JSONDecodeError as exc:
+                raise FastPathInvalid("request_json_invalid") from exc
+            if not isinstance(value, dict):
+                raise FastPathInvalid("request_must_be_object")
+            if "path_basis" in value:
+                raise FastPathInvalid("path_basis_caller_forbidden")
+            worktree = value.get("worktree")
+            if isinstance(worktree, str) and worktree.strip():
+                if not Path(worktree.strip()).expanduser().is_absolute():
+                    raise FastPathInvalid("request_json_relative_worktree_forbidden")
+            return value
+        request_file = Path(str(args.request_file)).expanduser().resolve(strict=False)
+        try:
+            value = json.loads(request_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise FastPathInvalid("request_file_invalid") from exc
+        if not isinstance(value, dict):
+            raise FastPathInvalid("request_must_be_object")
+        if "path_basis" in value:
+            raise FastPathInvalid("path_basis_caller_forbidden")
+        return RequestEnvelope(
+            value,
+            path_basis={
+                "kind": "request_file_parent",
+                "path": str(request_file.parent),
+            },
+            _seal=seal,
+        )
+
+    return request_value, trusted_path_basis
+
+
+_request_value, _trusted_path_basis = _request_boundary()
+del _request_boundary
+
+
 def normalize_request(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise FastPathInvalid("request_must_be_object")
@@ -143,7 +260,23 @@ def normalize_request(value: object) -> dict[str, object]:
         raise FastPathInvalid("behavior_invalid")
     if "runtime" in value:
         raise FastPathInvalid("native_runtime_fixed")
-    worktree = str(Path(_required_text(value.get("worktree"), "worktree")).resolve())
+    path_basis = _trusted_path_basis(value)
+    worktree_path = Path(
+        _required_text(value.get("worktree"), "worktree")
+    ).expanduser()
+    if worktree_path.is_absolute():
+        worktree = str(worktree_path.resolve(strict=False))
+        if path_basis is None:
+            path_basis = {
+                "kind": "absolute_worktree",
+                "path": worktree,
+            }
+    else:
+        if path_basis is None or path_basis.get("kind") != "request_file_parent":
+            raise FastPathInvalid("relative_worktree_requires_request_file_basis")
+        worktree = str(
+            (Path(path_basis["path"]) / worktree_path).resolve(strict=False)
+        )
     requested_offices = value.get("requested_offices", list(THREE_DEPARTMENTS))
     if not isinstance(requested_offices, list) or not requested_offices:
         raise FastPathInvalid("requested_offices_invalid")
@@ -208,6 +341,7 @@ def normalize_request(value: object) -> dict[str, object]:
         "authority_source": authority_source,
         "behavior": behavior,
         "worktree": worktree,
+        "path_basis": path_basis,
         "skill_root": str(Path(str(value.get("skill_root") or ROOT)).resolve()),
         "host_capacity": _required_int(value.get("host_capacity"), "host_capacity", minimum=1),
         "host_active_agents": _required_int(value.get("host_active_agents"), "host_active_agents", minimum=1),
@@ -1220,6 +1354,7 @@ def prepare_fast_open(
             "receipt_id": "court-open-" + _sha256_bytes(str(normalized["operation_id"]).encode("utf-8"))[:24],
             "operation_id": normalized["operation_id"],
             "request_sha256": _sha256_bytes(_canonical_bytes(normalized)),
+            "path_basis": normalized["path_basis"],
             "packet_sha256": packet_digest,
             "task_id": normalized["task_id"],
             "execution": execution,
@@ -1279,20 +1414,6 @@ def prepare_fast_open(
         }
     except FastPathMiss as exc:
         return _miss(exc.reason, exc.problems)
-
-
-def _request_value(args: argparse.Namespace) -> object:
-    if bool(args.request_json) == bool(args.request_file):
-        raise FastPathInvalid("exactly_one_request_source_required")
-    if args.request_json:
-        try:
-            return json.loads(args.request_json)
-        except json.JSONDecodeError as exc:
-            raise FastPathInvalid("request_json_invalid") from exc
-    try:
-        return json.loads(Path(args.request_file).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise FastPathInvalid("request_file_invalid") from exc
 
 
 def main(argv: list[str] | None = None) -> int:

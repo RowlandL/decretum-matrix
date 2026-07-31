@@ -66,6 +66,8 @@ OPEN_SOURCE_ACKNOWLEDGEMENTS = [
         "thanks": "Decretum Matrix thanks the squad project for the optional structured task/message bus used by superCC dispatch evidence.",
     },
 ]
+RUNTIME_IDENTITY_SCHEMA = "court.runtime_identity.v1"
+RUNTIME_IDENTITY_PATHS = ("VERSION", "SKILL.md", "scripts/court_cli.py")
 
 
 class LauncherError(RuntimeError):
@@ -119,23 +121,120 @@ def _packaged_version(package_root: Path) -> str:
     return str(metadata.get("releaseLabel") or "").strip()
 
 
-def _canonical_runtime_root(package_root: Path, home: Path | None = None) -> Path | None:
-    expected_version = _packaged_version(package_root)
-    if not expected_version:
-        return None
-    root = (home or _postinstall_home()) / ".agents" / "skills" / "decretum-matrix"
-    version_path = root / "VERSION"
-    cli = root / "scripts" / "court_cli.py"
-    skill = root / "SKILL.md"
+def _runtime_content_digest(root: Path) -> str | None:
     try:
-        installed_version = version_path.read_text(encoding="utf-8").strip()
+        payloads = {
+            relative: (root / relative).read_bytes()
+            for relative in RUNTIME_IDENTITY_PATHS
+        }
     except OSError:
         return None
-    if installed_version != expected_version:
+    return _runtime_content_digest_from_payloads(payloads)
+
+
+def _runtime_content_digest_from_payloads(payloads: dict[str, bytes]) -> str:
+    digest = hashlib.sha256()
+    for relative in RUNTIME_IDENTITY_PATHS:
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(payloads[relative])
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _runtime_identity(root: Path, *, source_kind: str) -> dict[str, str] | None:
+    try:
+        version = (root / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
         return None
-    if not cli.is_file() or not skill.is_file():
+    content_digest = _runtime_content_digest(root)
+    if not version or not content_digest:
         return None
-    return root
+    return {
+        "schema": RUNTIME_IDENTITY_SCHEMA,
+        "root": str(root.resolve(strict=False)),
+        "version": version,
+        "source_kind": source_kind,
+        "content_digest": content_digest,
+    }
+
+
+def _embedded_runtime_identity(package_root: Path) -> dict[str, str] | None:
+    archive = _release_archive(package_root)
+    try:
+        with zipfile.ZipFile(archive) as package:
+            payloads: dict[str, bytes] = {}
+            for relative in RUNTIME_IDENTITY_PATHS:
+                member_name = f"{ARCHIVE_ROOT}/{relative}"
+                matches = [
+                    info
+                    for info in package.infolist()
+                    if info.filename.rstrip("/") == member_name
+                ]
+                if len(matches) != 1 or matches[0].is_dir():
+                    return None
+                payloads[relative] = package.read(matches[0])
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return None
+    try:
+        version = payloads["VERSION"].decode("utf-8").strip()
+    except UnicodeError:
+        return None
+    packaged_version = _packaged_version(package_root)
+    if not version or not packaged_version or version != packaged_version:
+        return None
+    return {
+        "schema": RUNTIME_IDENTITY_SCHEMA,
+        "root": f"{archive.resolve(strict=False)}!/{ARCHIVE_ROOT}",
+        "version": version,
+        "source_kind": "embedded_package",
+        "content_digest": _runtime_content_digest_from_payloads(payloads),
+    }
+
+
+def _expected_runtime_identity(package_root: Path) -> dict[str, str] | None:
+    direct = _runtime_identity(package_root, source_kind="package")
+    return direct if direct is not None else _embedded_runtime_identity(package_root)
+
+
+def _runtime_identity_matches(
+    expected: dict[str, str],
+    candidate: dict[str, str],
+) -> bool:
+    return (
+        candidate.get("version") == expected.get("version")
+        and candidate.get("content_digest") == expected.get("content_digest")
+    )
+
+
+def _canonical_runtime_selection(
+    package_root: Path,
+    home: Path | None = None,
+    *,
+    expected_identity: dict[str, str] | None = None,
+) -> tuple[Path, dict[str, str]] | None:
+    expected = expected_identity or _expected_runtime_identity(package_root)
+    if expected is None:
+        return None
+    root = (home or _postinstall_home()) / ".agents" / "skills" / "decretum-matrix"
+    installed = _runtime_identity(root, source_kind="installed")
+    if installed is None or not _runtime_identity_matches(expected, installed):
+        return None
+    return root, installed
+
+
+def _canonical_runtime_root(
+    package_root: Path,
+    home: Path | None = None,
+    *,
+    expected_identity: dict[str, str] | None = None,
+) -> Path | None:
+    selection = _canonical_runtime_selection(
+        package_root,
+        home=home,
+        expected_identity=expected_identity,
+    )
+    return selection[0] if selection is not None else None
 
 
 def _member_parts(name: str) -> tuple[str, ...]:
@@ -226,6 +325,53 @@ def _postinstall_home() -> Path:
         else os.environ.get("HOME")
     )
     return Path(value or Path.home()).expanduser().resolve(strict=False)
+
+
+def _select_runtime(
+    package_root: Path,
+    *,
+    home: Path | None = None,
+    cache_base: Path | None = None,
+) -> tuple[Path, dict[str, str]]:
+    expected = _expected_runtime_identity(package_root)
+    if expected is None:
+        raise LauncherError("package runtime identity unavailable")
+    canonical = _canonical_runtime_selection(
+        package_root,
+        home=home,
+        expected_identity=expected,
+    )
+    if canonical is not None:
+        return canonical
+
+    archive = _release_archive(package_root)
+    archive_id = _archive_cache_id(archive)
+    resolved_cache_base = (
+        cache_base
+        or Path(
+            os.environ.get("DECRETUM_MATRIX_NPM_CACHE_ROOT")
+            or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
+        )
+    ).resolve(strict=False)
+    runtime_root = _extract_runtime(archive, resolved_cache_base / archive_id, archive_id)
+    identity = _runtime_identity(runtime_root, source_kind="embedded_cache")
+    if identity is None or not _runtime_identity_matches(expected, identity):
+        raise LauncherError("embedded runtime identity mismatch")
+    return runtime_root, identity
+
+
+def runtime_identity_probe(
+    package_root: Path,
+    *,
+    home: Path | None = None,
+    cache_base: Path | None = None,
+) -> dict[str, str]:
+    _, identity = _select_runtime(
+        package_root,
+        home=home,
+        cache_base=cache_base,
+    )
+    return identity
 
 
 def _run_json_command(arguments: list[str], *, env: dict[str, str]) -> dict[str, object]:
@@ -627,15 +773,10 @@ def main(argv: list[str] | None = None) -> int:
         ).resolve(strict=False)
         runtime_root = _extract_runtime(archive, cache_base / archive_id, archive_id)
         return _run_postinstall(runtime_root, archive_id)
-    runtime_root = _canonical_runtime_root(package_root)
-    if runtime_root is None:
-        archive = _release_archive(package_root)
-        archive_id = _archive_cache_id(archive)
-        cache_base = Path(
-            os.environ.get("DECRETUM_MATRIX_NPM_CACHE_ROOT")
-            or Path(tempfile.gettempdir()) / "decretum-matrix" / "npm-runtime"
-        ).resolve(strict=False)
-        runtime_root = _extract_runtime(archive, cache_base / archive_id, archive_id)
+    runtime_root, runtime_identity = _select_runtime(package_root)
+    if effective_argv == ["--runtime-identity"]:
+        print(json.dumps(runtime_identity, ensure_ascii=False, sort_keys=True))
+        return 0
     cli = runtime_root / "scripts" / "court_cli.py"
     sys.path.insert(0, str(cli.parent))
     sys.argv = [str(cli), *effective_argv]

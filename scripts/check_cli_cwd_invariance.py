@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from court_open_fastpath import REQUEST_SCHEMA, _request_value, normalize_request
+from court_open_fastpath import FastPathInvalid, REQUEST_SCHEMA, _request_value, normalize_request
 
 
 def _normalize_from_cwd(
@@ -95,6 +96,83 @@ def evaluate() -> dict[str, Any]:
             or second.get("path_basis") != expected_basis
         ):
             failures.append("path_basis_receipt_missing")
+        spoofed_basis = {
+            "kind": "request_file_parent",
+            "path": str(cwd_a.resolve()),
+        }
+        try:
+            forged = type(first_loaded)(dict(first_loaded), path_basis=spoofed_basis)
+            forged_normalized = normalize_request(forged)
+        except (FastPathInvalid, TypeError) as exc:
+            forged_clone_outcome = f"REJECTED:{type(exc).__name__}:{exc}"
+        else:
+            forged_clone_outcome = (
+                "ACCEPTED:" + json.dumps(
+                    forged_normalized.get("path_basis"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+            failures.append("path_basis_forged_clone_accepted")
+        copied_clone_outcomes: dict[str, str] = {}
+        for copy_kind, copier in (("shallow", copy.copy), ("deep", copy.deepcopy)):
+            try:
+                copied = copier(first_loaded)
+                copied["path_basis"] = spoofed_basis
+                copied_normalized = normalize_request(copied)
+            except (FastPathInvalid, TypeError) as exc:
+                copied_clone_outcomes[copy_kind] = (
+                    f"REJECTED:{type(exc).__name__}:{exc}"
+                )
+            else:
+                copied_clone_outcomes[copy_kind] = (
+                    "ACCEPTED:" + json.dumps(
+                        copied_normalized.get("path_basis"),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+                failures.append(f"path_basis_{copy_kind}_copy_spoof_accepted")
+        direct_mutation_loaded = _request_value(
+            argparse.Namespace(
+                request_file=str(request_file.resolve()),
+                request_json=None,
+            )
+        )
+        try:
+            direct_mutation_loaded["path_basis"] = spoofed_basis
+            direct_mutation_normalized = normalize_request(direct_mutation_loaded)
+        except (FastPathInvalid, TypeError) as exc:
+            direct_mutation_outcome = f"REJECTED:{type(exc).__name__}:{exc}"
+        else:
+            direct_mutation_outcome = (
+                "ACCEPTED:" + json.dumps(
+                    direct_mutation_normalized.get("path_basis"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+            failures.append("path_basis_direct_key_mutation_accepted")
+        nested_mutation_loaded = _request_value(
+            argparse.Namespace(
+                request_file=str(request_file.resolve()),
+                request_json=None,
+            )
+        )
+        try:
+            nested_mutation_loaded["path_basis"]["path"] = str(cwd_a.resolve())
+            nested_mutation_normalized = normalize_request(nested_mutation_loaded)
+        except (FastPathInvalid, TypeError) as exc:
+            nested_mutation_outcome = f"REJECTED:{type(exc).__name__}:{exc}"
+        else:
+            nested_mutation_outcome = (
+                "ACCEPTED:" + json.dumps(
+                    nested_mutation_normalized.get("path_basis"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+            failures.append("path_basis_nested_path_mutation_accepted")
 
     return {
         "schema": "court.cli_cwd_invariance_check.v1",
@@ -112,6 +190,11 @@ def evaluate() -> dict[str, Any]:
             "cwd_b_loaded_path_basis": second_loaded.get("path_basis"),
             "cwd_a_path_basis": first.get("path_basis"),
             "cwd_b_path_basis": second.get("path_basis"),
+            "spoofed_path_basis": spoofed_basis,
+            "forged_clone_outcome": forged_clone_outcome,
+            "copied_clone_outcomes": copied_clone_outcomes,
+            "direct_mutation_outcome": direct_mutation_outcome,
+            "nested_mutation_outcome": nested_mutation_outcome,
         },
         "failures": failures,
     }
