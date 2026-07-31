@@ -15,7 +15,7 @@ import tempfile
 sys.dont_write_bytecode = True
 
 from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
-from shiguan_entry_utils import base36, enrich_entry
+from shiguan_entry_utils import base36, enrich_entry, existing_content_lineage_parts
 from shiguan_paths import (
     code_root,
     detect_runtime_agent,
@@ -263,6 +263,18 @@ def build_index_entry(
     return entry
 
 
+def lineage_parts_archive_json(entry: dict[str, object]) -> str:
+    parts = existing_content_lineage_parts(entry)
+    if parts is None:
+        return ""
+    return json.dumps(
+        parts,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def append_text_synced(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     needs_newline = False
@@ -430,12 +442,18 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
             bool(raw_full_record),
         )
         full_record = fill_generated_placeholders(raw_full_record, entry)
+        lineage_parts_json = lineage_parts_archive_json(entry)
         block_lines = [
             f"## Checkpoint: {args.phase}",
             "",
             f"- time: {now.isoformat(timespec='seconds')}",
             f"- court_code: {entry.get('court_code', '')}",
             f"- ancient_lineage: {entry.get('ancient_lineage', '')}",
+            *(
+                [f"- lineage_parts_json: {lineage_parts_json}"]
+                if lineage_parts_json
+                else []
+            ),
             f"- status: {args.status}",
             f"- summary: {args.summary}",
             f"- evidence: {args.evidence}",
@@ -499,6 +517,9 @@ def build_archive_receipt(
         "closeout_identity": closeout_identity,
         "refresh": refresh,
     }
+    lineage_parts = existing_content_lineage_parts(entry)
+    if lineage_parts is not None:
+        receipt["lineage_parts"] = lineage_parts
     return receipt
 
 

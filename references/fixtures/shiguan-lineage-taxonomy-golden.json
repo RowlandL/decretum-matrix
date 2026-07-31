@@ -65,6 +65,56 @@
         "reason": "unknown"
       },
       "failure_code": "lineage_unknown_state_missing"
+    },
+    {
+      "id": "repeated_weak_term",
+      "entry": {
+        "topic": "agent agent agent"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "low_confidence"
+      },
+      "failure_code": "lineage_repeated_term_inflated_confidence"
+    },
+    {
+      "id": "overlapping_alias_term",
+      "entry": {
+        "topic": "agente"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "low_confidence"
+      },
+      "failure_code": "lineage_overlapping_alias_inflated_confidence"
+    },
+    {
+      "id": "high_score_cross_branch_tie",
+      "entry": {
+        "topic": "agent skill archive index"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "tie"
+      },
+      "failure_code": "lineage_high_score_tie_silently_ordered"
+    },
+    {
+      "id": "negation_then_positive_contrast",
+      "entry": {
+        "topic": "不涉及 archive，但三省 dispatch 必须执行"
+      },
+      "expected": {
+        "status": "classified",
+        "parts": {
+          "zhi": "朝制",
+          "men": "官署",
+          "gang": "三省六部",
+          "mu": "政令流转",
+          "tiao": "上奏回奏"
+        }
+      },
+      "failure_code": "lineage_negation_scope_swallowed_positive_contrast"
     }
   ]
 }

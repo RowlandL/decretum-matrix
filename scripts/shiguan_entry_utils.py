@@ -425,6 +425,37 @@ CONTENT_TAXONOMY = [
     ),
 ]
 
+CONTENT_TAXONOMY_VERSION = "v1"
+CONTENT_TAXONOMY_MIN_SCORE = 2
+CONTENT_LINEAGE_FIELDS = ("root", "zhi", "men", "gang", "mu", "tiao", "zhao")
+CONTENT_NEGATION_MARKERS = (
+    "不涉及",
+    "不包括",
+    "不属于",
+    "不包含",
+    "不含",
+    "并非",
+    "不是",
+    "无关",
+    "无需",
+    "没有",
+    "排除",
+    "否定",
+    "does not involve",
+    "doesn't involve",
+    "not related to",
+    "unrelated to",
+    "without",
+    "exclude",
+    "excluded",
+    "excluding",
+)
+CONTENT_NEGATION_RESETS = ("但是", "但", "而是", "不过", "however", "but", "instead")
+CONTENT_LINEAGE_DISPLAY_RE = re.compile(
+    r"^(?P<root>.+?)·(?P<zhi>.+?)志·(?P<men>.+?)门·(?P<gang>.+?)纲·"
+    r"(?P<mu>.+?)目·(?P<tiao>.+?)条·(?P<zhao>.+?)诏$"
+)
+
 LINEAGE_CODE_OVERRIDES = {
     "史馆总纪": "S",
     "朝制": "C",
@@ -1162,26 +1193,137 @@ def lineage_text(entry: dict[str, object]) -> str:
     return "\n".join(values)
 
 
-def content_lineage_parts(entry: dict[str, object]) -> dict[str, str]:
-    haystack = lineage_text(entry).lower()
-    best: tuple[int, tuple[str, str, str, str, str]] | None = None
-    for zhi, men, gang, mu, tiao, needles in CONTENT_TAXONOMY:
-        score = sum(1 for needle in needles if needle.lower() in haystack)
-        if best is None or score > best[0]:
-            best = (score, (zhi, men, gang, mu, tiao))
-    if not best or best[0] <= 0:
-        topic = truncate(entry.get("topic") or "项目", 16)
-        summary = truncate(entry.get("summary") or entry.get("memory_content") or "事项", 16)
-        best_parts = ("项目", "诏令", "本务", topic, summary)
-    else:
-        best_parts = best[1]
+def _taxonomy_match_is_negated(haystack: str, start: int) -> bool:
+    clause_start = max(
+        (haystack.rfind(marker, 0, start) for marker in ("\n", "。", "！", "？", ";", "；", "!", "?")),
+        default=-1,
+    )
+    prefix = haystack[clause_start + 1 : start][-80:]
+    reset_positions = [
+        (prefix.rfind(marker), len(marker))
+        for marker in CONTENT_NEGATION_RESETS
+        if marker in prefix
+    ]
+    if reset_positions:
+        reset_at, reset_length = max(reset_positions)
+        prefix = prefix[reset_at + reset_length :]
+    return any(marker in prefix for marker in CONTENT_NEGATION_MARKERS)
 
-    zhi, men, gang, mu, tiao = best_parts
-    zhao = (
+
+def _taxonomy_term_evidence(haystack: str, needle: object) -> tuple[bool, bool]:
+    term = str(needle or "").strip().lower()
+    if not term:
+        return False, False
+    positive = False
+    negated = False
+    for match in re.finditer(re.escape(term), haystack):
+        if _taxonomy_match_is_negated(haystack, match.start()):
+            negated = True
+        else:
+            positive = True
+    return positive, negated
+
+
+def _distinct_taxonomy_terms(values: list[str]) -> list[str]:
+    terms = unique(values, len(values))
+    return [
+        term
+        for term in terms
+        if not any(
+            term.casefold() != other.casefold()
+            and term.casefold() in other.casefold()
+            for other in terms
+        )
+    ]
+
+
+def _taxonomy_candidate_scores(haystack: str) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    for zhi, men, gang, mu, tiao, needles in CONTENT_TAXONOMY:
+        positive_terms: list[str] = []
+        negated_terms: list[str] = []
+        for needle in needles:
+            positive, negated = _taxonomy_term_evidence(haystack, needle)
+            if positive:
+                positive_terms.append(str(needle))
+            if negated:
+                negated_terms.append(str(needle))
+        positive_terms = _distinct_taxonomy_terms(positive_terms)
+        negated_terms = _distinct_taxonomy_terms(negated_terms)
+        candidates.append(
+            {
+                "parts": (zhi, men, gang, mu, tiao),
+                "path": "/".join((zhi, men, gang, mu, tiao)),
+                "score": len(positive_terms),
+                "negated_score": len(negated_terms),
+                "evidence": positive_terms,
+                "negated_evidence": negated_terms,
+            }
+        )
+    return sorted(
+        candidates,
+        key=lambda item: (-int(item["score"]), str(item["path"])),
+    )
+
+
+def _lineage_zhao(entry: dict[str, object]) -> str:
+    return (
         translated_topic_label(entry, 18)
-        or chinese_display_fragment(entry.get("summary") or entry.get("memory_content"), 18)
+        or chinese_display_fragment(
+            entry.get("summary") or entry.get("memory_content"),
+            18,
+        )
         or "未命名"
     )
+
+
+def content_lineage_parts(entry: dict[str, object]) -> dict[str, object]:
+    haystack = lineage_text(entry).lower()
+    candidates = _taxonomy_candidate_scores(haystack)
+    best = candidates[0]
+    top_score = int(best["score"])
+    second_score = int(candidates[1]["score"]) if len(candidates) > 1 else 0
+    margin = max(top_score - second_score, 0)
+    tied = top_score > 0 and sum(
+        1 for candidate in candidates if candidate["score"] == top_score
+    ) > 1
+    negated_evidence = unique(
+        [
+            str(term)
+            for candidate in candidates
+            for term in candidate["negated_evidence"]
+        ],
+        24,
+    )
+    confidence = (
+        round(top_score / (top_score + second_score + 1), 3)
+        if top_score > 0
+        else 0.0
+    )
+
+    if top_score == 0:
+        reason = "negated_evidence" if negated_evidence else "unknown"
+    elif tied:
+        reason = "tie"
+    elif top_score < CONTENT_TAXONOMY_MIN_SCORE:
+        reason = "low_confidence"
+    else:
+        reason = "matched"
+    status = "classified" if reason == "matched" else "review"
+    if status == "classified":
+        zhi, men, gang, mu, tiao = best["parts"]
+    else:
+        zhi, men, gang, mu, tiao = ("待审",) * 5
+
+    candidate_scores = [
+        {
+            "path": candidate["path"],
+            "score": candidate["score"],
+            "negated_score": candidate["negated_score"],
+        }
+        for candidate in candidates
+        if candidate["score"] or candidate["negated_score"]
+    ][:8]
     return {
         "root": "史馆总纪",
         "zhi": zhi,
@@ -1189,18 +1331,50 @@ def content_lineage_parts(entry: dict[str, object]) -> dict[str, str]:
         "gang": gang,
         "mu": mu,
         "tiao": tiao,
-        "zhao": zhao,
+        "zhao": _lineage_zhao(entry),
+        "taxonomy_version": CONTENT_TAXONOMY_VERSION,
+        "classification_status": status,
+        "classification_reason": reason,
+        "classification_confidence": confidence,
+        "classification_score": top_score,
+        "classification_margin": margin,
+        "classification_candidates": candidate_scores,
+        "classification_evidence": list(best["evidence"]),
+        "classification_negated_evidence": negated_evidence,
+        "classification_negated_evidence_count": len(negated_evidence),
     }
 
 
-def content_lineage_display(parts: dict[str, str]) -> str:
+def parse_content_lineage_display(value: object) -> dict[str, str] | None:
+    text = str(value or "").strip()
+    match = CONTENT_LINEAGE_DISPLAY_RE.fullmatch(text)
+    if match is None:
+        return None
+    parts = {field: match.group(field).strip() for field in CONTENT_LINEAGE_FIELDS}
+    if any(not parts[field] for field in CONTENT_LINEAGE_FIELDS):
+        return None
+    return parts
+
+
+def existing_content_lineage_parts(
+    entry: dict[str, object],
+) -> dict[str, object] | None:
+    value = entry.get("lineage_parts")
+    if not isinstance(value, dict):
+        return None
+    if any(not str(value.get(field) or "").strip() for field in CONTENT_LINEAGE_FIELDS):
+        return None
+    return dict(value)
+
+
+def content_lineage_display(parts: dict[str, object]) -> str:
     return (
         f"{parts['root']}·{parts['zhi']}志·{parts['men']}门·{parts['gang']}纲·"
         f"{parts['mu']}目·{parts['tiao']}条·{parts['zhao']}诏"
     )
 
 
-def content_lineage_key(parts: dict[str, str]) -> str:
+def content_lineage_key(parts: dict[str, object]) -> str:
     return "/".join(slug_part(parts[key]) for key in ("zhi", "men", "gang", "mu", "tiao"))
 
 
@@ -1366,7 +1540,7 @@ def enrich_entry(entry: dict[str, object]) -> dict[str, object]:
         )
         entry["keywords"] = keywords
 
-    parts = content_lineage_parts(entry)
+    parts = existing_content_lineage_parts(entry) or content_lineage_parts(entry)
     lineage_values = [parts.get(key, "") for key in ("zhi", "men", "gang", "mu", "tiao", "zhao")]
     keywords_zh, keywords_en = split_keywords(keywords)
     text_keywords_zh = chinese_terms_from_text(

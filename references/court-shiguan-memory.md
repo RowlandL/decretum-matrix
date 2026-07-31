@@ -48,9 +48,18 @@ properties. Therefore:
   `诏令行为谱系` remain searchable fields, not tree branches. Keep facet
   relationships visually and structurally independent from the official trunk;
   do not let facet nodes become parents of content-lineage records.
-- If an entry fits multiple topics, choose the highest-scoring content lineage
-  for the trunk and keep the other terms in keywords/facets for graph links and
-  recall.
+- Score unique positive evidence under a versioned taxonomy. Classify only when
+  one lineage has at least the minimum evidence score and a positive margin over
+  every alternative. A weak single match, a top-score tie, exclusively negated
+  evidence, or no known evidence must produce an explicit `review` result with
+  `待审` trunk fields; source terms remain available in keywords/facets for graph
+  links and recall. Negated terms do not count as positive evidence.
+- New classifications record `taxonomy_version`, `classification_status`,
+  `classification_reason`, numeric `classification_confidence`, score, margin,
+  candidates, and positive/negated evidence. A rebuild or enrichment pass must
+  preserve already stored `lineage_parts`, `lineage_display`/`ancient_lineage`,
+  and valid `court_code` as historical evidence instead of silently
+  reclassifying or renumbering them.
 - The web UI and Markdown leaves must show at least Chinese `关键词`, `摘要`, and
   `理由`; raw `summary`, `evidence`, and `memory_content` should remain
   unchanged as source fields.

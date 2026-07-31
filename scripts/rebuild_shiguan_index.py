@@ -13,7 +13,13 @@ import zlib
 sys.dont_write_bytecode = True
 
 from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
-from shiguan_entry_utils import base36, enrich_entry
+from shiguan_entry_utils import (
+    base36,
+    content_lineage_display,
+    enrich_entry,
+    existing_content_lineage_parts,
+    parse_content_lineage_display,
+)
 from shiguan_paths import code_root, ensure_shared_seed, references_root as shared_references_root, relative_to_data
 
 
@@ -110,6 +116,48 @@ def parse_fields(block: str) -> dict[str, str]:
     return fields
 
 
+def apply_stored_lineage_fields(
+    entry: dict[str, object],
+    fields: dict[str, str],
+) -> None:
+    display = str(
+        fields.get("lineage_display") or fields.get("ancient_lineage") or ""
+    ).strip()
+    parts_from_json: dict[str, object] | None = None
+    raw_parts = str(fields.get("lineage_parts_json") or "").strip()
+    if raw_parts:
+        try:
+            parsed_parts = json.loads(raw_parts)
+        except json.JSONDecodeError as exc:
+            raise ValueError("stored_lineage_parts_json_invalid") from exc
+        parts_from_json = existing_content_lineage_parts(
+            {"lineage_parts": parsed_parts}
+        )
+        if parts_from_json is None:
+            raise ValueError("stored_lineage_parts_json_invalid")
+
+    parts_from_display = parse_content_lineage_display(display) if display else None
+    if display and parts_from_display is None:
+        raise ValueError("stored_lineage_display_invalid")
+    if (
+        parts_from_json is not None
+        and parts_from_display is not None
+        and any(
+            parts_from_json.get(field) != parts_from_display.get(field)
+            for field in ("root", "zhi", "men", "gang", "mu", "tiao", "zhao")
+        )
+    ):
+        raise ValueError("stored_lineage_evidence_mismatch")
+
+    parts = parts_from_json or parts_from_display
+    if parts is None:
+        return
+    canonical_display = content_lineage_display(parts)
+    entry["lineage_parts"] = parts
+    entry["lineage_display"] = display or canonical_display
+    entry["ancient_lineage"] = display or canonical_display
+
+
 def topic_from_text(path: Path, text: str) -> str:
     for pattern in (r"^- topic:\s*(.+)$", r"^# .*?:\s*(.+)$"):
         match = re.search(pattern, text, flags=re.MULTILINE)
@@ -174,6 +222,7 @@ def parse_archive(path: Path) -> list[dict[str, object]]:
             "memory_reason": memory_reason,
             "source": source,
         }
+        apply_stored_lineage_fields(entry, fields)
         enrich_entry(entry)
         entry["id"] = stable_id(entry)
         entries.append(entry)
@@ -220,6 +269,7 @@ def parse_memory(path: Path) -> list[dict[str, object]]:
             "memory_reason": reason,
             "source": source,
         }
+        apply_stored_lineage_fields(entry, fields)
         enrich_entry(entry)
         entry["id"] = stable_id(entry)
         entries.append(entry)
@@ -251,6 +301,12 @@ def normalize_manual(entry: dict[str, object], path: Path) -> dict[str, object] 
     }
     if entry.get("origin_source"):
         normalized["origin_source"] = str(entry.get("origin_source"))
+    stored_parts = entry.get("lineage_parts")
+    if isinstance(stored_parts, dict):
+        normalized["lineage_parts"] = dict(stored_parts)
+    for field in ("lineage_display", "ancient_lineage"):
+        if str(entry.get(field) or "").strip():
+            normalized[field] = str(entry[field])
     if not normalized["keywords"]:
         normalized["keywords"] = derive_keywords(
             str(normalized["topic"]),
