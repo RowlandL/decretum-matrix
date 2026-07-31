@@ -1,0 +1,70 @@
+{
+  "schema": "court.shiguan_lineage_taxonomy_golden.v1",
+  "taxonomy_version": "v1",
+  "cases": [
+    {
+      "id": "known_shiguan_archive",
+      "entry": {
+        "topic": "史馆实录索引与生长树归档",
+        "summary": "史馆记忆 archive index keyword"
+      },
+      "expected": {
+        "status": "classified",
+        "parts": {
+          "zhi": "典藏",
+          "men": "史馆",
+          "gang": "实录",
+          "mu": "生长树",
+          "tiao": "索引检索"
+        }
+      },
+      "failure_code": "lineage_known_case_drifted"
+    },
+    {
+      "id": "low_confidence_single_agent",
+      "entry": {
+        "topic": "agent"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "low_confidence"
+      },
+      "failure_code": "lineage_low_confidence_not_review"
+    },
+    {
+      "id": "cross_branch_tie",
+      "entry": {
+        "topic": "agent archive"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "tie"
+      },
+      "failure_code": "lineage_tie_silently_ordered"
+    },
+    {
+      "id": "negated_governance_terms",
+      "entry": {
+        "topic": "不涉及史馆或三省六部",
+        "summary": "本记录明确排除 archive、三省与六部语义"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "negated_evidence"
+      },
+      "failure_code": "lineage_negation_counted_positive"
+    },
+    {
+      "id": "novel_unknown_topic",
+      "entry": {
+        "topic": "量子泡沫观测校准",
+        "summary": "无现有分类关键词的全新主题"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "unknown"
+      },
+      "failure_code": "lineage_unknown_state_missing"
+    }
+  ]
+}
