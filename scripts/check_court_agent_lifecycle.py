@@ -2917,7 +2917,7 @@ def check_office_lifecycle_json_cli() -> None:
     close.carrier_proof = proof
     assert office_cli("close", close)["receipt"]["action"] == "close"
     supported = court_runtime.probe_payload()["supported_commands"]
-    assert "office admit|start|preload-ack|report|finish|close" in supported
+    assert "office admit|start|followup|preload-ack|report|finish|close" in supported
     assert all(
         alias in supported
         for alias in (
@@ -2959,6 +2959,7 @@ def _native_host_office_fixture(
         office_instance_id=instance_id,
         carrier_proof=carrier_proof,
     )
+    start._production_cli = True
     return admission, start
 
 
@@ -3293,6 +3294,7 @@ def _run_native_host_positive_lifecycle_cases(
             evidence="valid native host refusal receipt",
             note="native host refusal consume",
             native_host_action_receipt=deepcopy(refusal_receipt),
+            _production_cli=True,
         )
         try:
             court_runtime.agent_spawn_failed(refusal_args)
@@ -3527,6 +3529,7 @@ def _run_native_host_lifecycle_contract(
             actor="shangshu",
             evidence="native host refusal receipt fixture",
             note="native host refusal receipt gate",
+            _production_cli=True,
         )
         if forged:
             args.native_host_action_receipt = deepcopy(

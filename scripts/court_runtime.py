@@ -53,6 +53,10 @@ from court_model_router import (
     TRANSPORTS,
     route_office_model,
 )
+from court_native_host_dispatch import (
+    normalize_native_host_dispatch_request,
+    validate_native_host_action_receipt,
+)
 from court_file_lock import atomic_write_text, file_lock
 from court_multi_agent_protocol import (
     ProtocolRequirements,
@@ -1639,6 +1643,215 @@ def _office_lifecycle_receipt(
     }
 
 
+def _native_host_receipt_value(
+    args: argparse.Namespace,
+    *,
+    required: bool,
+) -> dict[str, object] | None:
+    value = getattr(args, "native_host_action_receipt", None)
+    if value is None:
+        if required:
+            raise ValueError("native_host_action_receipt:required")
+        return None
+    if not isinstance(value, Mapping):
+        raise ValueError("native_host_action_receipt:invalid")
+    return deepcopy(dict(value))
+
+
+def _native_host_receipt_ledger(task: dict[str, Any]) -> dict[str, object]:
+    ledger = task.get("native_host_action_receipts")
+    if ledger is None:
+        ledger = {}
+        task["native_host_action_receipts"] = ledger
+    if not isinstance(ledger, dict):
+        raise ValueError("native_host_action_receipt:ledger_corrupt")
+    return ledger
+
+
+def _reject_native_host_receipt_replay(
+    task: Mapping[str, object],
+    args: argparse.Namespace,
+) -> None:
+    value = getattr(args, "native_host_action_receipt", None)
+    if not isinstance(value, Mapping):
+        return
+    receipt_id = str(value.get("receipt_id") or "")
+    ledger = task.get("native_host_action_receipts")
+    if ledger is not None and not isinstance(ledger, Mapping):
+        raise ValueError("native_host_action_receipt:ledger_corrupt")
+    if receipt_id and isinstance(ledger, Mapping) and receipt_id in ledger:
+        raise ValueError("native_host_action_receipt:replay")
+
+
+def _native_host_request_binding_problems(
+    request: Mapping[str, object],
+    *,
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+    args: argparse.Namespace,
+    record: Mapping[str, object] | None,
+    decision: str,
+) -> list[str]:
+    route_inputs = admission.get("model_route_inputs")
+    expected_assignment = (
+        route_inputs.get("assignment") if isinstance(route_inputs, Mapping) else None
+    )
+    requested_assignment = getattr(args, "assignment", None)
+    if isinstance(requested_assignment, str) and requested_assignment.strip():
+        expected_assignment = requested_assignment
+    requested_scope = getattr(args, "duty_scope", None)
+    expected_scope = (
+        list(requested_scope)
+        if isinstance(requested_scope, (list, tuple)) and requested_scope
+        else list(binding.get("read_scope") or binding.get("write_set") or [])
+    )
+    preload = binding.get("preload_hashes")
+    expected_role_ack = None
+    if isinstance(preload, Mapping):
+        expected_role_ack = {
+            "role": binding.get("role"),
+            "direct_superior": binding.get("direct_superior"),
+            "profile_sha256": preload.get("profile_hash"),
+            "dossier_sha256": preload.get("dossier_hash"),
+        }
+    expected = {
+        "task_id": task.get("task_id"),
+        "wave_id": admission.get("wave_id"),
+        "dispatch_uid": admission.get("dispatch_uid"),
+        "attempt": admission.get("attempt"),
+        "role": binding.get("role"),
+        "instance_id": binding.get("instance_id"),
+        "direct_superior": binding.get("direct_superior"),
+        "semantic_epoch": admission.get("semantic_epoch"),
+        "charter_sha256": admission.get("charter_sha256"),
+        "invariant_capsule_sha256": admission.get("invariant_capsule_sha256"),
+        "lease_id": binding.get("lease_id"),
+        "assignment": expected_assignment,
+        "duty_scope": expected_scope,
+        "write_set": list(binding.get("write_set") or []),
+        "role_ack": expected_role_ack,
+        "admission_anchor": {
+            "schema": "court.agent.admission_receipt.v1",
+            "receipt_id": _admission_event_id(task, admission),
+            "receipt_sha256": admission.get("admission_immutable_anchor_sha256"),
+        },
+    }
+    problems = [
+        f"native_host_action_receipt:{field}_mismatch"
+        for field, expected_value in expected.items()
+        if request.get(field) != expected_value
+    ]
+    candidates = request.get("compatible_live_instances")
+    if decision == "spawn":
+        if candidates not in ([], ()):
+            problems.append("native_host_action_receipt:spawn_candidate_mismatch")
+    elif record is None or not isinstance(candidates, (list, tuple)) or len(candidates) != 1:
+        problems.append("native_host_action_receipt:reuse_candidate_missing")
+    else:
+        candidate = candidates[0]
+        if not isinstance(candidate, Mapping):
+            problems.append("native_host_action_receipt:reuse_candidate_invalid")
+        else:
+            for request_field, record_field in (
+                ("host_task_id", "native_host_task_id"),
+                ("host_thread_id", "native_host_thread_id"),
+                ("host_instance_id", "native_host_instance_id"),
+            ):
+                if candidate.get(request_field) != record.get(record_field):
+                    problems.append(
+                        f"native_host_action_receipt:reuse_{request_field}_mismatch"
+                    )
+    return problems
+
+
+def _validate_native_host_receipt_for_runtime(
+    task: dict[str, Any],
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+    args: argparse.Namespace,
+    *,
+    decision: str,
+    host_action: str,
+    outcome: str,
+    record: Mapping[str, object] | None = None,
+) -> dict[str, object] | None:
+    required = bool(getattr(args, "_production_cli", False))
+    value = _native_host_receipt_value(args, required=required)
+    if value is None:
+        return None
+    embedded_request = value.get("request")
+    if not isinstance(embedded_request, Mapping):
+        raise ValueError("native_host_action_receipt:embedded_request_required")
+    request = normalize_native_host_dispatch_request(embedded_request)
+    problems = _native_host_request_binding_problems(
+        request,
+        task=task,
+        admission=admission,
+        binding=binding,
+        args=args,
+        record=record,
+        decision=decision,
+    )
+    if problems:
+        raise ValueError(problems[0])
+    receipt = validate_native_host_action_receipt(
+        value,
+        expected=request,
+        replay_guard=set(_native_host_receipt_ledger(task)),
+    )
+    if (
+        receipt.get("decision") != decision
+        or receipt.get("host_action") != host_action
+        or receipt.get("outcome") != outcome
+    ):
+        raise ValueError("native_host_action_receipt:runtime_action_mismatch")
+    args._native_host_receipt_validated = True
+    return receipt
+
+
+def _record_native_host_receipt(
+    task: dict[str, Any],
+    receipt: Mapping[str, object],
+    *,
+    lifecycle_action: str,
+    target_id: str,
+) -> None:
+    ledger = _native_host_receipt_ledger(task)
+    receipt_id = str(receipt.get("receipt_id") or "")
+    if receipt_id in ledger:
+        raise ValueError("native_host_action_receipt:replay")
+    ledger[receipt_id] = {
+        "receipt_id": receipt_id,
+        "receipt_sha256": receipt.get("receipt_sha256"),
+        "request_sha256": receipt.get("request_sha256"),
+        "result_sha256": receipt.get("result_sha256"),
+        "decision": receipt.get("decision"),
+        "host_action": receipt.get("host_action"),
+        "outcome": receipt.get("outcome"),
+        "lifecycle_action": lifecycle_action,
+        "target_id": target_id,
+        "acted_at": receipt.get("acted_at"),
+        "recorded_at": now_text(),
+    }
+
+
+def _native_host_receipt_record_fields(
+    receipt: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "native_host_action_receipt": deepcopy(dict(receipt)),
+        "native_host_action_receipt_id": receipt.get("receipt_id"),
+        "native_host_action_receipt_sha256": receipt.get("receipt_sha256"),
+        "native_host_request_sha256": receipt.get("request_sha256"),
+        "native_host_result_sha256": receipt.get("result_sha256"),
+        "native_host_task_id": receipt.get("host_task_id"),
+        "native_host_thread_id": receipt.get("host_thread_id"),
+        "native_host_instance_id": receipt.get("host_instance_id"),
+        "native_host_action_id": receipt.get("host_action_id"),
+    }
+
+
 def _semantic_admission_expectations(
     task: dict[str, Any],
     args: argparse.Namespace,
@@ -2263,6 +2476,25 @@ def _validate_admission_immutable_event_anchor(
         or matching_events[0].get("admission_immutable_anchor_sha256") != stored
     ):
         raise ValueError("agent_start_admission_immutable_anchor_mismatch")
+
+
+def _admission_event_id(
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+) -> str | None:
+    stored = str(admission.get("admission_immutable_anchor_sha256") or "")
+    matching_events = [
+        event
+        for event in events_for_task(task.get("task_id"), limit=None)
+        if event.get("action") == "agent_admit"
+        and event.get("wave_id") == admission.get("wave_id")
+        and event.get("allowed") is True
+        and event.get("admission_immutable_anchor_sha256") == stored
+    ]
+    if len(matching_events) != 1:
+        return None
+    event_id = str(matching_events[0].get("event_id") or "").strip()
+    return event_id or None
 
 
 def _validate_agent_semantic_args(
@@ -5914,6 +6146,7 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
         require_semantic_mutation_binding(task)
+        _reject_native_host_receipt_replay(task, args)
         admissions = task.get("agent_admissions")
         admission = admissions.get(wave_id) if isinstance(admissions, dict) else None
         if not isinstance(admission, dict) or admission.get("allowed") is not True:
@@ -5931,6 +6164,7 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
             if isinstance(binding, dict)
             and str(binding.get("role") or "").strip().lower() == role.lower()
         ]
+        matched_binding: dict[str, object] | None = None
         requested_instance_id = str(getattr(args, "instance_id", "") or "").strip().lower()
         if role_bindings:
             matching_bindings = (
@@ -5945,7 +6179,8 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
             )
             if len(matching_bindings) != 1:
                 raise ValueError("spawn-failed requires one admitted instance-id")
-            instance_id = str(matching_bindings[0].get("instance_id") or "").strip().lower()
+            matched_binding = matching_bindings[0]
+            instance_id = str(matched_binding.get("instance_id") or "").strip().lower()
         else:
             if selected_roles.count(role) != 1:
                 raise ValueError("spawn-failed requires one admitted instance-id")
@@ -5955,6 +6190,22 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
         model_route = model_routes.get(route_key) if isinstance(model_routes, dict) else None
         if not isinstance(model_route, dict) or not str(model_route.get("model_route_id") or "").strip():
             raise ValueError("spawn-failed instance does not have an admitted model route")
+
+        refusal_native_host_receipt: dict[str, object] | None = None
+        if matched_binding is not None:
+            refusal_native_host_receipt = _validate_native_host_receipt_for_runtime(
+                task,
+                admission,
+                matched_binding,
+                args,
+                decision="spawn",
+                host_action="spawn",
+                outcome="refused",
+            )
+        elif bool(getattr(args, "_production_cli", False)) or getattr(
+            args, "native_host_action_receipt", None
+        ) is not None:
+            raise ValueError("native_host_action_receipt:binding_missing")
 
         legacy_consumed_roles = admission.get("consumed_roles")
         if legacy_consumed_roles is not None and not isinstance(legacy_consumed_roles, dict):
@@ -5991,6 +6242,10 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
             "evidence": evidence,
             "recorded_at": now,
         }
+        if refusal_native_host_receipt is not None:
+            failure.update(
+                _native_host_receipt_record_fields(refusal_native_host_receipt)
+            )
         failed_instances[instance_id] = failure
         failed_instance_ids = set(failed_instances)
         consumed_instance_ids = set(consumed_instances)
@@ -6053,6 +6308,13 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
         task["last_evidence"] = (
             f"agent_spawn_failed {wave_id} {role} {instance_id} {error_kind}: {evidence}"
         )
+        if refusal_native_host_receipt is not None:
+            _record_native_host_receipt(
+                task,
+                refusal_native_host_receipt,
+                lifecycle_action="spawn_failed",
+                target_id=instance_id,
+            )
         tasks[args.task_id] = task
         write_tasks(tasks)
         event = make_event(
@@ -6070,6 +6332,15 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
             agent_instance_id=instance_id,
             error_kind=error_kind,
         )
+        if refusal_native_host_receipt is not None:
+            event.update(
+                native_host_action_receipt_id=refusal_native_host_receipt.get(
+                    "receipt_id"
+                ),
+                native_host_action_receipt_sha256=refusal_native_host_receipt.get(
+                    "receipt_sha256"
+                ),
+            )
         append_event(event)
     return {
         "kind": "court_agent_spawn_failed",
@@ -6135,7 +6406,9 @@ def agent_event(
         start_office_kind = "child_agent"
         start_context_economy: dict[str, object] | None = None
         start_hierarchy_evidence: dict[str, object] | None = None
+        start_native_host_receipt: dict[str, object] | None = None
         if lifecycle_action == "agent_start":
+            _reject_native_host_receipt_replay(task, args)
             if agent_id in agents:
                 raise ValueError(f"agent already exists: {agent_id}")
             wave_id = str(getattr(args, "wave_id", "") or "wave-default")
@@ -6373,6 +6646,15 @@ def agent_event(
             wave_blocks = task.get("agent_wave_blocks")
             if isinstance(wave_blocks, dict) and wave_id in wave_blocks:
                 raise ValueError(f"agent start wave is blocked: {wave_id}")
+            start_native_host_receipt = _validate_native_host_receipt_for_runtime(
+                task,
+                admission,
+                matched_binding,
+                args,
+                decision="spawn",
+                host_action="spawn",
+                outcome="succeeded",
+            )
             start_admission = admission
             start_model_route = dict(model_route)
         else:
@@ -6475,6 +6757,11 @@ def agent_event(
                 raise ValueError("ordinary Codex V2 court dispatch requires fork_turns=none for bounded context isolation")
             current.setdefault("started_at", now)
             current.setdefault("host_session_started_at", now)
+            if start_native_host_receipt is not None:
+                current["host_session_started_at"] = start_native_host_receipt["acted_at"]
+                current.update(
+                    _native_host_receipt_record_fields(start_native_host_receipt)
+                )
             dispatch_requested_at = normalize_optional_timestamp(
                 getattr(args, "dispatch_requested_at", None),
                 "dispatch-requested-at",
@@ -6552,6 +6839,13 @@ def agent_event(
                 current["office_identity_evidence"] = "FAILED"
             current["final_status"] = previous_status if previous_status not in {"", "starting", "running"} else "closed"
             current["result"] = args.result
+        if lifecycle_action == "agent_start" and start_native_host_receipt is not None:
+            _record_native_host_receipt(
+                task,
+                start_native_host_receipt,
+                lifecycle_action="start",
+                target_id=agent_id,
+            )
         agents[agent_id] = current
         task["updated_at"] = now
         task["last_evidence"] = f"{lifecycle_action} {agent_id}: {evidence}"
@@ -6895,6 +7189,150 @@ def office_start(args: argparse.Namespace) -> dict[str, object]:
     return _office_transition_payload("start", result, str(args.agent_id))
 
 
+def office_followup(args: argparse.Namespace) -> dict[str, object]:
+    args._production_cli = True
+    _, _, internal_id = _prepare_office_action_args(args)
+    evidence = require_text(args.evidence, "evidence")
+    role = require_text(args.role, "role").strip().lower()
+    with runtime_lock():
+        tasks = load_tasks()
+        task = tasks.get(str(args.task_id))
+        if not isinstance(task, dict):
+            raise ValueError(f"task not found: {args.task_id}")
+        require_semantic_mutation_binding(task)
+        _reject_native_host_receipt_replay(task, args)
+        if args.actor not in OFFICES:
+            raise ValueError(f"unknown actor office: {args.actor}")
+        agents = task.get("agents")
+        record = agents.get(internal_id) if isinstance(agents, dict) else None
+        if not isinstance(record, dict):
+            raise ValueError(f"office instance not found: {args.office_instance_id}")
+        if record.get("role") != role:
+            raise ValueError("office_instance_role_mismatch")
+        if record.get("office_instance_id") != args.office_instance_id:
+            raise ValueError("office_instance_id_mismatch")
+        if record.get("carrier_proof") != args.carrier_proof:
+            raise ValueError("office_carrier_proof_mismatch")
+        _validate_agent_semantic_args(args, record)
+        if (
+            str(record.get("status") or "") in TERMINAL_AGENT_STATUSES
+            or str(record.get("final_status") or "") in TERMINAL_AGENT_STATUSES
+            or record.get("release_status") == "closed"
+        ):
+            raise ValueError("terminal office instance cannot accept followup")
+
+        wave_id = str(record.get("wave_id") or "")
+        admissions = task.get("agent_admissions")
+        admission = admissions.get(wave_id) if isinstance(admissions, dict) else None
+        if not isinstance(admission, dict) or admission.get("allowed") is not True:
+            raise ValueError(f"allowed agent admission not found: {wave_id}")
+        _validate_admission_immutable_event_anchor(task, admission)
+        selected_bindings = admission.get("selected_bindings")
+        if not isinstance(selected_bindings, (list, tuple)):
+            raise ValueError("office followup admission bindings are corrupt")
+        instance_id = str(record.get("admission_instance_id") or "").strip().lower()
+        matched_bindings = [
+            binding
+            for binding in selected_bindings
+            if isinstance(binding, dict)
+            and str(binding.get("instance_id") or "").strip().lower()
+            == instance_id
+        ]
+        if len(matched_bindings) != 1:
+            raise ValueError("office followup requires one admitted instance-id")
+        consumed_instances = admission.get("consumed_instances")
+        if (
+            not isinstance(consumed_instances, dict)
+            or consumed_instances.get(instance_id) != internal_id
+        ):
+            raise ValueError("office followup instance is not live")
+
+        native_host_receipt = _validate_native_host_receipt_for_runtime(
+            task,
+            admission,
+            matched_bindings[0],
+            args,
+            decision="reuse",
+            host_action="followup",
+            outcome="succeeded",
+            record=record,
+        )
+        if native_host_receipt is None:
+            raise ValueError("native_host_action_receipt:required")
+
+        now = now_text()
+        current = dict(record)
+        followups = current.get("native_host_followups")
+        if followups is None:
+            followups = []
+        if not isinstance(followups, list):
+            raise ValueError("native_host_followup_ledger_corrupt")
+        request = native_host_receipt["request"]
+        if not isinstance(request, Mapping):
+            raise ValueError("native_host_action_receipt:embedded_request_required")
+        followups = list(followups)
+        followups.append(
+            {
+                "receipt_id": native_host_receipt.get("receipt_id"),
+                "receipt_sha256": native_host_receipt.get("receipt_sha256"),
+                "request_sha256": native_host_receipt.get("request_sha256"),
+                "result_sha256": native_host_receipt.get("result_sha256"),
+                "assignment": request.get("assignment"),
+                "duty_scope": deepcopy(request.get("duty_scope")),
+                "host_task_id": native_host_receipt.get("host_task_id"),
+                "host_thread_id": native_host_receipt.get("host_thread_id"),
+                "host_instance_id": native_host_receipt.get("host_instance_id"),
+                "host_action_id": native_host_receipt.get("host_action_id"),
+                "acted_at": native_host_receipt.get("acted_at"),
+                "recorded_at": now,
+            }
+        )
+        current["native_host_followups"] = followups
+        current["last_heartbeat"] = now
+        current["last_evidence"] = evidence
+        current["updated_at"] = now
+        _record_native_host_receipt(
+            task,
+            native_host_receipt,
+            lifecycle_action="followup",
+            target_id=internal_id,
+        )
+        agents[internal_id] = current
+        task["updated_at"] = now
+        task["last_evidence"] = f"office_followup {internal_id}: {evidence}"
+        tasks[str(args.task_id)] = task
+        write_tasks(tasks)
+        status = str(current.get("status") or "running")
+        event = make_event(
+            task,
+            "office_followup",
+            status,
+            status,
+            args.actor,
+            evidence,
+            args.note,
+        )
+        event.update(
+            agent_id=internal_id,
+            agent_role=role,
+            office_instance_id=current.get("office_instance_id"),
+            native_host_action_receipt_id=native_host_receipt.get("receipt_id"),
+            native_host_action_receipt_sha256=native_host_receipt.get(
+                "receipt_sha256"
+            ),
+        )
+        event["event_id"] = _office_event_id(
+            event,
+            str(current.get("office_instance_id") or internal_id),
+        )
+        append_event(event)
+    return _office_transition_payload(
+        "followup",
+        TransitionResult(task, event),
+        internal_id,
+    )
+
+
 def office_preload_ack(args: argparse.Namespace) -> dict[str, object]:
     _, _, internal_id = _prepare_office_action_args(args)
     result = agent_preload_ack(args)
@@ -7113,7 +7551,7 @@ def probe_payload() -> dict[str, Any]:
             "pause",
             "resume",
             "cancel",
-            "office admit|start|preload-ack|report|finish|close",
+            "office admit|start|followup|preload-ack|report|finish|close",
             "agent-admit",
             "agent-spawn",
             "agent-start",
@@ -7738,6 +8176,7 @@ def office_cli_payload(command: str, value: object) -> dict[str, object]:
 OFFICE_CLI_COMMANDS = (
     "admit",
     "start",
+    "followup",
     "preload-ack",
     "report",
     "finish",
@@ -8402,6 +8841,11 @@ def build_parser() -> argparse.ArgumentParser:
         agent_start_parser.add_argument("--context-tokens", type=int, default=0)
         agent_start_parser.add_argument("--deadline-seconds", type=int, default=AGENT_DEFAULT_DEADLINE_SECONDS)
         agent_start_parser.add_argument("--tool-call-budget", type=int, default=AGENT_DEFAULT_TOOL_CALL_BUDGET)
+        agent_start_parser.add_argument(
+            "--native-host-action-receipt-json",
+            dest="native_host_action_receipt",
+            type=json_object_argument,
+        )
         agent_start_parser.add_argument("--actor", default="shangshu", choices=sorted(OFFICES))
         agent_start_parser.add_argument("--evidence", required=True)
         agent_start_parser.add_argument("--note", default="")
@@ -8511,6 +8955,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["capacity", "retryable", "unknown"],
     )
     agent_spawn_failed_parser.add_argument("--result", required=True)
+    agent_spawn_failed_parser.add_argument(
+        "--native-host-action-receipt-json",
+        dest="native_host_action_receipt",
+        type=json_object_argument,
+    )
     agent_spawn_failed_parser.add_argument("--actor", default="shangshu", choices=sorted(OFFICES))
     agent_spawn_failed_parser.add_argument("--evidence", required=True)
     agent_spawn_failed_parser.add_argument("--note", default="")
@@ -8685,6 +9134,7 @@ def main(argv: list[str] | None = None) -> int:
             office_handlers = {
                 "admit": office_admit,
                 "start": office_start,
+                "followup": office_followup,
                 "preload-ack": office_preload_ack,
                 "report": office_report,
                 "finish": office_finish,
@@ -8718,6 +9168,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "agent-reconcile":
             output(agent_reconcile(args), args.format)
         elif args.command == "agent-spawn-failed":
+            args._production_cli = True
             output(agent_spawn_failed(args), args.format)
         elif args.command == "agents":
             output(list_agents_payload(args), args.format)

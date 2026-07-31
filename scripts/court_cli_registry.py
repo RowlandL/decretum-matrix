@@ -87,7 +87,15 @@ COURT_RUNTIME_HINTS = (
     "semantic-context-validate",
     "status",
 )
-OFFICE_RUNTIME_COMMANDS = ("admit", "start", "preload-ack", "report", "finish", "close")
+OFFICE_RUNTIME_COMMANDS = (
+    "admit",
+    "start",
+    "followup",
+    "preload-ack",
+    "report",
+    "finish",
+    "close",
+)
 FORBIDDEN_EAGER_MODULES = (
     "court_runtime",
     "court_model_router",

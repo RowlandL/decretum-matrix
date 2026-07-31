@@ -132,7 +132,7 @@ but the current task operation remains authoritative.
 
 `child_agent` and `worktree_thread` are transport carriers for one office
 instance state machine, not separate authorities. Both use
-`office admit|start|preload-ack|report|finish|close`, the same RC2 current
+`office admit|start|followup|preload-ack|report|finish|close`, the same RC2 current
 semantic binding, the same structured result/quarantine rules, and the same
 `task["agents"]` lifecycle ledger. Existing `agent-*` commands are
 `child_agent` compatibility aliases.

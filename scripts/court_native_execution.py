@@ -29,7 +29,7 @@ class NativeExecution:
             "behavior": self.behavior,
             "runtime": "native",
             "entry_path": "court",
-            "transport": "spawned_subagent" if self.behavior == "parallel" else "inline_serial",
+            "transport": "host_dispatch_pending" if self.behavior == "parallel" else "inline_serial",
             "state_namespace": "court.native.task",
             "office_config": dict(self.office_config),
         }
