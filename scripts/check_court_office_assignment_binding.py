@@ -425,17 +425,29 @@ def check_child_office_profile_builder() -> None:
 def check_governing_references() -> None:
     dispatch = DISPATCH_REFERENCE.read_text(encoding="utf-8")
     binding = BINDING_REFERENCE.read_text(encoding="utf-8")
+    normalized_binding = " ".join(binding.split())
     assert dispatch.count(EXACT_BINDING_LINK) == 1
     assert EXACT_TASK_NAME_STATEMENT in dispatch
-    assert "An office is\nexecution-ready only when three independent proofs all pass" in binding
+    assert (
+        "execution-ready when the assignment identity, direct superior, scope, "
+        "and host delivery evidence all match the same task."
+        in normalized_binding
+    )
     assert "| `patrol-inspector` | `PatrolInspector` | `patrol_inspector` | `patrol-inspector` |" in binding
     assert "`GongBu-GongJiang`" in binding
     assert "declarative TOML" in binding
-    assert "required_skill_bindings[]" in binding
-    assert "ordinary\n`super并行`" in binding
+    assert "required_skill_names?" in binding
+    assert "ordinary `super并行`, `superCC`, and supported Hermes transports." in normalized_binding
     assert "`legacy_false_ready`" in binding
-    assert "`stale_profile_or_skill`" in binding
-    assert "(`prelock`)" in binding and "(`inlock`)" in binding
+    assert "`context_drift`" in binding
+    assert "`office_assignment_accepted=true`" in binding
+    assert "`host_delivery_missing`" in binding
+    assert "fails closed before task/event bytes change." in normalized_binding
+    assert (
+        "Reconfirm role, direct superior, scope, and expected result immediately "
+        "before mutation or final acceptance."
+        in normalized_binding
+    )
 
 
 def run_office_assignment_binding_checks() -> None:

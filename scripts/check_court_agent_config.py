@@ -31,6 +31,7 @@ from check_codex_agent_roles import validate_codex_multi_agent_config
 from check_catalog import check_codex_config
 from agent_runtime_probe import (
     config_agent_summary,
+    effective_config_agent_summary,
     native_config_read_summary,
     parse_codex_wrapper_target,
     probe,
@@ -859,6 +860,80 @@ max_threads = 16
         assert config_probe["spawn_agent_metadata_hidden"] is True
         assert config_probe["reserved_spawn_schema_compatible"] is True
         assert config_probe["deprecated_disable_response_storage_present"] is False
+
+        codex_home = Path(temp_dir) / "home" / ".codex"
+        codex_home.mkdir(parents=True)
+        (codex_home / "config.toml").write_text(fixed_text, encoding="utf-8")
+        (codex_home / "managed_config.toml").write_text("", encoding="utf-8")
+        effective_probe = effective_config_agent_summary(codex_home)
+        assert effective_probe["effective_config_source"] == "config.toml"
+        assert effective_probe["selected_protocol"] == "v2"
+        assert effective_probe["multi_agent_v2_enabled"] is True
+        assert effective_probe["reserved_spawn_schema_compatible"] is True
+        assert effective_probe["managed_overlay"]["used"] is False
+        assert effective_probe["managed_overlay"]["reason"] == "empty_overlay"
+        role_config_probe = validate_codex_multi_agent_config(
+            codex_home / "config.toml",
+            codex_home / "managed_config.toml",
+        )
+        assert role_config_probe["selected_protocol"] == "v2"
+        assert role_config_probe["multi_agent_v2_enabled"] is True
+
+        for managed_text, expected_reason in (
+            ("[ui]\ntheme = 'dark'\n", "no_protocol_material"),
+            ("[agents]\nmax_depth = 4\n", "no_protocol_material"),
+        ):
+            (codex_home / "config.toml").write_text(fixed_text, encoding="utf-8")
+            (codex_home / "managed_config.toml").write_text(managed_text, encoding="utf-8")
+            effective_probe = effective_config_agent_summary(codex_home)
+            assert effective_probe["effective_config_source"] == "config.toml"
+            assert effective_probe["selected_protocol"] == "v2"
+            assert effective_probe["managed_overlay"]["used"] is False
+            assert effective_probe["managed_overlay"]["reason"] == expected_reason
+            role_config_probe = validate_codex_multi_agent_config(
+                codex_home / "config.toml",
+                codex_home / "managed_config.toml",
+            )
+            assert role_config_probe["selected_protocol"] == "v2"
+            assert role_config_probe["multi_agent_v2_enabled"] is True
+
+        (codex_home / "managed_config.toml").write_text("[features.multi_agent_v2\n", encoding="utf-8")
+        malformed_overlay = effective_config_agent_summary(codex_home)
+        assert malformed_overlay["effective_config_source"] == "managed_config.toml"
+        assert malformed_overlay["managed_overlay"]["used"] is True
+        assert malformed_overlay["managed_overlay"]["reason"] == "nonempty_parse_failure"
+
+        (codex_home / "config.toml").write_text(fixed_text, encoding="utf-8")
+        (codex_home / "managed_config.toml").write_text("", encoding="utf-8")
+        previous_codex_home_for_probe = os.environ.get("CODEX_HOME")
+        try:
+            os.environ["CODEX_HOME"] = str(codex_home)
+            payload = probe()
+        finally:
+            if previous_codex_home_for_probe is None:
+                os.environ.pop("CODEX_HOME", None)
+            else:
+                os.environ["CODEX_HOME"] = previous_codex_home_for_probe
+        assert payload["config"]["effective_config_source"] == "config.toml"
+        assert payload["config"]["selected_protocol"] == "v2"
+        assert payload["subagent_host"]["host_native_probe_status"] == "config_preferred"
+
+        (codex_home / "config.toml").write_text("", encoding="utf-8")
+        (codex_home / "managed_config.toml").write_text("", encoding="utf-8")
+        previous_codex_home_for_probe = os.environ.get("CODEX_HOME")
+        try:
+            os.environ["CODEX_HOME"] = str(codex_home)
+            diagnostic_payload = probe()
+        finally:
+            if previous_codex_home_for_probe is None:
+                os.environ.pop("CODEX_HOME", None)
+            else:
+                os.environ["CODEX_HOME"] = previous_codex_home_for_probe
+        assert diagnostic_payload["subagent_host"]["host_native_probe_status"] == "verify_with_minimal_host_action"
+        assert any(
+            "minimal host spawn/reuse" in notice
+            for notice in diagnostic_payload["config_notices"]
+        )
 
         scoped_text = """# [agents]
 [other]

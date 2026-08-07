@@ -84,6 +84,9 @@ def evaluate() -> dict[str, Any]:
             ),
             encoding="utf-8",
         )
+        archive_sha_before = __import__("hashlib").sha256(
+            archive_path.read_bytes()
+        ).hexdigest()
         rebuilt = parse_archive(archive_path)
         classified_parts = content_lineage_parts(
             {
@@ -119,6 +122,9 @@ def evaluate() -> dict[str, Any]:
             ),
             encoding="utf-8",
         )
+        classified_sha_before = __import__("hashlib").sha256(
+            classified_path.read_bytes()
+        ).hexdigest()
         rebuilt_classified = parse_archive(classified_path)
         mismatch_path = Path(temp_dir) / "archive-20260103-mismatch.md"
         mismatch_path.write_text(
@@ -141,12 +147,24 @@ def evaluate() -> dict[str, Any]:
             ),
             encoding="utf-8",
         )
+        mismatch_sha_before = __import__("hashlib").sha256(
+            mismatch_path.read_bytes()
+        ).hexdigest()
         try:
             parse_archive(mismatch_path)
         except ValueError as exc:
             mismatch_rejected = str(exc) == "stored_lineage_evidence_mismatch"
         else:
             mismatch_rejected = False
+        archive_sha_after = __import__("hashlib").sha256(
+            archive_path.read_bytes()
+        ).hexdigest()
+        classified_sha_after = __import__("hashlib").sha256(
+            classified_path.read_bytes()
+        ).hexdigest()
+        mismatch_sha_after = __import__("hashlib").sha256(
+            mismatch_path.read_bytes()
+        ).hexdigest()
     if len(rebuilt) != 1:
         raise ValueError(f"synthetic_archive_entry_count_invalid:{len(rebuilt)}")
     rebuilt_entry = rebuilt[0]
@@ -171,6 +189,102 @@ def evaluate() -> dict[str, Any]:
         failures.append("classified_court_code_not_round_tripped")
     if not mismatch_rejected:
         failures.append("conflicting_stored_lineage_not_rejected")
+    roundtrip_zero_byte_unchanged = archive_sha_before == archive_sha_after
+    classified_zero_byte_unchanged = classified_sha_before == classified_sha_after
+    mismatch_zero_byte_unchanged = mismatch_sha_before == mismatch_sha_after
+    if not roundtrip_zero_byte_unchanged:
+        failures.append("rebuild_implicit_reclassification")
+    if not mismatch_zero_byte_unchanged:
+        failures.append("stored_lineage_evidence_mismatch")
+
+    # Q1 / R-07: tidy maintenance path must not implicitly reclassify stored
+    # lineage (negative gate, semantic domain rebuild_implicit_reclassification).
+    import hashlib
+    import re
+    from tidy_shiguan_records import tidy_archive
+
+    tidy_parts = content_lineage_parts(
+        {
+            "topic": "史馆实录索引与生长树",
+            "summary": "史馆 archive index keyword",
+        }
+    )
+    tidy_display = content_lineage_display(tidy_parts)
+    tidy_code = "STIDY2601-20260101-3-DSSS"
+    with tempfile.TemporaryDirectory() as tidy_temp_dir:
+        tidy_path = Path(tidy_temp_dir) / "archive-20260101-tidy.md"
+        tidy_path.write_text(
+            "\n".join(
+                [
+                    "# Archive: tidy stored lineage",
+                    "",
+                    "## Checkpoint: Done",
+                    "- time: 2026-01-01T00:00:00+00:00",
+                    "- status: DONE",
+                    "- summary: stored lineage round trip",
+                    "- evidence: synthetic public fixture",
+                    "- next: none",
+                    "- memory_decision: SKIP",
+                    "- memory_content: none",
+                    "- memory_reason: tidy compatibility probe",
+                    f"- court_code: {tidy_code}",
+                    f"- ancient_lineage: {tidy_display}",
+                    "- lineage_parts_json: "
+                    + lineage_parts_archive_json(
+                        {"lineage_parts": tidy_parts}
+                    ),
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        tidy_sha_before = hashlib.sha256(tidy_path.read_bytes()).hexdigest()
+        rendered, _tidy_changes = tidy_archive(tidy_path)
+        tidy_sha_after = hashlib.sha256(tidy_path.read_bytes()).hexdigest()
+    tidy_zero_byte_unchanged = tidy_sha_before == tidy_sha_after
+    if rendered is not None:
+        from rebuild_shiguan_index import parse_fields
+
+        rendered_fields = parse_fields(
+            re.split(r"(?m)^## Checkpoint:\s*", rendered)[1].partition("\n")[2]
+        )
+        stored_lineage_rewrite = (
+            rendered_fields.get("court_code", tidy_code) != tidy_code
+            or rendered_fields.get("ancient_lineage", tidy_display) != tidy_display
+            or rendered_fields.get(
+                "lineage_parts_json",
+                lineage_parts_archive_json({"lineage_parts": tidy_parts}),
+            )
+            != lineage_parts_archive_json({"lineage_parts": tidy_parts})
+        )
+        if stored_lineage_rewrite:
+            failures.append("tidy_implicit_reclassification")
+
+    # Q2 / R-08: normalization/classification products must not grant
+    # execution authority; _task_frozen_lineage must fail closed with zero
+    # mutation before the raise.
+    from copy import deepcopy
+    from court_runtime import _task_frozen_lineage
+
+    normalization_execution_refused = True
+    for probe_parts in (classified_parts, stored_parts):
+        probe_task: dict[str, object] = {
+            "lineage_parts": dict(probe_parts),
+            "lineage_key": "normalized/classification/product",
+            "lineage_display": content_lineage_display(probe_parts),
+            "lineage_version": 2,
+        }
+        probe_snapshot = deepcopy(probe_task)
+        try:
+            _task_frozen_lineage(probe_task)
+        except ValueError as exc:
+            raised = str(exc) == "office_frozen_lineage_missing"
+        else:
+            raised = False
+        if not raised or probe_task != probe_snapshot:
+            normalization_execution_refused = False
+    if not normalization_execution_refused:
+        failures.append("normalization_granted_execution_authority")
 
     failures = list(dict.fromkeys(failures))
     return {
@@ -195,6 +309,14 @@ def evaluate() -> dict[str, Any]:
             ),
             "conflicting_stored_lineage_rejected": mismatch_rejected,
             "fixture_kind": "synthetic_temp_archive",
+            "zero_byte_unchanged_roundtrip_archive": roundtrip_zero_byte_unchanged,
+            "zero_byte_unchanged_classified_archive": classified_zero_byte_unchanged,
+            "zero_byte_unchanged_mismatch_archive": mismatch_zero_byte_unchanged,
+            "zero_byte_unchanged_tidy_fixture": tidy_zero_byte_unchanged,
+            "tidy_implicit_reclassification_rejected": (
+                "tidy_implicit_reclassification" not in failures
+            ),
+            "normalization_execution_authority_refused": normalization_execution_refused,
         },
         "failures": failures,
     }

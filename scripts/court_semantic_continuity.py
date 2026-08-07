@@ -12,6 +12,8 @@ INVARIANT_CAPSULE_SCHEMA = "court.semantic.invariant_capsule.v1"
 INVARIANT_CAPSULE_MAX_BYTES = 2048
 SEMANTIC_RECEIPT_SCHEMA = "court.semantic.receipt.v1"
 OFFICE_RESULT_SCHEMA = "court.office.result.v1"
+RESULT_RECOVERY_PROJECTION_SCHEMA = "court.office.recovered_result_projection.v1"
+RESULT_RECOVERY_BINDING_SCHEMA = "court.office.result_recovery_binding.v1"
 DISPATCH_CONTEXT_PACKET_SCHEMA = "court.semantic.dispatch_context_packet.v1"
 DISPATCH_CONTEXT_PACKET_MAX_BYTES = 2048
 SEMANTIC_CONTEXT_FIELDS = (
@@ -819,6 +821,43 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
     envelope = dict(value)
     if envelope.get("schema") != OFFICE_RESULT_SCHEMA:
         raise ValueError("invalid_result_envelope_schema")
+    allowed_fields = {
+        "schema",
+        "task_id",
+        "semantic_epoch",
+        "charter_sha256",
+        "invariant_capsule_sha256",
+        "checkpoint_id",
+        "dispatch_uid",
+        "attempt",
+        "office_instance_id",
+        "office_instance_kind",
+        "carrier_proof",
+        "agent_id",
+        "role",
+        "direct_superior",
+        "worktree",
+        "write_set_sha256",
+        "status",
+        "summary",
+        "evidence",
+        "produced_at",
+        "recovery_input_ids",
+    }
+    private_fields = {
+        field
+        for field in envelope
+        if field in {
+            "raw", "raw_body", "body", "result", "raw_result", "log", "transcript",
+            "prompt", "private", "private_body", "pending", "source_envelope",
+            "secret", "credential", "token", "password",
+        }
+    }
+    if private_fields:
+        raise ValueError("result_envelope_private_field")
+    unknown_fields = set(envelope) - allowed_fields
+    if unknown_fields:
+        raise ValueError("result_envelope_unknown_field")
     text_fields = (
         "task_id",
         "charter_sha256",
@@ -855,7 +894,741 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
         not isinstance(item, str) or not item.strip() for item in evidence
     ):
         raise ValueError("invalid_result_envelope_field:evidence")
+    if len(set(evidence)) != len(evidence):
+        raise ValueError("result_envelope_duplicate_evidence")
+    if "office_instance_kind" in envelope:
+        kind = envelope["office_instance_kind"]
+        if kind not in {"child_agent", "worktree_thread"}:
+            raise ValueError("result_envelope_invalid_office_instance_kind")
+        proof = envelope.get("carrier_proof")
+        if not isinstance(proof, dict):
+            raise ValueError("result_envelope_carrier_proof_required")
+        if kind == "child_agent":
+            if set(proof) != {"agent_id"} or not isinstance(
+                proof.get("agent_id"), str
+            ) or not proof["agent_id"].strip():
+                raise ValueError("result_envelope_unknown_nested_field")
+        else:
+            expected = {
+                "thread_id",
+                "canonical_worktree_id",
+                "canonical_worktree_path",
+                "repo_id",
+                "common_dir_fingerprint",
+                "worktree_fingerprint",
+                "branch",
+                "start_head",
+            }
+            if set(proof) != expected or any(
+                not isinstance(proof.get(field), str) or not proof[field].strip()
+                for field in expected
+            ):
+                raise ValueError("result_envelope_unknown_nested_field")
+    elif "carrier_proof" in envelope:
+        raise ValueError("result_envelope_carrier_proof_required")
+    if "recovery_input_ids" in envelope:
+        recovery_ids = envelope["recovery_input_ids"]
+        if not isinstance(recovery_ids, list) or any(
+            not isinstance(item, str) or not item.strip() for item in recovery_ids
+        ):
+            raise ValueError("result_envelope_nested_field_forbidden")
+        if len(set(recovery_ids)) != len(recovery_ids):
+            raise ValueError("result_envelope_duplicate_recovery_id")
     return envelope
+
+
+def _string_schema(*, const: str | None = None) -> dict[str, object]:
+    value: dict[str, object] = {"type": "string", "minLength": 1}
+    if const is not None:
+        value["const"] = const
+    return value
+
+
+def _digest_schema() -> dict[str, object]:
+    return {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+
+
+def _positive_integer_schema() -> dict[str, object]:
+    return {"type": "integer", "minimum": 1}
+
+
+def _unique_string_array_schema() -> dict[str, object]:
+    return {
+        "type": "array",
+        "uniqueItems": True,
+        "items": {"type": "string", "minLength": 1},
+    }
+
+
+def office_result_envelope_json_schema() -> dict[str, object]:
+    carrier_child = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["agent_id"],
+        "properties": {"agent_id": _string_schema()},
+    }
+    carrier_worktree_fields = {
+        "thread_id",
+        "canonical_worktree_id",
+        "canonical_worktree_path",
+        "repo_id",
+        "common_dir_fingerprint",
+        "worktree_fingerprint",
+        "branch",
+        "start_head",
+    }
+    carrier_worktree = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": sorted(carrier_worktree_fields),
+        "properties": {field: _string_schema() for field in carrier_worktree_fields},
+    }
+    required = {
+        "schema",
+        "task_id",
+        "semantic_epoch",
+        "charter_sha256",
+        "invariant_capsule_sha256",
+        "checkpoint_id",
+        "dispatch_uid",
+        "attempt",
+        "office_instance_id",
+        "agent_id",
+        "role",
+        "direct_superior",
+        "worktree",
+        "write_set_sha256",
+        "status",
+        "summary",
+        "evidence",
+        "produced_at",
+    }
+    optional = {"office_instance_kind", "carrier_proof", "recovery_input_ids"}
+    properties: dict[str, object] = {
+        "schema": _string_schema(const=OFFICE_RESULT_SCHEMA),
+        "task_id": _string_schema(),
+        "semantic_epoch": _positive_integer_schema(),
+        "charter_sha256": _digest_schema(),
+        "invariant_capsule_sha256": _digest_schema(),
+        "checkpoint_id": _string_schema(),
+        "dispatch_uid": _string_schema(),
+        "attempt": _positive_integer_schema(),
+        "office_instance_id": _string_schema(),
+        "office_instance_kind": {
+            "type": "string",
+            "enum": ["child_agent", "worktree_thread"],
+        },
+        "carrier_proof": {"oneOf": [carrier_child, carrier_worktree]},
+        "agent_id": _string_schema(),
+        "role": _string_schema(),
+        "direct_superior": _string_schema(),
+        "worktree": _string_schema(),
+        "write_set_sha256": _digest_schema(),
+        "status": {"type": "string", "enum": ["completed", "failed", "cancelled"]},
+        "summary": _string_schema(),
+        "evidence": _unique_string_array_schema(),
+        "produced_at": _string_schema(),
+        "recovery_input_ids": _unique_string_array_schema(),
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": sorted(required),
+        "properties": properties,
+    }
+
+
+def result_quarantine_core_json_schema() -> dict[str, object]:
+    required = {
+        "schema", "quarantine_id", "payload_sha256", "task_id", "semantic_epoch",
+        "charter_sha256", "invariant_capsule_sha256", "checkpoint_id", "dispatch_uid",
+        "attempt", "office_instance_id", "office_instance_kind", "carrier_proof_sha256",
+        "agent_id", "role", "direct_superior", "worktree", "write_set_sha256",
+        "source_status", "source_final_status", "source_release_status",
+        "source_result_state", "failure_kind", "reason_codes", "received_at",
+        "quarantine_event_id", "core_sha256",
+    }
+    properties: dict[str, object] = {field: _string_schema() for field in required}
+    properties.update(
+        {
+            "schema": _string_schema(const="court.office.result_quarantine.v2"),
+            "semantic_epoch": _positive_integer_schema(),
+            "attempt": _positive_integer_schema(),
+            "payload_sha256": _digest_schema(),
+            "charter_sha256": _digest_schema(),
+            "invariant_capsule_sha256": _digest_schema(),
+            "carrier_proof_sha256": _digest_schema(),
+            "write_set_sha256": _digest_schema(),
+            "core_sha256": _digest_schema(),
+            "source_status": _string_schema(const="failed"),
+            "source_final_status": _string_schema(const="failed"),
+            "source_release_status": _string_schema(const="closed"),
+            "source_result_state": _string_schema(const="QUARANTINED"),
+            "failure_kind": _string_schema(const="result_binding_quarantine"),
+            "reason_codes": _unique_string_array_schema(),
+        }
+    )
+    return {"type": "object", "additionalProperties": False, "required": sorted(required), "properties": properties}
+
+
+def result_recovery_head_json_schema() -> dict[str, object]:
+    required = {
+        "schema", "recovery_id", "quarantine_id", "revision", "state",
+        "previous_head_sha256", "projection_sha256", "target_binding_sha256",
+        "review_receipt_sha256", "handoff_receipt_sha256", "consume_receipt_sha256",
+        "operation_id", "event_id", "created_at", "head_sha256",
+    }
+    properties: dict[str, object] = {field: _string_schema() for field in required}
+    properties.update(
+        {
+            "schema": _string_schema(const="court.office.result_recovery_head.v1"),
+            "revision": _positive_integer_schema(),
+            "state": {
+                "type": "string",
+                "enum": ["REVIEW_PENDING", "READY_FOR_HANDOFF", "REJECTED", "HANDED_OFF", "CONSUMED"],
+            },
+        }
+    )
+    for field in (
+        "previous_head_sha256", "projection_sha256", "target_binding_sha256",
+        "review_receipt_sha256", "handoff_receipt_sha256", "consume_receipt_sha256", "head_sha256",
+    ):
+        properties[field] = _digest_schema()
+    return {"type": "object", "additionalProperties": False, "required": sorted(required), "properties": properties}
+
+
+def _result_recovery_receipt_schema(schema_name: str, fields: set[str]) -> dict[str, object]:
+    properties: dict[str, object] = {field: _string_schema() for field in fields}
+    properties.update(
+        {
+            "schema": _string_schema(const=schema_name),
+            "task_revision": _positive_integer_schema(),
+            "recovery_revision": _positive_integer_schema(),
+            "reason_codes": _unique_string_array_schema(),
+        }
+    )
+    for field in (
+        "quarantine_core_sha256", "previous_head_sha256", "projection_sha256",
+        "review_receipt_sha256", "handoff_receipt_sha256", "target_binding_sha256",
+        "native_host_request_sha256", "native_host_action_receipt_sha256",
+        "evidence_sha256", "receipt_sha256", "target_result_envelope_sha256",
+    ):
+        if field in fields:
+            properties[field] = _digest_schema()
+    return {"type": "object", "additionalProperties": False, "required": sorted(fields), "properties": properties}
+
+
+def result_recovery_review_receipt_json_schema() -> dict[str, object]:
+    return _result_recovery_receipt_schema(
+        "court.office.result_recovery_review_receipt.v1",
+        {
+            "schema", "receipt_id", "operation_id", "task_id", "task_revision",
+            "quarantine_id", "quarantine_core_sha256", "recovery_id", "recovery_revision",
+            "previous_head_sha256", "decision", "reason_codes", "evidence_pointer",
+            "evidence_sha256", "projection_sha256", "actor", "reviewed_at", "event_id", "receipt_sha256",
+        },
+    )
+
+
+def result_recovery_handoff_receipt_json_schema() -> dict[str, object]:
+    return _result_recovery_receipt_schema(
+        "court.office.result_recovery_handoff_receipt.v1",
+        {
+            "schema", "receipt_id", "operation_id", "task_id", "task_revision", "quarantine_id",
+            "recovery_id", "recovery_revision", "previous_head_sha256", "review_receipt_sha256",
+            "target_binding_sha256", "native_host_request_sha256", "native_host_action_receipt_id",
+            "native_host_action_receipt_sha256", "reason_codes", "evidence_pointer", "evidence_sha256",
+            "actor", "handed_off_at", "event_id", "receipt_sha256",
+        },
+    )
+
+
+def result_recovery_consume_receipt_json_schema() -> dict[str, object]:
+    return _result_recovery_receipt_schema(
+        "court.office.result_recovery_consume_receipt.v1",
+        {
+            "schema", "receipt_id", "operation_id", "task_id", "task_revision", "quarantine_id",
+            "recovery_id", "recovery_revision", "previous_head_sha256", "handoff_receipt_sha256",
+            "target_binding_sha256", "target_result_envelope_sha256", "target_finish_event_id",
+            "reason_codes", "evidence_pointer", "evidence_sha256", "actor", "consumed_at", "event_id", "receipt_sha256",
+        },
+    )
+
+
+def result_recovery_projection_json_schema() -> dict[str, object]:
+    """Closed, metadata-only projection used after Menxia review.
+
+    The projection deliberately keeps the bounded result envelope shape and
+    adds only recovery identifiers and digests.  It never carries the source
+    envelope, transcript, prompt, or other raw/private material.
+    """
+    required = {
+        "schema", "recovery_id", "quarantine_id", "source_payload_sha256",
+        "task_id", "semantic_epoch", "charter_sha256", "invariant_capsule_sha256",
+        "checkpoint_id", "dispatch_uid", "attempt", "office_instance_id",
+        "office_instance_kind", "carrier_proof_sha256", "agent_id", "role",
+        "direct_superior", "worktree", "write_set_sha256", "status", "summary",
+        "evidence", "produced_at", "projection_sha256",
+    }
+    properties: dict[str, object] = {field: _string_schema() for field in required}
+    properties.update(
+        {
+            "schema": _string_schema(const=RESULT_RECOVERY_PROJECTION_SCHEMA),
+            "semantic_epoch": _positive_integer_schema(),
+            "attempt": _positive_integer_schema(),
+            "evidence": _unique_string_array_schema(),
+            "projection_sha256": _digest_schema(),
+        }
+    )
+    for field in (
+        "source_payload_sha256", "charter_sha256", "invariant_capsule_sha256",
+        "carrier_proof_sha256", "write_set_sha256",
+    ):
+        properties[field] = _digest_schema()
+    properties["office_instance_kind"] = {
+        "type": "string",
+        "enum": ["child_agent", "worktree_thread"],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": sorted(required),
+        "properties": properties,
+    }
+
+
+def result_recovery_binding_json_schema() -> dict[str, object]:
+    required = {
+        "schema", "recovery_id", "quarantine_id", "quarantine_core_sha256",
+        "recovery_head_sha256", "projection_sha256", "review_receipt_sha256",
+        "target_binding_sha256",
+    }
+    properties: dict[str, object] = {field: _string_schema() for field in required}
+    properties["schema"] = _string_schema(const=RESULT_RECOVERY_BINDING_SCHEMA)
+    for field in (
+        "quarantine_core_sha256", "recovery_head_sha256", "projection_sha256",
+        "review_receipt_sha256", "target_binding_sha256",
+    ):
+        properties[field] = _digest_schema()
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": sorted(required),
+        "properties": properties,
+    }
+
+
+_RESULT_PRIVATE_KEY_TOKENS = frozenset(
+    {
+        "raw", "raw_body", "body", "prompt", "transcript", "private",
+        "private_body", "pending", "secret", "credential", "token", "password",
+    }
+)
+
+
+def _result_private_nested(value: object) -> bool:
+    """Reject private/pending keys recursively without persisting their body."""
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            normalized = str(key).strip().casefold()
+            if normalized in _RESULT_PRIVATE_KEY_TOKENS:
+                return True
+            if _result_private_nested(child):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_result_private_nested(child) for child in value)
+    return False
+
+
+def _bounded_evidence_pointers(value: object) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError("result_recovery_projection_evidence_invalid")
+    if len(value) > 8:
+        raise ValueError("result_recovery_projection_evidence_invalid")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("result_recovery_projection_evidence_invalid")
+        text = item.strip()
+        if len(text.encode("utf-8")) > 512 or any(char in text for char in "\x00\r\n"):
+            raise ValueError("result_recovery_projection_evidence_invalid")
+        lowered = text.casefold()
+        if any(token in lowered for token in ("pending/", "/pending/", "private/", "/private/")):
+            raise ValueError("result_recovery_privacy_gate_failed")
+        result.append(text)
+    if len(set(result)) != len(result):
+        raise ValueError("result_recovery_projection_evidence_invalid")
+    return result
+
+
+def build_result_recovery_projection(
+    *,
+    source_result: Mapping[str, object],
+    recovery_id: str,
+    quarantine_id: str,
+) -> dict[str, object]:
+    envelope = normalize_result_envelope(dict(source_result))
+    kind = envelope.get("office_instance_kind")
+    if kind not in {"child_agent", "worktree_thread"}:
+        raise ValueError("result_recovery_projection_kind_required")
+    if _result_private_nested(source_result):
+        raise ValueError("result_recovery_privacy_gate_failed")
+    if not isinstance(recovery_id, str) or not recovery_id.strip():
+        raise ValueError("result_recovery_projection_identity_required")
+    if not isinstance(quarantine_id, str) or not quarantine_id.strip():
+        raise ValueError("result_recovery_projection_identity_required")
+    summary = str(envelope["summary"])
+    if len(summary.encode("utf-8")) > 2048 or any(char in summary for char in "\x00\r\n"):
+        raise ValueError("result_recovery_privacy_gate_failed")
+    projection: dict[str, object] = {
+        "schema": RESULT_RECOVERY_PROJECTION_SCHEMA,
+        "recovery_id": recovery_id.strip(),
+        "quarantine_id": quarantine_id.strip(),
+        "source_payload_sha256": source_result_payload_sha256(envelope),
+        "task_id": envelope["task_id"],
+        "semantic_epoch": envelope["semantic_epoch"],
+        "charter_sha256": envelope["charter_sha256"],
+        "invariant_capsule_sha256": envelope["invariant_capsule_sha256"],
+        "checkpoint_id": envelope["checkpoint_id"],
+        "dispatch_uid": envelope["dispatch_uid"],
+        "attempt": envelope["attempt"],
+        "office_instance_id": envelope["office_instance_id"],
+        "office_instance_kind": kind,
+        "carrier_proof_sha256": canonical_json_sha256(envelope.get("carrier_proof", {})),
+        "agent_id": envelope["agent_id"],
+        "role": envelope["role"],
+        "direct_superior": envelope["direct_superior"],
+        "worktree": envelope["worktree"],
+        "write_set_sha256": envelope["write_set_sha256"],
+        "status": envelope["status"],
+        "summary": summary,
+        "evidence": _bounded_evidence_pointers(envelope["evidence"]),
+        "produced_at": envelope["produced_at"],
+    }
+    projection["projection_sha256"] = canonical_json_sha256(projection)
+    return projection
+
+
+def validate_result_recovery_projection(
+    value: object,
+    *,
+    expected_core: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("result_recovery_projection_required")
+    required = set(result_recovery_projection_json_schema()["required"])
+    if set(value) != required or value.get("schema") != RESULT_RECOVERY_PROJECTION_SCHEMA:
+        raise ValueError("result_recovery_projection_schema_mismatch")
+    for field in (
+        "source_payload_sha256", "charter_sha256", "invariant_capsule_sha256",
+        "carrier_proof_sha256", "write_set_sha256", "projection_sha256",
+    ):
+        _canonical_digest(value.get(field), field)
+    for field in ("semantic_epoch", "attempt"):
+        raw = value.get(field)
+        if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
+            raise ValueError("result_recovery_projection_schema_mismatch")
+    if value.get("office_instance_kind") not in {"child_agent", "worktree_thread"}:
+        raise ValueError("result_recovery_projection_schema_mismatch")
+    summary = value.get("summary")
+    if not isinstance(summary, str) or len(summary.encode("utf-8")) > 2048 or any(
+        char in summary for char in "\x00\r\n"
+    ):
+        raise ValueError("result_recovery_privacy_gate_failed")
+    _bounded_evidence_pointers(value.get("evidence"))
+    if canonical_json_sha256({key: item for key, item in value.items() if key != "projection_sha256"}) != value.get("projection_sha256"):
+        raise ValueError("result_recovery_projection_digest_mismatch")
+    if expected_core is not None:
+        if (
+            value.get("semantic_epoch") != expected_core.get("semantic_epoch")
+            or value.get("quarantine_id") != expected_core.get("quarantine_id")
+            or value.get("source_payload_sha256") != expected_core.get("payload_sha256")
+        ):
+            raise ValueError("result_recovery_projection_core_mismatch")
+    return dict(value)
+
+
+def build_result_recovery_binding(
+    *,
+    recovery_id: str,
+    quarantine_id: str,
+    quarantine_core_sha256: str,
+    recovery_head_sha256: str,
+    projection_sha256: str,
+    review_receipt_sha256: str,
+    target_binding_sha256: str,
+) -> dict[str, object]:
+    binding = {
+        "schema": RESULT_RECOVERY_BINDING_SCHEMA,
+        "recovery_id": recovery_id,
+        "quarantine_id": quarantine_id,
+        "quarantine_core_sha256": _canonical_digest(quarantine_core_sha256, "quarantine_core_sha256"),
+        "recovery_head_sha256": _canonical_digest(recovery_head_sha256, "recovery_head_sha256"),
+        "projection_sha256": _canonical_digest(projection_sha256, "projection_sha256"),
+        "review_receipt_sha256": _canonical_digest(review_receipt_sha256, "review_receipt_sha256"),
+        "target_binding_sha256": _canonical_digest(target_binding_sha256, "target_binding_sha256"),
+    }
+    if not all(isinstance(binding.get(field), str) and str(binding[field]).strip() for field in ("recovery_id", "quarantine_id")):
+        raise ValueError("result_recovery_binding_identity_required")
+    return binding
+
+
+def validate_result_recovery_binding(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("result_recovery_binding_required")
+    required = set(result_recovery_binding_json_schema()["required"])
+    if set(value) != required or value.get("schema") != RESULT_RECOVERY_BINDING_SCHEMA:
+        raise ValueError("result_recovery_binding_schema_mismatch")
+    for field in (
+        "quarantine_core_sha256", "recovery_head_sha256", "projection_sha256",
+        "review_receipt_sha256", "target_binding_sha256",
+    ):
+        _canonical_digest(value.get(field), field)
+    for field in ("recovery_id", "quarantine_id"):
+        if not isinstance(value.get(field), str) or not value[field].strip():
+            raise ValueError("result_recovery_binding_identity_required")
+    return dict(value)
+
+
+def source_result_payload_sha256(source_result: object) -> str:
+    return canonical_json_sha256(source_result)
+
+
+def _core_digest(value: Mapping[str, object]) -> str:
+    return canonical_json_sha256({key: item for key, item in value.items() if key != "core_sha256"})
+
+
+def build_result_quarantine_core(
+    *,
+    source_result: Mapping[str, object],
+    source_final_status: str,
+    source_release_status: str,
+    source_result_state: str,
+    reason_codes: list[str],
+    received_at: str,
+    payload_sha256: str | None = None,
+) -> dict[str, object]:
+    envelope = normalize_result_envelope(dict(source_result))
+    kind = envelope.get("office_instance_kind")
+    if kind not in {"child_agent", "worktree_thread"}:
+        raise ValueError("result_envelope_carrier_binding_required")
+    if source_final_status != "failed" or source_release_status != "closed" or source_result_state != "QUARANTINED":
+        raise ValueError("result_quarantine_core_terminal_state_required")
+    if not isinstance(reason_codes, list) or not reason_codes or any(
+        not isinstance(code, str) or not code.strip() for code in reason_codes
+    ) or len(set(reason_codes)) != len(reason_codes):
+        raise ValueError("result_quarantine_core_reason_codes_invalid")
+    carrier = envelope.get("carrier_proof", {})
+    source_payload = (
+        str(payload_sha256 or "").strip()
+        or source_result_payload_sha256(envelope)
+    )
+    core: dict[str, object] = {
+        "schema": "court.office.result_quarantine.v2",
+        "quarantine_id": "QR-" + source_payload[:24].upper(),
+        "payload_sha256": source_payload,
+        "task_id": envelope["task_id"],
+        "semantic_epoch": envelope["semantic_epoch"],
+        "charter_sha256": envelope["charter_sha256"],
+        "invariant_capsule_sha256": envelope["invariant_capsule_sha256"],
+        "checkpoint_id": envelope["checkpoint_id"],
+        "dispatch_uid": envelope["dispatch_uid"],
+        "attempt": envelope["attempt"],
+        "office_instance_id": envelope["office_instance_id"],
+        "office_instance_kind": kind,
+        "carrier_proof_sha256": canonical_json_sha256(carrier),
+        "agent_id": envelope["agent_id"],
+        "role": envelope["role"],
+        "direct_superior": envelope["direct_superior"],
+        "worktree": envelope["worktree"],
+        "write_set_sha256": envelope["write_set_sha256"],
+        "source_status": "failed",
+        "source_final_status": "failed",
+        "source_release_status": "closed",
+        "source_result_state": "QUARANTINED",
+        "failure_kind": "result_binding_quarantine",
+        "reason_codes": sorted(reason_codes),
+        "received_at": received_at,
+        "quarantine_event_id": deterministic_result_recovery_event_id(
+            "QUARANTINE-" + source_payload,
+            "quarantine",
+            source_payload,
+        ),
+    }
+    core["core_sha256"] = _core_digest(core)
+    return core
+
+
+def validate_result_quarantine_core(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("result_quarantine_core_required")
+    required = set(result_quarantine_core_json_schema()["required"])
+    if set(value) != required:
+        raise ValueError("result_quarantine_core_schema_mismatch")
+    if value.get("schema") != "court.office.result_quarantine.v2":
+        raise ValueError("result_quarantine_core_schema_mismatch")
+    for field in ("payload_sha256", "charter_sha256", "invariant_capsule_sha256", "carrier_proof_sha256", "write_set_sha256", "core_sha256"):
+        _canonical_digest(value.get(field), field)
+    if value.get("source_status") != "failed" or value.get("source_final_status") != "failed" or value.get("source_release_status") != "closed" or value.get("source_result_state") != "QUARANTINED" or value.get("failure_kind") != "result_binding_quarantine":
+        raise ValueError("result_quarantine_core_terminal_state_mismatch")
+    reasons = value.get("reason_codes")
+    if not isinstance(reasons, list) or not reasons or len(set(reasons)) != len(reasons):
+        raise ValueError("result_quarantine_core_reason_codes_invalid")
+    if _core_digest(value) != value["core_sha256"]:
+        raise ValueError("result_quarantine_core_digest_mismatch")
+    return dict(value)
+
+
+def build_result_recovery_head(
+    *,
+    quarantine_core: Mapping[str, object],
+    recovery_id: str,
+    previous_head: Mapping[str, object] | None,
+    state: str,
+    projection_sha256: str,
+    target_binding_sha256: str,
+    review_receipt_sha256: str,
+    handoff_receipt_sha256: str,
+    consume_receipt_sha256: str,
+    operation_id: str,
+    event_id: str,
+    created_at: str,
+) -> dict[str, object]:
+    core = validate_result_quarantine_core(dict(quarantine_core))
+    if not isinstance(recovery_id, str) or not recovery_id.strip() or not isinstance(operation_id, str) or not operation_id.strip() or not isinstance(event_id, str) or not event_id.strip():
+        raise ValueError("result_recovery_head_identity_required")
+    if state not in {"REVIEW_PENDING", "READY_FOR_HANDOFF", "REJECTED", "HANDED_OFF", "CONSUMED"}:
+        raise ValueError("result_recovery_head_state_invalid")
+    revision = 1
+    previous_sha = "0" * 64
+    if previous_head is not None:
+        prior = validate_result_recovery_head(previous_head)
+        revision = int(prior["revision"]) + 1
+        previous_sha = str(prior["head_sha256"])
+    head: dict[str, object] = {
+        "schema": "court.office.result_recovery_head.v1",
+        "recovery_id": recovery_id,
+        "quarantine_id": core["quarantine_id"],
+        "revision": revision,
+        "state": state,
+        "previous_head_sha256": previous_sha,
+        "projection_sha256": _canonical_digest(projection_sha256, "projection_sha256"),
+        "target_binding_sha256": _canonical_digest(target_binding_sha256, "target_binding_sha256"),
+        "review_receipt_sha256": _canonical_digest(review_receipt_sha256, "review_receipt_sha256"),
+        "handoff_receipt_sha256": _canonical_digest(handoff_receipt_sha256, "handoff_receipt_sha256"),
+        "consume_receipt_sha256": _canonical_digest(consume_receipt_sha256, "consume_receipt_sha256"),
+        "operation_id": operation_id,
+        "event_id": event_id,
+        "created_at": created_at,
+    }
+    head["head_sha256"] = canonical_json_sha256(head)
+    return head
+
+
+def validate_result_recovery_head(
+    value: object,
+    *,
+    expected_revision: int | None = None,
+    expected_head_sha256: str | None = None,
+) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("result_recovery_head_required")
+    required = set(result_recovery_head_json_schema()["required"])
+    if set(value) != required or value.get("schema") != "court.office.result_recovery_head.v1":
+        raise ValueError("result_recovery_head_schema_mismatch")
+    for field in ("recovery_id", "quarantine_id", "operation_id", "event_id", "created_at"):
+        raw = value.get(field)
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError("result_recovery_head_identity_required")
+    if not isinstance(value.get("revision"), int) or isinstance(value["revision"], bool) or value["revision"] < 1:
+        raise ValueError("result_recovery_head_revision_invalid")
+    if value.get("state") not in {"REVIEW_PENDING", "READY_FOR_HANDOFF", "REJECTED", "HANDED_OFF", "CONSUMED"}:
+        raise ValueError("result_recovery_head_state_invalid")
+    for field in ("previous_head_sha256", "projection_sha256", "target_binding_sha256", "review_receipt_sha256", "handoff_receipt_sha256", "consume_receipt_sha256"):
+        _canonical_digest(value.get(field), field)
+    if canonical_json_sha256({key: item for key, item in value.items() if key != "head_sha256"}) != value.get("head_sha256"):
+        raise ValueError("result_recovery_head_digest_mismatch")
+    if expected_revision is not None and value["revision"] != expected_revision:
+        raise ValueError("result_recovery_revision_conflict")
+    if expected_head_sha256 is not None and value["head_sha256"] != expected_head_sha256:
+        raise ValueError("result_recovery_head_conflict")
+    return dict(value)
+
+
+def result_recovery_target_binding_fields() -> tuple[str, ...]:
+    return (
+        "task_id", "semantic_epoch", "charter_sha256", "invariant_capsule_sha256",
+        "checkpoint_id", "dispatch_uid", "attempt", "office_instance_id", "office_instance_kind",
+        "carrier_proof", "agent_id", "role", "direct_superior", "worktree", "write_set_sha256",
+        "hierarchy_schema", "hierarchy_gate", "hierarchy_edge_class", "preload_status",
+        "office_execution_ready", "status", "final_status", "release_status", "result_state",
+    )
+
+
+def deterministic_result_recovery_event_id(operation_id: object, action: object, payload_sha256: object) -> str:
+    return "EVT-RR-" + hashlib.sha256(
+        f"{operation_id}|{action}|{payload_sha256}".encode("utf-8")
+    ).hexdigest()[:24].upper()
+
+
+def result_recovery_record_disposition(record: object) -> str:
+    if not isinstance(record, dict):
+        return "READ_ONLY_LEGACY"
+    if record.get("schema") == "court.office.result_quarantine.v2":
+        try:
+            validate_result_quarantine_core(record)
+        except ValueError:
+            return "READ_ONLY_LEGACY"
+        return "CURRENT_QUARANTINE_CORE"
+    if record.get("schema") == "court.office.result_recovery_head.v1":
+        try:
+            validate_result_recovery_head(record)
+        except ValueError:
+            return "READ_ONLY_LEGACY"
+        return "CURRENT_RECOVERY_HEAD"
+    return "READ_ONLY_LEGACY"
+
+
+def apply_result_recovery_operation(
+    *,
+    quarantine_core: Mapping[str, object],
+    current_head: Mapping[str, object],
+    operation_id: str,
+    action: str,
+    payload: Mapping[str, object],
+    expected_revision: int,
+    expected_head_sha256: str,
+) -> dict[str, object]:
+    current = validate_result_recovery_head(dict(current_head))
+    payload_sha = canonical_json_sha256(dict(payload))
+    event_id = deterministic_result_recovery_event_id(operation_id, action, payload_sha)
+    if current.get("operation_id") == operation_id:
+        if current.get("event_id") != event_id:
+            raise ValueError("result_recovery_operation_conflict")
+        if current.get("revision") != expected_revision + 1 or current.get("previous_head_sha256") != expected_head_sha256:
+            raise ValueError("result_recovery_operation_conflict")
+        for field in ("state", "projection_sha256", "target_binding_sha256", "review_receipt_sha256", "handoff_receipt_sha256", "consume_receipt_sha256", "created_at"):
+            if current.get(field) != payload.get(field):
+                raise ValueError("result_recovery_operation_conflict")
+        return dict(current)
+    if current.get("revision") != expected_revision:
+        raise ValueError("result_recovery_revision_conflict")
+    if current.get("head_sha256") != expected_head_sha256:
+        raise ValueError("result_recovery_head_conflict")
+    return build_result_recovery_head(
+        quarantine_core=quarantine_core,
+        recovery_id=str(current["recovery_id"]),
+        previous_head=current,
+        state=str(payload["state"]),
+        projection_sha256=str(payload["projection_sha256"]),
+        target_binding_sha256=str(payload["target_binding_sha256"]),
+        review_receipt_sha256=str(payload["review_receipt_sha256"]),
+        handoff_receipt_sha256=str(payload["handoff_receipt_sha256"]),
+        consume_receipt_sha256=str(payload["consume_receipt_sha256"]),
+        operation_id=operation_id,
+        event_id=event_id,
+        created_at=str(payload["created_at"]),
+    )
 
 
 def result_binding_problems(
@@ -877,11 +1650,20 @@ def result_binding_problems(
         "worktree": binding.get("worktree"),
         "write_set_sha256": canonical_json_sha256(binding.get("write_set", [])),
     }
-    return [
+    problems = [
         f"agent_result_binding_mismatch:{field}"
         for field, expected_value in expected.items()
         if envelope.get(field) != expected_value
     ]
+    if (
+        binding.get("office_instance_kind") is not None
+        and binding.get("carrier_proof") is not None
+    ):
+        for field in ("office_instance_kind", "carrier_proof"):
+            expected_value = binding.get(field)
+            if envelope.get(field) != expected_value:
+                problems.append(f"agent_result_binding_mismatch:{field}")
+    return problems
 
 
 def result_quarantine_metadata(
@@ -891,7 +1673,7 @@ def result_quarantine_metadata(
     received_at: str,
 ) -> dict[str, object]:
     return {
-        "schema": "court.office.result_quarantine.v1",
+        "schema": "court.office.result_quarantine.v2",
         "payload_sha256": canonical_json_sha256(envelope),
         "task_id": envelope.get("task_id"),
         "semantic_epoch": envelope.get("semantic_epoch"),

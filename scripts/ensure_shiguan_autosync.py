@@ -22,6 +22,11 @@ from court_file_lock import atomic_write_text, file_lock
 
 PROCESS_DISCOVERY_MULTIPLE = -1
 PROCESS_DISCOVERY_FAILED = -2
+# PIDs of alive processes whose command line could not be read during the last
+# Windows discovery pass; they are skipped instead of failing the whole channel.
+_DISCOVERY_SKIPPED_UNREADABLE_PIDS: list[int] = []
+# PIDs of processes that refused OpenProcess but are confirmed dead; skipped.
+_DISCOVERY_SKIPPED_DEAD_PROCESS_PIDS: list[int] = []
 def process_query_gone(error):
     return error in {87, 1168}
 
@@ -266,6 +271,8 @@ def _windows_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
     ``--check-only`` genuinely zero-write.
     """
 
+    _DISCOVERY_SKIPPED_UNREADABLE_PIDS.clear()
+    _DISCOVERY_SKIPPED_DEAD_PROCESS_PIDS.clear()
     try:
         import ctypes
         from ctypes import wintypes
@@ -340,6 +347,10 @@ def _windows_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
                         if process_query_gone(ctypes.get_last_error()):
                             more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
                             continue
+                        elif not windows_pid_alive(int(entry.th32ProcessID)):
+                            _DISCOVERY_SKIPPED_DEAD_PROCESS_PIDS.append(int(entry.th32ProcessID))
+                            more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
+                            continue
                         return False, []
                     try:
                         command_line = ""
@@ -367,7 +378,9 @@ def _windows_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
                             more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
                             continue
                         if not command_line:
-                            return False, []
+                            _DISCOVERY_SKIPPED_UNREADABLE_PIDS.append(int(entry.th32ProcessID))
+                            more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
+                            continue
                         rows.append(
                             {
                                 "ProcessId": int(entry.th32ProcessID),
@@ -483,6 +496,8 @@ def _ensure_unlocked(interval: int, check_only: bool = False) -> dict[str, objec
             "status": "PROCESS_DISCOVERY_UNAVAILABLE",
             "pid": recorded_pid if recorded_alive else 0,
             "reason": "exact_daemon_process_discovery_failed; refusing to reuse or start a second instance",
+            "skipped_unreadable_pids": list(_DISCOVERY_SKIPPED_UNREADABLE_PIDS),
+            "skipped_dead_process_pids": list(_DISCOVERY_SKIPPED_DEAD_PROCESS_PIDS),
             "status_path": str(status_path()),
             "log_path": str(log_path()),
             "shared_shiguan_root": str(references_root()),
@@ -492,6 +507,20 @@ def _ensure_unlocked(interval: int, check_only: bool = False) -> dict[str, objec
             "status": "RUNNING_UNHEALTHY",
             "pid": 0,
             "reason": "multiple_exact_daemon_processes",
+            "status_path": str(status_path()),
+            "log_path": str(log_path()),
+            "shared_shiguan_root": str(references_root()),
+        }
+
+    # Recorded-daemon guard: if the status file records a live daemon whose PID
+    # was skipped because its command line was unreadable, never fall through to
+    # STARTED; report conservatively instead of risking a second instance.
+    if recorded_pid > 0 and recorded_alive and recorded_pid in _DISCOVERY_SKIPPED_UNREADABLE_PIDS:
+        return {
+            "status": "RUNNING_UNHEALTHY",
+            "pid": recorded_pid,
+            "reason": "recorded_daemon_command_line_unreadable",
+            "skipped_unreadable_pids": list(_DISCOVERY_SKIPPED_UNREADABLE_PIDS),
             "status_path": str(status_path()),
             "log_path": str(log_path()),
             "shared_shiguan_root": str(references_root()),

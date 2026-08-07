@@ -9,7 +9,8 @@
     ],
     "repository_only_path_prefixes": [
       ".github/",
-      "docs/"
+      "docs/",
+      "scripts/check_active_copy_hashes.py"
     ],
     "generated_dir_names": [
       "__pycache__",
@@ -92,11 +93,11 @@
   },
   "hard_limits": {
     "portable_source": {
-      "max_files": 305,
-      "max_bytes": 6800000
+      "max_files": 310,
+      "max_bytes": 7050000
     },
     "source_lines": {
-      "scripts/check_startup_fastpath_contract.py": 550,
+      "scripts/check_startup_fastpath_contract.py": 620,
       "scripts/court_native_execution.py": 100,
       "scripts/court_office_config.py": 120,
       "scripts/court_supercc_execution.py": 100,

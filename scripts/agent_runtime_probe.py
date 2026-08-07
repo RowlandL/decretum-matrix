@@ -790,6 +790,7 @@ def config_agent_summary(path: Path) -> dict[str, object]:
     summary: dict[str, object] = {
         "path": path.name,
         "exists": path.exists(),
+        "byte_length": None,
         "parse_ok": False,
         "parse_error_class": None,
         "agents_section": False,
@@ -810,9 +811,11 @@ def config_agent_summary(path: Path) -> dict[str, object]:
         "reserved_spawn_schema_compatible": False,
         "inactive_v2_config_preserved": False,
         "deprecated_disable_response_storage_present": False,
+        "protocol_material_present": False,
     }
     if not path.exists():
         return summary
+    summary["byte_length"] = path.stat().st_size
     text = path.read_text(encoding="utf-8", errors="replace")
     if tomllib is None:
         summary["parse_error_class"] = "tomllib_unavailable"
@@ -866,7 +869,54 @@ def config_agent_summary(path: Path) -> dict[str, object]:
     summary["reserved_spawn_schema_compatible"] = bool(
         summary["multi_agent_v2_enabled"] and summary["spawn_agent_metadata_hidden"]
     )
+    summary["protocol_material_present"] = bool(
+        summary["multi_agent_v2_present"]
+        or summary["multi_agent_enabled"] is not None
+        or summary["legacy_max_threads"] is not None
+    )
     return summary
+
+
+def effective_config_agent_summary(home: Path) -> dict[str, object]:
+    """Return the effective multi-agent config without letting an empty overlay self-block.
+
+    Desktop/CC Switch may leave managed_config.toml present but empty as a normal
+    overlay placeholder. That file must not mask a valid user config.toml when
+    deciding whether host-native multi-agent dispatch is available.
+    """
+
+    config_path = home / "config.toml"
+    managed_path = home / "managed_config.toml"
+    user_config = config_agent_summary(config_path)
+    if not managed_path.exists():
+        user_config["effective_config_source"] = "config.toml"
+        user_config["managed_overlay"] = {"exists": False}
+        return user_config
+
+    managed = config_agent_summary(managed_path)
+    managed_has_material = managed.get("protocol_material_present") is True
+    managed_has_nonempty_parse_error = (
+        managed.get("parse_ok") is not True and int(managed.get("byte_length") or 0) > 0
+    )
+    if managed_has_material or managed_has_nonempty_parse_error:
+        managed["effective_config_source"] = "managed_config.toml"
+        managed["managed_overlay"] = {
+            "exists": True,
+            "used": True,
+            "reason": "contains_protocol_material" if managed_has_material else "nonempty_parse_failure",
+            "byte_length": managed.get("byte_length"),
+        }
+        return managed
+
+    user_config["effective_config_source"] = "config.toml"
+    user_config["managed_overlay"] = {
+        "exists": True,
+        "used": False,
+        "reason": "empty_overlay" if int(managed.get("byte_length") or 0) == 0 else "no_protocol_material",
+        "byte_length": managed.get("byte_length"),
+        "parse_ok": managed.get("parse_ok"),
+    }
+    return user_config
 
 
 def standing_profile_summary(agents_dir: Path, templates_dir: Path) -> dict[str, object]:
@@ -943,7 +993,7 @@ def probe() -> dict[str, object]:
     standing_templates = skill_root() / "agents" / "standing-officials"
     agent_files = sorted(path.name for path in agents_dir.glob("*.toml")) if agents_dir.exists() else []
     template_files = sorted(path.name for path in standing_templates.glob("*.toml")) if standing_templates.exists() else []
-    config = config_agent_summary(home / ("managed_config.toml" if (home / "managed_config.toml").exists() else "config.toml"))
+    config = effective_config_agent_summary(home)
     codex_resolution = resolve_codex_executable()
     profile_state = standing_profile_summary(agents_dir, standing_templates)
     degraded: list[str] = []
@@ -979,6 +1029,15 @@ def probe() -> dict[str, object]:
         config_notices.append("codex multi-agent protocol mode is unresolved")
     if not config.get("protocol_config_ok"):
         config_notices.extend(f"protocol config: {error}" for error in config.get("protocol_config_errors", []))
+    host_native_probe_status = (
+        "config_preferred"
+        if selected_protocol in {"v2", "v1"}
+        else "verify_with_minimal_host_action"
+    )
+    if host_native_probe_status == "verify_with_minimal_host_action":
+        config_notices.append(
+            "verify with a minimal host spawn/reuse action before deciding dispatch availability"
+        )
     compatibility = (
         "preferred_v2_configured"
         if not config_notices and selected_protocol == "v2"
@@ -1083,6 +1142,11 @@ def probe() -> dict[str, object]:
         },
         "subagent_host": {
             "status": "provided_by_current_codex_session_if_available",
+            "host_native_probe_status": host_native_probe_status,
+            "next_action_rule": (
+                "when diagnostics conflict with the requested parallel workflow, run a minimal host "
+                "spawn/reuse check and continue when it succeeds"
+            ),
             "contract": "subagente may use standing profile only inside hierarchy, bounds, evidence contract, and active authority",
             "recommended_max_depth": RECOMMENDED_AGENT_MAX_DEPTH,
             "recommended_max_threads": RECOMMENDED_AGENT_MAX_THREADS,

@@ -95,6 +95,9 @@ def evaluate() -> dict[str, Any]:
     results: list[dict[str, object]] = []
     golden_version = str(corpus.get("taxonomy_version") or "")
     actual_versions: list[object] = []
+    tie_cases_ok: list[bool] = []
+    negation_cases_ok: list[bool] = []
+    unknown_cases_ok: list[bool] = []
 
     for case in cases:
         if not isinstance(case, dict) or not isinstance(case.get("entry"), dict):
@@ -132,6 +135,103 @@ def evaluate() -> dict[str, Any]:
             }
         )
 
+        # P1 / R-03 determinism: every case double-run must serialize to
+        # byte-identical canonical JSON.
+        rerun_parts = lineage.content_lineage_parts(dict(case["entry"]))
+        if json.dumps(parts, ensure_ascii=False, sort_keys=True).encode(
+            "utf-8"
+        ) != json.dumps(rerun_parts, ensure_ascii=False, sort_keys=True).encode("utf-8"):
+            failures.append(
+                f"lineage_double_run_nondeterministic:{case.get('id')}"
+            )
+
+        expected_reason = str(expected.get("reason") or "")
+        if expected.get("status") == "review" and expected_reason == "tie":
+            tie_cases_ok.append(
+                parts.get("classification_margin") == 0
+                and str(parts.get("classification_reason") or "") == "tie"
+                and _is_review(parts)
+                and all(
+                    parts.get(field) == "待审"
+                    for field in ("zhi", "men", "gang", "mu", "tiao")
+                )
+            )
+        if (
+            expected.get("status") == "review"
+            and expected_reason == "negated_evidence"
+        ):
+            negated_count = parts.get("classification_negated_evidence_count")
+            negation_cases_ok.append(
+                isinstance(negated_count, int)
+                and not isinstance(negated_count, bool)
+                and negated_count >= 1
+                and bool(parts.get("classification_negated_evidence"))
+            )
+        if expected.get("status") == "review" and expected_reason == "unknown":
+            unknown_cases_ok.append(
+                parts.get("classification_score") == 0
+                and str(parts.get("classification_reason") or "") == "unknown"
+                and _is_review(parts)
+                and all(
+                    parts.get(field) == "待审"
+                    for field in ("zhi", "men", "gang", "mu", "tiao")
+                )
+            )
+
+    # R-03 inline three-way tie sentinel (fixed text, no fixture mutation).
+    three_way_entry = {"topic": "archive skill dispatch"}
+    three_way_parts = lineage.content_lineage_parts(dict(three_way_entry))
+    three_way_ok = (
+        three_way_parts.get("classification_reason") == "tie"
+        and three_way_parts.get("classification_margin") == 0
+        and _is_review(three_way_parts)
+        and all(
+            three_way_parts.get(field) == "待审"
+            for field in ("zhi", "men", "gang", "mu", "tiao")
+        )
+    )
+    three_way_rerun = lineage.content_lineage_parts(dict(three_way_entry))
+    three_way_ok = three_way_ok and json.dumps(
+        three_way_parts, ensure_ascii=False, sort_keys=True
+    ).encode("utf-8") == json.dumps(
+        three_way_rerun, ensure_ascii=False, sort_keys=True
+    ).encode("utf-8")
+    if not three_way_ok:
+        failures.append("lineage_tie_silently_ordered")
+    tie_cases_ok.append(three_way_ok)
+
+    # R-01 / R-02 fail-closed mutation probes: existing confidence assertions
+    # (L44-47) must keep rejecting stripped / out-of-range confidence.
+    classified_base: dict[str, object] | None = None
+    for case in cases:
+        expected = case.get("expected")
+        if isinstance(expected, dict) and expected.get("status") == "classified":
+            classified_base = dict(case["entry"])
+            break
+    if classified_base is None:
+        failures.append("confidence_mutation_probe_base_missing")
+    else:
+        stripped_parts = lineage.content_lineage_parts(dict(classified_base))
+        stripped_parts.pop("classification_confidence", None)
+        if "confidence_missing" not in _classification_metadata_problems(
+            stripped_parts, {"status": "classified"}
+        ):
+            failures.append("lineage_confidence_missing_not_fail_closed")
+        for out_of_range in (1.5, -0.1):
+            ranged_parts = lineage.content_lineage_parts(dict(classified_base))
+            ranged_parts["classification_confidence"] = out_of_range
+            if "confidence_out_of_range" not in _classification_metadata_problems(
+                ranged_parts, {"status": "classified"}
+            ):
+                failures.append("lineage_confidence_out_of_range_not_fail_closed")
+
+    confidence_evidence_ok = all(
+        isinstance(result["actual"].get("classification_confidence"), (int, float))
+        and not isinstance(result["actual"].get("classification_confidence"), bool)
+        and 0.0 <= float(result["actual"]["classification_confidence"]) <= 1.0
+        for result in results
+    )
+
     failures = list(dict.fromkeys(failures))
     unique_actual_versions: list[object] = []
     for value in actual_versions:
@@ -145,6 +245,39 @@ def evaluate() -> dict[str, Any]:
         "golden_taxonomy_version": golden_version,
         "actual_taxonomy_versions": unique_actual_versions,
         "results": results,
+        "evidence": {
+            "confidence": {
+                "all_cases_confidence_present_and_in_range": confidence_evidence_ok,
+                "confidence_missing_fail_closed": (
+                    "lineage_confidence_missing_not_fail_closed" not in failures
+                ),
+                "confidence_out_of_range_fail_closed": (
+                    "lineage_confidence_out_of_range_not_fail_closed" not in failures
+                ),
+            },
+            "tie": {
+                "tie_cases_ok": tie_cases_ok,
+                "all_ties_review_without_silent_ordering": bool(tie_cases_ok)
+                and all(tie_cases_ok),
+                "three_way_inline_tie_ok": three_way_ok,
+            },
+            "negation": {
+                "negation_cases_ok": negation_cases_ok,
+                "negated_evidence_explicitly_counted": bool(negation_cases_ok)
+                and all(negation_cases_ok),
+            },
+            "unknown": {
+                "unknown_cases_ok": unknown_cases_ok,
+                "unknown_not_forced_into_classification": bool(unknown_cases_ok)
+                and all(unknown_cases_ok),
+            },
+            "determinism": {
+                "double_run_canonical_json_byte_equal": not any(
+                    str(failure).startswith("lineage_double_run_nondeterministic")
+                    for failure in failures
+                ),
+            },
+        },
         "failures": failures,
     }
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## beta1.0.6 - 2026-08-01
+
+### Added
+
+- Bound native runtime identity, entrypoint selection, and host lifecycle evidence to the accepted request path.
+- Added real Shangshu-to-ministry dispatch/reuse coverage and lineage taxonomy review gates for confidence, ties, negation, and unknown inputs.
+- Added a source-only post-install hash checker for the five governed roots plus explicitly authorized Qoder projection.
+
+### Fixed
+
+- Kept release/install checkers outside the installed runtime surface and blocked static or dynamic checker coupling from startup code.
+- Made active-copy synchronization preflight every target before writes and recognize only declared canonical junction aliases.
+
 ## beta1.0.5 - 2026-07-23
 
 ### Added

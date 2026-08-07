@@ -729,7 +729,7 @@ def _result_envelope(
     attempt: int | None = None,
 ) -> dict[str, object]:
     write_set = agent.get("write_set")
-    return {
+    envelope = {
         "schema": "court.office.result.v1",
         "task_id": agent["task_id"],
         "semantic_epoch": agent["semantic_epoch"],
@@ -749,6 +749,10 @@ def _result_envelope(
         "evidence": ["synthetic-result-pointer"],
         "produced_at": "2026-07-16T00:00:00+00:00",
     }
+    if agent.get("office_instance_kind") and agent.get("carrier_proof"):
+        envelope["office_instance_kind"] = agent["office_instance_kind"]
+        envelope["carrier_proof"] = dict(agent["carrier_proof"])
+    return envelope
 
 
 def _finish_args(
@@ -814,13 +818,24 @@ def check_finish_requires_structured_result_and_quarantines_stale() -> None:
                 _finish_args(task_id, agent, envelope=stale)
             )
             current_after_quarantine = quarantined.task["agents"][agent_id]
-            if current_after_quarantine.get("final_status") in {"completed", "failed", "cancelled"}:
-                raise AssertionError("STALE_RESULT_FINISHED_ACTIVE_AGENT")
+            if (
+                current_after_quarantine.get("status") != "failed"
+                or current_after_quarantine.get("final_status") != "failed"
+                or current_after_quarantine.get("release_status") != "closed"
+                or current_after_quarantine.get("result_state") != "QUARANTINED"
+                or current_after_quarantine.get("office_execution_ready") is not False
+            ):
+                raise AssertionError("STALE_RESULT_SOURCE_NOT_TERMINALIZED")
 
             valid = _result_envelope(agent)
-            finished = court_runtime.agent_finish(
-                _finish_args(task_id, agent, envelope=valid)
-            ).task
+            try:
+                court_runtime.agent_finish(_finish_args(task_id, agent, envelope=valid))
+            except ValueError as exc:
+                if str(exc) != "terminal agent cannot accept lifecycle events":
+                    raise AssertionError("QUARANTINED_SOURCE_WRONG_FINISH_ERROR " + str(exc)) from exc
+            else:
+                raise AssertionError("QUARANTINED_SOURCE_FINISH_ACCEPTED")
+            finished = quarantined.task
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
@@ -837,10 +852,10 @@ def check_finish_requires_structured_result_and_quarantines_stale() -> None:
             problems.append("stale_result_payload_hash_missing")
         if any(field in entry for field in ("summary", "evidence", "result", "body")):
             problems.append("stale_result_body_persisted")
-    if not isinstance(final_agent, dict) or final_agent.get("final_status") != "completed":
-        problems.append("valid_structured_result_not_finished")
-    elif final_agent.get("result_envelope", {}).get("schema") != "court.office.result.v1":
-        problems.append("valid_result_envelope_not_persisted")
+    if not isinstance(final_agent, dict) or final_agent.get("result_state") != "QUARANTINED":
+        problems.append("quarantined_source_state_not_persisted")
+    elif "result_envelope" in final_agent:
+        problems.append("quarantined_source_result_envelope_persisted")
     if problems:
         raise AssertionError("SEMANTIC_RESULT_ENVELOPE_MISSING " + ";".join(problems))
 
@@ -2900,9 +2915,859 @@ def check_p00_bounded_context_packet_preserves_semantic_continuity() -> None:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
+def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None:
+    required_helpers = (
+        "office_result_envelope_json_schema",
+        "result_quarantine_core_json_schema",
+        "result_recovery_head_json_schema",
+        "result_recovery_review_receipt_json_schema",
+        "result_recovery_handoff_receipt_json_schema",
+        "result_recovery_consume_receipt_json_schema",
+        "source_result_payload_sha256",
+        "build_result_quarantine_core",
+        "validate_result_quarantine_core",
+        "build_result_recovery_head",
+        "validate_result_recovery_head",
+        "result_recovery_target_binding_fields",
+        "deterministic_result_recovery_event_id",
+        "result_recovery_record_disposition",
+        "apply_result_recovery_operation",
+    )
+    missing = [
+        name
+        for name in required_helpers
+        if not callable(getattr(court_semantic_continuity, name, None))
+    ]
+    if missing:
+        raise AssertionError(
+            "STAGE3_RESULT_RECOVERY_PURE_HELPERS_MISSING:" + ",".join(missing)
+        )
+
+    def assert_closed_schema(
+        helper_name: str,
+        required_fields: set[str],
+        optional_fields: set[str] | None = None,
+    ) -> dict[str, object]:
+        factory = getattr(court_semantic_continuity, helper_name)
+        schema = factory()
+        if not isinstance(schema, dict):
+            raise AssertionError(f"STAGE3_SCHEMA_NOT_OBJECT:{helper_name}")
+        if schema.get("additionalProperties") is not False:
+            raise AssertionError(f"STAGE3_SCHEMA_NOT_CLOSED:{helper_name}")
+        if set(schema.get("required", [])) != required_fields:
+            raise AssertionError(f"STAGE3_SCHEMA_REQUIRED_FIELDS_DRIFT:{helper_name}")
+        expected_properties = required_fields | (optional_fields or set())
+        properties = schema.get("properties")
+        if not isinstance(properties, dict) or set(properties) != expected_properties:
+            raise AssertionError(f"STAGE3_SCHEMA_PROPERTY_WHITELIST_DRIFT:{helper_name}")
+        return schema
+
+    def schema_property(schema: dict[str, object], field: str) -> dict[str, object]:
+        properties = schema.get("properties")
+        value = properties.get(field) if isinstance(properties, dict) else None
+        if not isinstance(value, dict):
+            raise AssertionError(f"STAGE3_SCHEMA_PROPERTY_INVALID:{field}")
+        return value
+
+    def assert_schema_const(
+        schema: dict[str, object],
+        expected_schema: str,
+    ) -> None:
+        if schema_property(schema, "schema").get("const") != expected_schema:
+            raise AssertionError(f"STAGE3_SCHEMA_CONST_DRIFT:{expected_schema}")
+
+    def assert_sha256_property(schema: dict[str, object], field: str) -> None:
+        prop = schema_property(schema, field)
+        if prop.get("type") != "string" or prop.get("pattern") != "^[0-9a-f]{64}$":
+            raise AssertionError(f"STAGE3_SHA256_PROPERTY_DRIFT:{field}")
+
+    def assert_positive_integer_property(
+        schema: dict[str, object],
+        field: str,
+    ) -> None:
+        prop = schema_property(schema, field)
+        if prop.get("type") != "integer" or prop.get("minimum") != 1:
+            raise AssertionError(f"STAGE3_POSITIVE_INTEGER_PROPERTY_DRIFT:{field}")
+
+    def assert_unique_string_array(
+        schema: dict[str, object],
+        field: str,
+    ) -> None:
+        prop = schema_property(schema, field)
+        items = prop.get("items")
+        if (
+            prop.get("type") != "array"
+            or prop.get("uniqueItems") is not True
+            or not isinstance(items, dict)
+            or items.get("type") != "string"
+            or items.get("minLength") != 1
+        ):
+            raise AssertionError(f"STAGE3_UNIQUE_STRING_ARRAY_DRIFT:{field}")
+
+    envelope_required = {
+        "schema",
+        "task_id",
+        "semantic_epoch",
+        "charter_sha256",
+        "invariant_capsule_sha256",
+        "checkpoint_id",
+        "dispatch_uid",
+        "attempt",
+        "office_instance_id",
+        "agent_id",
+        "role",
+        "direct_superior",
+        "worktree",
+        "write_set_sha256",
+        "status",
+        "summary",
+        "evidence",
+        "produced_at",
+    }
+    envelope_schema = assert_closed_schema(
+        "office_result_envelope_json_schema",
+        envelope_required,
+        {"office_instance_kind", "carrier_proof", "recovery_input_ids"},
+    )
+    assert_schema_const(envelope_schema, "court.office.result.v1")
+    for field in ("charter_sha256", "invariant_capsule_sha256", "write_set_sha256"):
+        assert_sha256_property(envelope_schema, field)
+    for field in ("semantic_epoch", "attempt"):
+        assert_positive_integer_property(envelope_schema, field)
+    if set(schema_property(envelope_schema, "status").get("enum", [])) != {
+        "completed",
+        "failed",
+        "cancelled",
+    }:
+        raise AssertionError("STAGE3_RESULT_ENVELOPE_STATUS_ENUM_DRIFT")
+    if set(schema_property(envelope_schema, "office_instance_kind").get("enum", [])) != {
+        "child_agent",
+        "worktree_thread",
+    }:
+        raise AssertionError("STAGE3_RESULT_ENVELOPE_KIND_ENUM_DRIFT")
+    assert_unique_string_array(envelope_schema, "evidence")
+    assert_unique_string_array(envelope_schema, "recovery_input_ids")
+    carrier_schema = schema_property(envelope_schema, "carrier_proof")
+    carrier_variants = carrier_schema.get("oneOf")
+    if not isinstance(carrier_variants, list) or len(carrier_variants) != 2:
+        raise AssertionError("STAGE3_CARRIER_PROOF_VARIANTS_MISSING")
+    carrier_shapes: set[frozenset[str]] = set()
+    for variant in carrier_variants:
+        if not isinstance(variant, dict) or variant.get("additionalProperties") is not False:
+            raise AssertionError("STAGE3_CARRIER_PROOF_VARIANT_NOT_CLOSED")
+        required = variant.get("required")
+        properties = variant.get("properties")
+        if not isinstance(required, list) or not isinstance(properties, dict):
+            raise AssertionError("STAGE3_CARRIER_PROOF_VARIANT_INVALID")
+        if set(required) != set(properties):
+            raise AssertionError("STAGE3_CARRIER_PROOF_REQUIRED_FIELDS_DRIFT")
+        carrier_shapes.add(frozenset(properties))
+    if carrier_shapes != {
+        frozenset({"agent_id"}),
+        frozenset(
+            {
+                "thread_id",
+                "canonical_worktree_id",
+                "canonical_worktree_path",
+                "repo_id",
+                "common_dir_fingerprint",
+                "worktree_fingerprint",
+                "branch",
+                "start_head",
+            }
+        ),
+    }:
+        raise AssertionError("STAGE3_CARRIER_PROOF_EXACT_SHAPES_DRIFT")
+
+    quarantine_required = {
+        "schema",
+        "quarantine_id",
+        "payload_sha256",
+        "task_id",
+        "semantic_epoch",
+        "charter_sha256",
+        "invariant_capsule_sha256",
+        "checkpoint_id",
+        "dispatch_uid",
+        "attempt",
+        "office_instance_id",
+        "office_instance_kind",
+        "carrier_proof_sha256",
+        "agent_id",
+        "role",
+        "direct_superior",
+        "worktree",
+        "write_set_sha256",
+        "source_status",
+        "source_final_status",
+        "source_release_status",
+        "source_result_state",
+        "failure_kind",
+        "reason_codes",
+        "received_at",
+        "quarantine_event_id",
+        "core_sha256",
+    }
+    quarantine_schema = assert_closed_schema(
+        "result_quarantine_core_json_schema",
+        quarantine_required,
+    )
+    assert_schema_const(quarantine_schema, "court.office.result_quarantine.v2")
+    for field in (
+        "payload_sha256",
+        "charter_sha256",
+        "invariant_capsule_sha256",
+        "carrier_proof_sha256",
+        "write_set_sha256",
+        "core_sha256",
+    ):
+        assert_sha256_property(quarantine_schema, field)
+    for field in ("semantic_epoch", "attempt"):
+        assert_positive_integer_property(quarantine_schema, field)
+    for field, expected in (
+        ("source_status", "failed"),
+        ("source_final_status", "failed"),
+        ("source_release_status", "closed"),
+        ("source_result_state", "QUARANTINED"),
+        ("failure_kind", "result_binding_quarantine"),
+    ):
+        if schema_property(quarantine_schema, field).get("const") != expected:
+            raise AssertionError(f"STAGE3_QUARANTINE_CORE_CONST_DRIFT:{field}")
+    assert_unique_string_array(quarantine_schema, "reason_codes")
+
+    recovery_head_required = {
+        "schema",
+        "recovery_id",
+        "quarantine_id",
+        "revision",
+        "state",
+        "previous_head_sha256",
+        "projection_sha256",
+        "target_binding_sha256",
+        "review_receipt_sha256",
+        "handoff_receipt_sha256",
+        "consume_receipt_sha256",
+        "operation_id",
+        "event_id",
+        "created_at",
+        "head_sha256",
+    }
+    recovery_head_schema = assert_closed_schema(
+        "result_recovery_head_json_schema",
+        recovery_head_required,
+    )
+    assert_schema_const(recovery_head_schema, "court.office.result_recovery_head.v1")
+    assert_positive_integer_property(recovery_head_schema, "revision")
+    if set(schema_property(recovery_head_schema, "state").get("enum", [])) != {
+        "REVIEW_PENDING",
+        "READY_FOR_HANDOFF",
+        "REJECTED",
+        "HANDED_OFF",
+        "CONSUMED",
+    }:
+        raise AssertionError("STAGE3_RECOVERY_HEAD_STATE_ENUM_DRIFT")
+    for field in (
+        "previous_head_sha256",
+        "projection_sha256",
+        "target_binding_sha256",
+        "review_receipt_sha256",
+        "handoff_receipt_sha256",
+        "consume_receipt_sha256",
+        "head_sha256",
+    ):
+        assert_sha256_property(recovery_head_schema, field)
+
+    receipt_contracts = (
+        (
+            "result_recovery_review_receipt_json_schema",
+            "court.office.result_recovery_review_receipt.v1",
+            {
+                "schema", "receipt_id", "operation_id", "task_id",
+                "task_revision", "quarantine_id", "quarantine_core_sha256",
+                "recovery_id", "recovery_revision", "previous_head_sha256",
+                "decision", "reason_codes", "evidence_pointer",
+                "evidence_sha256", "projection_sha256", "actor",
+                "reviewed_at", "event_id", "receipt_sha256",
+            },
+        ),
+        (
+            "result_recovery_handoff_receipt_json_schema",
+            "court.office.result_recovery_handoff_receipt.v1",
+            {
+                "schema", "receipt_id", "operation_id", "task_id",
+                "task_revision", "quarantine_id", "recovery_id",
+                "recovery_revision", "previous_head_sha256",
+                "review_receipt_sha256", "target_binding_sha256",
+                "native_host_request_sha256", "native_host_action_receipt_id",
+                "native_host_action_receipt_sha256", "reason_codes",
+                "evidence_pointer", "evidence_sha256", "actor",
+                "handed_off_at", "event_id", "receipt_sha256",
+            },
+        ),
+        (
+            "result_recovery_consume_receipt_json_schema",
+            "court.office.result_recovery_consume_receipt.v1",
+            {
+                "schema", "receipt_id", "operation_id", "task_id",
+                "task_revision", "quarantine_id", "recovery_id",
+                "recovery_revision", "previous_head_sha256",
+                "handoff_receipt_sha256", "target_binding_sha256",
+                "target_result_envelope_sha256", "target_finish_event_id",
+                "reason_codes", "evidence_pointer", "evidence_sha256",
+                "actor", "consumed_at", "event_id", "receipt_sha256",
+            },
+        ),
+    )
+    for helper_name, schema_name, required_fields in receipt_contracts:
+        receipt_schema = assert_closed_schema(helper_name, required_fields)
+        assert_schema_const(receipt_schema, schema_name)
+        assert_sha256_property(receipt_schema, "receipt_sha256")
+        assert_sha256_property(receipt_schema, "evidence_sha256")
+        assert_unique_string_array(receipt_schema, "reason_codes")
+
+    source_hash = getattr(court_semantic_continuity, "source_result_payload_sha256")
+    source_a = {"schema": "court.office.result.v1", "summary": "raw", "status": "completed"}
+    source_b = {"status": "completed", "summary": "raw", "schema": "court.office.result.v1"}
+    source_c = {"schema": "court.office.result.v1", "summary": "changed", "status": "completed"}
+    if source_hash(source_a) != _canonical_sha256(source_a):
+        raise AssertionError("STAGE3_PRE_ADAPT_SOURCE_HASH_NOT_CANONICAL")
+    if source_hash(source_a) != source_hash(source_b):
+        raise AssertionError("STAGE3_PRE_ADAPT_SOURCE_HASH_KEY_ORDER_SENSITIVE")
+    if source_hash(source_a) == source_hash(source_c):
+        raise AssertionError("STAGE3_PRE_ADAPT_SOURCE_HASH_VALUE_BLIND")
+
+    target_fields = set(
+        getattr(court_semantic_continuity, "result_recovery_target_binding_fields")()
+    )
+    expected_target_fields = {
+        "task_id", "semantic_epoch", "charter_sha256",
+        "invariant_capsule_sha256", "checkpoint_id", "dispatch_uid",
+        "attempt", "office_instance_id", "office_instance_kind",
+        "carrier_proof", "agent_id", "role", "direct_superior", "worktree",
+        "write_set_sha256", "hierarchy_schema", "hierarchy_gate",
+        "hierarchy_edge_class", "preload_status", "office_execution_ready",
+        "status", "final_status", "release_status", "result_state",
+    }
+    if target_fields != expected_target_fields:
+        raise AssertionError("STAGE3_TARGET_BINDING_FIELDS_NOT_EXACT")
+
+    expected_event_id = "EVT-RR-" + hashlib.sha256(
+        b"OP-RED|review|payload-red"
+    ).hexdigest()[:24].upper()
+    if (
+        court_semantic_continuity.deterministic_result_recovery_event_id(
+            "OP-RED", "review", "payload-red"
+        )
+        != expected_event_id
+    ):
+        raise AssertionError("STAGE3_RESULT_RECOVERY_EVENT_ID_NOT_DETERMINISTIC")
+    if (
+        court_semantic_continuity.deterministic_result_recovery_event_id(
+            "OP-RED", "handoff", "payload-red"
+        )
+        == expected_event_id
+    ):
+        raise AssertionError("STAGE3_RESULT_RECOVERY_EVENT_ID_ACTION_BLIND")
+    if (
+        court_semantic_continuity.deterministic_result_recovery_event_id(
+            "OP-RED", "review", "payload-blue"
+        )
+        == expected_event_id
+    ):
+        raise AssertionError("STAGE3_RESULT_RECOVERY_EVENT_ID_PAYLOAD_BLIND")
+
+    disposition = getattr(court_semantic_continuity, "result_recovery_record_disposition")
+    legacy_records = (
+        {"schema": "court.office.result_quarantine.v1"},
+        {"schema": "court.office.result_quarantine.v2"},
+        {"schema": "court.office.result_recovery_head.v1", "head_sha256": _digest("head")},
+    )
+    for record in legacy_records:
+        if disposition(record) != "READ_ONLY_LEGACY":
+            raise AssertionError("STAGE3_LEGACY_RESULT_RECOVERY_RECORD_MUTABLE")
+
+    valid = {
+        "schema": "court.office.result.v1",
+        "task_id": "stage3-red",
+        "semantic_epoch": 1,
+        "charter_sha256": _digest("stage3-charter"),
+        "invariant_capsule_sha256": _digest("stage3-capsule"),
+        "checkpoint_id": "CHK-STAGE3-RED",
+        "dispatch_uid": "dispatch-stage3-red",
+        "attempt": 1,
+        "office_instance_id": "gongbu-stage3-red",
+        "office_instance_kind": "child_agent",
+        "carrier_proof": {"agent_id": "gongbu-stage3-red"},
+        "agent_id": "gongbu-stage3-red",
+        "role": "gongbu",
+        "direct_superior": "shangshu",
+        "worktree": "D:/project/worktrees/decretum-matrix/beta106-local-stage-019fb7f5",
+        "write_set_sha256": _digest("stage3-write-set"),
+        "status": "completed",
+        "summary": "bounded projection",
+        "evidence": ["receipts/stage3-red.json"],
+        "produced_at": "2026-08-03T00:00:00+00:00",
+        "recovery_input_ids": ["REC-STAGE3-SEED"],
+    }
+
+    def expect_envelope_refusal(field: str, value: object, error: str) -> None:
+        candidate = dict(valid)
+        candidate[field] = value
+        try:
+            court_semantic_continuity.normalize_result_envelope(candidate)
+        except ValueError as exc:
+            if str(exc) != error:
+                raise AssertionError(
+                    f"STAGE3_RESULT_ENVELOPE_WRONG_ERROR:{field}:{exc}"
+                ) from exc
+        else:
+            raise AssertionError(f"STAGE3_RESULT_ENVELOPE_BYPASS_ACCEPTED:{field}")
+
+    normalized_valid = court_semantic_continuity.normalize_result_envelope(valid)
+    if normalized_valid != valid:
+        raise AssertionError("STAGE3_VALID_RESULT_ENVELOPE_NOT_CANONICAL")
+
+    expect_envelope_refusal("unexpected", "value", "result_envelope_unknown_field")
+    expect_envelope_refusal("raw_body", "private", "result_envelope_private_field")
+    expect_envelope_refusal(
+        "recovery_input_ids",
+        [{"recovery_id": "REC-RED"}],
+        "result_envelope_nested_field_forbidden",
+    )
+    expect_envelope_refusal(
+        "recovery_input_ids",
+        ["REC-STAGE3-DUPLICATE", "REC-STAGE3-DUPLICATE"],
+        "result_envelope_duplicate_recovery_id",
+    )
+    expect_envelope_refusal(
+        "carrier_proof",
+        {"agent_id": "gongbu-stage3-red", "unexpected": "value"},
+        "result_envelope_unknown_nested_field",
+    )
+
+    def expect_value_error(expected_error: str, call) -> None:
+        try:
+            call()
+        except ValueError as exc:
+            if str(exc) != expected_error:
+                raise AssertionError(
+                    f"STAGE3_RESULT_RECOVERY_WRONG_ERROR:{expected_error}:{exc}"
+                ) from exc
+        else:
+            raise AssertionError(
+                f"STAGE3_RESULT_RECOVERY_EXPECTED_ERROR_MISSING:{expected_error}"
+            )
+
+    failed_source = dict(normalized_valid)
+    failed_source["status"] = "failed"
+    failed_source["summary"] = "quarantined bounded projection"
+    core_a = court_semantic_continuity.build_result_quarantine_core(
+        source_result=failed_source,
+        source_final_status="failed",
+        source_release_status="closed",
+        source_result_state="QUARANTINED",
+        reason_codes=["result_binding_mismatch"],
+        received_at="2026-08-03T00:01:00+00:00",
+    )
+    core_b = court_semantic_continuity.build_result_quarantine_core(
+        source_result=failed_source,
+        source_final_status="failed",
+        source_release_status="closed",
+        source_result_state="QUARANTINED",
+        reason_codes=["result_binding_mismatch"],
+        received_at="2026-08-03T00:01:00+00:00",
+    )
+    if core_a != core_b:
+        raise AssertionError("STAGE3_QUARANTINE_CORE_NOT_DETERMINISTIC")
+    if court_semantic_continuity.validate_result_quarantine_core(core_a) != core_a:
+        raise AssertionError("STAGE3_QUARANTINE_CORE_NOT_CANONICAL")
+    tampered_core = dict(core_a)
+    tampered_core["reason_codes"] = ["tampered_reason"]
+    expect_value_error(
+        "result_quarantine_core_digest_mismatch",
+        lambda: court_semantic_continuity.validate_result_quarantine_core(
+            tampered_core
+        ),
+    )
+    if (
+        court_semantic_continuity.result_recovery_record_disposition(core_a)
+        != "CURRENT_QUARANTINE_CORE"
+    ):
+        raise AssertionError("STAGE3_VALID_QUARANTINE_CORE_DISPOSITION_DRIFT")
+
+    zero_sha256 = "0" * 64
+    recovery_id = "REC-STAGE3-RED"
+    head_1 = court_semantic_continuity.build_result_recovery_head(
+        quarantine_core=core_a,
+        recovery_id=recovery_id,
+        previous_head=None,
+        state="REVIEW_PENDING",
+        projection_sha256=_digest("stage3-projection-rev1"),
+        target_binding_sha256=_digest("stage3-target-binding"),
+        review_receipt_sha256=zero_sha256,
+        handoff_receipt_sha256=zero_sha256,
+        consume_receipt_sha256=zero_sha256,
+        operation_id="OP-STAGE3-HEAD-REV1",
+        event_id=court_semantic_continuity.deterministic_result_recovery_event_id(
+            "OP-STAGE3-HEAD-REV1", "quarantine", core_a["core_sha256"]
+        ),
+        created_at="2026-08-03T00:02:00+00:00",
+    )
+    if head_1.get("revision") != 1 or head_1.get("previous_head_sha256") != zero_sha256:
+        raise AssertionError("STAGE3_RECOVERY_HEAD_REV1_CHAIN_DRIFT")
+    if (
+        court_semantic_continuity.validate_result_recovery_head(
+            head_1,
+            expected_revision=1,
+            expected_head_sha256=head_1["head_sha256"],
+        )
+        != head_1
+    ):
+        raise AssertionError("STAGE3_RECOVERY_HEAD_REV1_NOT_CANONICAL")
+
+    operation_id = "OP-STAGE3-REVIEW"
+    operation_payload = {
+        "state": "READY_FOR_HANDOFF",
+        "projection_sha256": _digest("stage3-projection-rev2"),
+        "target_binding_sha256": _digest("stage3-target-binding"),
+        "review_receipt_sha256": _digest("stage3-review-receipt"),
+        "handoff_receipt_sha256": zero_sha256,
+        "consume_receipt_sha256": zero_sha256,
+        "created_at": "2026-08-03T00:03:00+00:00",
+    }
+    operation_payload_sha256 = _canonical_sha256(operation_payload)
+    operation_event_id = (
+        court_semantic_continuity.deterministic_result_recovery_event_id(
+            operation_id, "review", operation_payload_sha256
+        )
+    )
+    head_2 = court_semantic_continuity.build_result_recovery_head(
+        quarantine_core=core_a,
+        recovery_id=recovery_id,
+        previous_head=head_1,
+        state=operation_payload["state"],
+        projection_sha256=operation_payload["projection_sha256"],
+        target_binding_sha256=operation_payload["target_binding_sha256"],
+        review_receipt_sha256=operation_payload["review_receipt_sha256"],
+        handoff_receipt_sha256=operation_payload["handoff_receipt_sha256"],
+        consume_receipt_sha256=operation_payload["consume_receipt_sha256"],
+        operation_id=operation_id,
+        event_id=operation_event_id,
+        created_at=operation_payload["created_at"],
+    )
+    if (
+        head_2.get("revision") != 2
+        or head_2.get("previous_head_sha256") != head_1.get("head_sha256")
+    ):
+        raise AssertionError("STAGE3_RECOVERY_HEAD_REV2_CHAIN_DRIFT")
+    if (
+        court_semantic_continuity.validate_result_recovery_head(
+            head_2,
+            expected_revision=2,
+            expected_head_sha256=head_2["head_sha256"],
+        )
+        != head_2
+    ):
+        raise AssertionError("STAGE3_RECOVERY_HEAD_REV2_NOT_CANONICAL")
+
+    tampered_head = dict(head_2)
+    tampered_head["projection_sha256"] = _digest("tampered-stage3-projection")
+    expect_value_error(
+        "result_recovery_head_digest_mismatch",
+        lambda: court_semantic_continuity.validate_result_recovery_head(
+            tampered_head
+        ),
+    )
+    expect_value_error(
+        "result_recovery_revision_conflict",
+        lambda: court_semantic_continuity.validate_result_recovery_head(
+            head_2,
+            expected_revision=1,
+            expected_head_sha256=head_2["head_sha256"],
+        ),
+    )
+    expect_value_error(
+        "result_recovery_head_conflict",
+        lambda: court_semantic_continuity.validate_result_recovery_head(
+            head_2,
+            expected_revision=2,
+            expected_head_sha256=head_1["head_sha256"],
+        ),
+    )
+    if (
+        court_semantic_continuity.result_recovery_record_disposition(head_2)
+        != "CURRENT_RECOVERY_HEAD"
+    ):
+        raise AssertionError("STAGE3_VALID_RECOVERY_HEAD_DISPOSITION_DRIFT")
+
+    applied = court_semantic_continuity.apply_result_recovery_operation(
+        quarantine_core=core_a,
+        current_head=head_1,
+        operation_id=operation_id,
+        action="review",
+        payload=operation_payload,
+        expected_revision=1,
+        expected_head_sha256=head_1["head_sha256"],
+    )
+    if applied != head_2:
+        raise AssertionError("STAGE3_RESULT_RECOVERY_APPLY_RESULT_DRIFT")
+    replayed = court_semantic_continuity.apply_result_recovery_operation(
+        quarantine_core=core_a,
+        current_head=applied,
+        operation_id=operation_id,
+        action="review",
+        payload=operation_payload,
+        expected_revision=1,
+        expected_head_sha256=head_1["head_sha256"],
+    )
+    if replayed != applied:
+        raise AssertionError("STAGE3_RESULT_RECOVERY_OPERATION_REPLAY_DRIFT")
+
+    changed_payload = dict(operation_payload)
+    changed_payload["projection_sha256"] = _digest("stage3-projection-conflict")
+    expect_value_error(
+        "result_recovery_operation_conflict",
+        lambda: court_semantic_continuity.apply_result_recovery_operation(
+            quarantine_core=core_a,
+            current_head=applied,
+            operation_id=operation_id,
+            action="review",
+            payload=changed_payload,
+            expected_revision=1,
+            expected_head_sha256=head_1["head_sha256"],
+        ),
+    )
+    expect_value_error(
+        "result_recovery_revision_conflict",
+        lambda: court_semantic_continuity.apply_result_recovery_operation(
+            quarantine_core=core_a,
+            current_head=applied,
+            operation_id="OP-STAGE3-STALE-REVISION",
+            action="review",
+            payload=operation_payload,
+            expected_revision=1,
+            expected_head_sha256=applied["head_sha256"],
+        ),
+    )
+    expect_value_error(
+        "result_recovery_head_conflict",
+        lambda: court_semantic_continuity.apply_result_recovery_operation(
+            quarantine_core=core_a,
+            current_head=applied,
+            operation_id="OP-STAGE3-STALE-HEAD",
+            action="review",
+            payload=operation_payload,
+            expected_revision=applied["revision"],
+            expected_head_sha256=head_1["head_sha256"],
+        ),
+    )
+
+    # Xingbu FAIL 3: identity/structure validation must not be digest-only.
+    broken_head = dict(head_2)
+    broken_head["operation_id"] = ""
+    broken_head["head_sha256"] = _canonical_sha256(
+        {key: item for key, item in broken_head.items() if key != "head_sha256"}
+    )
+    try:
+        court_semantic_continuity.validate_result_recovery_head(broken_head)
+    except ValueError as exc:
+        if str(exc) != "result_recovery_head_identity_required":
+            raise AssertionError(
+                "STAGE3_XINGBU_FAIL3_WRONG_HEAD_ERROR " + str(exc)
+            ) from exc
+    else:
+        raise AssertionError("STAGE3_XINGBU_FAIL3_EMPTY_OPERATION_ID_ACCEPTED")
+
+    projection = court_semantic_continuity.build_result_recovery_projection(
+        source_result=failed_source,
+        recovery_id=recovery_id,
+        quarantine_id=core_a["quarantine_id"],
+    )
+    tampered_projection = dict(projection)
+    tampered_projection["semantic_epoch"] = 2
+    tampered_projection["projection_sha256"] = _canonical_sha256(
+        {
+            key: item
+            for key, item in tampered_projection.items()
+            if key != "projection_sha256"
+        }
+    )
+    try:
+        court_semantic_continuity.validate_result_recovery_projection(
+            tampered_projection,
+            expected_core=core_a,
+        )
+    except ValueError as exc:
+        if str(exc) != "result_recovery_projection_core_mismatch":
+            raise AssertionError(
+                "STAGE3_XINGBU_FAIL3_WRONG_PROJECTION_ERROR " + str(exc)
+            ) from exc
+    else:
+        raise AssertionError(
+            "STAGE3_XINGBU_FAIL3_PROJECTION_EPOCH_MISMATCH_ACCEPTED"
+        )
+
+    # Xingbu FAIL 2: missing carrier kind must fail closed, never default.
+    kindless = dict(failed_source)
+    kindless.pop("office_instance_kind", None)
+    kindless.pop("carrier_proof", None)
+    try:
+        court_semantic_continuity.build_result_quarantine_core(
+            source_result=kindless,
+            source_final_status="failed",
+            source_release_status="closed",
+            source_result_state="QUARANTINED",
+            reason_codes=["result_binding_mismatch"],
+            received_at="2026-08-03T00:04:00+00:00",
+        )
+    except ValueError as exc:
+        if str(exc) != "result_envelope_carrier_binding_required":
+            raise AssertionError(
+                "STAGE3_XINGBU_FAIL2_KINDLESS_CORE_WRONG_ERROR " + str(exc)
+            ) from exc
+    else:
+        raise AssertionError("STAGE3_XINGBU_FAIL2_KINDLESS_CORE_DEFAULTED")
+    try:
+        court_semantic_continuity.build_result_recovery_projection(
+            source_result=kindless,
+            recovery_id=recovery_id,
+            quarantine_id=core_a["quarantine_id"],
+        )
+    except ValueError as exc:
+        if str(exc) != "result_recovery_projection_kind_required":
+            raise AssertionError(
+                "STAGE3_XINGBU_FAIL2_KINDLESS_PROJECTION_WRONG_ERROR " + str(exc)
+            ) from exc
+    else:
+        raise AssertionError("STAGE3_XINGBU_FAIL2_KINDLESS_PROJECTION_DEFAULTED")
+
+
+def check_stage3_xingbu_fail_gates() -> None:
+    # FAIL 1: carrier fields must be compared for office/carrier-bound flows.
+    binding = {
+        "task_id": "t",
+        "semantic_epoch": 1,
+        "charter_sha256": _digest("c"),
+        "invariant_capsule_sha256": _digest("i"),
+        "checkpoint_id": "chk",
+        "dispatch_uid": "d",
+        "attempt": 1,
+        "office_instance_id": "o",
+        "agent_id": "internal-1",
+        "role": "gongbu",
+        "direct_superior": "shangshu",
+        "worktree": "wt",
+        "write_set": [],
+        "office_instance_kind": "child_agent",
+        "carrier_proof": {"agent_id": "internal-1"},
+    }
+    envelope = {
+        "task_id": "t",
+        "semantic_epoch": 1,
+        "charter_sha256": _digest("c"),
+        "invariant_capsule_sha256": _digest("i"),
+        "checkpoint_id": "chk",
+        "dispatch_uid": "d",
+        "attempt": 1,
+        "office_instance_id": "o",
+        "agent_id": "internal-1",
+        "role": "gongbu",
+        "direct_superior": "shangshu",
+        "worktree": "wt",
+        "write_set_sha256": _canonical_sha256([]),
+    }
+    problems = court_semantic_continuity.result_binding_problems(
+        dict(envelope), binding
+    )
+    if (
+        "agent_result_binding_mismatch:office_instance_kind" not in problems
+        or "agent_result_binding_mismatch:carrier_proof" not in problems
+    ):
+        raise AssertionError("STAGE3_XINGBU_FAIL1_CARRIER_FIELDS_NOT_COMPARED")
+    full_envelope = dict(envelope)
+    full_envelope["office_instance_kind"] = "child_agent"
+    full_envelope["carrier_proof"] = {"agent_id": "internal-1"}
+    if court_semantic_continuity.result_binding_problems(full_envelope, binding):
+        raise AssertionError("STAGE3_XINGBU_FAIL1_MATCHING_CARRIER_REJECTED")
+    plain_binding = {
+        key: value
+        for key, value in binding.items()
+        if key not in {"office_instance_kind", "carrier_proof"}
+    }
+    if court_semantic_continuity.result_binding_problems(dict(envelope), plain_binding):
+        raise AssertionError("STAGE3_XINGBU_FAIL1_PLAIN_AGENT_OVER_REJECTED")
+
+    # FAIL 2: pre-adapt source hash must survive office adaptation.
+    raw_a = {
+        "schema": "court.office.result.v1",
+        "agent_id": "raw-1",
+        "office_instance_kind": "child_agent",
+        "carrier_proof": {"agent_id": "raw-1"},
+        "summary": "same",
+    }
+    raw_b = {
+        "schema": "court.office.result.v1",
+        "agent_id": "raw-2",
+        "office_instance_kind": "child_agent",
+        "carrier_proof": {"agent_id": "raw-2"},
+        "summary": "same",
+    }
+    hash_a = court_semantic_continuity.source_result_payload_sha256(raw_a)
+    hash_b = court_semantic_continuity.source_result_payload_sha256(raw_b)
+    if hash_a == hash_b:
+        raise AssertionError("STAGE3_XINGBU_FAIL2_RAW_AGENT_HASH_BLIND")
+    record = {
+        "office_instance_kind": "child_agent",
+        "carrier_proof": {"agent_id": "internal-1"},
+        "worktree": "wt",
+    }
+    adapt_args = Namespace(result_envelope=dict(raw_a), result_envelope_file=None)
+    court_runtime._adapt_office_result_envelope(adapt_args, record, "internal-1")
+    if adapt_args._source_result_payload_sha256 != hash_a:
+        raise AssertionError("STAGE3_XINGBU_FAIL2_PRE_ADAPT_HASH_NOT_STASHED")
+    if adapt_args._original_result_envelope.get("agent_id") != "raw-1":
+        raise AssertionError("STAGE3_XINGBU_FAIL2_ORIGINAL_ENVELOPE_LOST")
+    if adapt_args.result_envelope.get("agent_id") not in {
+        "internal-1",
+        "internal-1-stale-proof",
+    }:
+        raise AssertionError("STAGE3_XINGBU_FAIL2_ADAPT_ENVELOPE_UNEXPECTED")
+
+    # FAIL 4: recovery notes scrubbed and journal preimages privacy-gated.
+    scrubbed = court_runtime.scrub_agent_provider_detail(
+        "note https://provider.example request_id=abc api_key=secret balance=100"
+    )
+    if (
+        "secret" in scrubbed
+        or "provider.example" in scrubbed
+        or "abc" in scrubbed
+        or "100" in scrubbed
+    ):
+        raise AssertionError("STAGE3_XINGBU_FAIL4_NOTE_NOT_SCRUBBED")
+    if (
+        court_runtime._journal_preimage_privacy_violation(
+            b'{"task_id":"t","task":{"body":"secret"}}'
+        )
+        is None
+    ):
+        raise AssertionError("STAGE3_XINGBU_FAIL4_PREIMAGE_PRIVATE_KEY_ACCEPTED")
+    if (
+        court_runtime._journal_preimage_privacy_violation(
+            b'{"task_id":"t","task":{"summary":"ok"}}'
+        )
+        is not None
+    ):
+        raise AssertionError("STAGE3_XINGBU_FAIL4_CLEAN_PREIMAGE_REJECTED")
+
+
 def evaluate() -> dict[str, object]:
     checks = (
         ("PUBLIC_INVARIANT_CAPSULE_CONTRACT", check_public_invariant_capsule_contract),
+        (
+            "STAGE3_RESULT_RECOVERY_PURE_SCHEMA_CORE_HEAD_IDEMPOTENCY_RED",
+            check_stage3_result_recovery_pure_schema_core_head_idempotency_red,
+        ),
+        ("STAGE3_XINGBU_FAIL_GATES", check_stage3_xingbu_fail_gates),
         ("F-RED-002_CREATE_BINDING", check_create_initializes_atomic_semantic_binding),
         ("F-RED-002_CORRECTION_BINDING", check_correction_requires_and_binds_charter_body),
         ("SEMANTIC_CHECKPOINT_VERIFY", check_checkpoint_verify_promotes_dispatchable),

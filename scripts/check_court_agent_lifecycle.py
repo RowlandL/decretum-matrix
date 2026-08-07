@@ -658,6 +658,9 @@ def event_args(task_id: str, agent_id: str, role: str = "gongbu", **overrides: o
         "evidence": ["synthetic-lifecycle-result-pointer"],
         "produced_at": "2026-07-16T00:00:00+00:00",
     }
+    if record.get("office_instance_kind") and record.get("carrier_proof"):
+        result_envelope["office_instance_kind"] = record["office_instance_kind"]
+        result_envelope["carrier_proof"] = dict(record["carrier_proof"])
     values: dict[str, object] = {
         "task_id": task_id,
         "agent_id": agent_id,
@@ -2383,11 +2386,16 @@ def check_office_instance_semantic_and_result_binding() -> None:
     stale.result_envelope["attempt"] = int(stale.result_envelope["attempt"]) + 1
     quarantined = court_runtime.office_finish(stale)
     assert quarantined["event"]["action"] == "agent_result_quarantine"
-    assert quarantined["receipt"]["status"] == "running"
+    assert quarantined["receipt"]["status"] == "failed"
     persisted = court_runtime.load_tasks()[task_id]["agents"][instance_id]
-    assert persisted["status"] == "running"
+    assert persisted["status"] == "failed"
+    assert persisted["final_status"] == "failed"
+    assert persisted["release_status"] == "closed"
+    assert persisted["result_state"] == "QUARANTINED"
+    assert persisted["office_execution_ready"] is False
     assert "result_envelope" not in persisted
     assert court_runtime.load_tasks()[task_id]["quarantined_results"][-1]["status"] == "QUARANTINED"
+    assert court_runtime.load_tasks()[task_id]["quarantined_results"][-1]["core_schema"] == "court.office.result_quarantine.v2"
 
     finish = finish_args(task_id, instance_id)
     finish.office_instance_kind = "worktree_thread"
@@ -2397,14 +2405,20 @@ def check_office_instance_semantic_and_result_binding() -> None:
     finish.result_envelope.pop("worktree")
     finish.result_envelope["office_instance_kind"] = "worktree_thread"
     finish.result_envelope["carrier_proof"] = proof
-    completed = court_runtime.office_finish(finish)
-    assert completed["receipt"]["status"] == "completed"
-    assert completed["office_instance"]["result_envelope"]["carrier_proof"] == proof
-    close = event_args(task_id, instance_id)
-    close.office_instance_kind = "worktree_thread"
-    close.office_instance_id = instance_id
-    close.carrier_proof = proof
-    court_runtime.office_close(close)
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.office_finish(finish),
+        "quarantined source accepted a second finish",
+        "terminal agent cannot accept lifecycle events",
+    )
+    report = event_args(task_id, instance_id)
+    report.office_instance_kind = "worktree_thread"
+    report.office_instance_id = instance_id
+    report.carrier_proof = proof
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.office_report(report),
+        "quarantined source accepted report",
+        "terminal agent cannot accept lifecycle events",
+    )
 
 
 def check_office_task_name_and_readiness_binding() -> None:
@@ -2859,6 +2873,8 @@ def check_office_cli_error_contract() -> None:
 
 
 def check_office_lifecycle_json_cli() -> None:
+    from check_court_native_host_dispatch import load_bridge
+
     task_id = "office-json-cli"
     create_task(task_id)
     open_decree(task_id)
@@ -2889,6 +2905,28 @@ def check_office_lifecycle_json_cli() -> None:
         office_instance_id=instance_id,
         carrier_proof=proof,
     )
+    bridge, bridge_failures = load_bridge()
+    assert bridge is not None and not bridge_failures, bridge_failures
+    native_request = _native_host_request(
+        admission,
+        task_id=task_id,
+        wave_id="office-cli-wave",
+        instance_id=instance_id,
+    )
+    token = uuid.uuid4().hex
+    native_receipt, mint_evidence = _mint_native_host_receipt(
+        bridge,
+        native_request,
+        host_result={
+            "ok": True,
+            "host_task_id": f"host-task-{token}",
+            "host_thread_id": f"host-thread-{token}",
+            "host_instance_id": f"host-instance-{token}",
+            "host_action_id": f"host-action-{token}",
+        },
+    )
+    assert native_receipt is not None, mint_evidence
+    start.native_host_action_receipt = deepcopy(native_receipt)
     assert office_cli("start", start)["receipt"]["action"] == "start"
 
     ack = ack_args(task_id, instance_id)

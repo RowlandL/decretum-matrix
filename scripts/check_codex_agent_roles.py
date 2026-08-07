@@ -78,7 +78,7 @@ def validate_codex_multi_agent_config(
 ) -> dict[str, object]:
     base_path = config_path or (codex_home() / "config.toml")
     overlay_path = managed_path or base_path.with_name("managed_config.toml")
-    path = overlay_path if overlay_path.exists() else base_path
+    path = _effective_config_path(base_path, overlay_path)
     text = path.read_text(encoding="utf-8")
     data = read_toml(path)
     agents = data.get("agents")
@@ -131,6 +131,33 @@ def validate_codex_multi_agent_config(
         ),
         "errors": errors,
     }
+
+
+def _has_protocol_material(data: dict[str, object]) -> bool:
+    agents = data.get("agents") if isinstance(data, dict) else None
+    features = data.get("features") if isinstance(data, dict) else None
+    agents = agents if isinstance(agents, dict) else {}
+    features = features if isinstance(features, dict) else {}
+    return bool(
+        isinstance(features.get("multi_agent_v2"), dict)
+        or features.get("multi_agent") is not None
+        or agents.get("max_threads") is not None
+    )
+
+
+def _effective_config_path(base_path: Path, overlay_path: Path) -> Path:
+    if not overlay_path.exists():
+        return base_path
+    overlay_text = overlay_path.read_text(encoding="utf-8")
+    if not overlay_text.strip():
+        return base_path
+    try:
+        overlay_data = tomllib.loads(overlay_text)
+    except tomllib.TOMLDecodeError:
+        return overlay_path
+    if isinstance(overlay_data, dict) and _has_protocol_material(overlay_data):
+        return overlay_path
+    return base_path
 
 
 def validate_installed_agents(agents_dir: Path | None = None, templates_dir: Path | None = None) -> dict[str, object]:

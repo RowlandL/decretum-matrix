@@ -1,14 +1,14 @@
 {
   "SPDXID": "SPDXRef-DOCUMENT",
   "creationInfo": {
-    "created": "2026-07-23T00:00:00Z",
+    "created": "2026-08-01T00:00:00Z",
     "creators": [
       "Tool: Decretum Matrix（诏令矩阵） release process"
     ]
   },
   "dataLicense": "CC0-1.0",
-  "documentNamespace": "https://spdx.org/spdxdocs/decretum-matrix-beta1.0.5-20260723",
-  "name": "decretum-matrix-beta1.0.5",
+  "documentNamespace": "https://spdx.org/spdxdocs/decretum-matrix-beta1.0.6-20260801",
+  "name": "decretum-matrix-beta1.0.6",
   "packages": [
     {
       "SPDXID": "SPDXRef-Package",
@@ -18,7 +18,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "AGPL-3.0-only",
       "name": "decretum-matrix",
-      "versionInfo": "beta1.0.5"
+      "versionInfo": "beta1.0.6"
     }
   ],
   "relationships": [

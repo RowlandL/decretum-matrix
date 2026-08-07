@@ -217,6 +217,10 @@ def _validate_manifest(manifest: object) -> dict[str, object]:
         child.get("portable_scope_fields"),
         field="child_office_constraints.portable_scope_fields",
     )
+    forbidden_fields = _require_exact_string_list(
+        child.get("forbidden_semantic_authority_fields"),
+        field="child_office_constraints.forbidden_semantic_authority_fields",
+    )
     if set(portable_fields) != {"read_scope", "write_set"}:
         raise _ManifestInvalid("portable scope fields mismatch")
 
@@ -237,6 +241,7 @@ def _validate_manifest(manifest: object) -> dict[str, object]:
             "owner_roles": owners,
             "allowed_instance_kinds": kinds,
             "required_fields": required_fields,
+            "forbidden_semantic_authority_fields": forbidden_fields,
         },
     }
 
@@ -297,8 +302,11 @@ def _portable_paths(value: object) -> tuple[str, ...] | None:
     return tuple(normalized)
 
 
-def _has_forbidden_semantic_authority(value: object) -> bool:
-    forbidden = {
+def _has_forbidden_semantic_authority(
+    value: object,
+    manifest_forbidden: frozenset[str],
+) -> bool:
+    forbidden = manifest_forbidden | {
         "authority_revision",
         "authority_source",
         "plan_revision",
@@ -310,10 +318,13 @@ def _has_forbidden_semantic_authority(value: object) -> bool:
         for raw_key, item in value.items():
             if str(raw_key) in forbidden:
                 return True
-            if _has_forbidden_semantic_authority(item):
+            if _has_forbidden_semantic_authority(item, manifest_forbidden):
                 return True
     elif isinstance(value, (list, tuple)):
-        return any(_has_forbidden_semantic_authority(item) for item in value)
+        return any(
+            _has_forbidden_semantic_authority(item, manifest_forbidden)
+            for item in value
+        )
     return False
 
 
@@ -350,7 +361,8 @@ def _validate_child_profile(
             owner=owner,
             reasons=("dispatch_hierarchy_child_profile_required",),
         )
-    if _has_forbidden_semantic_authority(child_profile):
+    forbidden = frozenset(child["forbidden_semantic_authority_fields"])
+    if _has_forbidden_semantic_authority(child_profile, forbidden):
         return _decision(
             allowed=False,
             edge_class=None,

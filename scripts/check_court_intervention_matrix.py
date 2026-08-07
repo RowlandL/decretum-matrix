@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from court_complexity_budget import normalize_budget_pool
 from court_intake_gate import minimal_request_understanding_example
 from court_office_bootstrap import build_preload_manifest
+from court_native_host_dispatch import _build_receipt
 
 
 TASK_BINDINGS: dict[str, dict[str, object]] = {}
@@ -397,6 +398,9 @@ def result_envelope_file(
         "evidence": ["synthetic-intervention-result-pointer"],
         "produced_at": "2026-07-16T00:00:00+00:00",
     }
+    if agent.get("office_instance_kind") and agent.get("carrier_proof"):
+        envelope["office_instance_kind"] = agent["office_instance_kind"]
+        envelope["carrier_proof"] = dict(agent["carrier_proof"])
     path = runtime_root / f"{agent_id}-{status}-result.json"
     path.write_text(
         json.dumps(envelope, ensure_ascii=False, sort_keys=True) + "\n",
@@ -454,6 +458,88 @@ def start_contract_args(
         skill_requirements_json(),
         *context_economy_args(task_id, wave_id),
     ]
+
+
+def native_spawn_receipt(
+    task_id: str,
+    admission: dict[str, object],
+    *,
+    role: str,
+    env: dict[str, str],
+) -> str:
+    """Build an explicit fixture receipt; production still requires a host receipt."""
+    runtime_root = Path(env["COURT_RUNTIME_ROOT"])
+    tasks = json.loads((runtime_root / "tasks.json").read_text(encoding="utf-8"))
+    task = tasks[task_id]
+    bindings = admission.get("selected_bindings")
+    if not isinstance(bindings, list) or len(bindings) != 1:
+        raise AssertionError("native fixture admission binding missing")
+    binding = bindings[0]
+    preload = binding.get("preload_hashes")
+    if not isinstance(preload, dict):
+        raise AssertionError("native fixture preload hashes missing")
+    model_inputs = admission.get("model_route_inputs")
+    if not isinstance(model_inputs, dict):
+        raise AssertionError("native fixture model inputs missing")
+    anchor = str(admission.get("admission_immutable_anchor_sha256") or "")
+    event_id = None
+    events_path = runtime_root / "court_events.jsonl"
+    if events_path.exists():
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            event = json.loads(line)
+            if (
+                event.get("action") == "agent_admit"
+                and event.get("task_id") == task_id
+                and event.get("wave_id") == admission.get("wave_id")
+                and event.get("allowed") is True
+                and event.get("admission_immutable_anchor_sha256") == anchor
+            ):
+                event_id = event.get("event_id")
+                break
+    if not isinstance(event_id, str) or not event_id:
+        raise AssertionError("native fixture admission event missing")
+    request = {
+        "schema": "court.native_host_dispatch_request.v1",
+        "task_id": task_id,
+        "wave_id": admission["wave_id"],
+        "dispatch_uid": admission["dispatch_uid"],
+        "attempt": admission["attempt"],
+        "role": role,
+        "instance_id": binding["instance_id"],
+        "direct_superior": binding["direct_superior"],
+        "semantic_epoch": admission["semantic_epoch"],
+        "charter_sha256": admission["charter_sha256"],
+        "invariant_capsule_sha256": admission["invariant_capsule_sha256"],
+        "lease_id": binding["lease_id"],
+        "assignment": model_inputs["assignment"],
+        "duty_scope": list(binding.get("read_scope") or binding.get("write_set") or []),
+        "write_set": list(binding.get("write_set") or binding.get("read_scope") or []),
+        "role_ack": {
+            "role": binding["role"],
+            "direct_superior": binding["direct_superior"],
+            "profile_sha256": preload["profile_hash"],
+            "dossier_sha256": preload["dossier_hash"],
+        },
+        "admission_anchor": {
+            "schema": "court.agent.admission_receipt.v1",
+            "receipt_id": event_id,
+            "receipt_sha256": anchor,
+        },
+        "compatible_live_instances": [],
+    }
+    host_result = {
+        "ok": True,
+        "host_task_id": f"host-{task_id}",
+        "host_thread_id": f"thread-{task_id}-{role}",
+        "host_instance_id": f"host-{binding['instance_id']}",
+        "host_action_id": f"spawn-{task_id}-{role}",
+    }
+    return json.dumps(
+        _build_receipt(request, host_result, decision="spawn", host_action="spawn"),
+        ensure_ascii=False,
+    )
 
 
 def admit(
@@ -877,7 +963,9 @@ def main() -> int:
                 "--task-focus", "standards review", "--complexity", "medium", "--risk", "medium",
                 "--ambiguity", "medium", "--transport", "codex",
                 "--context-tokens", "100000", "--deadline-seconds", "600", "--tool-call-budget", "8",
-                "--evidence", "spawned after admission")
+                "--evidence", "spawned after admission",
+                "--native-host-action-receipt-json",
+                native_spawn_receipt("agent-policy", bounded, role="menxia", env=env))
         reconciled = json_cli(
             cli, env, "agent-reconcile", "--task-id", "agent-policy",
             *agent_semantic_args(env, "agent-policy", "menxia-policy-01"), "--agent-id", "menxia-policy-01",
@@ -940,7 +1028,9 @@ def main() -> int:
                 "--dispatch-requested-at", str(capacity_admission["dispatch_requested_at"]),
                 "--task-focus", "capacity coordination", "--complexity", "medium", "--risk", "medium",
                 "--ambiguity", "medium", "--transport", "codex",
-                "--evidence", "spawn capacity test agent")
+                "--evidence", "spawn capacity test agent",
+                "--native-host-action-receipt-json",
+                native_spawn_receipt("capacity-policy", capacity_admission, role="shangshu", env=env))
         capacity_reconciled = json_cli(
             cli, env, "agent-reconcile", "--task-id", "capacity-policy",
             *agent_semantic_args(env, "capacity-policy", "shangshu-capacity-01"),
@@ -1139,6 +1229,8 @@ def main() -> int:
             dispatch_requested_at,
             "--evidence",
             "spawned",
+            "--native-host-action-receipt-json",
+            native_spawn_receipt("matrix", matrix_admission, role="gongbu", env=env),
         )
         acked = preload_ack(cli, env, "matrix", "gongbu-matrix-01", "gongbu")
         assert acked["agent"]["status"] == "running"

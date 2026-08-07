@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
-RELEASE_LABEL = "beta1.0.5"
+RELEASE_LABEL = "beta1.0.6"
 LICENSE_ID = "AGPL-3.0-only"
 # Canonical package and physical install root. Legacy locators may only resolve
 # to this same authority through an explicitly validated compatibility link.
@@ -315,6 +315,10 @@ EXCLUDE_DIRS = {
     "manual",
     "web",
 }
+# M3 GREEN（R-PA1）：install-projection manifest 自 Entry 0036/0037 起将 web/shiguan-tree
+# 纳入 shared_agents/portable_current_tool 投影（web 服务面，SKILL 五类之史馆/GBrain 运行面）。
+# 该目录必须随 package 打包，否则 stage_validation 报 missing projected path。
+EXCLUDE_DIRS_WEB_ALLOWLIST = {"shiguan-tree"}
 EXCLUDE_REFERENCE_DIRS = {
     "agente-logs",
     "capability-index",
@@ -472,6 +476,14 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
     if has_sensitive_directory(relative):
         return True
     if lower_parts & {part.casefold() for part in EXCLUDE_DIRS}:
+        # M3 GREEN（R-PA1）：web/shiguan-tree 白名单放行（manifest 投影成员）。
+        # web 目录自身在含 allowlist 子目录时放行（否则整棵 web 子树不被遍历）；
+        # 其余 web 子目录保持既有排除语义不变。
+        if relative.parts and relative.parts[0].casefold() == "web":
+            if relative.name.casefold() == "web" or relative.parts[1].casefold() in {
+                item.casefold() for item in EXCLUDE_DIRS_WEB_ALLOWLIST
+            }:
+                return False
         return True
     if lower_parts & SECRET_BEARING_DIRS:
         return True

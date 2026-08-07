@@ -67,9 +67,6 @@ PROTECTED_SHARED_AGENT_PATHS = {
     "references/shiguan-tree/_index.md",
     "references/shiguan-tree/capability-index/_index.md",
 }
-PROTECTED_SHARED_AGENT_CONTRACT_SHA256 = (
-    "36af654a6c1ca18b16f2479fc77cdde2666d796070e2cb47ff52401a65722e08"
-)
 BACKUP_SCHEMA = "court.install_projection_backup.v1"
 BACKUP_DIRECTORY_PARTS = (".agents", "install-backups", "decretum-matrix")
 
@@ -189,20 +186,11 @@ def _load_projection_contract(
             "projection_manifest_invalid", "repository_only_overlap"
         )
     protected = manifest.get("protected_shared_agents_seeds")
-    if not isinstance(protected, dict) or hashlib.sha256(json.dumps(
-        protected, sort_keys=True, separators=(",", ":")
-    ).encode()).hexdigest() != PROTECTED_SHARED_AGENT_CONTRACT_SHA256 or set(protected) != PROTECTED_SHARED_AGENT_PATHS or any(
-        not _safe_relative(path)
-        or not isinstance(digest, str)
-        or len(digest) != 64
-        or digest != digest.lower()
-        or any(character not in "0123456789abcdef" for character in digest)
-        for path, digest in protected.items()
-    ):
+    if protected != []:
         raise _InstallContractError(
-            "projection_manifest_invalid", "protected_seeds_invalid"
+            "projection_manifest_invalid", "protected_seeds_must_be_empty"
         )
-    if portable & set(protected):
+    if portable & PROTECTED_SHARED_AGENT_PATHS:
         raise _InstallContractError(
             "projection_manifest_invalid", "protected_seed_projection_overlap"
         )
@@ -506,9 +494,7 @@ def _plan_projection_writes(
     operations: list[tuple[Path, bytes, bytes | None]] = []
     identical = 0
     replacements = 0
-    seed_contract = manifest["protected_shared_agents_seeds"]
-    assert isinstance(seed_contract, dict)
-    protected_paths = set(seed_contract)
+    protected_paths = PROTECTED_SHARED_AGENT_PATHS
     for _label, target, projection_name in selected:
         migration_source = (migration_sources or {}).get(target.resolve(strict=False))
         inspection_root = migration_source or target

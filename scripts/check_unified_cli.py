@@ -55,6 +55,13 @@ BOOTSTRAP_ENTRYPOINTS = (
 # adapter. They remain callable by their owning maintenance workflow.
 RETIRED_COMPATIBILITY_ENTRYPOINTS = frozenset(
     {
+        "scripts/check_active_copy_hashes.py",
+        "scripts/check_cli_cwd_invariance.py",
+        "scripts/check_court_native_host_dispatch.py",
+        "scripts/check_install_projection_closure.py",
+        "scripts/check_runtime_identity_contract.py",
+        "scripts/check_shiguan_lineage_rebuild_compatibility.py",
+        "scripts/check_shiguan_lineage_taxonomy.py",
         "scripts/check_shiguan_git_federation.py",
         "scripts/ensure_shiguan_autosync.py",
         "scripts/ensure_shiguan_service_daemon.py",

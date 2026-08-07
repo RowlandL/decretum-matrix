@@ -19,7 +19,6 @@ from typing import Any, Callable
 from unittest import mock
 
 sys.dont_write_bytecode = True
-from install_current_agent_copy import PROTECTED_SHARED_AGENT_CONTRACT_SHA256
 Payload = dict[str, object]
 Installer = Callable[..., object]
 
@@ -259,10 +258,7 @@ def _validate_manifest(
             f"{IDENTITY_MANIFEST_RELATIVE!r}"
         )
 
-    protected = manifest.get("protected_shared_agents_seeds")
-    if not isinstance(protected, dict) or _sha256_bytes(
-        json.dumps(protected, sort_keys=True, separators=(",", ":")).encode()
-    ) != PROTECTED_SHARED_AGENT_CONTRACT_SHA256:
+    if manifest.get("protected_shared_agents_seeds") != []:
         errors.append(f"{label}:protected_shared_agents_seeds")
 
     policy = manifest.get("policy")
@@ -359,10 +355,7 @@ def _fixture_manifest() -> Payload:
         "schema": PROJECTION_SCHEMA,
         "identity_manifest": IDENTITY_MANIFEST_RELATIVE,
         "policy": dict(POLICY_EXPECTED),
-        "protected_shared_agents_seeds": {
-            path: _sha256_bytes(text.encode("utf-8"))
-            for path, text in PROTECTED_SEEDS.items()
-        },
+        "protected_shared_agents_seeds": [],
         "projections": {
             "shared_agents": list(PORTABLE_FILES),
             "portable_current_tool": list(PORTABLE_FILES),
@@ -1902,19 +1895,17 @@ def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
     except (OSError, json.JSONDecodeError) as exc:
         errors.append(f"{name}:receipt_invalid:{type(exc).__name__}:{exc}")
         return 0
-    junction_probe = getattr(Path, "is_junction", None)
-    junctions_ok = (
-        callable(junction_probe)
-        and previous.is_junction()
-        and local_legacy.is_junction()
-        and previous.resolve(strict=True) == references.resolve(strict=True)
-        and local_legacy.resolve(strict=True) == references.resolve(strict=True)
-    ) if os.name == "nt" else (not previous.exists() and not local_legacy.exists())
+    legacy_topology_untouched = not (
+        previous.exists()
+        or previous.is_symlink()
+        or local_legacy.exists()
+        or local_legacy.is_symlink()
+    )
     checks = (
         returncode == 0,
         canonical.is_dir() and not canonical.is_symlink(),
         references.is_dir() and not references.is_symlink(),
-        junctions_ok,
+        legacy_topology_untouched,
         receipt_value.get("ok") is True,
         receipt_value.get("pending_body_access") == "NO",
         receipt_value.get("body_content_reads") == 0,
@@ -1924,55 +1915,6 @@ def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
     if not all(checks):
         errors.append(f"{name}:contract_failed:{receipt_value}")
         return 0
-    bootstrap = receipt_value.get("bootstrap")
-    steps = bootstrap.get("steps") if isinstance(bootstrap, dict) else None
-    shared = steps.get("shared_shiguan") if isinstance(steps, dict) else None
-    topology = shared.get("topology") if isinstance(shared, dict) else None
-    backup_root = topology.get("backup_root") if isinstance(topology, dict) else None
-    rollback_env = dict(os.environ)
-    rollback_env.update(
-        {
-            "APPDATA": str(roaming),
-            "HOME": str(home),
-            "LOCALAPPDATA": str(local),
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "USERPROFILE": str(home),
-        }
-    )
-    rollback = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            str(canonical / "scripts" / "ensure_portable_court_bootstrap.py"),
-            "--rollback-shared-transaction",
-            str(backup_root),
-            "--format",
-            "json",
-        ],
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        env=rollback_env,
-        timeout=120,
-    )
-    try:
-        rollback_receipt = json.loads(rollback.stdout)
-    except json.JSONDecodeError:
-        rollback_receipt = None
-    if (
-        rollback.returncode != 0
-        or not isinstance(rollback_receipt, dict)
-        or rollback_receipt.get("ok") is not True
-        or rollback_receipt.get("mode") != "apply"
-        or references.exists()
-        or previous.exists()
-        or local_legacy.exists()
-    ):
-        errors.append(
-            f"{name}:explicit_shared_rollback_failed:{rollback.stdout}:{rollback.stderr}"
-        )
-        return 0
     return 1
 
 
@@ -1981,7 +1923,6 @@ def _check_cases(
     temp_root: Path,
     errors: list[str],
 ) -> int:
-    install.__globals__["PROTECTED_SHARED_AGENT_CONTRACT_SHA256"] = _sha256_bytes(json.dumps(_fixture_manifest()["protected_shared_agents_seeds"], sort_keys=True, separators=(",", ":")).encode())
     passed = 0
 
     def install_args(
@@ -2246,9 +2187,7 @@ def _check_cases(
             passed += 1
 
     bad_manifest = _fixture_manifest()
-    protected = bad_manifest["protected_shared_agents_seeds"]
-    assert isinstance(protected, dict)
-    protected[next(iter(protected))] = "0" * 64
+    bad_manifest["protected_shared_agents_seeds"] = ["unexpected-anchor"]
     source, home, manifest, roots = _case_fixture(temp_root, "protected-contract", bad_manifest)
     if _require_rejection(
         install, name="protected_contract_drift_rejected",

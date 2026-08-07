@@ -750,7 +750,9 @@ def _run_postinstall(runtime_root: Path, archive_id: str) -> int:
         "open_source_acknowledgements": OPEN_SOURCE_ACKNOWLEDGEMENTS,
         "pending_body_access": "NO",
         "body_content_reads": 0,
+        "body_hashes": 0,
         "bootstrap_validation": "STRUCTURAL_ONLY",
+        "service_activation_requested": False,
         "temporary_validation_helper": "NOT_USED",
     }
     if combined["ok"] is not True:

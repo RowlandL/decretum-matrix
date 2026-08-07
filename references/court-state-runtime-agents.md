@@ -925,6 +925,14 @@ host refuses the spawn before an agente lifecycle record exists, use
 creating a fake agent record. Ledger closure proves court lifecycle
 reconciliation, not physical host reclamation.
 
+When configuration, memory, or execution-book diagnostics disagree with the
+requested parallel workflow, first run the smallest current host action that can
+settle availability: one bounded `spawn` or `reuse` probe through the lawful
+superior path. If that host action succeeds, continue the wave and treat the
+diagnostic as a checker issue to repair. If the host action returns a concrete
+refusal, capacity error, auth/quota failure, or the latest user instruction bars
+dispatch, record that current result and then degrade or stop.
+
 For office self-check, connectivity, readiness, and exact short-reply decrees,
 the runtime acceptance surface is the office wave itself: selected offices must
 produce matching replies through their direct-superior path, or the superior

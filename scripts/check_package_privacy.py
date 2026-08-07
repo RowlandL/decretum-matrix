@@ -1408,6 +1408,24 @@ class PackageBuildTests(unittest.TestCase):
         self.assertEqual(out.read_bytes(), sentinel)
         self.assertEqual(list(self.temp_path.glob(f".{out.name}.*.candidate")), [])
 
+    # ---- M3 RED（R-PA1a）：web/shiguan-tree 必须随 package 打包（manifest 投影成员）----
+    def test_web_shiguan_tree_is_packaged(self) -> None:
+        out = self.temp_path / "web-tree.zip"
+        _, _, problems = package_skill.build(out)
+        self.assertEqual(problems, [])
+        with zipfile.ZipFile(out) as archive:
+            names = set(archive.namelist())
+        expected = f"{ROOT_NAME}/web/shiguan-tree/index.html"
+        self.assertIn(expected, names)
+
+    # ---- M3 RED（R-PA1b）：web/shiguan-tree 白名单有界（其余 web 子目录仍排除）----
+    def test_web_allowlist_is_bounded_to_shiguan_tree(self) -> None:
+        from pathlib import Path as _Path
+        probe = _Path("web/other-dir/placeholder.txt")
+        self.assertTrue(package_skill.should_skip(probe, is_dir=False))
+        allowed = _Path("web/shiguan-tree/index.html")
+        self.assertFalse(package_skill.should_skip(allowed, is_dir=False))
+
     def test_source_replacement_during_open_is_rejected(self) -> None:
         source_root = self.temp_path / "source"
         source_root.mkdir()

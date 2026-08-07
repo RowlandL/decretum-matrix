@@ -171,8 +171,10 @@ def _cases() -> tuple[HierarchyCase, ...]:
     missing_owner = {**gongbu_child, "owner_role": None, "direct_superior": None}
     missing_instance = {key: value for key, value in gongbu_child.items() if key != "office_instance_id"}
     unbounded_child = deepcopy(gongbu_child)
-    for field in ("bounded_mandate", "expected_result", "read_scope", "write_set", "terminal_condition"):
-        unbounded_child.pop(field, None)
+    unbounded_child["bounded_mandate"] = "bounded fixture mandate"
+    unbounded_child["read_scope"] = []
+    unbounded_child["write_set"] = []
+    unbounded_child["terminal_condition"] = "bounded fixture terminal condition"
     canonical_role_child = deepcopy(gongbu_child)
     canonical_role_child["child_role"] = "gongbu"
     non_ministry_child = child_profile(

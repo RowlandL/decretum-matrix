@@ -174,16 +174,16 @@
       "dispatch_uid",
       "shard_id",
       "attempt",
-      "profile_source",
-      "dossier_path",
-      "skill_source",
+      "profile_sha256",
+      "dossier_sha256",
+      "skill_sha256",
       "expires_at_utc",
       "terminal_condition",
       "dispatch_context_packet_schema",
-      "dispatch_context_packet_id",
-      "semantic_receipt_id",
+      "dispatch_context_packet_sha256",
+      "semantic_receipt_sha256",
       "invariant_capsule_schema",
-      "invariant_capsule_id"
+      "invariant_capsule_sha256"
     ],
     "portable_scope_fields": [
       "read_scope",

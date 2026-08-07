@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.5",
+  "latest_tag": "beta1.0.6",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -9,6 +9,18 @@
     "latest_must_match_version": true
   },
   "releases": [
+    {
+      "tag": "beta1.0.6",
+      "title": "Decretum Matrix beta1.0.6",
+      "summary": "本版本收口原生宿主运行身份与入口证据、尚书省到六部的真实派遣/复用，以及史馆谱系分类待审路径；安装后的运行面继续排除独立哈希校验器。",
+      "highlights": [
+        "原生宿主回执绑定运行身份、统一入口、请求路径和宿主生命周期。",
+        "尚书省到六部的 dispatch/reuse 以真实宿主证据验证，不以脚本存在或 ok 回显代替。",
+        "谱系分类补齐置信度、并列、否定和未知待审分支。",
+        "五根与明示授权的 Qoder 投影由源码侧独立哈希门禁核验，校验器不进入安装面。"
+      ],
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向 1.0.6-beta.0，远端状态以发布后回读为准。"
+    },
     {
       "tag": "beta1.0.5",
       "title": "Decretum Matrix beta1.0.5",

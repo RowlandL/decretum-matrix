@@ -126,8 +126,19 @@ def run() -> dict[str, object]:
         )
     finally:
         court_platform.platform.system = original_system  # type: ignore[method-assign]
-        os.environ.clear()
-        os.environ.update(original_env)
+        try:
+            os.environ.clear()
+            os.environ.update(original_env)
+        except (ValueError, OSError) as exc:
+            # M3 RED（R-PA2）：环境变量恢复超长/失败必须 fail closed 并给出明确 reason，
+            # 不得裸崩溃吞没整份报告（Windows 单变量 32767 上限）。
+            return {
+                "ok": False,
+                "checks": checks,
+                "failures": [
+                    f"environment_restore_overflow:{type(exc).__name__}:{exc}"
+                ],
+            }
 
     checks.append(
         {

@@ -86,8 +86,22 @@ from court_semantic_continuity import (
     invariant_capsule_template,
     normalize_semantic_context,
     normalize_result_envelope,
+    build_result_quarantine_core,
+    build_result_recovery_binding,
+    build_result_recovery_projection,
     result_binding_problems,
+    result_recovery_record_disposition,
+    result_recovery_target_binding_fields,
+    validate_result_recovery_binding,
+    validate_result_recovery_head,
+    validate_result_recovery_projection,
     result_quarantine_metadata,
+    build_result_recovery_head,
+    deterministic_result_recovery_event_id,
+    source_result_payload_sha256,
+    result_recovery_review_receipt_json_schema,
+    result_recovery_handoff_receipt_json_schema,
+    result_recovery_consume_receipt_json_schema,
     resume_context_problems,
     semantic_binding_problems,
     semantic_binding_for_revision,
@@ -187,6 +201,50 @@ SERIAL_OVERRIDE_RE = re.compile(
 TERMINAL_AGENT_STATUSES = {"completed", "failed", "cancelled", "closed"}
 OFFICE_INSTANCE_KINDS = frozenset({"child_agent", "worktree_thread"})
 OFFICE_LIFECYCLE_RECEIPT_SCHEMA = "court.office.lifecycle_receipt.v1"
+RESULT_RECOVERY_OPERATION_SCHEMA = "court.result_recovery.operation.v1"
+RESULT_RECOVERY_JOURNAL_SCHEMA = "court.result_recovery.journal.v1"
+RESULT_RECOVERY_ZERO_SHA256 = "0" * 64
+RESULT_RECOVERY_STATES = {
+    "REVIEW_PENDING",
+    "READY_FOR_HANDOFF",
+    "REJECTED",
+    "HANDED_OFF",
+    "CONSUMED",
+}
+RESULT_RECOVERY_REASON_CODES = frozenset(
+    {
+        "ACCEPT_BOUNDED_EVIDENCE",
+        "REJECT_OUT_OF_SCOPE",
+        "REJECT_UNVERIFIABLE",
+        "REJECT_PRIVACY",
+        "REJECT_DUPLICATE",
+        "REJECT_SEMANTIC_DRIFT",
+        "SOURCE_HIERARCHY_INVALID",
+        "HANDOFF_TARGET_BINDING_ACCEPTED",
+        "TARGET_NOT_DISPATCHABLE",
+        "TARGET_HIERARCHY_MISMATCH",
+        "DELIVERY_BINDING_MISMATCH",
+        "CONSUME_TARGET_RESULT_ACCEPTED",
+        "TARGET_RESULT_BINDING_MISMATCH",
+    }
+)
+RESULT_BINDING_REASON_CODES = {
+    "task_id": "RESULT_BINDING_TASK_ID_MISMATCH",
+    "semantic_epoch": "RESULT_BINDING_SEMANTIC_EPOCH_MISMATCH",
+    "charter_sha256": "RESULT_BINDING_CHARTER_SHA256_MISMATCH",
+    "invariant_capsule_sha256": "RESULT_BINDING_INVARIANT_CAPSULE_SHA256_MISMATCH",
+    "checkpoint_id": "RESULT_BINDING_CHECKPOINT_ID_MISMATCH",
+    "dispatch_uid": "RESULT_BINDING_DISPATCH_UID_MISMATCH",
+    "attempt": "RESULT_BINDING_ATTEMPT_MISMATCH",
+    "office_instance_id": "RESULT_BINDING_OFFICE_INSTANCE_ID_MISMATCH",
+    "office_instance_kind": "RESULT_BINDING_OFFICE_INSTANCE_KIND_MISMATCH",
+    "carrier_proof": "RESULT_BINDING_CARRIER_PROOF_MISMATCH",
+    "agent_id": "RESULT_BINDING_AGENT_ID_MISMATCH",
+    "role": "RESULT_BINDING_ROLE_MISMATCH",
+    "direct_superior": "RESULT_BINDING_DIRECT_SUPERIOR_MISMATCH",
+    "worktree": "RESULT_BINDING_WORKTREE_MISMATCH",
+    "write_set_sha256": "RESULT_BINDING_WRITE_SET_SHA256_MISMATCH",
+}
 WORKTREE_PROOF_FIELDS = (
     "thread_id",
     "canonical_worktree_id",
@@ -316,6 +374,142 @@ def lock_path() -> Path:
 def completion_transaction_path(task_id: object) -> Path:
     digest = hashlib.sha256(str(task_id).encode("utf-8")).hexdigest()
     return runtime_root() / f"completion-transaction-{digest}.json"
+
+
+def result_recovery_marker_path(operation_id: object) -> Path:
+    """Return the disposable crash marker path for one recovery operation."""
+    digest = hashlib.sha256(str(operation_id).encode("utf-8")).hexdigest()
+    return runtime_root() / f"result-recovery-operation-{digest}.json"
+
+
+def _task_revision_value(task: Mapping[str, object]) -> int:
+    raw = task.get("task_revision", 1)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        raise ValueError("task_revision_corrupt")
+    return raw
+
+
+def _next_task_revision(task: dict[str, object]) -> tuple[int, int]:
+    current = _task_revision_value(task)
+    next_revision = current + 1
+    task["task_revision"] = next_revision
+    return current, next_revision
+
+
+def _result_recovery_reason_codes(result_problems: Sequence[str]) -> list[str]:
+    mapped: list[str] = []
+    for problem in result_problems:
+        field = str(problem).split(":", 1)[-1]
+        code = RESULT_BINDING_REASON_CODES.get(field)
+        if code is not None and code not in mapped:
+            mapped.append(code)
+    return mapped or ["RESULT_BINDING_TASK_ID_MISMATCH"]
+
+
+def _result_recovery_evidence_pointer(args: argparse.Namespace) -> tuple[str, str]:
+    pointer = str(
+        getattr(args, "evidence_pointer", None)
+        or getattr(args, "evidence", None)
+        or ""
+    ).strip()
+    if not pointer or len(pointer.encode("utf-8")) > 512 or any(
+        character in pointer for character in "\x00\r\n"
+    ):
+        raise ValueError("result_recovery_evidence_pointer_required")
+    lowered = pointer.casefold()
+    if any(token in lowered for token in ("pending/", "/pending/", "private/", "/private/")):
+        raise ValueError("result_recovery_privacy_gate_failed")
+    return pointer, hashlib.sha256(pointer.encode("utf-8")).hexdigest()
+
+
+def _result_recovery_ledgers(task: dict[str, object]) -> tuple[list[dict[str, object]], dict[str, object], dict[str, object]]:
+    history = task.get("result_recovery_history")
+    operations = task.get("result_recovery_operations")
+    projections = task.get("result_recovery_projections")
+    if history is None:
+        history = []
+        task["result_recovery_history"] = history
+    if operations is None:
+        operations = {}
+        task["result_recovery_operations"] = operations
+    if projections is None:
+        projections = {}
+        task["result_recovery_projections"] = projections
+    if not isinstance(history, list) or not isinstance(operations, dict) or not isinstance(projections, dict):
+        raise ValueError("result_recovery_ledger_corrupt")
+    for item in history:
+        if not isinstance(item, dict) or result_recovery_record_disposition(item) != "CURRENT_RECOVERY_HEAD":
+            raise ValueError("result_recovery_legacy_read_only")
+    return history, operations, projections
+
+
+def _result_recovery_core_for_task(
+    task: Mapping[str, object],
+    *,
+    quarantine_id: str = "",
+    payload_sha256: str = "",
+) -> dict[str, object]:
+    records = task.get("quarantined_results")
+    if not isinstance(records, list):
+        raise ValueError("result_quarantine_not_found")
+    matches: list[dict[str, object]] = []
+    legacy_match = False
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        core = record.get("core")
+        if not isinstance(core, dict):
+            if record.get("schema") == "court.office.result_quarantine.v1" or record.get("core_schema") != "court.office.result_quarantine.v2":
+                if (
+                    (quarantine_id and str(record.get("quarantine_id") or "") == quarantine_id)
+                    or (payload_sha256 and str(record.get("payload_sha256") or "") == payload_sha256)
+                    or (not quarantine_id and not payload_sha256)
+                ):
+                    legacy_match = True
+                continue
+            raise ValueError("result_recovery_legacy_read_only")
+        if result_recovery_record_disposition(core) != "CURRENT_QUARANTINE_CORE":
+            if (
+                not quarantine_id
+                or str(core.get("quarantine_id") or "") == quarantine_id
+            ):
+                legacy_match = True
+            continue
+        if quarantine_id and str(core.get("quarantine_id")) != quarantine_id:
+            continue
+        if payload_sha256 and str(core.get("payload_sha256")) != payload_sha256:
+            continue
+        matches.append(core)
+    if legacy_match:
+        raise ValueError("result_recovery_legacy_read_only")
+    if len(matches) != 1:
+        raise ValueError("result_quarantine_not_found")
+    return dict(matches[0])
+
+
+def _recovery_head_for_task(
+    task: Mapping[str, object],
+    recovery_id: str,
+) -> dict[str, object] | None:
+    history = task.get("result_recovery_history")
+    if history is None:
+        return None
+    if not isinstance(history, list):
+        raise ValueError("result_recovery_ledger_corrupt")
+    matches = [
+        item for item in history
+        if isinstance(item, dict) and str(item.get("recovery_id") or "") == recovery_id
+    ]
+    if not matches:
+        return None
+    head = matches[-1]
+    return validate_result_recovery_head(head)
+
+
+def _result_recovery_receipt_digest(receipt: Mapping[str, object]) -> str:
+    return canonical_json_sha256(
+        {key: value for key, value in receipt.items() if key != "receipt_sha256"}
+    )
 
 
 def ensure_runtime_root() -> None:
@@ -1486,6 +1680,8 @@ def _active_office_write_claims(task: dict[str, Any]) -> set[str]:
             continue
         if str(record.get("status") or "") in TERMINAL_AGENT_STATUSES:
             continue
+        if str(record.get("result_state") or "") == "QUARANTINED":
+            continue
         write_set = record.get("write_set")
         if isinstance(write_set, list):
             normalized = canonical_repo_relative_paths(write_set, allow_empty=True)
@@ -1507,7 +1703,10 @@ def _active_office_write_claims(task: dict[str, Any]) -> set[str]:
             agent_id = consumed_map.get(instance_id)
             if agent_id:
                 record = agent_records.get(str(agent_id))
-                if isinstance(record, dict) and str(record.get("status") or "") in TERMINAL_AGENT_STATUSES:
+                if isinstance(record, dict) and (
+                    str(record.get("status") or "") in TERMINAL_AGENT_STATUSES
+                    or str(record.get("result_state") or "") == "QUARANTINED"
+                ):
                     continue
             write_set = binding.get("write_set")
             if isinstance(write_set, list):
@@ -1729,7 +1928,7 @@ def _native_host_request_binding_problems(
         "lease_id": binding.get("lease_id"),
         "assignment": expected_assignment,
         "duty_scope": expected_scope,
-        "write_set": list(binding.get("write_set") or []),
+        "write_set": list(binding.get("write_set") or binding.get("read_scope") or []),
         "role_ack": expected_role_ack,
         "admission_anchor": {
             "schema": "court.agent.admission_receipt.v1",
@@ -3380,6 +3579,205 @@ def _restore_ledger_preimage(path: Path, preimage: bytes | None) -> None:
             path.unlink()
         return
     atomic_write_text(path, preimage.decode("utf-8"))
+
+
+class SimulatedResultRecoveryCrash(RuntimeError):
+    """Synthetic killpoint used only by isolated result-recovery checks."""
+
+
+_RESULT_RECOVERY_PRIVATE_KEY_TOKENS = frozenset(
+    {
+        "raw", "raw_body", "body", "prompt", "transcript", "private",
+        "private_body", "pending", "secret", "credential", "token", "password",
+    }
+)
+
+
+def _journal_preimage_privacy_violation(payload: bytes | None) -> str | None:
+    """Return the first private-key/path token found in a ledger preimage."""
+    if payload is None:
+        return None
+    text = payload.decode("utf-8", errors="replace")
+    if not text.strip():
+        return None
+    documents: list[object] = []
+    try:
+        documents.append(json.loads(text))
+    except Exception:
+        # tasks.json is one JSON document; the event ledger is JSONL with one
+        # JSON object per line.  Scan every parseable line instead of treating
+        # the whole JSONL file as a single undecodable document.
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                documents.append(json.loads(line))
+            except Exception:
+                continue
+    for data in documents:
+        found = _scan_ledger_preimage(data)
+        if found is not None:
+            return found
+    return None
+
+
+def _scan_ledger_preimage(value: object) -> str | None:
+    def scan(node: object) -> str | None:
+        if isinstance(node, Mapping):
+            for key, child in node.items():
+                normalized = str(key).strip().casefold()
+                if normalized in _RESULT_RECOVERY_PRIVATE_KEY_TOKENS:
+                    return normalized
+                if isinstance(child, str):
+                    lowered = child.casefold()
+                    if (
+                        "pending/" in lowered
+                        or "/private/" in lowered
+                        or "private/" in lowered
+                    ):
+                        return normalized
+                found = scan(child)
+                if found is not None:
+                    return found
+        elif isinstance(node, (list, tuple)):
+            for child in node:
+                found = scan(child)
+                if found is not None:
+                    return found
+        return None
+
+    return scan(value)
+
+
+def _result_recovery_commit_locked(
+    *,
+    operation_id: str,
+    payload_digest: str,
+    task_id: str,
+    tasks: dict[str, dict[str, Any]],
+    event: dict[str, Any],
+    receipt: Mapping[str, object],
+    killpoint: str = "",
+) -> None:
+    """Commit one recovery mutation with a disposable three-phase journal.
+
+    The journal is deliberately separate from task/event authority.  It only
+    preserves preimages and phase metadata needed to replay or roll back a
+    single operation under the existing runtime lock.
+    """
+    marker_file = result_recovery_marker_path(operation_id)
+    if marker_file.exists():
+        raise ValueError("result_recovery_journal_corrupt")
+    allowed_killpoints = {
+        "", "PREPARED", "TASK_WRITTEN", "EVENT_WRITTEN",
+        "after_prepared", "after_task_write", "after_event_write",
+    }
+    if killpoint not in allowed_killpoints:
+        raise ValueError("result_recovery_killpoint_invalid")
+    tasks_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
+    events_preimage = events_path().read_bytes() if events_path().exists() else None
+    for label, payload in (("tasks", tasks_preimage), ("events", events_preimage)):
+        violation = _journal_preimage_privacy_violation(payload)
+        if violation is not None:
+            raise ValueError(
+                f"result_recovery_privacy_gate_failed:{label}:{violation}"
+            )
+    event = dict(event)
+    event["note"] = scrub_agent_provider_detail(event.get("note"))
+    marker: dict[str, object] = {
+        "schema": RESULT_RECOVERY_OPERATION_SCHEMA,
+        "operation_id": operation_id,
+        "payload_sha256": payload_digest,
+        "task_id": task_id,
+        "phase": "PREPARED",
+        "tasks_preimage_exists": tasks_preimage is not None,
+        "tasks_preimage_b64": base64.b64encode(tasks_preimage or b"").decode("ascii"),
+        "events_preimage_exists": events_preimage is not None,
+        "events_preimage_b64": base64.b64encode(events_preimage or b"").decode("ascii"),
+        "receipt": deepcopy(dict(receipt)),
+        "event_id": event.get("event_id"),
+        "created_at": now_text(),
+    }
+    write_operation_json(marker_file, marker)
+    if killpoint in {"PREPARED", "after_prepared"}:
+        raise SimulatedResultRecoveryCrash("PREPARED")
+    write_tasks(tasks)
+    marker["phase"] = "TASK_WRITTEN"
+    marker["tasks_post_sha256"] = _ledger_sha256(tasks_path().read_bytes())
+    write_operation_json(marker_file, marker)
+    if killpoint in {"TASK_WRITTEN", "after_task_write"}:
+        raise SimulatedResultRecoveryCrash("TASK_WRITTEN")
+    append_event(event)
+    marker["phase"] = "EVENT_WRITTEN"
+    marker["events_post_sha256"] = _ledger_sha256(events_path().read_bytes())
+    write_operation_json(marker_file, marker)
+    if killpoint in {"EVENT_WRITTEN", "after_event_write"}:
+        raise SimulatedResultRecoveryCrash("EVENT_WRITTEN")
+    marker_file.unlink(missing_ok=True)
+
+
+def recover_result_recovery_operation(operation_id: object) -> dict[str, object]:
+    canonical = str(operation_id or "").strip()
+    if not canonical:
+        raise ValueError("result_recovery_operation_id_required")
+    with runtime_lock():
+        marker_file = result_recovery_marker_path(canonical)
+        marker = load_operation_json(marker_file)
+        if marker is None:
+            tasks = load_tasks()
+            for task in tasks.values():
+                operations = task.get("result_recovery_operations")
+                if isinstance(operations, dict) and canonical in operations:
+                    operation = operations[canonical]
+                    if isinstance(operation, dict) and isinstance(operation.get("receipt"), dict):
+                        return {
+                            "schema": RESULT_RECOVERY_JOURNAL_SCHEMA,
+                            "operation_id": canonical,
+                            "outcome": "REPLAYED",
+                            "receipt": deepcopy(operation["receipt"]),
+                        }
+            raise ValueError("result_recovery_journal_missing")
+        if marker.get("schema") != RESULT_RECOVERY_OPERATION_SCHEMA or marker.get("operation_id") != canonical:
+            raise ValueError("result_recovery_journal_corrupt")
+        phase = str(marker.get("phase") or "")
+        try:
+            tasks_preimage = base64.b64decode(str(marker.get("tasks_preimage_b64") or ""), validate=True)
+            events_preimage = base64.b64decode(str(marker.get("events_preimage_b64") or ""), validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("result_recovery_journal_corrupt") from exc
+        if phase == "EVENT_WRITTEN":
+            current_tasks = tasks_path().read_bytes() if tasks_path().exists() else None
+            current_events = events_path().read_bytes() if events_path().exists() else None
+            if (
+                marker.get("tasks_post_sha256") != _ledger_sha256(current_tasks)
+                or marker.get("events_post_sha256") != _ledger_sha256(current_events)
+                or not isinstance(marker.get("receipt"), dict)
+            ):
+                raise ValueError("result_recovery_journal_corrupt")
+            marker_file.unlink(missing_ok=True)
+            return {
+                "schema": RESULT_RECOVERY_JOURNAL_SCHEMA,
+                "operation_id": canonical,
+                "outcome": "FINALIZE",
+                "receipt": deepcopy(marker["receipt"]),
+            }
+        if phase not in {"PREPARED", "TASK_WRITTEN"}:
+            raise ValueError("result_recovery_journal_corrupt")
+        _restore_ledger_preimage(
+            tasks_path(),
+            tasks_preimage if marker.get("tasks_preimage_exists") else None,
+        )
+        _restore_ledger_preimage(
+            events_path(),
+            events_preimage if marker.get("events_preimage_exists") else None,
+        )
+        marker_file.unlink(missing_ok=True)
+        return {
+            "schema": RESULT_RECOVERY_JOURNAL_SCHEMA,
+            "operation_id": canonical,
+            "outcome": "ROLLBACK",
+            "receipt": None,
+        }
 
 
 class SimulatedPairedLedgerCrash(RuntimeError):
@@ -6354,6 +6752,795 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _recovery_operation_identity(
+    task: Mapping[str, object],
+    operation_id: object,
+    payload: Mapping[str, object],
+) -> tuple[str, str, dict[str, object] | None]:
+    operation = str(operation_id or "").strip()
+    if not operation:
+        raise ValueError("result_recovery_operation_id_required")
+    if result_recovery_marker_path(operation).exists():
+        raise ValueError("result_recovery_journal_corrupt")
+    payload_digest = canonical_json_sha256(dict(payload))
+    operations = task.get("result_recovery_operations")
+    if operations is not None and not isinstance(operations, Mapping):
+        raise ValueError("result_recovery_ledger_corrupt")
+    existing = operations.get(operation) if isinstance(operations, Mapping) else None
+    if existing is not None and not isinstance(existing, Mapping):
+        raise ValueError("result_recovery_operation_corrupt")
+    if isinstance(existing, Mapping):
+        if existing.get("payload_sha256") != payload_digest:
+            raise ValueError("result_recovery_operation_conflict")
+        receipt = existing.get("receipt")
+        if not isinstance(receipt, dict):
+            raise ValueError("result_recovery_operation_corrupt")
+        return operation, payload_digest, dict(receipt)
+    return operation, payload_digest, None
+
+
+def _recovery_args(value: argparse.Namespace | Mapping[str, object]) -> argparse.Namespace:
+    if isinstance(value, argparse.Namespace):
+        return value
+    if isinstance(value, Mapping):
+        return argparse.Namespace(**dict(value))
+    raise ValueError("result_recovery_arguments_required")
+
+
+def _recovery_operation_store(
+    task: dict[str, object],
+    operation_id: str,
+    payload_digest: str,
+    receipt: Mapping[str, object],
+    payload: Mapping[str, object] | None = None,
+) -> None:
+    _, operations, _ = _result_recovery_ledgers(task)
+    operations[operation_id] = {
+        "schema": RESULT_RECOVERY_OPERATION_SCHEMA,
+        "operation_id": operation_id,
+        "payload_sha256": payload_digest,
+        "payload": deepcopy(dict(payload)) if payload is not None else {},
+        "receipt": deepcopy(dict(receipt)),
+        "status": "TASK_EVENT_COMMITTED",
+        "recorded_at": now_text(),
+    }
+    receipts = task.setdefault("result_recovery_receipts", {})
+    if not isinstance(receipts, dict):
+        raise ValueError("result_recovery_ledger_corrupt")
+    receipt_id = str(receipt.get("receipt_id") or "")
+    if receipt_id:
+        receipts[receipt_id] = deepcopy(dict(receipt))
+
+
+def _build_recovery_receipt(
+    *,
+    schema: str,
+    operation_id: str,
+    task_id: str,
+    task_revision: int,
+    quarantine_id: str,
+    recovery_id: str,
+    recovery_revision: int,
+    previous_head_sha256: str,
+    reason_codes: list[str],
+    evidence_pointer: str,
+    evidence_sha256: str,
+    actor: str,
+    timestamp_field: str,
+    timestamp: str,
+    event_id: str,
+    **extra: object,
+) -> dict[str, object]:
+    receipt: dict[str, object] = {
+        "schema": schema,
+        "receipt_id": "RR-" + hashlib.sha256(
+            f"{schema}|{operation_id}|{event_id}".encode("utf-8")
+        ).hexdigest()[:24].upper(),
+        "operation_id": operation_id,
+        "task_id": task_id,
+        "task_revision": task_revision,
+        "quarantine_id": quarantine_id,
+        "recovery_id": recovery_id,
+        "recovery_revision": recovery_revision,
+        "previous_head_sha256": previous_head_sha256,
+        "reason_codes": list(reason_codes),
+        "evidence_pointer": evidence_pointer,
+        "evidence_sha256": evidence_sha256,
+        "actor": actor,
+        timestamp_field: timestamp,
+        "event_id": event_id,
+    }
+    receipt.update(extra)
+    receipt["receipt_sha256"] = _result_recovery_receipt_digest(receipt)
+    return receipt
+
+
+def _recovery_quarantine_context(
+    task: Mapping[str, object],
+    args: argparse.Namespace,
+    *,
+    require_payload: bool = True,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    quarantine_id = str(getattr(args, "quarantine_id", "") or "").strip()
+    if quarantine_id:
+        records = task.get("quarantined_results")
+        if isinstance(records, list):
+            for legacy in records:
+                if isinstance(legacy, dict) and str(legacy.get("quarantine_id") or "") == quarantine_id:
+                    if legacy.get("schema") == "court.office.result_quarantine.v1" or legacy.get("core_schema") != "court.office.result_quarantine.v2":
+                        raise ValueError("result_recovery_legacy_read_only")
+                core_value = legacy.get("core") if isinstance(legacy, dict) else None
+                if isinstance(core_value, dict) and str(core_value.get("quarantine_id") or "") == quarantine_id and result_recovery_record_disposition(core_value) != "CURRENT_QUARANTINE_CORE":
+                    raise ValueError("result_recovery_legacy_read_only")
+    payload_value = getattr(args, "result_envelope", None)
+    if payload_value is None and getattr(args, "result_envelope_file", None) is not None:
+        payload_value = _json_object_from_args(
+            args, "result_envelope", "result_envelope_file", "source result envelope"
+        )
+    if payload_value is None and getattr(args, "source_result", None) is not None:
+        payload_value = getattr(args, "source_result")
+    if payload_value is None and getattr(args, "source_result_envelope", None) is not None:
+        payload_value = getattr(args, "source_result_envelope")
+    if payload_value is None and getattr(args, "original_result_envelope", None) is not None:
+        payload_value = getattr(args, "original_result_envelope")
+    source_envelope: dict[str, object] = {}
+    if payload_value is None:
+        if require_payload:
+            raise ValueError("result_quarantine_payload_required")
+        core = _result_recovery_core_for_task(task, quarantine_id=quarantine_id)
+    else:
+        source_envelope = normalize_result_envelope(payload_value)
+        payload_sha = source_result_payload_sha256(source_envelope)
+        core = _result_recovery_core_for_task(
+            task,
+            quarantine_id=quarantine_id,
+            payload_sha256=payload_sha,
+        )
+        if str(core.get("payload_sha256")) != payload_sha:
+            raise ValueError("result_quarantine_payload_mismatch")
+    records = task.get("quarantined_results")
+    if not isinstance(records, list):
+        raise ValueError("result_quarantine_not_found")
+    metadata = next(
+        (
+            item for item in records
+            if isinstance(item, dict)
+            and isinstance(item.get("core"), dict)
+            and item["core"].get("quarantine_id") == core.get("quarantine_id")
+        ),
+        None,
+    )
+    if not isinstance(metadata, dict):
+        raise ValueError("result_quarantine_not_found")
+    if result_recovery_record_disposition(core) != "CURRENT_QUARANTINE_CORE":
+        raise ValueError("result_recovery_legacy_read_only")
+    return core, metadata, source_envelope
+
+
+def _recovery_expected_cas(
+    task: Mapping[str, object],
+    current_head: Mapping[str, object] | None,
+    args: argparse.Namespace,
+) -> tuple[int, str, int]:
+    current_task_revision = _task_revision_value(task)
+    expected_task_revision = getattr(args, "expected_task_revision", None)
+    if expected_task_revision is None:
+        expected_task_revision = current_task_revision
+    if expected_task_revision != current_task_revision:
+        raise ValueError("result_recovery_task_revision_conflict")
+    current_revision = int(current_head.get("revision")) if current_head else 0
+    current_head_sha256 = str(current_head.get("head_sha256")) if current_head else RESULT_RECOVERY_ZERO_SHA256
+    expected_recovery_revision = getattr(args, "expected_recovery_revision", None)
+    if expected_recovery_revision is None:
+        expected_recovery_revision = current_revision
+    expected_head_sha256 = str(
+        getattr(args, "expected_head_sha256", None) or current_head_sha256
+    ).lower()
+    if expected_recovery_revision != current_revision:
+        raise ValueError("result_recovery_revision_conflict")
+    if expected_head_sha256 != current_head_sha256:
+        raise ValueError("result_recovery_head_conflict")
+    return current_task_revision, expected_head_sha256, int(expected_recovery_revision)
+
+
+def _validate_recovery_receipt(
+    value: object,
+    schema_factory: object,
+    *,
+    expected_actor: str | None = None,
+    expected_schema: str | None = None,
+) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("result_recovery_receipt_required")
+    schema = schema_factory()
+    required = set(schema.get("required", [])) if isinstance(schema, dict) else set()
+    if expected_schema is not None and value.get("schema") != expected_schema:
+        raise ValueError("result_recovery_receipt_schema_mismatch")
+    if value.get("schema") not in {
+        "court.office.result_recovery_review_receipt.v1",
+        "court.office.result_recovery_handoff_receipt.v1",
+        "court.office.result_recovery_consume_receipt.v1",
+    } or set(value) != required:
+        raise ValueError("result_recovery_receipt_schema_mismatch")
+    if expected_actor is not None and str(value.get("actor") or "").strip().lower() != expected_actor:
+        raise ValueError("result_recovery_receipt_actor_mismatch")
+    for field in ("evidence_sha256", "receipt_sha256"):
+        digest = value.get(field)
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("result_recovery_receipt_digest_invalid")
+    if _result_recovery_receipt_digest(value) != value["receipt_sha256"]:
+        raise ValueError("result_recovery_receipt_digest_mismatch")
+    reasons = value.get("reason_codes")
+    if not isinstance(reasons, list) or not reasons or len(set(reasons)) != len(reasons) or any(
+        reason not in RESULT_RECOVERY_REASON_CODES for reason in reasons
+    ):
+        raise ValueError("result_recovery_reason_code_invalid")
+    return dict(value)
+
+
+def _target_binding_from_record(task: Mapping[str, object], record: Mapping[str, object]) -> dict[str, object]:
+    binding: dict[str, object] = {
+        "task_id": task.get("task_id"),
+        "semantic_epoch": record.get("semantic_epoch"),
+        "charter_sha256": record.get("charter_sha256"),
+        "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
+        "checkpoint_id": record.get("checkpoint_id"),
+        "dispatch_uid": record.get("dispatch_uid"),
+        "attempt": record.get("attempt"),
+        "office_instance_id": record.get("office_instance_id"),
+        "office_instance_kind": record.get("office_instance_kind"),
+        "carrier_proof": deepcopy(record.get("carrier_proof")),
+        "agent_id": record.get("agent_id"),
+        "role": record.get("role"),
+        "direct_superior": record.get("direct_superior"),
+        "worktree": record.get("worktree"),
+        "write_set_sha256": canonical_json_sha256(record.get("write_set", [])),
+        "hierarchy_schema": record.get("hierarchy_schema"),
+        "hierarchy_gate": record.get("hierarchy_gate"),
+        "hierarchy_edge_class": record.get("hierarchy_edge_class"),
+        "preload_status": record.get("preload_status"),
+        "office_execution_ready": record.get("office_execution_ready"),
+        "status": record.get("status"),
+        "final_status": record.get("final_status"),
+        "release_status": record.get("release_status"),
+        "result_state": record.get("result_state"),
+    }
+    if set(binding) != set(result_recovery_target_binding_fields()):
+        raise ValueError("result_recovery_target_binding_schema_mismatch")
+    return binding
+
+
+def _target_binding_sha256(binding: Mapping[str, object]) -> str:
+    return canonical_json_sha256(dict(binding))
+
+
+def _validate_target_binding(
+    task: Mapping[str, object],
+    record: Mapping[str, object],
+    supplied: object = None,
+) -> tuple[dict[str, object], str]:
+    binding = _target_binding_from_record(task, record)
+    digest = _target_binding_sha256(binding)
+    if supplied is not None and (not isinstance(supplied, Mapping) or dict(supplied) != binding):
+        raise ValueError("result_recovery_target_mismatch")
+    return binding, digest
+
+
+def review_quarantined_result(args: argparse.Namespace) -> dict[str, object]:
+    """Menxia-only review that creates an immutable projection and recovery head."""
+    args = _recovery_args(args)
+    actor = str(getattr(args, "actor", "") or "").strip().lower()
+    if actor != "menxia":
+        raise ValueError("result_recovery_actor_forbidden")
+    decision = str(getattr(args, "decision", "ACCEPT") or "ACCEPT").strip().upper()
+    if decision not in {"ACCEPT", "REJECT"}:
+        raise ValueError("result_recovery_review_decision_invalid")
+    evidence_pointer, evidence_sha256 = _result_recovery_evidence_pointer(args)
+    with runtime_lock():
+        tasks = load_tasks()
+        task = tasks.get(str(getattr(args, "task_id", "")))
+        if not isinstance(task, dict):
+            raise ValueError("task not found")
+        require_semantic_mutation_binding(task)
+        core, _metadata, source_envelope = _recovery_quarantine_context(task, args)
+        history, _operations, _projections = _result_recovery_ledgers(task)
+        recovery_id = str(
+            getattr(args, "recovery_id", "") or "REC-" + str(core["quarantine_id"])
+        ).strip()
+        current_head = _recovery_head_for_task(task, recovery_id)
+        reason_codes = getattr(args, "reason_codes", None) or []
+        if isinstance(reason_codes, str):
+            reason_codes = [item.strip() for item in reason_codes.split(",") if item.strip()]
+        reason_codes = list(reason_codes)
+        if not reason_codes:
+            reason_codes = ["ACCEPT_BOUNDED_EVIDENCE" if decision == "ACCEPT" else "REJECT_UNVERIFIABLE"]
+        if any(code not in RESULT_RECOVERY_REASON_CODES for code in reason_codes):
+            raise ValueError("result_recovery_reason_code_invalid")
+        projection = None
+        projection_sha256 = RESULT_RECOVERY_ZERO_SHA256
+        if decision == "ACCEPT":
+            projection = build_result_recovery_projection(
+                source_result=source_envelope,
+                recovery_id=recovery_id,
+                quarantine_id=str(core["quarantine_id"]),
+            )
+            projection_sha256 = str(projection["projection_sha256"])
+        payload = {
+            "decision": decision,
+            "reason_codes": reason_codes,
+            "evidence_pointer": evidence_pointer,
+            "evidence_sha256": evidence_sha256,
+            "projection_sha256": projection_sha256,
+            "recovery_id": recovery_id,
+            "quarantine_id": core["quarantine_id"],
+        }
+        operation_id, payload_digest, replay = _recovery_operation_identity(
+            task, getattr(args, "operation_id", None), payload
+        )
+        if replay is not None:
+            return {"status": "REPLAYED", "operation_id": operation_id, "receipt": replay}
+        current_task_revision, expected_head_sha256, expected_recovery_revision = _recovery_expected_cas(
+            task, current_head, args
+        )
+        if current_head is not None:
+            raise ValueError("result_recovery_review_required")
+        next_task_revision = current_task_revision + 1
+        next_recovery_revision = expected_recovery_revision + 1
+        event_id = deterministic_result_recovery_event_id(operation_id, "review", payload_digest)
+        receipt = _build_recovery_receipt(
+            schema="court.office.result_recovery_review_receipt.v1",
+            operation_id=operation_id,
+            task_id=str(task["task_id"]),
+            task_revision=next_task_revision,
+            quarantine_id=str(core["quarantine_id"]),
+            recovery_id=recovery_id,
+            recovery_revision=next_recovery_revision,
+            previous_head_sha256=expected_head_sha256,
+            reason_codes=reason_codes,
+            evidence_pointer=evidence_pointer,
+            evidence_sha256=evidence_sha256,
+            actor=actor,
+            timestamp_field="reviewed_at",
+            timestamp=now_text(),
+            event_id=event_id,
+            decision=decision,
+            quarantine_core_sha256=str(core["core_sha256"]),
+            projection_sha256=projection_sha256,
+        )
+        _validate_recovery_receipt(
+            receipt,
+            result_recovery_review_receipt_json_schema,
+            expected_actor=actor,
+            expected_schema="court.office.result_recovery_review_receipt.v1",
+        )
+        new_head = build_result_recovery_head(
+            quarantine_core=core,
+            recovery_id=recovery_id,
+            previous_head=None,
+            state="READY_FOR_HANDOFF" if decision == "ACCEPT" else "REJECTED",
+            projection_sha256=projection_sha256,
+            target_binding_sha256=RESULT_RECOVERY_ZERO_SHA256,
+            review_receipt_sha256=str(receipt["receipt_sha256"]),
+            handoff_receipt_sha256=RESULT_RECOVERY_ZERO_SHA256,
+            consume_receipt_sha256=RESULT_RECOVERY_ZERO_SHA256,
+            operation_id=operation_id,
+            event_id=event_id,
+            created_at=str(receipt["reviewed_at"]),
+        )
+        history.append(new_head)
+        if projection is not None:
+            _projections[recovery_id] = projection
+        _recovery_operation_store(task, operation_id, payload_digest, receipt, payload)
+        task["task_revision"] = next_task_revision
+        task["updated_at"] = now_text()
+        task["last_evidence"] = f"result_recovery_review {recovery_id}: {evidence_pointer}"
+        event = make_event(task, "result_recovery_review", str(task.get("state") or ""), str(task.get("state") or ""), actor, evidence_pointer, scrub_agent_provider_detail(str(getattr(args, "note", "") or "")))
+        event.update(event_id=event_id, operation_id=operation_id, payload_sha256=payload_digest, quarantine_id=core["quarantine_id"], recovery_id=recovery_id, recovery_revision=next_recovery_revision, task_revision=next_task_revision, decision=decision, reason_codes=reason_codes, receipt_sha256=receipt["receipt_sha256"])
+        _result_recovery_commit_locked(operation_id=operation_id, payload_digest=payload_digest, task_id=str(task["task_id"]), tasks=tasks, event=event, receipt=receipt, killpoint=str(getattr(args, "killpoint", "") or ""))
+        return {"status": "COMMITTED", "operation_id": operation_id, "receipt": receipt, "head": new_head, "projection": projection}
+
+
+def _target_agent_record(task: Mapping[str, object], args: argparse.Namespace) -> tuple[str, dict[str, object]]:
+    agents = task.get("agents")
+    if not isinstance(agents, Mapping):
+        raise ValueError("result_recovery_target_not_dispatchable")
+    requested = str(
+        getattr(args, "target_agent_id", "")
+        or getattr(args, "agent_id", "")
+        or ""
+    ).strip()
+    requested_instance = str(
+        getattr(args, "target_office_instance_id", "")
+        or getattr(args, "office_instance_id", "")
+        or ""
+    ).strip().lower()
+    matches: list[tuple[str, dict[str, object]]] = []
+    for internal_id, value in agents.items():
+        if not isinstance(value, dict):
+            continue
+        if requested and str(internal_id) != requested:
+            continue
+        if requested_instance and str(value.get("office_instance_id") or "").lower() != requested_instance:
+            continue
+        matches.append((str(internal_id), value))
+    if len(matches) != 1:
+        raise ValueError("result_recovery_target_not_dispatchable")
+    return matches[0]
+
+
+def _validate_recovery_native_followup(
+    task: Mapping[str, object],
+    target: Mapping[str, object],
+    args: argparse.Namespace,
+    recovery_binding: Mapping[str, object],
+) -> tuple[dict[str, object], str]:
+    value = getattr(args, "native_host_action_receipt", None)
+    if not isinstance(value, Mapping):
+        raise ValueError("result_recovery_delivery_receipt_required")
+    raw_request = getattr(args, "native_host_request", None) or value.get("request")
+    if not isinstance(raw_request, Mapping):
+        raise ValueError("result_recovery_delivery_receipt_required")
+    raw_binding = raw_request.get("recovery_binding")
+    try:
+        normalized_binding = validate_result_recovery_binding(raw_binding)
+    except ValueError as exc:
+        raise ValueError("result_recovery_delivery_binding_mismatch") from exc
+    if normalized_binding != dict(recovery_binding):
+        raise ValueError("result_recovery_delivery_binding_mismatch")
+    try:
+        normalized_request = normalize_native_host_dispatch_request(raw_request)
+        receipt_request = value.get("request")
+        if isinstance(receipt_request, Mapping) and normalize_native_host_dispatch_request(receipt_request) != normalized_request:
+            raise ValueError("result_recovery_delivery_binding_mismatch")
+    except ValueError as exc:
+        raise ValueError("result_recovery_delivery_binding_mismatch") from exc
+    if (
+        value.get("decision") != "reuse"
+        or value.get("host_action") != "followup"
+        or value.get("outcome") != "succeeded"
+        or normalized_request.get("task_id") != task.get("task_id")
+        or normalized_request.get("role") != target.get("role")
+        or normalized_request.get("instance_id") != str(target.get("office_instance_id") or "").lower()
+        or normalized_request.get("direct_superior") != target.get("direct_superior")
+    ):
+        raise ValueError("result_recovery_delivery_binding_mismatch")
+    # The existing native bridge intentionally normalizes its legacy request
+    # fields.  Hash the raw request here as well so the typed recovery binding
+    # is included in this recovery transaction's canonical request identity.
+    request_sha256 = canonical_json_sha256(dict(raw_request))
+    try:
+        validate_native_host_action_receipt(
+            value,
+            expected=normalized_request,
+            replay_guard=set(),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("result_recovery_delivery_binding_mismatch") from exc
+    return deepcopy(dict(value)), request_sha256
+
+
+def handoff_recovered_result(args: argparse.Namespace) -> dict[str, object]:
+    """尚书-only handoff with target binding and native follow-up evidence."""
+    args = _recovery_args(args)
+    actor = str(getattr(args, "actor", "") or "").strip().lower()
+    evidence_pointer, evidence_sha256 = _result_recovery_evidence_pointer(args)
+    with runtime_lock():
+        tasks = load_tasks()
+        task = tasks.get(str(getattr(args, "task_id", "")))
+        if not isinstance(task, dict):
+            raise ValueError("task not found")
+        require_semantic_mutation_binding(task)
+        requested_operation = str(getattr(args, "operation_id", "") or "").strip()
+        existing_operations = task.get("result_recovery_operations")
+        if requested_operation and isinstance(existing_operations, Mapping) and requested_operation in existing_operations:
+            existing = existing_operations[requested_operation]
+            if not isinstance(existing, Mapping) or not isinstance(existing.get("receipt"), dict):
+                raise ValueError("result_recovery_operation_corrupt")
+            stored_payload = existing.get("payload")
+            if isinstance(stored_payload, Mapping) and stored_payload.get("evidence_pointer") not in {None, evidence_pointer}:
+                raise ValueError("result_recovery_operation_conflict")
+            supplied_receipt = getattr(args, "native_host_action_receipt", None)
+            if isinstance(stored_payload, Mapping) and isinstance(supplied_receipt, Mapping) and stored_payload.get("native_host_action_receipt_id") not in {None, supplied_receipt.get("receipt_id")}:
+                raise ValueError("result_recovery_operation_conflict")
+            return {"status": "REPLAYED", "operation_id": requested_operation, "receipt": deepcopy(existing["receipt"])}
+        core, _metadata, _source = _recovery_quarantine_context(task, args, require_payload=False)
+        history, _operations, projections = _result_recovery_ledgers(task)
+        recovery_id = str(getattr(args, "recovery_id", "") or "REC-" + str(core["quarantine_id"])).strip()
+        current_head = _recovery_head_for_task(task, recovery_id)
+        if current_head is None or current_head.get("state") != "READY_FOR_HANDOFF":
+            raise ValueError("result_recovery_review_required")
+        current_task_revision, expected_head_sha256, expected_recovery_revision = _recovery_expected_cas(task, current_head, args)
+        projection = projections.get(recovery_id)
+        if not isinstance(projection, dict):
+            raise ValueError("result_recovery_projection_invalid")
+        projection = validate_result_recovery_projection(projection, expected_core=core)
+        target_id, target = _target_agent_record(task, args)
+        if actor != str(target.get("direct_superior") or "").strip().lower():
+            raise ValueError("result_recovery_actor_forbidden")
+        if (
+            task.get("semantic_state") != "DISPATCHABLE"
+            or target.get("hierarchy_gate") != "PASSED"
+            or target.get("preload_status") != "PASSED"
+            or target.get("office_execution_ready") is not True
+            or str(target.get("status") or "") in TERMINAL_AGENT_STATUSES
+            or str(target.get("final_status") or "") in TERMINAL_AGENT_STATUSES
+            or target.get("release_status") == "closed"
+            or target.get("result_state") == "QUARANTINED"
+        ):
+            raise ValueError("result_recovery_target_not_dispatchable")
+        target_binding, target_binding_sha256 = _validate_target_binding(
+            task, target, getattr(args, "target_binding", None)
+        )
+        recovery_binding = build_result_recovery_binding(
+            recovery_id=recovery_id,
+            quarantine_id=str(core["quarantine_id"]),
+            quarantine_core_sha256=str(core["core_sha256"]),
+            recovery_head_sha256=str(current_head["head_sha256"]),
+            projection_sha256=str(projection["projection_sha256"]),
+            review_receipt_sha256=str(current_head["review_receipt_sha256"]),
+            target_binding_sha256=target_binding_sha256,
+        )
+        native_receipt, native_request_sha256 = _validate_recovery_native_followup(
+            task, target, args, recovery_binding
+        )
+        payload = {
+            "recovery_id": recovery_id,
+            "quarantine_id": core["quarantine_id"],
+            "projection_sha256": projection["projection_sha256"],
+            "target_binding_sha256": target_binding_sha256,
+            "native_host_request_sha256": native_request_sha256,
+            "native_host_action_receipt_id": native_receipt.get("receipt_id"),
+            "native_host_action_receipt_sha256": native_receipt.get("receipt_sha256"),
+            "evidence_pointer": evidence_pointer,
+            "evidence_sha256": evidence_sha256,
+        }
+        operation_id, payload_digest, replay = _recovery_operation_identity(task, getattr(args, "operation_id", None), payload)
+        if replay is not None:
+            return {"status": "REPLAYED", "operation_id": operation_id, "receipt": replay}
+        next_task_revision = current_task_revision + 1
+        next_recovery_revision = expected_recovery_revision + 1
+        event_id = deterministic_result_recovery_event_id(operation_id, "handoff", payload_digest)
+        receipt = _build_recovery_receipt(
+            schema="court.office.result_recovery_handoff_receipt.v1",
+            operation_id=operation_id,
+            task_id=str(task["task_id"]),
+            task_revision=next_task_revision,
+            quarantine_id=str(core["quarantine_id"]),
+            recovery_id=recovery_id,
+            recovery_revision=next_recovery_revision,
+            previous_head_sha256=expected_head_sha256,
+            reason_codes=["HANDOFF_TARGET_BINDING_ACCEPTED"],
+            evidence_pointer=evidence_pointer,
+            evidence_sha256=evidence_sha256,
+            actor=actor,
+            timestamp_field="handed_off_at",
+            timestamp=now_text(),
+            event_id=event_id,
+            review_receipt_sha256=str(current_head["review_receipt_sha256"]),
+            target_binding_sha256=target_binding_sha256,
+            native_host_request_sha256=native_request_sha256,
+            native_host_action_receipt_id=native_receipt.get("receipt_id"),
+            native_host_action_receipt_sha256=native_receipt.get("receipt_sha256"),
+        )
+        _validate_recovery_receipt(
+            receipt,
+            result_recovery_handoff_receipt_json_schema,
+            expected_actor=actor,
+            expected_schema="court.office.result_recovery_handoff_receipt.v1",
+        )
+        new_head = build_result_recovery_head(
+            quarantine_core=core,
+            recovery_id=recovery_id,
+            previous_head=current_head,
+            state="HANDED_OFF",
+            projection_sha256=str(projection["projection_sha256"]),
+            target_binding_sha256=target_binding_sha256,
+            review_receipt_sha256=str(current_head["review_receipt_sha256"]),
+            handoff_receipt_sha256=str(receipt["receipt_sha256"]),
+            consume_receipt_sha256=RESULT_RECOVERY_ZERO_SHA256,
+            operation_id=operation_id,
+            event_id=event_id,
+            created_at=str(receipt["handed_off_at"]),
+        )
+        history.append(new_head)
+        inputs = target.setdefault("recovered_result_inputs", [])
+        if not isinstance(inputs, list):
+            raise ValueError("result_recovery_target_input_ledger_corrupt")
+        inputs.append({
+            "recovery_id": recovery_id,
+            "quarantine_id": core["quarantine_id"],
+            "projection_sha256": projection["projection_sha256"],
+            "target_binding_sha256": target_binding_sha256,
+            "handoff_receipt_sha256": receipt["receipt_sha256"],
+            "received_at": receipt["handed_off_at"],
+        })
+        target["recovery_target_binding"] = deepcopy(target_binding)
+        _record_native_host_receipt(task, native_receipt, lifecycle_action="recovery_handoff", target_id=target_id)
+        _recovery_operation_store(task, operation_id, payload_digest, receipt, payload)
+        task["task_revision"] = next_task_revision
+        task["updated_at"] = now_text()
+        task["last_evidence"] = f"result_recovery_handoff {recovery_id}: {evidence_pointer}"
+        event = make_event(task, "result_recovery_handoff", str(task.get("state") or ""), str(task.get("state") or ""), actor, evidence_pointer, scrub_agent_provider_detail(str(getattr(args, "note", "") or "")))
+        event.update(event_id=event_id, operation_id=operation_id, payload_sha256=payload_digest, recovery_id=recovery_id, target_agent_id=target_id, target_binding_sha256=target_binding_sha256, native_host_action_receipt_id=native_receipt.get("receipt_id"), receipt_sha256=receipt["receipt_sha256"], task_revision=next_task_revision)
+        _result_recovery_commit_locked(operation_id=operation_id, payload_digest=payload_digest, task_id=str(task["task_id"]), tasks=tasks, event=event, receipt=receipt, killpoint=str(getattr(args, "killpoint", "") or ""))
+        return {"status": "COMMITTED", "operation_id": operation_id, "receipt": receipt, "head": new_head, "projection": projection, "target_binding": target_binding, "recovery_binding": recovery_binding}
+
+
+def _consume_recovery_for_finish_locked(
+    task: dict[str, object],
+    target: dict[str, object],
+    envelope: Mapping[str, object],
+    *,
+    actor: str,
+    evidence_pointer: str,
+    target_finish_event_id: str,
+    args: argparse.Namespace | None = None,
+) -> list[dict[str, object]]:
+    recovery_ids = envelope.get("recovery_input_ids")
+    if recovery_ids is None:
+        return []
+    if not isinstance(recovery_ids, list) or not recovery_ids or any(
+        not isinstance(value, str) or not value.strip() for value in recovery_ids
+    ) or len(set(recovery_ids)) != len(recovery_ids):
+        raise ValueError("result_recovery_target_mismatch")
+    history, _operations, projections = _result_recovery_ledgers(task)
+    frozen_binding = target.get("recovery_target_binding")
+    if isinstance(frozen_binding, dict):
+        target_binding = dict(frozen_binding)
+        target_binding_sha256 = _target_binding_sha256(target_binding)
+        current_identity = _target_binding_from_record(task, target)
+        for field in result_recovery_target_binding_fields():
+            if field in {"status", "final_status", "release_status", "result_state"}:
+                continue
+            if current_identity.get(field) != target_binding.get(field):
+                raise ValueError("result_recovery_target_mismatch")
+    else:
+        target_binding, target_binding_sha256 = _validate_target_binding(task, target)
+    if result_binding_problems(dict(envelope), target):
+        raise ValueError("result_recovery_target_mismatch")
+    consumed_receipts: list[dict[str, object]] = []
+    for recovery_id in recovery_ids:
+        recovery_id = recovery_id.strip()
+        current_head = _recovery_head_for_task(task, recovery_id)
+        if current_head is None or current_head.get("state") != "HANDED_OFF":
+            raise ValueError("result_recovery_not_handed_off")
+        if current_head.get("target_binding_sha256") != target_binding_sha256:
+            raise ValueError("result_recovery_target_mismatch")
+        projection = projections.get(recovery_id)
+        if not isinstance(projection, dict):
+            raise ValueError("result_recovery_projection_invalid")
+        core = _result_recovery_core_for_task(
+            task,
+            quarantine_id=str(current_head["quarantine_id"]),
+        )
+        projection = validate_result_recovery_projection(projection, expected_core=core)
+        target_result_sha256 = source_result_payload_sha256(envelope)
+        payload = {
+            "recovery_id": recovery_id,
+            "target_binding_sha256": target_binding_sha256,
+            "target_result_envelope_sha256": target_result_sha256,
+            "target_finish_event_id": target_finish_event_id,
+            "evidence_pointer": evidence_pointer,
+        }
+        requested_operation_id = getattr(args, "operation_id", None) if args is not None else None
+        operation_id = requested_operation_id or f"consume-{recovery_id}-{target_finish_event_id}"
+        operation_id, payload_digest, replay = _recovery_operation_identity(task, operation_id, payload)
+        if replay is not None:
+            consumed_receipts.append(replay)
+            continue
+        current_task_revision = _task_revision_value(task)
+        next_task_revision = current_task_revision + 1
+        next_recovery_revision = int(current_head["revision"]) + 1
+        event_id = deterministic_result_recovery_event_id(operation_id, "consume", payload_digest)
+        receipt = _build_recovery_receipt(
+            schema="court.office.result_recovery_consume_receipt.v1",
+            operation_id=operation_id,
+            task_id=str(task["task_id"]),
+            task_revision=next_task_revision,
+            quarantine_id=str(current_head["quarantine_id"]),
+            recovery_id=recovery_id,
+            recovery_revision=next_recovery_revision,
+            previous_head_sha256=str(current_head["head_sha256"]),
+            reason_codes=["CONSUME_TARGET_RESULT_ACCEPTED"],
+            evidence_pointer=evidence_pointer,
+            evidence_sha256=hashlib.sha256(evidence_pointer.encode("utf-8")).hexdigest(),
+            actor=actor,
+            timestamp_field="consumed_at",
+            timestamp=now_text(),
+            event_id=event_id,
+            handoff_receipt_sha256=str(current_head["handoff_receipt_sha256"]),
+            target_binding_sha256=target_binding_sha256,
+            target_result_envelope_sha256=target_result_sha256,
+            target_finish_event_id=target_finish_event_id,
+        )
+        _validate_recovery_receipt(
+            receipt,
+            result_recovery_consume_receipt_json_schema,
+            expected_actor=actor,
+            expected_schema="court.office.result_recovery_consume_receipt.v1",
+        )
+        new_head = build_result_recovery_head(
+            quarantine_core=core,
+            recovery_id=recovery_id,
+            previous_head=current_head,
+            state="CONSUMED",
+            projection_sha256=str(projection["projection_sha256"]),
+            target_binding_sha256=target_binding_sha256,
+            review_receipt_sha256=str(current_head["review_receipt_sha256"]),
+            handoff_receipt_sha256=str(current_head["handoff_receipt_sha256"]),
+            consume_receipt_sha256=str(receipt["receipt_sha256"]),
+            operation_id=operation_id,
+            event_id=event_id,
+            created_at=str(receipt["consumed_at"]),
+        )
+        history.append(new_head)
+        _recovery_operation_store(task, operation_id, payload_digest, receipt, payload)
+        receipts = task.setdefault("result_recovery_receipts", {})
+        if not isinstance(receipts, dict):
+            raise ValueError("result_recovery_ledger_corrupt")
+        receipts[str(receipt["receipt_id"])] = deepcopy(receipt)
+        task["task_revision"] = next_task_revision
+        consumed = target.setdefault("recovery_consumed_ids", [])
+        if not isinstance(consumed, list):
+            raise ValueError("result_recovery_target_input_ledger_corrupt")
+        consumed.append(recovery_id)
+        consumed_receipts.append(receipt)
+    return consumed_receipts
+
+
+def consume_recovered_result(args: argparse.Namespace) -> dict[str, object]:
+    """Consume a handed-off recovery input after a normal target finish."""
+    args = _recovery_args(args)
+    actor = str(getattr(args, "actor", "") or "").strip().lower()
+    evidence_pointer, _evidence_sha256 = _result_recovery_evidence_pointer(args)
+    with runtime_lock():
+        tasks = load_tasks()
+        task = tasks.get(str(getattr(args, "task_id", "")))
+        if not isinstance(task, dict):
+            raise ValueError("task not found")
+        require_semantic_mutation_binding(task)
+        requested_operation = str(getattr(args, "operation_id", "") or "").strip()
+        existing_operations = task.get("result_recovery_operations")
+        if requested_operation and isinstance(existing_operations, Mapping) and requested_operation in existing_operations:
+            existing = existing_operations[requested_operation]
+            if not isinstance(existing, Mapping) or not isinstance(existing.get("receipt"), dict):
+                raise ValueError("result_recovery_operation_corrupt")
+            return {"status": "REPLAYED", "operation_id": requested_operation, "receipts": [deepcopy(existing["receipt"])]}
+        target_id, target = _target_agent_record(task, args)
+        if target.get("final_status") != "completed" or not isinstance(target.get("result_envelope"), dict):
+            raise ValueError("result_recovery_target_result_required")
+        envelope = normalize_result_envelope(target["result_envelope"])
+        finish_event_id = str(getattr(args, "target_finish_event_id", "") or f"finish-{target_id}")
+        receipts = _consume_recovery_for_finish_locked(task, target, envelope, actor=actor, evidence_pointer=evidence_pointer, target_finish_event_id=finish_event_id, args=args)
+        if not receipts:
+            raise ValueError("result_recovery_not_handed_off")
+        task["updated_at"] = now_text()
+        task["last_evidence"] = f"result_recovery_consume {target_id}: {evidence_pointer}"
+        tasks[str(task["task_id"])] = task
+        event = make_event(task, "result_recovery_consume", str(task.get("state") or ""), str(task.get("state") or ""), actor, evidence_pointer, scrub_agent_provider_detail(str(getattr(args, "note", "") or "")))
+        event.update(target_agent_id=target_id, recovery_receipt_ids=[receipt.get("receipt_id") for receipt in receipts], task_revision=task.get("task_revision"))
+        write_tasks(tasks)
+        append_event(event)
+        return {"status": "COMMITTED", "target_agent_id": target_id, "receipts": receipts, "event": event}
+
+
+def result_review(args: argparse.Namespace) -> dict[str, object]:
+    return review_quarantined_result(args)
+
+
+def result_handoff(args: argparse.Namespace) -> dict[str, object]:
+    return handoff_recovered_result(args)
+
+
+def result_consume(args: argparse.Namespace) -> dict[str, object]:
+    return consume_recovered_result(args)
+
+
+office_result_review = review_quarantined_result
+office_result_handoff = handoff_recovered_result
+office_result_consume = consume_recovered_result
+
+
 def agent_event(
     args: argparse.Namespace,
     lifecycle_action: str,
@@ -6663,6 +7850,14 @@ def agent_event(
                 raise ValueError(f"agent not found: {agent_id}")
             if existing_agent.get("role") != role:
                 raise ValueError("agent role does not match lifecycle record")
+            if lifecycle_action in {"agent_heartbeat", "agent_report", "agent_finish"} and (
+                str(existing_agent.get("status") or "") in TERMINAL_AGENT_STATUSES
+                or str(existing_agent.get("final_status") or "") in TERMINAL_AGENT_STATUSES
+                or existing_agent.get("release_status") == "closed"
+            ):
+                raise ValueError("terminal agent cannot accept lifecycle events")
+            if lifecycle_action == "agent_finish" and existing_agent.get("result_state") == "QUARANTINED":
+                raise ValueError("terminal agent cannot accept lifecycle events")
             if lifecycle_action == "agent_finish" and existing_agent.get("dispatch_uid"):
                 result_envelope = getattr(args, "_result_envelope", None)
                 if not isinstance(result_envelope, dict):
@@ -6670,15 +7865,87 @@ def agent_event(
                 result_problems = result_binding_problems(result_envelope, existing_agent)
                 if result_problems:
                     now = now_text()
+                    original_envelope = getattr(args, "_original_result_envelope", None)
+                    source_for_digest = (
+                        original_envelope
+                        if isinstance(original_envelope, dict)
+                        else result_envelope
+                    )
+                    payload_sha256 = (
+                        str(getattr(args, "_source_result_payload_sha256", "") or "")
+                        or source_result_payload_sha256(result_envelope)
+                    )
+                    source_enriched = deepcopy(result_envelope)
+                    if (
+                        "office_instance_kind" not in source_enriched
+                        and "carrier_proof" not in source_enriched
+                    ):
+                        kind = existing_agent.get("office_instance_kind") or "child_agent"
+                        proof = existing_agent.get("carrier_proof")
+                        if proof is None and kind == "child_agent":
+                            proof = {"agent_id": str(agent_id)}
+                        if proof is not None:
+                            source_enriched["office_instance_kind"] = kind
+                            source_enriched["carrier_proof"] = proof
+                    quarantined = task.setdefault("quarantined_results", [])
+                    if not isinstance(quarantined, list):
+                        raise ValueError("quarantined_result_ledger_corrupt")
+                    for prior in quarantined:
+                        if isinstance(prior, dict) and prior.get("payload_sha256") == payload_sha256:
+                            prior_event_id = str(prior.get("quarantine_event_id") or "")
+                            prior_events = [
+                                event
+                                for event in events_for_task(args.task_id, limit=None)
+                                if event.get("action") == "agent_result_quarantine"
+                                and event.get("payload_sha256") == payload_sha256
+                            ]
+                            if prior_events:
+                                return TransitionResult(task, prior_events[-1])
                     metadata = result_quarantine_metadata(
                         result_envelope,
                         result_problems,
                         received_at=now,
                     )
-                    quarantined = task.setdefault("quarantined_results", [])
-                    if not isinstance(quarantined, list):
-                        raise ValueError("quarantined_result_ledger_corrupt")
+                    metadata["payload_sha256"] = payload_sha256
+                    metadata["source_status"] = "failed"
+                    metadata["source_final_status"] = "failed"
+                    metadata["source_release_status"] = "closed"
+                    metadata["source_result_state"] = "QUARANTINED"
+                    metadata["failure_kind"] = "result_binding_quarantine"
+                    metadata["office_instance_kind"] = existing_agent.get("office_instance_kind", "child_agent")
+                    metadata["direct_superior"] = existing_agent.get("direct_superior")
+                    metadata["worktree"] = existing_agent.get("worktree")
+                    core_reason_codes = _result_recovery_reason_codes(result_problems)
+                    quarantine_core = build_result_quarantine_core(
+                        source_result=source_enriched,
+                        payload_sha256=payload_sha256,
+                        source_final_status="failed",
+                        source_release_status="closed",
+                        source_result_state="QUARANTINED",
+                        reason_codes=core_reason_codes,
+                        received_at=now,
+                    )
+                    metadata["core_schema"] = quarantine_core["schema"]
+                    metadata["core_sha256"] = quarantine_core["core_sha256"]
+                    metadata["core"] = quarantine_core
+                    metadata["core_reason_codes"] = core_reason_codes
+                    metadata["quarantine_event_id"] = quarantine_core["quarantine_event_id"]
+                    previous_status = str(existing_agent.get("status") or "running")
+                    existing_agent.update(
+                        {
+                            "status": "failed",
+                            "final_status": "failed",
+                            "release_status": "closed",
+                            "result_state": "QUARANTINED",
+                            "failure_kind": "result_binding_quarantine",
+                            "office_execution_ready": False,
+                            "finished_at": now,
+                            "closed_at": now,
+                        }
+                    )
+                    agents[agent_id] = existing_agent
                     quarantined.append(metadata)
+                    _next_task_revision(task)
                     task["updated_at"] = now
                     task["last_evidence"] = f"agent_result_quarantine {agent_id}: {evidence}"
                     tasks[args.task_id] = task
@@ -6686,23 +7953,30 @@ def agent_event(
                     event = make_event(
                         task,
                         "agent_result_quarantine",
-                        str(existing_agent.get("status") or "running"),
-                        str(existing_agent.get("status") or "running"),
+                        previous_status,
+                        "failed",
                         args.actor,
                         evidence,
-                        args.note,
+                        scrub_agent_provider_detail(str(args.note or "")),
                     )
                     event.update(
                         agent_id=agent_id,
                         agent_role=role,
                         payload_sha256=metadata["payload_sha256"],
                         reason_codes=result_problems,
+                        core_reason_codes=core_reason_codes,
                         semantic_epoch=metadata["semantic_epoch"],
                         dispatch_uid=metadata["dispatch_uid"],
                         attempt=metadata["attempt"],
+                        quarantine_id=quarantine_core["quarantine_id"],
+                        quarantine_event_id=quarantine_core["quarantine_event_id"],
+                        core_sha256=quarantine_core["core_sha256"],
+                        task_revision=task.get("task_revision"),
                     )
+                    event["event_id"] = quarantine_core["quarantine_event_id"]
                     append_event(event)
                     return TransitionResult(task, event)
+                _validate_agent_semantic_args(args, existing_agent)
             else:
                 _validate_agent_semantic_args(args, existing_agent)
             existing_status = str(existing_agent.get("status") or "")
@@ -6720,6 +7994,7 @@ def agent_event(
                 existing_status in TERMINAL_AGENT_STATUSES
                 or existing_final_status in TERMINAL_AGENT_STATUSES
                 or existing_release_status == "closed"
+                or str(existing_agent.get("result_state") or "") == "QUARANTINED"
             ):
                 raise ValueError("terminal agent cannot accept lifecycle events")
             if (
@@ -6729,6 +8004,8 @@ def agent_event(
                 raise ValueError("office_preload_not_passed")
         now = now_text()
         current = dict(agents.get(agent_id, {})) if isinstance(agents.get(agent_id), dict) else {}
+        recovery_consumed_receipts: list[dict[str, object]] = []
+        recovery_finish_event_id = ""
         previous_status = str(current.get("final_status") or current.get("status") or "")
         if lifecycle_action == "agent_heartbeat" and current.get("preload_status") != "PASSED":
             status = "starting"
@@ -6828,6 +8105,24 @@ def agent_event(
             if isinstance(result_envelope, dict):
                 current["result_envelope"] = deepcopy(result_envelope)
                 current["result"] = result_envelope["summary"]
+                if result_envelope.get("recovery_input_ids"):
+                    recovery_finish_event_id = deterministic_result_recovery_event_id(
+                        f"finish|{args.task_id}|{agent_id}|{current.get('attempt') or 1}",
+                        "finish",
+                        source_result_payload_sha256(
+                            getattr(args, "_original_result_envelope", None)
+                            or result_envelope
+                        ),
+                    )
+                    recovery_consumed_receipts = _consume_recovery_for_finish_locked(
+                        task,
+                        current,
+                        result_envelope,
+                        actor=actor,
+                        evidence_pointer=evidence,
+                        target_finish_event_id=recovery_finish_event_id,
+                        args=args,
+                    )
             else:
                 current["result"] = args.result
             current["final_status"] = status
@@ -6875,6 +8170,11 @@ def agent_event(
             event,
             str(current.get("office_instance_id") or agent_id),
         )
+        if recovery_finish_event_id:
+            event["event_id"] = recovery_finish_event_id
+            event["recovery_consume_receipt_ids"] = [
+                receipt.get("receipt_id") for receipt in recovery_consumed_receipts
+            ]
         append_event(event)
     return TransitionResult(task, event)
 
@@ -7375,6 +8675,8 @@ def _adapt_office_result_envelope(
         "result_envelope_file",
         "structured result envelope",
     )
+    args._original_result_envelope = deepcopy(envelope)
+    args._source_result_payload_sha256 = source_result_payload_sha256(envelope)
     carrier_matches = (
         envelope.get("office_instance_kind") == record.get("office_instance_kind")
         and envelope.get("carrier_proof") == record.get("carrier_proof")

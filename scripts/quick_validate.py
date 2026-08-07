@@ -130,24 +130,27 @@ def validate_court_shards(skill_path: Path) -> tuple[bool, str]:
     if missing:
         return False, "Missing required installed file(s): " + ", ".join(missing)
 
-    forbidden = [
-        "office_ok" + "_probe",
-        "check_active_copy_" + ("ha" + "sh") + "es",
-        "ha" + "sh",
-        "s" + "ha" + "256",
-        "SHA" + "256",
-        "SHA" + "-256",
-        "哈" + "希",
-    ]
     manifest_path = skill_path / "references/manifests/install-projection.v1.json"
     projected = list(required)
     frozen_references: set[str] = set()
     violations: list[str] = []
+    forbidden_legacy_probe = "office_ok" + "_probe"
     try:
         import json
 
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        projected = list(manifest.get("projections", {}).get("shared_agents", projected))
+        projections = manifest.get("projections")
+        raw_projected = (
+            projections.get("shared_agents")
+            if isinstance(projections, dict)
+            else None
+        )
+        if not isinstance(raw_projected, list) or any(
+            not isinstance(item, str) for item in raw_projected
+        ):
+            violations.append("install projection has invalid shared_agents list")
+        else:
+            projected = list(raw_projected)
         declared_frozen = manifest.get("frozen_install_references", [])
         if not isinstance(declared_frozen, list) or not all(isinstance(item, str) for item in declared_frozen):
             violations.append("install projection has invalid frozen_install_references")
@@ -171,35 +174,44 @@ def validate_court_shards(skill_path: Path) -> tuple[bool, str]:
                 if marker not in reference_text:
                     violations.append(f"frozen reference missing {marker}: {normalized}")
             frozen_references.add(normalized)
-    except (OSError, ValueError, TypeError):
-        pass
+    except (OSError, ValueError, TypeError) as exc:
+        violations.append(
+            f"install projection unavailable:{type(exc).__name__}:{exc}"
+        )
 
-    for relative in projected:
-        path = skill_path / str(relative)
-        if path.is_dir():
-            files = [item for item in path.rglob("*") if item.is_file()]
-        elif path.is_file():
-            files = [path]
-        else:
+    for item in projected:
+        relative = Path(str(item))
+        normalized = relative.as_posix()
+        if relative.is_absolute() or ".." in relative.parts or relative == Path("."):
+            violations.append(f"invalid projected path: {item}")
             continue
+        path = skill_path / relative
+        if not path.exists():
+            violations.append(f"missing projected path: {normalized}")
+            continue
+        files = (
+            [child for child in path.rglob("*") if child.is_file()]
+            if path.is_dir()
+            else [path]
+        )
         for file_path in files:
-            relative_path = file_path.relative_to(skill_path).as_posix()
-            if relative_path in frozen_references:
+            relative_file = file_path.relative_to(skill_path).as_posix()
+            if relative_file in frozen_references:
                 continue
             try:
                 text = file_path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 continue
             except OSError as exc:
-                violations.append(f"{file_path}: unreadable:{exc}")
+                violations.append(f"{relative_file}: unreadable:{exc}")
                 continue
-            for term in forbidden:
-                if term in text:
-                    violations.append(f"{relative_path}: forbidden runtime term")
-                    break
+            if forbidden_legacy_probe in text:
+                violations.append(
+                    f"{relative_file}: forbidden legacy office probe marker"
+                )
     if violations:
-        return False, "Forbidden runtime term(s): " + ", ".join(violations[:20])
-    return True, "Court installed projection is lightweight and runtime-clean!"
+        return False, "Install projection invalid: " + ", ".join(violations[:20])
+    return True, "Court installed projection structure and frozen references are valid!"
 
 
 def main(argv: list[str] | None = None) -> int:

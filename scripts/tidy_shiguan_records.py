@@ -15,6 +15,7 @@ sys.dont_write_bytecode = True
 from typing import Iterable
 
 from rebuild_shiguan_index import (
+    apply_stored_lineage_fields,
     date_from_path,
     derive_keywords,
     parse_fields,
@@ -118,9 +119,10 @@ def topic_for_source(path: Path, text: str) -> str:
 def archive_entry(path: Path, topic: str, phase: str, fields: dict[str, str]) -> dict[str, object]:
     memory_decision = (fields.get("memory_decision") or "DEFERRED").upper()
     next_action = fields.get("next", "")
+    stored_court_code = as_line(fields.get("court_code"))
     entry: dict[str, object] = {
         "record_type": "checkpoint",
-        "court_code": "",
+        "court_code": stored_court_code,
         "topic": topic,
         "phase": phase,
         "status": fields.get("status", "UNKNOWN"),
@@ -153,6 +155,11 @@ def archive_entry(path: Path, topic: str, phase: str, fields: dict[str, str]) ->
         "memory_reason": fields.get("memory_reason", ""),
         "source": relative_to_data(path),
     }
+    # Restore stored lineage fail-closed (mirrors rebuild-side
+    # apply_stored_lineage_fields semantics): the maintenance rewrite path must
+    # not implicitly reclassify records that carry stored lineage evidence;
+    # invalid stored lineage raises and propagates instead of being rewritten.
+    apply_stored_lineage_fields(entry, fields)
     enrich_entry(entry)
     entry["id"] = stable_id(entry)
     return entry
@@ -249,6 +256,9 @@ def desired_archive_fields(entry: dict[str, object], current_fields: dict[str, s
     current_decision = (current_fields.get("memory_decision") or "DEFERRED").upper()
     changed = proposed_decision != current_decision
     clear_false_sensitive = not has_sensitive_memory(entry)
+    # court_code / ancient_lineage now carry stored-lineage-restored values
+    # (see archive_entry); records without stored lineage keep the
+    # enrichment-derived values, so no field-shape change is introduced here.
     return {
         "court_code": as_line(entry.get("court_code")),
         "ancient_lineage": as_line(entry.get("ancient_lineage") or entry.get("lineage_display")),
