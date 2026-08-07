@@ -8,6 +8,7 @@ does not perform startup validation of unrelated files.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -926,7 +927,7 @@ def _self_test() -> dict[str, object]:
         )
         # 写入合法 receipt（selected_roots 仅含 agents 类根、不含 Qoder），
         # 使 main() 通过 receipt 检查后于 include-qoder 分支拒绝。
-        r3_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "valid.json"
+        r3_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "install-valid-fixture.json"
         r3_receipt.parent.mkdir(parents=True, exist_ok=True)
         r3_agents_root = fixture / "receipt-agents-root-r3"
         r3_agents_root.mkdir(parents=True, exist_ok=True)
@@ -1094,7 +1095,7 @@ def _self_test() -> dict[str, object]:
         r3_legacy_leftover = fixture / LEGACY_INSTALL_DIRECTORY_NAME
         if r3_legacy_leftover.is_dir():
             shutil.rmtree(r3_legacy_leftover, ignore_errors=True)
-        r3_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "valid.json"
+        r3_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "install-valid-fixture.json"
         r3_receipt.parent.mkdir(parents=True, exist_ok=True)
         r3_agents_root = fixture / "receipt-agents-root"
         r3_agents_root.mkdir(parents=True, exist_ok=True)
@@ -1171,9 +1172,10 @@ def _qoder_in_verified_selected_roots() -> bool:
     receipts_dir = home / ".agents" / "install-receipts" / "decretum-matrix"
     if not receipts_dir.is_dir():
         return False
+    # 只读 installer 生成的 install-*.json（§4.4 receipt），排除 npm-postinstall-*.json。
     candidates = sorted(
-        receipts_dir.glob("*.json"),
-        key=lambda p: p.stat().st_mtime_ns if p.is_file() else 0,
+        (path for path in receipts_dir.glob("install-*.json") if path.is_file()),
+        key=lambda p: p.stat().st_mtime_ns,
         reverse=True,
     )
     if not candidates:
@@ -1205,9 +1207,11 @@ def _load_verified_selected_roots() -> list[Path] | None:
     receipts_dir = home / ".agents" / "install-receipts" / "decretum-matrix"
     if not receipts_dir.is_dir():
         return None
+    # 只读 installer 生成的 install-*.json（§4.4 receipt），排除 npm-postinstall-*.json
+    # 运行收条（无 selected_roots，会污染「最新 receipt」判定）。
     candidates = sorted(
-        receipts_dir.glob("*.json"),
-        key=lambda p: p.stat().st_mtime_ns if p.is_file() else 0,
+        (path for path in receipts_dir.glob("install-*.json") if path.is_file()),
+        key=lambda p: p.stat().st_mtime_ns,
         reverse=True,
     )
     if not candidates:
@@ -1226,6 +1230,44 @@ def _load_verified_selected_roots() -> list[Path] | None:
         except (TypeError, ValueError):
             return None
     return roots
+
+
+def _write_first_install_receipt(canonical_root: Path) -> dict[str, object]:
+    """npm postinstall 首装时生成 §4.4 install receipt（计划书 §4.4 第 4 条）。
+
+    仅在无既有 receipt 且目标仅为 canonical primary root 时由 main() 调用；
+    selected_roots 仅含 canonical_root（不 fanout），status=INSTALLED，
+    authority=installer（本包自装）。receipt_sha256 为除自身字段外的规范序列化哈希。
+    """
+    home = Path.home()
+    primary_root = _absolute_no_follow(canonical_root)
+    receipt_body: dict[str, object] = {
+        "schema": "court.install_current_agent_copy.result.v1",
+        "selection_policy": "receipt",
+        "primary_root": str(primary_root),
+        "current_tool": "codex",
+        "current_tool_root": str(primary_root),
+        "current_tool_root_proof": "install_applied",
+        "status": "INSTALLED",
+        "explicit_extra_targets": [],
+        "selected_roots": [str(primary_root)],
+        "authority": "installer",
+    }
+    receipt_body["receipt_sha256"] = hashlib.sha256(
+        json.dumps(receipt_body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    receipts_dir = home / ".agents" / "install-receipts" / "decretum-matrix"
+    receipts_dir.mkdir(parents=True, exist_ok=True)
+    receipt_path = receipts_dir / f"install-{receipt_body['receipt_sha256'][:16]}.json"
+    receipt_path.write_text(
+        json.dumps(receipt_body, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return {
+        "path": str(receipt_path),
+        "receipt_sha256": str(receipt_body["receipt_sha256"]),
+        "selected_roots": [str(primary_root)],
+    }
 
 
 def main() -> int:
@@ -1257,39 +1299,53 @@ def main() -> int:
         return 0 if result["ok"] else 1
 
     source = resolve_source(args.source)
+    first_install_extra: dict[str, object] | None = None
     # M2 迁移子门 GREEN（R-M1/R-M2/R-M3）：默认路径 targets 必须从已验证 receipt 的
     # selected_roots 派生（计划书 §4.4 第 3 条 + L188「以同一 receipt 为依据」）；
     # 无 receipt → fail closed（带 --migrate-legacy-locators 时报迁移专属 reason）。
+    # 例外：npm postinstall 首装（--write + 显式 --source + 无 receipt）→ 仅写 canonical
+    # primary root 并生成 §4.4 install receipt（计划书 L88「零写入」仅指无授权 fanout，
+    # canonical 首装不是 fanout；receipt 由 installer 在首装时生成，之后 sync 从 receipt 派生）。
     verified_roots = _load_verified_selected_roots()
     if verified_roots is None:
-        failure_reason = (
-            "legacy_migration_not_receipt_derived"
-            if args.migrate_legacy_locators
-            else "selected_roots_receipt_required"
-        )
-        result = {
-            "ok": False,
-            "status": "FAIL",
-            "schema": "court.active_copy_sync.v1",
-            "source": str(source),
-            "source_files": 0,
-            "write": args.write,
-            "prune_obsolete": args.prune_obsolete,
-            "include_qoder": args.include_qoder,
-            "migrate_legacy_locators": args.migrate_legacy_locators,
-            "frozen_install_references": [],
-            "targets": [],
-            "logical_target_count": 0,
-            "physical_authority_count": 0,
-            "legacy_locator_conflicts": [],
-            "failures": [failure_reason],
-        }
-        if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        if args.write and args.source is not None:
+            first_install_targets = [default_roots()[0]]
+            targets = first_install_targets
+            install_receipt = _write_first_install_receipt(targets[0])
+            first_install_extra = {
+                "first_install": True,
+                "install_receipt": install_receipt,
+            }
         else:
-            print(f"ACTIVE_COPY_SYNC_FAIL {failure_reason}")
-        return 1
-    targets = list(verified_roots)
+            failure_reason = (
+                "legacy_migration_not_receipt_derived"
+                if args.migrate_legacy_locators
+                else "selected_roots_receipt_required"
+            )
+            result = {
+                "ok": False,
+                "status": "FAIL",
+                "schema": "court.active_copy_sync.v1",
+                "source": str(source),
+                "source_files": 0,
+                "write": args.write,
+                "prune_obsolete": args.prune_obsolete,
+                "include_qoder": args.include_qoder,
+                "migrate_legacy_locators": args.migrate_legacy_locators,
+                "frozen_install_references": [],
+                "targets": [],
+                "logical_target_count": 0,
+                "physical_authority_count": 0,
+                "legacy_locator_conflicts": [],
+                "failures": [failure_reason],
+            }
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print(f"ACTIVE_COPY_SYNC_FAIL {failure_reason}")
+            return 1
+    if "targets" not in locals():
+        targets = list(verified_roots)
     if args.include_qoder:
         # M2 投影子门 GREEN（R-P3）：include-qoder 必须具有最新授权/proof 证据。
         # 仅当已验证 install receipt 的 selected_roots 显式含 Qoder 根时才允许，
@@ -1547,6 +1603,7 @@ def main() -> int:
         "failures": failures,
         "legacy_locator_conflicts": conflicts,
         "legacy_migration": legacy_migration,
+        **({"first_install": first_install_extra} if first_install_extra is not None else {}),
     }
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
