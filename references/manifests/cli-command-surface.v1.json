@@ -508,6 +508,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_install_release_boundary.py",
+      "command": "check-install-release-boundary",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_install_release_boundary.py",
+      "id": "check.check-install-release-boundary",
+      "legacy_path": "scripts/check_install_release_boundary.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_npm_package.mjs",
       "command": "check-npm-package-mjs",
       "compatibility_state": "unified_compatibility_adapter",
@@ -815,6 +828,19 @@
       "handler": "isolated_subprocess:scripts/check_source_state_budget.py",
       "id": "check.check-source-state-budget",
       "legacy_path": "scripts/check_source_state_budget.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/check_stage3_recovery_chain.py",
+      "command": "check-stage3-recovery-chain",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_stage3_recovery_chain.py",
+      "id": "check.check-stage3-recovery-chain",
+      "legacy_path": "scripts/check_stage3_recovery_chain.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"

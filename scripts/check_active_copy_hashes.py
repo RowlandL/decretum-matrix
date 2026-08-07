@@ -281,6 +281,9 @@ def _sha256(path: Path) -> str:
 def _canonical_sha256(value: dict[str, Any]) -> str:
     payload = dict(value)
     payload.pop("receipt_sha256", None)
+    # M3 GREEN（R-I1）：install_receipt_path 为运行时落盘路径（fixture 临时目录随机），
+    # 不得进入确定性 digest（与 receipt_sha256 同理）。
+    payload.pop("install_receipt_path", None)
     return hashlib.sha256(
         json.dumps(
             payload,
@@ -539,20 +542,69 @@ def _write_fixture_source(root: Path) -> None:
         json.dumps(
             {
                 "schema": "court.install_projection.v1",
+                "identity_manifest": "references/manifests/skill-identity.v1.json",
+                "policy": {
+                    "required_target": ".agents",
+                    "default_optional_target": "current_agent_tool_only",
+                    "extra_targets": "explicit_latest_user_request_only",
+                    "fanout": "forbidden",
+                },
+                "protected_shared_agents_seeds": [],
+                "frozen_install_references": [],
                 "projections": {
                     "shared_agents": [
                         "SKILL.md",
                         "VERSION",
                         "references/manifests/install-projection.v1.json",
+                        "references/manifests/skill-identity.v1.json",
                         "scripts/runtime.py",
                     ],
                     "portable_current_tool": [
                         "SKILL.md",
                         "VERSION",
                         "references/manifests/install-projection.v1.json",
+                        "references/manifests/skill-identity.v1.json",
                         "scripts/runtime.py",
                     ],
                     "repository_only": ["scripts/check_active_copy_hashes.py"],
+                },
+                "persistent_bindings": [
+                    {
+                        "profile_source": "agents/standing-officials/bingbu.toml",
+                        "dossier_path": "agents/office-dossiers/bingbu/AGENTS.md",
+                        "court_skill_path": "SKILL.md",
+                        "role_key": "bingbu",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    # M3 RED（R-I1）：install 的 LOADED_IDENTITY_EXPECTED 硬编码真实身份字段，
+    # fixture source 必须写入完整 skill-identity 契约（display_name 等）才能通过
+    # _validate_identity；此处仅写入 install 校验所需字段。
+    (root / "references" / "manifests" / "skill-identity.v1.json").write_text(
+        json.dumps(
+            {
+                "schema": "court.skill_identity.v1",
+                "display_name": "Decretum Matrix（诏令矩阵）",
+                "canonical_skill_name": "decretum-matrix",
+                "canonical_invocation": "$decretum-matrix",
+                "community_license": "AGPL-3.0-only",
+                "rights_owner": "孙华清",
+                "maintainer_github": "@RowlandL",
+                "maintainer_github_id": 42199880,
+                "locator_policy": {
+                    "repository_id": "decretum-matrix",
+                    "install_directory_name": "decretum-matrix",
+                    "legacy_install_directory_name": "court-capability-router",
+                    "legacy_install_locator_policy": "absent_or_same_physical_authority",
+                    "shiguan_namespace": "court-capability-router",
+                    "python_locator_pattern": "court.*",
+                    "environment_locator_pattern": "COURT_*",
+                    "service_name": "CourtShiguanDaemon",
+                    "directory_basename_may_differ_from_skill_name": False,
+                    "rename_policy": "rename_install_directory_preserve_shiguan_namespace",
                 },
             }
         ),
@@ -810,6 +862,74 @@ def _self_test() -> dict[str, Any]:
                     str(item) for item in r4_shard.get("failures", [])
                 ):
                     failures.append("shard_without_consumer_or_evidence:expected_fail")
+
+            # ---- M3 RED（R-I1）：install_current_agent_copy APPLY 必须产出含 §4.4 全字段的
+            # install receipt（计划书 §4.4 第 4 条 + checker 消费端 INSTALL_RECEIPT_REQUIRED_FIELDS）。
+            # 期望：write=True 安装成功后返回结果含 receipt（schema=court.install_current_agent_copy.result.v1，
+            # 含 selection_policy/primary_root/current_tool/current_tool_root/current_tool_root_proof/
+            # status/explicit_extra_targets/selected_roots/authority/receipt_sha256 十字段）；
+            # 现状 install_current_agent_copy APPLY 结果无 receipt 字段（生成端缺失）→ RED FAIL。
+            try:
+                import sys as _install_sys
+                import importlib.util as _il_util
+
+                _install_spec = _il_util.spec_from_file_location(
+                    "install_current_agent_copy",
+                    str(
+                        Path(__file__).resolve().parent
+                        / "install_current_agent_copy.py"
+                    ),
+                )
+                _install_mod = None
+                if _install_spec is not None and _install_spec.loader is not None:
+                    _install_mod = _il_util.module_from_spec(_install_spec)
+                    _install_sys.modules["install_current_agent_copy"] = _install_mod
+                    _install_spec.loader.exec_module(_install_mod)
+                if _install_mod is None:
+                    raise ImportError("install_current_agent_copy not importable")
+                _r1_home = fixture / "r1-install-home"
+                _r1_tool_root = _r1_home / ".agents" / "skills" / "decretum-matrix"
+                _r1_tool_root.mkdir(parents=True)
+                _r1_applied = _install_mod.install_current_agent_copy(
+                    source_root=source,
+                    home_root=_r1_home,
+                    current_tool="codex",
+                    explicit_tools=[],
+                    tool_roots={"codex": _r1_tool_root},
+                    projection_manifest=source
+                    / "references"
+                    / "manifests"
+                    / "install-projection.v1.json",
+                    write=True,
+                    fanout=False,
+                )
+                _r1_receipt = _r1_applied.get("install_receipt") or {}
+                evidence["install_receipt_generated"] = {
+                    "applied_ok": _r1_applied.get("ok"),
+                    "receipt_present": bool(_r1_receipt),
+                    "receipt_schema": _r1_receipt.get("schema"),
+                    "missing_fields": [
+                        field
+                        for field in INSTALL_RECEIPT_REQUIRED_FIELDS
+                        if field not in _r1_receipt
+                    ],
+                }
+                if (
+                    _r1_applied.get("ok") is not True
+                    or not _r1_receipt
+                    or _r1_receipt.get("schema") != "court.install_current_agent_copy.result.v1"
+                    or any(
+                        field not in _r1_receipt
+                        for field in INSTALL_RECEIPT_REQUIRED_FIELDS
+                    )
+                ):
+                    failures.append("install_receipt_generated:expected_fail")
+            except (OSError, ValueError, ImportError) as exc:
+                evidence["install_receipt_generated"] = {
+                    "status": "RED_NOT_IMPLEMENTED",
+                    "error": f"{type(exc).__name__}:{exc}",
+                }
+                failures.append("install_receipt_generated:expected_fail")
         finally:
             for key, value in previous_environment.items():
                 if value is None:

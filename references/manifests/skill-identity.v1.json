@@ -34,5 +34,6 @@
     "service_name": "CourtShiguanDaemon",
     "directory_basename_may_differ_from_skill_name": false,
     "rename_policy": "rename_install_directory_preserve_shiguan_namespace"
-  }
+  },
+  "skill_sha256": "56dab150b002a778f6d6d6c77cd37bc7ff50f86c49409062ea9521529afcf140"
 }

@@ -132,9 +132,14 @@ def run() -> dict[str, object]:
         except (ValueError, OSError) as exc:
             # M3 RED（R-PA2）：环境变量恢复超长/失败必须 fail closed 并给出明确 reason，
             # 不得裸崩溃吞没整份报告（Windows 单变量 32767 上限）。
+            # 审查（Entry 0052 缺陷 4）：补 stage/checks_completed 诊断字段——
+            # 环境准备阶段（try 块）未执行任何检查，checks=[] 属预期，
+            # 以 stage=environment_restore 定位失败阶段，消除"检查未执行/崩溃"歧义。
             return {
                 "ok": False,
                 "checks": checks,
+                "stage": "environment_restore",
+                "checks_completed": len(checks),
                 "failures": [
                     f"environment_restore_overflow:{type(exc).__name__}:{exc}"
                 ],

@@ -1816,6 +1816,54 @@ def install_current_agent_copy(
     if portability is not None:
         result["portability_evidence"] = portability
 
+    # M3 GREEN（R-I1）：APPLY 成功（write=True）时生成 §4.4 install receipt
+    # （计划书 §4.4 第 4 条：selection_policy/primary_root/current_tool/current_tool_root/
+    # current_tool_root_proof/status/explicit_extra_targets/selected_roots/authority/receipt_sha256），
+    # 作为 checker（check_active_copy_hashes INSTALL_RECEIPT_REQUIRED_FIELDS）的消费凭证；
+    # receipt_sha256 为 receipt 主体（除自身字段外）的规范序列化哈希。
+    if write:
+        _selected_roots = [str(target) for _label, target, _kind in selected]
+        _primary_root = str(home / ".agents" / "skills" / "decretum-matrix")
+        _current_tool_root = str(
+            Path(tool_roots[current_tool]).resolve(strict=False)
+        )
+        _explicit_extra_targets = [
+            str(target)
+            for tool, target, _kind in selected
+            if tool != "shared_agents" and tool != current_tool
+        ]
+        _receipt_body: dict[str, object] = {
+            "schema": RESULT_SCHEMA,
+            "selection_policy": "receipt",
+            "primary_root": _primary_root,
+            "current_tool": current_tool,
+            "current_tool_root": _current_tool_root,
+            "current_tool_root_proof": "install_applied",
+            "status": "INSTALLED",
+            "explicit_extra_targets": _explicit_extra_targets,
+            "selected_roots": _selected_roots,
+            "authority": "installer",
+        }
+        _receipt_body["receipt_sha256"] = hashlib.sha256(
+            json.dumps(_receipt_body, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        result["install_receipt"] = _receipt_body
+        _receipt_path = (
+            home
+            / ".agents"
+            / "install-receipts"
+            / "decretum-matrix"
+            / f"install-{_receipt_body['receipt_sha256'][:16]}.json"
+        )
+        _receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        _receipt_path.write_text(
+            json.dumps(_receipt_body, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        result["install_receipt_path"] = str(_receipt_path)
+
     if blank_host_configuration is not None:
         if configuration_adapter is None:
             result["configuration_remediation"] = {
