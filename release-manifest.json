@@ -525,8 +525,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "a9209e333c88da4aa94debad93dc274f0e3eb69d16b843a53d4af8db7e8d0d6a",
-      "size": 65400
+      "sha256": "4ec8933cbd3b8f4c3aeb4eec4e0250d5b69d1472bb8d5b1b844cd84c549bba96",
+      "size": 66523
     },
     {
       "mode": "100644",
@@ -549,8 +549,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "0ba334ce7f65a7ebed9fbceb0779d8d38cec59d36e5134c82f9b2098f6ce7b37",
-      "size": 1349
+      "sha256": "612399a7009f37d795dfe26db242741613e8159ad498cbbded45bceb749dbbd1",
+      "size": 1474
     },
     {
       "mode": "100644",
@@ -1090,10 +1090,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 3237642,
+    "payload_bytes": 3238890,
     "payload_file_count": 176,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "9ffc82712db8e164a9e710fc7489fdcb801aad7aa0a391227866294af3571a13",
+    "payload_index_sha256": "b6b6f9938931841a1d88432d3dd2d3fb4364e4f81f1b8be39b5c811981c83552",
     "source_packaged_tracked_file_count": 168,
     "source_tracked_file_count": 348
   },
