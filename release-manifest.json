@@ -75,8 +75,8 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "28ef3d6f2fe92a972dc624d95c3028c45ddb47357de895143a76da5f302fc605",
-      "size": 4253
+      "sha256": "8fa6e5d19e5d9f141559b12fee6a33324f1e4d6458edcaccff83e1cb8a54694f",
+      "size": 4289
     },
     {
       "mode": "100644",
@@ -1090,10 +1090,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 3241969,
+    "payload_bytes": 3242005,
     "payload_file_count": 176,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "44133f4a83557e885b3969c7283bb624e30479b7b4ecb178d16f2cdf2cb2a1e0",
+    "payload_index_sha256": "8a9bc0f4c7c7611a00b96245a5f20637dd4b8a401850061035ce08731a33cbf5",
     "source_packaged_tracked_file_count": 168,
     "source_tracked_file_count": 348
   },

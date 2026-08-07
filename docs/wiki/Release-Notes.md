@@ -3,8 +3,8 @@
 ## beta1.0.6
 
 - 原生宿主回执绑定运行身份、统一入口、请求路径与宿主生命周期。
-- 尚书省到六部的真实 dispatch/reuse 增加结构化证据，史馆谱系分类补齐置信度、并列、否定和未知待审路径。
-- 五根安装投影与明示授权的 Qoder 投影由源码侧独立哈希门禁验证，校验器不进入安装后的加载或运行面。
+- 分层 dispatch/reuse 增加结构化证据，记忆分类补齐置信度、并列、否定和未知待审路径。
+- 五处安装投影与明示授权的 Qoder 投影由源码侧独立哈希门禁验证，校验器不进入安装后的加载或运行面。
 - npm 版本为 `1.0.6-beta.0`，继续使用 `beta` dist-tag；远端状态以发布后回读为准。
 
 ## beta1.0.5
@@ -15,44 +15,44 @@
 
 ## beta1.0.4-hotfix-v1
 
-- `cft0808/edict` 的工程参考记录恢复进入 ZIP、npm 载体和五根安装投影。
+- `cft0808/edict` 的工程参考记录恢复进入 ZIP、npm 载体和五处安装投影。
 - 该记录安装后冻结为只读；发行更新可覆盖后再次冻结。
 - 它不是运行依赖，不重新引入安装后的哈希校验行为。
 - 层级回执改用清单路径来源证明，修复仍读取旧摘要字段的启动/准入断点。
-- 仅源码维护的史馆服务/检查脚本不再注册为公开 CLI 兼容命令；superCC 证据改用
+- 仅源码维护的记忆服务/检查脚本不再注册为公开 CLI 兼容命令；superCC（高级执行）证据改用
   路径和身份绑定。
-- 结诏收据校验保留编号、路径、谱系与结诏身份，不再要求旧摘要字段。
+- 归档收据校验保留编号、路径、谱系与归档身份，不再要求旧摘要字段。
 - npm 版本为 `1.0.4-beta.0.hotfix.1`，保留 `1.0.4-beta.0` 的不可变历史。
 - 安装文档和运行 reference 改为 Windows/macOS/Linux 路径矩阵，不再把
   `%USERPROFILE%`、`%LOCALAPPDATA%` 或 Windows Task Scheduler 语义写成通用路径。
-- 首次 npm 安装会安装或复用 superCC 依赖 `zellij` 与 `squad`；安装回执写入对
+- 首次 npm 安装会安装或复用高级执行依赖 `zellij` 与 `squad`；安装回执写入对
   Zellij 与 squad 开源项目的感谢和仓库链接。
-- macOS/Linux 发布包使用同一官署、史馆和五根投影结构，只调整平台路径、工具资产
+- macOS/Linux 发布包使用同一角色、记忆和五处投影结构，只调整平台路径、工具资产
   和安装说明；不引入安装后的哈希校验脚本。
 
 ## beta1.0.4
 
-- 短回奏恢复为真实 `结诏` 路径：即使没有持久写入，也会留下轻量
-  `史馆实录` 和 `记忆裁定`。
-- 三权恢复为“权力 + 解释”的选择样式，并把 `serial/parallel` 作为独立
+- 短回复恢复为真实 `归档` 路径：即使没有持久写入，也会留下轻量
+  `记忆实录` 和 `记忆裁定`。
+- 授权级别恢复为“授权 + 解释”的选择样式，并把 `serial/parallel` 作为独立
   选择层，适合支持方向键或鼠标点击的客户端。
 - 安装面继续收敛到 manifest 投影的运行面，旧 active-copy 校验门不再作为
   默认安装后步骤出现。
-- Hermes 共享史馆结诏修复：旧 locator 已是 junction 且指向 canonical 根时，
+- Hermes 共享记忆归档修复：旧 locator 已是 junction 且指向 canonical 根时，
   不再因缺少旧 cutover 凭据导致编号和古制谱系退化。
 - 空白机 npm 首次安装仅保留结构性 ZIP 安全检查；临时 bootstrap 校验器若启用，
   必须在运行时投影前删除，安装后的 skill 不保留发布校验文件。
 
 ## beta1.0.2
 
-- Skill 定义收敛为围绕“诏令”的多-agent 协作体系；正式任务默认三省六部，
-  闲聊、轻量交流、正式任务、纠正、延续和主动结诏按场景分流。
+- Skill 定义收敛为围绕任务诏令的多-agent 协作体系；正式任务默认分层治理，
+  闲聊、轻量交流、正式任务、纠正、延续和主动归档按场景分流。
 - `beta0.5.9` 已有能力和用户明确新增功能不得因提速被删除；项目级发布/安装/
   法律/package gate 不进入普通 Skill 启动链。
-- 史馆基础记忆、GBrain 整理沉淀、Git 联邦管理分层保留；GBrain 不替代基础召回，
-  Git 联邦只作为显式史馆管理面。
-- `approval|autonomous|super` 与 `serial|parallel` 分开记录和验证；尚书统筹六部
-  仍要求按层级下派必要六部。
+- 记忆基础记录、GBrain 整理沉淀、Git 联邦管理分层保留；GBrain 不替代基础召回，
+  Git 联邦只作为显式记忆管理面。
+- `approval|autonomous|super` 与 `serial|parallel` 分开记录和验证；主管统筹执行部门
+  仍要求按层级下派必要执行部门。
 - CLI 外部目录运行修复为调用者相对路径解析；项目 check/release 命令仍使用代码根。
 - npm 版本为 `1.0.2-beta.0`，继续使用 `beta` dist-tag；远端状态以后续回读为准。
 
@@ -60,12 +60,12 @@
 
 - authority 精确为 `approval|autonomous|super`，behavior 精确为
   `serial|parallel`；两者正交，六种组合均有结构化回归。
-- 普通 super parallel 只走 native；superCC 使用独立入口、task store、dossier、
+- 普通 super parallel 只走 native；superCC（高级执行）使用独立入口、task store、dossier、
   transport、admission 和 lifecycle，不与 native 共存、切换或回退。
 - 修复 semantic template 生产者/消费者不一致；无效 authority revision 在准入前
   fail closed，保持零 dispatch 与无手工绕过。
-- capability snapshot 在三省审议前解析并缓存，覆盖 skill、MCP、plugin、CLI 和
-  script 建议，无需为只读 snapshot 派生吏部官署。
+- capability snapshot 在分层治理审议前解析并缓存，覆盖 skill、MCP、plugin、CLI 和
+  script 建议，无需为只读 snapshot 派生角色。
 - npm 版本为 `1.0.1-beta.0`，继续使用 `beta` dist-tag。
 
 ## beta1.0.0-hotfix-v2
@@ -82,8 +82,8 @@
 
 ### 保持不变
 
-- ordinary/superCC carrier pointer 与 CLI archive receipt 修复沿用 v1。
-- 安装命令、五根、许可、pending/private 零访问与史馆保护边界不变。
+- ordinary/superCC（高级执行）carrier pointer 与 CLI archive receipt 修复沿用 v1。
+- 安装命令、五处安装、许可、pending/private 零访问与记忆保护边界不变。
 
 ## beta1.0.0-hotfix-v1
 
@@ -91,10 +91,10 @@
 
 ### 主要修复
 
-- 普通 `super并行` 与 superCC 改为独立结构化选择：共享官署 profile 不拆分，
+- 普通 `super并行` 与 superCC（高级执行）改为独立结构化选择：共享角色 profile 不拆分，
   carrier pointer 分别指向普通 dossier 与显式可见 dossier。
 - 普通 Codex role/probe 不再加载或回显 superCC、squad、zellij 与可见拓扑。
-- 统一 CLI 的 `shiguan archive-checkpoint` 输出带哈希的结构化回执；诏令编号、
+- 统一 CLI 的 `shiguan archive-checkpoint`（记忆归档命令）输出带哈希的结构化回执；归档编号、
   古制谱系和作业 AI 只能逐字取自该回执。
 - 完整 root+dossier+profile 预载最大 20,173 bytes；cold/warm p50 提升
   88.60%/99.33%，保持单解释器快速路径。
@@ -104,7 +104,7 @@
 
 - 安装命令：`npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com`。
 - canonical skill/invocation：`decretum-matrix` / `$decretum-matrix`。
-- pending/private 正文保持零访问，史馆实录不被安装覆盖。
+- pending/private 正文保持零访问，记忆实录不被安装覆盖。
 
 ## beta1.0.0
 
@@ -116,7 +116,7 @@ npm `1.0.0-beta.0` 保持首次发布证据；覆盖候选、安装和再次发�
 - shared `references` 增加 local-only Git 管理 hub，严格 allowlist 且无 remote。
 - Codex/Claude Code/Hermes 原生记忆保持独立仓库，通过 registry、双向 link、
   native/shared commit 和 paired receipt 形成可验证联邦。
-- 空白机只读探测不写入；显式授权后创建三类 canonical memory root 并统一纳入史馆。
+- 空白机只读探测不写入；显式授权后创建三类 canonical memory root 并统一纳入记忆中枢。
 - GBrain recall 携带路径裁剪后的 Git provenance，仍为 advisory、无执行权。
 - GitHub 每版 Release 改为简短说明，beta1.0.0 设为 Latest；README 恢复品牌图标。
 
@@ -138,7 +138,7 @@ npm `1.0.0-beta.0` 保持首次发布证据；覆盖候选、安装和再次发�
 ### 主要变化
 
 - 新增 `decretum-matrix` npm 可执行入口和惰性统一 CLI，保留既有命令兼容。
-- 新增单解释器 `court open --fast`、门下/太子结果归属和正式性能门禁。
+- 新增单解释器 `court open --fast`、最终复核/主协调结果归属和正式性能门禁。
 - 覆盖安装改为受管公开文件的持久备份、原子替换、失败自动回滚和显式恢复。
 - 根 skill/role preload 最大 19,360 bytes；cold/warm p50 分别提升 88.55%/99.34%。
 - 清理当前产品显示名、canonical package root、legacy help 与 release policy 漂移。
@@ -147,7 +147,7 @@ npm `1.0.0-beta.0` 保持首次发布证据；覆盖候选、安装和再次发�
 
 - 安装命令：`npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com`。
 - canonical skill/invocation：`decretum-matrix` / `$decretum-matrix`。
-- 史馆实录与 private/pending 正文不被覆盖或读取。
+- 记忆实录与 private/pending 正文不被覆盖或读取。
 - beta0.5.12 已发布工件保持不可变。
 
 ## beta0.5.12

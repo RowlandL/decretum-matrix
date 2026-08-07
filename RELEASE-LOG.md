@@ -1,6 +1,6 @@
 # Release Log
 
-本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人史馆记录。
+本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人记忆记录。
 
 ## beta1.0.6 - 2026-08-01
 
@@ -8,9 +8,9 @@
 
 1. 原生宿主回执绑定运行身份、统一入口、请求路径和宿主生命周期，不再以脚本存在或
    `ok` 回显代替真实运行证据。
-2. 尚书省到六部的派遣与复用使用真实宿主证据；史馆谱系分类补齐置信度、并列、否定
+2. 分层派遣与复用的真实宿主证据；记忆分类补齐置信度、并列、否定
    和未知待审分支。
-3. 五根安装投影与明示授权的 Qoder 投影使用源码侧独立哈希门禁验证；该校验器不进入
+3. 五处安装投影与明示授权的 Qoder 投影使用源码侧独立哈希门禁验证；该校验器不进入
    已安装 skill，也不被加载、启动、预载或普通运行链调用。
 4. npm 身份为 `1.0.6-beta.0`，dist-tag 为 `beta`；远端状态以发布后回读为准。
 
@@ -28,7 +28,7 @@
 本 hotfix 以 `beta1.0.4` 为基线，恢复一个应当随发行物保留的工程参考，而不扩大
 普通启动或运行时校验面：
 
-1. `references/benchmarks/cft0808-edict.yaml` 重新进入 ZIP、npm 载体和五根安装
+1. `references/benchmarks/cft0808-edict.yaml` 重新进入 ZIP、npm 载体和五处安装
    投影，作为固定的工程语义/许可溯源参考。
 2. 安装器在每次同步完成后将该文件设为只读；下一次发行同步会先临时解冻、覆盖并
    重新冻结，避免文件属性阻断更新。
@@ -38,9 +38,9 @@
    `1.0.4-beta.0.hotfix.1`，保留 `beta1.0.4` / `1.0.4-beta.0` 的不可变发布证据。
 5. 层级回执使用既有清单路径作为来源证明，移除仍读取旧摘要字段的运行链断点；不
    恢复任何运行期文件摘要校验。
-6. 九项仅供源码维护的史馆服务/检查脚本不再作为公开 CLI 兼容 adapter；superCC
-   回归证据改以 profile/dossier/SKILL 路径和身份绑定为准。
-7. 结诏校验保留诏令编号、路径、谱系与结诏身份，不再断言旧的 receipt/archive 摘要字段。
+6. 九项仅供源码维护的内部服务/检查脚本不再作为公开 CLI 兼容 adapter；高级执行
+   （superCC）回归证据改以 profile/dossier/SKILL 路径和身份绑定为准。
+7. 归档校验保留归档编号、路径、谱系与归档身份，不再断言旧的 receipt/archive 摘要字段。
 8. Windows/macOS/Linux 安装说明统一为平台路径矩阵；首次 npm 安装安装或复用
    `zellij` 与 `squad`，并在回执中感谢 Zellij 与 squad 开源项目、附对应 GitHub
    链接。该依赖摘要校验只在解包前发生，不进入安装后的启动校验面。
@@ -49,31 +49,31 @@
 
 本版本在 `release/beta1.0.4` 上做有界修复，重点对齐两处语义和一处安装面：
 
-1. 短回奏不再跳过 `结诏`、`史馆实录` 与 `记忆裁定`；没有持久写入时走轻量
-   史馆 checkpoint，而不是把终态压扁成普通回声。
-2. 开朝三权恢复为“权力 + 解释”形式，并把 `serial/parallel` 作为独立选择，
+1. 短回复不再跳过 `归档`、`记忆实录` 与 `记忆裁定`；没有持久写入时走轻量
+   记忆 checkpoint，而不是把终态压扁成普通回声。
+2. 初始化时的授权级别恢复为“授权 + 解释”形式，并把 `serial/parallel` 作为独立选择，
    便于 Codex、Claude 和 Hermes 的方向键/鼠标式提交。
 3. 安装和 release gate 不再把旧 active-copy hash-check 门带进安装面；安装后只
    保留 manifest 投影里的运行路径，旧校验 helper 由 prune 清理。
-4. Hermes 运行时接受已经完成物理迁移的共享史馆拓扑：旧 locator 为 junction
+4. Hermes 运行时接受已经完成物理迁移的共享记忆拓扑：旧 locator 为 junction
    并指向 canonical 根时，不再因缺少旧 cutover 凭据导致 `court_code` 和
    `ancient_lineage` 退化为 `partial_or_not_run`。
 5. 空白机 npm 首次安装只允许结构性 ZIP 安全检查；若未来启用临时 bootstrap
    校验器，必须在运行时投影激活前自删除。安装后的 skill 不保留 release
    manifest 或 release-validation helper。
-6. 产品版本为 `beta1.0.4`，npm 映射为 `1.0.4-beta.0`。本地五根安装、分支、
+6. 产品版本为 `beta1.0.4`，npm 映射为 `1.0.4-beta.0`。本地五处安装、分支、
    tag、GitHub beta Release 和 npm 发布按本次明确授权办理；不创建 PR。
 
 ## beta1.0.3 - 2026-07-21
 
-本版本在 `release/beta1.0.3` 上做一次有界修复，不改写已经正规的三省六部流程：
+本版本在 `release/beta1.0.3` 上做一次有界修复，不改写已经正规的分层治理流程：
 
-1. 普通开朝继续使用既有渐进式加载，只读 `SKILL.md` 与当前行为卷。
-2. Git、史馆服务、pending、YOLO、能力 registry、portable bootstrap、安装与发布
+1. 普通初始化继续使用既有渐进式加载，只读 `SKILL.md` 与当前行为卷。
+2. Git、记忆服务、pending、YOLO、能力 registry、portable bootstrap、安装与发布
    脚本改为命中对应场景后才运行。
-3. fastpath 仅作可选差遣前预检；六部由尚书按最终结果选择必要子集，不默认全选。
+3. fastpath 仅作可选派遣前预检；执行部门按最终结果选择必要子集，不默认全选。
 4. packet 与 admission 只计准备/校验，不再冒充真实 spawn 或物理派遣。
-5. 产品版本为 `beta1.0.3`，npm 映射为 `1.0.3-beta.0`。本地五根安装完成后
+5. 产品版本为 `beta1.0.3`，npm 映射为 `1.0.3-beta.0`。本地五处安装完成后
    停止，发布、tag、push 和 PR 均等待另行授权。
 
 ## beta1.0.2 - 2026-07-21
@@ -82,13 +82,13 @@
 `beta0.5.9` 已有能力，不把 beta1.0.1 的项目级 checker、manifest、install、
 legal、package、release 门禁混入普通 Skill 路径。
 
-1. Skill 定义固定为围绕“诏令”的多-agent 协作体系；正式任务默认表现为三省六部。
-2. 太子负责语义差分和场景定性；闲聊/轻量交流不自动结诏，用户主动结诏时汇总
-   当前单会话尚未结诏内容，不额外富化。
+1. Skill 定义固定为围绕任务诏令（task edict）的多-agent 协作体系；正式任务默认表现为分层治理。
+2. 主协调者负责语义差分和场景定性；闲聊/轻量交流不自动归档，用户主动归档时汇总
+   当前单会话尚未归档内容，不额外富化。
 3. `approval|autonomous|super` 是授权边界；`serial|parallel` 是执行方式；
-   六部唯一直属上级是尚书，尚书统筹六部不等于代办六部职责。
-4. 史馆基础记录/查询、GBrain 整理沉淀、Git 联邦管理三者边界分开；GBrain 和
-   Git 联邦保留，但不进入普通闲聊和日常开朝前置链。
+   各执行部门唯一直属上级是主管，主管统筹各部门不等于代办各部门职责。
+4. 记忆基础记录/查询、GBrain 整理沉淀、Git 联邦管理三者边界分开；GBrain 和
+   Git 联邦保留，但不进入普通闲聊和日常初始化前置链。
 5. 统一 CLI 保留现有功能入口；用户相对路径按调用目录解析，项目工程命令仍以
    代码根为执行根。
 6. 产品版本为 `beta1.0.2`，npm 映射为 `1.0.2-beta.0`，dist-tag 为 `beta`。
@@ -98,18 +98,18 @@ legal、package、release 门禁混入普通 Skill 路径。
 
 ## beta1.0.1 - 2026-07-20
 
-本版本在 `release/beta1.0.1` 上修复开朝启动和执行语义边界：
+本版本在 `release/beta1.0.1` 上修复启动和执行语义边界：
 
 1. 权限精确为 `approval|autonomous|super`，行为精确为
    `serial|parallel`；六种组合均由结构化 execution receipt 覆盖。
-2. 普通 `super parallel` 固定为 native；native 与 superCC 使用独立入口、
+2. 普通 `super parallel` 固定为 native；native 与 superCC（高级执行）使用独立入口、
    import graph、task store、dossier、transport、admission 和 lifecycle，仅共享
    neutral office configuration pointer/hash。
 3. semantic template 生产者与 validator/checkpoint 消费者完成同形往返；
    `invalid_authority_revision` 在准入前失败，`dispatch_count=0` 且禁止手工绕过。
-4. capability index 在三省审议前解析并缓存，snapshot 给出
-   skill/MCP/plugin/CLI/script 建议；吏部维护 registry，但只读 snapshot 不派生官署。
-5. 正式性能 gate 约束单 Python 进程、20 KiB preload 与热开朝 10% 回归预算。
+4. capability index 在分层治理审议前解析并缓存，snapshot 给出
+   skill/MCP/plugin/CLI/script 建议；registry 维护者维护 registry，但只读 snapshot 不派生角色。
+5. 正式性能 gate 约束单 Python 进程、20 KiB preload 与热初始化 10% 回归预算。
 6. 产品版本为 `beta1.0.1`，npm 映射为 `1.0.1-beta.0`，dist-tag 为 `beta`。
 
 发布、安装与远端状态只由候选、安装回执和远端回读证明；本节不以意图冒充成功。
@@ -134,15 +134,15 @@ npm `postinstall` 已完成受管安装，但 launcher 在打印含 `U+FFFD` 的
 ### 边界
 
 - v1 保留为不可变失败证据，v2 发布后再标记 superseded/deprecated。
-- 五根、pending/private、史馆数据和 ordinary/superCC carrier 修复均沿用 v1，
+- 五处安装、pending/private、记忆数据和 ordinary/superCC（高级执行）carrier 修复均沿用 v1，
   本次不扩大其语义或写集。
 
 ## beta1.0.0-hotfix-v1 - 2026-07-20
 
 ### 发布结论
 
-本 hotfix 在 `release/beta1.0.0-hotfix-v1` 上修复普通 `super并行` 与 superCC 的
-底层载体耦合，以及结诏编号/古制谱系可能由模型自行编造的问题。源码、候选包、
+本 hotfix 在 `release/beta1.0.0-hotfix-v1` 上修复普通 `super并行` 与 superCC（高级执行）的
+底层载体耦合，以及归档编号/古制谱系可能由模型自行编造的问题。源码、候选包、
 安装与外部发布状态分别由后续门禁回执证明，本节不预称成功。
 
 ### 核心修复
@@ -150,15 +150,15 @@ npm `postinstall` 已完成受管安装，但 launcher 在打印含 `U+FFFD` 的
 1. `execution_authority`、`parallel_topology`、`carrier_kind` 独立解析；普通并行
    只选择 `child_agent|worktree_thread`，不得因名称、规模或相似工作状态进入
    可见 runtime selector。
-2. 共享 `agents/standing-officials/*.toml` 继续作为唯一官署身份配置；普通载体
+2. 共享 `agents/standing-officials/*.toml` 继续作为唯一角色身份配置；普通载体
    机械指向 `agents/office-dossiers`，显式 `supercc_cli_office` 才指向
    `agents/supercc-dossiers`。
 3. `.codex/agents/*.toml` 的普通投影不再携带 superCC dossier、squad/zellij 指令
    或可见拓扑字段；普通 runtime probe 不再导入 `check_supercc_profiles`。
-4. 既有统一 CLI 的 `shiguan archive-checkpoint` 改为 UTF-8 结构化调用，返回
+4. 既有统一 CLI 的 `shiguan archive-checkpoint`（记忆归档命令）改为 UTF-8 结构化调用，返回
    `court.shiguan_archive_checkpoint_receipt.v1`、`receipt_sha256`、
    `archive_sha256` 与可逐字复制的 `closeout_identity`。
-5. 十四行结诏只能消费当前归档回执；无回执时使用 partial、blocked 或 handoff
+5. 十四行归档只能消费当前归档回执；无回执时使用 partial、blocked 或 handoff
    回复族，不再允许模型分配 snapshot 编号或谱系。
 6. 产品版本为 `beta1.0.0-hotfix-v1`，npm 合法 SemVer 映射为
    `1.0.0-beta.0.hotfix.1`，继续使用 `beta` dist-tag。
@@ -175,7 +175,7 @@ npm `postinstall` 已完成受管安装，但 launcher 在打印含 `U+FFFD` 的
 ### 发布结论
 
 `release/beta1.0.0` 已有首次公开发布。本次按最新旨意在同一分支形成覆盖修订，
-补齐 shared Shiguan Git/native-memory federation、GBrain Git provenance、简短
+补齐 shared Shiguan Git/native-memory federation（共享记忆联邦）、GBrain Git provenance、简短
 GitHub Release 说明与 README 品牌图标；新 commit、候选包、本机安装和覆盖发布
 仍由后续实际回执证明，不从本节预称成功。
 
@@ -192,15 +192,15 @@ GitHub Release 说明与 README 品牌图标；新 commit、候选包、本机�
 
 1. 通用任务治理框架以 `decretum.semantic.record.v1` 分离事实、解释、裁定、行动、
    验证、记忆与呈现，不新增 task state、ledger、semantic capsule 或执行权威。
-2. 史馆 GBrain 复用 shared Shiguan 索引和既有记忆裁定工具，召回固定为 advisory、
+2. GBrain 记忆中枢复用 shared Shiguan 索引和既有记忆裁定工具，召回固定为 advisory、
    无执行权并服从最新用户旨意；原始 memory body 不进入 recall envelope。
-3. 三省六部通过 `three-departments-six-ministries` 成为唯一默认官方治理实现，
+3. 分层治理通过 `three-departments-six-ministries` 成为唯一默认官方治理实现，
    直接复用现有 hierarchy manifest、profiles、dossiers 与 governing references。
-4. 非默认 `direct-review` 以同一框架、能力与运行适配层、呈现层和史馆 GBrain
+4. 非默认 `direct-review` 以同一框架、能力与运行适配层、呈现层和 GBrain 记忆中枢
    完成有限替换性验证，不启用远程发现、动态代码或插件市场。
 5. `court.request_understanding.v1` 在详细计划前评估目标、使用场景、关键要求与
    验收标准；低于 95 只问一个最高价值问题，复述待确认态不能创建正式任务，
-   用户确认后才进入直接执行态；初始旨意明确时不强行提问。
+   用户确认后才进入直接执行态；初始意图明确时不强行提问。
 6. 覆盖修订加入 shared `references` local-only Git 管理 hub；Codex 复用既有
    memory repo，Claude Code/Hermes 使用 separate git-dir，各仓通过稳定 registry、
    双向 managed link、native/shared commit 和 paired receipt 形成可验证联邦。
@@ -241,20 +241,20 @@ payload manifest、artifact 与 npm candidate 身份已对齐 beta0.5.13；本�
 
 1. 全部可执行入口进入 122 项 versioned inventory；统一 CLI 按 group 惰性加载，
    保留 raw runtime 兼容和稳定 JSON receipt，不建立第二 runtime authority。
-2. `court open --fast` 在单 Python 解释器内准备三省及尚书到六部 packet，复用
+2. `court open --fast` 在单 Python 解释器内准备分层治理 packet，复用
    semantic/admission/preload core，并在 mutation 前完成 direct-superior 门禁。
 3. V2 + role binding 在 CLI 边界移除无模型/effort 变化的旧 agent-type override，
    关闭 `protocol_capability_conflict`，不改写 runtime 的 V2 reserved-field 合同。
 4. 根 `SKILL.md` 与 role preload 收敛到最大 19,360 bytes；正式 10+10 样本中
    cold p50 提升 88.55%，warm p50 提升 99.34%，fast process count 为 1。
 5. 安装更新只覆盖 manifest 管理的公开文件；覆盖前持久化逐文件 SHA256 备份，
-   失败自动回滚，成功回执提供 `backup_root` 和显式 rollback。史馆实录、索引、
+   失败自动回滚，成功回执提供 `backup_root` 和显式 rollback。记忆实录、索引、
    evidence/data 与 private/pending 正文不读取、不扫描、不哈希且不进入覆盖集；
-   目标独有文件保持原样。五根 projection 同步更新 `VERSION`、identity manifest 与
+   目标独有文件保持原样。五处 projection 同步更新 `VERSION`、identity manifest 与
    当前 `release-manifest.json`，禁止保留旧 release identity；旧 skill 物理目录即使
    文件内容已经一致，也必须先留 backup/receipt，再支持显式原子回滚。
 6. npm 包增加受限 transactional `postinstall`：校验内嵌 ZIP 后一次安装 canonical
-   `.agents` runtime，创建真实物理史馆根，或把旧物理根同卷原子改名到新路径；
+   `.agents` runtime，创建真实物理记忆根，或把旧物理根同卷原子改名到新路径；
    canonical symlink/junction、双物理根与 hash/identity 漂移全部 fail closed。旧
    locator 只在物理迁移完成后建立精确 junction，不以链接代替资料迁移。Windows、
    macOS、Linux clean-home 的 source/local-tgz help receipt 仍完全一致。
@@ -281,7 +281,7 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
 
 ### 核心变更
 
-1. shared Shiguan/Obsidian 默认根收敛到
+1. shared Shiguan/Obsidian 默认记忆根收敛到
    `.agents\court-shiguan\decretum-matrix\references`，旧 LocalAppData 根不再是
    活动 authority，daemon discovery 容忍已退出进程。
 2. protected 四锚点恢复 exact length/hash；legacy runtime task 只在全部 binding
@@ -290,7 +290,7 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
    收敛，不新增 store、daemon、DB、MQ、ledger 或第二状态机。
 4. 宿主 root/global AGENTS、capability index 的旧 skill locator 与 repair hold
    收敛到 canonical `skills/decretum-matrix`。全新 ephemeral 只读 Codex 会话真实
-   调用 `$decretum-matrix`，EOF/hash 和三省入口 smoke 通过。
+   调用 `$decretum-matrix`，EOF/hash 和分层入口 smoke 通过。
 5. README 缩为普通用户入口；详细安装、使用、治理、架构、排错和发布说明迁入
    `docs/wiki`，并提供只读线上/线下一致性检查。
 
@@ -309,9 +309,9 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
 
 ### 核心变更
 1. RB1 admission：shared hierarchy/profile gate 在 state mutation 前统一裁决；零 mutation 拒绝保持状态不变，v2 lease 绑定 canonical preload，admission event anchor 只追加不回写。
-2. RB2 `superCC`：正常 lifecycle 使用 shared delivery preflight；identity ACK、`preload_pending -> delivery success`、`ENTER_DISPATCH` P00 context、delivery/state atomic chain 与 correction gaps 均有 fail-closed 验证。
-3. 史馆 Web/autosync：状态转换原子化；filesystem preserve-only daemon 为主通道，REST 可选且非阻塞；既有 daemon 只接收异步 `refresh-request.json`，WebUI 防重复提交并保留本机错误证据。
-4. 正式结诏：编号合同是 `层级码串-YYYYMMDD-日内 uppercase base36 序号-四字码`，正例 `SCGSDYJM-20260606-1Z-DAAA`；七层内容谱系是 `史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`。`CCR`、`Phase`、`RB`、task id 与 workflow path 均被拒绝。
+2. RB2 `superCC`（高级执行）：正常 lifecycle 使用 shared delivery preflight；identity ACK、`preload_pending -> delivery success`、`ENTER_DISPATCH` P00 context、delivery/state atomic chain 与 correction gaps 均有 fail-closed 验证。
+3. 记忆 Web/autosync：状态转换原子化；filesystem preserve-only daemon 为主通道，REST 可选且非阻塞；既有 daemon 只接收异步 `refresh-request.json`，WebUI 防重复提交并保留本机错误证据。
+4. 正式归档：编号合同是 `层级码串-YYYYMMDD-日内 uppercase base36 序号-四字码`，正例 `SCGSDYJM-20260606-1Z-DAAA`；七层内容谱系是 `史馆总纪·朝制志·官署门·三省六部纲·回复格式目·结诏标识条·内容谱系诏`。`CCR`、`Phase`、`RB`、task id 与 workflow path 均被拒绝。
 5. Source split：dispatch context/identity/preload、delivery/state、admission shape 与 autosync public projection 分拆到独立 owning modules；focused gate 改为读取实时 source-state，而非固定 measured bytes。
 6. Intervention baseline：fixture caller/direct-superior、bounded child ownership/write scope、serial no-mutation、canonical preload 与 16-slot tree cap 已和 production admission contract 对齐。
 7. npm backfill：公开 GitHub Packages `beta` 当前仍是无 dependencies/lifecycle scripts 的 `0.5.10-beta.0` release-assets carrier；本地 version-neutral harness 可推导 `0.5.11-beta.0`，但 npm publish 为 `NOT_RUN`。
@@ -333,7 +333,7 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
 `beta0.5.10` 是 Decretum Matrix（诏令矩阵）的首个新名称 beta 发行版本。
 规范产品/skill/package 名为 `decretum-matrix`，调用入口为
 `$decretum-matrix`，发行 ZIP 为 `decretum-matrix-beta0.5.10.zip`。为保持
-既有安装与史馆连续性，ZIP 内根、物理安装目录和共享史馆 namespace 继续使用
+既有安装与记忆连续性，ZIP 内根、物理安装目录和共享记忆 namespace 继续使用
 受保护的技术 locator `court-capability-router`，不再把它作为当前产品显示名。
 
 ### 核心变更
@@ -341,13 +341,13 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
 1. P00 与语义连续性
    新任务、修订、恢复、dispatch、结果、quarantine 和 closeout 都绑定当前
    task、charter revision/semantic epoch、正文 SHA-256、2 KiB invariant capsule
-   与紧凑 receipt。普通子官署默认 `fork_turns=none`，只携带必要 pointer/hash，
+   与紧凑 receipt。普通子角色默认 `fork_turns=none`，只携带必要 pointer/hash，
    不复制完整历史、diff、私密正文或 pending body。
 
-2. 官署身份与 carrier
-   十四官署绑定 standing-official TOML、ordinary office dossier、
-   Decretum Matrix skill hash 和 preload acknowledgement。六部不得吸收三省审计、
-   门下最终复核或太子统筹权限；工匠任务使用 role-prefixed 名称并保持直属链。
+2. 角色身份与 carrier
+   十四角色绑定 standing-official TOML、ordinary office dossier、
+   Decretum Matrix skill hash 和 preload acknowledgement。各执行部门不得吸收分层审计、
+   最终复核或主协调统筹权限；工匠任务使用 role-prefixed 名称并保持直属链。
 
 3. 许可、权属与来源
    当前社区发行使用 `AGPL-3.0-only`。商业权利只由孙华清另行签署的书面协议
@@ -366,15 +366,15 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
    Windows 8.3 临时目录别名通过文件身份校验，不再被误判为 root escape；
    stage 内无 `.git` 时只验证 payload/manifest，不伪造 source Git metadata。
    当前工具安装器使用同一 manifest、备份、迁移、索引与逐文件回读合同；真实
-   本机安装只在 clean accepted package 后由正式工部工匠子官署执行。
+   本机安装只在 clean accepted package 后由正式工匠子角色执行。
 
 ### 验收状态
 
-- Phase 1 P00/RC2/RC4/RC5/RC6：GREEN；门下 `SPEC PASS`；刑部
+- Phase 1 P00/RC2/RC4/RC5/RC6：GREEN；审议 `SPEC PASS`；质检
   `QUALITY READY YES`。
 - package privacy：59/59；release manifest：40 steps；artifact builder
   deterministic/promotion self-test：21/21；legal checker real/self-test：PASS。
-- 四个受保护史馆文件保持原路径、原长度、原 SHA-256；pending body access 为
+- 四个受保护记忆文件保持原路径、原长度、原 SHA-256；pending body access 为
   `NO`；Git index、`.pyc` 与 remote count 均为 `0`。
 - 本文件记录发行内容与本地验收；remote push、tag、GitHub Release 与线上资产
   上传是否成功，只以对应外部回执为准，不从仓库文字或本地候选目录推定。
@@ -393,7 +393,7 @@ artifact 与 npm candidate 身份已经对齐 beta0.5.12；外部 tag、Release�
    正式纳入 `COURT-DYNMSG-BUDGET-V1-20260712`：dispatch message 的 floor 为 6000、quantum 为 1000、ceiling 为 12000。预算诊断明确区分实际分配、上限夹紧和主机证据，避免把不可证明的容量写成已验证事实。
 
 2. 共享能力索引
-   capability-index 门禁改从共享史馆根解析当前目录，不再依赖可能过期的 skill-local catalog；路径错误转为结构化失败，不向外泄露未处理 traceback。
+   capability-index 门禁改从共享记忆根解析当前目录，不再依赖可能过期的 skill-local catalog；路径错误转为结构化失败，不向外泄露未处理 traceback。
 
 3. 开源许可与上游边界
    项目原创材料采用 Apache License 2.0，并提供 `NOTICE`、`CONTRIBUTING.md`、`SECURITY.md`、`PRIVACY.md` 与 SPDX 2.3 SBOM。选择 Apache-2.0 的主要工程理由是明确的专利许可、贡献与 NOTICE 治理更适合长期协作；前提始终是贡献者确有授权这些材料的权利。
@@ -440,22 +440,22 @@ python -B scripts/build_release_artifacts.py --mode release --expected-candidate
 
 ### 能做什么
 
-1. 三省六部责任路由
-   太子负责收旨与回奏，中书省拟旨，门下省封驳，尚书省差遣，六部按职责执行，史馆保存经过脱敏的证据链。
+1. 分层治理责任路由
+   主协调者负责接旨与汇报，拟旨者拟旨，审议者封驳，派遣者差遣，各执行部门按职责执行，记忆中枢保存经过脱敏的证据链。
 
 2. 本地能力调度
    可按任务边界选择 skills、MCP、CLI、脚本与 agente。每次调度受职责、依赖、证据价值、容量、深度、请求预算和安全门禁约束。
 
 3. Portable 运行与审计
-   提供目标机 bootstrap、共享史馆 seed、metadata-only 记忆桥、本地/LAN Web 管理以及安装和发布检查。
+   提供目标机 bootstrap、共享记忆 seed、metadata-only 记忆桥、本地/LAN Web 管理以及安装和发布检查。
 
 ### 更新了什么
 
 1. Multi-Agent V2 配置统一
    V2 使用 `features.multi_agent_v2.max_concurrent_threads_per_session = 16`。该值覆盖整棵会话树，根线程占一槽，因此仅根活动时最多有 15 个 child 槽位；`max_depth = 4`，实际并发仍按可证容量收紧。
 
-2. 官署显性语义
-   六部默认 `non-visible`、`silent`。只有尚书省按已批准步骤差遣后才启用；显性六部还需最新旨意明确授权 bounded role set。
+2. 角色显性语义
+   各执行部门默认 `non-visible`、`silent`。只有派遣者按已批准步骤差遣后才启用；显性执行部门还需最新意图明确授权 bounded role set。
 
 3. 发布身份
    版本固定为 `beta0.5.8`，ZIP 固定为 `court-capability-router-beta0.5.8.zip`，ZIP 内根固定为 `court-capability-router/`。
@@ -465,11 +465,11 @@ python -B scripts/build_release_artifacts.py --mode release --expected-candidate
 1. Legacy 配置漂移
    不再把 `[agents].max_threads` 当作 V2 推荐配置。V2 使用整树并发字段，根线程计槽。
 
-2. Portable 史馆边界
-   ZIP 不包含 `references/plan-archives/`、`references/memory-decisions/`，也不包含这两个目录的占位 README。目标机首次初始化共享史馆根时才创建这些私有目录。
+2. Portable 记忆边界
+   ZIP 不包含 `references/plan-archives/`、`references/memory-decisions/`，也不包含这两个目录的占位 README。目标机首次初始化共享记忆根时才创建这些私有目录。
 
 3. Fail-open 打包策略
-   原大小写敏感 denylist 已改为精确结构 allowlist。未知顶层、未知 `references` 目录、未知史馆 seed 路径直接阻断，而不是静默收入包内。
+   原大小写敏感 denylist 已改为精确结构 allowlist。未知顶层、未知 `references` 目录、未知记忆 seed 路径直接阻断，而不是静默收入包内。
 
 4. 文件系统与归档攻击面
    源复制拒绝 symlink、junction、reparse point 和特殊文件；ZIP 复验拒绝绝对路径、UNC、`..`、反斜杠成员、重复名、大小写碰撞、链接、加密成员、嵌套归档、异常单文件/总大小与压缩炸弹。
@@ -496,7 +496,7 @@ python -B scripts/build_release_artifacts.py --mode release --expected-candidate
 
 ### 隐私边界
 
-本版本不包含个人史馆正文、plan archives、memory decisions、sessions、logs、backups、Obsidian 配置/API key、peer/import/runtime 状态、私密凭据、本机绝对路径或宿主生成索引。
+本版本不包含个人记忆正文、plan archives、memory decisions、sessions、logs、backups、Obsidian 配置/API key、peer/import/runtime 状态、私密凭据、本机绝对路径或宿主生成索引。
 
 ### 校验契约
 
