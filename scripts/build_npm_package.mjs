@@ -3177,7 +3177,8 @@ async function runInstalledSmoke(
       ["NOT_USED", "TEMPORARY_REMOVED"].includes(
         postinstallReceipt.temporary_validation_helper,
       ) &&
-      !Object.hasOwn(postinstallReceipt, "body_hashes"),
+      postinstallReceipt.body_hashes === 0 &&
+      postinstallReceipt.service_activation_requested === false,
     "postinstall receipt contract mismatch",
   );
 
