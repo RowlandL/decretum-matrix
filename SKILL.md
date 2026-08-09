@@ -42,6 +42,24 @@ description: Decretum Matrix（诏令矩阵） routes capabilities and agents th
 
 加载目标是路径清晰、按场景一次走对。普通入口=本文件+当前行为卷；只有实际承担官署职责时再读本角色 profile/dossier，能力检索、正式差遣、结诏、superCC、安装和发布各自在触发后按表加载。禁全量 references、无关官署 profile、pending/private 正文；入口守 `<=20 KiB`。
 
+## Loading Procedure (effective on load; binding for blank Agents)
+
+This file is the load entry and hard-gate map. It is not distributed with any external user-level global memory. Follow the steps below so a blank Agent or a fresh reinstall loads correctly on first attempt:
+
+1. **Trigger load**: Load `SKILL.md` via the host Skill mechanism (compact entry, ≤20 KiB). Do not treat the 67–80 KiB `references/*.md` as the entry.
+2. **Pass top hard gates**: Satisfy the `P00` contract and `Common Hard Gates` first. If the latest message does not explicitly select `approval|autonomous|super`, **ask first and stop**; do not let memory / prior session / runtime permission choose for the user (constraint: `Pinned Initial Court Anchors`).
+3. **Authority × behavior**: The three authorities are orthogonal to behavior; `super并行` = authority=super, behavior=parallel, runtime=native. When authority is unselected, present options independently per `Unified Dynamic Dispatch Semantics`.
+4. **Progressive reference loading**: Read only the governing volume for the active behavior per `Progressive Loading Map`; full-volume load is forbidden. For large files use segmented reads or the on-disk copy; do not claim "read in full" while only a preview was taken.
+5. **Tool-layer triad**:
+   - **CLI**: `scripts/court_cli.py` (thin dispatcher → `court_cli_registry.py`) performs machine operations; output schema `decretum.cli.result.v1`, supports `--format json`; groups `court/office/shiguan/supercc/install/release/check`. Examples: `court status`, `shiguan archive-checkpoint`, `court open --fast --request-file <request.json>`. `bin/decretum-matrix.py` is a release launcher (requires a release ZIP), not the daily CLI.
+   - **Agent / host dispatch**: Real sub-office spawn/reuse/wake (三省 and 六部 are all sub-offices, genuinely host-native derivable); `court open --fast` is only a machine preflight, not a substitute for real dispatch evidence.
+   - **Reference markdown**: Semantic contract, load on demand.
+6. **Dispatch hierarchy**: `太子 (main-thread router, not dispatchable) → 三省 (L1: 中书/门下/尚书) → 六部 (L2: 吏/户/礼/兵/刑/工, selected by 尚书省) → 工坊/工匠`. 中书/门下 are peer review offices and do not take over 六部 dispatch. Before a real host spawn, run `agent-admit` machine admission immediately; packets/admission checks alone are not spawn evidence.
+7. **Shared Shiguan index (built at install)**: runtime root resolved by `scripts/shiguan_paths.py`, default `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`; recall via `scripts/query_shiguan_index.py`, heavy rebuild via `rebuild_shiguan_index.py`; does not replace this file.
+8. **Closeout**: Pass 门下 review; copy `payload.closeout_identity` from `shiguan archive-checkpoint` verbatim; without a valid archive receipt, do not self-assign an id (see `Closeout Skeleton`).
+
+This procedure is fixed in the skill body, independent of any external memory; it is inherited on load with no extra configuration.
+
 ## Progressive Loading Map
 
 只读当前行为对应卷；行为修改、语义争议、审计、发布和最终再载入才读全部直接相关卷。
