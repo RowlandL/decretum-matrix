@@ -137,15 +137,8 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 
 ## Closeout Skeleton
 
-完成、暂停、阻塞、取消、handoff 或包装前，按任务类型重载本文件及当前引用并经门下复核。结诏是客观终态行为；只要 decree 进入终态，就形成史馆实录与记忆裁定。无写入、无外部状态变化的短回奏走轻量结诏：说明请求、实际 host dispatch/reuse/wake 或 `serial_inline` 原因、官署回奏、未做持久写入，并写入紧凑 archive checkpoint；不启动 Shiguan Web、Obsidian、GBrain、pending 队列或全量树。完整十四行 memorial、归属、runtime、package-ready 和安装门见 [court-closeout-validation.md](references/court-closeout-validation.md)；行名/顺序不得改。仅门下接受的当前报告可标记 `MenxiaReview`；最终交付始终为 `TaiziReply`。无有效 archive receipt 时不得发送十四行或自分配编号，改用 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause` 并说明归档门。
+完成、暂停、阻塞、取消、handoff 或包装前，重载本文件及当前引用并经门下复核；结诏是客观终态行为，decree 进入终态即形成史馆实录与记忆裁定。轻量结诏（无写入、无外部状态变化的短回奏）说明请求、实际 host dispatch/reuse/wake 或 `serial_inline` 原因、官署回奏、未做持久写入，并写入紧凑 archive checkpoint；不启动 Shiguan Web、Obsidian、GBrain、pending 队列或全量树。完整十四行 memorial、归属、runtime、package-ready 和安装门见 [court-closeout-validation.md](references/court-closeout-validation.md)；行名/顺序不得改。仅门下接受的当前报告可标记 `MenxiaReview`；最终交付始终为 `TaiziReply`。无有效 archive receipt 时不得发送十四行或自分配编号，改用 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause` 并说明归档门。
 
 ## Validation And Packaging
 
-使用当前 host 的 Python 3，所有入口带 `-B`；active skill root 出现 `__pycache__`/`.pyc` 是 hard failure，不直接删除。安装版只投影 native/superCC 运行、史馆/GBrain、官署语义、安装启动与五根同步必需脚本；发布/深度校验脚本留在源码树。安装根最小验证：
-
-```sh
-python -B scripts/quick_validate.py .
-python -B scripts/sync_active_copies.py --json
-```
-
-源码树发布门再运行 package/release/portability gates。包装仅限发布、安装或 handoff。`package-ready` 须过全部 gates，排除 secrets、private/pending 正文、raw/runtime 记录、凭证和无关项目。安装仅覆盖 manifest 公开文件，显式 prune 旧投影残留，先备份、失败回滚并回执路径；外部发布仍需授权与 fastpath 门。
+安装/发布/包装的校验命令与硬门（quick_validate、sync_active_copies、package/release/portability gates、prune/备份/回滚）见 [validation-packaging.md](references/validation-packaging.md)。
