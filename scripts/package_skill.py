@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
-RELEASE_LABEL = "beta1.0.6"
+RELEASE_LABEL = "beta1.0.7"
 LICENSE_ID = "AGPL-3.0-only"
 # Canonical package and physical install root. Legacy locators may only resolve
 # to this same authority through an explicitly validated compatibility link.
@@ -302,6 +302,13 @@ PACKAGE_GENERATED_SEED_FILES = frozenset(
         "references/installed-capabilities-catalog.example.md",
     }
 )
+# 安装期校验文件：随发布包分发，供安装时校验使用；不在 install-projection 中，
+# 因此不会同步进任何 Skill 运行时（校验通过后由安装流程自删/不落盘）。
+PACKAGE_INSTALL_VALIDATION_FILES = frozenset(
+    {
+        "scripts/quick_validate.py",
+    }
+)
 EXCLUDE_DIRS = {
     "__pycache__",
     ".repo-control",
@@ -430,6 +437,7 @@ def package_projection_entries() -> frozenset[str]:
             entries.update(str(item).replace("\\", "/").casefold() for item in raw)
     entries.update(item.casefold() for item in PACKAGE_EXTRA_FILES)
     entries.update(item.casefold() for item in PACKAGE_GENERATED_SEED_FILES)
+    entries.update(item.casefold() for item in PACKAGE_INSTALL_VALIDATION_FILES)
     return frozenset(entries)
 
 

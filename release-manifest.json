@@ -902,6 +902,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/quick_validate.py",
+      "sha256": "d34d3d741df6507976711aa4b1f477a3ba8ce834ba36d7d1d1435df8ed91f214",
+      "size": 9180
+    },
+    {
+      "mode": "100644",
       "path": "scripts/rebuild_shiguan_index.py",
       "sha256": "3e15d4a34277dda1c783ecde6cbf15c1befc93c94a601a0bbdebd1800483dc30",
       "size": 14827
@@ -1090,11 +1096,11 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 3297863,
-    "payload_file_count": 176,
+    "payload_bytes": 3307043,
+    "payload_file_count": 177,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "1f405270d33d5bc88e8edb795fdeb08678af9d87cd736c2fdcb598e64381148a",
-    "source_packaged_tracked_file_count": 168,
+    "payload_index_sha256": "293b0cfc3b304b73cba1c05be50cbae2059301df6af6f0d5e1befd88ac08bead",
+    "source_packaged_tracked_file_count": 169,
     "source_tracked_file_count": 349
   },
   "license": {
@@ -1273,7 +1279,6 @@
     "scripts/migrate_shared_shiguan.py",
     "scripts/package_skill.py",
     "scripts/plan_shiguan_pending_quarantine.py",
-    "scripts/quick_validate.py",
     "scripts/refresh_capability_registry.py",
     "scripts/release_gate_manifest.py",
     "scripts/release_payload_manifest.py",
