@@ -26,5 +26,5 @@ network = forbidden
    - 其他工具：只安装 `.agents` 和该工具已证明的 skill 根。
 5. 只有用户最新指令明确点名其他工具时，才可增加对应目标；仍须证明工具已安装及其真实 skill 根。不得扫描后自动向所有工具分发。
 6. 核对 `release-manifest.json`、`VERSION`、`references/manifests/skill-identity.v1.json` 和安装投影；身份清单必须声明规范产品、skill 与调用为 `Decretum Matrix（诏令矩阵）`、`decretum-matrix`、`$decretum-matrix`。已有目标先备份将被替换的受管公开文件（逐文件 SHA256 持久备份），再执行原子覆盖；目标独有文件、史馆实录、private/pending 正文和用户配置均不得读取、移动、删除或覆盖。写入失败必须自动回滚；成功回执必须保留 `backup_root` 和显式 rollback 路径。
-7. 不得运行会向未点名工具扩散的 `sync_active_copies.py --write`。安装后从 `.agents` 根运行 `python -B scripts/quick_validate.py .`，并核对各实际目标的受管文件是否来自当前投影。
+7. 不得运行会向未点名工具扩散的 `sync_active_copies.py --write`。校验仅在安装时进行：从发布包/安装源运行 `python -B scripts/quick_validate.py .`，通过后校验脚本自删，安装根不得保留校验脚本；并核对各实际目标的受管文件是否来自当前投影。
 8. 最终报告规范产品名、载荷版本、实际安装 locator、跳过目标、备份根、rollback 请求、验证结果及保留文件；不得把候选路径写成已安装路径。

@@ -141,4 +141,4 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 
 ## Validation And Packaging
 
-安装/发布/包装的校验命令与硬门（quick_validate、sync_active_copies、package/release/portability gates、prune/备份/回滚）见 [validation-packaging.md](references/validation-packaging.md)。
+安装/发布/包装的校验与硬门（安装时校验自删、sync_active_copies、package/release/portability gates、prune/备份/回滚）见 [validation-packaging.md](references/validation-packaging.md)。
