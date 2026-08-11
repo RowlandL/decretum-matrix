@@ -549,8 +549,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "612399a7009f37d795dfe26db242741613e8159ad498cbbded45bceb749dbbd1",
-      "size": 1474
+      "sha256": "115e5bfe0cbf4d3660b2e538d995c978b81d5c8787b65527a12b7a95c809dee3",
+      "size": 1435
     },
     {
       "mode": "100644",
@@ -1096,10 +1096,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 3307043,
+    "payload_bytes": 3307004,
     "payload_file_count": 177,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "293b0cfc3b304b73cba1c05be50cbae2059301df6af6f0d5e1befd88ac08bead",
+    "payload_index_sha256": "1d5b14993b6f5810417764c104d2e0268b3ea5c3984ffbadf09c339f73481aab",
     "source_packaged_tracked_file_count": 169,
     "source_tracked_file_count": 349
   },
