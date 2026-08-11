@@ -1,6 +1,10 @@
 ---
 name: decretum-matrix
-description: Decretum Matrix（诏令矩阵） routes capabilities and agents through Codex/Hermes 三省六部. Use for /court, $decretum-matrix, approval/autonomous/super authority, or the separate superCC runtime.
+description: Decretum Matrix（诏令矩阵） routes capabilities and agents through the Codex/Hermes 三省六部 hierarchy. Use when dispatching /court or $decretum-matrix work under approval/autonomous/super authority, or when starting the separate superCC runtime; it gates dispatch with P00, loads references progressively, and returns court-status receipts.
+license: AGPL-3.0
+metadata:
+  version: beta1.0.7
+  author: RowlandL
 ---
 
 # Decretum Matrix（诏令矩阵）
