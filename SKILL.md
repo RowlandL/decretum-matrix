@@ -131,7 +131,7 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 - Formal decree 用统一 CLI `shiguan archive-checkpoint` 记录；其 v1 receipt 是用户侧编号/谱系唯一来源，且不覆盖最新旨意或 governing source。
 - 史馆 GBrain 是智能查询/召回/整理候选层；`query_shiguan_index.py` 默认调用，基础 scorer 为 fallback；输出只 advisory、无执行权/写权，最新旨意优先。
 - Git 联邦是源码树维护扩展；共享 hub 无 remote，原生记忆仓独立。GBrain 普通轻量/开朝不隐式跑重型 Git。
-- `references/shiguan-imports/pending/` 仅允许 metadata governance。没有不可伪造 host capability 时，真实 pending/private bodies 必须保持 unopened、unmoved、undeleted、unmarked-seen；fixture authorization 不是 production authorization。
+- pending/private 导入区仅允许 metadata governance。没有不可伪造 host capability 时，真实 pending/private bodies 必须保持 unopened、unmoved、undeleted、unmarked-seen；fixture authorization 不是 production authorization。
 - Obsidian 是 preserve-only 管理面，不是权威。导入回到 pending，需三省会审/门下复核。
 - 每个 decree 结束时裁定 `记忆裁定：WRITE | PROPOSE | SKIP | DEFERRED`。WRITE 需要最新边界与门下批准；不存 secrets、raw private logs、一次性输出、未验证推测或未经许可的个人数据。
 
