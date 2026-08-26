@@ -21,6 +21,7 @@ sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "references" / "manifests" / "cli-command-surface.v1.json"
+INSTALL_PROJECTION_PATH = ROOT / "references" / "manifests" / "install-projection.v1.json"
 MANIFEST_SCHEMA = "decretum.cli_command_surface.v1"
 ENTRY_FIELDS = {
     "id",
@@ -44,6 +45,19 @@ REGISTRY_FIELDS = {
 }
 SCRIPT_SUFFIXES = {".py", ".mjs", ".js", ".ps1", ".sh", ".cmd"}
 PUBLIC_GROUPS = ("court", "office", "shiguan", "supercc", "install", "release", "check")
+EXPECTED_MANIFEST_PUBLIC_GROUPS = frozenset({"court", "shiguan", "supercc"})
+PUBLIC_COMPATIBILITY_ENTRYPOINTS = frozenset(
+    {
+        "scripts/archive_checkpoint.py",
+        "scripts/build_shiguan_knowledge_graph.py",
+        "scripts/court_cli.py",
+        "scripts/court_session_closeout.py",
+        "scripts/grow_shiguan_tree.py",
+        "scripts/memory_decision.py",
+        "scripts/query_shiguan_index.py",
+        "scripts/supercc_squad.py",
+    }
+)
 BOOTSTRAP_ENTRYPOINTS = (
     PurePosixPath("scripts/check_unified_cli.py"),
     PurePosixPath("scripts/court_open_fastpath.py"),
@@ -139,6 +153,7 @@ def _manifest_entry(path: str) -> dict[str, object]:
         entry_name = "closeout-session"
     if pure.suffix.lower() != ".py":
         entry_name = f"{entry_name}-{pure.suffix.lower().lstrip('.')}"
+    public = path in PUBLIC_COMPATIBILITY_ENTRYPOINTS
     return {
         "id": f"{domain}.{entry_name}",
         "domain": domain,
@@ -148,7 +163,7 @@ def _manifest_entry(path: str) -> dict[str, object]:
             if direct_module
             else f"isolated_subprocess:{path}"
         ),
-        "public": True,
+        "public": public,
         "side_effect": _side_effect_for(path),
         "authority_source": "court_runtime" if path == "scripts/court_runtime.py" else path,
         "receipt_schema": (
@@ -160,7 +175,13 @@ def _manifest_entry(path: str) -> dict[str, object]:
             if path == "scripts/archive_checkpoint.py"
             else "legacy.entrypoint.result.v1"
         ),
-        "compatibility_state": "canonical_public_root" if is_root else "unified_compatibility_adapter",
+        "compatibility_state": (
+            "canonical_public_root"
+            if is_root
+            else "unified_compatibility_adapter"
+            if public
+            else "source_only_entrypoint"
+        ),
         "group": "root" if is_root else domain,
         "command": "decretum-matrix" if is_root else entry_name,
     }
@@ -274,6 +295,20 @@ def _load_manifest() -> dict[str, object] | None:
     return value
 
 
+def _runtime_projection_paths() -> set[str]:
+    value = json.loads(INSTALL_PROJECTION_PATH.read_text(encoding="utf-8"))
+    projections = value.get("projections")
+    if not isinstance(projections, dict):
+        raise AssertionError("install projection entries unavailable")
+    selected: list[set[str]] = []
+    for name in ("shared_agents", "portable_current_tool"):
+        raw = projections.get(name)
+        if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
+            raise AssertionError(f"install projection {name} invalid")
+        selected.append(set(raw))
+    return set.intersection(*selected)
+
+
 def _duplicates(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     duplicates: set[str] = set()
@@ -295,6 +330,8 @@ def evaluate_inventory() -> dict[str, object]:
     duplicate_public: list[str] = []
     missing_groups: list[str] = []
     invalid_groups: list[str] = []
+    public_not_projected: list[str] = []
+    public_count = 0
     if manifest is None:
         missing = discovered
         problems.append("manifest_missing")
@@ -338,12 +375,27 @@ def evaluate_inventory() -> dict[str, object]:
             problems.append("duplicate_legacy_paths")
         if duplicate_public:
             problems.append("duplicate_public_commands")
+        public_entries = [entry for entry in entries if entry.get("public") is True]
+        public_count = len(public_entries)
+        try:
+            runtime_projection = _runtime_projection_paths()
+        except (OSError, UnicodeError, json.JSONDecodeError, AssertionError) as exc:
+            problems.append(f"runtime_projection_unavailable:{type(exc).__name__}:{exc}")
+            runtime_projection = set()
+        public_not_projected = sorted(
+            str(entry.get("legacy_path") or "")
+            for entry in public_entries
+            if entry.get("group") != "root"
+            and str(entry.get("legacy_path") or "") not in runtime_projection
+        )
+        if public_not_projected:
+            problems.append("public_entrypoints_not_in_runtime_projection")
         groups = {
             str(entry.get("group") or "")
             for entry in entries
             if entry.get("public") is True and entry.get("group") != "root"
         }
-        missing_groups = sorted(set(PUBLIC_GROUPS) - groups)
+        missing_groups = sorted(EXPECTED_MANIFEST_PUBLIC_GROUPS - groups)
         if missing_groups:
             problems.append("public_groups_missing")
         invalid_groups = sorted(groups - set(PUBLIC_GROUPS))
@@ -357,6 +409,9 @@ def evaluate_inventory() -> dict[str, object]:
         "manifest": str(MANIFEST_PATH.relative_to(ROOT)).replace("\\", "/"),
         "discovered_count": len(discovered),
         "registered_count": len(entries),
+        "public_count": public_count,
+        "source_only_count": len(entries) - public_count,
+        "public_not_projected": public_not_projected,
         "missing": missing,
         "extra": extra,
         "duplicate_ids": duplicate_ids,
@@ -501,7 +556,9 @@ def evaluate_parity() -> dict[str, object]:
         manifest_records = {
             (str(entry.get("group")), str(entry.get("command"))): entry
             for entry in manifest["entries"]
-            if isinstance(entry, dict) and entry.get("group") != "root"
+            if isinstance(entry, dict)
+            and entry.get("public") is True
+            and entry.get("group") != "root"
         }
         declared_adapters = len(manifest_records)
         if set(records) != set(manifest_records):

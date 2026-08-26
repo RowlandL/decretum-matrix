@@ -57,8 +57,8 @@
     {
       "mode": "100644",
       "path": "INSTALL-README-AI.md",
-      "sha256": "5f4f35d9e91401439fd841633001cc8b6ce546b4a15235ca4381a835a48d7f89",
-      "size": 8521
+      "sha256": "3f8aa24a07d92138fe719f994bc26102d92837f9781ea107ea7179e1e118619c",
+      "size": 8211
     },
     {
       "mode": "100644",
@@ -543,8 +543,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "a243a5fc98fcf41c8e524a54e16cb99beade91fd9f7b25a21a01d396918facb4",
-      "size": 73390
+      "sha256": "a48af771fffa858ceb655a8ed4e02067b62bcb0ab55dfd80834a9b9a2158603e",
+      "size": 72646
     },
     {
       "mode": "100644",
@@ -561,8 +561,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "041814d0066ed6464b64e89ab057e2d3189bdf658c131054a327b38722ade34c",
-      "size": 14393
+      "sha256": "3df1cea04c01abc95b3f3d20176c1854a52a893371e43110ffcf1a96aa828d4f",
+      "size": 14341
     },
     {
       "mode": "100644",
@@ -723,8 +723,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_cli_registry.py",
-      "sha256": "1347d07c4d0f7a19c6239c345fb933bd237efa9f27bef85a99d8bdacfec0679c",
-      "size": 34710
+      "sha256": "5db448536716387f243091a25fcb705303b995ca81628b2b0984d81f8509a39a",
+      "size": 35052
     },
     {
       "mode": "100644",
@@ -941,12 +941,6 @@
       "path": "scripts/grow_shiguan_tree.py",
       "sha256": "5486f8359826af158576e57cb9ae131a9fdc37e15bf329bfccca5eb3b1a5b6c8",
       "size": 14854
-    },
-    {
-      "mode": "100644",
-      "path": "scripts/install_codex_plugin_projection.py",
-      "sha256": "86c39ab61210497fe4ec20671a220ab80dc7574e252bcf9cc973e78047fd1ce7",
-      "size": 5452
     },
     {
       "mode": "100644",
@@ -1186,11 +1180,11 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 3442977,
-    "payload_file_count": 192,
+    "payload_bytes": 3436761,
+    "payload_file_count": 191,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "74da4311915f0f4312285ef99903990019d598788a80abf8bff56792d5a0d3e4",
-    "source_packaged_tracked_file_count": 184,
+    "payload_index_sha256": "91ba179309765d54fa5b22e75b98b5eb12ee5cb7018aeff9ad4f2e29cd99bba5",
+    "source_packaged_tracked_file_count": 183,
     "source_tracked_file_count": 372
   },
   "license": {
@@ -1371,6 +1365,7 @@
     "scripts/ensure_codex_yolo_startup_task.py",
     "scripts/ensure_court_agent_config.py",
     "scripts/ensure_portable_court_bootstrap.py",
+    "scripts/install_codex_plugin_projection.py",
     "scripts/install_current_agent_copy.py",
     "scripts/internal_memory_shiguan_bridge.py",
     "scripts/memory_pipeline_fixture.py",

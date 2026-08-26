@@ -171,6 +171,8 @@ def load_registry() -> dict[tuple[str, str], CommandRecord]:
     for entry in entries:
         if not isinstance(entry, dict):
             raise ValueError("CLI command manifest entry must contain an object")
+        if entry.get("public") is not True:
+            continue
         group = str(entry.get("group") or "")
         command = str(entry.get("command") or "")
         if group not in GROUP_ORDER or not command:
@@ -204,6 +206,10 @@ def load_registry() -> dict[tuple[str, str], CommandRecord]:
 
 
 def render_root_help() -> str:
+    records = load_registry()
+    available_groups = {group for group, _command in records}
+    available_groups.update(("court", "office", "install"))
+    visible_groups = tuple(group for group in GROUP_ORDER if group in available_groups)
     rows = [
         "Decretum Matrix unified CLI",
         "",
@@ -213,8 +219,8 @@ def render_root_help() -> str:
         "",
         "Groups:",
     ]
-    width = max(len(group) for group in GROUP_ORDER)
-    rows.extend(f"  {group.ljust(width)}  {GROUP_DESCRIPTIONS[group]}" for group in GROUP_ORDER)
+    width = max(len(group) for group in visible_groups)
+    rows.extend(f"  {group.ljust(width)}  {GROUP_DESCRIPTIONS[group]}" for group in visible_groups)
     rows.extend(
         (
             "",
@@ -240,7 +246,7 @@ def render_group_help(group: str) -> str:
         available.update(OFFICE_RUNTIME_COMMANDS)
     elif group == "install":
         available.update(("update", "migrate", "rollback"))
-    elif group == "check":
+    elif group == "check" and ("check", "quick-validate") in records:
         available.add("all")
     commands = {
         command

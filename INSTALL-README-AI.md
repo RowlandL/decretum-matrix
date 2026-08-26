@@ -109,13 +109,12 @@ the just-installed profiles before either command may pass. Recomputing an
 in-memory preload manifest is not host evidence; the installed native role
 files must bind the same skill, profile, and dossier hashes.
 
-## Codex Hooks
+## Advisory Hooks (Source Only)
 
-The Codex plugin projection is the lifecycle integration path. It is enabled
-by the plugin manifest at `.codex-plugin/plugin.json`, which points to
-`hooks/claude-codex-hooks.json`. The hooks only inject bounded context telling
-the agent that the Decretum Matrix MCP is available; they do not grant
-authority and they do not replace the CLI or MCP probe.
+Decretum Matrix integrates with Codex as a standalone stdio MCP server, not as
+a plugin. The `.codex-plugin` and hook files are source-side advisory fixtures;
+the normal install projection does not enable or install a Codex plugin. They
+do not grant authority and they do not replace the CLI or MCP probe.
 
 - `scripts/court_codex_hook.py` is the Codex lifecycle hook entrypoint.
 - `scripts/court_hooks_advisory.py` remains the Git-hook compatibility report;
@@ -131,18 +130,10 @@ Verify the boundary with:
 python -B scripts/check_court_hooks_advisory.py
 ```
 
-Install the reversible Codex plugin projection from the validated mirror with:
-
-```powershell
-python -B scripts/install_codex_plugin_projection.py install
-```
-
-The installer copies only the plugin manifest, hook manifest, and lifecycle
-entrypoint, backs up the prior plugin/config preimage under
-`%USERPROFILE%\.agents\install-backups\decretum-matrix`, and leaves the direct
-CC Switch MCP registration untouched. Use the `rollback_command` in the
-receipt to restore the preimage, then restart Codex before judging hook
-activation.
+Do not run a plugin installer as part of the normal MCP installation. If an
+earlier repair enabled a plugin projection, use that operation's recorded
+rollback receipt to restore its preimage; keep the direct CC Switch/Codex MCP
+registration unchanged.
 
 ## MCP Replacement Boundary
 
