@@ -35,13 +35,13 @@ EXPECTED_UPSTREAM_LICENSE_BLOB_SHA1 = "69499c3250cbecc6079c69dc0e5a0f7a4be716da"
 EXPECTED_UPSTREAM_LICENSE_SHA256 = "5f67c084a1b5bd87409f05221d5985cde0b99472aa34670613761e614330d93c"
 EXPECTED_UPSTREAM_COPYRIGHT = "Copyright (c) 2026 openclaw-sansheng-liubu contributors"
 EXPECTED_UPSTREAM_REPOSITORY = "https://github.com/cft0808/edict"
-EXPECTED_RELEASE = "beta1.0.6"
+EXPECTED_RELEASE = "beta1.0.7"
 EXPECTED_PACKAGE_NAME = "decretum-matrix"
 EXPECTED_LICENSE = "AGPL-3.0-only"
 EXPECTED_AGPL_SHA256 = "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
-EXPECTED_SBOM_NAME = "decretum-matrix-beta1.0.6"
-EXPECTED_SBOM_CREATED = "2026-08-01T00:00:00Z"
-EXPECTED_SBOM_NAMESPACE = "https://spdx.org/spdxdocs/decretum-matrix-beta1.0.6-20260801"
+EXPECTED_SBOM_NAME = "decretum-matrix-beta1.0.7"
+EXPECTED_SBOM_CREATED = "2026-08-11T00:00:00Z"
+EXPECTED_SBOM_NAMESPACE = "https://spdx.org/spdxdocs/decretum-matrix-beta1.0.7-20260811"
 EXPECTED_COPYRIGHT = "Copyright 2026 孙华清"
 EXPECTED_OWNER = "孙华清"
 EXPECTED_MAINTAINER = "@RowlandL"
@@ -104,8 +104,9 @@ def evaluate(root: Path) -> dict[str, object]:
 
     license_path = root / "LICENSE"
     license_bytes = license_path.read_bytes() if license_path.is_file() else b""
-    license_sha256 = hashlib.sha256(license_bytes).hexdigest() if license_bytes else None
     license_text = license_bytes.decode("utf-8") if license_bytes else ""
+    canonical_license = license_text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    license_sha256 = hashlib.sha256(canonical_license).hexdigest() if canonical_license else None
     for marker in (
         "GNU AFFERO GENERAL PUBLIC LICENSE",
         "Version 3, 19 November 2007",

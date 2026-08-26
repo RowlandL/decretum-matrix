@@ -284,6 +284,15 @@ def _legacy_session() -> dict[str, Any]:
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
         proc.stdin.flush()
         tools = _rpc(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        tools_with_standard_meta = _rpc(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": "legacy-standard-meta",
+                "method": "tools/list",
+                "params": {"_meta": {"progressToken": "legacy-progress"}},
+            },
+        )
         help_result = _rpc(
             proc,
             {
@@ -306,7 +315,13 @@ def _legacy_session() -> dict[str, Any]:
                 },
             },
         )
-        return {"initialize": initialize, "tools": tools, "help": help_result, "fallback": fallback}
+        return {
+            "initialize": initialize,
+            "tools": tools,
+            "tools_with_standard_meta": tools_with_standard_meta,
+            "help": help_result,
+            "fallback": fallback,
+        }
     finally:
         _close(proc)
 
@@ -316,6 +331,7 @@ def run() -> dict[str, object]:
     legacy = _legacy_session()
     modern_tools = _listed(modern["tools"])
     legacy_tools = _listed(legacy["tools"])
+    legacy_standard_meta_tools = _listed(legacy["tools_with_standard_meta"])
     modern_status = modern["status"].get("result", {}).get("structuredContent", {})
     modern_memory = modern["memory"].get("result", {}).get("structuredContent", {})
     legacy_help = legacy["help"].get("result", {}).get("structuredContent", {})
@@ -436,6 +452,12 @@ def run() -> dict[str, object]:
             legacy["initialize"].get("result", {}).get("capabilities") == {"tools": {}},
         ),
         ("legacy_tools_list_without_custom_meta", legacy_tools == EXPECTED_TOOLS),
+        (
+            "legacy_standard_meta_does_not_switch_protocol_mode",
+            legacy_standard_meta_tools == EXPECTED_TOOLS
+            and "error" not in legacy["tools_with_standard_meta"]
+            and "resultType" not in legacy["tools_with_standard_meta"].get("result", {}),
+        ),
         (
             "legacy_tool_call_without_modern_envelope",
             legacy_help.get("ok") is True

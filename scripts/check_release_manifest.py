@@ -274,14 +274,15 @@ def run_negative_contract_checks(manifest: dict[str, object]) -> list[str]:
 
 
 def release_surface_contract() -> dict[str, bool]:
+    release_label = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     return {
         "canonical_product_name": release_payload_manifest.NAME == "decretum-matrix",
         "canonical_display_name": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
         "canonical_artifact_name": release_payload_manifest.ARTIFACT_NAME
-        == "decretum-matrix-beta1.0.6.zip",
+        == f"decretum-matrix-{release_label}.zip",
         "canonical_release_label": release_payload_manifest.RELEASE_LABEL
-        == "beta1.0.6",
+        == release_label,
         "agpl_only": getattr(release_payload_manifest, "LICENSE_ID", None) == "AGPL-3.0-only",
         "artifact_builder_identity": build_release_artifacts.NAME == "decretum-matrix",
         "tagless_candidate_builder": (

@@ -93,7 +93,7 @@
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "923404ae7da7c93e41f4bdccc4cd35de18c235fab3f22bf5086c97372840828f",
+      "sha256": "60eb1cda5490665371d393b6907ce51ba591cd2d2c24c80a364bf21427b4e241",
       "size": 875
     },
     {
@@ -543,8 +543,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "ece47965bd60a95af5a5f4a6164891b3c094929ea3406a65e063670558a5ad6e",
-      "size": 69102
+      "sha256": "a243a5fc98fcf41c8e524a54e16cb99beade91fd9f7b25a21a01d396918facb4",
+      "size": 73390
     },
     {
       "mode": "100644",
@@ -777,8 +777,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_mcp_server.py",
-      "sha256": "e8a4ba36401640707cab3522a2bd77e75e78060cba9c4882568734f4c217d069",
-      "size": 12393
+      "sha256": "2db37590c675d2e7f3131749a3f8be1069736acb3fff611ef29968f945f0ebf2",
+      "size": 12414
     },
     {
       "mode": "100644",
@@ -1186,10 +1186,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 3438668,
+    "payload_bytes": 3442977,
     "payload_file_count": 192,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "4eae30e59e4d220a1f186c740841ff974138cb1f12664dd3a2aef2faa3b1d664",
+    "payload_index_sha256": "74da4311915f0f4312285ef99903990019d598788a80abf8bff56792d5a0d3e4",
     "source_packaged_tracked_file_count": 184,
     "source_tracked_file_count": 372
   },

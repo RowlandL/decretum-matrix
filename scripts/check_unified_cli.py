@@ -83,7 +83,11 @@ VOLATILE_RECEIPT_FIELDS = {
 
 def _domain_for(path: str) -> str:
     name = PurePosixPath(path).stem.lower()
-    if name.startswith("check_") or name == "quick_validate":
+    if (
+        name.startswith(("check_", "probe_"))
+        or name.endswith("_fixture")
+        or name == "quick_validate"
+    ):
         return "check"
     if "shiguan" in name or "obsidian" in name or name in {
         "archive_checkpoint",
@@ -112,7 +116,7 @@ def _domain_for(path: str) -> str:
 
 def _side_effect_for(path: str) -> str:
     name = PurePosixPath(path).stem.lower()
-    if name.startswith(("check_", "query_", "report_")) or name.endswith("_probe"):
+    if name.startswith(("check_", "probe_", "query_", "report_")) or name.endswith("_probe"):
         return "read_only"
     if name in {"quick_validate", "court_cli", "court_runtime"}:
         return "request_dependent"
@@ -253,12 +257,10 @@ def write_manifest() -> dict[str, object]:
         "groups": list(PUBLIC_GROUPS),
         "entries": entries,
     }
-    existing = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else b""
-    newline = "\r\n" if b"\r\n" in existing else "\n"
     MANIFEST_PATH.write_text(
         json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
-        newline=newline,
+        newline="\n",
     )
     return manifest
 

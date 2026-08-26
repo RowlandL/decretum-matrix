@@ -216,17 +216,17 @@ def handle(message: dict[str, Any], state: dict[str, object]) -> dict[str, objec
             },
         )
     params = message.get("params")
+    # An initialize handshake owns the protocol mode for the process. Standard
+    # legacy clients may still attach request metadata such as progressToken.
+    if state.get("legacy_initialized"):
+        modern = False
     # Modern 2026 requests are stateless: every request carries its own
     # protocol/client metadata and never relies on an earlier handshake.
-    if isinstance(params, dict) and "_meta" in params:
+    elif isinstance(params, dict) and "_meta" in params:
         negotiated_version, _meta, error = _modern_meta(message)
         if error is not None:
             return error
         modern = True
-    # Legacy 2025 requests are scoped to the initialize-selected stdio
-    # process and intentionally omit the modern result envelope.
-    elif state.get("legacy_initialized"):
-        modern = False
     else:
         negotiated_version, _meta, error = _modern_meta(message)
         return error if error is not None else _error(request_id, -32602, "Modern requests require params._meta")

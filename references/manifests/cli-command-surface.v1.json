@@ -36,7 +36,6 @@
       "id": "shiguan.archive-checkpoint",
       "legacy_path": "scripts/archive_checkpoint.py",
       "mcp": {
-        "name": "shiguan.archive_dry_run",
         "description": "Report the archive checkpoint boundary without writing Shiguan records.",
         "dry_run": true,
         "input_schema": {
@@ -45,6 +44,7 @@
           "required": [],
           "type": "object"
         },
+        "name": "shiguan.archive_dry_run",
         "public_api": "shiguan_archive_dry_run",
         "side_effect": "read_only"
       },
@@ -287,6 +287,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_court_hooks_advisory.py",
+      "command": "check-court-hooks-advisory",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_court_hooks_advisory.py",
+      "id": "check.check-court-hooks-advisory",
+      "legacy_path": "scripts/check_court_hooks_advisory.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_court_intake_gate.py",
       "command": "check-court-intake-gate",
       "compatibility_state": "unified_compatibility_adapter",
@@ -308,6 +321,19 @@
       "handler": "isolated_subprocess:scripts/check_court_intervention_matrix.py",
       "id": "check.check-court-intervention-matrix",
       "legacy_path": "scripts/check_court_intervention_matrix.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/check_court_mcp_server.py",
+      "command": "check-court-mcp-server",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_court_mcp_server.py",
+      "id": "check.check-court-mcp-server",
+      "legacy_path": "scripts/check_court_mcp_server.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -529,6 +555,19 @@
       "handler": "isolated_subprocess:scripts/check_install_release_boundary.py",
       "id": "check.check-install-release-boundary",
       "legacy_path": "scripts/check_install_release_boundary.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/check_memory_pipeline_fixture.py",
+      "command": "check-memory-pipeline-fixture",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_memory_pipeline_fixture.py",
+      "id": "check.check-memory-pipeline-fixture",
+      "legacy_path": "scripts/check_memory_pipeline_fixture.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -1041,6 +1080,19 @@
       "side_effect": "bounded_mutation"
     },
     {
+      "authority_source": "scripts/court_codex_hook.py",
+      "command": "court-codex-hook",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "court",
+      "group": "court",
+      "handler": "isolated_subprocess:scripts/court_codex_hook.py",
+      "id": "court.court-codex-hook",
+      "legacy_path": "scripts/court_codex_hook.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
       "authority_source": "scripts/court_codex_host_resolution.py",
       "command": "court-codex-host-resolution",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1093,6 +1145,32 @@
       "side_effect": "bounded_mutation"
     },
     {
+      "authority_source": "scripts/court_hooks_advisory.py",
+      "command": "court-hooks-advisory",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "court",
+      "group": "court",
+      "handler": "isolated_subprocess:scripts/court_hooks_advisory.py",
+      "id": "court.court-hooks-advisory",
+      "legacy_path": "scripts/court_hooks_advisory.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/court_mcp_server.py",
+      "command": "court-mcp-server",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "court",
+      "group": "court",
+      "handler": "isolated_subprocess:scripts/court_mcp_server.py",
+      "id": "court.court-mcp-server",
+      "legacy_path": "scripts/court_mcp_server.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
       "authority_source": "scripts/court_open_fastpath.py",
       "command": "court-open-fastpath",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1116,7 +1194,6 @@
       "legacy_path": "scripts/court_runtime.py",
       "mcp": [
         {
-          "name": "court.status",
           "description": "Read the current court runtime status.",
           "dry_run": false,
           "input_schema": {
@@ -1132,11 +1209,11 @@
             "required": [],
             "type": "object"
           },
+          "name": "court.status",
           "public_api": "court_status",
           "side_effect": "read_only"
         },
         {
-          "name": "court.command_help",
           "description": "Return the public court command help.",
           "dry_run": false,
           "input_schema": {
@@ -1145,6 +1222,7 @@
             "required": [],
             "type": "object"
           },
+          "name": "court.command_help",
           "public_api": "court_command_help",
           "side_effect": "read_only"
         }
@@ -1271,6 +1349,19 @@
       "side_effect": "bounded_mutation"
     },
     {
+      "authority_source": "scripts/install_codex_plugin_projection.py",
+      "command": "install-codex-plugin-projection",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "install",
+      "group": "install",
+      "handler": "isolated_subprocess:scripts/install_codex_plugin_projection.py",
+      "id": "install.install-codex-plugin-projection",
+      "legacy_path": "scripts/install_codex_plugin_projection.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
       "authority_source": "scripts/internal_memory_shiguan_bridge.py",
       "command": "internal-memory-shiguan-bridge",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1280,7 +1371,6 @@
       "id": "shiguan.internal-memory-shiguan-bridge",
       "legacy_path": "scripts/internal_memory_shiguan_bridge.py",
       "mcp": {
-        "name": "memory.scan",
         "description": "Report the public memory scan boundary without reading private bodies.",
         "dry_run": true,
         "input_schema": {
@@ -1289,6 +1379,7 @@
           "required": [],
           "type": "object"
         },
+        "name": "memory.scan",
         "public_api": "memory_scan",
         "side_effect": "read_only"
       },
@@ -1305,6 +1396,45 @@
       "handler": "isolated_subprocess:scripts/memory_decision.py",
       "id": "shiguan.memory-decision",
       "legacy_path": "scripts/memory_decision.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/memory_pipeline_fixture.py",
+      "command": "memory-pipeline-fixture",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/memory_pipeline_fixture.py",
+      "id": "check.memory-pipeline-fixture",
+      "legacy_path": "scripts/memory_pipeline_fixture.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/migrate_current_tool_replica.py",
+      "command": "migrate-current-tool-replica",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "install",
+      "group": "install",
+      "handler": "isolated_subprocess:scripts/migrate_current_tool_replica.py",
+      "id": "install.migrate-current-tool-replica",
+      "legacy_path": "scripts/migrate_current_tool_replica.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/migrate_legacy_skill_locator.py",
+      "command": "migrate-legacy-skill-locator",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "install",
+      "group": "install",
+      "handler": "isolated_subprocess:scripts/migrate_legacy_skill_locator.py",
+      "id": "install.migrate-legacy-skill-locator",
+      "legacy_path": "scripts/migrate_legacy_skill_locator.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
@@ -1349,6 +1479,19 @@
       "side_effect": "bounded_mutation"
     },
     {
+      "authority_source": "scripts/probe_court_mcp_modern_wire.py",
+      "command": "probe-court-mcp-modern-wire",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/probe_court_mcp_modern_wire.py",
+      "id": "check.probe-court-mcp-modern-wire",
+      "legacy_path": "scripts/probe_court_mcp_modern_wire.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/query_shiguan_index.py",
       "command": "query-shiguan-index",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1358,7 +1501,6 @@
       "id": "shiguan.query-shiguan-index",
       "legacy_path": "scripts/query_shiguan_index.py",
       "mcp": {
-        "name": "shiguan.query",
         "description": "Query public Shiguan index records.",
         "dry_run": false,
         "input_schema": {
@@ -1381,6 +1523,7 @@
           "required": [],
           "type": "object"
         },
+        "name": "shiguan.query",
         "public_api": "shiguan_query",
         "side_effect": "read_only"
       },
