@@ -13,6 +13,8 @@ import subprocess
 import sys
 from typing import Sequence
 
+sys.dont_write_bytecode = True
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "references" / "manifests" / "cli-command-surface.v1.json"
@@ -381,6 +383,30 @@ def _capture_runtime(
         loader="isolated_runtime_process",
         legacy_path=captured.legacy_path,
         normalization_notes=notes,
+    )
+
+
+def _capture_public_api(command: str, arguments: Sequence[str]) -> InvocationResult:
+    """Call the shared read-only API directly, parallel to MCP."""
+
+    if command != "status":
+        raise CliUsageError(f"unsupported shared public API command: court {command}")
+    from court_public_api import court_status
+
+    limit = 12
+    values = list(arguments)
+    for index, value in enumerate(values):
+        if value == "--limit" and index + 1 < len(values):
+            limit = int(values[index + 1])
+        elif value.startswith("--limit="):
+            limit = int(value.split("=", 1)[1])
+    payload = court_status(limit)
+    return InvocationResult(
+        returncode=int(payload.get("exit_status", 1)),
+        stdout=json.dumps(payload.get("stdout"), ensure_ascii=False) + "\n",
+        stderr=str(payload.get("stderr") or ""),
+        loader="court_public_api",
+        legacy_path="scripts/court_public_api.py",
     )
 
 
@@ -813,6 +839,9 @@ def _resolve_and_run(
     records = load_registry()
     key = (group, command)
     cwd = command_cwd(group, invocation_cwd)
+    if group == "court" and command == "status":
+        result = _capture_public_api(command, arguments)
+        return _emit_invocation("court status", result, output_format)
     if group == "court" and command == "open":
         result = _capture_court_open(arguments, output_format, cwd=cwd)
         return _emit_invocation("court open", result, output_format)

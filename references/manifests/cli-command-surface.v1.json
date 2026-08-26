@@ -35,6 +35,19 @@
       "handler": "python_module:archive_checkpoint",
       "id": "shiguan.archive-checkpoint",
       "legacy_path": "scripts/archive_checkpoint.py",
+      "mcp": {
+        "name": "shiguan.archive_dry_run",
+        "description": "Report the archive checkpoint boundary without writing Shiguan records.",
+        "dry_run": true,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "public_api": "shiguan_archive_dry_run",
+        "side_effect": "read_only"
+      },
       "public": true,
       "receipt_schema": "court.shiguan_archive_checkpoint_receipt.v1",
       "side_effect": "bounded_mutation"
@@ -1101,6 +1114,41 @@
       "handler": "python_module:court_runtime",
       "id": "court.court-runtime",
       "legacy_path": "scripts/court_runtime.py",
+      "mcp": [
+        {
+          "name": "court.status",
+          "description": "Read the current court runtime status.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "default": 12,
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "public_api": "court_status",
+          "side_effect": "read_only"
+        },
+        {
+          "name": "court.command_help",
+          "description": "Return the public court command help.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "public_api": "court_command_help",
+          "side_effect": "read_only"
+        }
+      ],
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "request_dependent"
@@ -1231,6 +1279,19 @@
       "handler": "isolated_subprocess:scripts/internal_memory_shiguan_bridge.py",
       "id": "shiguan.internal-memory-shiguan-bridge",
       "legacy_path": "scripts/internal_memory_shiguan_bridge.py",
+      "mcp": {
+        "name": "memory.scan",
+        "description": "Report the public memory scan boundary without reading private bodies.",
+        "dry_run": true,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "public_api": "memory_scan",
+        "side_effect": "read_only"
+      },
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
@@ -1296,6 +1357,33 @@
       "handler": "isolated_subprocess:scripts/query_shiguan_index.py",
       "id": "shiguan.query-shiguan-index",
       "legacy_path": "scripts/query_shiguan_index.py",
+      "mcp": {
+        "name": "shiguan.query",
+        "description": "Query public Shiguan index records.",
+        "dry_run": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "default": 5,
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "terms": {
+              "description": "Keyword terms to query.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "public_api": "shiguan_query",
+        "side_effect": "read_only"
+      },
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"

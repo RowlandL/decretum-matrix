@@ -28,6 +28,9 @@ const SYNTHETIC_SELF_TEST =
 function withoutInheritedGitIndex(environment = process.env) {
   const result = { ...environment };
   delete result.GIT_INDEX_FILE;
+  result.GIT_CONFIG_COUNT = "1";
+  result.GIT_CONFIG_KEY_0 = "safe.directory";
+  result.GIT_CONFIG_VALUE_0 = REPO_ROOT.replaceAll("\\", "/");
   return result;
 }
 
@@ -91,26 +94,37 @@ export function normalizeRepositoryRemote(remote) {
   });
 }
 
-function loadRepositoryOracle(root, manifest, { allowManifestDrift = false } = {}) {
-  const result = spawnSync(
-    "git",
-    ["remote", "get-url", "--all", "origin"],
-    {
-      cwd: root,
-      encoding: "utf8",
-      env: withoutInheritedGitIndex(),
-      maxBuffer: 1024 * 1024,
-      shell: false,
-      timeout: 30_000,
-      windowsHide: true,
-    },
-  );
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      `origin repository oracle unavailable: ${result.error?.message || result.stderr.trim()}`,
+function readRepositoryRemote(root) {
+  for (const remoteName of ["origin", "upstream"]) {
+    const result = spawnSync(
+      "git",
+      ["remote", "get-url", "--all", remoteName],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: withoutInheritedGitIndex(),
+        maxBuffer: 1024 * 1024,
+        shell: false,
+        timeout: 30_000,
+        windowsHide: true,
+      },
     );
+    if (result.error) {
+      throw new Error(`repository oracle unavailable: ${result.error.message}`);
+    }
+    if (result.status === 0) {
+      return { remoteName, output: result.stdout };
+    }
+    if (!result.stderr.includes("No such remote")) {
+      throw new Error(`repository oracle unavailable: ${result.stderr.trim()}`);
+    }
   }
-  const remotes = result.stdout
+  throw new Error("repository oracle unavailable: neither origin nor upstream exists");
+}
+
+function loadRepositoryOracle(root, manifest, { allowManifestDrift = false } = {}) {
+  const remote = readRepositoryRemote(root);
+  const remotes = remote.output
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean);
@@ -155,8 +169,9 @@ function loadRepositoryOracle(root, manifest, { allowManifestDrift = false } = {
   }
   return Object.freeze({
     ...repository,
-    command: "git remote get-url --all origin",
-    rc: result.status,
+    command: `git remote get-url --all ${remote.remoteName}`,
+    remoteName: remote.remoteName,
+    rc: 0,
     provenancePath: manifest.provenance,
     provenanceSha256,
   });
@@ -1140,6 +1155,7 @@ export async function runSyntheticSelfTest() {
     await mkdir(assetRoot, { recursive: false });
     const fixtureCliPayloadPaths = Object.freeze([
       ...CLI_RUNTIME_PATHS,
+      "SKILL.md",
       "scripts/court_cli.py",
       "scripts/court_cli_registry.py",
       "references/manifests/cli-command-surface.v1.json",
@@ -1403,6 +1419,20 @@ export async function runSyntheticSelfTest() {
       !("input" in fixtureRepository),
       "repository oracle retained the raw origin URL",
     );
+    const renamedUpstream = runFixtureCommand(
+      "git",
+      ["remote", "rename", "origin", "upstream"],
+      { cwd: authorityRoot },
+    );
+    assert(renamedUpstream.status === 0, `cannot rename synthetic origin: ${renamedUpstream.stderr}`);
+    const upstreamRepository = loadRepositoryOracle(authorityRoot, manifestFromDisk);
+    assert(upstreamRepository.remoteName === "upstream", "upstream-only mirror was not accepted");
+    const restoredRemoteName = runFixtureCommand(
+      "git",
+      ["remote", "rename", "upstream", "origin"],
+      { cwd: authorityRoot },
+    );
+    assert(restoredRemoteName.status === 0, `cannot restore synthetic remote name: ${restoredRemoteName.stderr}`);
 
     const trackedAuthorityEvidence = await validateTrackedProductionAuthority(
       authorityRoot,

@@ -23,6 +23,7 @@ from shiguan_paths import (
     reference_path,
     references_root,
     relative_to_data,
+    source_agent_choices,
 )
 
 
@@ -542,7 +543,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--priority-level", choices=list("SABCDEFsabcdef"))
     parser.add_argument("--keywords", help="Comma/semicolon separated Shiguan recall keywords.")
     parser.add_argument("--key-actions", help="Comma/semicolon separated key behaviors for future court recall.")
-    parser.add_argument("--source-agent", help="Override source agent id for shared Shiguan records, e.g. codex or hermes.")
+    parser.add_argument(
+        "--source-agent",
+        help=(
+            "Override source agent id for shared Shiguan records. "
+            f"Allowed: {', '.join(source_agent_choices())}."
+        ),
+    )
     parser.add_argument("--full-record", help="Complete Shiguan memorial/process record text to append after the compact checkpoint.")
     parser.add_argument("--full-record-file", help="UTF-8 file containing the complete Shiguan memorial/process record.")
     parser.add_argument("--refresh-mode", choices=["async", "none", "tree", "sync"], default="async", help="Post-write refresh mode. Default writes a fast async refresh request for the service daemon.")
@@ -564,6 +571,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ARCHIVE_PERMISSION_REQUIRED {exc}", file=sys.stderr)
         print("Request approval/escalation, then rerun the same Shiguan command.", file=sys.stderr)
         return 13
+    except ValueError as exc:
+        prefix = (
+            "ARCHIVE_SOURCE_AGENT_INVALID"
+            if str(exc).startswith("source_agent_not_allowed:")
+            else "ARCHIVE_ARGUMENT_INVALID"
+        )
+        print(f"{prefix} {exc}", file=sys.stderr)
+        return 14
 
     result = build_archive_receipt(path, entry, refresh)
     if args.result_json:

@@ -16,6 +16,7 @@ from typing import Mapping
 sys.dont_write_bytecode = True
 
 import package_skill
+from stdio_encoding import configure_stdio
 import release_payload_manifest
 
 
@@ -96,7 +97,7 @@ def load_payload_manifest(root: Path = ROOT) -> dict[str, object]:
 
 def git_text(*args: str, root: Path = ROOT, allowed_returncodes: tuple[int, ...] = (0,)) -> str:
     completed = subprocess.run(
-        ["git", *args],
+        ["git", "-c", f"safe.directory={root.as_posix()}", *args],
         cwd=root,
         text=True,
         capture_output=True,
@@ -881,6 +882,7 @@ def build_release(
 
 
 def main() -> int:
+    configure_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("candidate", "release"))
     parser.add_argument("--out-root", type=Path)

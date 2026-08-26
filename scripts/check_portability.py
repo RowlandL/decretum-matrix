@@ -6,6 +6,7 @@ import ast
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 sys.dont_write_bytecode = True
@@ -94,6 +95,7 @@ def run() -> dict[str, object]:
 
     original_system = court_platform.platform.system
     original_env = os.environ.copy()
+    restore_failure: BaseException | None = None
     try:
         court_platform.platform.system = lambda: "Linux"  # type: ignore[method-assign]
         os.environ.pop("XDG_DATA_HOME", None)
@@ -124,6 +126,16 @@ def run() -> dict[str, object]:
             and Path(runtime_agent["shared_shiguan_root"])
             == synthetic_shared_root.resolve() / "references"
         )
+        generic_cli_alias = shiguan_paths.detect_runtime_agent("genericcli")
+        source_agent_alias_ok = (
+            generic_cli_alias["source_agent"] == "generic-cli"
+            and generic_cli_alias["source_agent_label"] == "GenericCLI"
+        )
+        try:
+            shiguan_paths.detect_runtime_agent("Taizi")
+            invalid_source_agent_rejected = False
+        except ValueError as exc:
+            invalid_source_agent_rejected = str(exc) == "source_agent_not_allowed:taizi"
     finally:
         court_platform.platform.system = original_system  # type: ignore[method-assign]
         try:
@@ -135,15 +147,18 @@ def run() -> dict[str, object]:
             # 审查（Entry 0052 缺陷 4）：补 stage/checks_completed 诊断字段——
             # 环境准备阶段（try 块）未执行任何检查，checks=[] 属预期，
             # 以 stage=environment_restore 定位失败阶段，消除"检查未执行/崩溃"歧义。
-            return {
-                "ok": False,
-                "checks": checks,
-                "stage": "environment_restore",
-                "checks_completed": len(checks),
-                "failures": [
-                    f"environment_restore_overflow:{type(exc).__name__}:{exc}"
-                ],
-            }
+            restore_failure = exc
+
+    if restore_failure is not None:
+        return {
+            "ok": False,
+            "checks": checks,
+            "stage": "environment_restore",
+            "checks_completed": len(checks),
+            "failures": [
+                f"environment_restore_overflow:{type(restore_failure).__name__}:{restore_failure}"
+            ],
+        }
 
     checks.append(
         {
@@ -168,6 +183,12 @@ def run() -> dict[str, object]:
         }
     )
     checks.append({"name": "explicit Codex runtime outranks weak Claude markers", "ok": codex_runtime_precedence})
+    checks.append(
+        {
+            "name": "explicit source-agent override is writer-whitelisted",
+            "ok": source_agent_alias_ok and invalid_source_agent_rejected,
+        }
+    )
 
     checks.append(
         {
@@ -214,6 +235,41 @@ def run() -> dict[str, object]:
         }
     )
 
+    projection_manifest = json.loads(
+        (ROOT / "references" / "manifests" / "install-projection.v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    projected_shared = set(projection_manifest["projections"]["shared_agents"])
+    projected_current_tool = set(
+        projection_manifest["projections"]["portable_current_tool"]
+    )
+    migration_entrypoints = (
+        Path("scripts/migrate_legacy_skill_locator.py"),
+        Path("scripts/migrate_current_tool_replica.py"),
+    )
+    checks.append(
+        {
+            "name": "locator migration entrypoints are portable and projected",
+            "ok": (
+                all((ROOT / entrypoint).is_file() for entrypoint in migration_entrypoints)
+                and all(
+                    package_skill.package_includes(entrypoint, is_dir=False)
+                    for entrypoint in migration_entrypoints
+                )
+                and all(
+                    entrypoint.as_posix() in projected_shared
+                    and entrypoint.as_posix() in projected_current_tool
+                    and not package_skill.should_skip(entrypoint, False)
+                    for entrypoint in migration_entrypoints
+                )
+            ),
+            "details": {
+                "scripts": [entrypoint.as_posix() for entrypoint in migration_entrypoints]
+            },
+        }
+    )
+
     leaked = sorted(str(path.relative_to(ROOT)).replace("\\", "/") for path in source_candidates() if contains_host_path(path))
     checks.append(
         {
@@ -249,6 +305,25 @@ def run() -> dict[str, object]:
             "name": "court Python entrypoints disable bytecode before local imports",
             "ok": not bytecode_violations,
             "details": {"violations": bytecode_violations, "violation_count": len(bytecode_violations)},
+        }
+    )
+
+    help_probe = subprocess.run(
+        [sys.executable, "-B", str(SCRIPTS / "package_skill.py"), "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    try:
+        help_text = help_probe.stdout.decode("utf-8")
+        help_utf8 = help_probe.returncode == 0 and "诏令矩阵" in help_text and "\ufffd" not in help_text
+    except UnicodeDecodeError:
+        help_utf8 = False
+    checks.append(
+        {
+            "name": "package entrypoint emits UTF-8 help without replacement characters",
+            "ok": help_utf8,
+            "details": {"returncode": help_probe.returncode},
         }
     )
 

@@ -133,12 +133,23 @@ def _memory_git_provenance(
     return result
 
 
+def _current_decree_id(
+    current_decree_id: str | None,
+    current_decree_sha256: str | None,
+) -> str:
+    value = current_decree_id or current_decree_sha256
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("current_decree_id_required")
+    return value.strip()
+
+
 def build_recall_context(
     entries: list[dict[str, object]],
     terms: list[str],
     *,
     governance_id: str,
-    current_decree_id: str,
+    current_decree_id: str | None = None,
+    current_decree_sha256: str | None = None,
     as_of: str,
     limit: int = 5,
     memory_git_provenance: dict[str, object] | None = None,
@@ -148,8 +159,7 @@ def build_recall_context(
 ) -> dict[str, object]:
     if not isinstance(governance_id, str) or not governance_id.strip():
         raise ValueError("governance_id_required")
-    if not isinstance(current_decree_id, str) or not current_decree_id.strip():
-        raise ValueError("current_decree_id_required")
+    decree_id = _current_decree_id(current_decree_id, current_decree_sha256)
     instant = _timestamp(as_of)
     if instant is None:
         raise ValueError("as_of_invalid")
@@ -181,7 +191,7 @@ def build_recall_context(
     return {
         "schema": RECALL_SCHEMA,
         "governance_id": governance_id,
-        "current_decree_id": current_decree_id.strip(),
+        "current_decree_id": decree_id,
         "current_decree_precedence": True,
         "authority": "advisory",
         "execution_authority": False,
@@ -219,7 +229,8 @@ def build_settlement_candidates(
     entries: list[dict[str, object]],
     terms: list[str],
     *,
-    current_decree_id: str,
+    current_decree_id: str | None = None,
+    current_decree_sha256: str | None = None,
     as_of: str,
     limit: int = 10,
     include_memory_git: bool = False,
@@ -229,8 +240,7 @@ def build_settlement_candidates(
 ) -> dict[str, object]:
     """Return read-only GBrain organization candidates without writing memory."""
 
-    if not isinstance(current_decree_id, str) or not current_decree_id.strip():
-        raise ValueError("current_decree_id_required")
+    decree_id = _current_decree_id(current_decree_id, current_decree_sha256)
     instant = _timestamp(as_of)
     if instant is None:
         raise ValueError("as_of_invalid")
@@ -273,7 +283,7 @@ def build_settlement_candidates(
         "execution_authority": False,
         "write_authority": False,
         "current_decree_precedence": True,
-        "current_decree_id": current_decree_id.strip(),
+        "current_decree_id": decree_id,
         "as_of": as_of,
         "terms": normalized_terms,
         "derived_from": "existing_shiguan_records",

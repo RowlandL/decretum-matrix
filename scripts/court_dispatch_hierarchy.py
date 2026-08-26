@@ -276,6 +276,31 @@ def _decision(
     )
 
 
+@lru_cache(maxsize=1)
+def _default_governance_implementation():
+    import governance_framework
+
+    registry = governance_framework.load_governance_registry(Path(__file__).resolve().parents[1])
+    implementations = registry["implementations"]
+    return implementations[governance_framework.DEFAULT_GOVERNANCE_ID]
+
+
+def _evaluate_default_governance_dispatch(
+    *,
+    caller: str,
+    target: str,
+    target_direct_superior: str,
+):
+    import governance_framework
+
+    return governance_framework.evaluate_dispatch(
+        _default_governance_implementation(),
+        caller=caller,
+        target=target,
+        target_direct_superior=target_direct_superior,
+    )
+
+
 def _portable_paths(value: object) -> tuple[str, ...] | None:
     if not isinstance(value, (list, tuple)) or not value:
         return None
@@ -630,18 +655,12 @@ def validate_dispatch_hierarchy(
             reasons=("dispatch_hierarchy_target_profile_required",),
         )
 
-    edge = next(
-        (
-            candidate
-            for candidate in manifest["allowed_edges"]
-            if candidate[1] == "dispatch"
-            and candidate[2] == caller
-            and candidate[3] == target
-            and candidate[4] == target_superior
-        ),
-        None,
+    framework_decision = _evaluate_default_governance_dispatch(
+        caller=caller,
+        target=target,
+        target_direct_superior=target_superior,
     )
-    if edge is None:
+    if not framework_decision.allowed:
         return _decision(
             allowed=False,
             edge_class=None,
@@ -652,7 +671,7 @@ def validate_dispatch_hierarchy(
         )
     return _decision(
         allowed=True,
-        edge_class=edge[0],
+        edge_class=framework_decision.edge_class,
         caller=caller,
         target=target,
         owner=None,

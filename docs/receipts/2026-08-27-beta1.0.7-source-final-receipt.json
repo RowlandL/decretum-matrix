@@ -1,0 +1,167 @@
+{
+  "schema": "decretum.beta107.source_final_receipt.v1",
+  "status": "SOURCE_PASS_HOST_DEGRADED",
+  "time_utc": "2026-08-26T16:52:44.4601007Z",
+  "source_root": "\\\\192.168.3.133\\Omina\\gitmirror\\decretum-matrix",
+  "branch": "release/beta1.0.7",
+  "head": "956f3e07fb1d908c6baf8c96633503bd773bb5e8",
+  "scope": "source_fix_only_no_package_no_install",
+  "mcp": {
+    "primary_protocol": "2026-07-28",
+    "legacy_fallback_protocol": "2025-11-25",
+    "source_checker": {
+      "command": "python -B scripts/check_court_mcp_server.py",
+      "schema": "decretum.mcp_stdio_adapter_check.v2",
+      "status": "PASS",
+      "checks_total": 29,
+      "modern_receipt_parts": [
+        "server/discover",
+        "tools/list",
+        "tools/call",
+        "metadata_validation",
+        "cursor_contract",
+        "jsonrpc_error_contract",
+        "missing_meta_rejection",
+        "unsupported_version_rejection"
+      ],
+      "legacy_receipt_parts": [
+        "initialize",
+        "notifications/initialized",
+        "tools/list",
+        "tools/call"
+      ]
+    },
+    "source_wire_probe": {
+      "command": "python -B scripts/probe_court_mcp_modern_wire.py --host-state source_checkout --expected-root \\\\192.168.3.133\\Omina\\gitmirror\\decretum-matrix",
+      "schema": "decretum.mcp.modern_wire_receipt.v1",
+      "status": "PASS",
+      "checks": [
+        "discover_result_type",
+        "discover_versions",
+        "discover_capabilities",
+        "tools_list_result_type_and_cache",
+        "tools_list_allowlist",
+        "tools_call_result_metadata",
+        "tools_call_unicode_safe",
+        "hash_bound_runtime_surface",
+        "hash_matches_expected_source"
+      ],
+      "hashes": {
+        "command_manifest": "ece47965bd60a95af5a5f4a6164891b3c094929ea3406a65e063670558a5ad6e",
+        "public_api": "f582f2eec82b0b2cb33c4ed8322a412621b4fdae71277546df271a99a7517445",
+        "public_registry": "064d6f237cf667c36ed0098cde566df58e39219e11f2455e0449a8461487ddf8",
+        "server": "e8a4ba36401640707cab3522a2bd77e75e78060cba9c4882568734f4c217d069",
+        "skill": "c2d213608635323b1acd61eb2abc0843660deed0a6634e9b3bacd782858ac149"
+      }
+    },
+    "tool_allowlist": [
+      "court.command_help",
+      "court.status",
+      "memory.scan",
+      "shiguan.archive_dry_run",
+      "shiguan.query"
+    ],
+    "registry_source": "references/manifests/cli-command-surface.v1.json",
+    "public_api_source": "scripts/court_public_api.py",
+    "server_source": "scripts/court_mcp_server.py",
+    "claims": [
+      "CLI and MCP are peer transports for the allowlisted read-only subset.",
+      "MCP registry, input schemas, command identity, and read-only/dry-run flags are manifest-derived.",
+      "MCP does not spawn court_cli.py and does not create a second ledger."
+    ]
+  },
+  "installation_and_host": {
+    "active_copy_hashes": {
+      "command": "python -B scripts/check_active_copy_hashes.py --json",
+      "schema": "court.active_copy_hashes.v2",
+      "status": "FAIL",
+      "source_version": "beta1.0.7",
+      "checked_files": 159,
+      "projection_sha256": "bb5a110a4d84086f9735854f0ace5338437aab6f11057b4b168abe4a8dcc363f",
+      "receipt_sha256": "32ffdeec8a94627a30f84708ad6161214b687cbb76870e603bb02a2c242c201a",
+      "roots": [
+        {
+          "root": "C:\\Users\\32893\\.agents\\skills\\decretum-matrix",
+          "status": "DRIFT",
+          "drift_count": 9,
+          "extra_count": 34,
+          "missing_key_file": "scripts/court_public_registry.py"
+        },
+        {
+          "root": "C:\\Users\\32893\\.codex\\skills\\decretum-matrix",
+          "status": "DRIFT",
+          "drift_count": 9,
+          "extra_count": 0,
+          "missing_key_file": "scripts/court_public_registry.py"
+        }
+      ]
+    },
+    "installed_wire_probe": {
+      "command": "python -B scripts/probe_court_mcp_modern_wire.py --server C:\\Users\\32893\\.agents\\skills\\decretum-matrix\\scripts\\court_mcp_server.py --root C:\\Users\\32893\\.agents\\skills\\decretum-matrix --expected-root \\\\192.168.3.133\\Omina\\gitmirror\\decretum-matrix --host-state host_degraded",
+      "schema": "decretum.mcp.modern_wire_receipt.v1",
+      "status": "FAIL",
+      "failed_checks": [
+        "discover_versions",
+        "hash_bound_runtime_surface",
+        "hash_matches_expected_source"
+      ],
+      "missing_key_file": "C:\\Users\\32893\\.agents\\skills\\decretum-matrix\\scripts\\court_public_registry.py",
+      "installed_server_sha256": "9ccf6f76d3200bf7eba8892f51d0b81e3351dafd5bcc6d2bc0001d03e66ba132",
+      "expected_server_sha256": "e8a4ba36401640707cab3522a2bd77e75e78060cba9c4882568734f4c217d069"
+    },
+    "cc_switch_auxiliary_line": {
+      "status": "host_environment_drift / PARTIAL",
+      "manager_registered": "PASS",
+      "effective_config_projection": "FAIL",
+      "process_loaded": "NOT_OBSERVED",
+      "tool_visible": "FAIL",
+      "host_writes_performed_in_this_receipt": false
+    },
+    "host_claim": "host_degraded / effective_runtime_unverified"
+  },
+  "other_checks": [
+    {
+      "command": "python -B scripts/check_unified_cli.py --inventory-only --registry --json",
+      "status": "PASS",
+      "registered_count": 121,
+      "discovered_count": 121
+    },
+    {
+      "command": "python -B scripts/check_install_projection_closure.py --json",
+      "status": "PASS"
+    },
+    {
+      "command": "python -B scripts/check_court_hooks_advisory.py --json",
+      "status": "PASS",
+      "claim": "advisory_only_not_authoritative"
+    },
+    {
+      "command": "python -B scripts/check_court_preload_semantics.py --case fourteen_office_manifest_hashes",
+      "status": "PASSED"
+    },
+    {
+      "command": "python -B scripts/check_court_preload_semantics.py --case preload_ack_rejections",
+      "status": "PASSED"
+    },
+    {
+      "command": "git -c safe.directory=//192.168.3.133/Omina/gitmirror/decretum-matrix -C \\\\192.168.3.133\\Omina\\gitmirror\\decretum-matrix diff --check",
+      "status": "PASS",
+      "note": "Only LF-to-CRLF warnings were printed."
+    }
+  ],
+  "install_contract_updates": [
+    "CC Switch is the upstream owner for Codex MCP config.",
+    "Prefer supported CC Switch CLI/Import MCP/config-management entrypoints.",
+    "Generated Codex config.toml is an effective projection, not the upstream authority.",
+    "Do not blindly edit generated Codex TOML or CC Switch SQLite.",
+    "Fallback writes require preimage, SHA-256, typed receipt, CC Switch sync/reload, effective config verification, target hash, runtime probe, and new-session tool visibility."
+  ],
+  "explicit_non_claims": [
+    "No candidate package was built.",
+    "No installation or host config write was performed.",
+    "No release-manifest refresh was performed after the freeze reminder.",
+    "Source PASS is not current Codex tool-visible evidence.",
+    "Historical host PASS is retained but is not current host-active evidence.",
+    "Hooks are advisory only and are not proof of court dispatch, archive closeout, memory write, or MCP tool visibility."
+  ]
+}

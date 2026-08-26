@@ -37,8 +37,9 @@ metadata:
 - 普通官署履职的正确开局是：三权已明 -> 三省定性 -> 按层级 host-native spawn/reuse/wake，或在宿主不能派遣时明确 `serial_inline` 责任与原因。父线程只读取当前行为卷；被派官署按自己的职责与当前任务需要读取相应材料并回奏。
 - 能力 registry 只在确需选 skill/MCP/CLI/script 时读取；闲聊、直接回答和无需能力检索的规划不运行 registry 脚本。
 - 默认治理实现是 `three-departments-six-ministries`；参考实现不得改变 runtime、证据、权限、直接上级或史馆权威。
+- 治理实现清单锚点为 `references/manifests/governance-implementations.v1.json`；源码文档契约由 `scripts/check_governance_framework.py` 检查，检查通过本身不构成 VERIFIED_CAPABILITY。
 - 共享史馆在受保护 `.agents` / shared Shiguan 边界。安装默认只投影 `.agents` 与 current-tool；外部工具、发布、推送须最新明确授权。
-- 结诏须经门下复核；编号、谱系和作业 AI 只逐字复制统一 CLI `shiguan archive-checkpoint` 的 `payload.closeout_identity`，模型不得分配。
+- 结诏须经门下复核；编号、谱系和作业 AI 只逐字复制统一 CLI `shiguan archive-checkpoint` 的 `payload.closeout_identity`，模型不得分配。MCP 不生成第二套编号；它只能读取同一公共 API 或 dry-run 边界。
 
 ## Overview
 
@@ -61,6 +62,29 @@ This file is the load entry and hard-gate map. It is not distributed with any ex
 6. **Dispatch hierarchy**: `太子 (main-thread router, not dispatchable) → 三省 (L1: 中书/门下/尚书) → 六部 (L2: 吏/户/礼/兵/刑/工, selected by 尚书省) → 工坊/工匠`. 中书/门下 are peer review offices and do not take over 六部 dispatch. Before a real host spawn, run `agent-admit` machine admission immediately; packets/admission checks alone are not spawn evidence.
 7. **Shared Shiguan index (built at install)**: runtime root resolved by `scripts/shiguan_paths.py`, default `%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references`; recall via `scripts/query_shiguan_index.py`, heavy rebuild via `rebuild_shiguan_index.py`; does not replace this file.
 8. **Closeout**: Pass 门下 review; copy `payload.closeout_identity` from `shiguan archive-checkpoint` verbatim; without a valid archive receipt, do not self-assign an id (see `Closeout Skeleton`).
+
+### Public Transport Contract
+
+The unified CLI and the local MCP facade are **peer transports**, not a chain.
+Both use the read-only functions in `scripts/court_public_api.py` for the
+allowlisted projections; MCP must never spawn `court_cli.py` or parse CLI
+stdout. The CLI remains the human/automation surface, while MCP remains the
+structured host surface. They share runtime data and receipt rules, but neither
+transport becomes the other's authority.
+
+Codex lifecycle hooks are an optional advisory projection of this same
+contract. A loaded `.codex-plugin` may surface session context and remind the
+agent to use `mcp__decretum_matrix`; hooks must never write the court ledger,
+memory, MCP configuration, Git configuration, or closeout receipts. The
+absence of a hook process is a configuration gap, not evidence that the court
+runtime or MCP transport is authoritative by itself.
+
+MCP currently replaces only the read-only CLI subset: status, command help,
+Shiguan query, archive dry-run, and memory scan. Court/office mutations,
+archive checkpoints, install/migration, release, and superCC actions remain
+CLI/script workflows because they require authority-bound receipts, host-native
+probes, rollback, or controlled writes. Never infer those write capabilities
+from a successful MCP read-only probe.
 
 This procedure is fixed in the skill body, independent of any external memory; it is inherited on load with no extra configuration.
 
@@ -86,7 +110,7 @@ This procedure is fixed in the skill body, independent of any external memory; i
 ## Common Hard Gates
 
 - Formal decree 先形成紧凑 charter：旨意、非目标、边界、动作、验收、证据、停止门禁、史馆策略。
-- 非平凡 intake 评估目标/场景/关键要求/验收；<95 一次只问一个高影响问题并给 2–4 选项，>=95 简要复述后执行。
+- 非平凡 intake 使用 `court.request_understanding.v1` 评估目标、使用场景、关键要求和验收标准；<95 一次只问一个高影响问题并给 2–4 选项，>=95 简要复述后执行，不强行提问。
 - 非平凡任务先经三省：中书拟旨/验收，门下封驳风险/隐私/漂移，尚书评估派遣/资源/回滚；再 `三省上奏`、`太子回奏`。缺失的高影响决定按 `太子上奏下一项问题：...` 一次只问一项。
 - `approval` 只读，`autonomous` 范围内写入，`super` 范围内自动执行；三权均可 `serial`/`parallel`，均不授权破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
 - `superCC` 是独立 startup/runtime，不是第四权；须最新旨意与 zellij+squad/client 证据，且与 native 只共享中性官署配置指针。
@@ -142,3 +166,4 @@ Pending -> Taizi -> ThreeDepartments -> ThreeDepartmentsPetition -> TaiziReply -
 ## Validation And Packaging
 
 安装/发布/包装的校验与硬门（安装时校验自删、sync_active_copies、package/release/portability gates、prune/备份/回滚）见 [validation-packaging.md](references/validation-packaging.md)。
+最小本地结构验证命令：`python -B scripts/quick_validate.py .`。

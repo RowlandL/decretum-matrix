@@ -301,6 +301,7 @@ def check(
     projection: str = "shared_agents",
     receipt_roots: list[Path] | None = None,
     shard_assertions: list[dict[str, Any]] | None = None,
+    verify_codex_agent_roles: bool = True,
 ) -> dict[str, Any]:
     source = _assert_safe_root(source, allow_missing=False, label="source root")
     # M2 迁移子门 GREEN（R-M4）：shard 断言必须有 consumer 与 evidence 成对支撑（计划书 L188）。
@@ -495,6 +496,33 @@ def check(
         or unsafe_paths
         or forbidden_checker_copies
     )
+    codex_agent_roles: dict[str, Any] = {
+        "required": False,
+        "ok": True,
+        "status": "NOT_APPLICABLE",
+    }
+    codex_skill_root = Path.home() / ".codex" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
+    if verify_codex_agent_roles and projection == "shared_agents" and any(
+        _root_identity(path) == _root_identity(codex_skill_root)
+        for path in governed_roots
+    ):
+        codex_agent_roles["required"] = True
+        try:
+            from check_codex_agent_roles import validate_installed_agents
+
+            codex_agent_roles.update(validate_installed_agents())
+            codex_agent_roles["status"] = (
+                "PASS" if codex_agent_roles.get("ok") is True else "FAIL"
+            )
+        except Exception as exc:
+            codex_agent_roles.update(
+                {
+                    "ok": False,
+                    "status": "ERROR",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+        ok = ok and codex_agent_roles.get("ok") is True
     version_path = _assert_safe_descendant(
         source,
         source / "VERSION",
@@ -525,6 +553,7 @@ def check(
         "extra_files": extra_files,
         "unsafe_paths": unsafe_paths,
         "forbidden_checker_copies": forbidden_checker_copies,
+        "codex_agent_roles": codex_agent_roles,
         "root_evidence": root_evidence,
         "pending_body_access": "NO",
     }
@@ -633,7 +662,7 @@ def _self_test() -> dict[str, Any]:
             for root in roots:
                 shutil.copytree(source, root)
 
-            matching = check(source=source, roots=roots)
+            matching = check(source=source, roots=roots, verify_codex_agent_roles=False)
             evidence["matching_six_roots"] = matching
             if not matching.get("ok"):
                 failures.append("matching_six_roots:expected_pass")
@@ -647,14 +676,14 @@ def _self_test() -> dict[str, Any]:
             custom_root = fixture / "custom-root"
             shutil.copytree(source, custom_root)
             try:
-                check(source=source, roots=[custom_root])
+                check(source=source, roots=[custom_root], verify_codex_agent_roles=False)
             except ValueError as exc:
                 evidence["custom_root_rejected"] = str(exc)
             else:
                 failures.append("custom_root_rejected:expected_setup_error")
 
             try:
-                check(source=source, roots=[roots[0], roots[0]])
+                check(source=source, roots=[roots[0], roots[0]], verify_codex_agent_roles=False)
             except ValueError as exc:
                 evidence["duplicate_roots_rejected"] = str(exc)
             else:
@@ -666,7 +695,7 @@ def _self_test() -> dict[str, Any]:
             empty_manifest["projections"]["shared_agents"] = []
             manifest_path.write_text(json.dumps(empty_manifest), encoding="utf-8")
             try:
-                check(source=source, roots=roots)
+                check(source=source, roots=roots, verify_codex_agent_roles=False)
             except ValueError as exc:
                 evidence["empty_projection_rejected"] = str(exc)
             else:
@@ -676,7 +705,7 @@ def _self_test() -> dict[str, Any]:
 
             extra_path = roots[0] / "scripts" / "obsolete_loader.py"
             extra_path.write_text("# stale installed body\n", encoding="utf-8")
-            extra = check(source=source, roots=roots)
+            extra = check(source=source, roots=roots, verify_codex_agent_roles=False)
             evidence["extra_file_rejected"] = extra
             if extra.get("ok") or not extra.get("extra_files"):
                 failures.append("extra_file_rejected:expected_fail")
@@ -695,7 +724,7 @@ def _self_test() -> dict[str, Any]:
                 }
                 shutil.copy2(source / "scripts" / "runtime.py", linked_path)
             else:
-                linked = check(source=source, roots=roots)
+                linked = check(source=source, roots=roots, verify_codex_agent_roles=False)
                 evidence["target_symlink_rejected"] = linked
                 if linked.get("ok") or not linked.get("unsafe_paths"):
                     failures.append("target_symlink_rejected:expected_fail")
@@ -706,7 +735,7 @@ def _self_test() -> dict[str, Any]:
                 "VALUE = 2\n",
                 encoding="utf-8",
             )
-            drift = check(source=source, roots=roots)
+            drift = check(source=source, roots=roots, verify_codex_agent_roles=False)
             evidence["single_file_drift"] = drift
             if drift.get("ok") or not drift.get("drift"):
                 failures.append("single_file_drift:expected_fail")
@@ -717,7 +746,7 @@ def _self_test() -> dict[str, Any]:
 
             checker_copy = roots[5] / CHECKER_RELATIVE
             checker_copy.write_text("# forbidden installed checker\n", encoding="utf-8")
-            projected_checker = check(source=source, roots=roots)
+            projected_checker = check(source=source, roots=roots, verify_codex_agent_roles=False)
             evidence["checker_not_projected"] = projected_checker
             if projected_checker.get("ok") or not projected_checker.get(
                 "forbidden_checker_copies"
@@ -727,7 +756,7 @@ def _self_test() -> dict[str, Any]:
 
             missing_root = str(roots[3])
             shutil.rmtree(roots[3])
-            missing = check(source=source, roots=roots)
+            missing = check(source=source, roots=roots, verify_codex_agent_roles=False)
             evidence["missing_root"] = missing
             if missing.get("ok") or missing_root not in missing.get("missing_roots", []):
                 failures.append("missing_root:expected_fail")
@@ -841,6 +870,7 @@ def _self_test() -> dict[str, Any]:
                     shard_assertions=[
                         {"path": "scripts/extra-shard.py", "kind": "extra"}
                     ],
+                    verify_codex_agent_roles=False,
                 )
             except TypeError as exc:
                 evidence["shard_without_consumer_or_evidence"] = {

@@ -22,6 +22,7 @@ import uuid
 sys.dont_write_bytecode = True
 
 from court_platform import user_data_base
+from sync_codex_agents_from_profiles import sync_agents as sync_codex_agent_roles
 
 
 CANONICAL_INSTALL_DIRECTORY_NAME = "decretum-matrix"
@@ -1139,6 +1140,7 @@ def _self_test() -> dict[str, object]:
             not r3_main.get("ok")
             or r3_main.get("logical_target_count") != 1
             or str(r3_agents_root) not in r3_targets
+            or r3_main.get("codex_agent_roles", {}).get("status") != "WOULD_UPDATE"
         ):
             failures.append("alias_group_not_receipt_derived:expected_fail")
         r3_receipt.unlink(missing_ok=True)
@@ -1533,6 +1535,12 @@ def main() -> int:
 
     results = logical_results(plan_by_physical)
     partial_applied = False
+    codex_agent_roles: dict[str, object] = {
+        "ok": True,
+        "mode": "not-run",
+        "status": "NOT_RUN",
+        "rows": [],
+    }
     if args.write and not failures:
         if migration_candidates:
             legacy_migration = _apply_legacy_migration(migration_candidates)
@@ -1573,6 +1581,38 @@ def main() -> int:
             legacy_migration["rollback_after_sync_failure"] = rollback
             if not rollback.get("ok", False):
                 failures.append("legacy migration rollback failed")
+    if not failures:
+        try:
+            role_plan = sync_codex_agent_roles(write=False)
+            role_drift = any(
+                row.get("status") == "would_update"
+                for row in role_plan.get("rows", [])
+                if isinstance(row, dict)
+            )
+            if args.write and role_drift:
+                codex_agent_roles = sync_codex_agent_roles(write=True)
+            else:
+                codex_agent_roles = {
+                    **role_plan,
+                    "mode": "write" if args.write else "dry-run",
+                }
+            codex_agent_roles["status"] = (
+                "APPLIED"
+                if args.write and role_drift
+                else "WOULD_UPDATE"
+                if role_drift
+                else "CURRENT"
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            failures.append(f"codex_agent_roles:{type(exc).__name__}:{exc}")
+            codex_agent_roles = {
+                "ok": False,
+                "mode": "write" if args.write else "dry-run",
+                "status": "FAIL",
+                "error": f"{type(exc).__name__}: {exc}",
+                "rows": [],
+            }
+            partial_applied = args.write and bool(results)
     result = {
         "ok": not failures,
         "status": (
@@ -1603,6 +1643,7 @@ def main() -> int:
         "failures": failures,
         "legacy_locator_conflicts": conflicts,
         "legacy_migration": legacy_migration,
+        "codex_agent_roles": codex_agent_roles,
         **({"first_install": first_install_extra} if first_install_extra is not None else {}),
     }
     if args.json:

@@ -24,6 +24,8 @@ import uuid
 sys.dont_write_bytecode = True
 from typing import Any, Mapping, Sequence
 
+from stdio_encoding import configure_stdio
+
 from court_agent_admission import budget_lease_access_contract_error
 from court_complexity_budget import evaluate_context_economy, normalize_budget_pool
 from court_dispatch_policy import MAX_AGENT_TREE_DEPTH, MAX_AGENT_TREE_THREADS, select_wave
@@ -10290,6 +10292,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_stdio()
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
     try:

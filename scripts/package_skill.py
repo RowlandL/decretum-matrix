@@ -29,6 +29,8 @@ import zipfile
 
 sys.dont_write_bytecode = True
 
+from stdio_encoding import configure_stdio
+
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
@@ -118,6 +120,7 @@ ROOT_ALLOWED_FILES = {
     "commercial-license.md",
     "contributing.md",
     "install-prompt.md",
+    "install-readme-ai.md",
     "license",
     "notice",
     "privacy.md",
@@ -431,7 +434,7 @@ def package_projection_entries() -> frozenset[str]:
     if not isinstance(projections, dict):
         raise PackagePolicyError("install projection manifest missing projections")
     entries: set[str] = set()
-    for name in ("shared_agents", "portable_current_tool"):
+    for name in ("shared_agents", "portable_current_tool", "codex_plugin"):
         raw = projections.get(name)
         if isinstance(raw, list):
             entries.update(str(item).replace("\\", "/").casefold() for item in raw)
@@ -1159,6 +1162,7 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
         f"{ROOT_NAME}/scripts/court_cli.py",
         f"{ROOT_NAME}/scripts/ensure_supercc_court.py",
         f"{ROOT_NAME}/scripts/sync_active_copies.py",
+        f"{ROOT_NAME}/scripts/sync_codex_agents_from_profiles.py",
     }
     required.update(LEGAL_REQUIRED_MEMBERS)
     required.update(BRAND_REQUIRED_MEMBERS)
@@ -1383,6 +1387,7 @@ def build(out: Path) -> tuple[int, int, list[str]]:
 
 
 def main() -> int:
+    configure_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=default_out())
     args = parser.parse_args()

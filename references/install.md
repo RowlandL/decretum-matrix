@@ -31,7 +31,40 @@ physical authority; otherwise report the conflict and stop before writing.
 The installed surface is defined by
 `references/manifests/install-projection.v1.json`. It includes the entry
 `SKILL.md`, the current governing references, office dossiers/profiles,
-Shiguan/GBrain and superCC runtime helpers, and `sync_active_copies.py`.
+Shiguan/GBrain and superCC runtime helpers, `sync_active_copies.py`, and the
+dedicated legacy locator migration entrypoint
+`migrate_legacy_skill_locator.py`.
+
+## MCP Protocol Contract
+
+The current MCP wire target is the official `2026-07-28` revision. The stdio
+facade is modern and stateless: every request carries
+`_meta.io.modelcontextprotocol/protocolVersion`,
+`_meta.io.modelcontextprotocol/clientCapabilities`; clientInfo may be omitted,
+but when present it must be an Implementation object with non-empty `name` and
+`version` strings. `server/discover` is implemented and reports the supported versions,
+tools capability, server identity, and public cache hints. `tools/list` and
+`tools/call` return `resultType=complete` plus self-describing server metadata.
+This implementation does not paginate `tools/list`: omit `cursor` or send an
+empty string; non-empty cursors are rejected with `-32602`. Malformed JSON is
+`-32700`, while invalid JSON-RPC requests (including missing or null ids) are
+`-32600`.
+
+`2025-11-25` remains a compatibility path only. A client that sends
+`initialize` selects legacy per-process semantics; it must then send
+`notifications/initialized` and may use `tools/list`/`tools/call` without
+modern `_meta`. Modern and legacy receipts are recorded separately. A source
+wire probe is available at
+`scripts/probe_court_mcp_modern_wire.py`; it never proves Codex/CC Switch
+loading or tool visibility.
+
+Use the same probe shape for source and installed-copy receipts, while keeping
+host visibility separate:
+
+```powershell
+python -B scripts/probe_court_mcp_modern_wire.py --host-state source_checkout
+python -B scripts/probe_court_mcp_modern_wire.py --server "%USERPROFILE%\.agents\skills\decretum-matrix\scripts\court_mcp_server.py" --root "%USERPROFILE%\.agents\skills\decretum-matrix" --expected-root <validated-source-root> --host-state host_degraded
+```
 
 Do not install release gates, fixtures-only checkers, package builders, GitHub
 publication helpers, or broad compatibility checkers as startup tools.
@@ -79,28 +112,89 @@ or `sync_active_copies.py`. Runtime identity SHA-256 use remains valid and is
 independent of this installation checker.
 
 The first command shows what would change. The second command copies the
-projection to the five governed roots and prunes obsolete script files. The
-final command checks the installed skill frontmatter and lightweight
-court-format contracts. The optional Qoder commands extend that same operation
+projection to the governed roots, prunes obsolete files, and renders the
+Codex native role files from the newly installed standing profiles. Its JSON
+must report `codex_agent_roles.status` as `CURRENT` or `APPLIED`. The final
+hash command also validates those role files whenever the selected roots include
+the Codex skill root, so a current skill paired with stale preload hashes fails
+the post-install gate. The optional Qoder commands extend that same operation
 only after explicit authorization.
 
 If a target root is missing, the sync command creates it when `--write` is used.
 
-If a physical `court-capability-router` locator conflicts with the canonical
-directory, do not delete it or overwrite it manually. With explicit written
-authorization, plan then apply the transactional migration:
+## Blank Host And Restart Receipt Fields
 
-```powershell
-python -B scripts/sync_active_copies.py --migrate-legacy-locators --prune-obsolete --json
-python -B scripts/sync_active_copies.py --write --migrate-legacy-locators --prune-obsolete --json
+Blank-host/current-tool configuration uses the following machine-readable
+receipt vocabulary. These fields describe the installer decision; they do not
+authorize writes to other tools or an automatic restart:
+
+```text
+shared_root=%USERPROFILE%\.agents\court-shiguan\decretum-matrix\references
+probe_before_write=true
+install_current_tool_only=true
+unapproved_other_tools=REMINDER_ONLY
+auto_start_obsidian=false
+auto_start_daemon=false
+auto_install_dependencies=false
+restart_required=true
+restart_deferred=true
+tasks_continued=true
+restart_requires_latest_explicit_authority=true
+input_token_semantics=version_specific
 ```
 
-The migration moves each full legacy directory to a distinct backup under the
-user's local Decretum Matrix install-backup root, then creates a compatibility
-alias to the updated canonical directory. If migration or synchronization
-fails, it restores the moved legacy directories; a `FAIL_PARTIAL_APPLIED`
-receipt still requires the source-only hash check before any further install
-action.
+Schema alone is not application-version evidence. Reread the current CC Switch
+and Codex versions, effective configuration, and runtime receipts before
+acceptance.
+
+If a physical `court-capability-router` locator conflicts with the canonical
+directory, do not delete it or overwrite it manually. First use the dedicated
+legacy-locator entrypoint for a read-only plan:
+
+```powershell
+python -B scripts/migrate_legacy_skill_locator.py plan --json
+```
+
+With explicit written authorization, apply it and keep the returned
+`receipt_path`:
+
+```powershell
+python -B scripts/migrate_legacy_skill_locator.py apply --write --json
+```
+
+Rollback is also receipt-bound:
+
+```powershell
+python -B scripts/migrate_legacy_skill_locator.py rollback --receipt <receipt_path> --write --json
+```
+
+The migration either renames a legacy-only physical root to the canonical name,
+or backs up a duplicate legacy physical root before replacing it with a
+compatibility alias to the canonical directory. It never treats the old locator
+as a second current skill authority. After a successful migration, run the
+normal `sync_active_copies.py --write --prune-obsolete --json` flow from the
+current release source to refresh managed files.
+
+If the receipt-bound installer rejects a current-tool root with
+`protected_anchor_wrong_target`, that root is an old full replica carrying
+shared-only Shiguan anchors. Do not prune or overwrite it manually. From the
+source checkout, first plan the directory-level rollbackable migration against
+the exact release ZIP:
+
+```powershell
+python -B scripts/migrate_current_tool_replica.py plan --package <release_zip> --json
+python -B scripts/migrate_current_tool_replica.py apply --package <release_zip> --write --json
+```
+
+The tool atomically archives the complete old current-tool root under
+`~/.agents/install-backups/decretum-matrix/`, archives the installer with its
+SHA-256, then applies the package projection transactionally. Its receipt
+records both the managed-file backup and the full-directory preimage. Roll back
+with the same ZIP and receipt:
+
+```powershell
+python -B scripts/migrate_current_tool_replica.py rollback --receipt <receipt_path> --package <release_zip> --write --json
+```
 
 ## Boundaries
 

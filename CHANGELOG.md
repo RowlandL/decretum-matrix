@@ -1,5 +1,35 @@
 # Changelog
 
+## beta1.0.7 - 2026-08-26
+
+### Added
+
+- Added the read-only stdio MCP transport with `2026-07-28` as the primary
+  protocol and `2025-11-25` as the compatibility path.
+- Derived the MCP allowlist, schemas, command identity, and read-only/dry-run
+  flags from the same public registry used by the CLI.
+- Added `scripts/migrate_legacy_skill_locator.py` as a dedicated plan/apply/
+  rollback entrypoint for migrating old physical `court-capability-router`
+  skill locators to the canonical `decretum-matrix` root while preserving a
+  compatibility alias and rollback receipt.
+
+### Fixed
+
+- Made active-copy installation render and verify the 14 native Codex role
+  files after syncing profiles, dossiers, and `SKILL.md`; stale preload hashes
+  now fail the post-install gate.
+- Made repository and npm checks work from a network git mirror with an exact
+  per-command `safe.directory`, without changing global Git configuration.
+- Bound the blank-agent loading procedure directly in `SKILL.md`, covering the
+  load entry, hard gates, authority/behavior split, CLI/Agent/reference triad,
+  dispatch hierarchy, shared Shiguan index, and closeout.
+- Clarified the canonical identity boundary: current skill, package, install
+  root, archive root, and invocation are `decretum-matrix` /
+  `$decretum-matrix`; `court-capability-router` remains legacy-only as a
+  compatibility locator or protected Shiguan namespace.
+- Guarded identity checks against older release-note wording that could make
+  `court-capability-router/` look like the current ZIP internal root.
+
 ## beta1.0.6 - 2026-08-01
 
 ### Added
@@ -318,7 +348,10 @@ receipt-gated and are not asserted by this source entry.
 - The current display identity is exactly `Decretum Matrix（诏令矩阵）`; `诏令矩阵` is explanatory only, while machine/package/invocation remain `decretum-matrix` / `$decretum-matrix`.
 - Shiguan Web/autosync uses atomic state transitions, a filesystem preserve-only primary channel, optional non-blocking REST, and asynchronous refresh requests for an existing daemon.
 - Expanded the release policy to 42 manifest steps: 37 source, 4 installation, and 1 conditional runtime step; candidate pre-install selects 36 source steps and normal post-install selects 5.
-- The canonical physical install authority is `skills/decretum-matrix`; the ZIP internal root remains `court-capability-router/`, any legacy install locator must resolve to the same authority, and host migration remains `NOT_RUN`.
+- Historical compatibility note: the canonical physical install authority is
+  `skills/decretum-matrix`; current release builders use `decretum-matrix/` as
+  the archive root, while legacy install locators must resolve to the same
+  authority.
 - The beta0.5.11 release source tree measures 273 portable files / 6,138,661 bytes against the unchanged ceiling of 275 files / 6,200,000 bytes.
 
 ### Fixed
@@ -354,8 +387,9 @@ receipt-gated and are not asserted by this source entry.
   `court-capability-router` install/archive/Shiguan locators remain explicit
   compatibility surfaces.
 - Updated the release artifact contract to
-  `decretum-matrix-beta0.5.10.zip` while retaining the stable ZIP internal root
-  `court-capability-router/` for existing installations.
+  `decretum-matrix-beta0.5.10.zip`; `court-capability-router/` is retained only
+  as a protected legacy install/archive/Shiguan locator namespace, not as the
+  current package archive root.
 - Decoupled the Decretum Matrix kernel from any named Superpowers methodology;
   optional workflow skills remain ordinary bounded tool invocations.
 

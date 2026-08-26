@@ -62,6 +62,7 @@ CLAUDE_CODE_ENV_KEYS = (
 AGENT_LABELS = {
     "claude-code": "Claude Code",
     "codex": "Codex",
+    "generic-cli": "GenericCLI",
     "hermes": "Hermes",
     "agents": "Agents",
     "unknown": "Unknown",
@@ -73,6 +74,10 @@ AGENT_ALIASES = {
     "claude-code": "claude-code",
     "claudecode": "claude-code",
     "claude_code": "claude-code",
+    "generic": "generic-cli",
+    "generic-cli": "generic-cli",
+    "generic_cli": "generic-cli",
+    "genericcli": "generic-cli",
 }
 
 
@@ -109,6 +114,10 @@ def resolved_code_root() -> Path:
 def canonical_source_agent(value: str) -> str:
     normalized = value.strip().lower().replace(" ", "-")
     return AGENT_ALIASES.get(normalized, normalized)
+
+
+def source_agent_choices() -> tuple[str, ...]:
+    return tuple(sorted(AGENT_LABELS))
 
 
 def is_claude_code_context(root_texts: tuple[str, ...]) -> bool:
@@ -1501,6 +1510,8 @@ def detect_runtime_agent(explicit: str | None = None) -> dict[str, str]:
     )
     if value:
         agent_id = canonical_source_agent(value)
+        if agent_id not in AGENT_LABELS:
+            raise ValueError(f"source_agent_not_allowed:{agent_id}")
     elif os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_MANAGED_BY_NPM"):
         agent_id = "codex"
     elif is_claude_code_context(root_texts):
@@ -1514,7 +1525,7 @@ def detect_runtime_agent(explicit: str | None = None) -> dict[str, str]:
     else:
         agent_id = "unknown"
 
-    display = AGENT_LABELS.get(agent_id, value or agent_id)
+    display = AGENT_LABELS[agent_id]
     return {
         "source_agent": agent_id,
         "source_agent_label": display,

@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -B \"${PLUGIN_ROOT}/scripts/court_codex_hook.py\" --event SessionStart"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -B \"${PLUGIN_ROOT}/scripts/court_codex_hook.py\" --event UserPromptSubmit"
+          }
+        ]
+      }
+    ]
+  }
+}

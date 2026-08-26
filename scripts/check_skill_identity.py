@@ -78,6 +78,12 @@ HOST_METHODOLOGY_REPOSITORY_ONLY_SURFACES = (
     Path("docs/plans/2026-07-14-ccr-r2-shir-a02-execution-book.md"),
     Path("docs/plans/2026-07-14-court-capability-router-shiguan-install-remediation-plan.md"),
 )
+CHANGELOG_LEGACY_ARCHIVE_ROOT_PATTERN = re.compile(
+    r"(?:ZIP internal root remains `court-capability-router/`|"
+    r"stable ZIP internal root\s+`court-capability-router/`)",
+    re.IGNORECASE,
+)
+LEGACY_MIGRATION_SCRIPT = Path("scripts/migrate_legacy_skill_locator.py")
 
 
 def _add_finding(
@@ -510,6 +516,74 @@ def _check_host_methodology_decoupling(
         check_surface(relative, required=False)
 
 
+def _check_legacy_locator_migration_surface(
+    root: Path,
+    findings: list[dict[str, str]],
+) -> None:
+    path = root / LEGACY_MIGRATION_SCRIPT
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _add_finding(
+            findings,
+            code="IDENTITY_LEGACY_MIGRATION_SCRIPT_UNREADABLE",
+            surface="legacy_migration",
+            path=LEGACY_MIGRATION_SCRIPT,
+            message=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    required_fragments = (
+        "court.legacy_skill_locator_migration.v1",
+        "MIGRATE_LEGACY_TO_CANONICAL",
+        "BACKUP_LEGACY_AND_ALIAS",
+        "selected_roots_receipt_required",
+        "rollback",
+        "--write",
+        "CANONICAL_INSTALL_DIRECTORY_NAME",
+        "LEGACY_INSTALL_DIRECTORY_NAME",
+    )
+    missing = [fragment for fragment in required_fragments if fragment not in text]
+    if missing:
+        _add_finding(
+            findings,
+            code="IDENTITY_LEGACY_MIGRATION_SCRIPT_CONTRACT_MISSING",
+            surface="legacy_migration",
+            path=LEGACY_MIGRATION_SCRIPT,
+            message=f"legacy migration entrypoint contract missing: {missing!r}",
+        )
+
+
+def _check_changelog_identity_notes(
+    root: Path,
+    findings: list[dict[str, str]],
+) -> None:
+    relative = Path("CHANGELOG.md")
+    try:
+        text = (root / relative).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return
+    except (OSError, UnicodeError) as exc:
+        _add_finding(
+            findings,
+            code="IDENTITY_CHANGELOG_UNREADABLE",
+            surface="changelog",
+            path=relative,
+            message=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    if CHANGELOG_LEGACY_ARCHIVE_ROOT_PATTERN.search(text):
+        _add_finding(
+            findings,
+            code="IDENTITY_CHANGELOG_LEGACY_ARCHIVE_ROOT_CURRENT",
+            surface="changelog",
+            path=relative,
+            message=(
+                "release notes must not describe court-capability-router/ as the "
+                "current ZIP internal root"
+            ),
+        )
+
+
 def run_self_test() -> dict[str, Any]:
     """Exercise installed-vs-repository host-methodology surface boundaries."""
 
@@ -690,6 +764,8 @@ def check_identity(root: Path) -> dict[str, Any]:
     _check_dossiers(root, findings)
     _check_registry_surfaces(root, findings)
     _check_host_methodology_decoupling(root, findings)
+    _check_legacy_locator_migration_surface(root, findings)
+    _check_changelog_identity_notes(root, findings)
     surface_names = (
         "manifest",
         "skill",
@@ -700,6 +776,8 @@ def check_identity(root: Path) -> dict[str, Any]:
         "capability_registry",
         "registry_api",
         "host_methodology",
+        "legacy_migration",
+        "changelog",
     )
     surface_status = {
         surface: (

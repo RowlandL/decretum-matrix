@@ -18,6 +18,7 @@ import zipfile
 sys.dont_write_bytecode = True
 
 import package_skill
+from stdio_encoding import configure_stdio
 
 
 SCHEMA = "court.release_manifest.v2"
@@ -97,7 +98,7 @@ def release_identity(version_text: str) -> dict[str, str]:
 
 def tracked_paths(root: Path) -> set[str]:
     completed = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "-c", f"safe.directory={root.as_posix()}", "ls-files", "-z"],
         cwd=root,
         check=False,
         capture_output=True,
@@ -641,6 +642,7 @@ def self_tests() -> dict[str, bool]:
 
 
 def main() -> int:
+    configure_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=root_path())
     parser.add_argument("--write", action="store_true")

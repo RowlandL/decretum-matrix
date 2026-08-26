@@ -1,0 +1,116 @@
+{
+  "schema": "decretum.beta107_p0_closeout.v1",
+  "status": "PASS",
+  "date": "2026-08-27",
+  "version": "beta1.0.7",
+  "branch": "release/beta1.0.7",
+  "scope": "source_install_projection_native_roles_and_host_mcp_verification",
+  "execution": {
+    "conversation": "current_thread_serial_inline",
+    "subagents_used_after_user_stop": false,
+    "push_performed": false,
+    "tag_created_or_moved": false,
+    "release_published": false
+  },
+  "root_cause": {
+    "summary": "The prior install synchronized the skill roots but did not synchronize the Codex native role projection. All 14 installed role TOMLs still bound old SKILL, profile, and dossier hashes, while checks reconstructed fresh manifests instead of gating the actual host role files.",
+    "observed_stale_skill_sha256": "af2f80b194389dc1935a8b54e067d07e872d7f896dfe934f4e05fd154d34858b",
+    "current_skill_sha256": "c2d213608635323b1acd61eb2abc0843660deed0a6634e9b3bacd782858ac149",
+    "fix": "sync_active_copies now invokes the existing native role renderer, reports WOULD_UPDATE/APPLIED/CURRENT accurately, and the post-install hash checker validates installed native roles whenever the Codex skill root is selected."
+  },
+  "installation": {
+    "status": "PASS",
+    "roots": [
+      "C:\\Users\\32893\\.agents\\skills\\decretum-matrix",
+      "C:\\Users\\32893\\.codex\\skills\\decretum-matrix"
+    ],
+    "checked_files_per_root": 160,
+    "drift_count": 0,
+    "extra_count": 0,
+    "unsafe_count": 0,
+    "pyc_count": 0,
+    "projection_sha256": "a2a3753a7f4e56dabcf8754e6c18b3dd4e13bf367be0ca8c8772d0310072ee0f",
+    "active_copy_receipt_sha256": "3949266680b868ddc60c07ce8613d1315db512843980f86d8b9204e280a2bd74"
+  },
+  "native_roles": {
+    "status": "PASS",
+    "installed_count": 14,
+    "required_count": 14,
+    "unsynced_count": 0,
+    "malformed_count": 0,
+    "selected_protocol": "v2",
+    "backup_root": "C:\\Users\\32893\\.agents\\court-shiguan\\decretum-matrix\\references\\host-capability-backups\\codex-agent-roles\\agents-backup-20260827-031535"
+  },
+  "mcp": {
+    "product_boundary": "standalone_stdio_mcp_not_product_plugin",
+    "primary_protocol": "2026-07-28",
+    "legacy_fallback_protocol": "2025-11-25",
+    "manager_registered": "PASS",
+    "manager_enabled_codex": true,
+    "effective_config": "PASS",
+    "codex_cli_registration": "PASS",
+    "installed_process_wire_probe": "PASS",
+    "tool_visibility": "USER_CONFIRMED_NORMAL_AFTER_EXTERNAL_TASK_REPAIR",
+    "current_conversation_tool_namespace": "PRE_REPAIR_SNAPSHOT_NOT_USED_AS_NEW_HOST_EVIDENCE",
+    "config_sha256_at_final_probe": "3dedf22defd8ac83c354840edb96302475b776fce1ba4abcb640fa3d7da3a6ef",
+    "server_command": "C:\\Program Files\\Python314\\python.exe -B C:\\Users\\32893\\.agents\\skills\\decretum-matrix\\scripts\\court_mcp_server.py",
+    "startup_timeout_sec": 30,
+    "runtime_hashes": {
+      "command_manifest": "ece47965bd60a95af5a5f4a6164891b3c094929ea3406a65e063670558a5ad6e",
+      "public_api": "f582f2eec82b0b2cb33c4ed8322a412621b4fdae71277546df271a99a7517445",
+      "public_registry": "064d6f237cf667c36ed0098cde566df58e39219e11f2455e0449a8461487ddf8",
+      "server": "e8a4ba36401640707cab3522a2bd77e75e78060cba9c4882568734f4c217d069",
+      "skill": "c2d213608635323b1acd61eb2abc0843660deed0a6634e9b3bacd782858ac149"
+    }
+  },
+  "hooks_boundary": {
+    "status": "ADVISORY_SOURCE_ONLY",
+    "host_plugin_enabled": false,
+    "claim": "Hooks do not define the product, do not prove MCP visibility, and are not an authority path."
+  },
+  "verification": {
+    "quick_validate": "PASS",
+    "active_copy_hashes": "PASS",
+    "codex_agent_roles": "PASS",
+    "court_mcp_server_checks": "PASS_29_OF_29",
+    "installed_modern_wire": "PASS",
+    "unified_cli": "PASS_121_OF_121",
+    "install_projection_closure": "PASS",
+    "source_state_budget": "PASS",
+    "release_payload_manifest": "PASS",
+    "release_metadata": "PASS",
+    "governance_framework": "PASS_48_OF_48",
+    "portability": "PASS",
+    "native_host_dispatch": "PASS",
+    "npm_self_test": "PASS",
+    "release_artifact_self_test": "PASS",
+    "preload_fourteen_hashes": "PASS",
+    "preload_rejections": "PASS",
+    "git_diff_check": "PASS_WITH_LINE_ENDING_WARNINGS_ONLY"
+  },
+  "corrections_and_failures_preserved": [
+    "Initial audit-event writer attempts failed with SyntaxError and ModuleNotFoundError; the canonical failed audit event preserves both errors.",
+    "CC Switch CLI MCP sync updated Codex but reported unrelated Gemini and Hermes permission failures; full outputs are retained.",
+    "A temporary plugin misclassification was installed and then rolled back; Decretum Matrix MCP remains the standalone host integration.",
+    "One coordinator print failed on a GBK UnicodeEncodeError after the CC Switch setter completed; disk state and captured UTF-8 output prove the result.",
+    "UNC npm and Git ownership failures were converted into exact per-command safe.directory handling and upstream-only mirror regression coverage."
+  ],
+  "rollback_and_backups": {
+    "cc_switch_sql_backup": "C:\\Users\\32893\\.cc-switch\\backups\\decretum-matrix-p0-20260827_20260826_192838.sql",
+    "cc_switch_settings_backup": "C:\\Users\\32893\\.cc-switch\\backups\\settings.json.decretum-matrix-p0-20260826T193400Z.bak",
+    "plugin_misclassification_backup": "C:\\Users\\32893\\.agents\\install-backups\\decretum-matrix\\codex-plugin-20260826T193542Z",
+    "plugin_misclassification_rollback_log": "C:\\Users\\32893\\Documents\\Codex\\2026-08-27\\decretum-matrix-p0-closeout\\outputs\\17-plugin-misclassification-rollback.json"
+  },
+  "audit": {
+    "canonical_event_root": "\\\\192.168.3.133\\Omina\\gitmirror\\.repo-control\\events\\decretum-matrix\\beta107-p0-closeout",
+    "output_root": "C:\\Users\\32893\\Documents\\Codex\\2026-08-27\\decretum-matrix-p0-closeout\\outputs",
+    "output_file_count_at_final_probe": 73,
+    "conversation_jsonl": [
+      "C:\\Users\\32893\\.codex\\sessions\\2026\\08\\26\\rollout-2026-08-26T23-11-51-01a03ea0-a733-7213-a9dc-78d678fb3aa7.jsonl",
+      "C:\\Users\\32893\\.codex\\sessions\\2026\\08\\27\\rollout-2026-08-27T02-45-31-01a03ea0-a733-7213-a9dc-78d678fb3aa7_01a03f64-48cc-7512-95fe-9c9eabfa6e13.jsonl",
+      "C:\\Users\\32893\\.codex\\sessions\\2026\\08\\27\\rollout-2026-08-27T02-46-12-01a03ea0-a733-7213-a9dc-78d678fb3aa7_01a03f64-e678-7381-a9e7-376c87b22455.jsonl"
+    ]
+  },
+  "commit_binding": "This receipt is tracked by the local closeout commit; verify with git log -- docs/receipts/2026-08-27-beta1.0.7-p0-install-host-closeout.json.",
+  "remaining_control_plane_action": "Reconcile gitmirror workspace.yaml version.current from beta1.0.6 to beta1.0.7 in the root control repository."
+}

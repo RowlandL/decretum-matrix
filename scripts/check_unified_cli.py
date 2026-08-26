@@ -164,7 +164,15 @@ def _manifest_entry(path: str) -> dict[str, object]:
 
 def _tracked_script_paths() -> list[PurePosixPath]:
     completed = subprocess.run(
-        ["git", "ls-files", "--cached", "--", "scripts"],
+        [
+            "git",
+            "-c",
+            f"safe.directory={ROOT.as_posix()}",
+            "ls-files",
+            "--cached",
+            "--",
+            "scripts",
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -221,13 +229,29 @@ def discover_executable_entrypoints() -> list[str]:
 
 
 def write_manifest() -> dict[str, object]:
+    existing_projections: dict[str, object] = {}
+    try:
+        existing = _load_manifest()
+    except (OSError, UnicodeError, json.JSONDecodeError, AssertionError):
+        existing = None
+    if isinstance(existing, dict) and isinstance(existing.get("entries"), list):
+        existing_projections = {
+            str(entry.get("id")): entry.get("mcp")
+            for entry in existing["entries"]
+            if isinstance(entry, dict) and entry.get("mcp") is not None
+        }
+    entries = [_manifest_entry(path) for path in discover_executable_entrypoints()]
+    for entry in entries:
+        projection = existing_projections.get(str(entry.get("id")))
+        if projection is not None:
+            entry["mcp"] = projection
     manifest: dict[str, object] = {
         "schema": MANIFEST_SCHEMA,
         "public_command": "decretum-matrix",
         "source_entry": "python -B scripts/court_cli.py",
         "generated_by": "scripts/check_unified_cli.py --write-manifest",
         "groups": list(PUBLIC_GROUPS),
-        "entries": [_manifest_entry(path) for path in discover_executable_entrypoints()],
+        "entries": entries,
     }
     existing = MANIFEST_PATH.read_bytes() if MANIFEST_PATH.exists() else b""
     newline = "\r\n" if b"\r\n" in existing else "\n"

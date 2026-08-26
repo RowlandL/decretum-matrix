@@ -93,8 +93,8 @@
   },
   "hard_limits": {
     "portable_source": {
-      "max_files": 310,
-      "max_bytes": 7050000
+      "max_files": 335,
+      "max_bytes": 7700000
     },
     "source_lines": {
       "scripts/check_startup_fastpath_contract.py": 620,
@@ -106,7 +106,7 @@
       "scripts/supercc_dispatch_delivery.py": 1100,
       "scripts/supercc_client_selection.py": 400,
       "scripts/serve_shiguan_tree.py": 2800,
-      "scripts/ensure_shiguan_autosync.py": 600,
+      "scripts/ensure_shiguan_autosync.py": 650,
       "scripts/shiguan_peer_downloads.py": 420,
       "scripts/shiguan_peer_state.py": 320,
       "scripts/shiguan_web_pending.py": 260,
@@ -132,7 +132,7 @@
       "scripts/shiguan_pending_trust.py": 460,
       "scripts/plan_shiguan_pending_quarantine.py": 650,
       "scripts/obsidian_config_state.py": 220,
-      "scripts/agent_runtime_probe.py": 1120,
+      "scripts/agent_runtime_probe.py": 1200,
       "scripts/codex_runtime_probe_support.py": 300
     }
   },

@@ -37,6 +37,9 @@ function fail(message) {
 function withoutInheritedGitIndex(environment = process.env) {
   const result = { ...environment };
   delete result.GIT_INDEX_FILE;
+  result.GIT_CONFIG_COUNT = "1";
+  result.GIT_CONFIG_KEY_0 = "safe.directory";
+  result.GIT_CONFIG_VALUE_0 = REPO_ROOT.replaceAll("\\", "/");
   return result;
 }
 
@@ -250,24 +253,37 @@ async function validateIndependentHeadAndTag(authority) {
 }
 
 async function loadIndependentRepositoryOracle(releaseManifest) {
-  const remoteResult = spawnSync(
-    "git",
-    ["remote", "get-url", "--all", "origin"],
-    {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      env: withoutInheritedGitIndex(),
-      shell: false,
-      timeout: 30_000,
-      windowsHide: true,
-    },
-  );
-  if (remoteResult.error || remoteResult.status !== 0) {
-    fail(
-      `origin repository oracle unavailable: ${remoteResult.error?.message || remoteResult.stderr.trim()}`,
+  let remoteName;
+  let remoteOutput;
+  for (const candidate of ["origin", "upstream"]) {
+    const result = spawnSync(
+      "git",
+      ["remote", "get-url", "--all", candidate],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        env: withoutInheritedGitIndex(),
+        shell: false,
+        timeout: 30_000,
+        windowsHide: true,
+      },
     );
+    if (result.error) {
+      fail(`repository oracle unavailable: ${result.error.message}`);
+    }
+    if (result.status === 0) {
+      remoteName = candidate;
+      remoteOutput = result.stdout;
+      break;
+    }
+    if (!result.stderr.includes("No such remote")) {
+      fail(`repository oracle unavailable: ${result.stderr.trim()}`);
+    }
   }
-  const remotes = remoteResult.stdout
+  if (!remoteName) {
+    fail("repository oracle unavailable: neither origin nor upstream exists");
+  }
+  const remotes = remoteOutput
     .split(/\r?\n/)
     .map((value) => value.trim())
     .filter(Boolean);
@@ -308,7 +324,7 @@ async function loadIndependentRepositoryOracle(releaseManifest) {
   ) {
     fail("PROVENANCE.md repository owner/name identity mismatch");
   }
-  return repository;
+  return { ...repository, remoteName };
 }
 
 async function loadIndependentAuthority() {
