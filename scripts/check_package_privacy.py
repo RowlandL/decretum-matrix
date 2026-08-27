@@ -1457,6 +1457,12 @@ class PackageBuildTests(unittest.TestCase):
             package_skill.read_source_file_stable(source, Path("README.md"), source_root),
             b"one\ntwo\nthree\nfour",
         )
+        svg = source_root / "icon.svg"
+        svg.write_bytes(b"<svg>\r\n<path>\r</svg>\n")
+        self.assertEqual(
+            package_skill.read_source_file_stable(svg, Path("icon.svg"), source_root),
+            b"<svg>\n<path>\n</svg>\n",
+        )
 
 
 class ContentPrivacyTests(unittest.TestCase):

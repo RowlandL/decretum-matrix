@@ -405,8 +405,8 @@
     {
       "mode": "100644",
       "path": "assets/brand/decretum-matrix-icon.svg",
-      "sha256": "d9bbb5fb484037522c304c9e745edfe4b0db5ce67f303b0ed46c388f6aee544b",
-      "size": 4249
+      "sha256": "1f5dc5cc73e2f1d4ed62221854bd4f81e76c256e5874ce3f5f6188bb7c457a29",
+      "size": 4173
     },
     {
       "mode": "100644",
@@ -975,8 +975,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_package_privacy.py",
-      "sha256": "ff07475f3ddc5d90b505747f15f0b46953ea867b56c94d669116b7da363d4104",
-      "size": 67112
+      "sha256": "4e651256ea4d7fec5a7c199e23290050bc496fd594cce2113cd18b45723b886f",
+      "size": 67368
     },
     {
       "mode": "100644",
@@ -1527,8 +1527,8 @@
     {
       "mode": "100644",
       "path": "scripts/package_skill.py",
-      "sha256": "c7fa68da678ea04dff7fae8f7a920b84b9de415839ae708329d8a14c542b9ba0",
-      "size": 54977
+      "sha256": "32f654561eab8358272a8782ba3779629a206681b96e4bb0cf52cf5e0dd16b0f",
+      "size": 54989
     },
     {
       "mode": "100644",
@@ -1828,10 +1828,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6848319,
+    "payload_bytes": 6848511,
     "payload_file_count": 299,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "56954d2dceacfd131867b283aa005f454ac1a01fc5c4d808a2ed85a033eb5997",
+    "payload_index_sha256": "fa4bf23a7fbcbf91e91db47826aac049bd7e65f0adcf94924a62bf2dcedae8f0",
     "source_packaged_tracked_file_count": 291,
     "source_tracked_file_count": 373
   },
