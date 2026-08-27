@@ -45,17 +45,46 @@ REGISTRY_FIELDS = {
 }
 SCRIPT_SUFFIXES = {".py", ".mjs", ".js", ".ps1", ".sh", ".cmd"}
 PUBLIC_GROUPS = ("court", "office", "shiguan", "supercc", "install", "release", "check")
-EXPECTED_MANIFEST_PUBLIC_GROUPS = frozenset({"court", "shiguan", "supercc"})
-PUBLIC_COMPATIBILITY_ENTRYPOINTS = frozenset(
+MIN_PUBLIC_COMPATIBILITY_ENTRIES = 100
+EXPECTED_MANIFEST_PUBLIC_GROUPS = frozenset(PUBLIC_GROUPS)
+NON_PUBLIC_ENTRYPOINTS = frozenset(
     {
-        "scripts/archive_checkpoint.py",
-        "scripts/build_shiguan_knowledge_graph.py",
-        "scripts/court_cli.py",
-        "scripts/court_session_closeout.py",
-        "scripts/grow_shiguan_tree.py",
-        "scripts/memory_decision.py",
-        "scripts/query_shiguan_index.py",
-        "scripts/supercc_squad.py",
+        "scripts/build_npm_package.mjs",
+        "scripts/check_npm_package.mjs",
+        "scripts/court_codex_hook.py",
+        "scripts/court_hooks_advisory.py",
+        "scripts/court_mcp_server.py",
+        "scripts/install_codex_plugin_projection.py",
+        "scripts/memory_pipeline_fixture.py",
+    }
+)
+CLI_SUPPORT_FILES = frozenset(
+    {
+        "AUTHORS.md",
+        "CLA.md",
+        "COMMERCIAL-LICENSE.md",
+        "CONTRIBUTING.md",
+        "PRIVACY.md",
+        "PROVENANCE.md",
+        "SBOM.spdx.json",
+        "SECURITY.md",
+        "THIRD_PARTY_NOTICES.md",
+        "TRADEMARKS.md",
+        "assets/brand",
+        "references/manifests/direct-review-governance.v1.json",
+        "references/manifests/github-release-metadata.v1.json",
+        "references/manifests/release-gates.v1.json",
+        "references/manifests/source-state-budget.v1.json",
+        "release-manifest.json",
+        "scripts/check_court_native_host_dispatch.py",
+        "scripts/check_shiguan_git_federation.py",
+        "scripts/codex_runtime_probe_support.py",
+        "scripts/court_outcome_gate.py",
+        "scripts/court_result_semantics.py",
+        "scripts/memory_pipeline_fixture.py",
+        "scripts/release_gate_manifest.py",
+        "scripts/shiguan_host_memory_projection.py",
+        "scripts/shiguan_pending_trust.py",
     }
 )
 BOOTSTRAP_ENTRYPOINTS = (
@@ -153,7 +182,7 @@ def _manifest_entry(path: str) -> dict[str, object]:
         entry_name = "closeout-session"
     if pure.suffix.lower() != ".py":
         entry_name = f"{entry_name}-{pure.suffix.lower().lstrip('.')}"
-    public = path in PUBLIC_COMPATIBILITY_ENTRYPOINTS
+    public = path not in NON_PUBLIC_ENTRYPOINTS
     return {
         "id": f"{domain}.{entry_name}",
         "domain": domain,
@@ -283,7 +312,36 @@ def write_manifest() -> dict[str, object]:
         encoding="utf-8",
         newline="\n",
     )
+    _write_cli_public_projection(entries)
     return manifest
+
+
+def _write_cli_public_projection(entries: list[dict[str, object]]) -> None:
+    value = json.loads(INSTALL_PROJECTION_PATH.read_text(encoding="utf-8"))
+    projections = value.get("projections")
+    if not isinstance(projections, dict):
+        raise AssertionError("install projection entries unavailable")
+    public_paths = sorted(
+        {
+            str(entry.get("legacy_path") or "")
+            for entry in entries
+            if entry.get("public") is True and entry.get("group") != "root"
+        }
+        - {""}
+    )
+    cli_projection = sorted(set(public_paths) | CLI_SUPPORT_FILES)
+    projections["cli_public"] = cli_projection
+    repository_only = projections.get("repository_only")
+    if not isinstance(repository_only, list):
+        raise AssertionError("install projection repository_only invalid")
+    projections["repository_only"] = [
+        item for item in repository_only if item not in set(cli_projection)
+    ]
+    INSTALL_PROJECTION_PATH.write_text(
+        json.dumps(value, ensure_ascii=True, indent=2, sort_keys=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def _load_manifest() -> dict[str, object] | None:
@@ -306,7 +364,10 @@ def _runtime_projection_paths() -> set[str]:
         if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
             raise AssertionError(f"install projection {name} invalid")
         selected.append(set(raw))
-    return set.intersection(*selected)
+    cli_public = projections.get("cli_public")
+    if not isinstance(cli_public, list) or any(not isinstance(item, str) for item in cli_public):
+        raise AssertionError("install projection cli_public invalid")
+    return set.intersection(*selected) | set(cli_public)
 
 
 def _duplicates(values: Iterable[str]) -> list[str]:
@@ -331,6 +392,7 @@ def evaluate_inventory() -> dict[str, object]:
     missing_groups: list[str] = []
     invalid_groups: list[str] = []
     public_not_projected: list[str] = []
+    public_classification_drift: list[str] = []
     public_count = 0
     if manifest is None:
         missing = discovered
@@ -377,6 +439,29 @@ def evaluate_inventory() -> dict[str, object]:
             problems.append("duplicate_public_commands")
         public_entries = [entry for entry in entries if entry.get("public") is True]
         public_count = len(public_entries)
+        expected_public = {
+            path: _manifest_entry(path).get("public") is True
+            for path in discovered
+        }
+        public_classification_drift = sorted(
+            path
+            for path, expected in expected_public.items()
+            if next(
+                (
+                    entry.get("public") is True
+                    for entry in entries
+                    if entry.get("legacy_path") == path
+                ),
+                None,
+            )
+            != expected
+        )
+        if public_classification_drift:
+            problems.append("public_classification_drift")
+        if public_count < MIN_PUBLIC_COMPATIBILITY_ENTRIES:
+            problems.append(
+                f"public_compatibility_surface_contracted:{public_count}"
+            )
         try:
             runtime_projection = _runtime_projection_paths()
         except (OSError, UnicodeError, json.JSONDecodeError, AssertionError) as exc:
@@ -410,6 +495,8 @@ def evaluate_inventory() -> dict[str, object]:
         "discovered_count": len(discovered),
         "registered_count": len(entries),
         "public_count": public_count,
+        "public_minimum": MIN_PUBLIC_COMPATIBILITY_ENTRIES,
+        "public_classification_drift": public_classification_drift,
         "source_only_count": len(entries) - public_count,
         "public_not_projected": public_not_projected,
         "missing": missing,

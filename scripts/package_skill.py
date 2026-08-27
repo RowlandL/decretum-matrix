@@ -434,7 +434,7 @@ def package_projection_entries() -> frozenset[str]:
     if not isinstance(projections, dict):
         raise PackagePolicyError("install projection manifest missing projections")
     entries: set[str] = set()
-    for name in ("shared_agents", "portable_current_tool", "codex_plugin"):
+    for name in ("shared_agents", "portable_current_tool", "cli_public", "codex_plugin"):
         raw = projections.get(name)
         if isinstance(raw, list):
             entries.update(str(item).replace("\\", "/").casefold() for item in raw)

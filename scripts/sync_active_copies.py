@@ -484,7 +484,7 @@ def projection_entries(manifest: dict[str, object]) -> set[str]:
     if not isinstance(projections, dict):
         return set()
     entries: set[str] = set()
-    for name in ("shared_agents", "portable_current_tool"):
+    for name in ("shared_agents", "portable_current_tool", "cli_public"):
         values = projections.get(name)
         if isinstance(values, list):
             entries.update(str(value) for value in values if isinstance(value, str))

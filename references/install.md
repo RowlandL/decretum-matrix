@@ -32,8 +32,9 @@ The installed surface is defined by
 `references/manifests/install-projection.v1.json`. It includes the entry
 `SKILL.md`, the current governing references, office dossiers/profiles,
 Shiguan/GBrain and superCC runtime helpers, `sync_active_copies.py`, and the
-dedicated legacy locator migration entrypoint
-`migrate_legacy_skill_locator.py`.
+manifest-derived `cli_public` handler/support layer. CLI handlers are installed
+for explicit invocation but remain lazy: help, startup, preload, and ordinary
+sync must not import checker, release, or package implementations.
 
 ## MCP Protocol Contract
 
@@ -66,8 +67,11 @@ python -B scripts/probe_court_mcp_modern_wire.py --host-state source_checkout
 python -B scripts/probe_court_mcp_modern_wire.py --server "%USERPROFILE%\.agents\skills\decretum-matrix\scripts\court_mcp_server.py" --root "%USERPROFILE%\.agents\skills\decretum-matrix" --expected-root <validated-source-root> --host-state host_degraded
 ```
 
-Do not install release gates, fixtures-only checkers, package builders, GitHub
-publication helpers, or broad compatibility checkers as startup tools.
+Do not load release gates, fixtures-only helpers, package builders, GitHub
+publication helpers, or broad compatibility checkers as startup tools. A
+handler may be installed for the seven-group CLI without becoming a startup
+dependency. Commands that require Git/tag authority return a typed
+`SOURCE_CHECKOUT_REQUIRED` or other blocked receipt outside a source checkout.
 
 First install may install or reuse the superCC runtime dependencies `zellij` and
 `squad`. This is a dependency bootstrap, not a startup checker. The receipt must

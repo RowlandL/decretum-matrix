@@ -1,6 +1,6 @@
 # Validation And Packaging / 校验与包装
 
-使用当前 host 的 Python 3，所有入口带 `-B`；active skill root 出现 `__pycache__`/`.pyc` 是 hard failure，不直接删除。安装版只投影 native/superCC 运行、史馆/GBrain、官署语义、安装启动与五根同步必需脚本；校验脚本与发布/深度校验脚本留在源码树与发布包，**不随运行时分发**。
+使用当前 host 的 Python 3，所有入口带 `-B`；active skill root 出现 `__pycache__`/`.pyc` 是 hard failure，不直接删除。安装版投影 native/superCC 运行、史馆/GBrain、官署语义、安装启动、五根同步，以及 manifest 声明的统一 CLI handler。校验/发布 handler 可供显式 CLI 调用，但不得进入 startup、preload、普通同步决策或 eager import；明确退休的深度门禁仍只留在源码树与发布包。
 
 安装时（仅安装时）从发布包/安装源运行结构校验：
 

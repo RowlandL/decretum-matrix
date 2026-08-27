@@ -154,6 +154,7 @@ POLICY_EXPECTED = {
 PROJECTION_NAMES = (
     "shared_agents",
     "portable_current_tool",
+    "cli_public",
     "repository_only",
 )
 BINDING_FIELDS = (
@@ -359,6 +360,7 @@ def _fixture_manifest() -> Payload:
         "projections": {
             "shared_agents": list(PORTABLE_FILES),
             "portable_current_tool": list(PORTABLE_FILES),
+            "cli_public": [],
             "repository_only": list(REPOSITORY_ONLY_FILES),
         },
         "persistent_bindings": [

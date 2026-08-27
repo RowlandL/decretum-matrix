@@ -237,7 +237,10 @@ def _load_projection(source: Path, projection: str) -> list[Path]:
     raw = projections.get(projection)
     if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
         raise ValueError(f"projection is invalid: {projection}")
-    entries = list(raw)
+    cli_public = projections.get("cli_public")
+    if not isinstance(cli_public, list) or any(not isinstance(item, str) for item in cli_public):
+        raise ValueError("projection is invalid: cli_public")
+    entries = [*raw, *cli_public]
     if value.get("protected_shared_agents_seeds", []) != []:
         raise ValueError("protected_shared_agents_seeds must be empty")
     if not entries:
@@ -595,6 +598,7 @@ def _write_fixture_source(root: Path) -> None:
                         "references/manifests/skill-identity.v1.json",
                         "scripts/runtime.py",
                     ],
+                    "cli_public": [],
                     "repository_only": ["scripts/check_active_copy_hashes.py"],
                 },
                 "persistent_bindings": [

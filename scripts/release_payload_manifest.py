@@ -62,6 +62,20 @@ class ManifestError(ValueError):
     pass
 
 
+def manifest_error_result(exc: ManifestError) -> dict[str, object]:
+    message = str(exc)
+    status = (
+        "SOURCE_CHECKOUT_REQUIRED"
+        if "not a git repository" in message.casefold()
+        else "MANIFEST_ERROR"
+    )
+    return {
+        "ok": False,
+        "status": status,
+        "error": f"{type(exc).__name__}:{message}",
+    }
+
+
 def root_path() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -527,6 +541,10 @@ def self_tests() -> dict[str, bool]:
             "SBOM.spdx.json",
         }.issubset(LEGAL_PATHS),
         "canonical_archive_locator_required": ARCHIVE_ROOT == "decretum-matrix/",
+        "non_git_install_is_typed_source_checkout_boundary": (
+            manifest_error_result(ManifestError("fatal: not a git repository"))["status"]
+            == "SOURCE_CHECKOUT_REQUIRED"
+        ),
     }
     with tempfile.TemporaryDirectory(prefix="court-staged-payload-self-test-") as tmp_text:
         staged_root = Path(tmp_text)
@@ -669,7 +687,9 @@ def main() -> int:
                 else True,
             )
         )
-    except (ManifestError, package_skill.PackagePolicyError, OSError, subprocess.SubprocessError) as exc:
+    except ManifestError as exc:
+        result = manifest_error_result(exc)
+    except (package_skill.PackagePolicyError, OSError, subprocess.SubprocessError) as exc:
         result = {"ok": False, "error": f"{type(exc).__name__}:{exc}"}
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

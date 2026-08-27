@@ -64,6 +64,13 @@ The installed MCP facade must expose these read-only tools only:
 `court.status`, `court.command_help`, `shiguan.query`,
 `shiguan.archive_dry_run`, `memory.scan`.
 
+The installation also projects the complete seven-group unified CLI surface.
+Its manifest inventory and handlers must agree: a declared public adapter may
+not point at a missing installed file. Checker and release handlers remain
+lazy and run only when explicitly selected; Git/tag-authority commands return
+`SOURCE_CHECKOUT_REQUIRED` outside a source checkout rather than masquerading
+as missing installation files.
+
 MCP and the unified CLI are peer transports. Both use the source
 `scripts/court_public_api.py`; MCP must not spawn `court_cli.py`, parse CLI
 stdout, or create a second ledger/receipt path. A successful MCP probe and a

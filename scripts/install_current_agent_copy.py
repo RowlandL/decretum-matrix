@@ -164,7 +164,7 @@ def _load_projection_contract(
     projections = manifest.get("projections")
     if not isinstance(projections, dict):
         raise _InstallContractError("projection_manifest_invalid", "projections_missing")
-    for name in ("shared_agents", "portable_current_tool", "repository_only"):
+    for name in ("shared_agents", "portable_current_tool", "cli_public", "repository_only"):
         values = projections.get(name)
         if not isinstance(values, list) or any(
             not _safe_relative(item) for item in values
@@ -174,7 +174,7 @@ def _load_projection_contract(
             )
     portable = {
         item
-        for name in ("shared_agents", "portable_current_tool")
+        for name in ("shared_agents", "portable_current_tool", "cli_public")
         for item in projections[name]
         if isinstance(item, str)
     }
@@ -498,10 +498,11 @@ def _plan_projection_writes(
     for _label, target, projection_name in selected:
         migration_source = (migration_sources or {}).get(target.resolve(strict=False))
         inspection_root = migration_source or target
-        if projection_name not in expanded:
-            values = projections[projection_name]
+        expanded_name = f"{projection_name}+cli_public"
+        if expanded_name not in expanded:
+            values = [*projections[projection_name], *projections["cli_public"]]
             assert isinstance(values, list)
-            expanded[projection_name] = _expand_projection(source_root, values)
+            expanded[expanded_name] = _expand_projection(source_root, values)
         if projection_name != "shared_agents":
             for protected_path in sorted(protected_paths):
                 wrong_target = inspection_root / Path(protected_path)
@@ -509,7 +510,7 @@ def _plan_projection_writes(
                     raise _InstallContractError(
                         "protected_anchor_wrong_target", wrong_target.as_posix()
                     )
-        entries = expanded[projection_name]
+        entries = expanded[expanded_name]
         for relative, payload in entries:
             destination = target / Path(relative.as_posix())
             existing = inspection_root / Path(relative.as_posix())

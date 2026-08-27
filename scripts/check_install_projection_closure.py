@@ -539,13 +539,18 @@ def evaluate() -> dict[str, Any]:
         failures.append("checker_repository_only_declaration_missing")
     if not (ROOT / INSTALL_CHECKER_RELATIVE).is_file():
         failures.append("checker_source_missing")
+    cli_public = projections.get("cli_public")
+    if not isinstance(cli_public, list) or any(not isinstance(item, str) for item in cli_public):
+        failures.append("cli_public:projection_list_invalid")
+        cli_public = []
     for target in ("shared_agents", "portable_current_tool"):
         raw_paths = projections.get(target)
         if not isinstance(raw_paths, list) or any(not isinstance(item, str) for item in raw_paths):
             failures.append(f"{target}:projection_list_invalid")
             continue
-        projected = set(raw_paths)
-        projected_files = _projected_files(raw_paths)
+        combined_paths = [*raw_paths, *cli_public]
+        projected = set(combined_paths)
+        projected_files = _projected_files(combined_paths)
         projected_coverage = projected | projected_files
         checker_projected = (
             [INSTALL_CHECKER_RELATIVE]
