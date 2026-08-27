@@ -53,7 +53,7 @@ def checkpoint_worker(
         priority_level="C",
         keywords="concurrency,integrity",
         key_actions=f"writer:{writer_id}",
-        source_agent="test",
+        source_agent="generic-cli",
         full_record="",
         full_record_file=None,
         refresh_mode="async",

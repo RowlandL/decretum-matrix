@@ -33,7 +33,15 @@ CONTEXT_HARD_LIMITS = {
 
 
 def run_cli(script: Path, env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run([sys.executable, str(script), *args], text=True, capture_output=True, env=env, check=False)
+    result = subprocess.run(
+        [sys.executable, str(script), *args],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        env=env,
+        check=False,
+    )
     if result.returncode != expect:
         print(result.stdout, file=sys.stderr)
         print(result.stderr, file=sys.stderr)

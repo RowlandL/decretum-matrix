@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,6 @@ from typing import Callable
 sys.dont_write_bytecode = True
 
 from shiguan_paths import (
-    _cutover_receipt_sha256,
     _success_rollback_is_consumable,
     _valid_empty_binding_snapshot,
     default_migration_source_root,
@@ -49,6 +49,26 @@ PROTECTED_PATHS = (
 )
 HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 READY_RECEIPT_TTL_SECONDS = 300
+
+
+def _cutover_receipt_sha256(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _valid_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in value)
+    )
 
 
 def _resolved_path(value: object) -> Path | None:
