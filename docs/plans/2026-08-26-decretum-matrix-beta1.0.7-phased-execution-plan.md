@@ -140,3 +140,13 @@ P0、P1、P2、P3、P4 已在本轮完成最小实现与验证。P4 只证明 sy
 | P3 | DONE | `python -B scripts/check_court_hooks_advisory.py` -> PASS；新增 advisory report，不安装 `.git/hooks`，不设置 `core.hooksPath`，不形成归档、记忆写入、发布或验收权威 |
 | P4 | DONE | `python -B scripts/check_memory_pipeline_fixture.py` -> PASS；synthetic native-store fixture 跑通 `scan -> adjudicate -> apply -> verify -> reconcile`，paired receipts 和 native reread 均验证；真实 memory mutation/body access 均为 false |
 | P5 | PARTIAL_HOST_UNVERIFIED | 源码侧保留安装/运行契约与编码回归；宿主结论严格拆分为 `manager_registered=PASS`、`effective_config_projection=FAIL`、`process_loaded=NOT_OBSERVED`、`process_probe=PASS_OR_DRIFT`（独立 server 进程证据，source 与 installed 分开记 receipt）、`tool_visible=FAIL`。当前安装投影仍需 hash-bound 重签/复投影；CC Switch 辅助线已暂停为 `host_environment_drift / PARTIAL`，本阶段按 `host_degraded / effective_runtime_unverified` 回报，保留历史 2026-07-28 成功回执但不能以旧 result event 或静态配置文本宣称 active |
+
+### Beta1.0.7 Scope Amendment (2026-08-28)
+
+P3 is superseded by the current release boundary: Codex lifecycle hooks and
+Git-hook advisory code are withdrawn from beta1.0.7 because of host
+compatibility and configuration variance. The hook files, runtime scripts,
+checker, and install projections are removed. The optional Codex plugin
+activation metadata remains source-only and carries no hook behavior. The
+shipped product surface is the skill plus read-only MCP; the historical P3
+entry above remains an immutable record of the earlier implementation state.

@@ -146,31 +146,21 @@ the just-installed profiles before either command may pass. Recomputing an
 in-memory preload manifest is not host evidence; the installed native role
 files must bind the same skill, profile, and dossier hashes.
 
-## Advisory Hooks (Source Only)
+## Hooks Withdrawn In beta1.0.7
 
-Decretum Matrix integrates with Codex as a standalone stdio MCP server, not as
-a plugin. The `.codex-plugin` and hook files are source-side advisory fixtures;
-the normal install projection does not enable or install a Codex plugin. They
-do not grant authority and they do not replace the CLI or MCP probe.
+Decretum Matrix integrates as a standalone skill plus read-only stdio MCP. The
+Codex lifecycle and Git hook implementation was withdrawn from beta1.0.7 due to
+host compatibility and configuration variance. No hook manifest, hook runtime,
+or hook advisory script is shipped, installed, or enabled.
 
-- `scripts/court_codex_hook.py` is the Codex lifecycle hook entrypoint.
-- `scripts/court_hooks_advisory.py` remains the Git-hook compatibility report;
-  it must not install `.git/hooks` or set `core.hooksPath`.
-- Neither hook may write memory, archive checkpoints, close out tasks, publish
-  releases, dispatch agents, or change MCP configuration.
-- The decree number still comes only from the `archive-checkpoint` receipt;
-  hooks and MCP never allocate it.
+The `.codex-plugin/plugin.json` metadata and its explicit installer remain only
+as an optional activation mechanism for compatibility. They carry no hook
+behavior and do not replace the CLI, MCP registration, or runtime probes.
 
-Verify the boundary with:
-
-```powershell
-python -B scripts/check_court_hooks_advisory.py
-```
-
-Do not run a plugin installer as part of the normal MCP installation. If an
-earlier repair enabled a plugin projection, use that operation's recorded
-rollback receipt to restore its preimage; keep the direct CC Switch/Codex MCP
-registration unchanged.
+Do not run the optional plugin installer as part of normal skill/MCP
+installation. If an older repair enabled the former hook projection, use its
+recorded rollback receipt to restore the preimage; keep the direct
+CC Switch/Codex MCP registration unchanged.
 
 ## MCP Replacement Boundary
 
@@ -187,8 +177,9 @@ CLI or infer write capability from a successful read-only probe.
 
 The final report must include the package SHA-256, target roots, backup root,
 install receipt, CC Switch import/sync evidence, current config TOML hash,
-source MCP probe, installed MCP probe, active-copy hash receipt, hook advisory
-probe, and explicit rollback command.
+source MCP probe, installed MCP probe, active-copy hash receipt, and explicit
+rollback command. Do not add a hook probe: hooks are withdrawn from this
+release.
 
 Do not claim "configured" from file presence alone. Configuration is complete
 only when the host registry/import path, live Codex TOML, restart, and runtime

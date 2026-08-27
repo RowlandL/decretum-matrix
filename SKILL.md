@@ -72,12 +72,11 @@ stdout. The CLI remains the human/automation surface, while MCP remains the
 structured host surface. They share runtime data and receipt rules, but neither
 transport becomes the other's authority.
 
-Codex lifecycle hooks are an optional advisory projection of this same
-contract. A loaded `.codex-plugin` may surface session context and remind the
-agent to use `mcp__decretum_matrix`; hooks must never write the court ledger,
-memory, MCP configuration, Git configuration, or closeout receipts. The
-absence of a hook process is a configuration gap, not evidence that the court
-runtime or MCP transport is authoritative by itself.
+beta1.0.7 ships the skill and read-only MCP only. The optional `.codex-plugin`
+activation entrypoint is retained as metadata compatibility, but lifecycle and
+Git hooks are withdrawn and are not shipped, installed, or enabled. CLI and MCP
+remain the authoritative transports; plugin metadata must not be treated as a
+runtime capability or as a substitute for MCP configuration.
 
 MCP currently replaces only the read-only CLI subset: status, command help,
 Shiguan query, archive dry-run, and memory scan. Court/office mutations,

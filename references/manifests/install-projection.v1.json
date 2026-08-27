@@ -14,9 +14,7 @@
   ],
   "projections": {
     "codex_plugin": [
-      ".codex-plugin/plugin.json",
-      "hooks/claude-codex-hooks.json",
-      "scripts/court_codex_hook.py"
+      ".codex-plugin/plugin.json"
     ],
     "shared_agents": [
       "SKILL.md",
@@ -72,7 +70,6 @@
       "scripts/court_dispatch_hierarchy.py",
       "scripts/court_dispatch_policy.py",
       "scripts/court_file_lock.py",
-      "scripts/court_hooks_advisory.py",
       "scripts/court_intake_gate.py",
       "scripts/court_model_router.py",
       "scripts/court_mcp_server.py",
@@ -188,7 +185,6 @@
       "scripts/court_dispatch_hierarchy.py",
       "scripts/court_dispatch_policy.py",
       "scripts/court_file_lock.py",
-      "scripts/court_hooks_advisory.py",
       "scripts/court_intake_gate.py",
       "scripts/court_model_router.py",
       "scripts/court_mcp_server.py",
@@ -301,7 +297,6 @@
       "scripts/check_court_complexity_budget.py",
       "scripts/check_court_dispatch_hierarchy.py",
       "scripts/check_court_dispatch_policy.py",
-      "scripts/check_court_hooks_advisory.py",
       "scripts/check_court_intake_gate.py",
       "scripts/check_court_intervention_matrix.py",
       "scripts/check_court_mcp_server.py",

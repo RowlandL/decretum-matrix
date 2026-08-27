@@ -1,6 +1,7 @@
-"""Install or roll back the Decretum Matrix Codex hook projection.
+"""Install or roll back the optional Decretum Matrix Codex plugin projection.
 
-The plugin projection owns only lifecycle advisory hooks. CC Switch remains the
+The plugin projection carries metadata only. beta1.0.7 ships the skill and
+read-only MCP; no lifecycle or Git hooks are installed. CC Switch remains the
 owner of the direct ``mcp_servers.decretum_matrix`` registration, so this
 installer never creates a duplicate MCP server entry.
 """
@@ -22,8 +23,6 @@ NAME = "decretum-matrix"
 PLUGIN_ID = "decretum-matrix@personal"
 PLUGIN_FILES = (
     ".codex-plugin/plugin.json",
-    "hooks/claude-codex-hooks.json",
-    "scripts/court_codex_hook.py",
 )
 
 

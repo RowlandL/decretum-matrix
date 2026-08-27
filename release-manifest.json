@@ -21,8 +21,8 @@
     {
       "mode": "100644",
       "path": ".codex-plugin/plugin.json",
-      "sha256": "54b075a2ead295d00d922201022824e1d50bcbad576ba1c8e64a2fce93f88cdd",
-      "size": 676
+      "sha256": "579383907eb5e5c2a43f1dd52f8825360151fcf174dad1f7cbb02ed70b3d929f",
+      "size": 720
     },
     {
       "mode": "100644",
@@ -57,8 +57,8 @@
     {
       "mode": "100644",
       "path": "INSTALL-README-AI.md",
-      "sha256": "aa8edf49a89cbd8c453fdcc1c39efeb0c3b0d529b4e084c08eef1f284e35fb64",
-      "size": 10308
+      "sha256": "13eb81c0e4fd7a751be128589551376223727f71203723b534a46ea1c1745598",
+      "size": 10022
     },
     {
       "mode": "100644",
@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "0b522eeb4b337a9f99b9a92f818214b646b7ca33db0442cbf7fda79efcae8812",
-      "size": 19483
+      "sha256": "7c0fd07da2d56acceb0715a80bbfb41f3f29c9efb1af8dc30d5da39874b34ccb",
+      "size": 19430
     },
     {
       "mode": "100644",
@@ -422,12 +422,6 @@
     },
     {
       "mode": "100644",
-      "path": "hooks/claude-codex-hooks.json",
-      "sha256": "f5a4fffb7b58c9dcd01bec2a6e5f3cac2fe92f60cea8122cf5b2b92aebc519d8",
-      "size": 492
-    },
-    {
-      "mode": "100644",
       "path": "references/README.md",
       "sha256": "8030e365795e25ec27da4d0610e8175b830da8bd2625eeb7f9123b80185bed77",
       "size": 5943
@@ -543,8 +537,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "3e5b2ae1a1007ec0317c69d0150462bbd21588931ed8d3249e9b3dc2f98c3e50",
-      "size": 75243
+      "sha256": "c68f51be4f2424961252839bcc4a3cd90e5f8150eeea79302b39c62c55fec7bb",
+      "size": 73713
     },
     {
       "mode": "100644",
@@ -573,8 +567,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "d465c7f0bae941b36bc1a1a265fa8b0d5b2fd20db8e4493061d2281c5520306e",
-      "size": 20464
+      "sha256": "16bd3d3d7836cf68fb9033dbbec9bfe4e0b742ce94326251fb09c3360e6eb7eb",
+      "size": 20259
     },
     {
       "mode": "100644",
@@ -821,12 +815,6 @@
       "path": "scripts/check_court_dispatch_policy.py",
       "sha256": "cba164cdc1f8f05f7e9fe22c04c6b6d385e8a60891770bc5b394cae7e356a280",
       "size": 78660
-    },
-    {
-      "mode": "100644",
-      "path": "scripts/check_court_hooks_advisory.py",
-      "sha256": "a1f6ddc2103799dc0e7f6865c26525b7d1821e9ae57c3f12208f66c5a4f5f432",
-      "size": 3432
     },
     {
       "mode": "100644",
@@ -1191,8 +1179,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "01c7770e0a14486d139a5282b980f23a47715a7a323b6e038c726610668529da",
-      "size": 66474
+      "sha256": "c92099620f28e30424adc4f0eecc82af89d5f2fd9d14b48bdebad25f2a9d3a33",
+      "size": 66392
     },
     {
       "mode": "100644",
@@ -1229,12 +1217,6 @@
       "path": "scripts/court_cli_registry.py",
       "sha256": "9e9e8af4e374514aa6a6b034d494a2fc99b2eb201ea9cf904dc5e6e065282579",
       "size": 37103
-    },
-    {
-      "mode": "100644",
-      "path": "scripts/court_codex_hook.py",
-      "sha256": "2d1a74fe9f3987d8118aace6cc186750a27cf0947ed1a7b32ac0959d4805e96e",
-      "size": 1325
     },
     {
       "mode": "100644",
@@ -1289,12 +1271,6 @@
       "path": "scripts/court_heartbeat_watch.py",
       "sha256": "fc037120be705fef9fc19d04b6120826f89b76961ac692e6cfb773f2de821972",
       "size": 6520
-    },
-    {
-      "mode": "100644",
-      "path": "scripts/court_hooks_advisory.py",
-      "sha256": "6a6d1706bca1041974a38bbbc2f70908a382e43f206f1ae88e7cb5061f9dfe3c",
-      "size": 2314
     },
     {
       "mode": "100644",
@@ -1852,12 +1828,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6999980,
-    "payload_file_count": 303,
+    "payload_bytes": 6990305,
+    "payload_file_count": 299,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "643480a7629f1054a2aa32fd86be51cd5c0df52740518e4635359114362d8f12",
-    "source_packaged_tracked_file_count": 295,
-    "source_tracked_file_count": 377
+    "payload_index_sha256": "e31cc9a41cfe60786110ce4439da33a9795658da120d02fbe845850c4cbf5249",
+    "source_packaged_tracked_file_count": 291,
+    "source_tracked_file_count": 373
   },
   "license": {
     "declared": "AGPL-3.0-only",

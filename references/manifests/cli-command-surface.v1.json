@@ -287,19 +287,6 @@
       "side_effect": "read_only"
     },
     {
-      "authority_source": "scripts/check_court_hooks_advisory.py",
-      "command": "check-court-hooks-advisory",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "check",
-      "group": "check",
-      "handler": "isolated_subprocess:scripts/check_court_hooks_advisory.py",
-      "id": "check.check-court-hooks-advisory",
-      "legacy_path": "scripts/check_court_hooks_advisory.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "read_only"
-    },
-    {
       "authority_source": "scripts/check_court_intake_gate.py",
       "command": "check-court-intake-gate",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1119,19 +1106,6 @@
       "side_effect": "bounded_mutation"
     },
     {
-      "authority_source": "scripts/court_codex_hook.py",
-      "command": "court-codex-hook",
-      "compatibility_state": "source_only_entrypoint",
-      "domain": "court",
-      "group": "court",
-      "handler": "isolated_subprocess:scripts/court_codex_hook.py",
-      "id": "court.court-codex-hook",
-      "legacy_path": "scripts/court_codex_hook.py",
-      "public": false,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
       "authority_source": "scripts/court_codex_host_resolution.py",
       "command": "court-codex-host-resolution",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1180,19 +1154,6 @@
       "id": "court.court-heartbeat-watch",
       "legacy_path": "scripts/court_heartbeat_watch.py",
       "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
-    },
-    {
-      "authority_source": "scripts/court_hooks_advisory.py",
-      "command": "court-hooks-advisory",
-      "compatibility_state": "source_only_entrypoint",
-      "domain": "court",
-      "group": "court",
-      "handler": "isolated_subprocess:scripts/court_hooks_advisory.py",
-      "id": "court.court-hooks-advisory",
-      "legacy_path": "scripts/court_hooks_advisory.py",
-      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },

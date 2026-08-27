@@ -1,18 +1,17 @@
 {
   "name": "decretum-matrix",
   "version": "beta1.0.7",
-  "description": "Decretum Matrix lifecycle advisory hooks for Codex.",
+  "description": "Decretum Matrix optional Codex plugin activation shell for the skill and read-only MCP.",
   "author": {
     "name": "RowlandL"
   },
   "license": "AGPL-3.0-only",
-  "hooks": "./hooks/claude-codex-hooks.json",
   "interface": {
     "displayName": "Decretum Matrix",
-    "shortDescription": "Court lifecycle context and read-only MCP routing.",
-    "longDescription": "Adds bounded lifecycle context for the Decretum Matrix skill. Hooks are advisory and never replace CLI, MCP, or court receipts.",
+    "shortDescription": "Skill activation metadata and read-only MCP routing.",
+    "longDescription": "Keeps the optional Codex plugin activation entrypoint available while beta1.0.7 ships the skill and read-only MCP only. CLI and MCP remain the authoritative transports.",
     "developerName": "RowlandL",
     "category": "Productivity",
-    "capabilities": ["Lifecycle hooks", "Read-only court integration"]
+    "capabilities": ["Optional plugin activation", "Read-only court integration"]
   }
 }
