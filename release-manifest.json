@@ -57,8 +57,8 @@
     {
       "mode": "100644",
       "path": "INSTALL-README-AI.md",
-      "sha256": "05022198e3d0966b70309a30f98b64d9ae7a908d64d173bb30d5bf75e409e6b0",
-      "size": 8629
+      "sha256": "aa8edf49a89cbd8c453fdcc1c39efeb0c3b0d529b4e084c08eef1f284e35fb64",
+      "size": 10308
     },
     {
       "mode": "100644",
@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "c2d213608635323b1acd61eb2abc0843660deed0a6634e9b3bacd782858ac149",
-      "size": 19281
+      "sha256": "0b522eeb4b337a9f99b9a92f818214b646b7ca33db0442cbf7fda79efcae8812",
+      "size": 19483
     },
     {
       "mode": "100644",
@@ -531,8 +531,8 @@
     {
       "mode": "100644",
       "path": "references/install.md",
-      "sha256": "e6b22fcfa4a1b8e32fa7c7802d6a09e3736d20c299289478f58094374313b18d",
-      "size": 9562
+      "sha256": "391a827580cd17ef878528cabf3f5c3f4533977aa51d7e63af88e41114f1aa8a",
+      "size": 11258
     },
     {
       "mode": "100644",
@@ -543,8 +543,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "7318a28586d1d0f77c0f920f071d56360d6a0cd6fb8a2c51b0da7e750fafd1bb",
-      "size": 73348
+      "sha256": "3e5b2ae1a1007ec0317c69d0150462bbd21588931ed8d3249e9b3dc2f98c3e50",
+      "size": 75243
     },
     {
       "mode": "100644",
@@ -573,8 +573,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "7ce051459e9e4c3e11bd703f99ddc4886919d0d0b9d8725abf8c1ca0f7b37501",
-      "size": 20321
+      "sha256": "d465c7f0bae941b36bc1a1a265fa8b0d5b2fd20db8e4493061d2281c5520306e",
+      "size": 20464
     },
     {
       "mode": "100644",
@@ -932,6 +932,18 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/check_debug.py",
+      "sha256": "39ef8cf1d3f537741d1e29e7b4ee7fc4ccfb943fdf5ba1f8a187a4956c9b54e0",
+      "size": 330
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_doctor.py",
+      "sha256": "eee8258046b5b377d2e3eb2d7176181f6c8b71eda2f94c3142a9a7d988888879",
+      "size": 332
+    },
+    {
+      "mode": "100644",
       "path": "scripts/check_governance_framework.py",
       "sha256": "0608170bf46c39d05680158df9faa39435808e27da9fbcb3157f0b19b770977f",
       "size": 29053
@@ -1179,8 +1191,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "191b5d6c4513f9ce8d0d38aa99f1d6ec225d6045defcfb0069f092871c8ddd8d",
-      "size": 65792
+      "sha256": "01c7770e0a14486d139a5282b980f23a47715a7a323b6e038c726610668529da",
+      "size": 66474
     },
     {
       "mode": "100644",
@@ -1215,8 +1227,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_cli_registry.py",
-      "sha256": "5db448536716387f243091a25fcb705303b995ca81628b2b0984d81f8509a39a",
-      "size": 35052
+      "sha256": "9e9e8af4e374514aa6a6b034d494a2fc99b2eb201ea9cf904dc5e6e065282579",
+      "size": 37103
     },
     {
       "mode": "100644",
@@ -1247,6 +1259,12 @@
       "path": "scripts/court_complexity_budget.py",
       "sha256": "dfdd820eb54a28f2b56b73d096650bc4728b29b9143b0d3a93032fab9e2b48bb",
       "size": 80657
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_diagnostics.py",
+      "sha256": "3c5d7f5b16c12adae4cff494792c26785e996bc122224dae90513082b771205b",
+      "size": 30487
     },
     {
       "mode": "100644",
@@ -1469,6 +1487,12 @@
       "path": "scripts/export_shiguan_obsidian.py",
       "sha256": "7b0ca7cd977ef7d99de08f2fd5a7895922eaa51c3361d8e4d7a6a766ac517273",
       "size": 13454
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/fix_decretum_matrix.py",
+      "sha256": "6de9f47647ba9082764271886f11517da65aed8c8ebed4e10786d5bb29425ed2",
+      "size": 7827
     },
     {
       "mode": "100644",
@@ -1828,12 +1852,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6952656,
-    "payload_file_count": 299,
+    "payload_bytes": 6999980,
+    "payload_file_count": 303,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "f3bde9ef7aec0f8e20a1933a218d14ad0f04c469de43915eb8d66eb0a511339f",
-    "source_packaged_tracked_file_count": 291,
-    "source_tracked_file_count": 372
+    "payload_index_sha256": "643480a7629f1054a2aa32fd86be51cd5c0df52740518e4635359114362d8f12",
+    "source_packaged_tracked_file_count": 295,
+    "source_tracked_file_count": 377
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1918,6 +1942,7 @@
     "scripts/build_npm_package.mjs",
     "scripts/check_active_copy_hashes.py",
     "scripts/check_cli_cwd_invariance.py",
+    "scripts/check_doctor_debug_fix.py",
     "scripts/check_install_projection_closure.py",
     "scripts/check_npm_package.mjs",
     "scripts/check_runtime_identity_contract.py",

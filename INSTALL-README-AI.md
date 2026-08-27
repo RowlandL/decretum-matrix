@@ -64,6 +64,36 @@ The installed MCP facade must expose these read-only tools only:
 `court.status`, `court.command_help`, `shiguan.query`,
 `shiguan.archive_dry_run`, `memory.scan`.
 
+## Doctor, Debug, And Fix
+
+The unified CLI also provides local installation diagnostics and repairs:
+
+```powershell
+python -B scripts/court_cli.py doctor --source-root <source> --mapped-root <mapped>
+python -B scripts/court_cli.py debug --source-root <source>
+python -B scripts/court_cli.py fix update --source-root <source>
+python -B scripts/court_cli.py fix migrate --root <canonical-root>
+python -B scripts/court_cli.py fix rollback --backup-root <backup-root>
+python -B scripts/court_cli.py fix rollback --receipt <migration-receipt>
+```
+
+`doctor` is the health/consistency check; it returns a non-zero status when
+managed files, MCP runtime, source identity, or production path portability
+drift. `debug` is a more detailed read-only evidence report. `fix` defaults to
+planning and does not mutate files; add `--apply` only after reviewing the
+plan. Update uses the existing atomic install backup, migrate uses the
+receipt-bound legacy locator workflow, and rollback requires an explicit
+backup/receipt. All three surfaces emit append-only intent/result events under
+the canonical git-mirror `.repo-control/events/decretum-matrix/` directory.
+
+The beta source authority is the local checkout. A future published build will
+resolve a pinned GitHub release instead of an arbitrary local directory; no
+network fetch is performed by the beta commands. For UNC compatibility, pass
+`--source-root` and `--mapped-root`; the mapped path is accepted only after
+matching version, manifest hashes, and Git identity. Test fixtures containing
+synthetic absolute paths are reported separately from production hard-coded
+paths, so fixture examples do not hide a real portability finding.
+
 The installation also projects the complete seven-group unified CLI surface.
 Its manifest inventory and handlers must agree: a declared public adapter may
 not point at a missing installed file. Checker and release handlers remain

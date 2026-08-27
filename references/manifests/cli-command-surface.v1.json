@@ -508,6 +508,45 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_debug.py",
+      "command": "debug",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_debug.py",
+      "id": "check.debug",
+      "legacy_path": "scripts/check_debug.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/check_doctor.py",
+      "command": "doctor",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_doctor.py",
+      "id": "check.doctor",
+      "legacy_path": "scripts/check_doctor.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/check_doctor_debug_fix.py",
+      "command": "check-doctor-debug-fix",
+      "compatibility_state": "source_only_entrypoint",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_doctor_debug_fix.py",
+      "id": "check.check-doctor-debug-fix",
+      "legacy_path": "scripts/check_doctor_debug_fix.py",
+      "public": false,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_governance_framework.py",
       "command": "check-governance-framework",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1331,6 +1370,19 @@
       "handler": "isolated_subprocess:scripts/ensure_supercc_court.py",
       "id": "supercc.ensure-supercc-court",
       "legacy_path": "scripts/ensure_supercc_court.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/fix_decretum_matrix.py",
+      "command": "fix",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "install",
+      "group": "install",
+      "handler": "isolated_subprocess:scripts/fix_decretum_matrix.py",
+      "id": "install.fix",
+      "legacy_path": "scripts/fix_decretum_matrix.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"

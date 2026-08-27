@@ -56,6 +56,7 @@ NON_PUBLIC_ENTRYPOINTS = frozenset(
         "scripts/court_mcp_server.py",
         "scripts/install_codex_plugin_projection.py",
         "scripts/memory_pipeline_fixture.py",
+        "scripts/check_doctor_debug_fix.py",
     }
 )
 CLI_SUPPORT_FILES = frozenset(
@@ -85,6 +86,7 @@ CLI_SUPPORT_FILES = frozenset(
         "scripts/release_gate_manifest.py",
         "scripts/shiguan_host_memory_projection.py",
         "scripts/shiguan_pending_trust.py",
+        "scripts/court_diagnostics.py",
     }
 )
 BOOTSTRAP_ENTRYPOINTS = (
@@ -145,6 +147,7 @@ def _domain_for(path: str) -> str:
     if name.startswith(("build_release", "release_", "package_", "build_npm")):
         return "release"
     if name.startswith(("install_", "migrate_", "sync_active_copies")) or name in {
+        "fix_decretum_matrix",
         "ensure_codex_yolo_startup_task",
         "ensure_portable_court_bootstrap",
         "refresh_capability_registry",
@@ -180,6 +183,18 @@ def _manifest_entry(path: str) -> dict[str, object]:
     entry_name = stem.replace("_", "-").lower()
     if path == "scripts/court_session_closeout.py":
         entry_name = "closeout-session"
+    elif path == "scripts/check_doctor.py":
+        entry_name = "doctor"
+    elif path == "scripts/check_debug.py":
+        entry_name = "debug"
+    elif path == "scripts/fix_decretum_matrix.py":
+        entry_name = "fix"
+    elif path == "scripts/check_doctor.py":
+        entry_name = "doctor"
+    elif path == "scripts/check_debug.py":
+        entry_name = "debug"
+    elif path == "scripts/fix_decretum_matrix.py":
+        entry_name = "fix"
     if pure.suffix.lower() != ".py":
         entry_name = f"{entry_name}-{pure.suffix.lower().lstrip('.')}"
     public = path not in NON_PUBLIC_ENTRYPOINTS
@@ -560,7 +575,9 @@ def evaluate_registry() -> dict[str, object]:
         ]
         if daily_help_forbidden_hits:
             problems.append("daily_help_exposes_project_inventory")
-        if daily_help_command_count > 32:
+        # Keep the daily surface bounded while allowing the explicit diagnostic
+        # commands added to the public CLI.
+        if daily_help_command_count > 36:
             problems.append(f"daily_help_command_count_too_high:{daily_help_command_count}")
         for key, record in records.items():
             absent = sorted(field for field in REGISTRY_FIELDS if not getattr(record, field, None))

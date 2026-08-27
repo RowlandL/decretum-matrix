@@ -50,9 +50,9 @@ DAILY_HELP_COMMANDS: dict[str, tuple[str, ...]] = {
         "tidy-shiguan-records",
     ),
     "supercc": ("supercc-squad",),
-    "install": ("migrate", "rollback", "update"),
+    "install": ("fix", "migrate", "rollback", "update"),
     "release": (),
-    "check": ("all",),
+    "check": ("all", "debug", "doctor"),
 }
 COURT_OPEN_GUIDANCE_MARKDOWN = """# Decretum Matrix court open
 
@@ -205,6 +205,41 @@ def load_registry() -> dict[tuple[str, str], CommandRecord]:
     return records
 
 
+DIAGNOSTIC_MODULES = {
+    "doctor": ("check_doctor", "scripts/check_doctor.py"),
+    "debug": ("check_debug", "scripts/check_debug.py"),
+}
+
+
+def _capture_diagnostic(
+    command: str,
+    arguments: Sequence[str],
+    output_format: str,
+) -> InvocationResult:
+    try:
+        module_name, legacy_path = DIAGNOSTIC_MODULES[command]
+    except KeyError as exc:
+        raise CliUsageError(f"unknown diagnostic command: {command}") from exc
+    return _capture_python_module(
+        module_name,
+        arguments,
+        output_format=output_format,
+        legacy_path=legacy_path,
+    )
+
+
+def _capture_fix(
+    arguments: Sequence[str],
+    output_format: str,
+) -> InvocationResult:
+    return _capture_python_module(
+        "fix_decretum_matrix",
+        arguments,
+        output_format=output_format,
+        legacy_path="scripts/fix_decretum_matrix.py",
+    )
+
+
 def render_root_help() -> str:
     records = load_registry()
     available_groups = {group for group, _command in records}
@@ -245,7 +280,7 @@ def render_group_help(group: str) -> str:
     elif group == "office":
         available.update(OFFICE_RUNTIME_COMMANDS)
     elif group == "install":
-        available.update(("update", "migrate", "rollback"))
+        available.update(("fix", "update", "migrate", "rollback"))
     elif group == "check" and ("check", "quick-validate") in records:
         available.add("all")
     commands = {
@@ -871,6 +906,12 @@ def _resolve_and_run(
     if group == "install" and command == "rollback":
         result = _capture_install_rollback(arguments, invocation_cwd=invocation_cwd)
         return _emit_invocation("install rollback", result, output_format)
+    if group == "check" and command in DIAGNOSTIC_MODULES:
+        result = _capture_diagnostic(command, arguments, output_format)
+        return _emit_invocation(f"check {command}", result, output_format)
+    if group == "install" and command == "fix":
+        result = _capture_fix(arguments, output_format)
+        return _emit_invocation("install fix", result, output_format)
     if group == "check" and command == "all":
         record = records.get(("check", "quick-validate"))
         if record is None:
@@ -902,6 +943,22 @@ def main(argv: list[str] | None = None) -> int:
     invocation_cwd = Path.cwd().resolve(strict=False)
     raw = list(sys.argv[1:] if argv is None else argv)
     first, _ = _first_non_option(raw)
+    if first in DIAGNOSTIC_MODULES:
+        try:
+            output_format, values = _extract_format(raw)
+        except CliUsageError as exc:
+            return _emit_usage(str(exc), "text", first)
+        result = _capture_diagnostic(first, values[1:], output_format)
+        return _emit_invocation(first, result, output_format)
+    if first == "fix":
+        try:
+            output_format, values = _extract_format(raw)
+        except CliUsageError as exc:
+            return _emit_usage(str(exc), "text", first)
+        if len(values) < 2:
+            return _emit_usage("fix requires update, migrate, or rollback", output_format, "fix")
+        result = _capture_fix(values[1:], output_format)
+        return _emit_invocation(f"fix {values[1]}", result, output_format)
     if first is not None and first not in GROUP_ORDER:
         return _legacy_runtime(raw, cwd=command_cwd("court", invocation_cwd))
     try:

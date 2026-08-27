@@ -36,6 +36,42 @@ manifest-derived `cli_public` handler/support layer. CLI handlers are installed
 for explicit invocation but remain lazy: help, startup, preload, and ordinary
 sync must not import checker, release, or package implementations.
 
+## Diagnostics And Fixes
+
+The unified CLI exposes three maintenance surfaces:
+
+```text
+decretum-matrix doctor [--source-root <root>] [--mapped-root <root>]
+decretum-matrix debug [--source-root <root>] [--mapped-root <root>]
+decretum-matrix fix update|migrate|rollback [options]
+```
+
+`doctor` compares the selected source contract, Git identity, complete managed
+projection, Codex MCP configuration/runtime probe, and production hard-coded
+path policy. `debug` adds Python/platform/Git/source-resolution evidence while
+remaining read-only. Both commands redact secrets and never read private or
+pending bodies. `fix` reuses the existing atomic installer and migration
+receipts: it is a read-only plan by default and requires `--apply` for any
+write. Every invocation emits a `workspace.operation_event.v1` intent/result
+pair under the git-mirror `.repo-control/events/decretum-matrix/` path.
+
+During beta development the default source authority is the local checkout.
+The intended post-publication default is a pinned GitHub release of
+`RowlandL/decretum-matrix`; network fetching is deliberately disabled in the
+beta implementation until a release tag, commit, and artifact SHA are bound.
+If a UNC checkout is not usable by a host subprocess, pass both roots. The
+mapped root is accepted only when `VERSION`, CLI/projection manifest hashes,
+and (when available) Git `HEAD` match:
+
+```powershell
+python -B scripts/court_cli.py doctor `
+  --source-root "<git-mirror>\decretum-matrix" `
+  --mapped-root "<mapped-git-mirror>\decretum-matrix"
+```
+
+The selected root and equivalence decision are recorded in the diagnostic
+receipt; no `O:\gitmirror` or UNC path is embedded in product configuration.
+
 ## MCP Protocol Contract
 
 The current MCP wire target is the official `2026-07-28` revision. The stdio
