@@ -77,7 +77,7 @@ EXPECTED_SUPERIORS = {
 }
 
 REQUIRED_TEXT = (
-    "court-capability-router",
+    "decretum-matrix/scripts/query_shiguan_index.py",
     "query_shiguan_index.py",
     "court-shiguan",
     "Office voice:",

@@ -1,7 +1,7 @@
 """Validate Hermes superCC runtime selection without mutating Hermes state.
 
 This script is intentionally read-only. It checks the Hermes profile-native
-surface used by court-capability-router and reports whether Hermes CLI or
+surface used by Decretum Matrix and reports whether Hermes CLI or
 desktop readiness exists. A normal superCC environment still requires the
 current execution surface to prove zellij plus squad; profile-native readiness
 alone is never a passing superCC environment.
@@ -173,7 +173,7 @@ def summarize_active_sessions(profile_home: Path) -> dict[str, Any]:
 
 def check_profile(root: Path, role: str, profile: str) -> dict[str, Any]:
     profile_home = root if profile == "default" else root / "profiles" / profile
-    skill_md = profile_home / "skills" / "court-capability-router" / "SKILL.md"
+    skill_md = profile_home / "skills" / "decretum-matrix" / "SKILL.md"
     result = {
         "role": role,
         "profile": profile,
@@ -312,7 +312,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "reason": "zellij+squad proof is required before claiming normal superCC.",
         }
 
-    root_skill = root / "skills" / "court-capability-router" / "SKILL.md"
+    root_skill = root / "skills" / "decretum-matrix" / "SKILL.md"
     profiles_ok = all(item["ok"] for item in profile_results.values())
     taizi_profile = profile_results.get("taizi", {})
 

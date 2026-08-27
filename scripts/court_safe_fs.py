@@ -1,4 +1,4 @@
-"""Batch A safe filesystem primitives for court-capability-router.
+"""Batch A safe filesystem primitives for Decretum Matrix.
 
 The contract rejects lexical escapes, Windows aliases, links/reparse points,
 special files, hardlinks, normalized-name collisions, and observable identity

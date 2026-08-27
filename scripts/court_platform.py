@@ -1,4 +1,4 @@
-"""Small cross-platform helpers for court-capability-router scripts."""
+"""Small cross-platform helpers for Decretum Matrix scripts."""
 
 from __future__ import annotations
 

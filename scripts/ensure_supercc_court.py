@@ -1,6 +1,6 @@
 """Ensure the superCC zellij+squad visible court runtime.
 
-superCC is one runtime implementation of the court-capability-router office
+superCC is one runtime implementation of the Decretum Matrix office
 abstraction: ordinary ``super`` authority plus visible zellij panes, squad
 identities, and a selected office client. Ordinary spawned subagents can carry
 the same office identity through different proof gates; this script only checks
@@ -715,7 +715,7 @@ def profile_manifest_block(role: str) -> str:
             f"- profile_version: {meta.get('profile_version')}",
             f"- office_profile_loaded: {meta.get('office_profile_loaded')}",
             f"- court_skill_path: {skill_relative_path(court_skill)}",
-            "- preload_ack: required before status=running; report role_key, direct_superior, dossier/source acknowledgement, agent_dossier_loaded=YES, and loaded_skills including court-capability-router.",
+            "- preload_ack: required before status=running; report role_key, direct_superior, dossier/source acknowledgement, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix.",
             "- collaboration_task_path: `/root/*` is routing only and never proves office identity.",
             "- ordinary_codex_model_route: keep reserved V2 spawn metadata hidden for schema compatibility; record the task-aware recommendation, require route-id plus inheritance acknowledgement, and inherit the main thread model/effort unless a host-managed override path is proven compatible.",
             "- claude_model_boundary: no office-level model override; inherit the main Claude thread model.",
@@ -2443,7 +2443,7 @@ def build_office_launch_command(
             hermes_profile,
             "chat",
             "--skills",
-            "court-capability-router",
+            "decretum-matrix",
             "--max-turns",
             "90",
             "--yolo",
@@ -2464,7 +2464,7 @@ def build_office_launch_command(
             "--append-system-prompt",
             (
                 "You are a terminal-visible superCC office launched by "
-                "court-capability-router. Preserve the office role, direct "
+                "decretum-matrix. Preserve the office role, direct "
                 "superior, wrapper receive loop, and concise upward memorial "
                 "contract from the initial prompt."
             ),

@@ -279,7 +279,7 @@ def write_root(branch_paths: list[Path], leaf_paths: list[Path]) -> None:
         "",
         "# 史馆生长树",
         "",
-        "这是 court-capability-router 内置史馆记忆树。它使用内容谱系组织，Markdown 优先并兼容 Obsidian。",
+        "这是 Decretum Matrix 内置史馆记忆树。它使用内容谱系组织，Markdown 优先并兼容 Obsidian。",
         "",
         "谱系层级：史馆总纪 -> 志 -> 门 -> 纲 -> 目 -> 条 -> 诏 -> 实录。",
         "",

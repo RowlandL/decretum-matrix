@@ -500,11 +500,11 @@ def _instance_start_args(
             json.dumps(
                 [
                     {
-                        "name": "court-capability-router",
+                        "name": "decretum-matrix",
                         "source": str(skill_path.resolve()),
                         "sha256": skill_hash,
                         "purpose": "RC1 instance-keyed runtime tracer",
-                        "ack_name": "court-capability-router",
+                        "ack_name": "decretum-matrix",
                         "ack_sha256": skill_hash,
                     }
                 ]
@@ -1249,6 +1249,8 @@ def check_public_create_help_contract() -> None:
                 [sys.executable, "-B", str(cli), *args],
                 text=True,
                 capture_output=True,
+                encoding="utf-8",
+                errors="replace",
                 env=env,
                 check=False,
             )

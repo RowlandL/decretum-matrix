@@ -6,7 +6,7 @@ Portable seed tree. Local leaves, branches, and the knowledge graph grow from th
 
 权威源目录是共享史馆根下的 `references/shiguan-tree`，由
 `scripts/shiguan_paths.py` 解析。默认位于平台用户数据目录下的
-`court-shiguan/court-capability-router/references/shiguan-tree`，例如 Windows
+`court-shiguan/decretum-matrix/references/shiguan-tree`，例如 Windows
 `%LOCALAPPDATA%`、macOS `~/Library/Application Support`、Linux
 `$XDG_DATA_HOME` 或 `~/.local/share`。
 

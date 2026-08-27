@@ -5,7 +5,7 @@
   firewall rules and an appropriate bearer key.
 - Shared Shiguan data is stored outside the installed skill under the
   platform user-data root, normally
-  `court-shiguan/court-capability-router/references`. It may contain local
+  `court-shiguan/decretum-matrix/references`. It may contain local
   records, plan archives, ledgers, peer state, and user-authored notes.
 - Portable packages exclude private Shiguan bodies, plan archives, runtime
   ledgers, imports, peer state, logs, credentials, host-specific paths, caches,

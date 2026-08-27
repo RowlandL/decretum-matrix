@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bootstrap a portable court-capability-router install on a target host.
+"""Bootstrap a portable Decretum Matrix install on a target host.
 
 The bootstrap is intentionally composed from the skill's own local scripts:
 shared Shiguan seed creation, Obsidian linking, Shiguan service daemon setup,
@@ -1205,7 +1205,7 @@ def run_memory_bridge(apply: bool, result_json: str = "") -> dict[str, Any]:
 
 
 def http_get_bytes(url: str, timeout: int = 60) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "court-capability-router-bootstrap"})
+    request = urllib.request.Request(url, headers={"User-Agent": "decretum-matrix-bootstrap"})
     with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-approved bootstrap source.
         return response.read()
 

@@ -90,7 +90,7 @@ def check_legacy_committed_compatibility(temp: Path) -> dict[str, Any]:
         {
             "schema": sync.SYNC_MANIFEST_SCHEMA,
             "state": "committed",
-            "managed_by": "court-capability-router",
+            "managed_by": "decretum-matrix",
             "updated_at": "legacy-fixture",
             "files": {"legacy.md": legacy_hash},
         },

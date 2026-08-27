@@ -251,7 +251,7 @@ def catalog_path() -> Path:
     installed = (
         codex_home()
         / "skills"
-        / "court-capability-router"
+        / "decretum-matrix"
         / "references"
         / "installed-capabilities-catalog.md"
     )

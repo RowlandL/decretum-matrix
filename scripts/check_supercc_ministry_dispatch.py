@@ -9,6 +9,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import tempfile
 
 sys.dont_write_bytecode = True
 
@@ -201,6 +202,38 @@ def check_supercc_launcher_shape() -> None:
         )
     if "loaded_skills including court-capability-router" in gongbu_dossier:
         raise AssertionError("generated superCC dossier retained the legacy skill identity")
+    hermes_command = ensure_supercc_court.build_office_launch_command(
+        "gongbu",
+        Path(ROOT),
+        authority="super",
+        behavior="parallel",
+        court_code=None,
+        office_client="hermescli",
+        hermescli_command="hermescli",
+        claude_command="claude",
+        office_client_command=None,
+        office_client_args=[],
+        office_client_prompt_mode="argument",
+        zellij_session=None,
+        ministry_mode="silent",
+        dangerous_yolo=False,
+        codex_start_delay=0.0,
+        codex_retry_attempts=1,
+        codex_retry_backoff_base=0.0,
+        layout_direction="right",
+    )
+    hermes_command_text = " ".join(str(item) for item in hermes_command)
+    if "decretum-matrix" not in hermes_command_text or "court-capability-router" in hermes_command_text:
+        raise AssertionError("Hermes launch command retained a non-canonical skill identity")
+    import ensure_hermes_supercc  # noqa: PLC0415
+    with tempfile.TemporaryDirectory(prefix="decretum-hermes-canonical-") as temp_dir:
+        hermes_root = Path(temp_dir)
+        canonical_skill = hermes_root / "skills" / "decretum-matrix" / "SKILL.md"
+        canonical_skill.parent.mkdir(parents=True)
+        canonical_skill.write_text("canonical", encoding="utf-8")
+        profile = ensure_hermes_supercc.check_profile(hermes_root, "taizi", "default")
+        if profile.get("skill_md") is not True or (hermes_root / "skills" / "court-capability-router").exists():
+            raise AssertionError("Hermes profile probe did not use the canonical skill path")
     if tuple(ensure_supercc_court.CORE_IDS) != ("taizi", *ensure_supercc_court.ALL_VISIBLE_OFFICES, *ensure_supercc_court.INSPECTION_OFFICES):
         raise AssertionError(f"CORE_IDS drifted: {ensure_supercc_court.CORE_IDS!r}")
     if tuple(ensure_supercc_court.STATUS_OFFICES) != ("taizi", *ensure_supercc_court.ALL_VISIBLE_OFFICES):

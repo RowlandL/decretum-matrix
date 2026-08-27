@@ -16,7 +16,7 @@ Safety, privacy, destructive operations, installs, paid actions, rollback, and c
 ## Allowed
 
 Perform only this office mandate under bounded dispatch; invoke $decretum-matrix;
-query court-capability-router/scripts/query_shiguan_index.py; read shared court-shiguan evidence.
+query decretum-matrix/scripts/query_shiguan_index.py; read shared court-shiguan evidence.
 
 ## Forbidden
 

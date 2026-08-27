@@ -734,7 +734,7 @@ def run_static_regressions() -> dict[str, object]:
                 {
                     "schema": filesystem_sync.SYNC_MANIFEST_SCHEMA,
                     "state": "committed",
-                    "managed_by": "court-capability-router",
+                    "managed_by": "decretum-matrix",
                     "updated_at": "fixture",
                     "files": {},
                 },

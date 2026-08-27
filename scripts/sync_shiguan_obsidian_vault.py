@@ -152,7 +152,7 @@ def generated_sync_manifest(
         "schema": SYNC_MANIFEST_SCHEMA,
         "state": state,
         "transaction_id": transaction_id or uuid.uuid4().hex,
-        "managed_by": "court-capability-router",
+        "managed_by": "decretum-matrix",
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "previous_files": previous,
         "desired_files": desired_files,

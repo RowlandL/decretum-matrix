@@ -590,11 +590,11 @@ def _start_args(task: dict[str, object], admission: dict[str, object]) -> Namesp
             json.dumps(
                 [
                     {
-                        "name": "court-capability-router",
+                        "name": "decretum-matrix",
                         "source": str(skill_path),
                         "sha256": skill_hash,
                         "purpose": "semantic binding tracer",
-                        "ack_name": "court-capability-router",
+                        "ack_name": "decretum-matrix",
                         "ack_sha256": skill_hash,
                     }
                 ]
@@ -707,7 +707,7 @@ def _ack_semantic_agent(task_id: str, agent_id: str) -> None:
             profile_hash=manifest["profile_hash"],
             dossier_hash=manifest["dossier_hash"],
             court_skill_hash=manifest["court_skill_hash"],
-            loaded_skills="court-capability-router,tdd",
+            loaded_skills="decretum-matrix,tdd",
             agent_dossier_loaded="YES",
             model_route_id=record["model_route"]["model_route_id"],
             active_model="",

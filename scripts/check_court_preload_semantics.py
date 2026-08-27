@@ -854,8 +854,11 @@ def check_fourteen_office_dossier_profile_bindings() -> None:
             problems.append(f"{role}:supercc_semantics_leaked")
         if "governing_skill: decretum-matrix" not in dossier:
             problems.append(f"{role}:decretum_matrix_binding_missing")
-        if "court-capability-router" not in dossier:
-            problems.append(f"{role}:technical_locator_missing")
+        if role == "patrol-inspector":
+            if "technical_locator: court-capability-router (protected compatibility locator only)" not in dossier:
+                problems.append(f"{role}:legacy_locator_boundary_missing")
+        elif "decretum-matrix/scripts/query_shiguan_index.py" not in dossier:
+            problems.append(f"{role}:canonical_skill_locator_missing")
 
     require(not problems, "all-office binding drift: " + ", ".join(problems))
 

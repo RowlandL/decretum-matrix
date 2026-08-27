@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Register the current court-capability-router runtime as an active agente."""
+"""Register the current Decretum Matrix runtime as an active agente."""
 
 from __future__ import annotations
 

@@ -29,6 +29,11 @@
   compatibility locator or protected Shiguan namespace.
 - Guarded identity checks against older release-note wording that could make
   `court-capability-router/` look like the current ZIP internal root.
+- Rebound active Hermes/superCC skill paths and generated office capability
+  records to canonical `decretum-matrix`; the old name remains legacy-only for
+  explicit locator migration and Shiguan namespace compatibility.
+- Withdrew the incompatible Codex lifecycle and Git-hook implementation from
+  the shipped beta1.0.7 surface; the optional plugin metadata carries no hooks.
 
 ## beta1.0.6 - 2026-08-01
 

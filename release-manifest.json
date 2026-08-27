@@ -75,8 +75,8 @@
     {
       "mode": "100644",
       "path": "PRIVACY.md",
-      "sha256": "10ddc35308c90e922e67ea88bc37d52d8084d5c05ce8a17aee0228206cf8f6cf",
-      "size": 1359
+      "sha256": "e91b67a42d54540f2fd933b990715e0bdb5c82c359a6f028350bec0b30baddc3",
+      "size": 1350
     },
     {
       "mode": "100644",
@@ -129,38 +129,38 @@
     {
       "mode": "100644",
       "path": "agents/office-dossiers/bingbu/AGENTS.md",
-      "sha256": "e7bbb2c9d82d41de26230fff44e6aa596d1b4e1e475836906a38e9ccdeb25247",
-      "size": 1608
+      "sha256": "7afb29b9565b9f103906db1ea6dc2d09f565affb6d98fef3b0f8af7bec2eb76b",
+      "size": 1600
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/gongbu/AGENTS.md",
-      "sha256": "38b858a0cb9875a0cd7c5924c0c6fa0649512961735fb8b32a25d8c1df6913b6",
-      "size": 1647
+      "sha256": "bb4c151240554667dfe37c694d6b6230fe336db67460ad1448d4bf84ce5cd5be",
+      "size": 1639
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/hubu/AGENTS.md",
-      "sha256": "e9e1272a761329954ad160749aab7b778bcb45cff047fda0c163e77ae5dcfa5b",
-      "size": 1606
-    },
-    {
-      "mode": "100644",
-      "path": "agents/office-dossiers/libu-hr/AGENTS.md",
-      "sha256": "781b075f8f7d2490878880475641deb14fb8c6c784c01f5d83bd07f74bed4776",
+      "sha256": "7b6a7c4889fb8ebb6fc7eebaf9b680bdb23795f6e6ac0689b46b37b711caec87",
       "size": 1598
     },
     {
       "mode": "100644",
+      "path": "agents/office-dossiers/libu-hr/AGENTS.md",
+      "sha256": "1d8c7ecfc3abf78072bcbac85e51739ccaa7e35136711a3de513ceb9ea307cf5",
+      "size": 1590
+    },
+    {
+      "mode": "100644",
       "path": "agents/office-dossiers/libu/AGENTS.md",
-      "sha256": "93352b10fbcbd307b14539a76cb2ef4ab2804f29379e0fad424ba76bde0e0f95",
-      "size": 1594
+      "sha256": "8cc4be8805273440c711f72fc04401b3a0c2fae1b06679dedd3130cde5b534b7",
+      "size": 1586
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/menxia/AGENTS.md",
-      "sha256": "c9ee3fce37f66bc32f6df618f1179c676d6175e3f286926d46ea57d39c96c82e",
-      "size": 1513
+      "sha256": "cc494db73222b44f815ab823efabebd857d7c82f32d1737bff934830108e3f89",
+      "size": 1505
     },
     {
       "mode": "100644",
@@ -171,44 +171,44 @@
     {
       "mode": "100644",
       "path": "agents/office-dossiers/shangshu/AGENTS.md",
-      "sha256": "981e166fde22badfa4efc5b1f1ade08ec616a4595ee126bc48cb7b8afaa8308f",
-      "size": 1568
+      "sha256": "f30b48b90a92f37c616a500598db25d5c4cdf64e53c891d13e8b1faa76438372",
+      "size": 1560
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/shiguan-hermes/AGENTS.md",
-      "sha256": "e65b173da1130ba151890e7457f4fe8d67ece80752cb39269a38cfbe6c542855",
-      "size": 1381
+      "sha256": "fbfe669512455182714115a36fabf47b369a6466e11cc7baa1468a5e5ff6bfcc",
+      "size": 1373
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/shiguan/AGENTS.md",
-      "sha256": "2c3f54aa0523c356f5003134fda05b3cc037edd44f6cbf81d2af3c6519dfb160",
-      "size": 1348
+      "sha256": "849d57270531e5c4bcbe1104ba8ad03f9c4a5bb529a6d142a32da2a3eebccd2d",
+      "size": 1340
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/taizi/AGENTS.md",
-      "sha256": "490238d2810318239d2e63608a19380bb7b10bdcb1cb99ccf22e0a3b138c9990",
-      "size": 1555
+      "sha256": "05bf7c4ddb5c37a40eb7c1dd1184ade4402ff5990f2af18084893ea48d10e24e",
+      "size": 1547
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/xingbu/AGENTS.md",
-      "sha256": "8577075305928ca7956c33f2e4d185797668ad065893da08a28dd49d05a25671",
-      "size": 1607
+      "sha256": "bf06c79aa747d30666c78baa38f250ef15c69072ae2a72a5f95cd2d65c341919",
+      "size": 1599
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/zaochao/AGENTS.md",
-      "sha256": "234ddf2fe1ca46d25ddb009f49ac12fdc1bb4907345ad0902b9bff15f411f58a",
-      "size": 1262
+      "sha256": "021bfa156154277efb5fa627fe3833a30f354499813b5f0d3a5a4840a02a65ec",
+      "size": 1254
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/zhongshu/AGENTS.md",
-      "sha256": "f1693b7e1ee28fef482c66dcc258998f01193dc269d43887c88ccdc38e8c1295",
-      "size": 1497
+      "sha256": "8b7bb1fb7d8fa6a04949a07c57a89ba3e52b51275a390219b4279d20bdb676b8",
+      "size": 1489
     },
     {
       "mode": "100644",
@@ -219,122 +219,122 @@
     {
       "mode": "100644",
       "path": "agents/standing-officials/bingbu.toml",
-      "sha256": "c37b82174e57aa87cba42e92bb7d676d54f12d81827d128e8cc007d85d2f1558",
-      "size": 4733
+      "sha256": "6ef103b59666c6e9522391d9f5b1182f3b1100f965104d580bf7bf1ba76d6b19",
+      "size": 4717
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/gongbu.toml",
-      "sha256": "d94a6ea44cdbdd028289277dbc2ea22d949d692ea4b2fcf3a8ad1e08ec6db9ac",
-      "size": 4764
+      "sha256": "186dcd5cbe00a371bc116c053a68e4982bb17932acf7f17957537b430ad681a6",
+      "size": 4748
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/hubu.toml",
-      "sha256": "68e02c08dff8830b1cf182599b2868b0f99c1bf0bc56e79751e6a79e36990d62",
-      "size": 4721
+      "sha256": "eaf2aea87c378034793b45fab1bf08ebd1a13f8b06c6f9165bd7cfe9b836a6c1",
+      "size": 4705
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/libu-hr.toml",
-      "sha256": "d3c162b0c6d7391104f5402ccc9fb63634bf5a86a2f9ea8db9eb0bf60308cfe8",
-      "size": 4713
+      "sha256": "c6075e30e060c935a8cf3dcd97dfabba898b0214dfc729e122102c29dc3a0d89",
+      "size": 4697
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/libu.toml",
-      "sha256": "a2663800893d03379407035f40f01fc800b37bd05fbb991b48be62b59541f577",
-      "size": 4694
+      "sha256": "829e95ee552524d4a0a8513aca3d25d3a9e16641d5492a5f1e03ff8fd4ddde9e",
+      "size": 4678
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/menxia.toml",
-      "sha256": "11eba6d2874d5d14a12e3d3b6e2bfd2fd5d74332cde956d6b14ba9ff4b909b9f",
-      "size": 4651
+      "sha256": "452ffb64b6bcc8bf6513679b05a977dd6d5634b36367b99245510f4cb59b4351",
+      "size": 4635
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/patrol-inspector.toml",
-      "sha256": "50d125a4a019ca7bfe7465c07836d910ed8ba988ecf6e95429cbcaf6e5b97851",
-      "size": 5302
+      "sha256": "2deb5d838d96f14a14cb8b3bb5e7d995fe35c8e18dc85cb2e808c96732601630",
+      "size": 5294
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/shangshu.toml",
-      "sha256": "97b740e7bb5b1418c9f5dc1c29ac7fb5fdfa01b1f097ceaf64a3b83ead36c797",
-      "size": 4790
+      "sha256": "63a5a84760f7d663964ffff1fe599e61e5cbbbeb698e32927628d1bd4558746d",
+      "size": 4774
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/shiguan-hermes.toml",
-      "sha256": "0172fcc90eedd64e144634050ebf9ee23366a0a3d04ca5075eeaa4afb09577d9",
-      "size": 4741
+      "sha256": "fe93d4a57d17df6a4149087f15d27302915b8b46d5d48a3a88ee5f568ea4ac4a",
+      "size": 4725
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/shiguan.toml",
-      "sha256": "f0602f3f5a50ef869eafc4d9b022c9f7c734009a0c8c05af1b02209e4a99450f",
-      "size": 4659
+      "sha256": "90507e9810c00c0130c5a56c58c6345c431061f7f23300fc10c53ef55ecf4493",
+      "size": 4643
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/taizi.toml",
-      "sha256": "5403cf30c083e687ac48e860100e4479cb91b7f341216a7347fce9614d8fe158",
-      "size": 4882
+      "sha256": "a6ba246c0dc80d9a18b770592e8d09749ae5be3225d6c142b1ebfa1b1102c9b8",
+      "size": 4866
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/xingbu.toml",
-      "sha256": "91f46132184e82ca59b28d4cf5a48a6323bb2b77158c25bb8bd669b3ccf7fb39",
-      "size": 4729
+      "sha256": "643ed269f320440ab5edf8dce4c1612e4b3e494bbb1bbe1641ecef832bd068bb",
+      "size": 4713
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/zaochao.toml",
-      "sha256": "427600a13c374ba19c72453c5a49b76461a3d26d762d3ae81adb1d335d33d74d",
-      "size": 4555
+      "sha256": "2180c854e59997b7f3bc794d0193e5576d9e16b042e5847c073a09c9883ab1ee",
+      "size": 4539
     },
     {
       "mode": "100644",
       "path": "agents/standing-officials/zhongshu.toml",
-      "sha256": "470110255cd755b2b584d1fe884b85ea18de64f785b61bc15e43d847efe08c9e",
-      "size": 4597
+      "sha256": "06ab8f5f2cb8ef377436c5bcbd8123108990aa381f00843b22de6d7584969999",
+      "size": 4581
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/bingbu/AGENTS.md",
-      "sha256": "63af675d916d5d16c27177bc4b7bae2018a837e2b59890a8a18bc7a45a050ab7",
-      "size": 10585
+      "sha256": "dbea965fcba1b8a1017eb992912988d570a4250e7b2b75e9e38e4cf438ffbea7",
+      "size": 10577
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/gongbu/AGENTS.md",
-      "sha256": "1bef0ba2606ee1b3b60b8072780994713a225668748d9cd1eee19515907fb341",
-      "size": 10627
+      "sha256": "1451b6a548cb36c8c4b374c4be51650baa9696454d2cb5d9e2bc0877e739979a",
+      "size": 10619
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/hubu/AGENTS.md",
-      "sha256": "9368070fa05bdda7d4c4dc4d0b8823c425a9a0a59ce508bee7a68df8579df3a6",
-      "size": 10576
+      "sha256": "4faece334d11786aa12f6454fa96cc2661cac32b4f39b1694b6b5afd73c23824",
+      "size": 10568
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/libu-hr/AGENTS.md",
-      "sha256": "15261f30e42cf747f457bdddfb7b1a31e6b853a691ab1a3e69e1493418997a4a",
-      "size": 10603
+      "sha256": "d52121b6ca78f507f9646ca4d792eb45e99197f2197fbbda078bd38e14923e8c",
+      "size": 10595
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/libu/AGENTS.md",
-      "sha256": "23e6bb7feffb0986456c83ced277322bbf012d2ee29dbb0f90309ebad798f4d2",
-      "size": 10561
+      "sha256": "3e6cedad7b6fe61af12124d1087823c25e608d3a138d7ebf7c54f63c8af4cb4b",
+      "size": 10553
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/menxia/AGENTS.md",
-      "sha256": "217f8ebb376559dd1f24b934452f287f8cba880fbb4929f84f6b6a7d8370d48e",
-      "size": 9891
+      "sha256": "66ef11c4c97786677ed9602b32ab5614dc00632df40c6af95e0340dda8b238d2",
+      "size": 9883
     },
     {
       "mode": "100644",
@@ -345,44 +345,44 @@
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/shangshu/AGENTS.md",
-      "sha256": "4ccf95762f78f2171ffd8d664bb6bbed63cfa47fbfd07f3788973c43f9cb5b34",
-      "size": 10509
+      "sha256": "c70120ccf779fb265aad99f7987f66de6e9e6f476377844f821103798920f6d0",
+      "size": 10501
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/shiguan-hermes/AGENTS.md",
-      "sha256": "6fafbe9280cddf47bad8dbe127bb97a664cd72a7781de61b5aa3cec1fc3be501",
-      "size": 10017
+      "sha256": "716591ca63bd51665568744a24a7e10546e0eadb71c99658e46e3134979cbfcc",
+      "size": 10009
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/shiguan/AGENTS.md",
-      "sha256": "5c61374a40e3e1c631ce1fdef1b8b9857e1eb2200dae867ad4a29feb49ed6922",
-      "size": 9909
+      "sha256": "b5374998188f1a5bc58df3f1009f124a15421d44d6f96701ef67496445a5698a",
+      "size": 9901
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/taizi/AGENTS.md",
-      "sha256": "37bc9c3907243d8c8d5d8b17414a237e8c03139264110f34fbb56c537a3c9f70",
-      "size": 10334
+      "sha256": "bf8d5bcfa590ae9356284ae4b029802e88d7cbc914d1b17ac6da73d77d979b9b",
+      "size": 10326
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/xingbu/AGENTS.md",
-      "sha256": "09c4f409e43eb14101a9042760ff42bca7afd3c2501c45b639b66c615845ed6c",
-      "size": 10611
+      "sha256": "dc30d377eb60cebcea22f401cf3b11fb68d57a6e5feb85bf322db219ddf62950",
+      "size": 10603
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/zaochao/AGENTS.md",
-      "sha256": "7a92fd5d9389c297875b8341302abaf2db28cd84f78f0b285368e2abd0ca812b",
-      "size": 9763
+      "sha256": "5adb1a166b0c550877649d98400ce1b4740beef4c069c5e30b3071fd38d1946d",
+      "size": 9755
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/zhongshu/AGENTS.md",
-      "sha256": "cd3c9eeb18b39d333310512069c12e7f9b26146762a29bce6e6fc369b38936c1",
-      "size": 9924
+      "sha256": "c6bdadf1cdb6eedf49d078294ebb18a6607e2ab3d3858527b320dabc6dc81c69",
+      "size": 9916
     },
     {
       "mode": "100644",
@@ -555,8 +555,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/github-release-metadata.v1.json",
-      "sha256": "4fb3736e5012be0f79edd03567f3c937f7e8ef659099e3c0974f000c3be83cb4",
-      "size": 13012
+      "sha256": "dead54683948e1bfd3cfae18f9f311e6bfa32040efb5dc9e3a9a796b74eaf3d6",
+      "size": 13169
     },
     {
       "mode": "100644",
@@ -747,8 +747,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_catalog.py",
-      "sha256": "ece709761100713de029ebbd9de473a763e6bc14700baea9706ccda989687a7a",
-      "size": 24917
+      "sha256": "209d392758db96da6b8f7fc192526e0bdb17cb97ded55c4a77a8fe215ef4c6ee",
+      "size": 24908
     },
     {
       "mode": "100644",
@@ -879,8 +879,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_preload_semantics.py",
-      "sha256": "dd8eb4930663c5fe7ab058041e33f38c68de2cd02b7266715a9733e0912c9912",
-      "size": 72679
+      "sha256": "8d4f09a90596016833d73188fd5ce2eba6b18fefd69a94e874409e24fd3fb28f",
+      "size": 72937
     },
     {
       "mode": "100644",
@@ -891,8 +891,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_runtime.py",
-      "sha256": "3324c1dccb650f7795aa63eda78d841260477565041f2be42f8106624fae6ffc",
-      "size": 110281
+      "sha256": "265451472850c99177d56aa74fcc0df94975c4d9852021a04d8e4051ba3be265",
+      "size": 110324
     },
     {
       "mode": "100644",
@@ -963,8 +963,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_obsidian_sync_transaction.py",
-      "sha256": "ee5778bc1d0cdd7ab6d538f9341c8833de7d861f5cb07057e02a191954973200",
-      "size": 20830
+      "sha256": "e6ab447146633e79c104b0dd06c3d7c8e692d0acc57ed4e6a05c412dd4a09a8e",
+      "size": 20821
     },
     {
       "mode": "100644",
@@ -1029,8 +1029,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_semantic_continuity.py",
-      "sha256": "5be03530d984104b3fce43970588aa207291dc160c34ce0f3f4580e2135ba5cf",
-      "size": 171007
+      "sha256": "a176c9eae1e849ab173de46431972a256ccfebf91a5ee1de6109d07a6cab6861",
+      "size": 170980
     },
     {
       "mode": "100644",
@@ -1053,8 +1053,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_shiguan_http.py",
-      "sha256": "23ffbdcb751b5d14fec4375cfd7dd959aea26e591765088f906a6eff70c3ca45",
-      "size": 79720
+      "sha256": "02cd6d180a1593089d82f057bb2d7dca3338a895fdaf8495dcc6e0b84f299d92",
+      "size": 79711
     },
     {
       "mode": "100644",
@@ -1137,8 +1137,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_supercc_ministry_dispatch.py",
-      "sha256": "f86d26727a4eff229dc48260449e4c76fde95b09b5656d691fe257c469aaea24",
-      "size": 104560
+      "sha256": "211e8a6de48dd6c4607fd2c322baae87fd81a72f26b50710227e70b9fa6c3c02",
+      "size": 106150
     },
     {
       "mode": "100644",
@@ -1149,8 +1149,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_supercc_profiles.py",
-      "sha256": "e7348f9354452538af1c7906b5b6e5c48d6a72657650bf92ef63df6e0e82af5f",
-      "size": 9871
+      "sha256": "87b9eb9abe60d9f30a5b47a2e511c1e79ed9500c59995f4687b0f2114ab7a15e",
+      "size": 9891
     },
     {
       "mode": "100644",
@@ -1341,8 +1341,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_platform.py",
-      "sha256": "b5f58431e46305522a5b51cea61d7be11d4fadec53f97107c90151b105202057",
-      "size": 3737
+      "sha256": "01d4fa2770b5499f7ffa66eafd89db22ec66c5a53cd7b76238ca80a18bd64e25",
+      "size": 3728
     },
     {
       "mode": "100644",
@@ -1371,8 +1371,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_safe_fs.py",
-      "sha256": "5119f8d413cdf43a284f220e120188bae84e7348cfbf79cdfe3ba4efc3127531",
-      "size": 55088
+      "sha256": "f7278bfc657afa5e61dd0116f961e5fcb752dc5e6a96a0455677db872683bafc",
+      "size": 55079
     },
     {
       "mode": "100644",
@@ -1407,8 +1407,8 @@
     {
       "mode": "100644",
       "path": "scripts/ensure_codex_yolo_startup_task.py",
-      "sha256": "a29c530450a585efb1300f1408334ba2d5626dd02aefd40c95160f80287df56c",
-      "size": 10258
+      "sha256": "1077b5803502fe91bde7d693292c5ff956418484564be9d48ed63b8f7a6a645b",
+      "size": 10222
     },
     {
       "mode": "100644",
@@ -1419,8 +1419,8 @@
     {
       "mode": "100644",
       "path": "scripts/ensure_hermes_supercc.py",
-      "sha256": "0e83844285196253cdca1dd2c6c882ed8f40a14d1a649e1363cc3715dd3f287e",
-      "size": 17428
+      "sha256": "7ba7bac435345ba66001c9eeacc51fb2e1020b9a81dd56ce507efab51e19e60a",
+      "size": 17400
     },
     {
       "mode": "100644",
@@ -1431,8 +1431,8 @@
     {
       "mode": "100644",
       "path": "scripts/ensure_portable_court_bootstrap.py",
-      "sha256": "a9349009bb7d437b274772497d0de6f7820ed854f96b665f46764f3f1d3e89a6",
-      "size": 66721
+      "sha256": "eef3600455ca4677b6757582623f615029bda3db247cfea72f10a14638a064d5",
+      "size": 66703
     },
     {
       "mode": "100644",
@@ -1455,14 +1455,14 @@
     {
       "mode": "100644",
       "path": "scripts/ensure_supercc_court.py",
-      "sha256": "1bdc6b1b6c3db96c93bb277f595ed8f367831fceb2b0e3b9d21ef6c7de2e0ea7",
-      "size": 236122
+      "sha256": "47e3b0c7eb85e3054b6939ea76fd9a9321732e8a92e8d8a37cdef0adbc07fb86",
+      "size": 236090
     },
     {
       "mode": "100644",
       "path": "scripts/export_shiguan_obsidian.py",
-      "sha256": "7b0ca7cd977ef7d99de08f2fd5a7895922eaa51c3361d8e4d7a6a766ac517273",
-      "size": 13454
+      "sha256": "2d3bfbc8e4431afa7325fa3def0beb30cb7692dba4fe590d3ceb8bd16bc4d24f",
+      "size": 13445
     },
     {
       "mode": "100644",
@@ -1479,8 +1479,8 @@
     {
       "mode": "100644",
       "path": "scripts/grow_shiguan_tree.py",
-      "sha256": "5486f8359826af158576e57cb9ae131a9fdc37e15bf329bfccca5eb3b1a5b6c8",
-      "size": 14854
+      "sha256": "7c4567e438c7b321434d9758d3186089cc7f81848b6cf37e09064a4774fd8835",
+      "size": 14845
     },
     {
       "mode": "100644",
@@ -1575,8 +1575,8 @@
     {
       "mode": "100644",
       "path": "scripts/register_agent_presence.py",
-      "sha256": "23ba321e7d90ab002cb6d3fc4ad4ae50b0fe067ec8ad8bb2f6c742fc645c6230",
-      "size": 834
+      "sha256": "6a7ba0395ddd32fb11dde142d792b5a8dbe5bd8eb45cd2e0ad7d3dcceea3c910",
+      "size": 825
     },
     {
       "mode": "100644",
@@ -1749,8 +1749,8 @@
     {
       "mode": "100644",
       "path": "scripts/supercc_office_state.py",
-      "sha256": "ba503314f671626d7e9257e6f48d066541dc9cdc08b2545bc5316e01830edb2e",
-      "size": 13807
+      "sha256": "cd16b353a9d115571aeca7bd7eeee99803129f5a66d61c17245502bb62c5ea7f",
+      "size": 13798
     },
     {
       "mode": "100644",
@@ -1779,8 +1779,8 @@
     {
       "mode": "100644",
       "path": "scripts/sync_shiguan_obsidian_vault.py",
-      "sha256": "3d5a6637f1173337cc718068764a13768dddcafa81ce2236472cf6c037b45d6d",
-      "size": 27480
+      "sha256": "14cceb123a4777b289ba2c6d9bac582919863a136fc731a0f9151c5410806b86",
+      "size": 27471
     },
     {
       "mode": "100644",
@@ -1828,10 +1828,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6990305,
+    "payload_bytes": 6991709,
     "payload_file_count": 299,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "e31cc9a41cfe60786110ce4439da33a9795658da120d02fbe845850c4cbf5249",
+    "payload_index_sha256": "95ba028a76beeaa7a522027780c3bb54b1c11b825b40c6c6a0b4be994a420c89",
     "source_packaged_tracked_file_count": 291,
     "source_tracked_file_count": 373
   },

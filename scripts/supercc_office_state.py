@@ -39,7 +39,7 @@ def shiguan_runtime_path(*parts: str) -> Path:
         fallback = (
             user_data_base()
             / "court-shiguan"
-            / "court-capability-router"
+            / "decretum-matrix"
             / "references"
             / "court-runtime"
             / "supercc"

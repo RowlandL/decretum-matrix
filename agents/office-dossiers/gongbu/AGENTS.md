@@ -16,7 +16,7 @@ Implementation, builds, tests, QA, deployment, browser/GUI and external app work
 ## Allowed
 
 Perform only this office mandate under bounded dispatch; invoke
-$decretum-matrix; query court-capability-router/scripts/query_shiguan_index.py;
+$decretum-matrix; query decretum-matrix/scripts/query_shiguan_index.py;
 read shared court-shiguan evidence.
 
 ## Forbidden

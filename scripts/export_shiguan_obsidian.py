@@ -88,7 +88,7 @@ def write_managed_marker(path: Path) -> None:
         json.dumps(
             {
                 "schema": MANAGED_EXPORT_SCHEMA,
-                "managed_by": "court-capability-router",
+                "managed_by": "decretum-matrix",
                 "updated_at": datetime.now().isoformat(timespec="seconds"),
             },
             ensure_ascii=False,
