@@ -426,6 +426,12 @@ def relative_key(relative: Path) -> str:
     return relative.as_posix().casefold()
 
 
+def is_text_path(relative: Path) -> bool:
+    return relative.suffix.casefold() in TEXT_SUFFIXES or (
+        len(relative.parts) == 1 and relative.name.casefold() in ROOT_TEXT_BASENAMES
+    )
+
+
 @lru_cache(maxsize=1)
 def package_projection_entries() -> frozenset[str]:
     manifest_path = skill_root() / "references" / "manifests" / "install-projection.v1.json"
@@ -610,6 +616,8 @@ def read_source_file_stable(path: Path, relative: Path, source_root: Path) -> by
         raise PackagePolicyError(f"source-changed-during-read:{relative.as_posix()}")
     _assert_resolved_within(path, root, relative)
     _assert_no_link_components(path, root, relative)
+    if is_text_path(relative):
+        data = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     return data
 
 

@@ -1448,6 +1448,16 @@ class PackageBuildTests(unittest.TestCase):
             with self.assertRaisesRegex(package_skill.PackagePolicyError, "source-changed-during-read"):
                 package_skill.read_source_file_stable(source, Path("README.md"), source_root)
 
+    def test_text_payload_normalizes_mixed_newlines(self) -> None:
+        source_root = self.temp_path / "newline-source"
+        source_root.mkdir()
+        source = source_root / "README.md"
+        source.write_bytes(b"one\r\ntwo\rthree\nfour")
+        self.assertEqual(
+            package_skill.read_source_file_stable(source, Path("README.md"), source_root),
+            b"one\ntwo\nthree\nfour",
+        )
+
 
 class ContentPrivacyTests(unittest.TestCase):
     def test_generic_host_paths_unc_and_home_paths_are_rejected(self) -> None:
