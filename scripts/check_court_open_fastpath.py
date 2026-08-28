@@ -179,6 +179,16 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
 def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -> dict[str, object]:
     problems: list[str] = []
     checks: dict[str, object] = {}
+    source_roles = (*court_open_fastpath.THREE_DEPARTMENTS, *court_open_fastpath.SIX_MINISTRIES)
+    source_preloads = court_open_fastpath.load_preloads(
+        court_open_fastpath.ROOT,
+        source_roles,
+        concurrent=False,
+    )
+    checks["source_preload_target"] = all(
+        source_preloads[role].loaded_bytes <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
+        for role in source_roles
+    )
     with tempfile.TemporaryDirectory(prefix="court-open-fastpath-") as tmp_text:
         root = Path(tmp_text) / "skill"
         worktree = Path(tmp_text) / "worktree"
@@ -585,6 +595,7 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             "preparation_never_claims_spawn",
             "capability_and_git_checks_are_opt_in",
             "serial_preserves_office_duties_without_child_spawn",
+            "source_preload_target",
             "preload_budget_miss",
             "compact_metadata",
             "production_capability_not_checker_import",

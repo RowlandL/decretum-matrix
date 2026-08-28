@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "05f6021b0bb1423f8a01cbc507800b161229f0da63456f1cbf72a40d9e12617c",
-      "size": 19299
+      "sha256": "589842fd69a976add688eb23ee6a6078fcd6c1582e6b8b3339f2d0a2aa940a54",
+      "size": 13532
     },
     {
       "mode": "100644",
@@ -867,8 +867,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_open_fastpath.py",
-      "sha256": "61b2b7f1679fac7f0d4a570831bf1e19c39562035b68a41bef815b6f717796e6",
-      "size": 28199
+      "sha256": "a53540b46d1eb06434664735192502d76a292cf1237a5a73e8059c71d2e64c84",
+      "size": 28648
     },
     {
       "mode": "100644",
@@ -1828,10 +1828,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6849113,
+    "payload_bytes": 6843795,
     "payload_file_count": 299,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "0948f6f778a76934e86cbea7a9b9f7b207b6c3205d339536342cef6472105221",
+    "payload_index_sha256": "2b3b80736c3516d788bca0f2960ae817cc96e16732295258f987f4392b82c629",
     "source_packaged_tracked_file_count": 291,
     "source_tracked_file_count": 373
   },
