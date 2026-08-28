@@ -2463,6 +2463,25 @@ def _check_cases(
     )
     if result is not None and result.get("source_package_sha256") != source_package_sha256:
         errors.append(f"{name}:top_level_source_package_sha256_missing")
+    if result is not None:
+        receipt = result.get("install_receipt")
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("ok") is not True
+            or receipt.get("source_package_sha256") != source_package_sha256
+        ):
+            errors.append(f"{name}:install_receipt_package_binding_missing")
+        receipt_path = result.get("install_receipt_path")
+        try:
+            persisted_receipt = json.loads(Path(str(receipt_path)).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            errors.append(f"{name}:persisted_install_receipt_unreadable")
+        else:
+            if (
+                persisted_receipt.get("ok") is not True
+                or persisted_receipt.get("source_package_sha256") != source_package_sha256
+            ):
+                errors.append(f"{name}:persisted_install_receipt_package_binding_missing")
     if len(errors) == before:
         passed += 1
 

@@ -1851,6 +1851,7 @@ def install_current_agent_copy(
         ]
         _receipt_body: dict[str, object] = {
             "schema": RESULT_SCHEMA,
+            "ok": True,
             "selection_policy": "receipt",
             "primary_root": _primary_root,
             "current_tool": current_tool,
@@ -1861,6 +1862,8 @@ def install_current_agent_copy(
             "selected_roots": _selected_roots,
             "authority": "installer",
         }
+        if validated_source_package_sha256 is not None:
+            _receipt_body["source_package_sha256"] = validated_source_package_sha256
         _receipt_body["receipt_sha256"] = hashlib.sha256(
             json.dumps(_receipt_body, sort_keys=True, separators=(",", ":")).encode(
                 "utf-8"
