@@ -699,8 +699,8 @@
     {
       "mode": "100644",
       "path": "scripts/agent_runtime_probe.py",
-      "sha256": "aa01dd8704db36a0bc4af94be35c12d23acd4fa6224251bb3b0134bb217152fd",
-      "size": 52007
+      "sha256": "ac67737aecc74e617af61112dfe4d5b92e34b3ef535261c6484fb285a9f97212",
+      "size": 52025
     },
     {
       "mode": "100644",
@@ -771,8 +771,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_agent_config.py",
-      "sha256": "8d0eb45724899af6c13a59c98eef2c33bb50e852b0d38d2a1c1d8554f25f9cde",
-      "size": 56686
+      "sha256": "98d01dafc02c425436cb3a78427432edf59d1ac9566ee1dc4bed532560865007",
+      "size": 57371
     },
     {
       "mode": "100644",
@@ -939,8 +939,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_install_current_agent_copy.py",
-      "sha256": "c32bdf46e3e0d362f2f4f5ad319ea183d51e2b2ae079504e88529c19ae9ed49e",
-      "size": 119242
+      "sha256": "a8c2615ada498d927fc763e2511bcb820c0d75b361f69b60e3a5bc2fe625e96e",
+      "size": 122095
     },
     {
       "mode": "100644",
@@ -1131,8 +1131,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_supercc_functional.py",
-      "sha256": "7fea1e68c08c9fd7a630a4342b970d46f710e49dc65c7e7ea7a4846aa1c2c80d",
-      "size": 26625
+      "sha256": "ec08d660ec0aa15bc1f98db3693bf1d86681a0d8915467c66e077458a06cbce1",
+      "size": 27129
     },
     {
       "mode": "100644",
@@ -1828,10 +1828,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6843795,
+    "payload_bytes": 6847855,
     "payload_file_count": 299,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "2b3b80736c3516d788bca0f2960ae817cc96e16732295258f987f4392b82c629",
+    "payload_index_sha256": "9c7e899d32f75e2a480474831864a77360bffb1c6ab83cad2007c098a1e6788e",
     "source_packaged_tracked_file_count": 291,
     "source_tracked_file_count": 373
   },

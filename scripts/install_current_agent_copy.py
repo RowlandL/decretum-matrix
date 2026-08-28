@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -573,6 +574,12 @@ def _atomic_create(path: Path, payload: bytes) -> None:
 def _atomic_replace_file(path: Path, payload: bytes) -> None:
     if path.is_symlink() or not path.is_file():
         raise _InstallContractError("target_conflict", path.as_posix())
+    original_mode = path.stat().st_mode
+    was_frozen = not bool(original_mode & stat.S_IWUSR)
+    if was_frozen:
+        if getattr(path.stat(), "st_nlink", 1) > 1:
+            raise _InstallContractError("target_conflict", path.as_posix())
+        path.chmod(original_mode | stat.S_IWUSR)
     handle = tempfile.NamedTemporaryFile(
         mode="wb",
         prefix=f".{path.name}.install-",
@@ -586,6 +593,15 @@ def _atomic_replace_file(path: Path, payload: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
+        if was_frozen:
+            path.chmod(
+                path.stat().st_mode
+                & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+            )
+    except Exception:
+        if was_frozen and path.exists() and not path.is_symlink():
+            path.chmod(original_mode)
+        raise
     finally:
         if temp_path.exists():
             temp_path.unlink()

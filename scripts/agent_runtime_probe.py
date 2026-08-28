@@ -600,7 +600,7 @@ def run_store_false_probe(
         "agent_schema_claim_scope": (
             "v1_tool_name_and_field_marker_presence_only"
             if agent_protocol == "v1"
-            else "v2_reserved_schema_exact"
+            else "v2_core_fields_and_optional_field_presence"
             if agent_protocol == "v2"
             else "not_applicable"
         ),

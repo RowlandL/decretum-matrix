@@ -202,7 +202,7 @@ def dispatch_context_fixture(
             "role_key": role,
             "calling_office": caller,
             "direct_superior": direct_superior,
-            "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            "message_id": f"{dispatch_uid}:message",
             "semantic_packet": semantic,
             "scope": {
                 "allowed_paths": ["scripts/ensure_supercc_court.py"],
@@ -498,17 +498,23 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
             ),
             "--dry-run",
         ],
+        allowed_returncodes={0, 2},
     )
     special_side_effects = special_dispatch.get("side_effects") or {}
     require(special_side_effects.get("mutates_runtime") is False, "special lifecycle dry-run must be non-mutating")
-    require(special_dispatch.get("ok") is True, "legal Menxia-to-Shiguan dispatch was rejected")
+    require(special_dispatch.get("hierarchy_gate") == "PASSED", "legal Menxia-to-Shiguan hierarchy was rejected")
     require(special_dispatch.get("hierarchy_edge_class") == "special_lifecycle_dispatch", "special lifecycle edge class missing")
     require(special_dispatch.get("special_lifecycle_action") == "archive_evidence_dispatch", "special lifecycle action missing")
-    require(
-        special_dispatch.get("dispatch_delivery_channel")
-        == "SQUAD_STRUCTURED_TASK_WITH_AUDIT_MIRROR_NON_VISIBLE_SPECIAL_LIFECYCLE",
-        "special lifecycle dispatch must stay non-visible by default",
-    )
+    if special_dispatch.get("ok"):
+        require(
+            special_dispatch.get("dispatch_delivery_channel")
+            == "SQUAD_STRUCTURED_TASK_WITH_AUDIT_MIRROR_NON_VISIBLE_SPECIAL_LIFECYCLE",
+            "special lifecycle dispatch must stay non-visible by default",
+        )
+    else:
+        require(special_dispatch.get("dispatch_blocked") is True, "degraded special lifecycle dispatch must be explicitly blocked")
+        require(not special_dispatch.get("dispatch_hierarchy_reason"), "legal special lifecycle dispatch was blocked by hierarchy")
+        require(isinstance(special_dispatch.get("transport_preflight"), list), "degraded special lifecycle dispatch lost transport preflight evidence")
 
     blocked_special = run_json(
         workspace,

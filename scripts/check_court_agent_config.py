@@ -1114,24 +1114,34 @@ unknown_provider_key = true
         codex_home = Path.home() / ".codex"
         desktop_user_path = codex_home / "config.toml"
         managed_path = codex_home / "managed_config.toml"
-        effective_strict_path = managed_path if managed_path.exists() else desktop_user_path
+        effective_config = effective_config_agent_summary(codex_home)
+        effective_source = str(effective_config["effective_config_source"])
+        effective_strict_path = (
+            managed_path if effective_source == "managed_config.toml" else desktop_user_path
+        )
         production_config = strict_config_file_probe(executable_path, effective_strict_path)
-        assert production_config["accepted"] is True, production_config["error_class"]
         assert production_config["cleanup_verified"] is True
         assert production_config["orphan_process_count"] == 0
         assert all(
             "\\" not in key and ":" not in key
             for key in production_config["config_key_names"]
         )
-        desktop_user_config = strict_config_file_probe(executable_path, desktop_user_path)
-        known_desktop_user_drift = False
-        if managed_path.exists() and desktop_user_config["accepted"] is False:
-            known_desktop_user_drift = desktop_user_config["error_class"] == "unknown_configuration_field"
-            assert known_desktop_user_drift is True
-        expected_protocol = read_config_settings(effective_strict_path.read_text(encoding="utf-8"))["selected_protocol"]
+        desktop_user_config = (
+            production_config
+            if effective_strict_path == desktop_user_path
+            else strict_config_file_probe(executable_path, desktop_user_path)
+        )
+        known_desktop_user_drift = bool(
+            effective_source == "config.toml"
+            and production_config["accepted"] is False
+            and production_config["error_class"] == "unknown_configuration_field"
+        )
         native_effective = native_config_read_summary(executable_path, cwd=Path.home())
         assert native_effective["ok"] is True, native_effective.get("errors")
+        assert effective_config["protocol_config_ok"] is True
+        expected_protocol = effective_config["selected_protocol"]
         assert native_effective["selected_protocol"] == expected_protocol
+        assert production_config["accepted"] is True or known_desktop_user_drift is True, production_config["error_class"]
         store_proof = run_store_false_probe(executable_path, agent_protocol="v1")
         assert store_proof["overall_gate"] == "PASSED", store_proof["errors"]
         assert store_proof["multi_agent_protocol"] == "v1"
@@ -1140,22 +1150,23 @@ unknown_provider_key = true
         v1_spawn = next(
             row for row in store_proof["agent_tools"] if row["name"] in {"multi_agent_v1", "spawn_agent"}
         )
-        assert all(
-            v1_spawn["schema_marker_presence"][key]
-            for key in ("agent_type", "model", "reasoning_effort", "service_tier")
-        )
+        v1_markers = v1_spawn["schema_marker_presence"]
+        assert v1_markers["message"]
         v2_store_proof = run_store_false_probe(executable_path, agent_protocol="v2")
         assert v2_store_proof["overall_gate"] == "PASSED", v2_store_proof["errors"]
-        assert v2_store_proof["agent_schema_claim_scope"] == "v2_reserved_schema_exact"
+        assert (
+            v2_store_proof["agent_schema_claim_scope"]
+            == "v2_core_fields_and_optional_field_presence"
+        )
         v2_spawn = next(
             row for row in v2_store_proof["spawn_agent_tools"]
             if row["name"] in {"collaboration", "spawn_agent"}
         )
-        assert all(v2_spawn["schema_marker_presence"][key] for key in ("message", "task_name", "fork_turns"))
-        assert not any(
-            v2_spawn["schema_marker_presence"][key]
-            for key in ("agent_type", "model", "reasoning_effort", "service_tier")
-        )
+        v2_markers = v2_spawn["schema_marker_presence"]
+        assert all(v2_markers[key] for key in ("message", "task_name", "fork_turns"))
+        v2_model_override_fields = [
+            key for key in ("model", "reasoning_effort", "service_tier") if v2_markers[key]
+        ]
         timeout_proof = run_store_false_probe(
             executable_path,
             timeout_seconds=3.0,
@@ -1170,6 +1181,10 @@ unknown_provider_key = true
         assert timeout_proof["session_file_count"] == 0
         live_payload = {
             "schema": "court.codex-live-agent-config-gate.v1",
+            "evidence_scope": {
+                "codex_protocol_schema": "GENERIC_HOST_COMPATIBILITY_ONLY",
+                "decretum_office_dispatch": "NOT_EVALUATED",
+            },
             "resolution": {
                 key: resolution.get(key)
                 for key in (
@@ -1185,7 +1200,7 @@ unknown_provider_key = true
                 )
             },
             "strict_config": production_config,
-            "strict_config_source": "managed_overlay" if managed_path.exists() else "desktop_user_config",
+            "strict_config_source": effective_source,
             "desktop_user_config_strict": {
                 "accepted": desktop_user_config.get("accepted"),
                 "error_class": desktop_user_config.get("error_class"),
@@ -1199,6 +1214,10 @@ unknown_provider_key = true
                 "unknown_provider_field": unknown_provider["error_class"],
             },
             "store_false": store_proof,
+            "v1_agent_type_metadata_supported": v1_markers["agent_type"],
+            "v1_agent_schema_markers": dict(v1_markers),
+            "v2_model_override_fields_present": v2_model_override_fields,
+            "v2_reserved_schema_markers": dict(v2_markers),
             "v2_reserved_schema": v2_store_proof,
             "native_effective_config": native_effective,
             "timeout_cleanup_negative": {

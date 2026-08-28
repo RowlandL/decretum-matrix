@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -2092,6 +2093,78 @@ def _check_cases(
                 else:
                     passed += 1
 
+    frozen_relative = "references/benchmarks/cft0808-edict.yaml"
+    frozen_manifest = _fixture_manifest()
+    projections = frozen_manifest["projections"]
+    assert isinstance(projections, dict)
+    for projection_name in ("shared_agents", "portable_current_tool"):
+        projection = projections[projection_name]
+        assert isinstance(projection, list)
+        projection.append(frozen_relative)
+    frozen_manifest["frozen_install_references"] = [frozen_relative]
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "frozen_reference_replaced_and_refrozen", frozen_manifest
+    )
+    source_frozen = source / Path(frozen_relative)
+    source_frozen.parent.mkdir(parents=True, exist_ok=True)
+    source_frozen.write_text("current reference\n", encoding="utf-8")
+    _prime_roots(home, roots)
+    frozen_targets = [_agents_root(home), roots["codex"]]
+    frozen_preimage = b"stale reference\n"
+    for target in frozen_targets:
+        destination = target / Path(frozen_relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(frozen_preimage)
+        destination.chmod(
+            destination.stat().st_mode
+            & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+        )
+    frozen_result = _require_success(
+        install,
+        name="frozen_reference_replaced_and_refrozen",
+        expected_targets=frozen_targets,
+        errors=errors,
+        **install_args(source, home, manifest, roots, write=True),
+    )
+    if frozen_result is not None:
+        backup = frozen_result.get("backup")
+        backup_root = (
+            Path(str(backup.get("backup_root")))
+            if isinstance(backup, dict) and backup.get("backup_root")
+            else None
+        )
+        applied_ok = all(
+            (target / Path(frozen_relative)).read_bytes() == source_frozen.read_bytes()
+            and not (
+                (target / Path(frozen_relative)).stat().st_mode & stat.S_IWUSR
+            )
+            for target in frozen_targets
+        )
+        rollback = (
+            install.__globals__["rollback_install_backup"](
+                home_root=home,
+                backup_root=backup_root,
+            )
+            if backup_root is not None
+            else None
+        )
+        rollback_ok = all(
+            (target / Path(frozen_relative)).read_bytes() == frozen_preimage
+            and not (
+                (target / Path(frozen_relative)).stat().st_mode & stat.S_IWUSR
+            )
+            for target in frozen_targets
+        )
+        if (
+            not applied_ok
+            or not isinstance(rollback, dict)
+            or rollback.get("ok") is not True
+            or not rollback_ok
+        ):
+            errors.append("frozen_reference_replaced_and_refrozen:contract_failed")
+        else:
+            passed += 1
+
     source, home, manifest, roots = _case_fixture(temp_root, "fanout")
     _prime_roots(home, roots)
     fanout_before = _snapshots([_agents_root(home), *roots.values()])
@@ -3062,7 +3135,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 31,
+        "declared_cases": 32,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,
