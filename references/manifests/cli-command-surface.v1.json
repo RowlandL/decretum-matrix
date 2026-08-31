@@ -1438,7 +1438,8 @@
                       "type": "string",
                       "enum": [
                         "non_visible",
-                        "visible"
+                        "visible_core",
+                        "bounded_visible_diagnostic"
                       ],
                       "description": "可见性（native 派发必须 non_visible）"
                     },
