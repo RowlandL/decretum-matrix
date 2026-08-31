@@ -1201,6 +1201,7 @@
             "properties": {
               "limit": {
                 "default": 12,
+                "description": "状态条目上限（1..100）",
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -1652,6 +1653,19 @@
       "side_effect": "bounded_mutation"
     },
     {
+      "authority_source": "scripts/iku_candidates.py",
+      "command": "iku-candidates",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/iku_candidates.py",
+      "id": "shiguan.iku-candidates",
+      "legacy_path": "scripts/iku_candidates.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/install_codex_plugin_projection.py",
       "command": "install-codex-plugin-projection",
       "compatibility_state": "source_only_entrypoint",
@@ -1812,6 +1826,7 @@
             "properties": {
               "limit": {
                 "default": 5,
+                "description": "结果上限（1..20）",
                 "maximum": 20,
                 "minimum": 1,
                 "type": "integer"
