@@ -1225,6 +1225,295 @@
           "name": "court.command_help",
           "public_api": "court_command_help",
           "side_effect": "read_only"
+        },
+        {
+          "name": "court.intake_validate",
+          "description": "Validate a blank-charter intake payload (conversation gate + invariant capsule).",
+          "public_api": "public_intake_validation_payload",
+          "side_effect": "read_only",
+          "dry_run": false,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "charter",
+              "intake_value"
+            ],
+            "properties": {
+              "charter": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "白纸旨意原文（≤2048 字符）"
+              },
+              "intake_value": {
+                "type": "object",
+                "description": "待校验 intake 载荷（对话门诊断结构）"
+              },
+              "capsule_value": {
+                "type": "object",
+                "description": "可选 invariant capsule；缺省使用模板"
+              }
+            }
+          }
+        },
+        {
+          "name": "court.capsule_validate",
+          "description": "Validate a P00 invariant capsule payload (closed schema check).",
+          "public_api": "public_capsule_validation_payload",
+          "side_effect": "read_only",
+          "dry_run": false,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "charter",
+              "value"
+            ],
+            "properties": {
+              "charter": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "charter 原文（≤2048 字符）"
+              },
+              "value": {
+                "type": "object",
+                "description": "待校验 invariant capsule 载荷"
+              }
+            }
+          }
+        },
+        {
+          "name": "court.semantic_context_validate",
+          "description": "Validate a P00 semantic context payload against the closed nine-field schema.",
+          "public_api": "public_semantic_context_validation_payload",
+          "side_effect": "read_only",
+          "dry_run": false,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value"
+            ],
+            "properties": {
+              "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "authority_revision",
+                  "authority_sha256",
+                  "plan_revision",
+                  "plan_sha256",
+                  "plan_cursor",
+                  "git_fingerprint",
+                  "recovery_checkpoint_id",
+                  "shiguan_revision",
+                  "shiguan_fingerprint"
+                ],
+                "properties": {
+                  "authority_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "charter revision"
+                  },
+                  "authority_sha256": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "description": "authority 正文 sha256"
+                  },
+                  "plan_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "plan revision"
+                  },
+                  "plan_sha256": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "description": "plan 正文 sha256"
+                  },
+                  "plan_cursor": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "plan cursor（state@revision-N）"
+                  },
+                  "git_fingerprint": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "事件头 sha256"
+                  },
+                  "recovery_checkpoint_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "恢复检查点 id"
+                  },
+                  "shiguan_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "史馆事件数"
+                  },
+                  "shiguan_fingerprint": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "description": "史馆指纹"
+                  }
+                },
+                "description": "语义上下文（closed，9 字段，与 semantic_context_json_schema 一致）"
+              }
+            }
+          }
+        },
+        {
+          "name": "court.dispatch_plan_validate",
+          "description": "Validate a dispatch plan without dispatching (read-only; defaults approval+serial).",
+          "public_api": "public_dispatch_plan_validation",
+          "side_effect": "read_only",
+          "dry_run": false,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entries"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "office_zh",
+                    "direct_superior",
+                    "duty",
+                    "evidence_contract",
+                    "parallel_group",
+                    "visibility",
+                    "instance_key"
+                  ],
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "官署 role（OFFICE_SPECS 之一）"
+                    },
+                    "office_zh": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "官署中文名"
+                    },
+                    "direct_superior": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "直接上级 role"
+                    },
+                    "duty": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "职责描述"
+                    },
+                    "evidence_contract": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "证据契约标识"
+                    },
+                    "parallel_group": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "并行组标识"
+                    },
+                    "dependency_roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "依赖 role 列表"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "enum": [
+                        "non_visible",
+                        "visible"
+                      ],
+                      "description": "可见性（native 派发必须 non_visible）"
+                    },
+                    "instance_key": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]+#[0-9]{4}$",
+                      "description": "实例标识 role#NNNN"
+                    },
+                    "canonical_authority": {
+                      "type": "boolean",
+                      "description": "是否 canonical authority"
+                    },
+                    "global_integration_owner": {
+                      "type": "boolean",
+                      "description": "是否全局集成 owner"
+                    },
+                    "owned_paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "属主路径列表"
+                    },
+                    "write_set": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "写集路径列表"
+                    },
+                    "profile_hash": {
+                      "type": "string",
+                      "description": "profile 哈希"
+                    }
+                  }
+                },
+                "description": "派发计划条目（1..16，closed）"
+              },
+              "authority": {
+                "type": "string",
+                "enum": [
+                  "approval",
+                  "autonomous",
+                  "super"
+                ],
+                "description": "缺省 approval"
+              },
+              "behavior": {
+                "type": "string",
+                "enum": [
+                  "serial",
+                  "parallel"
+                ],
+                "description": "缺省 serial"
+              }
+            }
+          }
+        },
+        {
+          "name": "court.closeout_checklist",
+          "description": "Return the fourteen-line closeout checklist and missing items.",
+          "public_api": "public_closeout_checklist",
+          "side_effect": "read_only",
+          "dry_run": false,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "task_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "可选 task 过滤"
+              }
+            }
+          }
         }
       ],
       "public": true,
@@ -1513,33 +1802,63 @@
       "handler": "isolated_subprocess:scripts/query_shiguan_index.py",
       "id": "shiguan.query-shiguan-index",
       "legacy_path": "scripts/query_shiguan_index.py",
-      "mcp": {
-        "description": "Query public Shiguan index records.",
-        "dry_run": false,
-        "input_schema": {
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "default": 5,
-              "maximum": 20,
-              "minimum": 1,
-              "type": "integer"
-            },
-            "terms": {
-              "description": "Keyword terms to query.",
-              "items": {
-                "type": "string"
+      "mcp": [
+        {
+          "description": "Query public Shiguan index records.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "default": 5,
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
               },
-              "type": "array"
-            }
+              "terms": {
+                "description": "Keyword terms to query.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [],
+            "type": "object"
           },
-          "required": [],
-          "type": "object"
+          "name": "shiguan.query",
+          "public_api": "shiguan_query",
+          "side_effect": "read_only"
         },
-        "name": "shiguan.query",
-        "public_api": "shiguan_query",
-        "side_effect": "read_only"
-      },
+        {
+          "name": "shiguan.entries_query",
+          "description": "Query Shiguan entries as metadata projection (no pending/private bodies).",
+          "public_api": "public_shiguan_entries_query",
+          "side_effect": "read_only",
+          "dry_run": false,
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "query"
+            ],
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "description": "检索词"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "default": 20,
+                "description": "结果上限"
+              }
+            }
+          }
+        }
+      ],
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -1633,7 +1952,35 @@
       "legacy_path": "scripts/repair_archive_placeholders.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation"
+      "side_effect": "bounded_mutation",
+      "mcp": {
+        "name": "shiguan.iku_candidates",
+        "description": "Scan plan-archive records for IKU placeholder candidates (read-only, dry-run).",
+        "public_api": "public_iku_candidates",
+        "side_effect": "read_only",
+        "dry_run": true,
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "plan-archives"
+              ],
+              "default": "plan-archives",
+              "description": "扫查 scope（当前仅 plan-archives）"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "description": "候选上限"
+            }
+          }
+        }
+      }
     },
     {
       "authority_source": "scripts/report_office_startup_latency.py",
