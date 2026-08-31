@@ -33,7 +33,7 @@
 | M1 合同定稿 | A/B/C/D 契约文档、schema、验证集、fixtures 提交 | 契约评审通过（门下复核意见闭环） | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-1-evidence.md（评审意见已回写 §6：a/b/c 通过、d 修订 2 处、manifest 条件通过；闭环待 REVIEWER 确认） |
 | M2 通用入口适配与自身 MCP 能力面 | 现有入口上的 A/B/C/E 工具族、Agent envelope、能力索引、编号/谱系、GBrain recall 和领域化账册 | P2-1..P2-6 的 manifest/public API/探针/审计全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-2-evidence.md（12 工具矩阵、58 探针、审计/编排探针全绿；出口待 REVIEWER） |
 | M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-3-evidence.md（编号开始对话分配/结诏复用、分类合同 9 字段+conflict、5 类验证集、IKU 只读幂等+回滚、冲突/过期范式、leaves/full-record 全绿；出口待 REVIEWER） |
-| M4 Codex 适配 | C 探测/路由/回退闭环 | host proof 测试 + 回退测试全绿 | TODO | 待写入 phase-4-evidence.md |
+| M4 Codex 适配 | C 探测/路由/回退闭环 | host proof 测试 + 回退测试全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-4-evidence.md（P4-1 probe host_proof 六字段 null-safe、P4-2 route_office_model_with_host_proof 正/反例、P4-3 fresh-session 回读 applied/回退+degraded、P4-4 回归全绿；--live-runtime 本机环境遗留另述；出口待 REVIEWER） |
 | M5 发布 | 全量门禁、收据、版本锚点、CHANGELOG、release 评审 | 发布批准；workspace.yaml 升 beta1.0.8 | TODO | 待写入 phase-5-evidence.md |
 
 ---
@@ -203,6 +203,15 @@
 
 **P4-4 模型适配回归**（TEST，1 PD）
 - 验收：check_court_model_router.py / check_court_agent_config.py 全绿。
+
+### 阶段 4 验收证据快照（2026-08-31 本地接续）
+
+- P4-1 ✅：`agent_runtime_probe.py` probe() 新增 `host_proof` 六字段（codex_version 纯版本/去前缀、codex_executable 经 sanitize 脱敏、supported_model_effort_pairs 来自 MODEL_MAX_REASONING_EFFORT 稳定排序、config_exposes_model 顶层 model/model_provider 探测、turn_context_model/effort fresh-session JSONL 元数据回读）；无 Codex 环境六字段全 null 且不报错；本机实测 codex-cli 0.149.0-alpha.4.1。
+- P4-2 ✅：`court_model_router.py` 新增 `route_office_model_with_host_proof(route, host_probe)`：满足（版本绑定 + 支持对 + 回读一致）→ model_override_applied=YES + host_proof_sha256 + APPLIED；不满足/无证明/回读不一致 → 回退 inherit + FAILED + runtime_degraded（不伪报）；显式继承 → INHERIT；兼容 fresh-worker proof 字段名；`check_court_model_router.py` 正/反例全绿。
+- P4-3 ✅：`court_codex_office_worker.py` 新增 `verify_worker_session_override`：fresh-session JSONL 回读 session id/model/effort/dossier cwd 一致 → applied；不一致/缺失（含文件不存在、无效 plan）→ 回退 inherit + degraded（不抛裸异常）；`check_court_codex_office_worker.py` 回读正/反例全绿。
+- P4-4 ✅：`check_court_model_router.py` ok:true；`check_court_agent_config.py` SELF_TEST_OK（新增 host_proof 字段集/无 Codex null/pairs 结构断言）；source-state-budget 重基线（probe 1310 / check worker 290）后 ok:true（341 files / 7,855,825 bytes）；unified_cli PASS、release_manifest ok:true(49)、governance 48 checks、mcp_server ok:true(58)、quick_validate PASS。
+- 环境注记：`check_court_agent_config --live-runtime` 本机 FAILED（native_effective=[max_depth, v2_bounds_or_reserved_schema]）经 git stash 验证为 baseline 环境遗留（本机 Codex 配置未达推荐），非阶段回归；正式安装机复验。
+- 详细与手动交接：docs/plans/beta1.0.8/handoffs/phase-4-evidence.md、phase-4-handoff.md。
 
 ### 阶段 5：发布（M5）
 
