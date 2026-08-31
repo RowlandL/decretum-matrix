@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 
 sys.dont_write_bytecode = True
 
-from court_model_router import route_office_model, validate_model_route_ack
+from court_model_router import route_office_model, route_office_model_with_host_proof, validate_model_route_ack
 
 
 def require(condition: bool, message: str) -> None:
@@ -187,6 +188,99 @@ def main() -> int:
             "model_override_applied": False,
             "inheritance_policy": "inherit_main_profile_model",
         },
+    )
+
+    # ---- P4-2 host-proof binding (contract-c) ----
+    host_probe_ok = {
+        "codex_version": "0.149.0-alpha.4.1",
+        "codex_executable": "$CODEX_HOME/plugins/.plugin-appserver/codex.exe",
+        "supported_model_effort_pairs": [
+            {"model": "gpt-5.6-luna", "effort": "max"},
+            {"model": "gpt-5.6-terra", "effort": "ultra"},
+            {"model": "gpt-5.6-sol", "effort": "ultra"},
+        ],
+        "config_exposes_model": True,
+        "turn_context_model": "gpt-5.6-sol",
+        "turn_context_effort": "ultra",
+    }
+    applied = route_office_model_with_host_proof(security, host_probe_ok)
+    require(applied["model_override_applied"] is True, "proven host proof must apply the override")
+    require(applied["model_route_status"] == "APPLIED", "proven host proof route status mismatch")
+    require(applied["runtime_degraded"] is False, "proven host proof must not degrade")
+    require(
+        re.fullmatch(r"[0-9a-f]{64}", str(applied.get("host_proof_sha256") or "")),
+        "host_proof_sha256 must be a SHA256 digest",
+    )
+    require(
+        applied["host_proof_codex_version"] == "0.149.0-alpha.4.1",
+        "host proof codex version binding mismatch",
+    )
+    repeated = route_office_model_with_host_proof(security, host_probe_ok)
+    require(
+        repeated["host_proof_sha256"] == applied["host_proof_sha256"],
+        "host proof digest must be deterministic",
+    )
+
+    worker_style_probe = {
+        "codex_version": "0.149.0-alpha.4.1",
+        "model_effort_pairs": [
+            {"model": "gpt-5.6-luna", "effort": "max"},
+            {"model": "gpt-5.6-sol", "effort": "ultra"},
+            {"model": "gpt-5.6-terra", "effort": "ultra"},
+        ],
+        "turn_context_model": "gpt-5.6-sol",
+        "turn_context_effort": "ultra",
+    }
+    worker_style = route_office_model_with_host_proof(security, worker_style_probe)
+    require(
+        worker_style["model_override_applied"] is True,
+        "fresh-worker style proof (model_effort_pairs) must also apply",
+    )
+
+    def expect_fallback(probe: object, reason: str) -> dict[str, object]:
+        result = route_office_model_with_host_proof(security, probe)  # type: ignore[arg-type]
+        require(
+            result["model_override_applied"] is False,
+            f"{reason}: override must not be applied",
+        )
+        require(
+            result["model_route_status"] == "FAILED",
+            f"{reason}: route status must be FAILED",
+        )
+        require(result["runtime_degraded"] is True, f"{reason}: must be runtime_degraded")
+        require(
+            result["fallback"] == "inherit_parent_model_and_effort",
+            f"{reason}: fallback must be inherit_parent_model_and_effort",
+        )
+        require(result["host_proof_sha256"] is None, f"{reason}: failed proof must not carry a digest")
+        return result
+
+    expect_fallback(None, "missing host proof")
+    expect_fallback({}, "empty host proof")
+    expect_fallback({**host_probe_ok, "codex_version": ""}, "missing codex version")
+    expect_fallback(
+        {**host_probe_ok, "supported_model_effort_pairs": [{"model": "gpt-5.6-luna", "effort": "max"}]},
+        "unsupported recommended pair",
+    )
+    expect_fallback(
+        {**host_probe_ok, "turn_context_model": None, "turn_context_effort": None},
+        "missing turn context",
+    )
+    expect_fallback(
+        {**host_probe_ok, "turn_context_model": "gpt-5.6-luna", "turn_context_effort": "max"},
+        "turn context mismatch",
+    )
+
+    claude_bound = route_office_model_with_host_proof(claude, host_probe_ok)
+    require(
+        claude_bound["model_route_status"] == "INHERIT",
+        "explicit-inheritance transport must stay INHERIT, not FAILED",
+    )
+    require(claude_bound["runtime_degraded"] is False, "explicit inheritance must not degrade")
+    require(claude_bound["model_override_applied"] is False, "explicit inheritance must not apply")
+    expect_value_error(
+        lambda: route_office_model_with_host_proof("not-a-route", host_probe_ok),  # type: ignore[arg-type]
+        "invalid route object was accepted",
     )
     expect_value_error(
         lambda: route_office_model(

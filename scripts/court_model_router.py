@@ -9,6 +9,7 @@ Hermes likewise remain model-neutral and inherit their parent/main settings.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import zlib
 from typing import Mapping
@@ -260,3 +261,97 @@ def validate_model_route_ack(route: Mapping[str, object], ack: Mapping[str, obje
     if mismatched:
         raise ValueError("model route ack mismatch: " + ", ".join(sorted(set(mismatched))))
     return dict(ack)
+
+
+def _canonical_json(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def route_office_model_with_host_proof(
+    route: Mapping[str, object],
+    host_probe: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Bind a task-aware route to a host probe; apply only on proven override.
+
+    A satisfied host proof (version-bound executable plus supported
+    model/effort pairs plus a consistent fresh-session turn-context read-back)
+    yields ``model_override_applied=YES`` with ``host_proof_sha256``. Any
+    missing or inconsistent proof falls back to
+    ``inherit_parent_model_and_effort`` with ``model_route_status=FAILED`` and
+    ``runtime_degraded=true`` — the router never fakes an applied override.
+    Explicit-inheritance transports (Claude Code / Hermes, or a Codex route
+    without a recommendation) keep their inheritance contract as ``INHERIT``,
+    which is not a failure.
+    """
+    if not isinstance(route, Mapping):
+        raise ValueError("route must be a model route object")
+    base = dict(route)
+    transport = str(route.get("transport") or "")
+    recommended = route.get("recommended_model")
+    effort = route.get("recommended_reasoning_effort")
+    if transport != "codex" or recommended in (None, "") or effort in (None, ""):
+        return {
+            **base,
+            "model_override_applied": False,
+            "host_proof_sha256": None,
+            "host_proof_codex_version": None,
+            "model_route_status": "INHERIT",
+            "runtime_degraded": False,
+            "decision_basis": [*list(base.get("decision_basis") or []), "explicit_inheritance_kept"],
+            "errors": [],
+        }
+    errors: list[str] = []
+    if host_probe is None or not isinstance(host_probe, Mapping):
+        errors.append("host_probe_missing")
+        host_probe = {}
+    codex_version = str(host_probe.get("codex_version") or "").strip()
+    if not codex_version:
+        errors.append("host_probe_missing_codex_version")
+    raw_pairs = host_probe.get("supported_model_effort_pairs")
+    if not isinstance(raw_pairs, list):
+        raw_pairs = host_probe.get("model_effort_pairs")  # fresh-worker proof compatibility
+    pair_set: set[tuple[str, str]] = set()
+    if isinstance(raw_pairs, list):
+        for raw in raw_pairs:
+            if isinstance(raw, Mapping):
+                pair_set.add((str(raw.get("model") or ""), str(raw.get("effort") or "")))
+    recommended_text = str(recommended)
+    effort_text = str(effort)
+    if (recommended_text, effort_text) not in pair_set:
+        errors.append("recommended_pair_not_supported_by_host")
+    turn_model = host_probe.get("turn_context_model")
+    turn_effort = host_probe.get("turn_context_effort")
+    turn_present = turn_model is not None or turn_effort is not None
+    if not turn_present:
+        errors.append("host_probe_missing_turn_context")
+    elif str(turn_model or "") != recommended_text or str(turn_effort or "") != effort_text:
+        errors.append("turn_context_mismatch")
+    proof_scope = {
+        "codex_version": codex_version,
+        "model_effort_pairs": sorted(pair_set),
+        "turn_context_model": turn_model,
+        "turn_context_effort": turn_effort,
+    }
+    proof_digest = hashlib.sha256(_canonical_json(proof_scope)).hexdigest()
+    if not errors:
+        return {
+            **base,
+            "model_override_applied": True,
+            "host_proof_sha256": proof_digest,
+            "host_proof_codex_version": codex_version,
+            "model_route_status": "APPLIED",
+            "runtime_degraded": False,
+            "decision_basis": [*list(base.get("decision_basis") or []), "host_proof_applied"],
+            "errors": [],
+        }
+    return {
+        **base,
+        "model_override_applied": False,
+        "host_proof_sha256": None,
+        "host_proof_codex_version": codex_version or None,
+        "model_route_status": "FAILED",
+        "runtime_degraded": True,
+        "fallback": "inherit_parent_model_and_effort",
+        "decision_basis": [*list(base.get("decision_basis") or []), "host_proof_fallback"],
+        "errors": errors,
+    }
