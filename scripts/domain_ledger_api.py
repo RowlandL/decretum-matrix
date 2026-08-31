@@ -269,7 +269,17 @@ def domain_ledger_write(
     payload["git_commit"] = commit_sha
     # persist commit sha into the revision for auditability
     ledger["revisions"][-1]["git_commit"] = commit_sha
-    _atomic_write_text(path, json.dumps(ledger, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    try:
+        _atomic_write_text(path, json.dumps(ledger, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    except OSError as exc:
+        # The revision is already committed; do not claim success without the
+        # commit receipt persisted in the ledger (auditability binding).
+        return {
+            "schema": LEDGER_SCHEMA,
+            "kind": kind,
+            "ok": False,
+            "errors": [{"field": "git", "kind": "runtime", "code": f"commit_receipt_persist_failed:{exc}"}],
+        }
     return {"schema": LEDGER_SCHEMA, "kind": kind, "ok": True, "errors": [], "record": ledger["revisions"][-1]}
 
 

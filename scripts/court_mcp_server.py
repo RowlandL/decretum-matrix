@@ -121,7 +121,9 @@ def call_tool(name: str, arguments: object = None, *, modern: bool = False) -> d
         return _modern_tool_result(result, error=True) if modern else _tool_result(result, error=True)
     try:
         api_result = invoke_public_tool(tool, arguments)
-    except (ImportError, TypeError, ValueError) as exc:
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        # Fail closed on any runtime failure from the shared public API and let
+        # the caller (handle) write the audit journal for this call too.
         result = {"ok": False, "problem": str(exc)}
         return _modern_tool_result(result, error=True) if modern else _tool_result(result, error=True)
     result = {

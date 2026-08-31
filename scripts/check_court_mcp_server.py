@@ -652,6 +652,78 @@ def _domain_ledger_checks() -> list[tuple[str, bool]]:
     ]
 
 
+def _robustness_probes() -> list[tuple[str, bool]]:
+    """Fail-closed / audit robustness probes for the MCP facade and domain ledger."""
+
+    from unittest import mock
+
+    probes: list[tuple[str, bool]] = []
+    # MCP fail-closed: an internal runtime failure (e.g. OSError) from the
+    # shared public API must become an error result (not a bare exception), so
+    # handle() still writes the audit journal and the request never crashes.
+    with mock.patch.object(
+        court_mcp_server,
+        "invoke_public_tool",
+        side_effect=OSError("synthetic-io"),
+    ):
+        result = court_mcp_server.call_tool("court.status", {}, modern=True)
+    structured = result.get("structuredContent", {}) if isinstance(result, dict) else {}
+    probes.append(
+        (
+            "mcp_call_tool_fails_closed_on_runtime_error",
+            result.get("isError") is True
+            and structured.get("ok") is False
+            and "synthetic-io" in str(structured.get("problem") or ""),
+        )
+    )
+
+    # Domain ledger: if persisting the git-commit receipt after a successful
+    # commit fails, the write must return ok:false (never raise) and must not
+    # claim success without the receipt binding.
+    import tempfile as _tempfile
+    import subprocess as _subprocess
+    from pathlib import Path as _Path
+
+    from domain_ledger_api import domain_ledger_write
+    import domain_ledger_api
+
+    tmp = _Path(_tempfile.mkdtemp(prefix="dm-check-ledger-flaky-"))
+    _subprocess.run(["git", "init", "-q", str(tmp)], check=True)
+    _subprocess.run(["git", "-C", str(tmp), "config", "user.email", "check@local"], check=True)
+    _subprocess.run(["git", "-C", str(tmp), "config", "user.name", "check"], check=True)
+    original_write = domain_ledger_api._atomic_write_text
+    calls = {"n": 0}
+
+    def flaky_write(path: object, text: object) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("synthetic-persist")
+        return original_write(path, text)
+
+    with mock.patch.object(domain_ledger_api, "_atomic_write_text", side_effect=flaky_write):
+        flaky_result = domain_ledger_write(
+            kind="memory",
+            operation="create",
+            topic="t-flaky",
+            content="c",
+            actor="shiguan",
+            authority="autonomous",
+            write_set=["memory"],
+            root=tmp,
+        )
+    probes.append(
+        (
+            "domain_write_commit_receipt_persist_failure_returns_error",
+            flaky_result.get("ok") is False
+            and any(
+                "commit_receipt_persist_failed" in str(item.get("code") or "")
+                for item in flaky_result.get("errors", [])
+            ),
+        )
+    )
+    return probes
+
+
 def run() -> dict[str, object]:
     modern = _modern_session()
     legacy = _legacy_session()
@@ -936,6 +1008,7 @@ def run() -> dict[str, object]:
         ),
     ]
     checks.extend(_domain_ledger_checks())
+    checks.extend(_robustness_probes())
     return {
         "schema": "decretum.mcp_stdio_adapter_check.v2",
         "ok": all(ok for _, ok in checks),
