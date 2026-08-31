@@ -343,7 +343,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit is not None:
         entries = entries[: max(int(args.limit), 0)]
     as_of = args.as_of or datetime.now(timezone.utc).isoformat(timespec="seconds")
-    report = scan(entries, as_of, affected_topics=args.affected_topic)
+    try:
+        report = scan(entries, as_of, affected_topics=args.affected_topic)
+    except ValueError as exc:
+        print(f"CLOSEOUT_CONFLICT_SCAN_INVALID {exc}", file=sys.stderr)
+        return 2
     if not args.apply:
         if args.json:
             print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))

@@ -188,6 +188,33 @@ def evaluate() -> dict[str, Any]:
         if len(ledger3.get("revisions") or []) != 2:
             failures.append("closeout_apply_approval_mutated_ledger")
 
+    # CLI robustness: an invalid --as-of must fail cleanly (no bare traceback).
+    invalid_cli = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(ROOT / "scripts" / "closeout_conflict_scan.py"),
+            "--as-of",
+            "garbage",
+            "--json",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        check=False,
+    )
+    if invalid_cli.returncode != 2 or "CLOSEOUT_CONFLICT_SCAN_INVALID" not in (
+        invalid_cli.stderr or ""
+    ):
+        failures.append("closeout_cli_invalid_as_of_not_fail_closed")
+    cli_invalid_as_of_fail_closed = (
+        invalid_cli.returncode == 2
+        and "CLOSEOUT_CONFLICT_SCAN_INVALID" in (invalid_cli.stderr or "")
+    )
+
     failures = list(dict.fromkeys(failures))
     return {
         "schema": "court.closeout_conflict_scan_check.v1",
@@ -205,6 +232,7 @@ def evaluate() -> dict[str, Any]:
             == json.dumps(rerun, ensure_ascii=False, sort_keys=True),
             "incremental_affected_set_minimal": incremental_uids == {"CONFLICT-OLD"},
             "apply_applied_count": result.get("applied") if "result" in dir() else None,
+            "cli_invalid_as_of_fail_closed": cli_invalid_as_of_fail_closed,
         },
         "failures": failures,
     }
