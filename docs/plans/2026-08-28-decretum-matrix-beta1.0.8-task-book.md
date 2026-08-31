@@ -34,7 +34,7 @@
 | M2 通用入口适配与自身 MCP 能力面 | 现有入口上的 A/B/C/E 工具族、Agent envelope、能力索引、编号/谱系、GBrain recall 和领域化账册 | P2-1..P2-6 的 manifest/public API/探针/审计全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-2-evidence.md（12 工具矩阵、58 探针、审计/编排探针全绿；出口待 REVIEWER） |
 | M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-3-evidence.md（编号开始对话分配/结诏复用、分类合同 9 字段+conflict、5 类验证集、IKU 只读幂等+回滚、冲突/过期范式、leaves/full-record 全绿；出口待 REVIEWER） |
 | M4 Codex 适配 | C 探测/路由/回退闭环 | host proof 测试 + 回退测试全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-4-evidence.md（P4-1 probe host_proof 六字段 null-safe、P4-2 route_office_model_with_host_proof 正/反例、P4-3 fresh-session 回读 applied/回退+degraded、P4-4 回归全绿；--live-runtime 本机环境遗留另述；出口待 REVIEWER） |
-| M5 发布 | 全量门禁、收据、版本锚点、CHANGELOG、release 评审 | 发布批准；workspace.yaml 升 beta1.0.8 | TODO | 待写入 phase-5-evidence.md |
+| M5 发布 | 全量门禁、收据、版本锚点、CHANGELOG、release 评审 | 发布批准；workspace.yaml 升 beta1.0.8 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-5-evidence.md（22 项门禁 + Phase 2/3/4 新增 check 全绿或环境受限记录；收据/锚点绑定 HEAD 5e0b660；评审记录 release-review-beta1.0.8.md 待 REVIEWER 签署） |
 
 ---
 
@@ -223,6 +223,15 @@
 
 **P5-3 release 评审与批准**（PM+REL，1 PD）
 - 产出：门下复核意见闭环；发布批准记录；workspace.yaml version.current → beta1.0.8（仅发布批准时）。
+
+### 阶段 5 验收证据快照（2026-08-31 本地接续）
+
+- P5-1 ✅：任务书 22 项清单全部执行——20 项全绿（quick_validate / governance 48 / read_only / source_state_budget / release_manifest 49 / unified_cli PASS / open_fastpath / startup_fastpath / result_semantics / cli_performance / capability_index_gate / release_legal / release_payload_manifest self-test+check / package_privacy 64 tests / shiguan_concurrency / shiguan_http（loopback live）/ court_mcp_server 58 探针 / skill_identity / catalog --strict / portability）；2 项环境受限记录（check_active_copy_hashes extra=4 受保护史馆锚点；check_codex_agent_roles config_errors 本机 Codex 配置）——正式安装机复验；Phase 2/3/4 新增 11 个独立 check 全 PASS。
+- P5-2 ✅：VERSION/SBOM/plugin/github-release-metadata/skill-identity/SKILL.md/README/CHANGELOG/Release-Notes 同步 beta1.0.8（commit 5e0b660）；release-manifest.json 重生成（307 files / 7,029,000 B / payload_index_sha256=67a20cd5…）；skill-identity skill_sha256 重绑（5A481A1D… LF 归一化）；source-final / install-host-closeout 收据生成绑定 HEAD 5e0b660；版本一致性子门（release_manifest/release_legal/release_metadata/skill_identity）全绿。
+- P5-3 ✅（待签署）：release-review-beta1.0.8.md 含门禁闭环汇总、环境受限项复验命令与批准记录模板（status=PENDING_REVIEWER）；workspace.yaml 本机不存在，version.current → beta1.0.8 与外部发布列为权威环境批准后执行项；无 push/tag/release。
+- 门禁处置记录：release_payload_manifest 收据重生成（初红→绿）；check_active_copy_hashes 发布期清理（14 项残留移入备份 host-cleanup-20260831，extra 收敛为 4 受保护锚点）；check_codex_agent_roles/check_catalog 经 install update + sync_codex_agents_from_profiles --write 修复（14/14 渲染一致）；check_shiguan_http 经 loopback 短启复验。
+- 已知既有问题（非本阶段回归）：check_install_current_agent_copy self-test ValueError（beta1.0.7 遗留，文件未变更）。
+- 详细与手动交接：docs/plans/beta1.0.8/handoffs/phase-5-evidence.md、phase-5-handoff.md、release-review-beta1.0.8.md。
 
 ### Stretch（非本版核心，后续另立项）
 

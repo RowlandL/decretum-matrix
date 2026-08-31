@@ -1,0 +1,104 @@
+# beta1.0.8 Release 评审与批准记录（P5-3）
+
+> protocol_version: draft-0.1 · 阶段 5（M5 发布）· branch: release/beta1.0.8
+> 评审人：门下 REVIEWER（本机开发路径 C:\Users\Administrator\a02-takeover\dm-dev）
+> 状态：VERIFY_READY（待 REVIEWER 拍板）· 批准后于权威环境执行 workspace.yaml 升版与外部发布动作
+
+## 1. 门禁闭环汇总（P5-1，2026-08-31 本机）
+
+### 1.1 任务书 22 项清单
+
+| # | 门禁 | 结果 |
+| --- | --- | --- |
+| 1 | quick_validate.py . | PASS |
+| 2 | check_governance_framework.py | PASSED（48 checks / errors=0） |
+| 3 | check_read_only_contract.py | ok:true |
+| 4 | check_source_state_budget.py --json | ok:true |
+| 5 | check_release_manifest.py --json | ok:true（step_count=49） |
+| 6 | check_unified_cli.py --all --json | status PASS |
+| 7 | check_court_open_fastpath.py | PASS |
+| 8 | check_startup_fastpath_contract.py | PASS |
+| 9 | check_court_result_semantics.py | PASSED |
+| 10 | check_cli_performance.py | PASS（warm fast p50=2.8ms / cold p50 改善 49.3%） |
+| 11 | check_capability_index_gate.py | PASS（--self-test 门禁语义） |
+| 12 | check_release_legal.py | RELEASE_LEGAL PASSED |
+| 13 | release_payload_manifest.py --self-test --check | PASS（收据重生成后；见 §2） |
+| 14 | check_package_privacy.py | OK（64 tests） |
+| 15 | check_shiguan_concurrency.py | SELF_TEST_OK |
+| 16 | check_shiguan_http.py | ok:true（36 static + live loopback 8765 短启后停止） |
+| 17 | check_codex_agent_roles.py | 14/14 agents 已渲染同步；config_errors 2 项=本机 Codex 配置环境遗留（见 §3） |
+| 18 | check_active_copy_hashes.py | 293/293 一致，drift=0；extra=4 受保护史馆锚点（见 §3） |
+| 19 | check_court_mcp_server.py | ok:true（58 探针，含 Agent envelope/ACL/authority/write_set/现代+legacy） |
+| 20 | check_skill_identity.py | PASSED（11 surfaces；skill_sha256 重绑 LF 归一化摘要） |
+| 21 | check_catalog.py --strict | PASS（CODEX_HOME=.codex，14 agents + find-skills 在位） |
+| 22 | check_portability.py | ok:true |
+
+### 1.2 Phase 2/3/4 新增独立 check（任务书"另加"项）
+
+| check | 结果 |
+| --- | --- |
+| check_court_code_session_numbering | PASS（开始分配→结诏复用） |
+| check_iku_repair | PASS（dry-run 零改动 / --yes / 幂等 / 回滚） |
+| check_closeout_conflict_scan | PASS（冲突/过期 + Git revision） |
+| check_shiguan_full_record_index | PASS（leaves/full-record） |
+| check_shiguan_lineage_taxonomy | PASS（合同 9 字段 + 否定/未知/冲突断言） |
+| check_shiguan_lineage_rebuild_compatibility | PASS（编号 receipt 探针） |
+| check_shiguan_git_federation | PASS（20 checks / errors=0，领域写入 Git commit） |
+| check_court_model_router | ok:true（host-proof 正/反例 APPLIED/INHERIT/FAILED+degraded） |
+| check_court_codex_office_worker | COURT_CODEX_OFFICE_WORKER_OK（回读正/反例） |
+| check_court_agent_config | COURT_AGENT_CONFIG_SELF_TEST_OK（host_proof 字段集/null 断言） |
+| check_install_projection_closure | PASS（transitive closure） |
+
+## 2. P5-1 门禁处置记录
+
+- `release_payload_manifest --self-test --check` 初跑红：release-manifest.json 自 beta1.0.7 收尾后未刷新（missing-payload:scripts/iku_candidates.py、payload-drift 24 项、stale integrity）。按收据重生成（P5-2 前以 beta1.0.7 身份、P5-2 锚点同步后以 beta1.0.8 身份）→ 全绿。
+- `check_active_copy_hashes` 初跑红：18 项 extra（bin/ 2、startup-tasks、example catalog、shiguan-tree 种子 README 10、pyc 4）。执行发布期清理策略：14 项非保护残留移入备份 `C:\Users\Administrator\.agents\install-backups\decretum-matrix\host-cleanup-20260831`（可回滚），pyc 清除；剩余 4 项受保护史馆锚点按契约不动。
+- `check_codex_agent_roles` / `check_catalog --strict` 初跑红：`$CODEX_HOME\agents` 14 个官署角色缺失。执行 `sync_codex_agents_from_profiles.py --write`（CODEX_HOME=.codex）→ 14/14 synced、hash 一致；check_catalog 转绿。
+- `check_shiguan_http` 初跑红：live 探针无服务。`ensure_shiguan_web.py` 短启 127.0.0.1:8765 → 全绿 → 测试后停止服务、端口释放。
+
+## 3. 环境受限项（正式安装机复验，本机不作为阻塞）
+
+| 项 | 现状 | 复验/关闭命令（权威环境） |
+| --- | --- | --- |
+| check_active_copy_hashes extra=4 | 受保护史馆锚点（shiguan-index.jsonl / shiguan-knowledge-graph.json / shiguan-tree/_index.md / capability-index/_index.md）契约 NO_MOVE；干净安装根应无 extra | `python -B scripts/check_active_copy_hashes.py`（干净安装后） |
+| check_codex_agent_roles config_errors | ~/.codex/config.toml 未达 agents.max_depth=4、features.multi_agent_v2.hide_spawn_agent_metadata=true；ensure_court_agent_config --check → REMINDER_ONLY blocking=false（非阻塞） | `python -B scripts/ensure_court_agent_config.py --apply --threads N` 后复验 `check_codex_agent_roles.py` / `check_court_agent_config.py --live-runtime` |
+| repo-control doctor | 本机开发路径无法写权威 O:\ 仓；与 phase-0..4 沿用 | 权威环境补跑 `repo-control doctor` |
+
+## 4. 已知既有问题（非本阶段回归，不在 P5-1 清单）
+
+- `check_install_current_agent_copy.py` self-test 在 `_case_hermes_alias_commit_failure_restores_legacy_junction` 抛 `ValueError: 'alias_prepare' is not in list`：文件自 beta1.0.7 收尾（2571178）未变更，beta1.0.7 遗留，建议后续版本修复。
+
+## 5. P5-2 收据与锚点（已完成）
+
+- VERSION / SBOM / .codex-plugin/plugin.json / github-release-metadata / skill-identity / SKILL.md / README / CHANGELOG / docs/wiki/Release-Notes 全部同步 beta1.0.8（commit `5e0b660`）。
+- release-manifest.json 重生成绑定 beta1.0.8（307 payload files / 7,029,000 bytes；payload_index_sha256=67a20cd5…）。
+- skill-identity skill_sha256 重绑 LF 归一化 SKILL.md 摘要（5A481A1D…）。
+- 收据：docs/receipts/2026-08-31-beta1.0.8-source-final-receipt.json、2026-08-31-beta1.0.8-install-host-closeout.json（绑定 HEAD `5e0b660`）。
+- 版本一致性：check_release_manifest（49 steps）/ check_release_legal / check_release_metadata（4 checks）/ check_skill_identity 全绿。
+
+## 6. 发布批准记录（待 REVIEWER 签署）
+
+```json
+{
+  "schema": "decretum.beta108.release_approval.v1",
+  "version": "beta1.0.8",
+  "branch": "release/beta1.0.8",
+  "head": "5e0b660",
+  "gate_closure": "PASS_WITH_ENVIRONMENT_NOTES",
+  "status": "PENDING_REVIEWER",
+  "approved_by": null,
+  "approved_at_utc": null,
+  "approval_actions": [
+    "权威环境补跑 repo-control doctor 与干净安装复验（§3）",
+    "workspace.yaml version.current -> beta1.0.8（仅批准时，本机无此文件）",
+    "外部 tag / GitHub Release / npm 发布：另行单独授权，本任务书范围不执行"
+  ]
+}
+```
+
+## 7. 未决决策（REVIEWER 拍板）
+
+1. Phase 5（M5）出口评审：门禁 22 项 + 新增 check 全绿（含 2 项环境受限记录），收据/锚点绑定 HEAD，可否转 VERIFIED/COMPLETED。
+2. Phase 0/1/2/3/4 出口评审闭环（沿用，待 REVIEWER）。
+3. `--live-runtime` / check_codex_agent_roles 的 config 门禁归口：本机环境遗留是否记入 P5 已关闭清单（建议：正式安装机复验，本机不作为阻塞）。
+4. turn_context 为 null 时路由语义（P4-2 无回读环境回退 FAILED 不伪报）在真实 fresh worker 运行后的衔接确认。

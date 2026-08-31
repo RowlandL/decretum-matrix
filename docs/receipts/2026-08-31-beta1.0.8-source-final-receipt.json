@@ -1,0 +1,63 @@
+{
+  "schema": "decretum.beta108.source_final_receipt.v1",
+  "status": "SOURCE_PASS_HOST_PARTIAL",
+  "time_utc": "2026-08-31T11:24:59Z",
+  "source_root": "C:\\Users\\Administrator\\a02-takeover\\dm-dev",
+  "branch": "release/beta1.0.8",
+  "head": "5e0b660",
+  "scope": "full_gate_suite_anchors_and_receipts",
+  "gates": {
+    "quick_validate": "PASS",
+    "check_governance_framework": "PASSED checks=48 errors=0",
+    "check_read_only_contract": "PASS",
+    "check_source_state_budget": "PASS",
+    "check_release_manifest": "PASS step_count=49",
+    "check_unified_cli": "PASS",
+    "check_court_open_fastpath": "PASS",
+    "check_startup_fastpath_contract": "PASS",
+    "check_court_result_semantics": "PASSED",
+    "check_cli_performance": "PASS",
+    "check_capability_index_gate": "PASS (--self-test)",
+    "check_release_legal": "PASSED",
+    "release_payload_manifest": "PASS self_test_ok=true",
+    "check_package_privacy": "PASS (64 tests)",
+    "check_shiguan_concurrency": "SELF_TEST_OK",
+    "check_shiguan_http": "PASS (36 static + live loopback)",
+    "check_codex_agent_roles": "PARTIAL agents=14/14 config_errors=environment",
+    "check_active_copy_hashes": "PARTIAL extra=4 protected shiguan anchors",
+    "check_court_mcp_server": "PASS probes=58",
+    "check_skill_identity": "PASSED",
+    "check_catalog": "PASS (--strict, CODEX_HOME=.codex)",
+    "check_portability": "PASS",
+    "phase2_extras": "PASS (envelope/audit/ledger probes inside check_court_mcp_server)",
+    "phase3_extras": "PASS (code_session_numbering/iku_repair/closeout_conflict_scan/full_record_index/lineage_taxonomy/lineage_rebuild)",
+    "phase4_extras": "PASS (check_court_model_router/check_court_codex_office_worker/check_court_agent_config self-test)",
+    "check_shiguan_git_federation": "PASS checks=20 errors=0",
+    "check_install_projection_closure": "PASS"
+  },
+  "payload_manifest": {
+    "schema": "court.release_manifest.v2",
+    "release_label": "beta1.0.8",
+    "version_core": "1.0.8",
+    "payload_file_count": 307,
+    "payload_bytes": 7029000,
+    "payload_index_sha256": "ddd63bae9ca0b100dfd9b643d016e49df6a16159e255e1f62433e9ed54fdb0a3",
+    "manifest_path": "release-manifest.json"
+  },
+  "version_anchors": {
+    "VERSION": "beta1.0.8",
+    "SBOM": "decretum-matrix-beta1.0.8",
+    "skill_identity_skill_sha256": "5A481A1D7059B3D14C0356029B755C5938DB95ACB78B6DB588BA670480A0FCDB",
+    "github_release_metadata_latest_tag": "beta1.0.8",
+    "changelog": "beta1.0.8 - 2026-08-31",
+    "release_notes": "beta1.0.8"
+  },
+  "environment_limited": [
+    "check_active_copy_hashes: 4 protected shiguan anchors (shiguan-index.jsonl/shiguan-knowledge-graph.json/shiguan-tree/_index.md/shiguan-tree/capability-index/_index.md) remain extra in the live .agents install root; contract-protected NO_MOVE, verified green on clean authoritative install",
+    "check_codex_agent_roles/check_court_agent_config --live-runtime: ~/.codex config not meeting agents.max_depth=4 and features.multi_agent_v2.hide_spawn_agent_metadata=true; ensure_court_agent_config classifies REMINDER_ONLY non-blocking; apply via ensure_court_agent_config.py --apply on authoritative machine",
+    "repo-control doctor: requires authoritative environment (canonical O: mirror not writable from this dev path)"
+  ],
+  "known_preexisting": [
+    "check_install_current_agent_copy.py self-test _case_hermes_alias_commit_failure_restores_legacy_junction raises ValueError('alias_prepare' not in list); file unchanged since beta1.0.7 closeout 2571178, not in P5-1 gate list, not a phase regression"
+  ]
+}

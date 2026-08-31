@@ -1,0 +1,62 @@
+{
+  "schema": "decretum.beta108_closeout.v1",
+  "status": "PASS_WITH_ENVIRONMENT_NOTES",
+  "date": "2026-08-31",
+  "version": "beta1.0.8",
+  "branch": "release/beta1.0.8",
+  "head": "5e0b660",
+  "scope": "source_install_projection_native_roles_host_mcp_and_release_gates",
+  "execution": {
+    "conversation": "current_thread_serial_inline",
+    "subagents_used_after_user_stop": false,
+    "push_performed": false,
+    "tag_created_or_moved": false,
+    "release_published": false
+  },
+  "installation": {
+    "status": "PASS",
+    "roots": [
+      "C:\\Users\\Administrator\\.agents\\skills\\decretum-matrix"
+    ],
+    "install_receipt": "C:\\Users\\Administrator\\.agents\\install-receipts\\decretum-matrix\\install-d700750bab7684d1.json",
+    "install_receipt_sha256": "d700750bab7684d171f22b17532b55bcae4d99af7130cc977e8880edd67fd036",
+    "projection_counts": {
+      "create": 0,
+      "replace": 0,
+      "identical": 293
+    },
+    "status_field": "INSTALLED",
+    "checked_files_per_root": 293,
+    "drift_count": 0,
+    "missing_count": 0,
+    "extra_count_after_release_cleanup": 4,
+    "extra_detail": "4 protected shiguan anchors (contract NO_READ_NO_WRITE_NO_MOVE_NO_REWRITE); 14 host-data residue files moved to backup .agents\\install-backups\\decretum-matrix\\host-cleanup-20260831 (pyc purged)",
+    "projection_sha256": "ddf3e12cfe787ad18da0ff33dbf463d25b01c1524f79d0d8e6825007a39870a1"
+  },
+  "native_roles": {
+    "status": "PARTIAL_ENVIRONMENT",
+    "installed_count": 14,
+    "required_count": 14,
+    "unsynced_count": 0,
+    "malformed_count": 0,
+    "config_errors": [
+      "agents.max_depth:must_equal_4",
+      "features.multi_agent_v2.hide_spawn_agent_metadata:must_be_true_for_reserved_schema"
+    ],
+    "config_note": "~/.codex/config.toml gap; ensure_court_agent_config --check -> AGENT_CONFIG_REMINDER_ONLY blocking=false; apply on authoritative machine",
+    "sync": "sync_codex_agents_from_profiles.py --write -> written=14 source_profiles_backed_up=14"
+  },
+  "mcp": {
+    "product_boundary": "standalone_stdio_mcp_not_product_plugin",
+    "check_court_mcp_server": "PASS probes=58",
+    "modern_and_legacy": "PASS",
+    "agent_envelope_acl_authority_write_set": "PASS (within 58-probe matrix)",
+    "tool_count": 12
+  },
+  "gates": "see 2026-08-31-beta1.0.8-source-final-receipt.json gates",
+  "release_boundary": {
+    "no_external_publish": true,
+    "workspace.yaml": "not present on this dev machine; version.current -> beta1.0.8 applies on authoritative environment at release approval",
+    "origin_commits_ahead": 25
+  }
+}
