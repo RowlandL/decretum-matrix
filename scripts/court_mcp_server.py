@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
 from typing import Any
+import uuid
 
 sys.dont_write_bytecode = True
 
+from court_operation_journal import payload_sha256, write_journal
 from court_public_api import has_replacement_characters
 from court_public_registry import invoke_public_tool, load_public_tools, validate_public_tool_arguments
+from shiguan_paths import reference_path
 from stdio_encoding import configure_stdin, configure_stdio
 
 
@@ -60,6 +64,48 @@ def _bounded_arguments(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError("arguments_must_be_object")
     return value
+
+
+def _write_mcp_audit(
+    operation_id: str,
+    tool_name: str,
+    arguments: object,
+    receipt: dict[str, object],
+) -> None:
+    """Write the tools/call audit journal entry (digest only, never raw args).
+
+    Audit failures must never break the tool surface: the journal is best-effort
+    and any error is swallowed after an attempt. Only hashes and receipts are
+    stored; arguments and result bodies are never written.
+    """
+
+    try:
+        root = reference_path("court-runtime")
+        digest = payload_sha256({"tool": tool_name, "args": arguments})
+        write_journal(
+            root,
+            operation_id=operation_id,
+            payload_digest=digest,
+            task_id="mcp",
+            phase="mcp-call",
+            receipt=receipt,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except (ImportError, OSError, TypeError, ValueError):
+        # best-effort audit: journal unavailability must not break calls
+        return
+
+
+def _audit_receipt(result: dict[str, object]) -> dict[str, object]:
+    """Build the journal receipt from a call_tool result (hashes only)."""
+
+    ok = result.get("ok") is True
+    api = result.get("api")
+    if ok and isinstance(api, dict):
+        result_sha256 = payload_sha256(api)
+    else:
+        result_sha256 = None
+    return {"ok": ok, "result_sha256": result_sha256}
 
 
 def call_tool(name: str, arguments: object = None, *, modern: bool = False) -> dict[str, object]:
@@ -251,16 +297,29 @@ def handle(message: dict[str, Any], state: dict[str, object]) -> dict[str, objec
             return _error(request_id, -32602, "Invalid tools/call params")
         tools = load_public_tools()
         tool = tools.get(params["name"])
+        arguments = params.get("arguments")
+        operation_id = str(uuid.uuid4())
         if tool is None:
+            _write_mcp_audit(
+                operation_id,
+                str(params.get("name") or ""),
+                arguments,
+                {"ok": False, "result_sha256": None, "error": "tool_not_allowed"},
+            )
             return _error(request_id, -32602, f"Unknown tool: {params['name']}")
         try:
-            validate_public_tool_arguments(tool, params.get("arguments"))
+            validate_public_tool_arguments(tool, arguments)
         except (TypeError, ValueError) as exc:
+            _write_mcp_audit(
+                operation_id,
+                tool.name,
+                arguments,
+                {"ok": False, "result_sha256": None, "error": str(exc)},
+            )
             return _error(request_id, -32602, str(exc))
-        return _response(
-            request_id,
-            call_tool(params["name"], params.get("arguments"), modern=modern),
-        )
+        result = call_tool(params["name"], arguments, modern=modern)
+        _write_mcp_audit(operation_id, tool.name, arguments, _audit_receipt(result))
+        return _response(request_id, result)
     return _error(request_id, -32601, f"Method not found: {method}")
 
 
