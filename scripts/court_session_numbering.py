@@ -132,76 +132,89 @@ def domain_court_code_issue(
             "ok": False,
             "errors": [{"field": "session_id", "kind": "contract", "code": str(exc)}],
         }
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = None
-        if (
-            isinstance(existing, dict)
-            and existing.get("session_id") == session_id
-            and existing.get("court_code")
-        ):
-            return {**existing, "ok": True, "errors": [], "idempotent": True}
-    selected_date = date_text or datetime.now(timezone.utc).strftime("%Y%m%d")
-    selected_index = Path(index) if index is not None else reference_path("plan-archives") / "index.json"
-    root.mkdir(parents=True, exist_ok=True)
-    try:
-        sequence = _next_sequence(selected_index, selected_date, root)
-        synthetic: dict[str, object] = {
-            "record_type": "checkpoint",
-            "topic": topic,
-            "phase": "会话开始",
-            "status": "DRAFT",
-            "summary": f"会话开始编号分配：{topic}",
-            "time": f"{selected_date}T00:00:00+08:00",
-            "source": f"references/plan-archives/session-{quote(session_id, safe='')}-allocation.md",
-            "daily_sequence": sequence,
-        }
-        enrich_entry(synthetic)
-        court_code = str(synthetic.get("court_code") or "")
-    except (OSError, TypeError, ValueError) as exc:
-        return {
-            "schema": ALLOCATION_SCHEMA,
-            "ok": False,
-            "errors": [{"field": "topic", "kind": "runtime", "code": str(exc)}],
-        }
-    if not court_code:
-        return {
-            "schema": ALLOCATION_SCHEMA,
-            "ok": False,
-            "errors": [{"field": "court_code", "kind": "runtime", "code": "court_code_generation_failed"}],
-        }
-    allocation: dict[str, Any] = {
-        "schema": ALLOCATION_SCHEMA,
-        "ok": True,
-        "errors": [],
-        "session_id": session_id,
-        "topic": topic,
-        "date": selected_date,
-        "daily_sequence": sequence,
-        "court_code": court_code,
-        "issued_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "generator": "archive_checkpoint.next_daily_sequence",
-        "authority": "unified_court_code_generator",
-        "receipt_hint": "court.shiguan_archive_checkpoint_receipt.v1",
-        "preview_only": False,
-        "idempotent": False,
-    }
-    try:
-        from court_file_lock import atomic_write_text
+    from court_file_lock import atomic_write_text, file_lock
 
-        atomic_write_text(
-            path,
-            json.dumps(allocation, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        )
-    except OSError as exc:
+    lock_path = root / ".allocation.lock"
+    try:
+        # Serialize the read-compute-write so concurrent issuers for the same
+        # date can never compute the same daily_sequence from the same
+        # allocation set (R-09). The idempotency re-check runs inside the lock
+        # so a racing issuer observes the committed allocation.
+        with file_lock(lock_path, timeout=30.0, poll_interval=0.02):
+            if path.exists():
+                try:
+                    existing = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    existing = None
+                if (
+                    isinstance(existing, dict)
+                    and existing.get("session_id") == session_id
+                    and existing.get("court_code")
+                ):
+                    return {**existing, "ok": True, "errors": [], "idempotent": True}
+            selected_date = date_text or datetime.now(timezone.utc).strftime("%Y%m%d")
+            selected_index = Path(index) if index is not None else reference_path("plan-archives") / "index.json"
+            root.mkdir(parents=True, exist_ok=True)
+            try:
+                sequence = _next_sequence(selected_index, selected_date, root)
+                synthetic: dict[str, object] = {
+                    "record_type": "checkpoint",
+                    "topic": topic,
+                    "phase": "会话开始",
+                    "status": "DRAFT",
+                    "summary": f"会话开始编号分配：{topic}",
+                    "time": f"{selected_date}T00:00:00+08:00",
+                    "source": f"references/plan-archives/session-{quote(session_id, safe='')}-allocation.md",
+                    "daily_sequence": sequence,
+                }
+                enrich_entry(synthetic)
+                court_code = str(synthetic.get("court_code") or "")
+            except (OSError, TypeError, ValueError) as exc:
+                return {
+                    "schema": ALLOCATION_SCHEMA,
+                    "ok": False,
+                    "errors": [{"field": "topic", "kind": "runtime", "code": str(exc)}],
+                }
+            if not court_code:
+                return {
+                    "schema": ALLOCATION_SCHEMA,
+                    "ok": False,
+                    "errors": [{"field": "court_code", "kind": "runtime", "code": "court_code_generation_failed"}],
+                }
+            allocation: dict[str, Any] = {
+                "schema": ALLOCATION_SCHEMA,
+                "ok": True,
+                "errors": [],
+                "session_id": session_id,
+                "topic": topic,
+                "date": selected_date,
+                "daily_sequence": sequence,
+                "court_code": court_code,
+                "issued_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "generator": "archive_checkpoint.next_daily_sequence",
+                "authority": "unified_court_code_generator",
+                "receipt_hint": "court.shiguan_archive_checkpoint_receipt.v1",
+                "preview_only": False,
+                "idempotent": False,
+            }
+            try:
+                atomic_write_text(
+                    path,
+                    json.dumps(allocation, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                )
+            except OSError as exc:
+                return {
+                    "schema": ALLOCATION_SCHEMA,
+                    "ok": False,
+                    "errors": [{"field": "root", "kind": "runtime", "code": str(exc)}],
+                }
+            return allocation
+    except (OSError, TimeoutError, ValueError) as exc:
         return {
             "schema": ALLOCATION_SCHEMA,
             "ok": False,
             "errors": [{"field": "root", "kind": "runtime", "code": str(exc)}],
         }
-    return allocation
 
 
 def resolve_session_allocation(

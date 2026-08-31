@@ -119,6 +119,62 @@ def evaluate() -> dict[str, Any]:
             second.get("daily_sequence") != issued.get("daily_sequence")
         )
 
+        # R-09: concurrent allocations on the same date must be serialized so
+        # the read-compute-write section never overlaps (two sessions computing
+        # the same daily_sequence from the same allocation set). Overlap is
+        # detected deterministically via a patched _next_sequence that widens
+        # the in-section window; a second functional assertion checks the two
+        # concurrent sessions get distinct sequences.
+        import threading
+        import time
+        from unittest import mock
+        import court_session_numbering as csn
+
+        concurrency_root = temp / "concurrency-numbering"
+        overlap = {"detected": False}
+        active = {"n": 0}
+        gate = threading.Lock()
+        original_next = csn._next_sequence
+
+        def racing_next(index_path, date_text, root):
+            with gate:
+                active["n"] += 1
+                if active["n"] > 1:
+                    overlap["detected"] = True
+            time.sleep(0.05)
+            try:
+                return original_next(index_path, date_text, root)
+            finally:
+                with gate:
+                    active["n"] -= 1
+
+        results: dict[int, dict[str, Any]] = {}
+
+        def worker(idx: int) -> None:
+            results[idx] = csn.domain_court_code_issue(
+                f"sess-concurrent-{idx}",
+                f"并发主题-{idx}",
+                date_text="20260101",
+                index=index,
+                numbering_root=concurrency_root,
+            )
+
+        threads = []
+        with mock.patch.object(csn, "_next_sequence", side_effect=racing_next):
+            for idx in range(2):
+                thread = threading.Thread(target=worker, args=(idx,))
+                threads.append(thread)
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+        seqs = [str(results[idx].get("daily_sequence") or "") for idx in range(2)]
+        if overlap["detected"]:
+            failures.append("concurrent_allocation_read_compute_write_overlapped")
+        if len(set(seqs)) != 2:
+            failures.append(f"concurrent_allocation_sequence_collision:{seqs}")
+        evidence["concurrent_serialized_no_overlap"] = not overlap["detected"]
+        evidence["concurrent_sequences_distinct"] = len(set(seqs)) == 2
+
         # 4. Closeout reuse: build_index_entry with the session allocation must
         # keep the issued court_code verbatim (no regeneration).
         now = datetime.fromisoformat("2026-01-01T12:00:00+08:00")
