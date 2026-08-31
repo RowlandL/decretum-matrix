@@ -348,6 +348,67 @@ def run_worker(plan: dict[str, object], *, timeout_seconds: int = 600) -> dict[s
     }
 
 
+def _degraded_override(plan: dict[str, object], errors: list[str]) -> dict[str, object]:
+    return {
+        "schema": WORKER_SCHEMA,
+        "status": "degraded",
+        "office_instance_kind": plan.get("office_instance_kind"),
+        "role": plan.get("role"),
+        "model_route_id": plan.get("model_route_id"),
+        "model": plan.get("model"),
+        "reasoning_effort": plan.get("reasoning_effort"),
+        "model_override_applied": False,
+        "model_route_status": "FAILED",
+        "runtime_degraded": True,
+        "fallback": "inherit_parent_model_and_effort",
+        "errors": errors,
+    }
+
+
+def verify_worker_session_override(
+    plan: dict[str, object],
+    session_path: Path,
+    *,
+    expected_session_id: str,
+    expected_cwd: Path | None = None,
+) -> dict[str, object]:
+    """Prove a fresh-session worker override by reading back its JSONL.
+
+    A consistent session id / model / effort / dossier cwd read-back yields an
+    ``applied`` result. Any mismatch or missing metadata (including a missing
+    metadata file) falls back to ``inherit_parent_model_and_effort`` with
+    ``model_route_status=FAILED`` and ``runtime_degraded=true``; this proof
+    path never lets a bare exception escape and never fakes an override.
+    """
+    if plan.get("schema") != WORKER_SCHEMA:
+        return _degraded_override(plan, ["invalid_worker_plan"])
+    try:
+        verified = verify_session_metadata(
+            session_path,
+            expected_session_id=expected_session_id,
+            expected_model=str(plan.get("model") or ""),
+            expected_effort=str(plan.get("reasoning_effort") or ""),
+            expected_cwd=Path(str(expected_cwd or plan.get("dossier_dir") or "")),
+        )
+    except ValueError as exc:
+        return _degraded_override(plan, [str(exc)])
+    except OSError as exc:
+        return _degraded_override(plan, [f"session_read_error:{exc}"])
+    return {
+        "schema": WORKER_SCHEMA,
+        "status": "completed",
+        "office_instance_kind": plan.get("office_instance_kind"),
+        "role": plan.get("role"),
+        "model_route_id": plan.get("model_route_id"),
+        "model": plan.get("model"),
+        "reasoning_effort": plan.get("reasoning_effort"),
+        "model_override_applied": True,
+        "model_route_status": "APPLIED",
+        "runtime_degraded": False,
+        "session_evidence": verified,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host-proof-json", type=Path, required=True)

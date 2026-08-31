@@ -13,6 +13,7 @@ from court_codex_office_worker import (
     HOST_PROOF_SCHEMA,
     build_worker_plan,
     verify_session_metadata,
+    verify_worker_session_override,
 )
 
 
@@ -172,6 +173,103 @@ def main() -> int:
             pass
         else:
             raise AssertionError("stale binary proof was accepted")
+
+    # ---- P4-3 fresh-session read-back proof: applied vs fallback/degraded ----
+    session_id = "019f4eb0-38e7-7760-bbc9-77a030b7cf0e"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session_dir = Path(temp_dir)
+
+        def read_back(lines: list[str], *, expected: str = session_id) -> dict[str, object]:
+            path = session_dir / "readback.jsonl"
+            path.write_text("\n".join(lines), encoding="utf-8")
+            return verify_worker_session_override(
+                sol,
+                path,
+                expected_session_id=expected,
+                expected_cwd=Path(str(sol["dossier_dir"])),
+            )
+
+        ok_lines = [
+            json.dumps({"type": "session_meta", "payload": {"id": session_id, "model_provider": "custom"}}),
+            json.dumps(
+                {
+                    "type": "turn_context",
+                    "payload": {"model": "gpt-5.6-sol", "effort": "ultra", "cwd": sol["dossier_dir"]},
+                }
+            ),
+        ]
+        proven = read_back(ok_lines)
+        assert proven["model_override_applied"] is True, "consistent read-back must apply"
+        assert proven["model_route_status"] == "APPLIED", "consistent read-back status mismatch"
+        assert proven["runtime_degraded"] is False, "consistent read-back must not degrade"
+        assert proven["status"] == "completed"
+
+        def expect_degraded(lines: list[str], reason: str, *, expected: str = session_id) -> None:
+            result = read_back(lines, expected=expected)
+            assert result["model_override_applied"] is False, f"{reason}: override must not apply"
+            assert result["model_route_status"] == "FAILED", f"{reason}: must be FAILED"
+            assert result["runtime_degraded"] is True, f"{reason}: must be runtime_degraded"
+            assert result["status"] == "degraded", f"{reason}: must be degraded"
+            assert (
+                result["fallback"] == "inherit_parent_model_and_effort"
+            ), f"{reason}: fallback must inherit"
+            assert result["errors"], f"{reason}: must carry errors"
+
+        expect_degraded(
+            [
+                json.dumps({"type": "session_meta", "payload": {"id": session_id}}),
+                json.dumps(
+                    {
+                        "type": "turn_context",
+                        "payload": {"model": "gpt-5.6-luna", "effort": "max", "cwd": sol["dossier_dir"]},
+                    }
+                ),
+            ],
+            "model mismatch",
+        )
+        expect_degraded(
+            [
+                json.dumps({"type": "session_meta", "payload": {"id": session_id}}),
+                json.dumps(
+                    {
+                        "type": "turn_context",
+                        "payload": {"model": "gpt-5.6-sol", "effort": "low", "cwd": sol["dossier_dir"]},
+                    }
+                ),
+            ],
+            "effort mismatch",
+        )
+        expect_degraded(ok_lines, "session id mismatch", expected="019f4eae-7c0c-71c3-b992-e4cd83f21ae8")
+        expect_degraded(
+            [
+                json.dumps({"type": "session_meta", "payload": {"id": session_id}}),
+                json.dumps(
+                    {
+                        "type": "turn_context",
+                        "payload": {"model": "gpt-5.6-sol", "effort": "ultra", "cwd": str(session_dir)},
+                    }
+                ),
+            ],
+            "dossier cwd mismatch",
+        )
+        expect_degraded(
+            [json.dumps({"type": "session_meta", "payload": {"id": session_id}})],
+            "missing turn context",
+        )
+        missing = verify_worker_session_override(
+            sol,
+            session_dir / "does-not-exist.jsonl",
+            expected_session_id=session_id,
+        )
+        assert missing["model_override_applied"] is False, "missing session file must not apply"
+        assert missing["runtime_degraded"] is True, "missing session file must degrade"
+        assert missing["errors"], "missing session file must carry an error"
+        invalid_plan = verify_worker_session_override(
+            {"schema": "not-a-worker-plan"},
+            session_dir / "x.jsonl",
+            expected_session_id=session_id,
+        )
+        assert invalid_plan["model_route_status"] == "FAILED", "invalid plan must fail closed"
 
     print("COURT_CODEX_OFFICE_WORKER_OK")
     return 0
