@@ -1726,13 +1726,29 @@ def _weighted_searchable_parts(
     return weighted_parts
 
 
+def _recall_any_positive_occurrence(value: str, needle: str) -> bool:
+    """True when at least one occurrence of needle is outside a negated clause.
+
+    Reuses the taxonomy clause-negation detector (P0-1): a term that only
+    appears inside a negated clause (e.g. "本次不涉及 archive 清理") contributes
+    no recall score.
+    """
+    for match in re.finditer(re.escape(needle), value):
+        if not _taxonomy_match_is_negated(value, match.start()):
+            return True
+    return False
+
+
 def score_entry(entry: dict[str, object], terms: list[str]) -> int:
     if not terms:
         return 0
     score = 0
     for weight, value in _weighted_searchable_parts(entry):
-        lowered = value.lower()
-        score += sum(weight for term in terms if term.lower() in lowered)
+        lowered = value.casefold()
+        for term in terms:
+            needle = term.casefold()
+            if needle and needle in lowered and _recall_any_positive_occurrence(lowered, needle):
+                score += weight
     return score
 
 

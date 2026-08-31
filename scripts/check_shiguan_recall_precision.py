@@ -113,6 +113,10 @@ def evaluate() -> dict[str, Any]:
     if latest_uids != expected_latest:
         failures.append("recall_empty_query_not_latest_n")
 
+    # --- P0-1: a term inside a negated clause must not contribute ---
+    if "f-neg" in _query(["archive"], BASIC):
+        failures.append("recall_negation_not_suppressed")
+
     ok = not failures
     return {
         "schema": "court.shiguan_recall_precision_check.v1",
