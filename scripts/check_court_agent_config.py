@@ -1079,6 +1079,39 @@ use_memories = true
     public_json = json.dumps(public_probe, ensure_ascii=False)
     assert str(Path.home()).casefold() not in public_json.casefold()
 
+    host_proof = public_probe.get("host_proof")
+    assert isinstance(host_proof, dict), "probe must expose host_proof"
+    assert set(host_proof) == {
+        "codex_version",
+        "codex_executable",
+        "supported_model_effort_pairs",
+        "config_exposes_model",
+        "turn_context_model",
+        "turn_context_effort",
+    }, "host_proof field set mismatch"
+    if host_proof["codex_version"] is not None:
+        pairs = host_proof["supported_model_effort_pairs"]
+        assert isinstance(pairs, list) and pairs, "codex-present probe must list supported pairs"
+        assert all(
+            isinstance(pair, dict) and pair.get("model") and pair.get("effort")
+            for pair in pairs
+        ), "supported pair entries must carry model and effort"
+    saved_resolve = runtime_probe_module.resolve_codex_executable
+    runtime_probe_module.resolve_codex_executable = lambda *args, **kwargs: {
+        "ok": False,
+        "errors": ["command_not_found"],
+        "command": "codex",
+    }
+    try:
+        no_codex_probe = probe()
+    finally:
+        runtime_probe_module.resolve_codex_executable = saved_resolve
+    no_codex_host_proof = no_codex_probe.get("host_proof")
+    assert isinstance(no_codex_host_proof, dict), "no-codex probe must still expose host_proof"
+    assert all(
+        value is None for value in no_codex_host_proof.values()
+    ), "no-codex host_proof fields must be null (never raise, never fake)"
+
     def string_values(value: object) -> list[str]:
         if isinstance(value, dict):
             return [item for nested in value.values() for item in string_values(nested)]

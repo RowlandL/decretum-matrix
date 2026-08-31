@@ -116,7 +116,7 @@
       "scripts/court_agent_admission_contract.py": 300,
       "scripts/court_codex_protocol_launcher.py": 450,
       "scripts/court_codex_office_worker.py": 450,
-      "scripts/check_court_codex_office_worker.py": 220,
+      "scripts/check_court_codex_office_worker.py": 290,
       "scripts/court_codex_host_resolution.py": 320,
       "scripts/check_court_codex_host_resolution.py": 140,
       "scripts/governance_framework.py": 420,
@@ -132,7 +132,7 @@
       "scripts/shiguan_pending_trust.py": 460,
       "scripts/plan_shiguan_pending_quarantine.py": 650,
       "scripts/obsidian_config_state.py": 220,
-      "scripts/agent_runtime_probe.py": 1200,
+      "scripts/agent_runtime_probe.py": 1310,
       "scripts/codex_runtime_probe_support.py": 300
     }
   },
