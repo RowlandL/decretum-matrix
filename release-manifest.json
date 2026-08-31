@@ -537,8 +537,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "80b7c3896023c5404a14b5ec13989dbbe9d4069a74e1af0f005753c003836ed7",
-      "size": 90972
+      "sha256": "ebf35fea9103acdb98e66b39d49ebcb2f9e3f09df1a154c35e3817b8cc2b8faf",
+      "size": 91020
     },
     {
       "mode": "100644",
@@ -567,8 +567,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "ed557dae4ca20f854a7cbf244981e7435a64afb79cdb000f94609db9062c24df",
-      "size": 20771
+      "sha256": "dc5874363480765d21ec602c7870f4fa35b1597ed7f77c1846e9c35de58a0b92",
+      "size": 21199
     },
     {
       "mode": "100644",
@@ -585,8 +585,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "2667f5907ab50acd7afb132834f126e5d59e90def44dc7501e07d9b878be378e",
-      "size": 4461
+      "sha256": "27dcead34ab9698fdfa30973b65a8b881ffa3ea3432217a9ead113125be63f53",
+      "size": 4550
     },
     {
       "mode": "100644",
@@ -1113,8 +1113,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_shiguan_recall_precision.py",
-      "sha256": "72e7d795752f97cc709e57767856c6d7a54359f5da9aa5b1638fc8ac7d24e5af",
-      "size": 9375
+      "sha256": "2e1ae7b17339c9081ea02bf34af55816891bc33fdc6cefc7f8473b9c39b571c3",
+      "size": 679
     },
     {
       "mode": "100644",
@@ -1209,8 +1209,14 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "ba78bbfb5ee995fba64eeaa59c107255fd4573448b371c9f10809d9716b7793e",
-      "size": 65167
+      "sha256": "82b75d16341322b5fdf815e66eff3e545fd41a542b0f8b3fcfdba432d9c5356c",
+      "size": 65703
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_shiguan_recall_precision.py",
+      "sha256": "fe024630ed8026415a3035d466e0f6a2d1b86e633944e8c7070d5ff0c989acff",
+      "size": 9375
     },
     {
       "mode": "100644",
@@ -1223,6 +1229,12 @@
       "path": "scripts/codex_runtime_probe_support.py",
       "sha256": "ff30a55daf84b45c8440be4a04168c81be16768ab169ee097c1247524ad595f0",
       "size": 10034
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/commands/query_shiguan_index.py",
+      "sha256": "b33930f1d74323718244224a238a79e63438477b262371bb374882089a2bcc1e",
+      "size": 4880
     },
     {
       "mode": "100644",
@@ -1599,8 +1611,8 @@
     {
       "mode": "100644",
       "path": "scripts/query_shiguan_index.py",
-      "sha256": "973d66a810007f3299a4e7b331038e50bdc7f0c3914ed2281f36cf7f62fe2d25",
-      "size": 4580
+      "sha256": "4c247faa307fde0f9a777dadd8e02786e0a58edbb90722f342763ccf824e05ba",
+      "size": 666
     },
     {
       "mode": "100644",
@@ -1659,8 +1671,14 @@
     {
       "mode": "100644",
       "path": "scripts/serve_shiguan_tree.py",
-      "sha256": "5a945831c921345192e77cc6b57e592f464963fa8d769f386b29a41c0d4e3266",
-      "size": 111723
+      "sha256": "c5ad8f51ca428736c94eea4dfc2e85e2216530d8112e62840379fa80a4a4b433",
+      "size": 727
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/services/serve_shiguan_tree.py",
+      "sha256": "c8a7e2fb3d6cde539898c37728f3b96be123a96b3cd90e496769bcba6903a009",
+      "size": 112023
     },
     {
       "mode": "100644",
@@ -1882,12 +1900,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7067698,
-    "payload_file_count": 308,
+    "payload_bytes": 7071471,
+    "payload_file_count": 311,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "ed65bf88e70e9a2fcc5b2b1eb03b512eb1368adee4ea26fb293c7a8396f41cbb",
-    "source_packaged_tracked_file_count": 300,
-    "source_tracked_file_count": 416
+    "payload_index_sha256": "eadbf4a7197af763b64cf82b691ccb4781cb975d062307c133955082a33f41a4",
+    "source_packaged_tracked_file_count": 303,
+    "source_tracked_file_count": 420
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -2003,6 +2021,7 @@
     "references/sections/court-response-fewshot-format.md",
     "references/sections/court-runtime-result-and-recruitment-contract.md",
     "references/user-manual-zh.md",
+    "scripts/README.md",
     "scripts/build_npm_package.mjs",
     "scripts/check_active_copy_hashes.py",
     "scripts/check_cli_cwd_invariance.py",

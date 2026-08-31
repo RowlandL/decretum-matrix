@@ -116,6 +116,18 @@ RETIRED_COMPATIBILITY_ENTRYPOINTS = frozenset(
         "scripts/sync_shiguan_obsidian_vault.py",
     }
 )
+
+# A+B layering: root-level compatibility shells (and retired real modules that
+# moved into scripts/{checks,commands,services}) must not be discovered as
+# second entrypoints; the canonical module under scripts/<layer>/ is the
+# registered command.
+COMPATIBILITY_SHELL_ENTRYPOINTS = frozenset(
+    {
+        "scripts/check_shiguan_recall_precision.py",
+        "scripts/query_shiguan_index.py",
+        "scripts/services/serve_shiguan_tree.py",
+    }
+)
 VOLATILE_RECEIPT_FIELDS = {
     "created_at",
     "generated_at",
@@ -288,6 +300,8 @@ def discover_executable_entrypoints() -> list[str]:
     entrypoints: list[str] = []
     for relative in _tracked_script_paths():
         if str(relative) in RETIRED_COMPATIBILITY_ENTRYPOINTS:
+            continue
+        if str(relative) in COMPATIBILITY_SHELL_ENTRYPOINTS:
             continue
         if relative.suffix.lower() not in SCRIPT_SUFFIXES:
             continue

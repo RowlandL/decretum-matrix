@@ -40,19 +40,27 @@
     "generated_path_rules": [
       {
         "prefix": "references/startup-tasks/",
-        "portable_basenames": ["README.md"]
+        "portable_basenames": [
+          "README.md"
+        ]
       },
       {
         "prefix": "references/shiguan-tree/leaves/",
-        "portable_basenames": ["README.md"]
+        "portable_basenames": [
+          "README.md"
+        ]
       },
       {
         "prefix": "references/shiguan-tree/branches/",
-        "portable_basenames": ["README.md"]
+        "portable_basenames": [
+          "README.md"
+        ]
       },
       {
         "prefix": "references/shiguan-tree/sources/",
-        "portable_basenames": ["README.md"]
+        "portable_basenames": [
+          "README.md"
+        ]
       }
     ],
     "generated_path_components": [
@@ -93,8 +101,8 @@
   },
   "hard_limits": {
     "portable_source": {
-      "max_files": 345,
-      "max_bytes": 7900000
+      "max_files": 520,
+      "max_bytes": 8600000
     },
     "source_lines": {
       "scripts/check_startup_fastpath_contract.py": 620,
@@ -105,7 +113,6 @@
       "scripts/supercc_dispatch_contract.py": 500,
       "scripts/supercc_dispatch_delivery.py": 1100,
       "scripts/supercc_client_selection.py": 400,
-      "scripts/serve_shiguan_tree.py": 2800,
       "scripts/ensure_shiguan_autosync.py": 650,
       "scripts/shiguan_peer_downloads.py": 420,
       "scripts/shiguan_peer_state.py": 320,
@@ -133,7 +140,8 @@
       "scripts/plan_shiguan_pending_quarantine.py": 650,
       "scripts/obsidian_config_state.py": 220,
       "scripts/agent_runtime_probe.py": 1310,
-      "scripts/codex_runtime_probe_support.py": 300
+      "scripts/codex_runtime_probe_support.py": 300,
+      "scripts/services/serve_shiguan_tree.py": 2800
     }
   },
   "warning_targets": {

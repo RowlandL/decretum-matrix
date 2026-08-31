@@ -924,19 +924,6 @@
       "side_effect": "read_only"
     },
     {
-      "authority_source": "scripts/check_shiguan_recall_precision.py",
-      "command": "check-shiguan-recall-precision",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "check",
-      "group": "check",
-      "handler": "isolated_subprocess:scripts/check_shiguan_recall_precision.py",
-      "id": "check.check-shiguan-recall-precision",
-      "legacy_path": "scripts/check_shiguan_recall_precision.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "read_only"
-    },
-    {
       "authority_source": "scripts/check_skill_identity.py",
       "command": "check-skill-identity",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1145,6 +1132,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/checks/check_shiguan_recall_precision.py",
+      "command": "check-shiguan-recall-precision",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_shiguan_recall_precision.py",
+      "id": "check.check-shiguan-recall-precision",
+      "legacy_path": "scripts/checks/check_shiguan_recall_precision.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/closeout_conflict_scan.py",
       "command": "closeout-conflict-scan",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1156,6 +1156,77 @@
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/commands/query_shiguan_index.py",
+      "command": "query-shiguan-index",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/commands/query_shiguan_index.py",
+      "id": "shiguan.query-shiguan-index",
+      "legacy_path": "scripts/commands/query_shiguan_index.py",
+      "mcp": [
+        {
+          "description": "Query public Shiguan index records.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "default": 5,
+                "description": "\u7ed3\u679c\u4e0a\u9650\uff081..20\uff09",
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "terms": {
+                "description": "Keyword terms to query.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "name": "shiguan.query",
+          "public_api": "shiguan_query",
+          "side_effect": "read_only"
+        },
+        {
+          "description": "Query Shiguan entries as metadata projection (no pending/private bodies).",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "default": 20,
+                "description": "\u7ed3\u679c\u4e0a\u9650",
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "description": "\u68c0\u7d22\u8bcd",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          },
+          "name": "shiguan.entries_query",
+          "public_api": "public_shiguan_entries_query",
+          "side_effect": "read_only"
+        }
+      ],
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
     },
     {
       "authority_source": "scripts/court_cli.py",
@@ -1895,77 +1966,6 @@
       "handler": "isolated_subprocess:scripts/probe_court_mcp_modern_wire.py",
       "id": "check.probe-court-mcp-modern-wire",
       "legacy_path": "scripts/probe_court_mcp_modern_wire.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "read_only"
-    },
-    {
-      "authority_source": "scripts/query_shiguan_index.py",
-      "command": "query-shiguan-index",
-      "compatibility_state": "unified_compatibility_adapter",
-      "domain": "shiguan",
-      "group": "shiguan",
-      "handler": "isolated_subprocess:scripts/query_shiguan_index.py",
-      "id": "shiguan.query-shiguan-index",
-      "legacy_path": "scripts/query_shiguan_index.py",
-      "mcp": [
-        {
-          "description": "Query public Shiguan index records.",
-          "dry_run": false,
-          "input_schema": {
-            "additionalProperties": false,
-            "properties": {
-              "limit": {
-                "default": 5,
-                "description": "\u7ed3\u679c\u4e0a\u9650\uff081..20\uff09",
-                "maximum": 20,
-                "minimum": 1,
-                "type": "integer"
-              },
-              "terms": {
-                "description": "Keyword terms to query.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [],
-            "type": "object"
-          },
-          "name": "shiguan.query",
-          "public_api": "shiguan_query",
-          "side_effect": "read_only"
-        },
-        {
-          "description": "Query Shiguan entries as metadata projection (no pending/private bodies).",
-          "dry_run": false,
-          "input_schema": {
-            "additionalProperties": false,
-            "properties": {
-              "limit": {
-                "default": 20,
-                "description": "\u7ed3\u679c\u4e0a\u9650",
-                "maximum": 50,
-                "minimum": 1,
-                "type": "integer"
-              },
-              "query": {
-                "description": "\u68c0\u7d22\u8bcd",
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "query"
-            ],
-            "type": "object"
-          },
-          "name": "shiguan.entries_query",
-          "public_api": "public_shiguan_entries_query",
-          "side_effect": "read_only"
-        }
-      ],
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
