@@ -37,6 +37,7 @@ from codex_runtime_probe_support import (
     strict_config_text_probe,
 )
 from court_multi_agent_protocol import validate_protocol_config
+from court_model_router import MODEL_MAX_REASONING_EFFORT
 
 
 RECOMMENDED_AGENT_MAX_DEPTH = 4
@@ -786,6 +787,87 @@ def sanitize_probe_payload(payload: dict[str, object], *, home: Path, court_root
     return sanitized
 
 
+def _latest_turn_context(codex_home: Path) -> tuple[str | None, str | None]:
+    """Read only model/effort metadata from the most recent Codex session JSONL.
+
+    Never returns conversation text or credentials; any probe failure yields
+    (None, None) so callers fail closed without raising.
+    """
+    sessions_dir = codex_home / "sessions"
+    if not sessions_dir.is_dir():
+        return None, None
+    try:
+        candidates = [path for path in sessions_dir.glob("*.jsonl") if path.is_file()]
+    except OSError:
+        return None, None
+    if not candidates:
+        return None, None
+    for path in sorted(
+        candidates,
+        key=lambda item: (item.stat().st_mtime_ns, str(item)),
+        reverse=True,
+    )[:5]:
+        try:
+            if path.is_symlink() or path.stat().st_size > 64 * 1024 * 1024:
+                continue
+        except OSError:
+            continue
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    if line_number > 2000:
+                        break
+                    try:
+                        item = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(item, dict):
+                        continue
+                    payload = item.get("payload")
+                    if item.get("type") == "turn_context" and isinstance(payload, dict):
+                        model = payload.get("model")
+                        effort = payload.get("effort")
+                        return (
+                            str(model) if isinstance(model, str) and model else None,
+                            str(effort) if isinstance(effort, str) and effort else None,
+                        )
+        except OSError:
+            continue
+    return None, None
+
+
+def _config_exposes_model(codex_home: Path) -> bool | None:
+    """Report whether the effective Codex config exposes a model field.
+
+    True when the effective file carries a top-level ``model`` or
+    ``model_provider``; False when parsed but absent; None when the effective
+    file is unavailable (so probe consumers fail closed, never guessing).
+    """
+    try:
+        summary = effective_config_agent_summary(codex_home)
+    except Exception:
+        return None
+    source = str(summary.get("effective_config_source") or "")
+    if not source:
+        return None
+    path = codex_home / source
+    try:
+        if not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if tomllib is None:
+        return None
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    return "model" in data or "model_provider" in data
+
+
 def config_agent_summary(path: Path) -> dict[str, object]:
     summary: dict[str, object] = {
         "path": path.name,
@@ -1045,6 +1127,24 @@ def probe() -> dict[str, object]:
         if not config_notices and selected_protocol == "v1"
         else "compatible_below_recommended"
     )
+    codex_available = bool(codex_resolution.get("ok")) and bool(
+        str(codex_resolution.get("version") or "").strip()
+    )
+    codex_version: str | None = None
+    codex_executable: str | None = None
+    supported_pairs: list[dict[str, str]] | None = None
+    if codex_available:
+        raw_version = str(codex_resolution.get("version") or "")
+        codex_version = raw_version.removeprefix("codex-cli ").strip() or None
+        codex_executable = str(codex_resolution.get("executable_path") or "") or None
+        supported_pairs = [
+            {"model": model, "effort": effort}
+            for model, effort in sorted(MODEL_MAX_REASONING_EFFORT.items())
+        ]
+    turn_context_model, turn_context_effort = (
+        _latest_turn_context(home) if codex_available else (None, None)
+    )
+    config_exposes_model = _config_exposes_model(home) if codex_available else None
     payload = {
         "kind": "agent_runtime_probe",
         "runtime": "codex-only",
@@ -1068,6 +1168,14 @@ def probe() -> dict[str, object]:
                 )
             },
             "python": sys.version.split()[0],
+        },
+        "host_proof": {
+            "codex_version": codex_version,
+            "codex_executable": codex_executable,
+            "supported_model_effort_pairs": supported_pairs,
+            "config_exposes_model": config_exposes_model,
+            "turn_context_model": turn_context_model,
+            "turn_context_effort": turn_context_effort,
         },
         "paths": {
             "skills_dir": str(skills_dir),
