@@ -7,7 +7,7 @@
 - started_at: 2026-08-31T15:40:00+08:00
 - finished_at: 2026-08-31T16:05:00+08:00 (approx)
 - git_branch: release/beta1.0.8
-- git_head_commit: 见 commit（提交后填写）
+- git_head_commit: 34240e4
 - working_tree_clean: true（提交后）
 
 ## 1. 目标达成
