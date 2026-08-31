@@ -699,8 +699,8 @@
     {
       "mode": "100644",
       "path": "scripts/agent_runtime_probe.py",
-      "sha256": "56156b70282919207e1c1349e82a580b58e4815d7852261101a1c78087694346",
-      "size": 56273
+      "sha256": "c7cc1f1295ed42d3b97abb0ff58eaccbb1ffca171f040c2e99a8d07b0d6fa8f1",
+      "size": 56747
     },
     {
       "mode": "100644",
@@ -777,8 +777,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_agent_config.py",
-      "sha256": "9c586cc505ff00120269c6f38d4da2bbc237437e7311dfba2dd060748b7ed467",
-      "size": 58823
+      "sha256": "462f90f4f7222f5615e730f6539b251d36dcb14f6ac77c932486a4ffc304519c",
+      "size": 60136
     },
     {
       "mode": "100644",
@@ -795,8 +795,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_code_session_numbering.py",
-      "sha256": "25a2c13e89558ddd98c82890af56c7a78383c27a7b5ca425f3a27bcb3bbd4b7f",
-      "size": 10044
+      "sha256": "616119808452cdf4d6ac15bd432c85c1c94f53141e742bd7d5c014ad70fc8255",
+      "size": 12369
     },
     {
       "mode": "100644",
@@ -843,8 +843,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_mcp_server.py",
-      "sha256": "8df04f5e6b6e32eb97bd5537ff0a7123e753655857cd4cca04a563d1e1663414",
-      "size": 40521
+      "sha256": "7e0d1d898b1c74ef9511e405028dcd3756b4e18a04e34b1fbd4014c87c430e91",
+      "size": 43146
     },
     {
       "mode": "100644",
@@ -1311,8 +1311,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_mcp_server.py",
-      "sha256": "739c86d12e7e287c98f02d645755bc483d4472b767196985eb75a8c403882079",
-      "size": 15181
+      "sha256": "681132f6e26a36b6961d24c34bdfcece3f706be25f00fd07bda9366b98119f8b",
+      "size": 15498
     },
     {
       "mode": "100644",
@@ -1383,8 +1383,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_public_registry.py",
-      "sha256": "064d6f237cf667c36ed0098cde566df58e39219e11f2455e0449a8461487ddf8",
-      "size": 6661
+      "sha256": "0f88b41aef295523a4223285c93802bece7e98ba974d66c22e3395ac8c058d34",
+      "size": 7798
     },
     {
       "mode": "100644",
@@ -1425,8 +1425,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_session_numbering.py",
-      "sha256": "33cdf3c2561558106e8d8e71a91f980dae28708412f6a8aae0adc66d7026533f",
-      "size": 10739
+      "sha256": "66cf0387dcb91980f66396731ca1019e07da71df5f577b5f02f62c985709c3fe",
+      "size": 11930
     },
     {
       "mode": "100644",
@@ -1876,12 +1876,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7036543,
+    "payload_bytes": 7045925,
     "payload_file_count": 307,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "6ac747519b6334b46c6f496824d05cbefa89f6e7d696572e8bb6c93a838d0e8d",
+    "payload_index_sha256": "0d668094c5a2543b8616cfc74043ccd66ba1e3d0ce46c90b9aa012c1be99dc16",
     "source_packaged_tracked_file_count": 299,
-    "source_tracked_file_count": 412
+    "source_tracked_file_count": 413
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1954,6 +1954,7 @@
     "docs/plans/beta1.0.8/handoffs/phase-3-handoff.md",
     "docs/plans/beta1.0.8/handoffs/phase-4-evidence.md",
     "docs/plans/beta1.0.8/handoffs/phase-4-handoff.md",
+    "docs/plans/beta1.0.8/handoffs/phase-5-check.json",
     "docs/plans/beta1.0.8/handoffs/phase-5-evidence.md",
     "docs/plans/beta1.0.8/handoffs/phase-5-handoff.md",
     "docs/plans/beta1.0.8/release-review-beta1.0.8.md",
