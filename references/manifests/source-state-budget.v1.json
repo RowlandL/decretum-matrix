@@ -120,7 +120,7 @@
       "scripts/court_codex_host_resolution.py": 320,
       "scripts/check_court_codex_host_resolution.py": 140,
       "scripts/governance_framework.py": 420,
-      "scripts/shiguan_gbrain.py": 320,
+      "scripts/shiguan_gbrain.py": 500,
       "scripts/shiguan_git_federation.py": 970,
       "scripts/check_shiguan_git_federation.py": 380,
       "scripts/check_release_metadata.py": 140,

@@ -235,6 +235,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_court_code_session_numbering.py",
+      "command": "check-court-code-session-numbering",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_court_code_session_numbering.py",
+      "id": "check.check-court-code-session-numbering",
+      "legacy_path": "scripts/check_court_code_session_numbering.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_court_codex_host_resolution.py",
       "command": "check-court-codex-host-resolution",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1585,6 +1598,19 @@
       "legacy_path": "scripts/court_session_closeout.py",
       "public": true,
       "receipt_schema": "court.session_closeout.receipt.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/court_session_numbering.py",
+      "command": "court-session-numbering",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/court_session_numbering.py",
+      "id": "shiguan.court-session-numbering",
+      "legacy_path": "scripts/court_session_numbering.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },
     {
