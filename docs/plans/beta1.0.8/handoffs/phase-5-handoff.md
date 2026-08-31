@@ -97,6 +97,19 @@
 - 分层索引设计：`docs/plans/beta1.0.8/review/shiguan-hierarchical-index-design.md`
   （谱系前缀索引 L0a + 编号复合键/段位桶 L0b + 文本倒排 L1 + RRF 融合；P1/P2 落地路线）。
 
+## 6.2 A+B+D 断言感知召回追加（2026-08-31，用户批准；HEAD 68632c0）
+
+- 否定判定升级为**四态断言**（NegEx/ConText 风格）：affirmed/negated/uncertain/
+  hypothetical + 作用窗口；否定为软惩罚（负分）而非零贡献/硬过滤（TREC 2025 风格）。
+- 记录**状态成为可查询相关性语义面**（STATUS_SEMANTICS 中英别名：失败→REJECTED、
+  打断→BLOCKED、余险→DONE_WITH_CONCERNS、部分→PARTIAL…）：查询命中状态语义即
+  加分召回，普通查询零贡献、绝不排除（用户明确：状态本身有意义，按相关性分析判断）。
+- 提交：`c71d22d`（A+D 四态断言）、`dc567cb`（B 状态语义面）、`b69daa1`（docs）、
+  `68632c0`（payload 收据）。真实索引：`部分`→3×PARTIAL、`余险`→DONE_WITH_CONCERNS、
+  普通查询不变。门禁：recall_precision 14 探针 PASSED、governance 48、lineage_taxonomy
+  （否定 golden 兼容）、full_record、mcp_server 62、unified_cli、budget、payload
+  self-test 全绿。
+
 ## 7. 交接自检
 
 - [x] phase-5-evidence.md 存在且与声明一致
