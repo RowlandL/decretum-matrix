@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from shiguan_paths import ensure_shared_seed, reference_path
+from shiguan_paths import reference_path
 
 IKU_MARKER_PENDING_GENERATED = "待 archive_checkpoint 生成"
 IKU_MARKER_PENDING_REFILL = "占位符由 archive_checkpoint 自动回填"
@@ -35,8 +35,15 @@ RECEIPT_RE = re.compile(r"archive_checkpoint[^\n]{0,120}")
 
 
 def archive_root() -> Path:
-    """Resolve the shared plan-archives root (read-only)."""
-    ensure_shared_seed()
+    """Resolve the shared plan-archives root (read-only, zero side effects).
+
+    Detection must never create directories or seed files: the shared root is
+    initialized by the installer, and a read-only probe (including the MCP
+    ``shiguan.iku_candidates`` projection) has to stay byte-identical before
+    and after a dry run (contract-a). Callers that need the shared seeds must
+    initialize them through the install/apply path instead.
+    """
+
     return reference_path("plan-archives")
 
 

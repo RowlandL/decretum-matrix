@@ -198,6 +198,20 @@ def main() -> int:
             )
         )
         commands = [
+            (
+                "iku_candidates_public_api_dry_run",
+                [
+                    "-c",
+                    (
+                        "import sys; "
+                        f"sys.path.insert(0, {str(SCRIPTS)!r}); "
+                        "from court_public_api import public_iku_candidates; "
+                        "import json; "
+                        "print(json.dumps(public_iku_candidates(), ensure_ascii=False, sort_keys=True))"
+                    ),
+                ],
+                {0},
+            ),
             ("query_shiguan_index", [str(SCRIPTS / "query_shiguan_index.py"), "--format", "json"], {0, 1}),
             ("check_import_queue", [str(SCRIPTS / "check_shiguan_import_queue.py"), "--format", "json"], {0}),
             ("reevaluate_memory_dry_run", [str(SCRIPTS / "reevaluate_memory_decisions.py"), "--dry-run", "--limit", "1"], {0}),

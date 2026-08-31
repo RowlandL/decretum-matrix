@@ -19,13 +19,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 sys.dont_write_bytecode = True
 
+from court_file_lock import atomic_write_text
 from shiguan_paths import code_root, ensure_shared_seed, reference_path
 from iku_candidates import detect_candidates
 
@@ -35,7 +38,13 @@ def skill_root() -> Path:
 
 
 def archive_root() -> Path:
-    ensure_shared_seed()
+    """Resolve the shared plan-archives root (read-only).
+
+    The dry-run detector must not create directories or seed files: seeding is
+    the installer/apply path's responsibility. Keeping this resolution pure
+    guarantees ``--dry-run`` and the MCP read-only probe stay byte-identical.
+    """
+
     return reference_path("plan-archives")
 
 
@@ -62,6 +71,35 @@ def _replacement_line(candidate: dict[str, object], line: str) -> str | None:
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Durably write bytes via a sibling temp file, then atomically replace."""
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw_temp = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=str(target.parent),
+    )
+    temp_path = Path(raw_temp)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, target)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def plan_repairs(
@@ -196,8 +234,8 @@ def apply_repairs(
         repaired_text = "".join(lines)
         backup_name = f"{timestamp}-{path.name}.bak"
         backup_path = selected_backup_root / backup_name
-        backup_path.write_bytes(original_bytes)
-        path.write_text(repaired_text, encoding="utf-8", newline="\n")
+        _atomic_write_bytes(backup_path, original_bytes)
+        atomic_write_text(path, repaired_text, encoding="utf-8", newline="\n")
         files_changed += 1
         replacements_changed += len(replaced_lines)
         journal["files"].append(
@@ -215,7 +253,8 @@ def apply_repairs(
         )
     journal_path = selected_backup_root / f"repair-journal-{timestamp}.json"
     journal["journal_path"] = str(journal_path)
-    journal_path.write_text(
+    atomic_write_text(
+        journal_path,
         json.dumps(journal, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
         newline="\n",
@@ -234,7 +273,7 @@ def rollback(backup_path: Path, target_path: Path) -> bool:
     target = Path(target_path)
     if not source.exists():
         raise FileNotFoundError(f"rollback_snapshot_missing:{source}")
-    target.write_bytes(source.read_bytes())
+    _atomic_write_bytes(target, source.read_bytes())
     return True
 
 
