@@ -2,7 +2,7 @@
 
 > protocol_version: draft-0.1 · 阶段 5（M5 发布）· branch: release/beta1.0.8
 > 评审人：门下 REVIEWER（本机开发路径 C:\Users\Administrator\a02-takeover\dm-dev）
-> 状态：VERIFY_READY（待 REVIEWER 拍板）· 批准后于权威环境执行 workspace.yaml 升版与外部发布动作
+> 状态：REVIEWER_SIGNED（用户授权 2026-08-31）· 批准后于权威环境执行 workspace.yaml 升版与外部发布动作（另行授权）
 
 ## 1. 门禁闭环汇总（P5-1，2026-08-31 本机）
 
@@ -108,14 +108,14 @@
   "schema": "decretum.beta108.release_approval.v1",
   "version": "beta1.0.8",
   "branch": "release/beta1.0.8",
-  "head": "5e0b660",
+  "head": "b8f2cd8",
   "gate_closure": "PASS_WITH_ENVIRONMENT_NOTES",
-  "status": "PENDING_REVIEWER",
-  "approved_by": null,
-  "approved_at_utc": null,
+  "status": "REVIEWER_SIGNED",
+  "approved_by": "REVIEWER（用户授权 2026-08-31，经发布前 review R-01..R-11 闭环 + 复验确认）",
+  "approved_at_utc": "2026-08-31T14:40:00Z",
   "approval_actions": [
-    "权威环境补跑 repo-control doctor 与干净安装复验（§3）",
-    "workspace.yaml version.current -> beta1.0.8（仅批准时，本机无此文件）",
+    "已复验（本机）：安装副本同步 beta1.0.8（drift=0）、check_catalog --strict PASS、check_codex_agent_roles 14/14；check_active_copy_hashes extra=4 受保护史馆锚点 + repo-control doctor 需权威环境（环境受限，见 §3/R-12）",
+    "workspace.yaml version.current -> beta1.0.8：权威环境批准后执行（本机无此文件）",
     "外部 tag / GitHub Release / npm 发布：另行单独授权，本任务书范围不执行"
   ]
 }

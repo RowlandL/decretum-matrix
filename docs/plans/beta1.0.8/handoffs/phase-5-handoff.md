@@ -2,7 +2,7 @@
 
 - protocol_version: draft-0.1
 - phase: 5
-- status: VERIFY_READY
+- status: COMPLETED（REVIEWER 用户授权 2026-08-31；见 handoffs/README 索引与 release-review §6 REVIEWER_SIGNED）
 - handoffer_session: hermes-codex-20260831-5（阶段 5 接续会话，authority=super, behavior=serial_inline）
 - started_at: 2026-08-31T19:00:00+08:00 (approx)
 - finished_at: 2026-08-31T20:20:00+08:00 (approx)

@@ -29,12 +29,12 @@
 
 | 里程碑 | 内容 | 出口标准 | 状态 | 验收证据摘要 |
 | --- | --- | --- | --- | --- |
-| M0 基线绿 | 清偿 E；工作树干净；doctor 无 WARN | 门禁三件套（read_only / source_budget / release_manifest）绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-0-evidence.md（本机环境 doctor 需权威环境补跑） |
-| M1 合同定稿 | A/B/C/D 契约文档、schema、验证集、fixtures 提交 | 契约评审通过（门下复核意见闭环） | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-1-evidence.md（评审意见已回写 §6：a/b/c 通过、d 修订 2 处、manifest 条件通过；闭环待 REVIEWER 确认） |
-| M2 通用入口适配与自身 MCP 能力面 | 现有入口上的 A/B/C/E 工具族、Agent envelope、能力索引、编号/谱系、GBrain recall 和领域化账册 | P2-1..P2-6 的 manifest/public API/探针/审计全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-2-evidence.md（12 工具矩阵、58 探针、审计/编排探针全绿；出口待 REVIEWER） |
-| M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-3-evidence.md（编号开始对话分配/结诏复用、分类合同 9 字段+conflict、5 类验证集、IKU 只读幂等+回滚、冲突/过期范式、leaves/full-record 全绿；出口待 REVIEWER） |
-| M4 Codex 适配 | C 探测/路由/回退闭环 | host proof 测试 + 回退测试全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-4-evidence.md（P4-1 probe host_proof 六字段 null-safe、P4-2 route_office_model_with_host_proof 正/反例、P4-3 fresh-session 回读 applied/回退+degraded、P4-4 回归全绿；--live-runtime 本机环境遗留另述；出口待 REVIEWER） |
-| M5 发布 | 全量门禁、收据、版本锚点、CHANGELOG、release 评审 | 发布批准；workspace.yaml 升 beta1.0.8 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-5-evidence.md（22 项门禁 + Phase 2/3/4 新增 check 全绿或环境受限记录；收据/锚点绑定 HEAD 5e0b660；评审记录 release-review-beta1.0.8.md 待 REVIEWER 签署） |
+| M0 基线绿 | 清偿 E；工作树干净；doctor 无 WARN | 门禁三件套（read_only / source_budget / release_manifest）绿 | COMPLETED | 见 docs/plans/beta1.0.8/handoffs/phase-0-evidence.md（doctor 需权威环境补跑，环境受限记录） |
+| M1 合同定稿 | A/B/C/D 契约文档、schema、验证集、fixtures 提交 | 契约评审通过（门下复核意见闭环） | COMPLETED | 见 docs/plans/beta1.0.8/handoffs/phase-1-evidence.md（评审意见回写 §6：a/b/c 通过、d 修订 2 处、manifest 条件通过；REVIEWER 已确认） |
+| M2 通用入口适配与自身 MCP 能力面 | 现有入口上的 A/B/C/E 工具族、Agent envelope、能力索引、编号/谱系、GBrain recall 和领域化账册 | P2-1..P2-6 的 manifest/public API/探针/审计全绿 | COMPLETED | 见 docs/plans/beta1.0.8/handoffs/phase-2-evidence.md（12 工具矩阵、58+ 探针、审计/编排探针全绿；REVIEWER 已确认） |
+| M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | COMPLETED | 见 docs/plans/beta1.0.8/handoffs/phase-3-evidence.md（编号分配/结诏复用、分类合同 9 字段+conflict、5 类验证集、IKU 只读幂等+回滚、冲突/过期范式、leaves/full-record 全绿；REVIEWER 已确认） |
+| M4 Codex 适配 | C 探测/路由/回退闭环 | host proof 测试 + 回退测试全绿 | COMPLETED | 见 docs/plans/beta1.0.8/handoffs/phase-4-evidence.md（P4-1..P4-4 全绿；--live-runtime 本机环境遗留另述；REVIEWER 已确认） |
+| M5 发布 | 全量门禁、收据、版本锚点、CHANGELOG、release 评审 | 发布批准；workspace.yaml 升 beta1.0.8 | COMPLETED（发布批准：REVIEWER 用户授权 2026-08-31；外部发布动作另行授权） | 见 docs/plans/beta1.0.8/handoffs/phase-5-evidence.md + review-findings.md（22 项门禁全绿或环境受限记录；收据/锚点绑定；release-review §6 已签署 REVIEWER_SIGNED；外部 tag/Release/发布与 workspace.yaml 升版待单独授权） |
 
 ---
 
