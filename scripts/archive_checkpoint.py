@@ -232,12 +232,18 @@ def build_index_entry(
     has_full_record: bool,
 ) -> dict[str, object]:
     index = index_path()
+    allocation = getattr(args, "session_allocation", None)
     source_agent = detect_source_agent(args)
     agent_keywords = [
         f"agent:{source_agent['source_agent']}",
         f"source_agent:{source_agent['source_agent']}",
         f"代理:{source_agent['source_agent_label']}",
     ]
+    allocated_sequence = (
+        str(allocation.get("daily_sequence") or "").strip()
+        if isinstance(allocation, dict)
+        else ""
+    )
     entry = {
         "time": now.isoformat(timespec="seconds"),
         "record_type": "checkpoint",
@@ -257,8 +263,15 @@ def build_index_entry(
         "memory_reason": memory_reason,
         "has_full_record": has_full_record,
         "source": relative_to_data(path),
-        "daily_sequence": next_daily_sequence(index, now.strftime("%Y%m%d")),
+        "daily_sequence": (
+            allocated_sequence
+            if allocated_sequence
+            else next_daily_sequence(index, now.strftime("%Y%m%d"))
+        ),
     }
+    if isinstance(allocation, dict) and allocation.get("court_code"):
+        entry["court_code"] = str(allocation["court_code"])
+        entry["court_code_issued_at_start"] = True
     entry.update(source_agent)
     enrich_entry(entry)
     return entry
@@ -433,6 +446,15 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
                 ),
             )
 
+        session_id = str(getattr(args, "session_id", "") or "").strip()
+        if session_id:
+            from court_session_numbering import resolve_session_allocation
+
+            args.session_allocation = resolve_session_allocation(
+                session_id, date_text
+            )
+        else:
+            args.session_allocation = None
         entry = build_index_entry(
             args,
             now,
@@ -530,6 +552,15 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--topic", required=True)
+    parser.add_argument(
+        "--session-id",
+        default="",
+        help=(
+            "Session id allocated at conversation start; when present the "
+            "closeout reuses the session's issued court_code instead of "
+            "generating a new number."
+        ),
+    )
     parser.add_argument("--phase", required=True)
     parser.add_argument("--status", required=True)
     parser.add_argument("--summary", required=True)

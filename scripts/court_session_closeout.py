@@ -268,6 +268,7 @@ def _default_archive_writer(draft: dict[str, object]) -> dict[str, object]:
     session_id = str(draft["session_id"])
     selected = draft["items"]
     args = argparse.Namespace(
+        session_id=session_id,
         topic=f"session-closeout-{session_id}",
         phase="结诏",
         status="DONE",

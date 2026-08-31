@@ -157,6 +157,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_closeout_conflict_scan.py",
+      "command": "check-closeout-conflict-scan",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_closeout_conflict_scan.py",
+      "id": "check.check-closeout-conflict-scan",
+      "legacy_path": "scripts/check_closeout_conflict_scan.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_codex_agent_roles.py",
       "command": "check-codex-agent-roles",
       "compatibility_state": "unified_compatibility_adapter",
@@ -547,6 +560,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_iku_repair.py",
+      "command": "check-iku-repair",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_iku_repair.py",
+      "id": "check.check-iku-repair",
+      "legacy_path": "scripts/check_iku_repair.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_install_current_agent_copy.py",
       "command": "check-install-current-agent-copy",
       "compatibility_state": "unified_compatibility_adapter",
@@ -776,6 +802,19 @@
       "handler": "isolated_subprocess:scripts/check_shiguan_concurrency.py",
       "id": "check.check-shiguan-concurrency",
       "legacy_path": "scripts/check_shiguan_concurrency.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/check_shiguan_full_record_index.py",
+      "command": "check-shiguan-full-record-index",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_shiguan_full_record_index.py",
+      "id": "check.check-shiguan-full-record-index",
+      "legacy_path": "scripts/check_shiguan_full_record_index.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -1080,6 +1119,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/closeout_conflict_scan.py",
+      "command": "closeout-conflict-scan",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/closeout_conflict_scan.py",
+      "id": "shiguan.closeout-conflict-scan",
+      "legacy_path": "scripts/closeout_conflict_scan.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
       "authority_source": "scripts/court_cli.py",
       "command": "decretum-matrix",
       "compatibility_state": "canonical_public_root",
@@ -1201,7 +1253,7 @@
             "properties": {
               "limit": {
                 "default": 12,
-                "description": "状态条目上限（1..100）",
+                "description": "\u72b6\u6001\u6761\u76ee\u4e0a\u9650\uff081..100\uff09",
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -1228,79 +1280,122 @@
           "side_effect": "read_only"
         },
         {
-          "name": "court.intake_validate",
           "description": "Validate a blank-charter intake payload (conversation gate + invariant capsule).",
-          "public_api": "public_intake_validation_payload",
-          "side_effect": "read_only",
           "dry_run": false,
           "input_schema": {
-            "type": "object",
             "additionalProperties": false,
+            "properties": {
+              "capsule_value": {
+                "description": "\u53ef\u9009 invariant capsule\uff1b\u7f3a\u7701\u4f7f\u7528\u6a21\u677f",
+                "type": "object"
+              },
+              "charter": {
+                "description": "\u767d\u7eb8\u65e8\u610f\u539f\u6587\uff08\u22642048 \u5b57\u7b26\uff09",
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              "intake_value": {
+                "description": "\u5f85\u6821\u9a8c intake \u8f7d\u8377\uff08\u5bf9\u8bdd\u95e8\u8bca\u65ad\u7ed3\u6784\uff09",
+                "type": "object"
+              }
+            },
             "required": [
               "charter",
               "intake_value"
             ],
-            "properties": {
-              "charter": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2048,
-                "description": "白纸旨意原文（≤2048 字符）"
-              },
-              "intake_value": {
-                "type": "object",
-                "description": "待校验 intake 载荷（对话门诊断结构）"
-              },
-              "capsule_value": {
-                "type": "object",
-                "description": "可选 invariant capsule；缺省使用模板"
-              }
-            }
-          }
+            "type": "object"
+          },
+          "name": "court.intake_validate",
+          "public_api": "public_intake_validation_payload",
+          "side_effect": "read_only"
         },
         {
-          "name": "court.capsule_validate",
           "description": "Validate a P00 invariant capsule payload (closed schema check).",
-          "public_api": "public_capsule_validation_payload",
-          "side_effect": "read_only",
           "dry_run": false,
           "input_schema": {
-            "type": "object",
             "additionalProperties": false,
+            "properties": {
+              "charter": {
+                "description": "charter \u539f\u6587\uff08\u22642048 \u5b57\u7b26\uff09",
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              "value": {
+                "description": "\u5f85\u6821\u9a8c invariant capsule \u8f7d\u8377",
+                "type": "object"
+              }
+            },
             "required": [
               "charter",
               "value"
             ],
-            "properties": {
-              "charter": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2048,
-                "description": "charter 原文（≤2048 字符）"
-              },
-              "value": {
-                "type": "object",
-                "description": "待校验 invariant capsule 载荷"
-              }
-            }
-          }
+            "type": "object"
+          },
+          "name": "court.capsule_validate",
+          "public_api": "public_capsule_validation_payload",
+          "side_effect": "read_only"
         },
         {
-          "name": "court.semantic_context_validate",
           "description": "Validate a P00 semantic context payload against the closed nine-field schema.",
-          "public_api": "public_semantic_context_validation_payload",
-          "side_effect": "read_only",
           "dry_run": false,
           "input_schema": {
-            "type": "object",
             "additionalProperties": false,
-            "required": [
-              "value"
-            ],
             "properties": {
               "value": {
-                "type": "object",
                 "additionalProperties": false,
+                "description": "\u8bed\u4e49\u4e0a\u4e0b\u6587\uff08closed\uff0c9 \u5b57\u6bb5\uff0c\u4e0e semantic_context_json_schema \u4e00\u81f4\uff09",
+                "properties": {
+                  "authority_revision": {
+                    "description": "charter revision",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "authority_sha256": {
+                    "description": "authority \u6b63\u6587 sha256",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "git_fingerprint": {
+                    "description": "\u4e8b\u4ef6\u5934 sha256",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "plan_cursor": {
+                    "description": "plan cursor\uff08state@revision-N\uff09",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "plan_revision": {
+                    "description": "plan revision",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plan_sha256": {
+                    "description": "plan \u6b63\u6587 sha256",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "recovery_checkpoint_id": {
+                    "description": "\u6062\u590d\u68c0\u67e5\u70b9 id",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "shiguan_fingerprint": {
+                    "description": "\u53f2\u9986\u6307\u7eb9",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "shiguan_revision": {
+                    "description": "\u53f2\u9986\u4e8b\u4ef6\u6570",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
                 "required": [
                   "authority_revision",
                   "authority_sha256",
@@ -1312,81 +1407,124 @@
                   "shiguan_revision",
                   "shiguan_fingerprint"
                 ],
-                "properties": {
-                  "authority_revision": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "charter revision"
-                  },
-                  "authority_sha256": {
-                    "type": "string",
-                    "minLength": 1,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "description": "authority 正文 sha256"
-                  },
-                  "plan_revision": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "plan revision"
-                  },
-                  "plan_sha256": {
-                    "type": "string",
-                    "minLength": 1,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "description": "plan 正文 sha256"
-                  },
-                  "plan_cursor": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "plan cursor（state@revision-N）"
-                  },
-                  "git_fingerprint": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "事件头 sha256"
-                  },
-                  "recovery_checkpoint_id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "恢复检查点 id"
-                  },
-                  "shiguan_revision": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "史馆事件数"
-                  },
-                  "shiguan_fingerprint": {
-                    "type": "string",
-                    "minLength": 1,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "description": "史馆指纹"
-                  }
-                },
-                "description": "语义上下文（closed，9 字段，与 semantic_context_json_schema 一致）"
+                "type": "object"
               }
-            }
-          }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "court.semantic_context_validate",
+          "public_api": "public_semantic_context_validation_payload",
+          "side_effect": "read_only"
         },
         {
-          "name": "court.dispatch_plan_validate",
           "description": "Validate a dispatch plan without dispatching (read-only; defaults approval+serial).",
-          "public_api": "public_dispatch_plan_validation",
-          "side_effect": "read_only",
           "dry_run": false,
           "input_schema": {
-            "type": "object",
             "additionalProperties": false,
-            "required": [
-              "entries"
-            ],
             "properties": {
+              "authority": {
+                "description": "\u7f3a\u7701 approval",
+                "enum": [
+                  "approval",
+                  "autonomous",
+                  "super"
+                ],
+                "type": "string"
+              },
+              "behavior": {
+                "description": "\u7f3a\u7701 serial",
+                "enum": [
+                  "serial",
+                  "parallel"
+                ],
+                "type": "string"
+              },
               "entries": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 16,
+                "description": "\u6d3e\u53d1\u8ba1\u5212\u6761\u76ee\uff081..16\uff0cclosed\uff09",
                 "items": {
-                  "type": "object",
                   "additionalProperties": false,
+                  "properties": {
+                    "canonical_authority": {
+                      "description": "\u662f\u5426 canonical authority",
+                      "type": "boolean"
+                    },
+                    "dependency_roles": {
+                      "description": "\u4f9d\u8d56 role \u5217\u8868",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "direct_superior": {
+                      "description": "\u76f4\u63a5\u4e0a\u7ea7 role",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "duty": {
+                      "description": "\u804c\u8d23\u63cf\u8ff0",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "evidence_contract": {
+                      "description": "\u8bc1\u636e\u5951\u7ea6\u6807\u8bc6",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "global_integration_owner": {
+                      "description": "\u662f\u5426\u5168\u5c40\u96c6\u6210 owner",
+                      "type": "boolean"
+                    },
+                    "instance_key": {
+                      "description": "\u5b9e\u4f8b\u6807\u8bc6 role#NNNN",
+                      "pattern": "^[a-z0-9-]+#[0-9]{4}$",
+                      "type": "string"
+                    },
+                    "office_zh": {
+                      "description": "\u5b98\u7f72\u4e2d\u6587\u540d",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "owned_paths": {
+                      "description": "\u5c5e\u4e3b\u8def\u5f84\u5217\u8868",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "parallel_group": {
+                      "description": "\u5e76\u884c\u7ec4\u6807\u8bc6",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "profile_hash": {
+                      "description": "profile \u54c8\u5e0c",
+                      "type": "string"
+                    },
+                    "role": {
+                      "description": "\u5b98\u7f72 role\uff08OFFICE_SPECS \u4e4b\u4e00\uff09",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "visibility": {
+                      "description": "\u53ef\u89c1\u6027\uff08native \u6d3e\u53d1\u5fc5\u987b non_visible\uff09",
+                      "enum": [
+                        "non_visible",
+                        "visible_core",
+                        "bounded_visible_diagnostic"
+                      ],
+                      "type": "string"
+                    },
+                    "write_set": {
+                      "description": "\u5199\u96c6\u8def\u5f84\u5217\u8868",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
                   "required": [
                     "role",
                     "office_zh",
@@ -1397,125 +1535,39 @@
                     "visibility",
                     "instance_key"
                   ],
-                  "properties": {
-                    "role": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "官署 role（OFFICE_SPECS 之一）"
-                    },
-                    "office_zh": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "官署中文名"
-                    },
-                    "direct_superior": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "直接上级 role"
-                    },
-                    "duty": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "职责描述"
-                    },
-                    "evidence_contract": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "证据契约标识"
-                    },
-                    "parallel_group": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "并行组标识"
-                    },
-                    "dependency_roles": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "依赖 role 列表"
-                    },
-                    "visibility": {
-                      "type": "string",
-                      "enum": [
-                        "non_visible",
-                        "visible_core",
-                        "bounded_visible_diagnostic"
-                      ],
-                      "description": "可见性（native 派发必须 non_visible）"
-                    },
-                    "instance_key": {
-                      "type": "string",
-                      "pattern": "^[a-z0-9-]+#[0-9]{4}$",
-                      "description": "实例标识 role#NNNN"
-                    },
-                    "canonical_authority": {
-                      "type": "boolean",
-                      "description": "是否 canonical authority"
-                    },
-                    "global_integration_owner": {
-                      "type": "boolean",
-                      "description": "是否全局集成 owner"
-                    },
-                    "owned_paths": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "属主路径列表"
-                    },
-                    "write_set": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "写集路径列表"
-                    },
-                    "profile_hash": {
-                      "type": "string",
-                      "description": "profile 哈希"
-                    }
-                  }
+                  "type": "object"
                 },
-                "description": "派发计划条目（1..16，closed）"
-              },
-              "authority": {
-                "type": "string",
-                "enum": [
-                  "approval",
-                  "autonomous",
-                  "super"
-                ],
-                "description": "缺省 approval"
-              },
-              "behavior": {
-                "type": "string",
-                "enum": [
-                  "serial",
-                  "parallel"
-                ],
-                "description": "缺省 serial"
+                "maxItems": 16,
+                "minItems": 1,
+                "type": "array"
               }
-            }
-          }
+            },
+            "required": [
+              "entries"
+            ],
+            "type": "object"
+          },
+          "name": "court.dispatch_plan_validate",
+          "public_api": "public_dispatch_plan_validation",
+          "side_effect": "read_only"
         },
         {
-          "name": "court.closeout_checklist",
           "description": "Return the fourteen-line closeout checklist and missing items.",
-          "public_api": "public_closeout_checklist",
-          "side_effect": "read_only",
           "dry_run": false,
           "input_schema": {
-            "type": "object",
             "additionalProperties": false,
             "properties": {
               "task_id": {
-                "type": "string",
+                "description": "\u53ef\u9009 task \u8fc7\u6ee4",
                 "minLength": 1,
-                "description": "可选 task 过滤"
+                "type": "string"
               }
-            }
-          }
+            },
+            "type": "object"
+          },
+          "name": "court.closeout_checklist",
+          "public_api": "public_closeout_checklist",
+          "side_effect": "read_only"
         }
       ],
       "public": true,
@@ -1663,7 +1715,7 @@
       "legacy_path": "scripts/iku_candidates.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "read_only"
+      "side_effect": "bounded_mutation"
     },
     {
       "authority_source": "scripts/install_codex_plugin_projection.py",
@@ -1826,7 +1878,7 @@
             "properties": {
               "limit": {
                 "default": 5,
-                "description": "结果上限（1..20）",
+                "description": "\u7ed3\u679c\u4e0a\u9650\uff081..20\uff09",
                 "maximum": 20,
                 "minimum": 1,
                 "type": "integer"
@@ -1847,32 +1899,32 @@
           "side_effect": "read_only"
         },
         {
-          "name": "shiguan.entries_query",
           "description": "Query Shiguan entries as metadata projection (no pending/private bodies).",
-          "public_api": "public_shiguan_entries_query",
-          "side_effect": "read_only",
           "dry_run": false,
           "input_schema": {
-            "type": "object",
             "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "default": 20,
+                "description": "\u7ed3\u679c\u4e0a\u9650",
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "query": {
+                "description": "\u68c0\u7d22\u8bcd",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
             "required": [
               "query"
             ],
-            "properties": {
-              "query": {
-                "type": "string",
-                "minLength": 1,
-                "description": "检索词"
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 50,
-                "default": 20,
-                "description": "结果上限"
-              }
-            }
-          }
+            "type": "object"
+          },
+          "name": "shiguan.entries_query",
+          "public_api": "public_shiguan_entries_query",
+          "side_effect": "read_only"
         }
       ],
       "public": true,
@@ -1966,37 +2018,37 @@
       "handler": "isolated_subprocess:scripts/repair_archive_placeholders.py",
       "id": "shiguan.repair-archive-placeholders",
       "legacy_path": "scripts/repair_archive_placeholders.py",
-      "public": true,
-      "receipt_schema": "legacy.entrypoint.result.v1",
-      "side_effect": "bounded_mutation",
       "mcp": {
-        "name": "shiguan.iku_candidates",
         "description": "Scan plan-archive records for IKU placeholder candidates (read-only, dry-run).",
-        "public_api": "public_iku_candidates",
-        "side_effect": "read_only",
         "dry_run": true,
         "input_schema": {
-          "type": "object",
           "additionalProperties": false,
           "properties": {
+            "limit": {
+              "default": 20,
+              "description": "\u5019\u9009\u4e0a\u9650",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
             "scope": {
-              "type": "string",
+              "default": "plan-archives",
+              "description": "\u626b\u67e5 scope\uff08\u5f53\u524d\u4ec5 plan-archives\uff09",
               "enum": [
                 "plan-archives"
               ],
-              "default": "plan-archives",
-              "description": "扫查 scope（当前仅 plan-archives）"
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20,
-              "description": "候选上限"
+              "type": "string"
             }
-          }
-        }
-      }
+          },
+          "type": "object"
+        },
+        "name": "shiguan.iku_candidates",
+        "public_api": "public_iku_candidates",
+        "side_effect": "read_only"
+      },
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
     },
     {
       "authority_source": "scripts/report_office_startup_latency.py",

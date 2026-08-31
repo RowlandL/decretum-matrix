@@ -93,8 +93,8 @@
   },
   "hard_limits": {
     "portable_source": {
-      "max_files": 335,
-      "max_bytes": 7800000
+      "max_files": 345,
+      "max_bytes": 7900000
     },
     "source_lines": {
       "scripts/check_startup_fastpath_contract.py": 620,

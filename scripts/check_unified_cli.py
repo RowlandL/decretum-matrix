@@ -138,6 +138,9 @@ def _domain_for(path: str) -> str:
         "memory_decision",
         "reevaluate_memory_decisions",
         "repair_archive_placeholders",
+        "closeout_conflict_scan",
+        "court_session_numbering",
+        "iku_candidates",
     }:
         return "shiguan"
     if "supercc" in name or name.startswith("supercc-"):
