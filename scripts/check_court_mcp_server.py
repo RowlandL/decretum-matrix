@@ -721,6 +721,63 @@ def _robustness_probes() -> list[tuple[str, bool]]:
             ),
         )
     )
+
+    # R-08: wire-level schema constraints (minLength/maxLength/minItems/maxItems/
+    # enum) declared in the manifest must be enforced by the public registry,
+    # not only by the public functions (fail-closed at the boundary).
+    from court_public_registry import validate_public_tool_arguments
+
+    tools = load_public_tools()
+    constraint_failures: list[str] = []
+    cases = [
+        ("court.dispatch_plan_validate", {"entries": [{}] * 17}, "entries_above_max_items"),
+        ("court.dispatch_plan_validate", {"entries": [], "authority": "approval", "behavior": "serial"}, "entries_below_min_items"),
+        ("court.dispatch_plan_validate", {"entries": [LEGAL_DISPATCH_ENTRY], "authority": "evil"}, "authority_must_be_one_of"),
+        ("court.dispatch_plan_validate", {"entries": [LEGAL_DISPATCH_ENTRY], "behavior": "evil"}, "behavior_must_be_one_of"),
+        ("shiguan.entries_query", {"query": ""}, "query_below_min_length"),
+        ("court.intake_validate", {"charter": "x" * 2049, "intake_value": {}}, "charter_above_max_length"),
+        ("shiguan.iku_candidates", {"scope": "evil"}, "scope_must_be_one_of"),
+        ("court.closeout_checklist", {"task_id": ""}, "task_id_below_min_length"),
+    ]
+    for name, args, expected in cases:
+        tool = tools.get(name)
+        if tool is None:
+            constraint_failures.append(f"{expected}:tool_missing")
+            continue
+        try:
+            validate_public_tool_arguments(tool, args)
+        except (TypeError, ValueError) as exc:
+            if expected in str(exc):
+                continue
+            constraint_failures.append(f"{expected}:wrong_error:{exc}")
+        else:
+            constraint_failures.append(f"{expected}:not_enforced")
+    probes.append(
+        (
+            "wire_schema_constraints_enforced",
+            not constraint_failures,
+        )
+    )
+
+    # R-10: an internal server exception must produce a generic -32603 message;
+    # exception text / internal paths must never be echoed to the MCP client.
+    with mock.patch.object(
+        court_mcp_server,
+        "handle",
+        side_effect=RuntimeError("secret-detail"),
+    ):
+        internal = court_mcp_server._dispatch(
+            {"jsonrpc": "2.0", "id": "internal-x", "method": "tools/list", "params": {}},
+            {"legacy_initialized": False},
+        )
+    probes.append(
+        (
+            "mcp_internal_error_generic_message",
+            internal is not None
+            and internal.get("error", {}).get("code") == -32603
+            and "secret-detail" not in str(internal.get("error", {}).get("message") or ""),
+        )
+    )
     return probes
 
 

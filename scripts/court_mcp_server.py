@@ -338,6 +338,27 @@ def handle(message: dict[str, Any], state: dict[str, object]) -> dict[str, objec
     return _error(request_id, -32601, f"Method not found: {method}")
 
 
+def _dispatch(message: dict[str, Any], state: dict[str, object]) -> dict[str, object] | None:
+    """Dispatch one JSON-RPC message; any internal error fails closed per request."""
+
+    if not isinstance(message, dict):
+        return _error(None, -32600, "Invalid Request")
+    if message.get("jsonrpc") != "2.0" or not isinstance(message.get("method"), str):
+        return _error(message.get("id"), -32600, "Invalid Request")
+    if "id" not in message:
+        return None if message["method"].startswith("notifications/") else _error(None, -32600, "Invalid Request")
+    request_id = message.get("id")
+    if request_id is None or isinstance(request_id, bool) or not isinstance(request_id, (str, int, float)):
+        return _error(None, -32600, "Invalid Request")
+    try:
+        return handle(message, state)
+    except Exception as exc:  # noqa: BLE001 - JSON-RPC server must fail closed per request.
+        # Never echo internal exception text (paths, internals) to the client;
+        # log the detail for the host instead.
+        print(f"decretum-mcp internal error: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        return _error(request_id, -32603, "Internal error")
+
+
 def main() -> int:
     configure_stdio()
     configure_stdin()
@@ -351,19 +372,7 @@ def main() -> int:
         except json.JSONDecodeError:
             response = _error(None, -32700, "Parse error")
         else:
-            if not isinstance(message, dict):
-                response = _error(None, -32600, "Invalid Request")
-            elif message.get("jsonrpc") != "2.0" or not isinstance(message.get("method"), str):
-                response = _error(message.get("id"), -32600, "Invalid Request")
-            elif "id" not in message:
-                response = None if message["method"].startswith("notifications/") else _error(None, -32600, "Invalid Request")
-            elif message.get("id") is None or isinstance(message.get("id"), bool) or not isinstance(message.get("id"), (str, int, float)):
-                response = _error(None, -32600, "Invalid Request")
-            else:
-                try:
-                    response = handle(message, state)
-                except Exception as exc:  # noqa: BLE001 - JSON-RPC server must fail closed per request.
-                    response = _error(message.get("id"), -32603, str(exc))
+            response = _dispatch(message, state)
         if response is not None:
             # JSON escapes keep stdio safe on Windows hosts whose active code page is not UTF-8.
             print(json.dumps(response, ensure_ascii=True, separators=(",", ":")), flush=True)

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import importlib
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Any, Mapping
 
@@ -108,6 +109,20 @@ def _validate_value(value: object, schema: Mapping[str, object], path: str) -> N
     expected = schema.get("type")
     if isinstance(expected, str) and not _type_matches(value, expected):
         raise ValueError(f"{path}_must_be_{expected}")
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum:
+        if value not in enum:
+            raise ValueError(f"{path}_must_be_one_of:{','.join(str(item) for item in enum)}")
+    if isinstance(value, str):
+        minimum_length = schema.get("minLength")
+        maximum_length = schema.get("maxLength")
+        if isinstance(minimum_length, int) and len(value) < minimum_length:
+            raise ValueError(f"{path}_below_min_length")
+        if isinstance(maximum_length, int) and len(value) > maximum_length:
+            raise ValueError(f"{path}_above_max_length")
+        pattern = schema.get("pattern")
+        if isinstance(pattern, str) and pattern and re.search(pattern, value) is None:
+            raise ValueError(f"{path}_pattern_mismatch")
     if isinstance(value, dict):
         properties = schema.get("properties")
         properties = properties if isinstance(properties, dict) else {}
@@ -125,6 +140,12 @@ def _validate_value(value: object, schema: Mapping[str, object], path: str) -> N
             if isinstance(child_schema, dict):
                 _validate_value(item, child_schema, f"{path}_{key}")
     if isinstance(value, list):
+        minimum_items = schema.get("minItems")
+        maximum_items = schema.get("maxItems")
+        if isinstance(minimum_items, int) and len(value) < minimum_items:
+            raise ValueError(f"{path}_below_min_items")
+        if isinstance(maximum_items, int) and len(value) > maximum_items:
+            raise ValueError(f"{path}_above_max_items")
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(value):
