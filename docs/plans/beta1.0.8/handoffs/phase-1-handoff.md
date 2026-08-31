@@ -37,7 +37,7 @@
 
 ## 5. 未决决策（需 REVIEWER 拍板）
 
-1. 四份契约 + manifest 草案评审结论。
+1. 四份契约 + manifest 草案评审结论：**本会话已代办评审并回写（见 phase-1-evidence.md §6）**——contract-a/b/c 通过；contract-d 修订 2 处（side_effect 枚举对齐 read_only-only、定稿 required/嵌套 closed 要求）；manifest 草案条件通过。待 REVIEWER 确认后 M1 转 VERIFIED/COMPLETED。
 2. bundle 应用节奏（Phase 0+1 合并 or 每阶段单独）。
 
 ## 6. 下阶段入口指针

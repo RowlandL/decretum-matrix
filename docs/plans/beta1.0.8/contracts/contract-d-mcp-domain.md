@@ -7,8 +7,8 @@
 每个工具条目必须含：
 - command_id（稳定 id）
 - public/domain API（court_public_api / 领域模块函数名）
-- closed input_schema（additionalProperties:false；属性带 description ≤200 字）
-- side_effect（read_only | write | request_dependent）
+- closed input_schema（additionalProperties:false；属性带 description ≤200 字；必填参数须列 required[]；嵌套 object 同样 closed）
+- side_effect（本版本 MCP 投影仅 `read_only`——对齐 court_public_registry 硬约束；领域化 Create/Read/Update 由统一 CLI/主动 CLI 受权路径承担，MCP 不投影写工具）
 - receipt_schema（输出 receipt schema id）
 - Agent envelope 说明（actor/role/authority/write_set 语义）
 

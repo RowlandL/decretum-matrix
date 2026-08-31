@@ -30,7 +30,7 @@
 | 里程碑 | 内容 | 出口标准 | 状态 | 验收证据摘要 |
 | --- | --- | --- | --- | --- |
 | M0 基线绿 | 清偿 E；工作树干净；doctor 无 WARN | 门禁三件套（read_only / source_budget / release_manifest）绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-0-evidence.md（本机环境 doctor 需权威环境补跑） |
-| M1 合同定稿 | A/B/C/D 契约文档、schema、验证集、fixtures 提交 | 契约评审通过（门下复核意见闭环） | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-1-evidence.md（评审待闭环） |
+| M1 合同定稿 | A/B/C/D 契约文档、schema、验证集、fixtures 提交 | 契约评审通过（门下复核意见闭环） | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-1-evidence.md（评审意见已回写 §6：a/b/c 通过、d 修订 2 处、manifest 条件通过；闭环待 REVIEWER 确认） |
 | M2 通用入口适配与自身 MCP 能力面 | 现有入口上的 A/B/C/E 工具族、Agent envelope、能力索引、编号/谱系、GBrain recall 和领域化账册 | P2-1..P2-6 的 manifest/public API/探针/审计全绿 | TODO | 待写入 phase-2-evidence.md |
 | M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | TODO | 待写入 phase-3-evidence.md |
 | M4 Codex 适配 | C 探测/路由/回退闭环 | host proof 测试 + 回退测试全绿 | TODO | 待写入 phase-4-evidence.md |
