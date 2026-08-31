@@ -526,7 +526,12 @@ def _domain_ledger_checks() -> list[tuple[str, bool]]:
     import tempfile as _tempfile
     from pathlib import Path as _Path
 
-    from domain_ledger_api import domain_court_code_preview, domain_gbrain_recall, domain_ledger_write
+    from domain_ledger_api import (
+        domain_court_code_preview,
+        domain_gbrain_recall,
+        domain_ledger_write,
+        domain_skill_load_record,
+    )
     from court_public_registry import load_public_tools
 
     tmp = _Path(_tempfile.mkdtemp(prefix="dm-check-ledger-"))
@@ -568,6 +573,54 @@ def _domain_ledger_checks() -> list[tuple[str, bool]]:
     gbrain = domain_gbrain_recall("结诏")
     preview = domain_court_code_preview("check-topic", "20260831")
     all_read_only = all(tool.side_effect == "read_only" for tool in load_public_tools().values())
+    skill_record = domain_skill_load_record(
+        actor="shiguan", role="libu", authority="autonomous", write_set=["capability-index"],
+        skill_path="plugins/hermes/decretum-matrix", skill_hash="e" * 64,
+        selection_reason="index-first: MCP domain capability match", root=tmp,
+    )
+    skill_bad_hash = domain_skill_load_record(
+        actor="shiguan", role="libu", authority="autonomous", write_set=["capability-index"],
+        skill_path="plugins/hermes/decretum-matrix", skill_hash="not-a-hash",
+        selection_reason="bad hash gate", root=tmp,
+    )
+    agent_admit_ok = False
+    try:
+        from court_agent_admission import RoleAdmissionDecision
+
+        decision = RoleAdmissionDecision(
+            allowed=True,
+            selected_roles=("shiguan",),
+            deferred_roles=(),
+            reason_codes=("probe",),
+            effective_host_capacity=8,
+            effective_max_threads=16,
+            effective_max_depth=4,
+            available_slots=8,
+        )
+        agent_admit_ok = decision.allowed is True and decision.selected_roles == ("shiguan",)
+    except (ImportError, TypeError):
+        agent_admit_ok = False
+    index_gate_ok = False
+    try:
+        import subprocess as _sub
+        import sys as _sys
+
+        gate = _sub.run(
+            [_sys.executable, "-B", "scripts/check_capability_index_gate.py", "--self-test"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+        try:
+            gate_payload = json.loads(gate.stdout or "{}")
+        except json.JSONDecodeError:
+            gate_payload = {}
+        index_gate_ok = gate.returncode == 0 and gate_payload.get("ok") is True and gate_payload.get("unknown_not_searched") is True
+    except (OSError, subprocess.TimeoutExpired):
+        index_gate_ok = False
     return [
         ("domain_write_approval_denied", denied.get("ok") is False and any(e.get("code") == "authority_read_only" for e in denied.get("errors", []))),
         ("domain_write_approval_no_commit", count_after_denied == "0"),
@@ -578,6 +631,16 @@ def _domain_ledger_checks() -> list[tuple[str, bool]]:
         ("domain_gbrain_recall_readonly_idempotent", gbrain.get("ok") is True and "entries" in gbrain),
         ("domain_court_code_preview_readonly", preview.get("ok") is True and preview.get("preview_only") is True),
         ("domain_write_not_projected_to_mcp", all_read_only),
+        (
+            "skill_load_record_revision_and_metadata",
+            skill_record.get("ok") is True
+            and skill_record.get("record", {}).get("metadata", {}).get("skill_hash") == "e" * 64
+            and skill_record.get("record", {}).get("metadata", {}).get("role") == "libu"
+            and bool(skill_record.get("record", {}).get("git_commit")),
+        ),
+        ("skill_load_record_bad_hash_rejected", skill_bad_hash.get("ok") is False and any(e.get("code") == "invalid_skill_hash" for e in skill_bad_hash.get("errors", []))),
+        ("agent_admit_gate_available", agent_admit_ok),
+        ("index_first_gate_queryable", index_gate_ok),
     ]
 
 
@@ -858,6 +921,10 @@ def run() -> dict[str, object]:
         (
             "audit_journal_unknown_tool_recorded",
             any(rec.get("receipt", {}).get("ok") is False and "missing_arguments" in str(rec.get("receipt", {}).get("error", "")) for rec in journal_records),
+        ),
+        (
+            "audit_journal_actor_recorded",
+            any(rec.get("receipt", {}).get("actor") == "decretum-modern-wire-probe" for rec in journal_records),
         ),
     ]
     checks.extend(_domain_ledger_checks())

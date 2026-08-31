@@ -178,8 +178,15 @@ def domain_ledger_write(
     write_set: list[str],
     root: Path | None = None,
     idempotency_key: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Authorized domain ledger Create/Update with immutable revisions + Git commit."""
+    """Authorized domain ledger Create/Update with immutable revisions + Git commit.
+
+    ``metadata`` is an optional structured summary (actor/role/write_set/skill
+    selection etc.) stored verbatim in the ledger record; it must be
+    JSON-serializable and is subject to the same privacy discipline as the
+    rest of the ledger (no raw pending/private bodies).
+    """
     if kind not in ALLOWED_KINDS:
         return {"schema": LEDGER_SCHEMA, "kind": str(kind), "ok": False, "errors": [{"field": "kind", "kind": "contract", "code": "invalid_kind"}]}
     if operation not in ALLOWED_OPERATIONS or operation == "read":
@@ -238,6 +245,14 @@ def domain_ledger_write(
     }
     if idempotency_key:
         payload["idempotency_key"] = str(idempotency_key).strip()
+    if metadata is not None:
+        if not isinstance(metadata, dict):
+            return {"schema": LEDGER_SCHEMA, "kind": kind, "ok": False, "errors": [{"field": "metadata", "kind": "contract", "code": "metadata_must_be_object"}]}
+        try:
+            json.dumps(metadata, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return {"schema": LEDGER_SCHEMA, "kind": kind, "ok": False, "errors": [{"field": "metadata", "kind": "contract", "code": "metadata_not_serializable"}]}
+        payload["metadata"] = metadata
     # optimistic concurrency for update: base_revision handled by caller via read
     ledger["revisions"] = [*revisions, payload]
     _atomic_write_text(path, json.dumps(ledger, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
@@ -256,6 +271,70 @@ def domain_ledger_write(
     ledger["revisions"][-1]["git_commit"] = commit_sha
     _atomic_write_text(path, json.dumps(ledger, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return {"schema": LEDGER_SCHEMA, "kind": kind, "ok": True, "errors": [], "record": ledger["revisions"][-1]}
+
+
+def domain_skill_load_record(
+    *,
+    actor: str,
+    role: str,
+    authority: str,
+    write_set: list[str],
+    skill_path: str,
+    skill_hash: str,
+    selection_reason: str,
+    root: Path | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Record a minimal multi-skill load decision in the capability ledger.
+
+    P2-6 orchestration: the host loads the smallest dependency-ordered skill
+    set after an index-first lookup, then records actor/role/authority/
+    write_set/skill path + sha256/selection reason here. ``topic`` is the skill
+    name derived from the path; every successful record gets a revision and a
+    Git commit through the shared ledger path.
+    """
+    errors: list[dict[str, Any]] = []
+    if not str(actor or "").strip():
+        errors.append({"field": "actor", "kind": "acl", "code": "missing_actor"})
+    if not str(role or "").strip():
+        errors.append({"field": "role", "kind": "acl", "code": "missing_role"})
+    if not str(skill_path or "").strip():
+        errors.append({"field": "skill_path", "kind": "contract", "code": "missing_skill_path"})
+    digest = str(skill_hash or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        errors.append({"field": "skill_hash", "kind": "contract", "code": "invalid_skill_hash"})
+    reason = str(selection_reason or "").strip()
+    if not reason:
+        errors.append({"field": "selection_reason", "kind": "contract", "code": "missing_selection_reason"})
+    elif len(reason) > 200:
+        errors.append({"field": "selection_reason", "kind": "contract", "code": "selection_reason_too_long"})
+    if errors:
+        return {"schema": LEDGER_SCHEMA, "kind": "capability", "ok": False, "errors": errors}
+    topic = Path(str(skill_path)).name or "skill"
+    topic_error = _topic_gate(topic)
+    if topic_error:
+        return {"schema": LEDGER_SCHEMA, "kind": "capability", "ok": False, "errors": [{"field": "topic", "kind": "contract", "code": topic_error}]}
+    metadata = {
+        "actor": str(actor).strip(),
+        "role": str(role).strip(),
+        "authority": str(authority).strip().lower(),
+        "write_set": sorted(str(item).strip() for item in write_set if str(item).strip()),
+        "skill_path": str(skill_path).strip(),
+        "skill_hash": digest,
+        "selection_reason": reason,
+    }
+    return domain_ledger_write(
+        kind="capability",
+        operation="create",
+        topic=topic,
+        content="skill-load-record",
+        actor=str(actor).strip(),
+        authority=str(authority).strip().lower(),
+        write_set=[str(item).strip() for item in write_set if str(item).strip()],
+        root=root,
+        idempotency_key=idempotency_key,
+        metadata=metadata,
+    )
 
 
 def domain_gbrain_recall(query: str, limit: int = 10) -> dict[str, Any]:

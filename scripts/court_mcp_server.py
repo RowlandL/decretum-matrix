@@ -71,6 +71,8 @@ def _write_mcp_audit(
     tool_name: str,
     arguments: object,
     receipt: dict[str, object],
+    *,
+    actor: str | None = None,
 ) -> None:
     """Write the tools/call audit journal entry (digest only, never raw args).
 
@@ -82,13 +84,16 @@ def _write_mcp_audit(
     try:
         root = reference_path("court-runtime")
         digest = payload_sha256({"tool": tool_name, "args": arguments})
+        record_receipt = dict(receipt)
+        if actor:
+            record_receipt["actor"] = actor
         write_journal(
             root,
             operation_id=operation_id,
             payload_digest=digest,
             task_id="mcp",
             phase="mcp-call",
-            receipt=receipt,
+            receipt=record_receipt,
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
     except (ImportError, OSError, TypeError, ValueError):
@@ -299,12 +304,19 @@ def handle(message: dict[str, Any], state: dict[str, object]) -> dict[str, objec
         tool = tools.get(params["name"])
         arguments = params.get("arguments")
         operation_id = str(uuid.uuid4())
+        meta = params.get("_meta")
+        actor = ""
+        if isinstance(meta, dict):
+            client_info = meta.get(CLIENT_INFO_META_KEY)
+            if isinstance(client_info, dict):
+                actor = str(client_info.get("name") or "").strip()
         if tool is None:
             _write_mcp_audit(
                 operation_id,
                 str(params.get("name") or ""),
                 arguments,
                 {"ok": False, "result_sha256": None, "error": "tool_not_allowed"},
+                actor=actor or None,
             )
             return _error(request_id, -32602, f"Unknown tool: {params['name']}")
         try:
@@ -315,10 +327,11 @@ def handle(message: dict[str, Any], state: dict[str, object]) -> dict[str, objec
                 tool.name,
                 arguments,
                 {"ok": False, "result_sha256": None, "error": str(exc)},
+                actor=actor or None,
             )
             return _error(request_id, -32602, str(exc))
         result = call_tool(params["name"], arguments, modern=modern)
-        _write_mcp_audit(operation_id, tool.name, arguments, _audit_receipt(result))
+        _write_mcp_audit(operation_id, tool.name, arguments, _audit_receipt(result), actor=actor or None)
         return _response(request_id, result)
     return _error(request_id, -32601, f"Method not found: {method}")
 
