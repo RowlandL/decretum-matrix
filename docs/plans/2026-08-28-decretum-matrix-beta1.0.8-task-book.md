@@ -233,6 +233,25 @@
 - 已知既有问题（非本阶段回归）：check_install_current_agent_copy self-test ValueError（beta1.0.7 遗留，文件未变更）。
 - 详细与手动交接：docs/plans/beta1.0.8/handoffs/phase-5-evidence.md、phase-5-handoff.md、release-review-beta1.0.8.md。
 
+### 发布前 review（本会话回写，2026-08-31）
+
+- 范围：独立 coding review（b2de371..HEAD）+ 鲁棒性审计 + 修复 + 全量回归；详见
+  docs/plans/beta1.0.8/review/review-findings.md（R-01..R-12）与
+  docs/plans/beta1.0.8/review/review-gates.log。
+- 修复（5 提交叠加在 d3a7f7d 之上，HEAD=d18d167）：
+  4c290f3（check_install_current_agent_copy self-test：Windows MAX_PATH + npm fixture 隔离，R-01）、
+  b9dc9a9（IKU 只读零副作用 + 原子写，R-02/R-06）、
+  1366eee（MCP/领域账本 fail-closed + 审计/收据绑定，R-03/R-04）、
+  6a3b43f（closeout CLI 非法 as_of fail-closed，R-05）、
+  d18d167（release payload manifest 重生成收据）。
+- 修复后门禁：P5-1 22 项复跑——20 项全绿 + 2 项环境受限记录（check_active_copy_hashes
+  安装副本 beta1.0.7 遗留 + extra=4 受保护锚点；check_codex_agent_roles config_errors 本机
+  Codex 配置，14/14 已同步）；Phase 2/3/4 新增 11 个独立 check 全 PASS；
+  check_install_current_agent_copy self-test 由「抛 ValueError 崩溃」转 32/32 + 31/31 全绿。
+- 遗留（建议后续版本/REVIEWER 拍板）：R-07 契约 B 措辞对齐、R-08 registry 约束强制、
+  R-09 session numbering 并发锁、R-10 MCP 错误回显、R-11 turn_context 会话限定；
+  环境受限项（R-12）权威环境复验。
+
 ### Stretch（非本版核心，后续另立项）
 
 **S1 HTTP /mcp 传输扩展**（WEB，后续）

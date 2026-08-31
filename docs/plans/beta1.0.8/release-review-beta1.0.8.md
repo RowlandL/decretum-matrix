@@ -68,6 +68,26 @@
 
 - `check_install_current_agent_copy.py` self-test 在 `_case_hermes_alias_commit_failure_restores_legacy_junction` 抛 `ValueError: 'alias_prepare' is not in list`：文件自 beta1.0.7 收尾（2571178）未变更，beta1.0.7 遗留，建议后续版本修复。
 
+## 4.1 发布前 review 意见闭环（2026-08-31 独立 review 会话）
+
+- 发现与修复详见 docs/plans/beta1.0.8/review/review-findings.md（R-01..R-12）：
+  - R-01 [HIGH] check_install_current_agent_copy self-test：根因为 Windows MAX_PATH
+    （长 fixture label × 深层 temp 嵌套 >260 字符 → 原子写 FileNotFoundError → alias
+    ValueError 崩溃），另含 npm fixture 未隔离 CODEX_HOME / 尝试真实 superCC 安装。
+    修复 4c290f3 → self-test 32/32 + 31/31 全绿。
+  - R-02 [HIGH] IKU 只读探测经 ensure_shared_seed 产生共享史馆写副作用（契约 A 违反）。
+    修复 b9dc9a9 + check_read_only_contract 新增只读探针。
+  - R-03/R-04 [MEDIUM] MCP 内部运行时错误逃逸且漏写审计 journal；领域账本 commit
+    receipt 持久化裸异常。修复 1366eee + check_court_mcp_server 两条新探针。
+  - R-05 [LOW] closeout CLI 非法 as_of 裸回溯。修复 6a3b43f + CLI 探针。
+  - R-06 [MEDIUM] repair/rollback 非原子写。修复 b9dc9a9（atomic_write_text/_bytes）。
+  - R-07..R-12 记录为既有/建议项或环境受限（见 review-findings §2/§5）。
+- 修复后门禁复跑：P5-1 22 项——20 项全绿 + 2 项环境受限记录（check_active_copy_hashes
+  安装副本 beta1.0.7 遗留 + extra=4 受保护锚点；check_codex_agent_roles config_errors 2 项
+  =本机 Codex 配置，14/14 已同步）；Phase 2/3/4 新增 11 个独立 check 全 PASS；
+  release_payload_manifest 收据已重生成（d18d167）。
+- 状态：review 意见已闭环（修复 + 回归断言 + 证据）；出口仍待 REVIEWER 签署（含 §7 未决决策）。
+
 ## 5. P5-2 收据与锚点（已完成）
 
 - VERSION / SBOM / .codex-plugin/plugin.json / github-release-metadata / skill-identity / SKILL.md / README / CHANGELOG / docs/wiki/Release-Notes 全部同步 beta1.0.8（commit `5e0b660`）。
