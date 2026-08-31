@@ -1633,9 +1633,27 @@ def load_entries(path: Path | None = None) -> list[dict[str, object]]:
     return entries
 
 
-def score_entry(entry: dict[str, object], terms: list[str]) -> int:
-    if not terms:
-        return 0
+RECALL_EXCLUDED_FIELDS = frozenset(
+    (
+        "source",
+        "evidence",
+        "next",
+        "capability_source_paths",
+        "court_code_legend",
+    )
+)
+
+
+def _weighted_searchable_parts(
+    entry: dict[str, object],
+) -> list[tuple[int, str]]:
+    """Weighted recall fields, excluding low-value provenance/legend fields (P0-3).
+
+    ``source``/``evidence``/``next``/``capability_source_paths`` carry file paths
+    that cause substring false positives (e.g. query "archive" matched every
+    ``references/plan-archives/...`` path); ``court_code_legend`` is a static
+    explanatory string. None of them participate in recall scoring.
+    """
     weighted_parts: list[tuple[int, str]] = []
     for key in (
         "topic",
@@ -1645,7 +1663,6 @@ def score_entry(entry: dict[str, object], terms: list[str]) -> int:
         "ancient_lineage",
         "lineage_display",
         "lineage_key",
-        "court_code_legend",
     ):
         value = entry.get(key)
         if isinstance(value, str):
@@ -1667,7 +1684,7 @@ def score_entry(entry: dict[str, object], terms: list[str]) -> int:
         value = entry.get(key)
         if isinstance(value, list):
             weighted_parts.extend((5, str(item)) for item in value)
-    for key in ("capability_vector_terms", "capability_source_paths"):
+    for key in ("capability_vector_terms",):
         value = entry.get(key)
         if isinstance(value, list):
             weighted_parts.extend((6, str(item)) for item in value)
@@ -1706,12 +1723,14 @@ def score_entry(entry: dict[str, object], terms: list[str]) -> int:
         value = entry.get(key)
         if isinstance(value, list):
             weighted_parts.extend((5, str(item)) for item in value)
-    for key in ("evidence", "next", "source"):
-        value = entry.get(key)
-        if isinstance(value, str):
-            weighted_parts.append((1, value))
+    return weighted_parts
+
+
+def score_entry(entry: dict[str, object], terms: list[str]) -> int:
+    if not terms:
+        return 0
     score = 0
-    for weight, value in weighted_parts:
+    for weight, value in _weighted_searchable_parts(entry):
         lowered = value.lower()
         score += sum(weight for term in terms if term.lower() in lowered)
     return score
