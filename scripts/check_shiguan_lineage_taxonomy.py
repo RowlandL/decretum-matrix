@@ -20,8 +20,16 @@ import shiguan_entry_utils as lineage
 
 
 FIXTURE = ROOT / "references" / "fixtures" / "shiguan-lineage-taxonomy-golden.json"
+VALIDATION_FIXTURE = (
+    ROOT / "references" / "fixtures" / "classification-contract-validation.json"
+)
 REVIEW_VALUES = {"review", "pending_review", "unknown", "待审"}
 CLASSIFIED_VALUES = {"classified", "matched"}
+CONTRACT_EVIDENCE_FIELDS = (
+    "positive_evidence",
+    "negative_evidence",
+    "candidates",
+)
 
 
 def _is_review(parts: dict[str, object]) -> bool:
@@ -181,6 +189,91 @@ def evaluate() -> dict[str, Any]:
                 )
             )
 
+    # P3-3: anti-overfitting validation set (5 classes: clear/tie/negation/
+    # unknown/conflict) + double-run byte-identical canonical JSON.
+    validation = json.loads(VALIDATION_FIXTURE.read_text(encoding="utf-8"))
+    if not isinstance(validation, dict) or validation.get("schema") != "court.classification_contract_validation.v1":
+        raise ValueError("classification_validation_fixture_schema_invalid")
+    if str(validation.get("taxonomy_version") or "") != golden_version:
+        failures.append("classification_validation_version_not_canonical")
+    validation_results: list[dict[str, object]] = []
+    for case in validation.get("classes", []):
+        if not isinstance(case, dict) or not isinstance(case.get("entry"), dict):
+            raise ValueError("classification_validation_case_invalid")
+        expected = case.get("expected")
+        if not isinstance(expected, dict):
+            raise ValueError("classification_validation_expected_invalid")
+        parts = lineage.content_lineage_parts(dict(case["entry"]))
+        expected_status = str(expected.get("status") or "").casefold()
+        expected_reason = str(expected.get("reason") or "").casefold()
+        case_ok = (
+            str(parts.get("classification_status") or "").casefold() == expected_status
+            and str(parts.get("classification_reason") or "").casefold() == expected_reason
+        )
+        if expected_status == "classified":
+            expected_parts = expected.get("parts")
+            if isinstance(expected_parts, dict):
+                case_ok = case_ok and all(
+                    parts.get(key) == value for key, value in expected_parts.items()
+                )
+        rerun_parts = lineage.content_lineage_parts(dict(case["entry"]))
+        if json.dumps(parts, ensure_ascii=False, sort_keys=True).encode(
+            "utf-8"
+        ) != json.dumps(rerun_parts, ensure_ascii=False, sort_keys=True).encode("utf-8"):
+            failures.append(
+                f"validation_double_run_nondeterministic:{case.get('id')}"
+            )
+        if not case_ok:
+            failures.append(
+                str(case.get("failure_code") or f"validation_case_failed:{case.get('id')}")
+            )
+        validation_results.append(
+            {
+                "id": case.get("id"),
+                "ok": case_ok,
+                "expected": expected,
+                "actual": {
+                    "status": parts.get("classification_status"),
+                    "reason": parts.get("classification_reason"),
+                    "score": parts.get("classification_score"),
+                    "margin": parts.get("classification_margin"),
+                },
+            }
+        )
+    validation_classes_ok = all(item["ok"] for item in validation_results)
+
+    # P3-2: contract fields (positive_evidence / negative_evidence / candidates)
+    # present on every output; negated terms never counted as positive evidence.
+    contract_fields_ok = True
+    evidence_disjoint_ok = True
+    unknown_no_positive_ok = True
+    for result in results:
+        actual = result["actual"]
+        if not all(field in actual for field in CONTRACT_EVIDENCE_FIELDS):
+            contract_fields_ok = False
+            failures.append(f"lineage_contract_evidence_field_missing:{result['id']}")
+            continue
+        positive = [str(item) for item in actual.get("positive_evidence") or []]
+        negative = [str(item) for item in actual.get("negative_evidence") or []]
+        if not isinstance(actual.get("candidates"), list):
+            contract_fields_ok = False
+            failures.append(f"lineage_contract_candidates_not_list:{result['id']}")
+        overlap = set(positive) & set(negative)
+        if overlap:
+            evidence_disjoint_ok = False
+            failures.append(f"lineage_negated_term_counted_positive:{result['id']}")
+        if (
+            str(actual.get("classification_reason") or "") == "unknown"
+            and positive
+        ):
+            unknown_no_positive_ok = False
+            failures.append(f"lineage_unknown_contributed_positive:{result['id']}")
+        if (
+            str(actual.get("classification_reason") or "") == "conflict"
+            and str(actual.get("classification_status") or "") not in REVIEW_VALUES
+        ):
+            failures.append(f"lineage_conflict_not_review:{result['id']}")
+
     # R-03 inline three-way tie sentinel (fixed text, no fixture mutation).
     three_way_entry = {"topic": "archive skill dispatch"}
     three_way_parts = lineage.content_lineage_parts(dict(three_way_entry))
@@ -257,6 +350,19 @@ def evaluate() -> dict[str, Any]:
                 "confidence_out_of_range_fail_closed": (
                     "lineage_confidence_out_of_range_not_fail_closed" not in failures
                 ),
+            },
+            "contract": {
+                "evidence_fields_present": contract_fields_ok,
+                "negated_terms_never_positive": evidence_disjoint_ok,
+                "unknown_contributes_no_positive": unknown_no_positive_ok,
+            },
+            "validation_set": {
+                "all_five_classes_ok": validation_classes_ok,
+                "double_run_byte_identical": not any(
+                    str(failure).startswith("validation_double_run_nondeterministic")
+                    for failure in failures
+                ),
+                "results": validation_results,
             },
             "tie": {
                 "tie_cases_ok": tie_cases_ok,

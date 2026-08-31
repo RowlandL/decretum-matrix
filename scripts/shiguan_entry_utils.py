@@ -1304,6 +1304,8 @@ def content_lineage_parts(entry: dict[str, object]) -> dict[str, object]:
 
     if top_score == 0:
         reason = "negated_evidence" if negated_evidence else "unknown"
+    elif int(best["negated_score"]) > 0:
+        reason = "conflict"
     elif tied:
         reason = "tie"
     elif top_score < CONTENT_TAXONOMY_MIN_SCORE:
@@ -1343,6 +1345,9 @@ def content_lineage_parts(entry: dict[str, object]) -> dict[str, object]:
         "classification_evidence": list(best["evidence"]),
         "classification_negated_evidence": negated_evidence,
         "classification_negated_evidence_count": len(negated_evidence),
+        "positive_evidence": list(best["evidence"]),
+        "negative_evidence": negated_evidence,
+        "candidates": candidate_scores,
     }
 
 

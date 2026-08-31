@@ -359,12 +359,21 @@ def domain_gbrain_recall(query: str, limit: int = 10) -> dict[str, Any]:
     return {"schema": "court.gbrain_recall.result.v1", "ok": True, "errors": [], "entries": projection, "count": len(projection)}
 
 
-def domain_court_code_preview(topic: str, date_text: str | None = None) -> dict[str, Any]:
+def domain_court_code_preview(
+    topic: str,
+    date_text: str | None = None,
+    index_path: Path | None = None,
+) -> dict[str, Any]:
     """Preview the unified court_code generator without writing (read-only).
 
     The preview reuses the archive-checkpoint numbering functions so any caller
     sees exactly what the authoritative generator would produce; it never
-    assigns or persists a code.
+    assigns or persists a code. The returned ``generator`` / ``authority`` /
+    ``receipt_hint`` fields make the numbering source traceable to the unified
+    archive-checkpoint generator (single authority, no second numbering set).
+
+    ``index_path`` overrides the plan-archive index for read-only probes; it
+    must point at an existing file or the caller gets a deterministic error.
     """
     from datetime import date
 
@@ -372,14 +381,25 @@ def domain_court_code_preview(topic: str, date_text: str | None = None) -> dict[
         from archive_checkpoint import next_daily_sequence
 
         selected_date = date_text or date.today().strftime("%Y%m%d")
-        archive = reference_path("plan-archives")
-        index = archive / "index.json"
-        from pathlib import Path as _P
-
-        if _P(index).exists():
+        if index_path is not None:
+            index = Path(str(index_path))
+        else:
+            index = reference_path("plan-archives") / "index.json"
+        if index.exists():
             sequence = next_daily_sequence(index, selected_date)
         else:
             sequence = "1"
     except (ImportError, OSError, TypeError, ValueError) as exc:
         return {"schema": "court.court_code_preview.result.v1", "ok": False, "errors": [{"field": "topic", "kind": "runtime", "code": str(exc)}]}
-    return {"schema": "court.court_code_preview.result.v1", "ok": True, "errors": [], "topic": str(topic), "date": selected_date, "daily_sequence": sequence, "preview_only": True}
+    return {
+        "schema": "court.court_code_preview.result.v1",
+        "ok": True,
+        "errors": [],
+        "topic": str(topic),
+        "date": selected_date,
+        "daily_sequence": sequence,
+        "preview_only": True,
+        "generator": "archive_checkpoint.next_daily_sequence",
+        "authority": "unified_court_code_generator",
+        "receipt_hint": "court.shiguan_archive_checkpoint_receipt.v1",
+    }

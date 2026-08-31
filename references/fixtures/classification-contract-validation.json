@@ -1,0 +1,77 @@
+{
+  "schema": "court.classification_contract_validation.v1",
+  "taxonomy_version": "2026-08-28.beta1.0.8",
+  "description": "分类合同最小防过拟合验证集：清晰 / 并列 / 否定 / 未知 / 冲突 五类 + 重复运行字节级一致（devspec FR-B B3 / contract-b §3）",
+  "classes": [
+    {
+      "id": "clear",
+      "label": "清晰",
+      "entry": {
+        "topic": "史馆实录索引与生长树归档",
+        "summary": "史馆记忆 archive index keyword"
+      },
+      "expected": {
+        "status": "classified",
+        "reason": "matched",
+        "parts": {
+          "zhi": "典藏",
+          "men": "史馆",
+          "gang": "实录",
+          "mu": "生长树",
+          "tiao": "索引检索"
+        }
+      },
+      "failure_code": "validation_clear_case_drifted"
+    },
+    {
+      "id": "tie",
+      "label": "并列",
+      "entry": {
+        "topic": "agent archive"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "tie"
+      },
+      "failure_code": "validation_tie_silently_ordered"
+    },
+    {
+      "id": "negation",
+      "label": "否定",
+      "entry": {
+        "topic": "不涉及 archive 或三省六部语义",
+        "summary": "本记录明确排除 archive、三省与六部"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "negated_evidence"
+      },
+      "failure_code": "validation_negation_contributed_positive"
+    },
+    {
+      "id": "unknown",
+      "label": "未知",
+      "entry": {
+        "topic": "量子泡沫观测校准",
+        "summary": "无现有分类关键词的全新主题"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "unknown"
+      },
+      "failure_code": "validation_unknown_forced_classified"
+    },
+    {
+      "id": "conflict",
+      "label": "冲突",
+      "entry": {
+        "topic": "涉及史馆分类，但不涉及 archive 索引"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "conflict"
+      },
+      "failure_code": "validation_conflict_silently_classified"
+    }
+  ]
+}

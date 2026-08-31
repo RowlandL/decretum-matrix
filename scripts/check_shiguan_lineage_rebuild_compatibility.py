@@ -286,12 +286,84 @@ def evaluate() -> dict[str, Any]:
     if not normalization_execution_refused:
         failures.append("normalization_granted_execution_authority")
 
+    # P3-1: numbering source must be traceable to the unified archive-checkpoint
+    # generator (single authority, no second numbering set) and the preview must
+    # stay read-only and byte-identical to next_daily_sequence on the same index.
+    from domain_ledger_api import domain_court_code_preview
+    from archive_checkpoint import next_daily_sequence as _next_daily_sequence
+
+    number_source_receipt_traceable = False
+    number_preview_readonly = False
+    with tempfile.TemporaryDirectory() as numbering_dir:
+        numbering_root = Path(numbering_dir)
+        numbering_index = numbering_root / "index.jsonl"
+        numbering_index.write_text(
+            json.dumps(
+                {
+                    "time": "2026-01-01T00:00:00+00:00",
+                    "daily_sequence": "2",
+                    "court_code": "SDMLTIUW7-20260101-2-ABAA",
+                    "topic": "probe",
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        before_files = sorted(p.name for p in numbering_root.iterdir())
+        preview = domain_court_code_preview(
+            "史馆实录",
+            date_text="20260101",
+            index_path=numbering_index,
+        )
+        after_files = sorted(p.name for p in numbering_root.iterdir())
+        number_preview_readonly = before_files == after_files
+        if not number_preview_readonly:
+            failures.append("court_code_preview_mutated_index")
+        if not (preview.get("ok") is True and preview.get("preview_only") is True):
+            failures.append("court_code_preview_not_read_only")
+        expected_sequence = _next_daily_sequence(numbering_index, "20260101")
+        if preview.get("daily_sequence") != expected_sequence:
+            failures.append("court_code_preview_drift_from_archive_checkpoint")
+        if preview.get("generator") != "archive_checkpoint.next_daily_sequence":
+            failures.append("court_code_source_generator_not_traceable")
+        if preview.get("authority") != "unified_court_code_generator":
+            failures.append("court_code_source_authority_not_traceable")
+        if not str(preview.get("receipt_hint") or ""):
+            failures.append("court_code_source_receipt_hint_missing")
+        number_source_receipt_traceable = (
+            preview.get("generator") == "archive_checkpoint.next_daily_sequence"
+            and preview.get("authority") == "unified_court_code_generator"
+            and preview.get("daily_sequence") == expected_sequence
+        )
+
+        # P3-1: a valid stored court_code must never be overwritten by enrichment.
+        preserved_entry: dict[str, object] = {
+            "record_type": "checkpoint",
+            "topic": "agent",
+            "phase": "Done",
+            "status": "DONE",
+            "summary": "agent",
+            "time": "2026-01-01T00:00:00+00:00",
+            "source": "references/plan-archives/probe.md",
+            "court_code": "SDMLTIUW7-20260101-2-ABAA",
+            "lineage_parts": dict(stored_parts),
+        }
+        enrich_entry(preserved_entry)
+        if preserved_entry.get("court_code") != "SDMLTIUW7-20260101-2-ABAA":
+            failures.append("stored_court_code_overwritten_on_enrich")
+
     failures = list(dict.fromkeys(failures))
     return {
         "schema": "court.shiguan_lineage_rebuild_compatibility_check.v1",
         "ok": not failures,
         "status": "PASS" if not failures else "FAIL",
         "contract": "SHIGUAN_LINEAGE_REBUILD_COMPATIBILITY",
+        "numbering_source": {
+            "single_authority_traceable": number_source_receipt_traceable,
+            "preview_readonly_zero_mutation": number_preview_readonly,
+        },
         "evidence": {
             "stored_lineage_parts": stored_parts,
             "direct_enriched_lineage_parts": direct_entry.get("lineage_parts"),
