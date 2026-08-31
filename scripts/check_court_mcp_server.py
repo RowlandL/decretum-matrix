@@ -23,6 +23,13 @@ EXPECTED_TOOLS = {
     "shiguan.query",
     "shiguan.archive_dry_run",
     "memory.scan",
+    "court.intake_validate",
+    "court.capsule_validate",
+    "court.semantic_context_validate",
+    "court.dispatch_plan_validate",
+    "court.closeout_checklist",
+    "shiguan.entries_query",
+    "shiguan.iku_candidates",
 }
 CURRENT_PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-11-25"
@@ -33,7 +40,14 @@ SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
 EXPECTED_COMMAND_IDS = {
     "court.status": "court.court-runtime",
     "court.command_help": "court.court-runtime",
+    "court.intake_validate": "court.court-runtime",
+    "court.capsule_validate": "court.court-runtime",
+    "court.semantic_context_validate": "court.court-runtime",
+    "court.dispatch_plan_validate": "court.court-runtime",
+    "court.closeout_checklist": "court.court-runtime",
     "shiguan.query": "shiguan.query-shiguan-index",
+    "shiguan.entries_query": "shiguan.query-shiguan-index",
+    "shiguan.iku_candidates": "shiguan.repair-archive-placeholders",
     "shiguan.archive_dry_run": "shiguan.archive-checkpoint",
     "memory.scan": "shiguan.internal-memory-shiguan-bridge",
 }
@@ -326,9 +340,251 @@ def _legacy_session() -> dict[str, Any]:
         _close(proc)
 
 
+LEGAL_DISPATCH_ENTRY = {
+    "role": "shangshu",
+    "office_zh": "尚书省",
+    "direct_superior": "taizi",
+    "duty": "统合六部",
+    "evidence_contract": "court.evidence.v1",
+    "parallel_group": "default",
+    "visibility": "non_visible",
+    "instance_key": "shangshu#0001",
+}
+SEMANTIC_CONTEXT_VALUE = {
+    "authority_revision": 1,
+    "authority_sha256": "a" * 64,
+    "plan_revision": 1,
+    "plan_sha256": "b" * 64,
+    "plan_cursor": "done@revision-1",
+    "git_fingerprint": "c" * 64,
+    "recovery_checkpoint_id": "event-head:test",
+    "shiguan_revision": 1,
+    "shiguan_fingerprint": "d" * 64,
+}
+
+
+def _structured(response: dict[str, Any]) -> dict[str, Any]:
+    result = response.get("result")
+    return result.get("structuredContent", {}) if isinstance(result, dict) else {}
+
+
+def _legal_intake_value() -> dict[str, Any]:
+    """A conversation-gate payload that passes intake validation."""
+    from court_intake_gate import minimal_formal_task_example
+
+    return minimal_formal_task_example()
+
+
+def _legal_capsule_value() -> dict[str, Any]:
+    """An invariant capsule payload that passes capsule validation."""
+    from court_semantic_continuity import invariant_capsule_template
+
+    return invariant_capsule_template("测试旨意")
+
+
+def _domain_probe_session() -> dict[str, Any]:
+    """Modern-wire session exercising the final seven projected tools plus journal audit."""
+    from pathlib import Path as _Path
+    from shiguan_paths import reference_path
+
+    journal_root = _Path(reference_path("court-runtime")) / "operation-journal"
+    before = {p.name for p in journal_root.glob("*.json")} if journal_root.exists() else set()
+    proc = _start()
+    try:
+        tools = _rpc(proc, _modern_request("domain-tools", "tools/list", params={"cursor": ""}))
+        dispatch_pos = _rpc(
+            proc,
+            _modern_request(
+                "domain-dispatch-pos",
+                "tools/call",
+                params={"name": "court.dispatch_plan_validate", "arguments": {"entries": [LEGAL_DISPATCH_ENTRY]}},
+            ),
+        )
+        dispatch_neg = _rpc(
+            proc,
+            _modern_request(
+                "domain-dispatch-neg",
+                "tools/call",
+                params={
+                    "name": "court.dispatch_plan_validate",
+                    "arguments": {
+                        "entries": [
+                            {
+                                "role": "not-a-role",
+                                "office_zh": "x",
+                                "direct_superior": "y",
+                                "duty": "d",
+                                "evidence_contract": "e",
+                                "parallel_group": "p",
+                                "visibility": "non_visible",
+                                "instance_key": "not-a-role#0001",
+                            }
+                        ]
+                    },
+                },
+            ),
+        )
+        closeout = _rpc(
+            proc,
+            _modern_request(
+                "domain-closeout",
+                "tools/call",
+                params={"name": "court.closeout_checklist", "arguments": {}},
+            ),
+        )
+        entries = _rpc(
+            proc,
+            _modern_request(
+                "domain-entries",
+                "tools/call",
+                params={"name": "shiguan.entries_query", "arguments": {"query": "结诏"}},
+            ),
+        )
+        entries_empty = _rpc(
+            proc,
+            _modern_request(
+                "domain-entries-empty",
+                "tools/call",
+                params={"name": "shiguan.entries_query", "arguments": {"query": "  "}},
+            ),
+        )
+        iku = _rpc(
+            proc,
+            _modern_request(
+                "domain-iku",
+                "tools/call",
+                params={"name": "shiguan.iku_candidates", "arguments": {}},
+            ),
+        )
+        intake = _rpc(
+            proc,
+            _modern_request(
+                "domain-intake",
+                "tools/call",
+                params={
+                    "name": "court.intake_validate",
+                    "arguments": {"charter": "测试旨意", "intake_value": _legal_intake_value()},
+                },
+            ),
+        )
+        capsule = _rpc(
+            proc,
+            _modern_request(
+                "domain-capsule",
+                "tools/call",
+                params={
+                    "name": "court.capsule_validate",
+                    "arguments": {"charter": "测试旨意", "value": _legal_capsule_value()},
+                },
+            ),
+        )
+        semantic_pos = _rpc(
+            proc,
+            _modern_request(
+                "domain-semantic-pos",
+                "tools/call",
+                params={"name": "court.semantic_context_validate", "arguments": {"value": SEMANTIC_CONTEXT_VALUE}},
+            ),
+        )
+        semantic_neg = _rpc(
+            proc,
+            _modern_request(
+                "domain-semantic-neg",
+                "tools/call",
+                params={"name": "court.semantic_context_validate", "arguments": {"value": {"plan_cursor": 1}}},
+            ),
+        )
+    finally:
+        _close(proc)
+    after = {p.name for p in journal_root.glob("*.json")} if journal_root.exists() else set()
+    new_journals = sorted(after - before)
+    records = []
+    for name in new_journals:
+        try:
+            records.append(json.loads((journal_root / name).read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return {
+        "tools": tools,
+        "dispatch_pos": dispatch_pos,
+        "dispatch_neg": dispatch_neg,
+        "closeout": closeout,
+        "entries": entries,
+        "entries_empty": entries_empty,
+        "iku": iku,
+        "intake": intake,
+        "capsule": capsule,
+        "semantic_pos": semantic_pos,
+        "semantic_neg": semantic_neg,
+        "journal_records": records,
+    }
+
+
+def _domain_ledger_checks() -> list[tuple[str, bool]]:
+    """Probes for domain write ACL/authority/write_set, revisions, Git commits."""
+    import subprocess as _subprocess
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+
+    from domain_ledger_api import domain_court_code_preview, domain_gbrain_recall, domain_ledger_write
+    from court_public_registry import load_public_tools
+
+    tmp = _Path(_tempfile.mkdtemp(prefix="dm-check-ledger-"))
+    _subprocess.run(["git", "init", "-q", str(tmp)], check=True)
+    _subprocess.run(["git", "-C", str(tmp), "config", "user.email", "check@local"], check=True)
+    _subprocess.run(["git", "-C", str(tmp), "config", "user.name", "check"], check=True)
+
+    def commit_count() -> str:
+        result = _subprocess.run(
+            ["bash", "-c", 'git -C "$1" log --oneline 2>/dev/null | wc -l', "_", str(tmp)],
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    denied = domain_ledger_write(
+        kind="memory", operation="create", topic="t-a", content="c", actor="shiguan",
+        authority="approval", write_set=["memory"], root=tmp,
+    )
+    count_after_denied = commit_count()
+    created = domain_ledger_write(
+        kind="memory", operation="create", topic="t-a", content="c", actor="shiguan",
+        authority="autonomous", write_set=["memory"], root=tmp,
+    )
+    idempotent = domain_ledger_write(
+        kind="memory", operation="create", topic="t-a", content="c", actor="shiguan",
+        authority="autonomous", write_set=["memory"], root=tmp,
+    )
+    updated = domain_ledger_write(
+        kind="memory", operation="update", topic="t-a", content="c2", actor="shiguan",
+        authority="super", write_set=["memory"], root=tmp, idempotency_key="k-1",
+    )
+    count_before_failure = commit_count()
+    failed = domain_ledger_write(
+        kind="memory", operation="update", topic="bad topic!", content="x", actor="shiguan",
+        authority="super", write_set=["memory"], root=tmp,
+    )
+    after_failure = commit_count()
+    gbrain = domain_gbrain_recall("结诏")
+    preview = domain_court_code_preview("check-topic", "20260831")
+    all_read_only = all(tool.side_effect == "read_only" for tool in load_public_tools().values())
+    return [
+        ("domain_write_approval_denied", denied.get("ok") is False and any(e.get("code") == "authority_read_only" for e in denied.get("errors", []))),
+        ("domain_write_approval_no_commit", count_after_denied == "0"),
+        ("domain_write_create_commits", created.get("ok") is True and bool(created.get("record", {}).get("git_commit"))),
+        ("domain_write_create_idempotent", idempotent.get("idempotent") is True and idempotent.get("record", {}).get("revision") == 1),
+        ("domain_write_update_appends_revision", updated.get("ok") is True and updated.get("record", {}).get("revision") == 2),
+        ("domain_write_failure_no_commit", failed.get("ok") is False and after_failure == count_before_failure),
+        ("domain_gbrain_recall_readonly_idempotent", gbrain.get("ok") is True and "entries" in gbrain),
+        ("domain_court_code_preview_readonly", preview.get("ok") is True and preview.get("preview_only") is True),
+        ("domain_write_not_projected_to_mcp", all_read_only),
+    ]
+
+
 def run() -> dict[str, object]:
     modern = _modern_session()
     legacy = _legacy_session()
+    domain = _domain_probe_session()
     modern_tools = _listed(modern["tools"])
     legacy_tools = _listed(legacy["tools"])
     legacy_standard_meta_tools = _listed(legacy["tools_with_standard_meta"])
@@ -336,6 +592,24 @@ def run() -> dict[str, object]:
     modern_memory = modern["memory"].get("result", {}).get("structuredContent", {})
     legacy_help = legacy["help"].get("result", {}).get("structuredContent", {})
     modern_server_info = modern["status"].get("result", {}).get("_meta", {}).get(SERVER_INFO_META_KEY)
+    dispatch_pos = _structured(domain["dispatch_pos"])
+    dispatch_neg = _structured(domain["dispatch_neg"])
+    closeout = _structured(domain["closeout"])
+    entries = _structured(domain["entries"])
+    iku = _structured(domain["iku"])
+    intake = _structured(domain["intake"])
+    capsule = _structured(domain["capsule"])
+    semantic_pos = _structured(domain["semantic_pos"])
+    semantic_neg = _structured(domain["semantic_neg"])
+    journal_records = domain["journal_records"]
+    dispatch_pos_api = dispatch_pos.get("api", {}) if isinstance(dispatch_pos.get("api"), dict) else {}
+    dispatch_neg_api = dispatch_neg.get("api", {}) if isinstance(dispatch_neg.get("api"), dict) else {}
+    closeout_api = closeout.get("api", {}) if isinstance(closeout.get("api"), dict) else {}
+    entries_api = entries.get("api", {}) if isinstance(entries.get("api"), dict) else {}
+    iku_api = iku.get("api", {}) if isinstance(iku.get("api"), dict) else {}
+    intake_api = intake.get("api", {}) if isinstance(intake.get("api"), dict) else {}
+    capsule_api = capsule.get("api", {}) if isinstance(capsule.get("api"), dict) else {}
+    semantic_pos_api = semantic_pos.get("api", {}) if isinstance(semantic_pos.get("api"), dict) else {}
     checks = [
         (
             "modern_latest_server_discover",
@@ -494,7 +768,99 @@ def run() -> dict[str, object]:
                 if isinstance(item, dict)
             ),
         ),
+        (
+            "tool_schemas_have_descriptions",
+            all(
+                isinstance(item.get("inputSchema", {}).get("properties"), dict)
+                and all(
+                    isinstance(prop, dict) and str(prop.get("description") or "").strip() and len(str(prop.get("description") or "")) <= 200
+                    for prop in item["inputSchema"]["properties"].values()
+                )
+                for item in domain["tools"].get("result", {}).get("tools", [])
+                if isinstance(item, dict)
+            ),
+        ),
+        (
+            "final_tool_matrix_visible_modern_and_legacy",
+            modern_tools == EXPECTED_TOOLS and legacy_tools == EXPECTED_TOOLS,
+        ),
+        (
+            "dispatch_plan_validate_positive_defaults_approval_serial",
+            dispatch_pos_api.get("ok") is True
+            and dispatch_pos_api.get("authority") == "approval"
+            and dispatch_pos_api.get("behavior") == "serial"
+            and dispatch_pos_api.get("entry_count") == 1,
+        ),
+        (
+            "dispatch_plan_validate_negative_reports_violations",
+            dispatch_neg_api.get("ok") is False
+            and isinstance(dispatch_neg_api.get("errors"), list)
+            and dispatch_neg_api["errors"]
+            and any(e.get("code") == "dispatch_plan_invalid" for e in dispatch_neg_api["errors"]),
+        ),
+        (
+            "closeout_checklist_fourteen_labels_two_receipt_missing",
+            closeout_api.get("ok") is True
+            and closeout_api.get("label_count") == 14
+            and len(closeout_api.get("checklist", [])) == 14
+            and len(closeout_api.get("missing", [])) == 2,
+        ),
+        (
+            "entries_query_metadata_projection",
+            entries_api.get("ok") is True
+            and isinstance(entries_api.get("matches"), list)
+            and all(not any(key in item for key in ("content", "evidence")) for item in entries_api.get("matches", []) if isinstance(item, dict)),
+        ),
+        (
+            "entries_query_empty_query_rejected",
+            domain["entries_empty"].get("error", {}).get("code") == -32602
+            or (isinstance(entries_empty_api := _structured(domain["entries_empty"]).get("api"), dict) and entries_empty_api.get("ok") is False),
+        ),
+        (
+            "iku_candidates_dry_run_read_only",
+            iku_api.get("ok") is True and iku_api.get("dry_run") is True and iku_api.get("write_enabled") is False,
+        ),
+        (
+            "intake_capsule_semantic_validators_positive",
+            intake_api.get("ok") is True and capsule_api.get("ok") is True and semantic_pos_api.get("ok") is True,
+        ),
+        (
+            "semantic_context_validator_negative",
+            domain["semantic_neg"].get("error", {}).get("code") == -32602
+            or (isinstance(semantic_neg_api := _structured(domain["semantic_neg"]).get("api"), dict) and semantic_neg_api.get("ok") is False),
+        ),
+        (
+            "agent_envelope_fields_present",
+            all(
+                isinstance(_structured(resp), dict)
+                and {"ok", "tool", "command_id", "api", "dry_run", "write_enabled"} <= set(_structured(resp))
+                for resp in (
+                    domain["dispatch_pos"],
+                    domain["closeout"],
+                    domain["entries"],
+                    domain["iku"],
+                )
+            ),
+        ),
+        (
+            "audit_journal_written_with_digest",
+            len(journal_records) >= 4
+            and all(rec.get("schema") == "court.operation_journal.v1" and rec.get("task_id") == "mcp" and rec.get("phase") == "mcp-call" for rec in journal_records),
+        ),
+        (
+            "audit_journal_no_raw_args",
+            all(
+                "plan_cursor" not in json.dumps(rec, ensure_ascii=False)
+                and "结诏" not in json.dumps(rec, ensure_ascii=False)
+                for rec in journal_records
+            ),
+        ),
+        (
+            "audit_journal_unknown_tool_recorded",
+            any(rec.get("receipt", {}).get("ok") is False and "missing_arguments" in str(rec.get("receipt", {}).get("error", "")) for rec in journal_records),
+        ),
     ]
+    checks.extend(_domain_ledger_checks())
     return {
         "schema": "decretum.mcp_stdio_adapter_check.v2",
         "ok": all(ok for _, ok in checks),
