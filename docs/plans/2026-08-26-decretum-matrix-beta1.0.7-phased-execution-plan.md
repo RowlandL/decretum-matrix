@@ -1,13 +1,13 @@
 # Decretum Matrix beta1.0.7 阶段执行计划书
 
-状态：ACTIVE_PLAN / PLANNED_UNVERIFIED
+状态：CLOSED_SOURCE_BASELINE / HISTORICAL_PLAN
 日期：2026-08-26
 分支：release/beta1.0.7
 适用范围：decretum-matrix 子仓库的新版本分支
 
 ## 一、定位
 
-本计划承接 `docs/research/2026-08-25-next-version-cli-mcp-hooks-shiguan-memory-research.md` 的审查结论，但只定义后续阶段、写集、验证和停止门。它不是发布批准，不是 capability evidence receipt，也不把 MCP、hooks 或史馆记忆闭环声明为已实现能力。
+本计划承接 `docs/research/2026-08-25-next-version-cli-mcp-hooks-shiguan-memory-research.md` 的审查结论。beta1.0.7 的源码阶段已完成收尾，当前 `release/beta1.0.7` / HEAD `2571178` 作为 beta1.0.8 的开发基线。本文件保留历史阶段、写集、验证和停止门，不是新的发布批准，也不把未有四类证据绑定的 MCP、hooks 或史馆记忆闭环声明为已验证能力。
 
 本轮路线固定为：
 
@@ -118,17 +118,23 @@
 
 - 只有 metadata-only bridge 时，继续标记为 advisory，不宣称内容级 memory 已打通。
 
-## 四、当前执行游标
+## 四、历史执行游标（已收尾）
 
-当前游标：`phase-review/ccswitch-mcp-host-configuration`
+当前游标：`beta1.0.7/source-closeout`
 
-下一条动作：
+收尾结论：
 
 ```text
-阶段复核：核对 CC Switch 托管配置、现代 MCP 协议和回滚证据；当前不得自动升格 MCP、hooks 或 memory pipeline 为 VERIFIED_CAPABILITY。
+beta1.0.7 源码、阶段任务和发布工件收尾完成；后续工作转入 beta1.0.8 计划，不重开本文件历史阶段。外部发布状态仍以 tag、GitHub Release、npm 和安装回执分别核验。
 ```
 
 P0、P1、P2、P3、P4 已在本轮完成最小实现与验证。P4 只证明 synthetic native-store fixture 的内容级闭环；不触碰真实 Codex/Hermes/Claude memory，不读取真实 private bodies，不自动提升产品能力。
+
+### Beta1.0.7 Source Closeout (2026-08-29)
+
+- `release/beta1.0.7` HEAD `257117867498be980deed9b5ed5ace835d637384` 已完成源码收尾，工作树除 beta1.0.8 规划文档外无意外改动。
+- `VERSION=beta1.0.7`，`release-manifest.json` 的 artifact/release label/version_core 均绑定 beta1.0.7。
+- 本收尾结论只证明源码基线完成；外部 tag、GitHub Release、npm dist-tag 和宿主加载状态仍必须由各自回执证明。
 
 ## 五、阶段执行记录
 

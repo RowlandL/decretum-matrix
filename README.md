@@ -16,7 +16,7 @@ npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 decretum-matrix --format json --help
 ```
 
-当前源码候选为 `1.0.6-beta.0`。安装命令解析到 registry 已发布的 `beta`；
+当前源码基线为 `beta1.0.7`，其源码阶段已完成收尾；安装命令解析到 registry 的 `beta`；
 实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
 `read:packages`，且不得持久化 token。
 
@@ -71,6 +71,8 @@ runtime 不在同一 task/process 中切换或回退。
 [`release-manifest.json`](release-manifest.json) 为准；分支名只是当前工作载体。
 tag、GitHub Release、npm 以及线上 Wiki 的成功状态只由对应发布回执证明。
 
+`beta1.0.7` 完成源码收尾，收敛安装收据、宿主/运行验证和只读 MCP 入口；
+外部 tag、GitHub Release、npm 远端状态和宿主实际加载仍由对应回执证明。
 `beta1.0.6` 收口原生宿主运行身份与入口证据、分层 dispatch/reuse 的真实证据，
 以及记忆分类中的置信度、并列、否定和未知待审路径。安装后的
 运行投影继续保持窄面；独立副本哈希校验器只存在于源码和发布门禁，不进入 skill

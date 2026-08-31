@@ -1,5 +1,11 @@
 # Release Notes
 
+## beta1.0.7
+
+- 状态：源码阶段已完成收尾，`release/beta1.0.7` HEAD 为 `2571178`，作为 beta1.0.8 开发基线。
+- 收尾范围：安装收据绑定、宿主/运行验证、只读 stdio MCP、统一 manifest/registry 投影和历史兼容边界。
+- beta1.0.7 的 MCP、宿主加载和外部发布状态仍按代码、typed test、安装投影、runtime receipt 及各自远端回执分别核验；本条不替代 capability evidence 或外部发布回执。
+
 ## beta1.0.6
 
 - 原生宿主回执绑定运行身份、统一入口、请求路径与宿主生命周期。
