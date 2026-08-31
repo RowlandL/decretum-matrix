@@ -253,6 +253,23 @@
   R-09 session numbering 并发锁、R-10 MCP 错误回显、R-11 turn_context 会话限定；
   环境受限项（R-12）权威环境复验。
 
+### 发布前 review 第二轮（TDD 整改，2026-08-31 追加回写）
+
+- 用户指示「再次 review + 鲁棒性审查整改 TDD」，将上轮遗留 R-07..R-11 全部闭环：
+  - R-07 docs（584ebfc）：contract-b 措辞对齐实现语义（status 二值 + reason 区分）。
+  - R-08（b450f39）：registry wire 层强制 minLength/maxLength/minItems/maxItems/enum/pattern
+    （探针 8 例 RED→GREEN）。
+  - R-09（4008307）：session numbering read-compute-write 加 file_lock 串行化
+    （并发 overlap 探针 RED→GREEN）。
+  - R-10（b450f39）：MCP 内部错误统一 -32603 "Internal error" + stderr 详情
+    （探针 RED→GREEN）。
+  - R-11（fda5e71）：host proof turn_context 支持 session_id 限定回读（探针 RED→GREEN）。
+- 复扫（devspec §5）：无 shell=True/os.system/pickle/yaml.load；touched 文件无裸写；
+  子进程均有 timeout；无新发现。
+- 第二轮回归 23 项全绿（review-gates-r2.log）；release payload manifest 重生成
+  （payload_bytes=7,045,925 / payload_index_sha256=0d668094…）。
+- 遗留收敛为：环境受限项（R-12）权威环境复验 + REVIEWER 签署。
+
 ### Stretch（非本版核心，后续另立项）
 
 **S1 HTTP /mcp 传输扩展**（WEB，后续）

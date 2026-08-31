@@ -1,8 +1,8 @@
 # beta1.0.8 发布前 Coding Review + 鲁棒性审计 发现与闭环
 
-> protocol_version: draft-0.1 · 会话：hermes-codex-20260831-review（发布前 review 会话）
+> protocol_version: draft-0.1 · 会话：hermes-codex-20260831-review（发布前 review 会话；第二轮 TDD 整改 2026-08-31）
 > 分支：release/beta1.0.8 · 审查基线 b2de371..HEAD（E1-E5 / P1.x-P4.x / P5 锚点收据）
-> 修复后 HEAD：754552b（5 个修复/收据提交 + 2 个 docs/收据刷新提交，叠加在 d3a7f7d 之上）
+> 修复后 HEAD：见 §3 提交列表（第一轮 R-01..R-06 + 第二轮 TDD R-07..R-11，叠加在 d3a7f7d 之上）
 > 门禁日志：docs/plans/beta1.0.8/review/review-gates.log
 > 结论摘要：6 类问题（4 类已修复含回归断言；2 类记录为既有/环境受限）；P5-1 22 项门禁复跑全绿或环境受限记录；Phase 2/3/4 新增独立 check 全 PASS；check_install_current_agent_copy self-test 由「抛 ValueError 崩溃」转为 32/32 + 31/31 全绿。
 
@@ -104,45 +104,58 @@
   改用新增 `_atomic_write_bytes`（temp + os.replace + fsync）。
 - 回归：既有 `check_iku_repair`（apply 后字节、备份、journal、rollback 恢复、幂等）全绿。
 
-### R-07 [LOW, 记录不修] 契约 B 文档与实现的状态枚举漂移
+### R-07 [LOW, 已修复（TDD 第二轮, docs-only）] 契约 B 文档与实现的状态枚举漂移
 
 - 证据：contract-b §2 声明 `classification_status` 枚举
   `classified | tie | unknown | conflict | review`；实现仅输出 `classified | review`，
   tie/unknown/conflict 通过 `classification_reason` 区分。
   `classification-contract-validation.json` 五类用例也以 `status=review + reason`
   断言。内部一致、check 全绿，但契约措辞与实现不符。
-- 处置：不改实现（改动会牵动大量 check/契约），建议后续修订契约文档措辞，
-  明确「status 二值 + reason 区分」为规范语义。
+- 修复（提交 584ebfc）：契约文档改为实现语义——`classification_status ∈ {classified, review}`，
+  `classification_reason ∈ {matched, tie, conflict, unknown, low_confidence, negated_evidence}`；
+  验收指针同步（tie/unknown/negated/conflict → status=review + reason）。
+- 回归：check_shiguan_lineage_taxonomy / rebuild_compatibility 保持 PASS。
 
-### R-08 [LOW, 记录不修] court_public_registry._validate_value 不强制 string/array 约束
+### R-08 [LOW, 已修复（TDD 第二轮）] court_public_registry._validate_value 不强制 string/array 约束
 
 - 证据：`_validate_value` 只强制 type / additionalProperties / required / 数值 min-max；
   不强制 minLength/maxLength/minItems/maxItems/enum/pattern。例如
   `dispatch_plan_validate` 的 `entries` maxItems=16 在 wire 层不生效（由 public 函数
   内部处理）。
-- 影响有限：各 public 函数对权威约束都有内部校验并返回 ok:false（authority/behavior
-  枚举、query 非空、limit 界等）。属既有 registry 行为（本版未改），记录不修。
+- 修复（提交 b450f39）：`_validate_value` 补 string minLength/maxLength/pattern/enum 与
+  array minItems/maxItems + 任意类型 enum 强制。
+- 回归（TDD）：check_court_mcp_server 新增 `wire_schema_constraints_enforced` 探针
+  （8 例：entries maxItems/minItems、authority/behavior/scope enum、query/charter/task_id
+  长度）——RED（8 例未强制）→ GREEN。
 
-### R-09 [MEDIUM, 记录不修] court_session_numbering 并发分配竞态
+### R-09 [MEDIUM, 已修复（TDD 第二轮）] court_session_numbering 并发分配竞态
 
 - 证据：`domain_court_code_issue` 的 read-compute-write（读存量 allocations →
   `_next_sequence` → 写 allocation 文件）未持文件锁；同日期并发会话可能取到相同
-  `daily_sequence`（碰撞 court_code）。顺序调用已由
-  `check_court_code_session_numbering` 覆盖，并发场景无确定性回归手段。
-- 处置：记录为建议项（后续在 numbering_root 加 `file_lock` 串行化 read-compute-write）；
-  本版本不修（影响可检测、可恢复，且修复缺乏确定性回归断言）。
+  `daily_sequence`（碰撞 court_code）。
+- 修复（提交 4008307）：整个 read-compute-write（含幂等重查）由
+  `court_file_lock.file_lock` 串行化（`<numbering_root>/.allocation.lock`）。
+- 回归（TDD）：check_court_code_session_numbering 新增确定性并发探针
+  （patched `_next_sequence` 放大窗口，两线程同时进入读算区）——
+  RED（overlap 检测 + 序列碰撞 '1','1'）→ GREEN（无 overlap、序列互异）。
 
-### R-10 [LOW, 记录不修] MCP -32603 内部错误向客户端回显异常文本
+### R-10 [LOW, 已修复（TDD 第二轮）] MCP -32603 内部错误向客户端回显异常文本
 
 - 证据：`handle()` 兜底 `_error(-32603, str(exc))` 会回显内部路径/异常信息。
-  本地 stdio 场景可接受；建议后续改为通用信息 + 服务端日志。记录不修。
+- 修复（提交 b450f39）：main() 的逐消息分发抽为 `_dispatch()`，内部异常统一返回
+  `-32603 "Internal error"`，详情写 stderr（服务端可查，客户端不回显）。
+- 回归（TDD）：check_court_mcp_server 新增 `mcp_internal_error_generic_message`
+  探针——RED（回显 secret-detail）→ GREEN（code=-32603、无 detail）。
 
-### R-11 [LOW, 记录不修] agent_runtime_probe `_latest_turn_context` 取最近会话回读
+### R-11 [LOW, 已修复（TDD 第二轮）] agent_runtime_probe `_latest_turn_context` 取最近会话回读
 
 - 证据：`_latest_turn_context(home)` 读取最近 5 个 Codex session JSONL 的
   `turn_context` 事件作为 host proof 的 turn-context 证据，可能来自其他 agent/session。
   缺失/不一致时 fail-closed（不会误报 APPLIED），但理论上可能满足校验。
-- 处置：记录为建议项（后续限定到目标 session 的 JSONL 回读）。不修（无伪报风险）。
+- 修复（提交 fda5e71）：新增可选 `session_id` 过滤，指定时仅读取该 session JSONL
+  （精确证据）；未指定时保持 host 级最近会话近似（兼容既有调用）。
+- 回归（TDD）：check_court_agent_config 新增会话限定探针（两个 session JSONL，
+  断言按 session_id 回读对应 model/effort）——RED（TypeError unexpected keyword）→ GREEN。
 
 ### R-12 [INFO] 环境受限项复核（按任务书登记，不得擅动，仅记录）
 
@@ -173,6 +186,11 @@
 | d18d167 | chore(beta1.0.8): regenerate release payload manifest after review fixes | R-01..R-06 源码漂移收据 |
 | 221e122 | docs(beta1.0.8): publish pre-release coding review + robustness audit closure | 回写（findings/log/task-book/release-review/handoffs） |
 | 754552b | chore(beta1.0.8): refresh release payload manifest after review docs commit | docs 提交后 repository_only 漂移收据 |
+| c0c8fa6 | docs(beta1.0.8): phase-5 VERIFIER handoff-check artifact (phase-5-check.json) | 交接校验产物 |
+| b450f39 | fix(beta1.0.8): enforce wire schema constraints and generic MCP internal errors (R-08/R-10, TDD) | R-08, R-10 |
+| 4008307 | fix(beta1.0.8): serialize session-numbering allocation read-compute-write (R-09, TDD) | R-09 |
+| fda5e71 | fix(beta1.0.8): scope host-proof turn-context read-back to a session (R-11, TDD) | R-11 |
+| 584ebfc | docs(beta1.0.8): align contract B classification_status wording with implementation (R-07) | R-07 |
 
 ---
 
@@ -220,15 +238,24 @@
   `domain_write_commit_receipt_persist_failure_returns_error`（R-04）。
 - check_closeout_conflict_scan：`cli_invalid_as_of_fail_closed`（R-05）。
 - check_install_current_agent_copy：self-test 32/32 + 31/31（R-01）。
+- check_court_mcp_server（第二轮）：`wire_schema_constraints_enforced`（R-08）、
+  `mcp_internal_error_generic_message`（R-10）。
+- check_court_code_session_numbering（第二轮）：并发 overlap + 序列互异探针（R-09）。
+- check_court_agent_config（第二轮）：turn_context session 限定探针（R-11）。
+
+### 4.4 第二轮 TDD 整改后回归（2026-08-31，review-gates-r2.log）
+
+- 23 项复跑全绿（quick_validate / read_only / source_budget / release_manifest /
+  release_payload_manifest / release_legal / release_metadata / skill_identity /
+  governance / unified_cli / court_mcp_server / portability / projection_closure /
+  session_numbering / iku_repair / closeout_conflict / full_record_index /
+  lineage_taxonomy / rebuild_compatibility / git_federation / model_router /
+  codex_office_worker / agent_config）。
 
 ---
 
 ## 5. 遗留项（后续版本候选 / 需 REVIEWER 拍板）
 
-1. R-07：契约 B 文档措辞与实现对齐（status 二值 + reason 区分）。
-2. R-08：registry `_validate_value` 补 minLength/maxLength/minItems/maxItems/enum 强制。
-3. R-09：court_session_numbering 并发分配加 file_lock。
-4. R-10：MCP -32603 兜底改为通用信息 + 服务端日志。
-5. R-11：host proof turn_context 回读限定目标 session。
-6. 环境受限项（R-12）正式安装机复验：install update 到 beta1.0.8、config.toml 门禁、
+1. R-07..R-11 已在第二轮 TDD 整改中闭环（见 §2/§3），不再列入遗留。
+2. 环境受限项（R-12）正式安装机复验：install update 到 beta1.0.8、config.toml 门禁、
    repo-control doctor。

@@ -86,6 +86,11 @@
   安装副本 beta1.0.7 遗留 + extra=4 受保护锚点；check_codex_agent_roles config_errors 2 项
   =本机 Codex 配置，14/14 已同步）；Phase 2/3/4 新增 11 个独立 check 全 PASS；
   release_payload_manifest 收据已重生成（d18d167）。
+- 【第二轮 TDD 整改】用户指示继续 review + 鲁棒性整改（TDD），R-07..R-11 全部闭环：
+  R-07 contract-b 措辞对齐（584ebfc）、R-08 registry 约束强制（b450f39）、
+  R-09 session numbering 并发锁（4008307）、R-10 MCP 通用内部错误（b450f39）、
+  R-11 turn_context 会话限定（fda5e71）；每项带 RED→GREEN 探针；
+  第二轮回归 23 项全绿（review-gates-r2.log）；manifest 重生成（0d668094…）。
 - 状态：review 意见已闭环（修复 + 回归断言 + 证据）；出口仍待 REVIEWER 签署（含 §7 未决决策）。
 
 ## 5. P5-2 收据与锚点（已完成）
