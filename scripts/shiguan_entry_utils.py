@@ -1886,7 +1886,11 @@ def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[d
         return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
     idf = recall_idf(entries, terms)
     if not any(idf.get(token, 0.0) >= RECALL_MIN_IDF for token in query_tokens):
-        return []
+        # Non-discriminative query: every token is near-corpus-wide (e.g. 史馆
+        # inside every lineage/capability vector). Text ranking would be
+        # meaningless, so fall back to latest-first (time descending), matching
+        # the explicit "latest N" semantics (P2-3 direction).
+        return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
     scored = []
     for entry in entries:
         score = score_entry_recall(entry, terms, idf=idf)
