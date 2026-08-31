@@ -18,6 +18,7 @@ import sys
 import tempfile
 from typing import Any, Callable
 from unittest import mock
+import zlib
 
 sys.dont_write_bytecode = True
 Payload = dict[str, object]
@@ -451,10 +452,24 @@ def _case_fixture(
     label: str,
     manifest_data: Payload | None = None,
 ) -> tuple[object, ...]:
-    case_root = temp_root / label
+    case_root = temp_root / _fixture_slug(label)
     source, home = case_root / "source", case_root / "home"
     manifest = _write_fixture_source(source, manifest=manifest_data)
     return source, home, manifest, _target_roots(home)
+
+
+def _fixture_slug(label: str) -> str:
+    """Short stable fixture subdirectory name (Windows MAX_PATH guard).
+
+    Fixture labels are descriptive but can be long (50+ chars); combined with
+    the deep ``home/.agents/install-backups/...`` nesting they push real temp
+    paths past Windows' 260-char limit, which surfaces as spurious
+    ``FileNotFoundError`` on NamedTemporaryFile/os.replace. A short stable
+    CRC-32 slug keeps every fixture path well under the limit while staying
+    deterministic and collision-resistant for the ~30 fixed labels.
+    """
+
+    return f"c{zlib.crc32(str(label).encode('utf-8')) & 0xFFFFFFFF:08x}"
 
 
 def _target_roots(home_root: Path) -> dict[str, Path]:
@@ -1600,9 +1615,12 @@ def _case_hermes_alias_commit_failure_restores_legacy_junction(
         str(canonical_alias) not in adapter.aliases,
         not canonical_alias.exists() and not prepared_alias.exists(),
         not leftovers,
-        [adapter.events.index(step) for step in ("alias_prepare", "alias_commit", "alias_rollback")]
-        == sorted(adapter.events.index(step) for step in ("alias_prepare", "alias_commit", "alias_rollback"))
-        and adapter.events[-1] == "alias_rollback",
+        (
+            all(step in adapter.events for step in ("alias_prepare", "alias_commit", "alias_rollback"))
+            and [adapter.events.index(step) for step in ("alias_prepare", "alias_commit", "alias_rollback")]
+            == sorted(adapter.events.index(step) for step in ("alias_prepare", "alias_commit", "alias_rollback"))
+            and adapter.events[-1] == "alias_rollback"
+        ),
     )
     return None if all(checks) else f"{name}:alias_failure_rollback_incomplete"
 
@@ -1823,14 +1841,17 @@ def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
         errors.append(f"{name}:postinstall_callable_missing")
         return 0
 
-    home = temp_root / name / "home"
+    home = temp_root / _fixture_slug(name) / "home"
     local = home / "AppData" / "Local"
     roaming = home / "AppData" / "Roaming"
     for path in (home, local, roaming):
         path.mkdir(parents=True, exist_ok=True)
     keys = (
         "APPDATA",
+        "CODEX_HOME",
+        "COURT_TOOL_INSTALL_DIR",
         "DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES",
+        "DECRETUM_MATRIX_SKIP_SUPERCC_DEPS",
         "HOME",
         "LOCALAPPDATA",
         "PYTHONDONTWRITEBYTECODE",
@@ -1841,7 +1862,10 @@ def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
         os.environ.update(
             {
                 "APPDATA": str(roaming),
+                "CODEX_HOME": str(home / ".codex"),
+                "COURT_TOOL_INSTALL_DIR": str(home / ".tools"),
                 "DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES": "0",
+                "DECRETUM_MATRIX_SKIP_SUPERCC_DEPS": "1",
                 "HOME": str(home),
                 "LOCALAPPDATA": str(local),
                 "PYTHONDONTWRITEBYTECODE": "1",
@@ -2777,7 +2801,7 @@ def _check_blank_host_configuration_cases(
         before = len(errors)
         result, config, adapter = _invoke_configuration_case(
             install,
-            case_root=temp_root / case_name,
+            case_root=temp_root / _fixture_slug(case_name),
             name=case_name,
             tool_class=tool_class,
             errors=errors,
@@ -2849,7 +2873,7 @@ def _check_blank_host_configuration_cases(
             fail(config.get("compliance_claimed") is not False, "claimed_compliant")
             fail(config.get("unrelated_install_blocked") is not False, "install_blocked")
             fail(config.get("unrelated_task_blocked") is not False, "task_blocked")
-        _assert_projection(_agents_root(temp_root / name / "home"), name=name, errors=errors)
+        _assert_projection(_agents_root(temp_root / _fixture_slug(name) / "home"), name=name, errors=errors)
 
     name = "cc_switch_3_16_5_user_version_11_is_supported"
     with run_case(
@@ -3037,7 +3061,7 @@ def _check_blank_host_configuration_cases(
     )
     for path_case, platform_system, override, environment_rows, expected_relative, expected_source in hermes_path_cases:
         name = f"hermes_config_path_{path_case}"
-        case_root = temp_root / name
+        case_root = temp_root / _fixture_slug(name)
         home = case_root / "home"
         environment = {key: case_root / suffix for key, suffix in environment_rows}
         explicit_config_dir = case_root / override if override else None
@@ -3131,11 +3155,11 @@ def evaluate() -> Payload:
             errors.extend(CONFIG_UNEXERCISED_GAPS)
         else:
             with tempfile.TemporaryDirectory(
-                prefix="court-install-current-agent-red-"
+                prefix="ctr-"
             ) as temp_dir:
                 passed = _check_cases(target, Path(temp_dir), errors)
             with tempfile.TemporaryDirectory(
-                prefix="court-blank-host-config-red-"
+                prefix="cbr-"
             ) as temp_dir:
                 configuration_passed = _check_blank_host_configuration_cases(
                     target,
