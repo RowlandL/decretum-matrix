@@ -24,6 +24,7 @@ from shiguan_paths import ensure_shared_seed, reference_path
 IKU_MARKER_PENDING_GENERATED = "待 archive_checkpoint 生成"
 IKU_MARKER_PENDING_REFILL = "占位符由 archive_checkpoint 自动回填"
 IKU_MARKER_LITERAL = "IKU"
+IKU_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])IKU(?![A-Za-z0-9])")
 
 FIELD_IDENTITY_PREFIXES = ("诏令编号：", "古制谱系：")
 
@@ -49,7 +50,7 @@ def placeholder_kind(line: str) -> str | None:
         return "PENDING_GENERATED"
     if IKU_MARKER_PENDING_REFILL in line:
         return "PENDING_REFILL"
-    if IKU_MARKER_LITERAL in line:
+    if IKU_LITERAL_RE.search(line):
         return "IKU"
     return None
 
@@ -111,12 +112,16 @@ def _record_projection(text: str, path: Path, root: Path) -> dict[str, object]:
     }
 
 
-def detect_candidates(scope: str = "plan-archives", limit: int = 20) -> list[dict[str, object]]:
+def detect_candidates(
+    scope: str = "plan-archives",
+    limit: int = 20,
+    root: Path | None = None,
+) -> list[dict[str, object]]:
     """Scan plan-archive records and return IKU candidate projections (read-only)."""
     if scope != "plan-archives":
         raise ValueError(f"unsupported_scope:{scope}")
     bounded = max(1, min(int(limit), 100))
-    root = archive_root()
+    root = Path(root) if root is not None else archive_root()
     candidates: list[dict[str, object]] = []
     for path in sorted(root.glob("*.md")):
         text = path.read_text(encoding="utf-8", errors="replace")

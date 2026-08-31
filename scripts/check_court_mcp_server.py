@@ -541,11 +541,19 @@ def _domain_ledger_checks() -> list[tuple[str, bool]]:
 
     def commit_count() -> str:
         result = _subprocess.run(
-            ["bash", "-c", 'git -C "$1" log --oneline 2>/dev/null | wc -l', "_", str(tmp)],
+            ["git", "-C", str(tmp), "log", "--oneline"],
             capture_output=True,
             text=True,
         )
-        return result.stdout.strip()
+        return str(
+            len(
+                [
+                    line
+                    for line in result.stdout.splitlines()
+                    if line.strip()
+                ]
+            )
+        )
 
     denied = domain_ledger_write(
         kind="memory", operation="create", topic="t-a", content="c", actor="shiguan",
