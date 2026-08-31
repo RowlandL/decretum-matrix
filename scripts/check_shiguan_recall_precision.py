@@ -76,6 +76,43 @@ BASIC = [
         "keywords": ["hologram"],
         "summary": "hologram projection experiment",
     },
+    {
+        "record_uid": "f-affirm",
+        "time": "2026-08-06T00:00:00",
+        "topic": "memory audit",
+        "keywords": ["archive"],
+        "summary": "涉及 archive 评估",
+    },
+    {
+        "record_uid": "f-uncertain",
+        "time": "2026-08-06T01:00:00",
+        "topic": "memory audit",
+        "keywords": ["archive"],
+        "summary": "可能涉及 archive 评估",
+    },
+    {
+        "record_uid": "f-hypo",
+        "time": "2026-08-06T02:00:00",
+        "topic": "memory audit",
+        "keywords": ["archive"],
+        "summary": "如果要做 archive 迁移，先评估",
+    },
+    {
+        "record_uid": "f-rejected",
+        "time": "2026-08-06T03:00:00",
+        "topic": "port cleanup",
+        "keywords": ["port"],
+        "summary": "port cleanup attempted",
+        "status": "REJECTED",
+    },
+    {
+        "record_uid": "f-blocked",
+        "time": "2026-08-06T04:00:00",
+        "topic": "deploy sync",
+        "keywords": ["deploy"],
+        "summary": "deploy sync paused",
+        "status": "BLOCKED",
+    },
 ]
 
 COMMON = [
@@ -109,7 +146,19 @@ def evaluate() -> dict[str, Any]:
 
     # --- Empty query: latest-N (time descending) ---
     latest_uids = _query([], BASIC)
-    expected_latest = ["f-unique", "f-neg", "f-archive-weak", "f-archive", "f-token", "f-path"]
+    expected_latest = [
+        "f-blocked",
+        "f-rejected",
+        "f-hypo",
+        "f-uncertain",
+        "f-affirm",
+        "f-unique",
+        "f-neg",
+        "f-archive-weak",
+        "f-archive",
+        "f-token",
+        "f-path",
+    ]
     if latest_uids != expected_latest:
         failures.append("recall_empty_query_not_latest_n")
 
@@ -143,6 +192,28 @@ def evaluate() -> dict[str, Any]:
     # --- GBrain / fallback parity: a single scorer ---
     if _query(["archive"], BASIC, mode="gbrain") != archive_uids:
         failures.append("recall_gbrain_fallback_diverged")
+
+    # --- A+D: assertion weights order affirmed > uncertain > hypothetical,
+    # and a negated clause is a soft penalty (negative score), not exclusion ---
+    idf_archive = recall.recall_idf([dict(entry) for entry in BASIC], ["archive"])
+    scores_archive = {
+        str(entry.get("record_uid")): recall.score_entry_recall(entry, ["archive"], idf=idf_archive)
+        for entry in BASIC
+    }
+    if not (
+        scores_archive.get("f-affirm", 0.0)
+        > scores_archive.get("f-uncertain", 0.0)
+        > scores_archive.get("f-hypo", 0.0)
+    ):
+        failures.append("recall_assertion_weight_order")
+    if scores_archive.get("f-neg", 0.0) >= 0.0:
+        failures.append("recall_negation_not_soft_penalty")
+    if "f-neg" in archive_uids:
+        failures.append("recall_negation_still_surfaced")
+
+    # --- B (guard): status is never a hard exclusion ---
+    if "f-rejected" not in _query(["port"], BASIC):
+        failures.append("recall_status_hard_excluded")
 
     ok = not failures
     return {

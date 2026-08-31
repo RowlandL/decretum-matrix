@@ -453,6 +453,49 @@ CONTENT_NEGATION_MARKERS = (
     "excluding",
 )
 CONTENT_NEGATION_RESETS = ("但是", "但", "而是", "不过", "however", "but", "instead")
+
+ASSERTION_AFFIRMED = "affirmed"
+ASSERTION_NEGATED = "negated"
+ASSERTION_UNCERTAIN = "uncertain"
+ASSERTION_HYPOTHETICAL = "hypothetical"
+ASSERTION_SCOPE_CHARS = 60
+ASSERTION_WEIGHT = {
+    ASSERTION_AFFIRMED: 1.0,
+    ASSERTION_UNCERTAIN: 0.5,
+    ASSERTION_HYPOTHETICAL: 0.3,
+    ASSERTION_NEGATED: -1.0,
+}
+CONTENT_UNCERTAINTY_MARKERS = (
+    "可能",
+    "或许",
+    "也许",
+    "大概",
+    "疑似",
+    "似乎",
+    "possibly",
+    "perhaps",
+    "maybe",
+    "likely",
+    "probably",
+    "might",
+    "may",
+    "uncertain",
+)
+CONTENT_HYPOTHETICAL_MARKERS = (
+    "如果",
+    "假如",
+    "假设",
+    "一旦",
+    "若是",
+    "若需",
+    "若要",
+    "if",
+    "should",
+    "when",
+    "assuming",
+    "hypothetical",
+    "would",
+)
 CONTENT_LINEAGE_DISPLAY_RE = re.compile(
     r"^(?P<root>.+?)·(?P<zhi>.+?)志·(?P<men>.+?)门·(?P<gang>.+?)纲·"
     r"(?P<mu>.+?)目·(?P<tiao>.+?)条·(?P<zhao>.+?)诏$"
@@ -1212,6 +1255,42 @@ def _taxonomy_match_is_negated(haystack: str, start: int) -> bool:
     return any(marker in prefix for marker in CONTENT_NEGATION_MARKERS)
 
 
+def _taxonomy_assertion_status(haystack: str, start: int) -> str:
+    """Classify the assertion state around ``start`` into four states (A+D).
+
+    NegEx/ConText-inspired: looks back within the current clause (and an
+    ``ASSERTION_SCOPE_CHARS`` window, honoring reset markers) for the nearest
+    assertion cue and returns affirmed / negated / uncertain / hypothetical.
+    The legacy two-valued ``_taxonomy_match_is_negated`` is kept untouched for
+    the lineage classifier (backward compatible).
+    """
+    clause_start = max(
+        (haystack.rfind(marker, 0, start) for marker in ("\n", "。", "！", "？", ";", "；", "!", "?")),
+        default=-1,
+    )
+    prefix = haystack[clause_start + 1 : start][-ASSERTION_SCOPE_CHARS:]
+    reset_positions = [
+        (prefix.rfind(marker), len(marker))
+        for marker in CONTENT_NEGATION_RESETS
+        if marker in prefix
+    ]
+    if reset_positions:
+        reset_at, reset_length = max(reset_positions)
+        prefix = prefix[reset_at + reset_length :]
+    best = ASSERTION_AFFIRMED
+    best_pos = -1
+    for status, markers in (
+        (ASSERTION_NEGATED, CONTENT_NEGATION_MARKERS),
+        (ASSERTION_UNCERTAIN, CONTENT_UNCERTAINTY_MARKERS),
+        (ASSERTION_HYPOTHETICAL, CONTENT_HYPOTHETICAL_MARKERS),
+    ):
+        for marker in markers:
+            position = prefix.rfind(marker)
+            if position > best_pos:
+                best, best_pos = status, position
+    return best
+
+
 def _taxonomy_term_evidence(haystack: str, needle: object) -> tuple[bool, bool]:
     term = str(needle or "").strip().lower()
     if not term:
@@ -1768,18 +1847,22 @@ def _recall_ascii_token_matches(token: str, query: str) -> bool:
 
 
 def _recall_value_occurrences(value: str, query: str) -> int:
-    """Count non-negated occurrences of a recall token inside one field value."""
+    """Weighted occurrences of a recall token inside one field value.
+
+    Each occurrence is weighted by its assertion state: affirmed 1.0,
+    uncertain 0.5, hypothetical 0.3, negated -1.0 (soft penalty, TREC-2025
+    style; a negated mention can never lift a record into the top set, but it
+    is not a zero-contribution hard filter).
+    """
     lowered = value.casefold()
-    count = 0
+    count = 0.0
     if CHINESE_RE.search(query):
         for match in re.finditer(re.escape(query), lowered):
-            if not _taxonomy_match_is_negated(lowered, match.start()):
-                count += 1
+            count += ASSERTION_WEIGHT[_taxonomy_assertion_status(lowered, match.start())]
         return count
     for match in TOKEN_RE.finditer(lowered):
         if _recall_ascii_token_matches(match.group(0), query):
-            if not _taxonomy_match_is_negated(lowered, match.start()):
-                count += 1
+            count += ASSERTION_WEIGHT[_taxonomy_assertion_status(lowered, match.start())]
     return count
 
 
