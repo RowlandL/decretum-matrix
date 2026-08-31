@@ -1,6 +1,6 @@
 {
   "name": "decretum-matrix",
-  "version": "beta1.0.7",
+  "version": "beta1.0.8",
   "description": "Decretum Matrix optional Codex plugin activation shell for the skill and read-only MCP.",
   "author": {
     "name": "RowlandL"
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Decretum Matrix",
     "shortDescription": "Skill activation metadata and read-only MCP routing.",
-    "longDescription": "Keeps the optional Codex plugin activation entrypoint available while beta1.0.7 ships the skill and read-only MCP only. CLI and MCP remain the authoritative transports.",
+    "longDescription": "Keeps the optional Codex plugin activation entrypoint available while beta1.0.8 ships the skill and read-only MCP only. CLI and MCP remain the authoritative transports.",
     "developerName": "RowlandL",
     "category": "Productivity",
     "capabilities": ["Optional plugin activation", "Read-only court integration"]

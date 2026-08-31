@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.7",
+  "latest_tag": "beta1.0.8",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -10,8 +10,8 @@
   },
   "releases": [
     {
-      "tag": "beta1.0.7",
-      "title": "Decretum Matrix beta1.0.7",
+      "tag": "beta1.0.8",
+      "title": "Decretum Matrix beta1.0.8",
       "summary": "本版本收敛现代 MCP、CLI/MCP 同源只读注册表、canonical skill 安装路径与原生官署预载哈希，并补齐网络 git mirror 上的本地验证兼容；当前条目只描述源码候选，不代表远端发布完成。",
       "highlights": [
         "MCP 以 2026-07-28 为主协议，2025-11-25 仅保留兼容路径，并严格校验 JSON-RPC、cursor 与请求元数据。",
@@ -20,7 +20,7 @@
         "发布与 CLI 检查在网络 git mirror 上使用逐命令 safe.directory，不写全局 Git 配置。",
         "canonical skill 名为 decretum-matrix；旧 court-capability-router 仅保留为显式 legacy locator，hooks 不随包交付。"
       ],
-      "asset_note": "当前为本地 beta1.0.7 源码与安装验证收口；远端 release、tag 更新、push 和发布资产仍需单独授权。"
+      "asset_note": "当前为本地 beta1.0.8 源码与安装验证收口；远端 release、tag 更新、push 和发布资产仍需单独授权。"
     },
     {
       "tag": "beta1.0.6",

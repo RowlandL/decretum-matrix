@@ -1,7 +1,7 @@
 {
   "archive_root": "decretum-matrix/",
-  "artifact_name": "decretum-matrix-beta1.0.7.zip",
-  "attestation_name": "decretum-matrix-beta1.0.7.release-attestation.json",
+  "artifact_name": "decretum-matrix-beta1.0.8.zip",
+  "attestation_name": "decretum-matrix-beta1.0.8.release-attestation.json",
   "authors": "AUTHORS.md",
   "build": {
     "atomic_publish": "same_directory_hard_link_no_replace",
@@ -16,12 +16,12 @@
   "contributing": "CONTRIBUTING.md",
   "contributor_license_agreement": "CLA.md",
   "display_name": "Decretum Matrix（诏令矩阵）",
-  "expected_final_tag": "refs/tags/beta1.0.7",
+  "expected_final_tag": "refs/tags/beta1.0.8",
   "files": [
     {
       "mode": "100644",
       "path": ".codex-plugin/plugin.json",
-      "sha256": "579383907eb5e5c2a43f1dd52f8825360151fcf174dad1f7cbb02ed70b3d929f",
+      "sha256": "c999e14d9cd73402841b8ee9bf26de5af7e3b7b4818533e33d21f3739ad111a6",
       "size": 720
     },
     {
@@ -87,13 +87,13 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "8fa6e5d19e5d9f141559b12fee6a33324f1e4d6458edcaccff83e1cb8a54694f",
-      "size": 4289
+      "sha256": "c557b8bd3d646a56eb05d5b1bc9d6be5560c019e04d7ca88f6a0789926203e3e",
+      "size": 4737
     },
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "60eb1cda5490665371d393b6907ce51ba591cd2d2c24c80a364bf21427b4e241",
+      "sha256": "7d8b583e9361ab16e75a73c21a8462020f5c6785ec97a4e6bd47aaec4652de30",
       "size": 875
     },
     {
@@ -105,7 +105,7 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "589842fd69a976add688eb23ee6a6078fcd6c1582e6b8b3339f2d0a2aa940a54",
+      "sha256": "5a481a1d7059b3d14c0356029b755c5938db95acb78b6db588ba670480a0fcdb",
       "size": 13532
     },
     {
@@ -123,7 +123,7 @@
     {
       "mode": "100644",
       "path": "VERSION",
-      "sha256": "8f4b0950040ca8b90a9a01d743e097ec578dc4c75df6c016fe8495df311cba91",
+      "sha256": "0ee9afd731870fa9dbd4e620c0a7ffec036497e5b9be2db9dc9be112c4d50903",
       "size": 10
     },
     {
@@ -537,8 +537,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "c68f51be4f2424961252839bcc4a3cd90e5f8150eeea79302b39c62c55fec7bb",
-      "size": 73713
+      "sha256": "3c818d85e99711097f8c9959343590e526355c2564e957effdf460e692dd2401",
+      "size": 90416
     },
     {
       "mode": "100644",
@@ -555,7 +555,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/github-release-metadata.v1.json",
-      "sha256": "f63964c2ac3d466fa7f704bd6a22fe0e829a45e7678c4d0dba76a814d807d283",
+      "sha256": "f2a91bbc9e8a7b5fbdebb5056bf8a40edf1587e4a7fcc8e441845c60397b7311",
       "size": 12993
     },
     {
@@ -567,8 +567,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "16bd3d3d7836cf68fb9033dbbec9bfe4e0b742ce94326251fb09c3360e6eb7eb",
-      "size": 20259
+      "sha256": "c65904f5b98508ba094c39ab4c10848e7f650c2ddfc63ea2c2d9617886ad3c62",
+      "size": 20720
     },
     {
       "mode": "100644",
@@ -579,13 +579,13 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "afcebd3bac8a2d5878e91a5f8ef7cc468e3327546a485359095815f361d4eee1",
+      "sha256": "ecd075cfc95c4699903d5ddad05a293601d163b960fea404cea032d449f57507",
       "size": 1435
     },
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "4ff31f33dc1b1f65b6d15a8c5ea44b4ac91f346f17b103b8fce81272310f9fd9",
+      "sha256": "2667f5907ab50acd7afb132834f126e5d59e90def44dc7501e07d9b878be378e",
       "size": 4461
     },
     {
@@ -699,8 +699,8 @@
     {
       "mode": "100644",
       "path": "scripts/agent_runtime_probe.py",
-      "sha256": "ac67737aecc74e617af61112dfe4d5b92e34b3ef535261c6484fb285a9f97212",
-      "size": 52025
+      "sha256": "56156b70282919207e1c1349e82a580b58e4815d7852261101a1c78087694346",
+      "size": 56273
     },
     {
       "mode": "100644",
@@ -711,8 +711,8 @@
     {
       "mode": "100644",
       "path": "scripts/archive_checkpoint.py",
-      "sha256": "7c4d01f88238ac2847c35664cf2dc16f82c10b6aaec0082285dd2732f264d92e",
-      "size": 22447
+      "sha256": "173a9da21b3b37846db751aad39ba41b9faf86cee2fb579bc6287c1bcfcfa0e0",
+      "size": 23566
     },
     {
       "mode": "100644",
@@ -723,7 +723,7 @@
     {
       "mode": "100644",
       "path": "scripts/build_release_artifacts.py",
-      "sha256": "febcc5fd0f9fd29ff4451387864f8b68d825df6c37cce764bb18417c4473664b",
+      "sha256": "cd06a7603a47b25eeacd0214877c4b39906564148d646599e0252d92ec9c575d",
       "size": 36056
     },
     {
@@ -758,6 +758,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/check_closeout_conflict_scan.py",
+      "sha256": "a6755f752f75cae13129ff4c4450d337c6c64f21b9c8be1f2a4c7b78803c80b8",
+      "size": 9713
+    },
+    {
+      "mode": "100644",
       "path": "scripts/check_codex_agent_roles.py",
       "sha256": "99d7c7ec31bdb9b8f2e170ba96f12aaa2e3e1ea39e9045efa3d07394bb4647e0",
       "size": 13925
@@ -771,8 +777,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_agent_config.py",
-      "sha256": "98d01dafc02c425436cb3a78427432edf59d1ac9566ee1dc4bed532560865007",
-      "size": 57371
+      "sha256": "9c586cc505ff00120269c6f38d4da2bbc237437e7311dfba2dd060748b7ed467",
+      "size": 58823
     },
     {
       "mode": "100644",
@@ -788,6 +794,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/check_court_code_session_numbering.py",
+      "sha256": "25a2c13e89558ddd98c82890af56c7a78383c27a7b5ca425f3a27bcb3bbd4b7f",
+      "size": 10044
+    },
+    {
+      "mode": "100644",
       "path": "scripts/check_court_codex_host_resolution.py",
       "sha256": "3d8c24694421e6da4e9f99260ca91df940eb94bc8427f5067ceb1b114b788e65",
       "size": 2620
@@ -795,8 +807,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_codex_office_worker.py",
-      "sha256": "238503643c86d6612c80505765ee85b1a50e914f8cfcbea0c3b7d82362f87f00",
-      "size": 6240
+      "sha256": "8e3c7178e448e72e45f310caa380dcdda1cc596dfc7f164c42826b6e4a4cf046",
+      "size": 10639
     },
     {
       "mode": "100644",
@@ -831,14 +843,14 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_mcp_server.py",
-      "sha256": "07170d109b984962da5ed3cffc9917e258cef0685c7a438e727f95dbacc38dc3",
-      "size": 19279
+      "sha256": "f03aeb7f1773acd3c94da224b2ba02b0525bb1daca55690e0b45ba5a4b2c9cb6",
+      "size": 37741
     },
     {
       "mode": "100644",
       "path": "scripts/check_court_model_router.py",
-      "sha256": "33e23246726399f0874ba12b4e4225102d3d39f2b1bbba3aad12260934175282",
-      "size": 8790
+      "sha256": "0830e330bcdce2a7216f4a9dd341b9f20a2d57090fbf4e1f76b1bfff1b995871",
+      "size": 12959
     },
     {
       "mode": "100644",
@@ -938,6 +950,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/check_iku_repair.py",
+      "sha256": "578be30f5d1ab50fea5aaac46d45560f0367ef6b59dc98e9e506f38bf44672f1",
+      "size": 8742
+    },
+    {
+      "mode": "100644",
       "path": "scripts/check_install_current_agent_copy.py",
       "sha256": "341dda1d3e2c4ee9a3f3e8ee2010eca295fdc586a54227dba5de06aeae504c5c",
       "size": 123008
@@ -999,7 +1017,7 @@
     {
       "mode": "100644",
       "path": "scripts/check_release_legal.py",
-      "sha256": "5e486abc1f62ba941d15b4aacf9b014d5470234ca0d16d6130329513250ceaf2",
+      "sha256": "a37e9f25e4545cfd619603ae2ab8fbad3ee2e25dfb0d99ff47303984315121a9",
       "size": 23888
     },
     {
@@ -1040,6 +1058,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/check_shiguan_full_record_index.py",
+      "sha256": "bca8640acb49836a700469cb56fa2c1b0fb1b65512ff470192a4a0885702d8dd",
+      "size": 10007
+    },
+    {
+      "mode": "100644",
       "path": "scripts/check_shiguan_git_federation.py",
       "sha256": "6b13f7884d6cf99ff6bed154dfb2107fd65d234916291fde2a18e1e986604e7a",
       "size": 15346
@@ -1053,8 +1077,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_shiguan_http.py",
-      "sha256": "3bf0786e405027598a588fbce47374da4a0cb382ef62d69ee2e73b33ee821c57",
-      "size": 78192
+      "sha256": "f524efec1b67e5319ce32a5faba299ae1ac9e05fbc7cf1755eee8d902b19da5f",
+      "size": 80418
     },
     {
       "mode": "100644",
@@ -1089,8 +1113,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_skill_identity.py",
-      "sha256": "64e8f286f88d60659ce96735e2934f37cdc180073ad0222ba07b918ce85f3f90",
-      "size": 31010
+      "sha256": "d6028a590166e51e5a7504c1cfd5d5d4f5347f3b39595f58e156e17fde694aa1",
+      "size": 32813
     },
     {
       "mode": "100644",
@@ -1179,8 +1203,14 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "b51992e4cca058ab101957d2f50b801559595a9c4ac430e8af821cfbf8875a2a",
-      "size": 65072
+      "sha256": "ba78bbfb5ee995fba64eeaa59c107255fd4573448b371c9f10809d9716b7793e",
+      "size": 65167
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/closeout_conflict_scan.py",
+      "sha256": "c947a3f47ef2287bd8b0ee7bd217b55b766793a6ba71feb5890924e3b02e203e",
+      "size": 14130
     },
     {
       "mode": "100644",
@@ -1215,8 +1245,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_cli_registry.py",
-      "sha256": "62c69057c55755c3162edeb72c95c69273367e33e0db6871e08fd60e16b1a48b",
-      "size": 36234
+      "sha256": "4a7a9bcd391b6c57345869241cab9902f77704a987002f2f5b616ff33804ae20",
+      "size": 37267
     },
     {
       "mode": "100644",
@@ -1227,8 +1257,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_codex_office_worker.py",
-      "sha256": "b2229e9585c47207fc7971862807d9bde5b258983856be72bc9433810795f2b7",
-      "size": 15586
+      "sha256": "b95822443cf3edb588cf93ed7d4e381c91b981e593447977e6a901f45ed7892a",
+      "size": 17979
     },
     {
       "mode": "100644",
@@ -1281,14 +1311,14 @@
     {
       "mode": "100644",
       "path": "scripts/court_mcp_server.py",
-      "sha256": "2db37590c675d2e7f3131749a3f8be1069736acb3fff611ef29968f945f0ebf2",
-      "size": 12414
+      "sha256": "c4a628d5b991c39193bde9d65cac3ce19d770100522e362bccf97cebd678e211",
+      "size": 15005
     },
     {
       "mode": "100644",
       "path": "scripts/court_model_router.py",
-      "sha256": "8b912eb0f25eecacd722ac77ddbde806eadb2c225a2384d00d16819a805df11f",
-      "size": 9222
+      "sha256": "f578ad455bf2a793384cd775ba60485595abcd404cc9611e94ec924e0f134cc6",
+      "size": 13431
     },
     {
       "mode": "100644",
@@ -1347,8 +1377,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_public_api.py",
-      "sha256": "f582f2eec82b0b2cb33c4ed8322a412621b4fdae71277546df271a99a7517445",
-      "size": 2471
+      "sha256": "f632b399275079817feccb4cc00ca51210f682862df223c10e6be9d94db3fa39",
+      "size": 13483
     },
     {
       "mode": "100644",
@@ -1389,8 +1419,14 @@
     {
       "mode": "100644",
       "path": "scripts/court_session_closeout.py",
-      "sha256": "cb7f4c7bf15a68f467e56c83b475cc0c233a2e43a1fd314f70a56ae7d7126990",
-      "size": 13957
+      "sha256": "428054d60bdad7c703368dbb107f36a2265bb09d0a85d3650a0025acffa1496c",
+      "size": 13988
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_session_numbering.py",
+      "sha256": "33cdf3c2561558106e8d8e71a91f980dae28708412f6a8aae0adc66d7026533f",
+      "size": 10739
     },
     {
       "mode": "100644",
@@ -1403,6 +1439,12 @@
       "path": "scripts/court_usage_ledger.py",
       "sha256": "f8690ace25937535fd2d01fc09869ec6d71bfded398f918e694a8d289de90f62",
       "size": 18199
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/domain_ledger_api.py",
+      "sha256": "6df4fa529229116bd4f19b65a698efc32de400dae585f19b09c0fa2acef2716d",
+      "size": 17999
     },
     {
       "mode": "100644",
@@ -1484,6 +1526,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/iku_candidates.py",
+      "sha256": "7f102dea0472340e7cfdcfe297d1f317d945919926ba1753339ce4d8d0cd27ae",
+      "size": 6139
+    },
+    {
+      "mode": "100644",
       "path": "scripts/internal_memory_shiguan_bridge.py",
       "sha256": "4a2d57cc527c0c7d49b51fe367b06d04aa2bb46c4a17abc73e9d9b4711c3e806",
       "size": 29887
@@ -1527,7 +1575,7 @@
     {
       "mode": "100644",
       "path": "scripts/package_skill.py",
-      "sha256": "32f654561eab8358272a8782ba3779629a206681b96e4bb0cf52cf5e0dd16b0f",
+      "sha256": "ab466d43c58046190575bd16631534214a4cf22520b7a817ebfa96ad44e5f669",
       "size": 54989
     },
     {
@@ -1587,14 +1635,14 @@
     {
       "mode": "100644",
       "path": "scripts/release_payload_manifest.py",
-      "sha256": "a387830c1b2c1c3cbb473e4de5f6c11f2ddf0307232b61b0674e2409d37d4b3f",
+      "sha256": "bd9a46ec5830534fb214728f40a3d93056b8eb05d8b05d153df294b416541641",
       "size": 29850
     },
     {
       "mode": "100644",
       "path": "scripts/repair_archive_placeholders.py",
-      "sha256": "366ab1c5151500d28237875c39573e8b4a8d8f7ecca0a2bafabfbaff0bf435b4",
-      "size": 2788
+      "sha256": "2984b01d69748d0390a01bb222ace94b3c3a9e08d72cc5f228ddc1ac0f2f4391",
+      "size": 11771
     },
     {
       "mode": "100644",
@@ -1605,8 +1653,8 @@
     {
       "mode": "100644",
       "path": "scripts/serve_shiguan_tree.py",
-      "sha256": "b2231d5f63c6dfb523c2f6f57253b242e8e95fdaecb5316bd267cdaa3583cefe",
-      "size": 111495
+      "sha256": "5a945831c921345192e77cc6b57e592f464963fa8d769f386b29a41c0d4e3266",
+      "size": 111723
     },
     {
       "mode": "100644",
@@ -1617,14 +1665,14 @@
     {
       "mode": "100644",
       "path": "scripts/shiguan_entry_utils.py",
-      "sha256": "f64be89be6d420b6e057e4ffe2c0ce16b4d78bed840d757ec4d57429428e9a7f",
-      "size": 57910
+      "sha256": "919c256c92040e876866586294ba559f3ee942ae2df8d9746dfedc5a63c09630",
+      "size": 58173
     },
     {
       "mode": "100644",
       "path": "scripts/shiguan_gbrain.py",
-      "sha256": "8883e6fad081b0b61faa24cd3b104c2a03e60c8a84500b41eded7cc705c8cbbb",
-      "size": 10975
+      "sha256": "a27a4919cf3f1cbe8bba44082923348b8768765daf85e45eb3c8cdff8144751c",
+      "size": 17366
     },
     {
       "mode": "100644",
@@ -1828,12 +1876,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 6848768,
-    "payload_file_count": 299,
+    "payload_bytes": 7029000,
+    "payload_file_count": 307,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "4a9d33fb9da4385998fde240edd03e9c834f601fd7c3bafadbd92804ec5e2fb0",
-    "source_packaged_tracked_file_count": 291,
-    "source_tracked_file_count": 373
+    "payload_index_sha256": "ddd63bae9ca0b100dfd9b643d016e49df6a16159e255e1f62433e9ed54fdb0a3",
+    "source_packaged_tracked_file_count": 299,
+    "source_tracked_file_count": 406
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1843,7 +1891,7 @@
   "package_name": "decretum-matrix",
   "privacy_policy": "PRIVACY.md",
   "provenance": "PROVENANCE.md",
-  "release_label": "beta1.0.7",
+  "release_label": "beta1.0.8",
   "repository_only_files": [
     ".github/CODEOWNERS",
     ".gitignore",
@@ -1884,6 +1932,28 @@
     "docs/plans/2026-08-03-decretum-matrix-beta1.0.6-execution-book.md",
     "docs/plans/2026-08-03-decretum-matrix-beta1.0.6-remediation-plan.md",
     "docs/plans/2026-08-26-decretum-matrix-beta1.0.7-phased-execution-plan.md",
+    "docs/plans/2026-08-28-decretum-matrix-beta1.0.8-codex-handoff-protocol-draft.md",
+    "docs/plans/2026-08-28-decretum-matrix-beta1.0.8-development-spec.md",
+    "docs/plans/2026-08-28-decretum-matrix-beta1.0.8-execution-plan.md",
+    "docs/plans/2026-08-28-decretum-matrix-beta1.0.8-mcp-grill-interview.md",
+    "docs/plans/2026-08-28-decretum-matrix-beta1.0.8-task-book.md",
+    "docs/plans/2026-08-28-decretum-matrix-next-version-iku-lineage-codex-model-predevelopment.md",
+    "docs/plans/beta1.0.8/contracts/cli-command-surface-projection-draft.json",
+    "docs/plans/beta1.0.8/contracts/contract-a-iku-candidates.md",
+    "docs/plans/beta1.0.8/contracts/contract-b-lineage-taxonomy.md",
+    "docs/plans/beta1.0.8/contracts/contract-c-codex-host-proof.md",
+    "docs/plans/beta1.0.8/contracts/contract-d-mcp-domain.md",
+    "docs/plans/beta1.0.8/handoffs/README.md",
+    "docs/plans/beta1.0.8/handoffs/phase-0-evidence.md",
+    "docs/plans/beta1.0.8/handoffs/phase-0-handoff.md",
+    "docs/plans/beta1.0.8/handoffs/phase-1-evidence.md",
+    "docs/plans/beta1.0.8/handoffs/phase-1-handoff.md",
+    "docs/plans/beta1.0.8/handoffs/phase-2-evidence.md",
+    "docs/plans/beta1.0.8/handoffs/phase-2-handoff.md",
+    "docs/plans/beta1.0.8/handoffs/phase-3-evidence.md",
+    "docs/plans/beta1.0.8/handoffs/phase-3-handoff.md",
+    "docs/plans/beta1.0.8/handoffs/phase-4-evidence.md",
+    "docs/plans/beta1.0.8/handoffs/phase-4-handoff.md",
     "docs/receipts/2026-08-27-beta1.0.7-p0-install-host-closeout.json",
     "docs/receipts/2026-08-27-beta1.0.7-source-final-receipt.json",
     "docs/research/2026-08-25-next-version-cli-mcp-hooks-shiguan-memory-research.md",
@@ -1902,7 +1972,10 @@
     "references/complexity-budget.md",
     "references/edict-registry-import.md",
     "references/fixtures/capability-recruitment-cases.json",
+    "references/fixtures/classification-contract-validation.json",
+    "references/fixtures/closeout-conflict-expiry.json",
     "references/fixtures/context-compression-survival.json",
+    "references/fixtures/iku-candidates.json",
     "references/fixtures/response-draft-families.json",
     "references/fixtures/shiguan-lineage-taxonomy-golden.json",
     "references/hermes-delegation-feasibility.md",
@@ -1931,8 +2004,8 @@
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
   "security_policy": "SECURITY.md",
-  "sidecar_name": "decretum-matrix-beta1.0.7.zip.sha256",
+  "sidecar_name": "decretum-matrix-beta1.0.8.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
-  "version_core": "1.0.7"
+  "version_core": "1.0.8"
 }

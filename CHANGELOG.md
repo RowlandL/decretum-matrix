@@ -1,5 +1,35 @@
 # Changelog
 
+## beta1.0.8 - 2026-08-31
+
+### Added
+
+- Added the domain ledger API (`scripts/domain_ledger_api.py`): 领域化史馆/记忆与能力索引账册
+  Create/Read/Update，Update 追加不可变 revision，每次成功操作独立 Git commit。
+- MCP 与统一 CLI / 主动 CLI 共用 public/domain API，MCP 返回 Agent 友好 JSON envelope；
+  最终 12 工具矩阵（check_court_mcp_server 58 探针全绿），现代 `2026-07-28` 与 legacy
+  `2025-11-25` 双协议兼容探针。
+- 统一编号只调用统一生成器/权威 receipt：会话开始分配、结诏复用（check_court_code_session_numbering）。
+- 谱系分类版本化并带最小验证集与 evidence margin 防过拟合（content_lineage_parts 9 项合同字段
+  含 positive_evidence/negative_evidence/candidates 与 conflict 状态）。
+- IKU 候选/修复（`scripts/iku_candidates.py`）：只读发现先行、`--dry-run` 零字节变化、幂等与回滚。
+- 结诏自动冲突/过期检查（`scripts/closeout_conflict_scan.py`）：确定性冲突脚本化降级或替代并告知用户。
+- 史馆 leaves/full-record 指针与完整上下文文件路径索引（check_shiguan_full_record_index），
+  保留原版实录结构与十四行 compact memorial。
+- GBrain 记忆治理：召回 leaves/full-record 与 full-record 索引。
+- Codex host proof（`agent_runtime_probe.py` host_proof 六字段，null-safe）与模型路由绑定
+  （`route_office_model_with_host_proof`：APPLIED/INHERIT/FAILED+degraded 不伪报）以及
+  fresh-session worker 回读证明（`verify_worker_session_override`）。
+
+### Fixed
+
+- `check_read_only_contract` 修复为零文件系统副作用（E2：惰性初始化，不创建 home/AppData 目录）。
+- `serve_shiguan_tree` 目录穿越回归（E4：`id="..\..\evil"` 拒绝；36 项 static + live 全绿）。
+- 版本锚点统一并重绑定：release-manifest / SBOM / VERSION / CHANGELOG / README / wiki 同步
+  beta1.0.8；source-final 与 install-host-closeout 收据绑定当前 HEAD。
+
+# Changelog
+
 ## beta1.0.7 - 2026-08-26
 
 ### Added
