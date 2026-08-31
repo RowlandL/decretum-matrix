@@ -215,6 +215,15 @@ def evaluate() -> dict[str, Any]:
     if "f-rejected" not in _query(["port"], BASIC):
         failures.append("recall_status_hard_excluded")
 
+    # --- B: status semantics are a queryable relevance facet ---
+    if "f-rejected" not in _query(["失败"], BASIC):
+        failures.append("recall_status_facet_failure_query")
+    if "f-blocked" not in _query(["打断"], BASIC):
+        failures.append("recall_status_facet_blocked_query")
+    rejected_rank = _query(["失败"], BASIC).index("f-rejected") if "f-rejected" in _query(["失败"], BASIC) else -1
+    if rejected_rank > 0:
+        failures.append("recall_status_facet_not_top")
+
     ok = not failures
     return {
         "schema": "court.shiguan_recall_precision_check.v1",

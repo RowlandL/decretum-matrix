@@ -611,6 +611,37 @@ STATUS_CODE = {
     "DRAFT": "N",
 }
 
+STATUS_SEMANTICS = {
+    "REJECTED": {
+        "class": "negated",
+        "aliases": ("驳回", "拒绝", "失败", "否决", "未通过", "rejected", "denied", "failed", "refusal"),
+    },
+    "BLOCKED": {
+        "class": "negated",
+        "aliases": ("阻塞", "受阻", "中断", "打断", "卡住", "停摆", "blocked", "stuck", "interrupted", "halted"),
+    },
+    "DONE_WITH_CONCERNS": {
+        "class": "caveat",
+        "aliases": ("完成但有余险", "有余险", "有条件完成", "保留", "concerns", "caveats"),
+    },
+    "APPROVED_WITH_CAVEATS": {
+        "class": "caveat",
+        "aliases": ("有条件批准", "附条件批准", "caveats"),
+    },
+    "PROPOSE": {
+        "class": "candidate",
+        "aliases": ("候选", "提议", "提案", "proposed", "candidate", "proposal"),
+    },
+    "DRAFT": {"class": "candidate", "aliases": ("草稿", "draft")},
+    "DEFERRED": {"class": "candidate", "aliases": ("暂缓", "推迟", "延后", "deferred", "postponed")},
+    "PARTIAL": {"class": "uncertain", "aliases": ("部分", "部分完成", "partial")},
+    "SKIP": {"class": "uncertain", "aliases": ("跳过", "未处理", "略过", "skipped", "skip")},
+    "DONE": {"class": "affirmed", "aliases": ("完成", "已完成", "done", "completed")},
+    "APPROVED": {"class": "affirmed", "aliases": ("已准", "批准", "approved")},
+    "WRITE": {"class": "affirmed", "aliases": ("写入", "write")},
+}
+STATUS_FACET_WEIGHT = 6
+
 EDICT_CONTEXT_TERMS = (
     "圣旨",
     "诏书",
@@ -1942,6 +1973,38 @@ def _recall_matched_discriminative(
     return False
 
 
+def _status_facet_aliases(status: object) -> tuple[str, ...]:
+    return STATUS_SEMANTICS.get(str(status or "").upper(), {}).get("aliases", ())
+
+
+def _status_facet_score(
+    entry: dict[str, object],
+    query_tokens: list[str],
+    idf: dict[str, float],
+) -> float:
+    """Relevance contribution from the record status semantics (B).
+
+    Status is a *queryable* facet, never a hard exclusion: when a query token
+    matches a status alias (e.g. 失败 -> REJECTED, 打断 -> BLOCKED), records in
+    that state gain relevance because the user is explicitly asking about
+    failure/blocked outcomes ("为什么失败的/因为什么打断的"). For ordinary
+    queries the facet contributes nothing, so a REJECTED record is still
+    recalled through its topic content, not suppressed.
+    """
+    aliases = _status_facet_aliases(entry.get("status"))
+    if not aliases:
+        return 0.0
+    total = 0.0
+    for token in query_tokens:
+        if CHINESE_RE.search(token):
+            matched = any(token in alias for alias in aliases)
+        else:
+            matched = any(token in alias.casefold() for alias in aliases)
+        if matched:
+            total += STATUS_FACET_WEIGHT * idf.get(token, 0.0)
+    return total
+
+
 def score_entry(entry: dict[str, object], terms: list[str]) -> int:
     if not terms:
         return 0
@@ -1977,10 +2040,13 @@ def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[d
     scored = []
     for entry in entries:
         score = score_entry_recall(entry, terms, idf=idf)
-        if score >= RECALL_MIN_SCORE and _recall_matched_discriminative(
-            entry, query_tokens, idf, RECALL_MIN_IDF
+        facet = _status_facet_score(entry, query_tokens, idf)
+        total = score + facet
+        if total >= RECALL_MIN_SCORE and (
+            _recall_matched_discriminative(entry, query_tokens, idf, RECALL_MIN_IDF)
+            or facet > 0.0
         ):
-            scored.append((score, entry))
+            scored.append((total, entry))
     scored.sort(
         key=lambda item: (item[0], str(item[1].get("time", ""))),
         reverse=True,
