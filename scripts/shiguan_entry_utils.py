@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import re
 import zlib
@@ -1642,6 +1643,9 @@ RECALL_EXCLUDED_FIELDS = frozenset(
         "court_code_legend",
     )
 )
+RECALL_MIN_SCORE = 1.0
+RECALL_MIN_IDF = 0.4
+RECALL_ASCII_TOKEN_MIN = 3
 
 
 def _weighted_searchable_parts(
@@ -1739,6 +1743,122 @@ def _recall_any_positive_occurrence(value: str, needle: str) -> bool:
     return False
 
 
+def _recall_query_tokens(terms: list[object]) -> list[str]:
+    """Normalize query terms into recall tokens (ASCII runs / CJK runs)."""
+    tokens: list[str] = []
+    for term in terms:
+        for token in TOKEN_RE.findall(str(term or "")):
+            lowered = token.casefold()
+            if lowered and lowered not in tokens:
+                tokens.append(lowered)
+    return tokens
+
+
+def _recall_ascii_token_matches(token: str, query: str) -> bool:
+    """ASCII token equality or separator-boundary prefix match.
+
+    ``archive`` matches ``archive`` and ``archive_checkpoint.py`` (boundary
+    char ``_``) but never the inside of ``plan-archives`` (P0-2/P0-3).
+    """
+    if token == query:
+        return True
+    if len(query) >= RECALL_ASCII_TOKEN_MIN and token.startswith(query):
+        return len(token) > len(query) and token[len(query)] in "._-\\/"
+    return False
+
+
+def _recall_value_occurrences(value: str, query: str) -> int:
+    """Count non-negated occurrences of a recall token inside one field value."""
+    lowered = value.casefold()
+    count = 0
+    if CHINESE_RE.search(query):
+        for match in re.finditer(re.escape(query), lowered):
+            if not _taxonomy_match_is_negated(lowered, match.start()):
+                count += 1
+        return count
+    for match in TOKEN_RE.finditer(lowered):
+        if _recall_ascii_token_matches(match.group(0), query):
+            if not _taxonomy_match_is_negated(lowered, match.start()):
+                count += 1
+    return count
+
+
+def _recall_value_presence(value: str, query: str) -> bool:
+    """Presence (without negation) used for document-frequency counts."""
+    if CHINESE_RE.search(query):
+        return query in value
+    lowered = value.casefold()
+    return any(
+        _recall_ascii_token_matches(match.group(0), query)
+        for match in TOKEN_RE.finditer(lowered)
+    )
+
+
+def recall_idf(entries: list[dict[str, object]], terms: list[object]) -> dict[str, float]:
+    """BM25-style IDF for the query tokens over the recall fields of ``entries``."""
+    query_tokens = _recall_query_tokens(terms)
+    total = len(entries)
+    if not query_tokens or total == 0:
+        return {}
+    df = {token: 0 for token in query_tokens}
+    for entry in entries:
+        matched: set[str] = set()
+        for _, value in _weighted_searchable_parts(entry):
+            for token in query_tokens:
+                if token not in matched and _recall_value_presence(value, token):
+                    matched.add(token)
+        for token in matched:
+            df[token] += 1
+    return {
+        token: math.log((total - df[token] + 0.5) / (df[token] + 0.5) + 1.0)
+        for token in query_tokens
+    }
+
+
+def score_entry_recall(
+    entry: dict[str, object],
+    terms: list[object],
+    *,
+    idf: dict[str, float] | None = None,
+) -> float:
+    """TF-IDF recall score for one entry (used by ``select_matches``)."""
+    query_tokens = _recall_query_tokens(terms)
+    if not query_tokens:
+        return 0.0
+    if idf is None:
+        idf = {token: 1.0 for token in query_tokens}
+    total = 0.0
+    for weight, value in _weighted_searchable_parts(entry):
+        for token in query_tokens:
+            count = _recall_value_occurrences(value, token)
+            if count:
+                total += count * weight * idf.get(token, 0.0)
+    return total
+
+
+def _recall_matched_discriminative(
+    entry: dict[str, object],
+    query_tokens: list[str],
+    idf: dict[str, float],
+    min_idf: float,
+) -> bool:
+    """True when the entry matches at least one query token with IDF >= min_idf.
+
+    A term present in (almost) every document (e.g. ``史馆`` inside every
+    lineage/capability vector) cannot discriminate; admitting entries on such
+    terms alone would keep full-corpus noise. Common/structural terms are the
+    job of the structured lineage/court_code filters (P2-2), not the TF-IDF
+    scorer.
+    """
+    for _, value in _weighted_searchable_parts(entry):
+        for token in query_tokens:
+            if idf.get(token, 0.0) < min_idf:
+                continue
+            if _recall_value_occurrences(value, token) > 0:
+                return True
+    return False
+
+
 def score_entry(entry: dict[str, object], terms: list[str]) -> int:
     if not terms:
         return 0
@@ -1753,12 +1873,29 @@ def score_entry(entry: dict[str, object], terms: list[str]) -> int:
 
 
 def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[dict[str, object]]:
-    if terms:
-        scored = [(score_entry(entry, terms), entry) for entry in entries]
-        matches = [(score, entry) for score, entry in scored if score > 0]
-        matches.sort(
-            key=lambda item: (item[0], str(item[1].get("time", ""))),
-            reverse=True,
-        )
-        return [entry for _, entry in matches]
-    return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
+    """Rank entries by TF-IDF recall score with a minimum-score admission floor.
+
+    Terms are tokenized; ASCII matches are exact/separator-boundary tokens, CJK
+    runs match by substring; IDF is computed over the passed corpus; entries
+    below ``RECALL_MIN_SCORE`` or that only match non-discriminative tokens
+    (IDF < ``RECALL_MIN_IDF``) are dropped. Empty terms keep the latest-first
+    (time descending) order for the explicit "latest N" semantics.
+    """
+    query_tokens = _recall_query_tokens(terms)
+    if not query_tokens:
+        return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
+    idf = recall_idf(entries, terms)
+    if not any(idf.get(token, 0.0) >= RECALL_MIN_IDF for token in query_tokens):
+        return []
+    scored = []
+    for entry in entries:
+        score = score_entry_recall(entry, terms, idf=idf)
+        if score >= RECALL_MIN_SCORE and _recall_matched_discriminative(
+            entry, query_tokens, idf, RECALL_MIN_IDF
+        ):
+            scored.append((score, entry))
+    scored.sort(
+        key=lambda item: (item[0], str(item[1].get("time", ""))),
+        reverse=True,
+    )
+    return [entry for _, entry in scored]

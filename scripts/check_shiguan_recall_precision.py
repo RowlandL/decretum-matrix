@@ -117,6 +117,30 @@ def evaluate() -> dict[str, Any]:
     if "f-neg" in _query(["archive"], BASIC):
         failures.append("recall_negation_not_suppressed")
 
+    # --- P0-2: ASCII tokens match exactly, never inside a longer path token ---
+    if "f-token" in _query(["archive"], BASIC):
+        failures.append("recall_path_token_substring")
+
+    # --- P0-2: a term present in every document collapses under the IDF threshold ---
+    if len(_query(["史馆"], COMMON)) > 1:
+        failures.append("recall_common_term_no_threshold")
+
+    # --- P0-2: unique terms still surface and top-1 keeps a positive margin ---
+    unique_uids = _query(["hologram"], BASIC)
+    if not unique_uids or unique_uids[0] != "f-unique":
+        failures.append("recall_unique_term_missing")
+    idf = recall.recall_idf([dict(entry) for entry in BASIC], ["archive"])
+    archive_scores = [
+        recall.score_entry_recall(entry, ["archive"], idf=idf) for entry in BASIC
+    ]
+    ranked = sorted((score for score in archive_scores if score > 0.0), reverse=True)
+    if len(ranked) < 2 or ranked[0] - ranked[1] <= 0.0:
+        failures.append("recall_top_margin_not_positive")
+
+    # --- GBrain / fallback parity: a single scorer ---
+    if _query(["archive"], BASIC, mode="gbrain") != archive_uids:
+        failures.append("recall_gbrain_fallback_diverged")
+
     ok = not failures
     return {
         "schema": "court.shiguan_recall_precision_check.v1",
@@ -126,6 +150,8 @@ def evaluate() -> dict[str, Any]:
         "metrics": {
             "archive_hits": len(archive_uids),
             "archive_top": archive_uids[0] if archive_uids else "",
+            "common_hits": len(_query(["史馆"], COMMON)),
+            "unique_top": unique_uids[0] if unique_uids else "",
             "empty_query_count": len(latest_uids),
         },
         "failures": failures,
