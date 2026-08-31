@@ -350,6 +350,7 @@
       "scripts/check_shiguan_peer_state_transaction.py",
       "scripts/check_shiguan_pending_quarantine_plan.py",
       "scripts/check_shiguan_queue_and_autosync_safety.py",
+      "scripts/check_shiguan_recall_precision.py",
       "scripts/check_skill_identity.py",
       "scripts/check_source_budget_refactor.py",
       "scripts/check_source_state_budget.py",

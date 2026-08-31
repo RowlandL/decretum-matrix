@@ -924,6 +924,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/check_shiguan_recall_precision.py",
+      "command": "check-shiguan-recall-precision",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/check_shiguan_recall_precision.py",
+      "id": "check.check-shiguan-recall-precision",
+      "legacy_path": "scripts/check_shiguan_recall_precision.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/check_skill_identity.py",
       "command": "check-skill-identity",
       "compatibility_state": "unified_compatibility_adapter",
