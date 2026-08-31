@@ -77,6 +77,26 @@
   发布前 review 追加候选：R-07 契约 B 措辞对齐、R-08 registry 约束强制、
   R-09 session numbering 并发锁、R-10 MCP 错误回显、R-11 turn_context 会话限定。
 
+## 6.1 第三轮 TDD 补充（R-13：MCP 召回 P0 优化 + 分层索引设计，2026-08-31）
+
+- 用户批准三 P（P0-1/2/3）可行，并指示基于古制谱系 + 诏令编号做独立分层索引算法
+  （联网调研先进方案与数学算法后出详细方案）。
+- 修复提交（HEAD 已推进到 9cd6384，已推送 P:\decretum-matrix）：
+  - `b835768` P0-3 剔除 source/evidence/next/capability_source_paths/court_code_legend
+  - `0314e6b` P0-1 否定感知召回
+  - `7746f1f` P0-2 词条化 + BM25 IDF + 阈值/判别性准入
+  - `d0850f4` P0-2 补丁：非判别性查询回退 latest-N（保住 check_shiguan_full_record_index）
+  - `a27fb43` CLI 表面注册新 check；`22e4218` 设计文档 + 证据回写；`9cd6384` payload 收据重生成
+- 实测（真实索引 8 条）：archive 7→2、史馆 8→latest-N、IKU 3→0、super 6→4、codex 4、
+  find-skills 2、结诏 3；排序与人工判断一致。
+- 门禁：新增 `check_shiguan_recall_precision.py`（9 探针）PASSED；check_governance 48、
+  check_court_mcp_server 62、full_record_index、lineage_taxonomy/rebuild/git_federation 全绿；
+  check_unified_cli PASS（清单注册后）；release_payload_manifest --self-test --check ok:true；
+  source-state-budget ok（342 files / 7,889,248 B）；install 副本已重同步（drift=0；
+  extra=4 受保护史馆锚点，环境受限）。
+- 分层索引设计：`docs/plans/beta1.0.8/review/shiguan-hierarchical-index-design.md`
+  （谱系前缀索引 L0a + 编号复合键/段位桶 L0b + 文本倒排 L1 + RRF 融合；P1/P2 落地路线）。
+
 ## 7. 交接自检
 
 - [x] phase-5-evidence.md 存在且与声明一致
@@ -84,6 +104,6 @@
 - [x] 门禁输出真实（见 evidence §1/§2 与 phase-5-gates.log）
 - [x] 发布前 review 闭环：review-findings.md + review-gates.log；修复后门禁复跑记录
 - [x] git status --porcelain 提交后为空
-- [x] 无 push/tag/release/remote 操作（本地领先 origin 25+ 提交未推送）
+- [x] 第三轮 TDD（R-13）已推送镜像 P:\decretum-matrix（dae8bfb..9cd6384）；无 tag/release/外部发布
 - [x] index 空（git diff --cached 无内容）
 - [x] 本阶段结尾即为手动交接点：请用户在新会话加载本文件继续（评审/批准）
