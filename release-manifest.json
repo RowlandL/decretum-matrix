@@ -759,8 +759,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_closeout_conflict_scan.py",
-      "sha256": "a6755f752f75cae13129ff4c4450d337c6c64f21b9c8be1f2a4c7b78803c80b8",
-      "size": 9713
+      "sha256": "7c92bb69ca3124624efce4b9866e9cc7bdaa3cbf81e6576f57c07dcf23fe0c6b",
+      "size": 10614
     },
     {
       "mode": "100644",
@@ -843,8 +843,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_court_mcp_server.py",
-      "sha256": "f03aeb7f1773acd3c94da224b2ba02b0525bb1daca55690e0b45ba5a4b2c9cb6",
-      "size": 37741
+      "sha256": "8df04f5e6b6e32eb97bd5537ff0a7123e753655857cd4cca04a563d1e1663414",
+      "size": 40521
     },
     {
       "mode": "100644",
@@ -957,8 +957,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_install_current_agent_copy.py",
-      "sha256": "341dda1d3e2c4ee9a3f3e8ee2010eca295fdc586a54227dba5de06aeae504c5c",
-      "size": 123008
+      "sha256": "34e558f3d67a2a4aa57d2977282296c718ccc1be88838a2e09f2e99faf5c3c4e",
+      "size": 124095
     },
     {
       "mode": "100644",
@@ -1005,8 +1005,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_read_only_contract.py",
-      "sha256": "8849e36e7ce81d59d32243e72547e18d13aca507a0f54e95c5fbf6045e31e675",
-      "size": 10834
+      "sha256": "71681e6d880b01a3ce173b2530f5a9fbb153fe06a4aad0ebcc5b2227f4d690fe",
+      "size": 11374
     },
     {
       "mode": "100644",
@@ -1209,8 +1209,8 @@
     {
       "mode": "100644",
       "path": "scripts/closeout_conflict_scan.py",
-      "sha256": "c947a3f47ef2287bd8b0ee7bd217b55b766793a6ba71feb5890924e3b02e203e",
-      "size": 14130
+      "sha256": "bb5c0ceceb298a33121c4a37f8d0ce2d7f21236d57a9cdf00cb2225361205f30",
+      "size": 14262
     },
     {
       "mode": "100644",
@@ -1311,8 +1311,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_mcp_server.py",
-      "sha256": "c4a628d5b991c39193bde9d65cac3ce19d770100522e362bccf97cebd678e211",
-      "size": 15005
+      "sha256": "739c86d12e7e287c98f02d645755bc483d4472b767196985eb75a8c403882079",
+      "size": 15181
     },
     {
       "mode": "100644",
@@ -1443,8 +1443,8 @@
     {
       "mode": "100644",
       "path": "scripts/domain_ledger_api.py",
-      "sha256": "6df4fa529229116bd4f19b65a698efc32de400dae585f19b09c0fa2acef2716d",
-      "size": 17999
+      "sha256": "3c2b74f33927f91f252d350be0f84f3975477986751bb90902e87aeae49f4958",
+      "size": 18414
     },
     {
       "mode": "100644",
@@ -1527,8 +1527,8 @@
     {
       "mode": "100644",
       "path": "scripts/iku_candidates.py",
-      "sha256": "7f102dea0472340e7cfdcfe297d1f317d945919926ba1753339ce4d8d0cd27ae",
-      "size": 6139
+      "sha256": "423f05d102c759a4a04e962f115338a8359db4bdba001b73492364e652445505",
+      "size": 6488
     },
     {
       "mode": "100644",
@@ -1641,8 +1641,8 @@
     {
       "mode": "100644",
       "path": "scripts/repair_archive_placeholders.py",
-      "sha256": "2984b01d69748d0390a01bb222ace94b3c3a9e08d72cc5f228ddc1ac0f2f4391",
-      "size": 11771
+      "sha256": "62111cff8668654446931da92a34acd81b34eaa2f1cb463b6453e5b135d7372d",
+      "size": 12934
     },
     {
       "mode": "100644",
@@ -1876,12 +1876,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7029000,
+    "payload_bytes": 7036543,
     "payload_file_count": 307,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "ddd63bae9ca0b100dfd9b643d016e49df6a16159e255e1f62433e9ed54fdb0a3",
+    "payload_index_sha256": "6ac747519b6334b46c6f496824d05cbefa89f6e7d696572e8bb6c93a838d0e8d",
     "source_packaged_tracked_file_count": 299,
-    "source_tracked_file_count": 406
+    "source_tracked_file_count": 411
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1954,8 +1954,13 @@
     "docs/plans/beta1.0.8/handoffs/phase-3-handoff.md",
     "docs/plans/beta1.0.8/handoffs/phase-4-evidence.md",
     "docs/plans/beta1.0.8/handoffs/phase-4-handoff.md",
+    "docs/plans/beta1.0.8/handoffs/phase-5-evidence.md",
+    "docs/plans/beta1.0.8/handoffs/phase-5-handoff.md",
+    "docs/plans/beta1.0.8/release-review-beta1.0.8.md",
     "docs/receipts/2026-08-27-beta1.0.7-p0-install-host-closeout.json",
     "docs/receipts/2026-08-27-beta1.0.7-source-final-receipt.json",
+    "docs/receipts/2026-08-31-beta1.0.8-install-host-closeout.json",
+    "docs/receipts/2026-08-31-beta1.0.8-source-final-receipt.json",
     "docs/research/2026-08-25-next-version-cli-mcp-hooks-shiguan-memory-research.md",
     "docs/wiki/Architecture.md",
     "docs/wiki/Governance.md",
