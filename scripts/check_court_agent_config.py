@@ -1112,6 +1112,30 @@ use_memories = true
         value is None for value in no_codex_host_proof.values()
     ), "no-codex host_proof fields must be null (never raise, never fake)"
 
+    # R-11: _latest_turn_context must support session scoping so a host proof
+    # never reads turn context from an unrelated session file.
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    from agent_runtime_probe import _latest_turn_context as latest_turn_context
+
+    with _tempfile.TemporaryDirectory(prefix="dm-turnctx-") as turn_temp:
+        sessions_dir = _Path(turn_temp) / "sessions"
+        sessions_dir.mkdir()
+        session_a = "11111111-1111-1111-1111-111111111111"
+        session_b = "22222222-2222-2222-2222-222222222222"
+        (sessions_dir / f"{session_a}.jsonl").write_text(
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-a", "effort": "low"}}) + "\n",
+            encoding="utf-8",
+        )
+        (sessions_dir / f"{session_b}.jsonl").write_text(
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-b", "effort": "high"}}) + "\n",
+            encoding="utf-8",
+        )
+        scoped = latest_turn_context(_Path(turn_temp), session_id=session_b)
+        assert scoped == ("gpt-b", "high"), f"session-scoped turn context mismatch: {scoped!r}"
+        unscoped = latest_turn_context(_Path(turn_temp))
+        assert isinstance(unscoped, tuple) and len(unscoped) == 2, "unscoped turn context must stay a pair"
+
     def string_values(value: object) -> list[str]:
         if isinstance(value, dict):
             return [item for nested in value.values() for item in string_values(nested)]

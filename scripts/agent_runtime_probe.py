@@ -787,11 +787,17 @@ def sanitize_probe_payload(payload: dict[str, object], *, home: Path, court_root
     return sanitized
 
 
-def _latest_turn_context(codex_home: Path) -> tuple[str | None, str | None]:
-    """Read only model/effort metadata from the most recent Codex session JSONL.
+def _latest_turn_context(
+    codex_home: Path,
+    session_id: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Read only model/effort metadata from a Codex session JSONL.
 
     Never returns conversation text or credentials; any probe failure yields
-    (None, None) so callers fail closed without raising.
+    (None, None) so callers fail closed without raising. When ``session_id`` is
+    provided, only that session's JSONL is considered so a host proof never
+    reads turn context from an unrelated session (R-11); otherwise the most
+    recent session files are used (host-level approximation).
     """
     sessions_dir = codex_home / "sessions"
     if not sessions_dir.is_dir():
@@ -800,6 +806,13 @@ def _latest_turn_context(codex_home: Path) -> tuple[str | None, str | None]:
         candidates = [path for path in sessions_dir.glob("*.jsonl") if path.is_file()]
     except OSError:
         return None, None
+    requested = str(session_id or "").strip()
+    if requested:
+        candidates = [
+            path
+            for path in candidates
+            if requested.casefold() in path.name.casefold()
+        ]
     if not candidates:
         return None, None
     for path in sorted(
