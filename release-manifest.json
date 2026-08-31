@@ -537,8 +537,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "3c818d85e99711097f8c9959343590e526355c2564e957effdf460e692dd2401",
-      "size": 90416
+      "sha256": "80b7c3896023c5404a14b5ec13989dbbe9d4069a74e1af0f005753c003836ed7",
+      "size": 90972
     },
     {
       "mode": "100644",
@@ -567,8 +567,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "c65904f5b98508ba094c39ab4c10848e7f650c2ddfc63ea2c2d9617886ad3c62",
-      "size": 20720
+      "sha256": "ed557dae4ca20f854a7cbf244981e7435a64afb79cdb000f94609db9062c24df",
+      "size": 20771
     },
     {
       "mode": "100644",
@@ -1109,6 +1109,12 @@
       "path": "scripts/check_shiguan_queue_and_autosync_safety.py",
       "sha256": "c1402096cdff1a556d39a73e2ca067518227f96c8881ffd3055c418085df70b6",
       "size": 24511
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/check_shiguan_recall_precision.py",
+      "sha256": "6feffd649ec5d4522a6e30c9b64f21fdad219145a07e7fd54a6b38f79ce052cd",
+      "size": 6684
     },
     {
       "mode": "100644",
@@ -1665,8 +1671,8 @@
     {
       "mode": "100644",
       "path": "scripts/shiguan_entry_utils.py",
-      "sha256": "919c256c92040e876866586294ba559f3ee942ae2df8d9746dfedc5a63c09630",
-      "size": 58173
+      "sha256": "281a510337b7b92dc26eb26fdbf03c7c0399fbe863961c3f06d01b22b45f072c",
+      "size": 64688
     },
     {
       "mode": "100644",
@@ -1876,12 +1882,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7045925,
-    "payload_file_count": 307,
+    "payload_bytes": 7059731,
+    "payload_file_count": 308,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "0d668094c5a2543b8616cfc74043ccd66ba1e3d0ce46c90b9aa012c1be99dc16",
-    "source_packaged_tracked_file_count": 299,
-    "source_tracked_file_count": 413
+    "payload_index_sha256": "25dd9f56609587f85f4f43b513a15165b629aeb425fd86680285ca998a84cf3a",
+    "source_packaged_tracked_file_count": 300,
+    "source_tracked_file_count": 416
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1958,7 +1964,9 @@
     "docs/plans/beta1.0.8/handoffs/phase-5-evidence.md",
     "docs/plans/beta1.0.8/handoffs/phase-5-handoff.md",
     "docs/plans/beta1.0.8/release-review-beta1.0.8.md",
+    "docs/plans/beta1.0.8/review/mcp-recall-review.md",
     "docs/plans/beta1.0.8/review/review-findings.md",
+    "docs/plans/beta1.0.8/review/shiguan-hierarchical-index-design.md",
     "docs/receipts/2026-08-27-beta1.0.7-p0-install-host-closeout.json",
     "docs/receipts/2026-08-27-beta1.0.7-source-final-receipt.json",
     "docs/receipts/2026-08-31-beta1.0.8-install-host-closeout.json",
