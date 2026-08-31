@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 import zlib
 
@@ -16,6 +18,134 @@ from shiguan_paths import reference_path
 
 RECALL_SCHEMA = "decretum.gbrain.recall.v1"
 SETTLEMENT_SCHEMA = "decretum.gbrain.settlement_candidates.v1"
+FULL_RECORD_POINTER_SCHEMA = "court.full_record_pointer.v1"
+FULL_RECORD_INDEX_SCHEMA = "court.full_record_index.v1"
+
+
+def _relative_source_ref(entry: dict[str, object]) -> str | None:
+    """Return a portable relative source path or None for absolute host paths."""
+    source = str(entry.get("source") or "").strip()
+    if not source:
+        return None
+    if re.match(r"^[A-Za-z]:[\\/]", source) or source.startswith(("/", "\\")):
+        return None
+    return source.replace("\\", "/")
+
+
+def _canonical_metadata_digest(entry: dict[str, object]) -> str:
+    """Deterministic sha256 over canonical entry metadata (no body read)."""
+    projection: dict[str, object] = {}
+    for key in (
+        "record_uid",
+        "court_code",
+        "time",
+        "topic",
+        "phase",
+        "status",
+        "summary",
+        "source",
+        "memory_decision",
+        "lineage_key",
+        "lineage_display",
+    ):
+        if entry.get(key) is not None:
+            projection[key] = entry[key]
+    return hashlib.sha256(
+        json.dumps(
+            projection,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def full_record_pointer(entry: dict[str, object]) -> dict[str, object]:
+    """Metadata-only full-record pointer (P3-7/P3-9): no body copies, no
+    absolute host path contract, only relative locator + section + source hash
+    + access status. Pending/private bodies are never copied into the index."""
+    source_ref = _relative_source_ref(entry)
+    phase = str(entry.get("phase") or "")
+    status = str(entry.get("status") or "").upper()
+    summary = str(entry.get("summary") or "")
+    evidence = str(entry.get("evidence") or "")
+    next_step = str(entry.get("next") or "")
+    key_actions = [
+        str(item) for item in (entry.get("key_actions") or []) if str(item).strip()
+    ]
+    resolved = status in {
+        "DONE",
+        "DONE_WITH_CONCERNS",
+        "APPROVED",
+        "APPROVED_WITH_CAVEATS",
+    }
+    section = f"## Checkpoint: {phase}" if phase else None
+    return {
+        "schema": FULL_RECORD_POINTER_SCHEMA,
+        "source_ref": source_ref,
+        "section": section,
+        "line_anchor": phase or None,
+        "source_hash": _canonical_metadata_digest(entry),
+        "access_status": "metadata_only",
+        "fields": {
+            "initial_question": str(entry.get("topic") or ""),
+            "process_questions": [phase] if phase else [],
+            "initial_actions": key_actions[0] if key_actions else None,
+            "subsequent_actions": key_actions[1:],
+            "final_result": summary or evidence,
+            "resolved": resolved,
+            "resolution_scope": phase or source_ref,
+            "next_step": next_step,
+        },
+        "unindexed_fields": ["errors", "fixes", "full_body"],
+        "locator": (
+            f"{source_ref}#{section}" if source_ref and section else source_ref
+        ),
+    }
+
+
+def build_leaves(
+    entries: list[dict[str, object]],
+    entry: dict[str, object],
+    limit: int = 8,
+) -> list[dict[str, object]]:
+    """Related leaf metadata for a record (same lineage or topic, no bodies)."""
+    bounded = max(1, min(int(limit), 32))
+    self_uid = _record_uid(entry)
+    lineage = str(
+        entry.get("lineage_key") or entry.get("lineage_display") or ""
+    ).strip()
+    topic = " ".join(str(entry.get("topic") or "").casefold().split())
+    leaves: list[dict[str, object]] = []
+    for candidate in entries:
+        if _record_uid(candidate) == self_uid:
+            continue
+        candidate_lineage = str(
+            candidate.get("lineage_key") or candidate.get("lineage_display") or ""
+        ).strip()
+        candidate_topic = " ".join(
+            str(candidate.get("topic") or "").casefold().split()
+        )
+        related = bool(
+            (lineage and candidate_lineage == lineage)
+            or (topic and candidate_topic == topic)
+        )
+        if not related:
+            continue
+        leaves.append(
+            {
+                "record_uid": _record_uid(candidate),
+                "court_code": str(candidate.get("court_code") or ""),
+                "topic": str(candidate.get("topic") or ""),
+                "summary": str(candidate.get("summary") or "")[:120],
+                "time": str(candidate.get("time") or ""),
+                "phase": str(candidate.get("phase") or ""),
+                "full_record": full_record_pointer(candidate),
+            }
+        )
+        if len(leaves) >= bounded:
+            break
+    return leaves
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -186,6 +316,8 @@ def build_recall_context(
                 "score": score_entry(entry, normalized_terms),
                 "applicability": _applicability(entry, instant),
                 "conflict": _conflict(entry),
+                "full_record": full_record_pointer(entry),
+                "leaves": build_leaves(entries, entry, limit=6),
             }
         )
     return {
@@ -205,6 +337,47 @@ def build_recall_context(
             shared_root=memory_git_shared_root,
             loader=memory_git_loader,
         ),
+    }
+
+
+def build_full_record_index(
+    entries: list[dict[str, object]],
+) -> dict[str, object]:
+    """Queryable leaves + full-record pointer index (P3-9).
+
+    Preserves the original fourteen-line compact memorial and record structure
+    upstream; this index only adds queryable leaves and full-record pointers
+    (relative source path / section / line anchor / source hash / access
+    status). Pending/private bodies are never copied; absolute host paths are
+    rejected as non-portable.
+    """
+    records: list[dict[str, object]] = []
+    for entry in entries:
+        pointer = full_record_pointer(entry)
+        if pointer.get("source_ref") is None:
+            continue
+        records.append(
+            {
+                "record_uid": _record_uid(entry),
+                "court_code": str(entry.get("court_code") or ""),
+                "topic": str(entry.get("topic") or ""),
+                "phase": str(entry.get("phase") or ""),
+                "status": str(entry.get("status") or ""),
+                "source_ref": pointer["source_ref"],
+                "source_hash": pointer["source_hash"],
+                "section": pointer["section"],
+                "line_anchor": pointer["line_anchor"],
+                "access_status": pointer["access_status"],
+                "fields": pointer["fields"],
+                "unindexed_fields": pointer["unindexed_fields"],
+                "locator": pointer["locator"],
+                "leaves": build_leaves(entries, entry, limit=8),
+            }
+        )
+    return {
+        "schema": FULL_RECORD_INDEX_SCHEMA,
+        "record_count": len(records),
+        "records": records,
     }
 
 

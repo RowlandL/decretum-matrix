@@ -355,7 +355,14 @@ def domain_gbrain_recall(query: str, limit: int = 10) -> dict[str, Any]:
         matches = select_query_matches(entries, [term])
     except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
         return {"schema": "court.gbrain_recall.result.v1", "ok": False, "errors": [{"field": "query", "kind": "runtime", "code": str(exc)}]}
-    projection = [_metadata_projection(entry) for entry in matches[:bounded]]
+    from shiguan_gbrain import build_leaves, full_record_pointer
+
+    projection: list[dict[str, Any]] = []
+    for entry in matches[:bounded]:
+        item = _metadata_projection(entry)
+        item["full_record"] = full_record_pointer(entry)
+        item["leaves"] = build_leaves(entries, entry, limit=6)
+        projection.append(item)
     return {"schema": "court.gbrain_recall.result.v1", "ok": True, "errors": [], "entries": projection, "count": len(projection)}
 
 
