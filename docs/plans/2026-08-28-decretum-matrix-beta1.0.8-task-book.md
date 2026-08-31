@@ -32,7 +32,7 @@
 | M0 基线绿 | 清偿 E；工作树干净；doctor 无 WARN | 门禁三件套（read_only / source_budget / release_manifest）绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-0-evidence.md（本机环境 doctor 需权威环境补跑） |
 | M1 合同定稿 | A/B/C/D 契约文档、schema、验证集、fixtures 提交 | 契约评审通过（门下复核意见闭环） | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-1-evidence.md（评审意见已回写 §6：a/b/c 通过、d 修订 2 处、manifest 条件通过；闭环待 REVIEWER 确认） |
 | M2 通用入口适配与自身 MCP 能力面 | 现有入口上的 A/B/C/E 工具族、Agent envelope、能力索引、编号/谱系、GBrain recall 和领域化账册 | P2-1..P2-6 的 manifest/public API/探针/审计全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-2-evidence.md（12 工具矩阵、58 探针、审计/编排探针全绿；出口待 REVIEWER） |
-| M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | TODO | 待写入 phase-3-evidence.md |
+| M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-3-evidence.md（编号开始对话分配/结诏复用、分类合同 9 字段+conflict、5 类验证集、IKU 只读幂等+回滚、冲突/过期范式、leaves/full-record 全绿；出口待 REVIEWER） |
 | M4 Codex 适配 | C 探测/路由/回退闭环 | host proof 测试 + 回退测试全绿 | TODO | 待写入 phase-4-evidence.md |
 | M5 发布 | 全量门禁、收据、版本锚点、CHANGELOG、release 评审 | 发布批准；workspace.yaml 升 beta1.0.8 | TODO | 待写入 phase-5-evidence.md |
 
@@ -174,6 +174,18 @@
 **P3-9 史馆实录 leaves 与完整上下文索引**（CLI，1 PD）
 - 改动点：保留原十四行 compact memorial、状态字段和既有实录结构；增加可查询 leaves、full-record 指针、初始/中间/后续问题与动作、错误/修复、最终结果、是否解决、解决范围、下一步，以及原版完整上下文文件的相对路径/line/section/source hash 索引。
 - 验收：通过 leaves 可准确检索完整过程；不复制 pending/private 正文；路径不写成不可迁移的绝对宿主契约。
+
+### 阶段 3 验收证据快照（2026-08-31 本地接续）
+
+- P3-1 ✅：编号来源 receipt 可追溯（`domain_court_code_preview` 输出 generator/authority/receipt_hint，与 `next_daily_sequence` 同一 index 字节级一致、只读零改动）；**附加旨意（用户补充）**：编号改为**开始对话时分配**（`scripts/court_session_numbering.py` 的 `domain_court_code_issue`，统一生成器 + 会话内幂等 + 同日跨会话防碰撞，持久化 court-runtime/session-numbering），结诏经 `--session-id` **逐字复用**（`archive_checkpoint` session_allocation + `court_session_closeout` 传 session_id），无分配回退原逻辑；存量 court_code/lineage 不被覆盖。
+- P3-2 ✅：`content_lineage_parts` 落地 9 项合同字段（taxonomy_version/classification_status/reason/confidence/score/margin/positive_evidence/negative_evidence/candidates），新增 `conflict` 状态；check 断言 tie/unknown/否定不贡献正向分、否定词不进 positive_evidence。
+- P3-3 ✅：`references/fixtures/classification-contract-validation.json` 5 类用例（清晰/tie/否定/未知/冲突）+ 双跑字节级一致。
+- P3-4/P3-5 ✅：`repair_archive_placeholders` --dry-run 默认（零字节改动）/ --apply 需 --yes / 回滚前像 + repair journal（原文指纹 + receipt 指针 + 快照路径）/ 两次 apply 幂等 / rollback 恢复；IKU 字面标记改词边界匹配（消除 court_code 子串误报）。
+- P3-6 ✅：`closeout_conflict_scan` 确定性 SUPERSEDED/DEGRADED + 非确定性 REVIEW（双方进门下），apply 经 domain ledger 每次写 revision + Git commit，before/after/reason/user_notice 全齐，`affected_topics` 增量接口。
+- P3-7/P3-9 ✅：`shiguan_gbrain` full_record_pointer（metadata-only、相对可迁移 locator/section/line anchor/source hash/access_status）+ build_leaves + build_full_record_index；`build_recall_context`/`domain_gbrain_recall` 附 full_record+leaves；绝对宿主路径拒绝、不复制 pending/private 正文。
+- P3-8 ✅（接口）：`scan(affected_topics=...)` 只重算受影响集合（check 验证最小集），重复运行稳定。
+- 门禁：quick_validate PASS；release_manifest ok:true(49)；source_budget ok:true；governance 48 checks；skill_identity PASSED；install_projection PASS；portability ok:true；unified_cli 9/9；mcp_server ok:true(58)；read_only_contract ok:true（本机转绿）；taxonomy/rebuild/iku_repair/closeout_conflict/full_record_index/session_numbering/session_closeout 全 PASS。
+- 详细与手动交接：docs/plans/beta1.0.8/handoffs/phase-3-evidence.md、phase-3-handoff.md。
 
 ### 阶段 4：Codex 模型适配（M4）
 
