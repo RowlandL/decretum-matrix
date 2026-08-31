@@ -1113,8 +1113,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_shiguan_recall_precision.py",
-      "sha256": "6feffd649ec5d4522a6e30c9b64f21fdad219145a07e7fd54a6b38f79ce052cd",
-      "size": 6684
+      "sha256": "72e7d795752f97cc709e57767856c6d7a54359f5da9aa5b1638fc8ac7d24e5af",
+      "size": 9375
     },
     {
       "mode": "100644",
@@ -1671,8 +1671,8 @@
     {
       "mode": "100644",
       "path": "scripts/shiguan_entry_utils.py",
-      "sha256": "281a510337b7b92dc26eb26fdbf03c7c0399fbe863961c3f06d01b22b45f072c",
-      "size": 64688
+      "sha256": "12a8627d081b914a63e25b2f058644caf9a83f6ed3c03b5a891a4259156bd45a",
+      "size": 69964
     },
     {
       "mode": "100644",
@@ -1882,10 +1882,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7059731,
+    "payload_bytes": 7067698,
     "payload_file_count": 308,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "25dd9f56609587f85f4f43b513a15165b629aeb425fd86680285ca998a84cf3a",
+    "payload_index_sha256": "ed65bf88e70e9a2fcc5b2b1eb03b512eb1368adee4ea26fb293c7a8396f41cbb",
     "source_packaged_tracked_file_count": 300,
     "source_tracked_file_count": 416
   },
