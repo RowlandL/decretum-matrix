@@ -75,3 +75,29 @@
 
 - R-08 已强制 entries_query 的 limit 等 schema 约束；R-02 保证召回只读；R-11 保证 host-proof turn_context 会话限定（本报告不涉及）。
 - 建议：P0-3（source 污染）为最小快赢；P0-1/P0-2 需 TDD 第三轮（红→绿 fixture）。是否随 beta1.0.8 实施由 REVIEWER 定（可列为 beta1.0.8 门禁前补强或紧随热修）。
+
+---
+
+## 6. P0 落地状态（2026-08-31，已随 beta1.0.8 评审闭环）
+
+REVIEWER 批准三 P（P0-1/2/3）可行后按 TDD 一轮一提交落地：
+
+| P0 项 | 提交 | 实现 | 真实索引实测（8 条） |
+| --- | --- | --- | --- |
+| P0-3 字段污染 | `b835768` | `_weighted_searchable_parts` 剔除 source/evidence/next/capability_source_paths/court_code_legend | archive 路径伪命中消除 |
+| P0-1 否定 | `0314e6b` | `_recall_any_positive_occurrence` 复用 `_taxonomy_match_is_negated` 子句否定 | "不涉及 archive" 不再命中 |
+| P0-2 词条化+TF-IDF+阈值 | `7746f1f` | ASCII token 精确/边界前缀、CJK run、BM25 IDF、RECALL_MIN_SCORE=1.0、RECALL_MIN_IDF=0.4 | archive 7→2、史馆 8→0、IKU 3→0、super 6→4 |
+
+回归：`check_shiguan_recall_precision.py`（新增门禁，9 探针）PASSED；
+`check_governance_framework` 48 checks 与 `score_entry` 钉死值 [13,11] 保持；
+`check_court_mcp_server` 62 探针 ok:true。
+
+**评分复测（落地后）**：
+- 准确率：5/10 → **7.5/10**（结构化词条被硬过滤待 P2 结构化层补齐；独特词/否定/路径
+  污染已达标）。
+- 无关信息：4/10 → **7.5/10**（阈值/margin/否定/字段剔除落地；去重与可解释字段待 P1-1）。
+- 工程化：6/10 → **7/10**（新增 hermetic 门禁；倒排/缓存/增量待 P1-2）。
+- 综合：5/10 → **7.3/10**（发布级 ≥8/10 目标由 P1/P2 达成）。
+
+分层索引算法详细方案（古制谱系 + 诏令编号段位基座）：
+`docs/plans/beta1.0.8/review/shiguan-hierarchical-index-design.md`。

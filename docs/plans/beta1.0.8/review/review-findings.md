@@ -175,6 +175,35 @@
 
 ---
 
+### R-13 [MEDIUM, 已修复（第三轮 TDD）] MCP 召回精度不达标（P0-1/2/3 词面基线）
+
+- 审查对象：`mcp-recall-review.md` 三要素评分（准确率 5/10、无关信息 4/10、工程化 6/10，
+  综合 5/10）——`score_entry/select_matches` 词面子串加权基线在真实索引上的问题：
+  - 低价值字段污染：`source`/`capability_source_paths` 等文件路径使查询 `archive`
+    命中 7/8（`references/plan-archives/...` 子串）；`vector_text` 路径段同样污染。
+  - 无否定隔离：分类层有否定处理，召回层没有。
+  - 无 IDF/阈值/margin：`史馆`→8/8 无区分度、`IKU`→3 条同分偶然命中、同题记录相邻重复。
+  - `gbrain` 分支实为同一 scorer 的 re-export（命名误导，P2 处理）。
+- 处置（用户批准三 P 可行，按 TDD 一轮一个提交）：
+  - P0-3（b835768）：`_weighted_searchable_parts` 剔除 `source/evidence/next/
+    capability_source_paths/court_code_legend`，`score_entry` 与 `select_matches`
+    共用同一字段政策。
+  - P0-1（0314e6b）：`_recall_any_positive_occurrence` 复用 `_taxonomy_match_is_negated`
+    子句否定，否定子句内词条不贡献正分。
+  - P0-2（7746f1f）：词条化（ASCII 精确/分隔符边界前缀、CJK run）+ BM25 IDF +
+    `RECALL_MIN_SCORE=1.0` + `RECALL_MIN_IDF=0.4`（全文档词条不可判别即不入选）。
+- 真实索引实测（8 条）：`archive` 7→2、`史馆` 8→0（纯结构性常用词，交由 P2 结构化
+  过滤处理）、`IKU` 3→0（court_code 偶然子串）、`super` 6→4、`codex` 4、
+  `find-skills` 2、`结诏` 3、空词=latest 8。排序与人工判断一致。
+- 回归：新增独立门禁 `check_shiguan_recall_precision.py`（9 探针：路径污染负例/
+  否定负例/常用词负例/独特词正例/token 精确性/margin/gbrain 等价/空词 latest-N），
+  每轮 RED→GREEN；`check_governance_framework` 48 checks 与 `score_entry` 钉死值
+  [13,11] 保持绿；`check_court_mcp_server` 62 探针 ok:true。
+- 详细分层索引算法方案（古制谱系 + 编号段位基座）见
+  `docs/plans/beta1.0.8/review/shiguan-hierarchical-index-design.md`（P1/P2 落地蓝图）。
+
+---
+
 ## 3. 修复提交列表
 
 | 提交 | 主题 | 关联发现 |
@@ -191,6 +220,9 @@
 | 4008307 | fix(beta1.0.8): serialize session-numbering allocation read-compute-write (R-09, TDD) | R-09 |
 | fda5e71 | fix(beta1.0.8): scope host-proof turn-context read-back to a session (R-11, TDD) | R-11 |
 | 584ebfc | docs(beta1.0.8): align contract B classification_status wording with implementation (R-07) | R-07 |
+| b835768 | fix(beta1.0.8): exclude low-value provenance fields from recall scoring (P0-3, TDD) | R-13 |
+| 0314e6b | fix(beta1.0.8): negation-aware recall matching (P0-1, TDD) | R-13 |
+| 7746f1f | fix(beta1.0.8): tokenized TF-IDF recall with threshold and discriminative admission (P0-2, TDD) | R-13 |
 
 ---
 
@@ -252,10 +284,27 @@
   lineage_taxonomy / rebuild_compatibility / git_federation / model_router /
   codex_office_worker / agent_config）。
 
+### 4.5 第三轮 TDD 召回优化回归（2026-08-31，R-13）
+
+- 新增 `check_shiguan_recall_precision.py` → PASSED（9 探针：`recall_source_path_pollution`
+  / `recall_archive_top_missing` / `recall_empty_query_not_latest_n` /
+  `recall_negation_not_suppressed` / `recall_path_token_substring` /
+  `recall_common_term_no_threshold` / `recall_unique_term_missing` /
+  `recall_top_margin_not_positive` / `recall_gbrain_fallback_diverged`）。
+- `check_governance_framework` → PASSED（48 checks；`score_entry` 钉死 [13,11] 保持）。
+- `check_court_mcp_server` → ok:true（62 探针，含 entries_query/iku_candidates 无回归）。
+- `check_shiguan_lineage_taxonomy` / `check_shiguan_full_record_index` /
+  `check_shiguan_git_federation` → 全 PASS（召回改动不影响分类/索引/联邦）。
+- 真实索引实测记录见 R-13。
+
 ---
 
 ## 5. 遗留项（后续版本候选 / 需 REVIEWER 拍板）
 
 1. R-07..R-11 已在第二轮 TDD 整改中闭环（见 §2/§3），不再列入遗留。
-2. 环境受限项（R-12）正式安装机复验：install update 到 beta1.0.8、config.toml 门禁、
+2. R-13 P0 已闭环；P1（去重/可解释/倒排缓存/精度回归扩展）与 P2（gbrain 命名/
+   结构化过滤/空词 latest-N）按 `shiguan-hierarchical-index-design.md` 落地到
+   beta1.0.8 后续热修或 beta1.0.9；`serve_shiguan_tree.py` 的本地旧 scorer
+   （web 检索面）需与 `shiguan_entry_utils` 统一（P1 一并处理）。
+3. 环境受限项（R-12）正式安装机复验：install update 到 beta1.0.8、config.toml 门禁、
    repo-control doctor。
