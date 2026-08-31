@@ -2,7 +2,7 @@
 
 > protocol_version: draft-0.1 · 会话：hermes-codex-20260831-review（发布前 review 会话）
 > 分支：release/beta1.0.8 · 审查基线 b2de371..HEAD（E1-E5 / P1.x-P4.x / P5 锚点收据）
-> 修复后 HEAD：d18d167（5 个修复/收据提交叠加在 d3a7f7d 之上）
+> 修复后 HEAD：754552b（5 个修复/收据提交 + 2 个 docs/收据刷新提交，叠加在 d3a7f7d 之上）
 > 门禁日志：docs/plans/beta1.0.8/review/review-gates.log
 > 结论摘要：6 类问题（4 类已修复含回归断言；2 类记录为既有/环境受限）；P5-1 22 项门禁复跑全绿或环境受限记录；Phase 2/3/4 新增独立 check 全 PASS；check_install_current_agent_copy self-test 由「抛 ValueError 崩溃」转为 32/32 + 31/31 全绿。
 
@@ -171,6 +171,8 @@
 | 1366eee | fix(beta1.0.8): fail closed on MCP/domain-ledger runtime errors and keep audit + receipt binding | R-03, R-04 |
 | 6a3b43f | fix(beta1.0.8): closeout conflict scan CLI fails closed on invalid as_of | R-05 |
 | d18d167 | chore(beta1.0.8): regenerate release payload manifest after review fixes | R-01..R-06 源码漂移收据 |
+| 221e122 | docs(beta1.0.8): publish pre-release coding review + robustness audit closure | 回写（findings/log/task-book/release-review/handoffs） |
+| 754552b | chore(beta1.0.8): refresh release payload manifest after review docs commit | docs 提交后 repository_only 漂移收据 |
 
 ---
 

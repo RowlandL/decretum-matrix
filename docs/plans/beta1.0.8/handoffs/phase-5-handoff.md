@@ -7,7 +7,7 @@
 - started_at: 2026-08-31T19:00:00+08:00 (approx)
 - finished_at: 2026-08-31T20:20:00+08:00 (approx)
 - git_branch: release/beta1.0.8
-- git_head_commit: 5e0b660（内容提交）；发布前 review 修复后 HEAD=d18d167（本 handoff 文档随后续 docs commit 提交）
+- git_head_commit: 5e0b660（内容提交）；发布前 review 修复后 HEAD=754552b（本 handoff 文档随后续 docs commit 提交）
 - working_tree_clean: true（提交后；index 空）
 
 ## 1. 目标达成

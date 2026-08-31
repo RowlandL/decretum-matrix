@@ -238,12 +238,13 @@
 - 范围：独立 coding review（b2de371..HEAD）+ 鲁棒性审计 + 修复 + 全量回归；详见
   docs/plans/beta1.0.8/review/review-findings.md（R-01..R-12）与
   docs/plans/beta1.0.8/review/review-gates.log。
-- 修复（5 提交叠加在 d3a7f7d 之上，HEAD=d18d167）：
+- 修复（叠加在 d3a7f7d 之上，最终 HEAD=754552b）：
   4c290f3（check_install_current_agent_copy self-test：Windows MAX_PATH + npm fixture 隔离，R-01）、
   b9dc9a9（IKU 只读零副作用 + 原子写，R-02/R-06）、
   1366eee（MCP/领域账本 fail-closed + 审计/收据绑定，R-03/R-04）、
   6a3b43f（closeout CLI 非法 as_of fail-closed，R-05）、
-  d18d167（release payload manifest 重生成收据）。
+  d18d167（release payload manifest 重生成收据）、221e122（review 回写文档）、
+  754552b（docs 提交后 manifest 刷新收据）。
 - 修复后门禁：P5-1 22 项复跑——20 项全绿 + 2 项环境受限记录（check_active_copy_hashes
   安装副本 beta1.0.7 遗留 + extra=4 受保护锚点；check_codex_agent_roles config_errors 本机
   Codex 配置，14/14 已同步）；Phase 2/3/4 新增 11 个独立 check 全 PASS；

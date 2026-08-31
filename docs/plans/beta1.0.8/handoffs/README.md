@@ -9,4 +9,4 @@
 | 2 | VERIFY_READY | phase-2-handoff.md / phase-2-evidence.md | 3da58a8 | 待 REVIEWER | 2026-08-31 |
 | 3 | VERIFY_READY | phase-3-handoff.md / phase-3-evidence.md | 1035665 | 待 REVIEWER | 2026-08-31 |
 | 4 | VERIFY_READY | phase-4-handoff.md / phase-4-evidence.md | 8325be4 | 待 REVIEWER | 2026-08-31 |
-| 5 | VERIFY_READY | phase-5-handoff.md / phase-5-evidence.md | 5e0b660 → d18d167（发布前 review 修复 4c290f3/b9dc9a9/1366eee/6a3b43f/d18d167） | 待 REVIEWER（含 release-review-beta1.0.8.md 批准记录 + §4.1 review 意见闭环） | 2026-08-31 |
+| 5 | VERIFY_READY | phase-5-handoff.md / phase-5-evidence.md | 5e0b660 → 754552b（发布前 review：4c290f3/b9dc9a9/1366eee/6a3b43f/d18d167/221e122/754552b） | 待 REVIEWER（含 release-review-beta1.0.8.md 批准记录 + §4.1 review 意见闭环） | 2026-08-31 |
