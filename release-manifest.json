@@ -1881,7 +1881,7 @@
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
     "payload_index_sha256": "6ac747519b6334b46c6f496824d05cbefa89f6e7d696572e8bb6c93a838d0e8d",
     "source_packaged_tracked_file_count": 299,
-    "source_tracked_file_count": 411
+    "source_tracked_file_count": 412
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -1957,6 +1957,7 @@
     "docs/plans/beta1.0.8/handoffs/phase-5-evidence.md",
     "docs/plans/beta1.0.8/handoffs/phase-5-handoff.md",
     "docs/plans/beta1.0.8/release-review-beta1.0.8.md",
+    "docs/plans/beta1.0.8/review/review-findings.md",
     "docs/receipts/2026-08-27-beta1.0.7-p0-install-host-closeout.json",
     "docs/receipts/2026-08-27-beta1.0.7-source-final-receipt.json",
     "docs/receipts/2026-08-31-beta1.0.8-install-host-closeout.json",
