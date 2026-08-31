@@ -103,6 +103,28 @@ knowledge_value/priority` 结构化字段。
 - P2-2 查询扩展：同义词 + 结构化过滤（谱系/段位/日期）——即本设计 L0。
 - P2-3 空词/常用词显式化为 "latest N"（MCP 层固定上限并记录）。
 
+### 3.1 A+B+D 追加落地（2026-08-31，用户批准）
+
+用户指出否定判定不应停留在"一个布尔"：否定有多个状态，且记录**状态本身是有意义
+的证据**——查询"什么失败了/因为什么打断的"时，REJECTED/BLOCKED 记录恰恰最相关，
+不应被"排除/零贡献"，而应由相关性分析决定召回。据此追加实施：
+
+- **A（三态→四态）**：`_taxonomy_assertion_status` 输出
+  `affirmed / negated / uncertain / hypothetical`（NegEx/ConText 风格），带
+  `ASSERTION_SCOPE_CHARS=60` 作用窗口与重置标记；`_recall_value_occurrences`
+  按断言加权（1.0 / -1.0 / 0.5 / 0.3）——否定为**软惩罚**（TREC 2025 风格，
+  负分使"仅否定提及"永不进入 top 集，但不是硬过滤）。分类器旧二值函数保留不动
+  （`check_shiguan_lineage_taxonomy` 零回归）。
+- **B（状态语义面）**：`STATUS_SEMANTICS` 把每个 status 映射到语义类
+  （negated/caveat/candidate/uncertain/affirmed）与中英别名；`_status_facet_score`
+  在查询词命中状态别名时给该状态记录 w6 级**相关性加分**，未命中则零贡献——
+  REJECTED/BLOCKED 记录照常经主题召回，绝不硬排除。
+- **D（ConText 多轴）**：以 `hypothetical`（如果/假设/一旦/if/should…）与
+  `uncertain`（可能/或许/possibly…）作为独立断言轴落地（历史/他者轴对史馆
+  语境不适用，不引入）。
+- 实证（真实 8 条）：`部分`→3 条 PARTIAL、`余险`→DONE_WITH_CONCERNS、
+  `archive/并行/codex` 行为不变。
+
 ---
 
 ## 4. 联网调研：先进方案与数学算法

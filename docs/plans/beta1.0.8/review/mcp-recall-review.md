@@ -92,6 +92,17 @@ REVIEWER 批准三 P（P0-1/2/3）可行后按 TDD 一轮一提交落地：
 `check_governance_framework` 48 checks 与 `score_entry` 钉死值 [13,11] 保持；
 `check_court_mcp_server` 62 探针 ok:true。
 
+### 6.1 A+B+D 追加（2026-08-31，用户批准）
+
+否定判定升级为**四态断言**（NegEx/ConText 风格）：`affirmed/negated/uncertain/
+hypothetical`，带作用窗口；否定为软惩罚（负分，TREC 2025 风格）而非零贡献/硬过滤；
+`uncertain`/`hypothetical` 半权重。记录**状态成为可查询的相关性语义面**
+（`STATUS_SEMANTICS` 中英别名，如 失败→REJECTED、打断→BLOCKED、余险→
+DONE_WITH_CONCERNS），查询命中状态语义即加分召回，普通查询零贡献、绝不排除
+（用户明确：状态本身有意义，按相关性分析判断召回哪些）。
+提交：`c71d22d`（A+D 四态断言）、`dc567cb`（B 状态语义面）。
+真实索引：`部分`→3×PARTIAL、`余险`→DONE_WITH_CONCERNS、普通查询不变。
+
 **评分复测（落地后）**：
 - 准确率：5/10 → **7.5/10**（结构化词条被硬过滤待 P2 结构化层补齐；独特词/否定/路径
   污染已达标）。

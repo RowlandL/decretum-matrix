@@ -223,6 +223,8 @@
 | b835768 | fix(beta1.0.8): exclude low-value provenance fields from recall scoring (P0-3, TDD) | R-13 |
 | 0314e6b | fix(beta1.0.8): negation-aware recall matching (P0-1, TDD) | R-13 |
 | 7746f1f | fix(beta1.0.8): tokenized TF-IDF recall with threshold and discriminative admission (P0-2, TDD) | R-13 |
+| c71d22d | fix(beta1.0.8): four-state assertion recall with scope window and soft negation (A+D, TDD) | R-13 增强 |
+| dc567cb | fix(beta1.0.8): status semantics as a queryable relevance facet, never exclusion (B, TDD) | R-13 增强 |
 
 ---
 
@@ -296,6 +298,18 @@
 - `check_shiguan_lineage_taxonomy` / `check_shiguan_full_record_index` /
   `check_shiguan_git_federation` → 全 PASS（召回改动不影响分类/索引/联邦）。
 - 真实索引实测记录见 R-13。
+
+### 4.6 A+B+D 断言四态与状态语义面回归（2026-08-31，R-13 增强）
+
+- `check_shiguan_recall_precision.py` 探针增至 14 项（新增：`recall_assertion_weight_order`
+  / `recall_negation_not_soft_penalty` / `recall_negation_still_surfaced` /
+  `recall_status_facet_failure_query` / `recall_status_facet_blocked_query` /
+  `recall_status_facet_not_top` / `recall_status_hard_excluded`）→ PASSED。
+- 分类器兼容：`_taxonomy_match_is_negated` 保留原逻辑，`check_shiguan_lineage_taxonomy`
+  否定 golden（negated_evidence/negation_then_positive_contrast）全绿。
+- `check_governance_framework` 48 / `check_shiguan_full_record_index` / `check_court_mcp_server`
+  → 全绿。
+- 真实索引：`部分`→3×PARTIAL、`余险`→DONE_WITH_CONCERNS、`archive/并行/codex` 不变。
 
 ---
 
