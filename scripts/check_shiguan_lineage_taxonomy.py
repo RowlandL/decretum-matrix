@@ -94,6 +94,9 @@ def evaluate() -> dict[str, Any]:
     failures: list[str] = []
     results: list[dict[str, object]] = []
     golden_version = str(corpus.get("taxonomy_version") or "")
+    canonical_version = getattr(lineage, "TAXONOMY_VERSION", None)
+    if not canonical_version or golden_version != str(canonical_version):
+        failures.append("lineage_taxonomy_version_not_canonical")
     actual_versions: list[object] = []
     tie_cases_ok: list[bool] = []
     negation_cases_ok: list[bool] = []

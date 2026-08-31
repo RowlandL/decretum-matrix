@@ -1,6 +1,6 @@
 {
   "schema": "court.shiguan_lineage_taxonomy_golden.v1",
-  "taxonomy_version": "v1",
+  "taxonomy_version": "2026-08-28.beta1.0.8",
   "cases": [
     {
       "id": "known_shiguan_archive",

@@ -1,0 +1,106 @@
+{
+  "schema": "court.cli_command_surface.projection_draft.v1",
+  "taxonomy_version": "2026-08-28.beta1.0.8",
+  "status": "DRAFT_PENDING_REVIEW",
+  "tools": [
+    {
+      "command_id": "shiguan.iku-candidates",
+      "api": "public_iku_candidates",
+      "side_effect": "read_only",
+      "receipt_schema": "court.iku_candidates.result.v1",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string",
+            "default": "plan-archives",
+            "description": "扫查 scope（当前仅 plan-archives）"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "候选上限"
+          }
+        }
+      },
+      "agent_envelope": "actor/role/authority/write_set 由工具层统一注入；dry_run=true；write_enabled=false"
+    },
+    {
+      "command_id": "court.dispatch-plan-validate",
+      "api": "public_dispatch_plan_validation",
+      "side_effect": "read_only",
+      "receipt_schema": "court.dispatch_plan_validation.result.v1",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "调度计划条目"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "approval",
+              "autonomous",
+              "super"
+            ],
+            "description": "缺省 approval"
+          },
+          "behavior": {
+            "type": "string",
+            "enum": [
+              "serial",
+              "parallel"
+            ],
+            "description": "缺省 serial"
+          }
+        }
+      },
+      "agent_envelope": "校验语义包装 dispatch_policy.validate_dispatch_plan；不引入 super+parallel 默认"
+    },
+    {
+      "command_id": "court.closeout-checklist",
+      "api": "public_closeout_checklist",
+      "side_effect": "read_only",
+      "receipt_schema": "court.closeout_checklist.result.v1",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "可选 task 过滤"
+          }
+        }
+      },
+      "agent_envelope": "对齐 court-closeout-memorial-format.md 十四行清单"
+    },
+    {
+      "command_id": "shiguan.entries-query",
+      "api": "public_shiguan_entries_query",
+      "side_effect": "read_only",
+      "receipt_schema": "court.shiguan_entries_query.result.v1",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "检索词"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "结果上限"
+          }
+        }
+      },
+      "agent_envelope": "元数据投影；不含 pending/private 正文"
+    }
+  ]
+}

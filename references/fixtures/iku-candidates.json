@@ -1,0 +1,55 @@
+{
+  "schema": "court.iku_candidates_fixture.v1",
+  "taxonomy_version": "2026-08-28.beta1.0.8",
+  "description": "IKU 候选三态最小验证样本（NOOP/REVIEW/REPAIR_CANDIDATE），字段与 devspec FR-A1 输出契约一致",
+  "cases": [
+    {
+      "id": "iku_noop_nonidentity_field",
+      "input": {
+        "record_path": "references/plan-archives/2026-08-20-rollout.md",
+        "record_id": "TP-20260820-0001",
+        "field": "正文",
+        "fragment": "本方案包含 IKU 字样仅作示例，非编号字段。",
+        "nearest_court_code": "SDMLTIUW7-20260820-1-ABAA",
+        "nearest_lineage": "史馆总纪/中书省委/尚书省丞/典创专部/应用部/考据条",
+        "receipt_hint": "archive-checkpoint 2026-08-20T10:00:00Z"
+      },
+      "expected": {
+        "suggested_action": "NOOP",
+        "reason": "iku_in_nonidentity_field"
+      }
+    },
+    {
+      "id": "iku_review_ambiguous_source",
+      "input": {
+        "record_path": "references/plan-archives/2026-08-21-migration.md",
+        "record_id": "TP-20260821-0002",
+        "field": "诏令编号",
+        "fragment": "本诏令编号待 IKU 生成（archive_checkpoint 自动回填）。",
+        "nearest_court_code": null,
+        "nearest_lineage": "待审",
+        "receipt_hint": null
+      },
+      "expected": {
+        "suggested_action": "REVIEW",
+        "reason": "missing_receipt_or_source_conflict"
+      }
+    },
+    {
+      "id": "iku_repair_placeholder_identity_field",
+      "input": {
+        "record_path": "references/plan-archives/2026-08-22-closeout.md",
+        "record_id": "TP-20260822-0003",
+        "field": "诏令编号",
+        "fragment": "诏令编号 ［IKU］ 待 archive_checkpoint 生成；古制谱系见 lineage_key=20260822-demo。",
+        "nearest_court_code": "SDMLTIUW7-20260822-1-ABAA",
+        "nearest_lineage": "史馆总纪/中书省委/尚书省丞/典创专部/应用部/考据条",
+        "receipt_hint": "archive-checkpoint 2026-08-22T09:00:00Z"
+      },
+      "expected": {
+        "suggested_action": "REPAIR_CANDIDATE",
+        "reason": "safe_placeholder_identity_field"
+      }
+    }
+  ]
+}
