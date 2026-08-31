@@ -6,6 +6,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 import importlib
 import io
+import re
 import json
 from pathlib import Path
 import shutil
@@ -939,6 +940,26 @@ def _resolve_and_run(
     return _emit_invocation(f"{group} {command}", result, output_format)
 
 
+def _skill_metadata_version() -> str:
+    """Read metadata.version from SKILL.md frontmatter (VERSION file fallback)."""
+
+    try:
+        text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        match = re.search(
+            r"^metadata:\s*\n\s+version:\s*['\"]?([^'\"\n]+)",
+            text,
+            re.MULTILINE,
+        )
+        if match:
+            return match.group(1).strip()
+    except (OSError, UnicodeError):
+        pass
+    try:
+        return (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     invocation_cwd = Path.cwd().resolve(strict=False)
     raw = list(sys.argv[1:] if argv is None else argv)
@@ -965,6 +986,18 @@ def main(argv: list[str] | None = None) -> int:
         output_format, values = _extract_format(raw)
     except CliUsageError as exc:
         return _emit_usage(str(exc), "text")
+    if values and values[0] in {"--version", "-V"}:
+        version_text = _skill_metadata_version()
+        if output_format == "json":
+            print(json.dumps(
+                {"schema": RESULT_SCHEMA, "ok": True, "command": "version", "version": version_text},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ))
+        else:
+            print(version_text)
+        return 0
     if not values or values[0] in {"-h", "--help"}:
         help_text = render_root_help()
         if output_format == "json":

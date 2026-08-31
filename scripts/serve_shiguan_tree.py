@@ -691,8 +691,11 @@ def write_entries(entries: list[dict[str, object]]) -> None:
 
 
 def write_manual_entry(entry: dict[str, object]) -> None:
-    manual_root().mkdir(parents=True, exist_ok=True)
-    path = manual_root() / f"{entry['id']}.json"
+    root = manual_root()
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{entry['id']}.json"
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise ValueError("invalid_entry_id")
     atomic_write_text(
         path,
         json.dumps(entry, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -2252,6 +2255,8 @@ def queue_import_text(payload: dict[str, object]) -> dict[str, object]:
 def _upsert_entry_unlocked(payload: dict[str, object]) -> dict[str, object]:
     entries = load_entries()
     entry_id = str(payload.get("id") or "").strip()
+    if entry_id and not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", entry_id):
+        raise ValueError("invalid_entry_id")
     now = datetime.now().isoformat(timespec="seconds")
     source = str(payload.get("source") or "").strip()
     entry: dict[str, object] = {

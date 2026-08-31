@@ -228,6 +228,47 @@ def run_static_regressions() -> dict[str, object]:
             else:
                 raise AssertionError("an unknown Obsidian backend sync mode did not fail closed")
 
+            # E4 (security HIGH): manual entry id whitelist + on-disk root containment.
+            with (
+                mock.patch.object(server, "refresh_tree", return_value=None),
+                mock.patch.object(server, "references_root", return_value=Path(temp) / "e4-references"),
+            ):
+                try:
+                    server._upsert_entry_unlocked({
+                        "id": "..\\..\\evil",
+                        "topic": "manual",
+                        "summary": "traversal probe",
+                        "source": "manual",
+                    })
+                except ValueError as exc:
+                    if str(exc) != "invalid_entry_id":
+                        raise AssertionError(f"invalid entry id must be invalid_entry_id; got {exc!r}")
+                else:
+                    raise AssertionError("path-traversal entry id was accepted by upsert_entry")
+                if (server.manual_root().parent / "evil.json").exists():
+                    raise AssertionError("path traversal wrote a file outside the manual root")
+                trusted = server._upsert_entry_unlocked({
+                    "id": "a_b-1.json",
+                    "topic": "manual",
+                    "summary": "ok",
+                    "source": "manual",
+                })
+                if trusted.get("id") != "a_b-1.json":
+                    raise AssertionError("a valid entry id was not accepted by upsert_entry")
+                written = list(server.manual_root().glob("a_b-1.json*.json"))
+                if not written:
+                    raise AssertionError("a valid manual entry was not written under the manual root")
+                stem = server._upsert_entry_unlocked({
+                    "id": "a_b-1",
+                    "topic": "manual",
+                    "summary": "ok",
+                    "source": "manual",
+                })
+                if stem.get("id") != "a_b-1" or not (server.manual_root() / "a_b-1.json").is_file():
+                    raise AssertionError("a stem-only entry id was not written as <id>.json")
+                for leftover in [server.manual_root() / "a_b-1.json", *written]:
+                    leftover.unlink(missing_ok=True)
+
             legacy_base = {
                 "endpoint": "https://127.0.0.1:27124",
                 "verify_ssl": False,

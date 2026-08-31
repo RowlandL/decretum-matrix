@@ -8,6 +8,7 @@ protected Shiguan namespace and compatibility locator policy.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -584,6 +585,57 @@ def _check_changelog_identity_notes(
         )
 
 
+def _skill_lf_digest(root: Path) -> str:
+    """Hash SKILL.md after normalizing CRLF to LF (stable across checkout EOL)."""
+
+    text = (root / "SKILL.md").read_text(encoding="utf-8")
+    normalized = text.replace("\r\n", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest().upper()
+
+
+def _check_skill_digest_binding(
+    root: Path,
+    findings: list[dict[str, str]],
+) -> None:
+    """The identity manifest skill_sha256 must bind the on-disk SKILL.md digest."""
+
+    manifest_path = root / MANIFEST_RELATIVE_PATH
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        declared = str(manifest.get("skill_sha256") or "")
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        _add_finding(
+            findings,
+            code="SKILL_IDENTITY_DIGEST_BINDING_UNAVAILABLE",
+            surface="manifest",
+            path=MANIFEST_RELATIVE_PATH,
+            message=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    try:
+        actual = _skill_lf_digest(root)
+    except (OSError, UnicodeError) as exc:
+        _add_finding(
+            findings,
+            code="SKILL_IDENTITY_DIGEST_UNAVAILABLE",
+            surface="skill",
+            path="SKILL.md",
+            message=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    if declared.strip().upper() != actual:
+        _add_finding(
+            findings,
+            code="SKILL_IDENTITY_DIGEST_MISMATCH",
+            surface="skill_binding",
+            path=MANIFEST_RELATIVE_PATH,
+            message=(
+                "skill_sha256 must equal the LF-normalized SKILL.md digest; "
+                f"declared={declared.strip().upper()!r} actual={actual!r}"
+            ),
+        )
+
+
 def run_self_test() -> dict[str, Any]:
     """Exercise installed-vs-repository host-methodology surface boundaries."""
 
@@ -766,6 +818,7 @@ def check_identity(root: Path) -> dict[str, Any]:
     _check_host_methodology_decoupling(root, findings)
     _check_legacy_locator_migration_surface(root, findings)
     _check_changelog_identity_notes(root, findings)
+    _check_skill_digest_binding(root, findings)
     surface_names = (
         "manifest",
         "skill",

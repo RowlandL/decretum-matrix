@@ -29,7 +29,7 @@
 
 | 里程碑 | 内容 | 出口标准 | 状态 | 验收证据摘要 |
 | --- | --- | --- | --- | --- |
-| M0 基线绿 | 清偿 E；工作树干净；doctor 无 WARN | 门禁三件套（read_only / source_budget / release_manifest）绿 | TODO | 待写入 phase-0-evidence.md |
+| M0 基线绿 | 清偿 E；工作树干净；doctor 无 WARN | 门禁三件套（read_only / source_budget / release_manifest）绿 | VERIFY_READY | 见 docs/plans/beta1.0.8/handoffs/phase-0-evidence.md（本机环境 doctor 需权威环境补跑） |
 | M1 合同定稿 | A/B/C/D 契约文档、schema、验证集、fixtures 提交 | 契约评审通过（门下复核意见闭环） | TODO | 待写入 phase-1-evidence.md |
 | M2 通用入口适配与自身 MCP 能力面 | 现有入口上的 A/B/C/E 工具族、Agent envelope、能力索引、编号/谱系、GBrain recall 和领域化账册 | P2-1..P2-6 的 manifest/public API/探针/审计全绿 | TODO | 待写入 phase-2-evidence.md |
 | M3 分类与 IKU 修复 | B 合同 + 验证集；A2 受控修复（CLI）；结诏冲突/过期、leaves/full-record、增量反馈 | P3-1..P3-9 的分类、IKU 和 GBrain 记忆治理测试全绿 | TODO | 待写入 phase-3-evidence.md |
@@ -71,6 +71,16 @@
 **E5 CLI --version（可选）**（CLI，0.5 PD）
 - 改动点：court_cli_registry.py main 在 group 判定前识别 --version/-V，输出 SKILL.md metadata.version 并返回 0。
 - 验收：python -B scripts/court_cli.py --version → 输出 beta1.0.8（发布后）退出码 0。
+
+### 阶段 0 验收证据快照（2026-08-31 本地接续）
+
+- E1 ✅：基线 2571178 核对通过；收尾脚本均已提交；VERSION/manifest 锚点一致；收尾文档 3 处未提交改动判定为应保留（本地已并入 6391be0 并作为 beta1.0.8 基线）。
+- E2 ✅（本机）：check_read_only_contract → ok:true；原现象为环境相关（外部工具二进制 roam 目录创建），建议正式安装机复验。
+- E3 ✅：skill-identity.v1.json skill_sha256 重绑 589842FD…（LF 归一化）；check_skill_identity.py 新增绑定断言（先 RED 后 GREEN）→ PASSED；--self-test PASSED。
+- E4 ✅：_upsert_entry_unlocked 白名单 re.fullmatch(r"[A-Za-z0-9_.-]{1,64}")，非法 → ValueError("invalid_entry_id")；write_manual_entry 落盘前 resolve().is_relative_to(manual_root())；check_shiguan_http.py 新增回归（穿越被拒/合法 id 正常）→ 全绿（含本机 live 校验）。
+- E5 ✅：court_cli_registry.py --version/-V（SKILL.md metadata.version，VERSION 兜底）→ 输出 beta1.0.7、退出码 0；check_unified_cli.py 9/9 PASS。
+- 门禁：quick_validate PASS；check_source_state_budget ok:true；check_release_manifest ok:true（step_count=49）。
+- 详细输出与限制：docs/plans/beta1.0.8/handoffs/phase-0-evidence.md。
 
 ### 阶段 1：合同与样本（M1）
 
