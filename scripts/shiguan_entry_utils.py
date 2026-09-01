@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import hashlib
 from pathlib import Path
 import re
 import zlib
@@ -1801,6 +1802,7 @@ RECALL_EXCLUDED_FIELDS = frozenset(
 RECALL_MIN_SCORE = 1.0
 RECALL_MIN_IDF = 0.4
 RECALL_ASCII_TOKEN_MIN = 3
+RECALL_DEDUPE_FIELDS = ("topic", "summary")
 
 
 def _weighted_searchable_parts(
@@ -2018,6 +2020,17 @@ def _recall_matched_discriminative(
     return False
 
 
+def _recall_dedupe_key(entry: dict[str, object]) -> str:
+    """Normalized identity key for same-topic duplicate folding (P1-1).
+
+    The authoritative store stays md/jsonl; this key is a pure derived
+    projection and never writes back to the source documents.
+    """
+    material = "|".join(str(entry.get(key) or "") for key in RECALL_DEDUPE_FIELDS)
+    normalized = re.sub(r"\s+", " ", material).strip().casefold()
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+
 def _status_facet_aliases(status: object) -> tuple[str, ...]:
     return STATUS_SEMANTICS.get(str(status or "").upper(), {}).get("aliases", ())
 
@@ -2121,6 +2134,42 @@ def _lineage_facet_score(
     return total
 
 
+def _recall_vector_facet_score(
+    entry: dict[str, object],
+    query_tokens: list[str],
+) -> float:
+    """L2: sparse bag-of-words overlap over the existing bucketed vector (design §4.6).
+
+    Uses ``capability_vector_sparse`` (zlib.crc32 % 64 buckets) purely as a
+    derived fingerprint; contributes ranking signal only, never admission.
+    """
+    sparse = entry.get("capability_vector_sparse")
+    if not isinstance(sparse, list) or not sparse:
+        return 0.0
+    buckets: dict[int, float] = {}
+    for item in sparse:
+        if not isinstance(item, dict):
+            continue
+        try:
+            index = int(item.get("i", -1))
+            weight = float(item.get("w", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if index >= 0 and weight:
+            buckets[index] = weight
+    if not buckets:
+        return 0.0
+    query_buckets: dict[int, float] = {}
+    for token in query_tokens:
+        index = zlib.crc32(token.encode("utf-8", errors="ignore")) % 64
+        query_buckets[index] = query_buckets.get(index, 0.0) + 1.0
+    return sum(
+        query_buckets.get(index, 0.0) * weight
+        for index, weight in buckets.items()
+        if index in query_buckets
+    )
+
+
 def _is_structural_token(token: str) -> bool:
     if token in LINEAGE_TERMS:
         return True
@@ -2133,7 +2182,7 @@ def _is_structural_token(token: str) -> bool:
     if re.fullmatch(r"\d{4}(?:\d{2}(?:\d{2})?)?", token):
         return True
     upper_token = token.upper()
-    if re.fullmatch(r"[A-Z0-9]{4,}", upper_token) and not upper_token.isdigit():
+    if re.fullmatch(r"[A-Z0-9]{6,}", upper_token) and not upper_token.isdigit():
         return True
     return False
 
@@ -2152,12 +2201,33 @@ def score_entry_recall_breakdown(
     status = _status_facet_score(entry, query_tokens, idf)
     court_code = _court_code_facet_score(entry, query_tokens, idf)
     lineage = _lineage_facet_score(entry, query_tokens, idf)
-    return {
+    vector = _recall_vector_facet_score(entry, query_tokens)
+    facets = {
         "text": text,
         "status": status,
         "court_code": court_code,
         "lineage": lineage,
-        "total": text + status + court_code + lineage,
+        "vector": vector,
+    }
+    matched_fields = sorted(facet for facet, value in facets.items() if float(value) > 0.0)
+    text_hits = {
+        token: any(
+            _recall_value_occurrences(value, token) > 0
+            for _, value in _weighted_searchable_parts(entry)
+        )
+        for token in query_tokens
+    }
+    any_facet = any(float(facets[key]) > 0.0 for key in ("status", "court_code", "lineage", "vector"))
+    matched_terms = [
+        token
+        for token in query_tokens
+        if text_hits[token] or (_is_structural_token(token) and any_facet)
+    ]
+    return {
+        **facets,
+        "total": text + status + court_code + lineage + vector,
+        "matched_terms": matched_terms,
+        "matched_fields": matched_fields,
         "matched_structural": [token for token in query_tokens if _is_structural_token(token)],
     }
 
@@ -2209,4 +2279,12 @@ def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[d
         key=lambda item: (item[0], str(item[1].get("time", ""))),
         reverse=True,
     )
-    return [entry for _, entry in scored]
+    deduped: list[tuple[float, dict[str, object]]] = []
+    seen: set[str] = set()
+    for score, entry in scored:
+        key = _recall_dedupe_key(entry)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((score, entry))
+    return [entry for _, entry in deduped]

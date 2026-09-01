@@ -1,4 +1,11 @@
-"""Metadata-first Shiguan GBrain recall and settlement candidates."""
+"""Metadata-first Shiguan GBrain recall and settlement candidates.
+
+P2-1 naming: GBrain is a *metadata enhancement layer*, not an independent
+recaller. All recall ranking flows through the single canonical scorer in
+``shiguan_entry_utils`` (``select_matches`` / ``score_entry_recall_breakdown``);
+this module adds governance applicability, conflict preservation, memory-git
+provenance and full-record pointers on top of the same ranked entries.
+"""
 
 from __future__ import annotations
 

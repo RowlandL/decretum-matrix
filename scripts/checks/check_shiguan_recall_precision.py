@@ -159,6 +159,20 @@ BASIC = [
             "zhao": "界面诏",
         },
     },
+    {
+        "record_uid": "f-dup-1",
+        "time": "2026-08-07T04:00:00",
+        "topic": "duplicate subject",
+        "keywords": ["duplicate"],
+        "summary": "same subject summary",
+    },
+    {
+        "record_uid": "f-dup-2",
+        "time": "2026-08-07T05:00:00",
+        "topic": "duplicate subject",
+        "keywords": ["duplicate"],
+        "summary": "same subject summary",
+    },
 ]
 
 COMMON = [
@@ -193,6 +207,8 @@ def evaluate() -> dict[str, Any]:
     # --- Empty query: latest-N (time descending) ---
     latest_uids = _query([], BASIC)
     expected_latest = [
+        "f-dup-2",
+        "f-dup-1",
         "f-lineage-other",
         "f-lineage",
         "f-court-highvalue",
@@ -296,6 +312,14 @@ def evaluate() -> dict[str, Any]:
     )
     if float(breakdown["court_code"]) <= 0.0 or "高风险" not in breakdown["matched_structural"]:
         failures.append("recall_breakdown_not_explainable")
+    if "court_code" not in breakdown["matched_fields"] or "高风险" not in breakdown["matched_terms"]:
+        failures.append("recall_breakdown_matched_fields_missing")
+
+    # --- P1-1: same-topic duplicate folding (keep the latest, derived only) ---
+    dup_uids = _query(["duplicate"], BASIC)
+    dup_present = [uid for uid in dup_uids if uid in ("f-dup-1", "f-dup-2")]
+    if dup_present != ["f-dup-2"]:
+        failures.append("recall_dedupe_same_topic")
 
     ok = not failures
     return {
