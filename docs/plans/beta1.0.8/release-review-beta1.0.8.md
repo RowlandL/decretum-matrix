@@ -164,3 +164,37 @@ REVIEWER 指示"彻底收尾 beta1.0.8 并准备线上发布"。收尾动作与�
   正式安装机复验（clean install + repo-control doctor + config 门禁）→
   打 tag（建议 `beta1.0.8` 或 `v1.0.8`）→ GitHub Release / npm 发布 →
   镜像分支同步（P:/O:）。本任务书范围不执行上述外部动作。
+
+### 8.4 线上发布闭环（2026-09-01，用户授权 GitHub + GitHub Packages npm）
+
+用户指示"线上 GitHub 发布 + GitHub 自带 npm，发布对象 release/beta1.0.8"，全部完成：
+
+1. **发布产物构建链**（连续修复 5 个发布前回归/契约问题）：
+   - PROVENANCE.md 及全部 tracked 文本恢复 LF（与 HEAD blob 一致，消除
+     manifest 归一化哈希 vs 工作副本 CRLF 的漂移）；
+   - 145 个兼容壳重建为 `getattr(main)` + `runpy.run_path(run_name="__main__")`
+     fallback（修复 `check_package_privacy` 等 `unittest.main()` 入口无 `main` 的崩溃）；
+   - 7 处 `Path(__file__).with_name(...)` 同目录假设改指权威路径；
+   - 从 CLI_SUPPORT_FILES / install-projection 排除 release-only validators
+     （release-manifest.json、scripts/release_payload_manifest.py、
+     scripts/check_release_gate.py），满足 npm postinstall 契约；
+   - RELEASE-LOG.md 补 beta1.0.8 章节（release-notes 资产来源）。
+2. **GitHub 线上**（已推送并验证）：
+   - 分支 `release/beta1.0.8`（HEAD `5214e44`）；annotated tag `beta1.0.8`（`66e6c14`）；
+   - GitHub Release：https://github.com/RowlandL/decretum-matrix/releases/tag/beta1.0.8
+     （prerelease，body 版本摘要）；
+   - 资产 4 件：`decretum-matrix-beta1.0.8.zip`（7,683,559 B，SHA256 `333e2773…`）、
+     `.zip.sha256`、`release-attestation.json`、`SBOM.spdx.json`。
+3. **GitHub Packages npm**（已发布并验证）：
+   - 包 `@rowlandl/decretum-matrix@1.0.8-beta.0`，tag `beta`，access public；
+   - 认证：gh device flow（机器码经局域网代理 192.168.3.110:7890 完成授权，
+     scope `repo,write:packages`；token 仅临时 `~/.npmrc`，用后即删、不回显）；
+   - fresh install 冒烟：`npm install @rowlandl/decretum-matrix@beta
+     --registry=https://npm.pkg.github.com` → `added 1 package`，
+     `decretum-matrix --version` → `beta1.0.8`。
+4. **镜像**：P:\decretum-matrix 已同步分支与 tag beta1.0.8；O:\ 备用镜像未动。
+5. **凭据卫生**：device code / access token / 临时 .npmrc 全部删除，无持久化。
+
+遗留（正式安装机/权威环境）：workspace.yaml 升版、clean install 复验、
+repo-control doctor、config 门禁（max_depth/v2 bounds）、turn_context fresh
+worker 衔接。
