@@ -622,7 +622,7 @@ def build_full_record(report: dict[str, Any]) -> str:
 
 
 def run_archive(report: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
-    script = Path(__file__).resolve().with_name("archive_checkpoint.py")
+    script = Path(__file__).resolve().parents[1] / "archive_checkpoint.py"
     if not script.exists():
         raise FileNotFoundError(f"archive_checkpoint.py not found beside {__file__}")
     full_record = build_full_record(report)
@@ -737,4 +737,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

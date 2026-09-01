@@ -1,6 +1,6 @@
 """Compatibility shell (A+B layering) for scripts/checks/check_runtime_identity_contract.py.
 
-Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered as a second entrypoint; direct ``python scripts/check_runtime_identity_contract.py`` calls keep working through this shell.
+Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered twice; direct ``python scripts/check_runtime_identity_contract.py`` calls keep working through this shell.
 """
 
 from __future__ import annotations
@@ -19,4 +19,8 @@ from checks import check_runtime_identity_contract as _real  # noqa: E402
 sys.modules[__name__] = _real
 
 if __name__ == "__main__":
-    sys.exit(_real.main())
+    _main = getattr(_real, "main", None)
+    if callable(_main):
+        sys.exit(_main())
+    import runpy
+    runpy.run_path(str(Path(__file__).resolve().parent / "checks" / "check_runtime_identity_contract.py"), run_name="__main__")

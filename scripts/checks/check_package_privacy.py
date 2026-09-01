@@ -1536,7 +1536,9 @@ class ContentPrivacyTests(unittest.TestCase):
 
         for source_path in (
             Path(package_skill.__file__),
-            Path(package_skill.__file__).with_name("check_obsidian_sync_transaction.py"),
+            Path(package_skill.__file__).resolve().parents[1]
+            / "checks"
+            / "check_obsidian_sync_transaction.py",
         ):
             self.assertFalse(
                 scan_bytes(
@@ -1550,6 +1552,5 @@ class ContentPrivacyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
 
 

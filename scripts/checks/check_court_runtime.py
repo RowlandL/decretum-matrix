@@ -1242,7 +1242,7 @@ def check_full_context_private_body_not_persisted() -> None:
 
 
 def check_public_create_help_contract() -> None:
-    cli = Path(__file__).with_name("court_cli.py")
+    cli = Path(__file__).resolve().parents[1] / "court_cli.py"
     with tempfile.TemporaryDirectory(prefix="court-runtime-public-help-") as temp_dir:
         temp_root = Path(temp_dir)
         runtime_root = temp_root / "runtime"
@@ -2498,4 +2498,3 @@ max_threads = 6
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -65,7 +65,7 @@ def run(script: Path, args: list[str], env: dict[str, str]) -> dict[str, object]
 
 
 def main() -> int:
-    script = Path(__file__).with_name("court_usage_ledger.py")
+    script = Path(__file__).resolve().parents[1] / "court_usage_ledger.py"
     with tempfile.TemporaryDirectory() as temp_dir:
         env = dict(os.environ)
         env["COURT_RUNTIME_ROOT"] = temp_dir
@@ -228,6 +228,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 

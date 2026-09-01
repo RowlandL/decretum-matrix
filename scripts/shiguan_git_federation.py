@@ -1,6 +1,6 @@
 """Compatibility shell (A+B layering) for scripts/services/shiguan_git_federation.py.
 
-Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered twice; direct ``python scripts/shiguan_git_federation.py`` calls keep working.
+Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered twice; direct ``python scripts/shiguan_git_federation.py`` calls keep working through this shell.
 """
 
 from __future__ import annotations
@@ -19,4 +19,8 @@ from services import shiguan_git_federation as _real  # noqa: E402
 sys.modules[__name__] = _real
 
 if __name__ == "__main__":
-    sys.exit(_real.main())
+    _main = getattr(_real, "main", None)
+    if callable(_main):
+        sys.exit(_main())
+    import runpy
+    runpy.run_path(str(Path(__file__).resolve().parent / "services" / "shiguan_git_federation.py"), run_name="__main__")

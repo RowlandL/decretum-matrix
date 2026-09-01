@@ -1,6 +1,6 @@
 """Compatibility shell (A+B layering) for scripts/services/export_shiguan_obsidian.py.
 
-Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered twice; direct ``python scripts/export_shiguan_obsidian.py`` calls keep working.
+Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered twice; direct ``python scripts/export_shiguan_obsidian.py`` calls keep working through this shell.
 """
 
 from __future__ import annotations
@@ -19,4 +19,8 @@ from services import export_shiguan_obsidian as _real  # noqa: E402
 sys.modules[__name__] = _real
 
 if __name__ == "__main__":
-    sys.exit(_real.main())
+    _main = getattr(_real, "main", None)
+    if callable(_main):
+        sys.exit(_main())
+    import runpy
+    runpy.run_path(str(Path(__file__).resolve().parent / "services" / "export_shiguan_obsidian.py"), run_name="__main__")

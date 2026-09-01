@@ -374,7 +374,7 @@ def build_recovery_command(args: argparse.Namespace, row: dict[str, Any]) -> lis
     role = str(row["role"])
     base = [
         sys.executable,
-        str(Path(__file__).with_name("ensure_supercc_court.py")),
+    str(Path(__file__).resolve().parents[1] / "commands" / "ensure_supercc_court.py"),
         "--workspace",
         str(Path(args.workspace).resolve()),
     ]
@@ -552,4 +552,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

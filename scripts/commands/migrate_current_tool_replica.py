@@ -163,7 +163,7 @@ def load_installer(path: Path) -> Any:
 
 
 def archive_installer(backup: Path) -> tuple[Path, str]:
-    source = Path(__file__).with_name("install_current_agent_copy.py")
+    source = Path(__file__).resolve().parents[1] / "install_current_agent_copy.py"
     if not source.is_file():
         raise RuntimeError(f"installer_missing:{source}")
     archived = backup / "installer.py"
@@ -429,4 +429,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

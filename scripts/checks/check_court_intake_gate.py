@@ -383,7 +383,7 @@ def check_generic_error_contract(validator: Validator = validate_conversation_ga
 
 
 def confidence_validation_mutant() -> Validator:
-    source_path = Path(__file__).with_name("court_intake_gate.py")
+    source_path = Path(__file__).resolve().parents[1] / "court_intake_gate.py"
     source = source_path.read_text(encoding="utf-8")
     needle = '    _require(confidence in CONFIDENCE_LEVELS, "confidence")\n'
     require(source.count(needle) == 1, "confidence validation mutation target drifted")
@@ -602,6 +602,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

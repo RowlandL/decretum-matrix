@@ -1,9 +1,6 @@
 """Compatibility shell (A+B layering) for scripts/services/serve_shiguan_tree.py.
 
-Re-exports the real module via sys.modules so ``import serve_shiguan_tree``
-(used by check_shiguan_concurrency / check_shiguan_peer_state_transaction) and
-direct ``python scripts/serve_shiguan_tree.py`` invocations (web daemon) resolve
-to the canonical implementation.
+Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered twice; direct ``python scripts/serve_shiguan_tree.py`` calls keep working through this shell.
 """
 
 from __future__ import annotations
@@ -22,4 +19,8 @@ from services import serve_shiguan_tree as _real  # noqa: E402
 sys.modules[__name__] = _real
 
 if __name__ == "__main__":
-    _real.main()
+    _main = getattr(_real, "main", None)
+    if callable(_main):
+        sys.exit(_main())
+    import runpy
+    runpy.run_path(str(Path(__file__).resolve().parent / "services" / "serve_shiguan_tree.py"), run_name="__main__")
