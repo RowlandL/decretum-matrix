@@ -84,7 +84,7 @@ CHANGELOG_LEGACY_ARCHIVE_ROOT_PATTERN = re.compile(
     r"stable ZIP internal root\s+`court-capability-router/`)",
     re.IGNORECASE,
 )
-LEGACY_MIGRATION_SCRIPT = Path("scripts/migrate_legacy_skill_locator.py")
+LEGACY_MIGRATION_SCRIPT = Path("scripts/commands/migrate_legacy_skill_locator.py")
 
 
 def _add_finding(
@@ -396,7 +396,7 @@ def _check_registry_surfaces(root: Path, findings: list[dict[str, str]]) -> None
         )
         return
 
-    generator_relative = Path("scripts/refresh_capability_registry.py")
+    generator_relative = Path("scripts/commands/refresh_capability_registry.py")
     generator_path = root / generator_relative
     scripts_path = str(generator_path.parent)
     if scripts_path not in sys.path:
