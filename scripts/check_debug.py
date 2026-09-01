@@ -1,18 +1,22 @@
-#!/usr/bin/env python3
-"""Public debug command adapter."""
+"""Compatibility shell (A+B layering) for scripts/checks/check_debug.py.
+
+Registered in check_unified_cli.COMPATIBILITY_SHELL_ENTRYPOINTS so it is not discovered as a second entrypoint; direct ``python scripts/check_debug.py`` calls keep working through this shell.
+"""
 
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 sys.dont_write_bytecode = True
 
-from court_diagnostics import command_main
+_SCRIPTS_ROOT = str(Path(__file__).resolve().parent)
+if _SCRIPTS_ROOT not in sys.path:
+    sys.path.insert(0, _SCRIPTS_ROOT)
 
+from checks import check_debug as _real  # noqa: E402
 
-def main(argv: list[str] | None = None) -> int:
-    return command_main("debug", argv)
-
+sys.modules[__name__] = _real
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(_real.main())

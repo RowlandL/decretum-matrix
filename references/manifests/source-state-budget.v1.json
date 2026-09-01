@@ -105,7 +105,6 @@
       "max_bytes": 8600000
     },
     "source_lines": {
-      "scripts/check_startup_fastpath_contract.py": 620,
       "scripts/court_native_execution.py": 100,
       "scripts/court_office_config.py": 120,
       "scripts/court_supercc_execution.py": 100,
@@ -123,17 +122,11 @@
       "scripts/court_agent_admission_contract.py": 300,
       "scripts/court_codex_protocol_launcher.py": 450,
       "scripts/court_codex_office_worker.py": 450,
-      "scripts/check_court_codex_office_worker.py": 290,
       "scripts/court_codex_host_resolution.py": 320,
-      "scripts/check_court_codex_host_resolution.py": 140,
       "scripts/governance_framework.py": 420,
       "scripts/shiguan_gbrain.py": 500,
       "scripts/shiguan_git_federation.py": 970,
-      "scripts/check_shiguan_git_federation.py": 380,
-      "scripts/check_release_metadata.py": 140,
       "scripts/court_intake_gate.py": 580,
-      "scripts/check_court_intake_gate.py": 600,
-      "scripts/check_governance_framework.py": 765,
       "scripts/shiguan_pending_governance.py": 650,
       "scripts/shiguan_pending_governance_cli.py": 220,
       "scripts/shiguan_pending_trust.py": 460,
@@ -141,7 +134,14 @@
       "scripts/obsidian_config_state.py": 220,
       "scripts/agent_runtime_probe.py": 1310,
       "scripts/codex_runtime_probe_support.py": 300,
-      "scripts/services/serve_shiguan_tree.py": 2800
+      "scripts/services/serve_shiguan_tree.py": 2800,
+      "scripts/checks/check_startup_fastpath_contract.py": 620,
+      "scripts/checks/check_court_codex_office_worker.py": 290,
+      "scripts/checks/check_court_codex_host_resolution.py": 140,
+      "scripts/checks/check_shiguan_git_federation.py": 380,
+      "scripts/checks/check_release_metadata.py": 140,
+      "scripts/checks/check_court_intake_gate.py": 620,
+      "scripts/checks/check_governance_framework.py": 785
     }
   },
   "warning_targets": {
