@@ -1008,8 +1008,8 @@ def _load_latest_install_receipt(home: Path) -> dict[str, Any] | None:
     if not receipts_dir.is_dir():
         return None
     candidates = sorted(
-        receipts_dir.glob("*.json"),
-        key=lambda p: p.stat().st_mtime_ns if p.is_file() else 0,
+        (p for p in receipts_dir.glob("install-*.json") if p.is_file()),
+        key=lambda p: p.stat().st_mtime_ns,
         reverse=True,
     )
     if not candidates:
@@ -1172,4 +1172,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
