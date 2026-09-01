@@ -225,6 +225,7 @@
 | 7746f1f | fix(beta1.0.8): tokenized TF-IDF recall with threshold and discriminative admission (P0-2, TDD) | R-13 |
 | c71d22d | fix(beta1.0.8): four-state assertion recall with scope window and soft negation (A+D, TDD) | R-13 增强 |
 | dc567cb | fix(beta1.0.8): status semantics as a queryable relevance facet, never exclusion (B, TDD) | R-13 增强 |
+| fc4ff52 | feat(beta1.0.8): L0a lineage facet + L0b court_code facet + explainable breakdown | R-13 增强（分层索引落地） |
 
 ---
 
@@ -310,6 +311,17 @@
 - `check_governance_framework` 48 / `check_shiguan_full_record_index` / `check_court_mcp_server`
   → 全绿。
 - 真实索引：`部分`→3×PARTIAL、`余险`→DONE_WITH_CONCERNS、`archive/并行/codex` 不变。
+
+### 4.7 L0a/L0b 结构化面回归（2026-09-01，R-13 增强）
+
+- `check_shiguan_recall_precision.py` 探针增至 20 项（新增 `recall_court_code_facet_risk`
+  / `recall_court_code_facet_value` / `recall_lineage_facet_prefix` /
+  `recall_structural_not_latest_fallback` / `recall_breakdown_not_explainable`）→ PASSED。
+- 真实索引：`高价值`→4（value=A 桶）、`朝制`→4（zhi=朝制 前缀子树）、`202608`→8
+  （日期前缀）、`SCOS`→4（编号前缀，大小写不敏感）、`史馆`→8（结构化 latest）、
+  `并行/archive` 行为不变。
+- governance 48 / lineage_taxonomy / full_record / mcp_server 62 / budget / payload
+  self-test / active-copy drift=0 全绿。
 
 ---
 

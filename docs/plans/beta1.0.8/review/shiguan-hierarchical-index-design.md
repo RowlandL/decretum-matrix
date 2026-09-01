@@ -125,6 +125,21 @@ knowledge_value/priority` 结构化字段。
 - 实证（真实 8 条）：`部分`→3 条 PARTIAL、`余险`→DONE_WITH_CONCERNS、
   `archive/并行/codex` 行为不变。
 
+### 3.2 L0a/L0b 结构化面落地（2026-09-01，fc4ff52）
+
+设计 §5.2/§5.3 的核心结构化索引落地：
+- **L0b 编号段位面**：`_court_code_facet_score` 支持四字码桶（risk/value/priority
+  中英别名，中文精确匹配避免"高风险"误中"较高风险"）、日期前缀（`202608`）、
+  编号前缀（`SCOS...`，大小写不敏感）。
+- **L0a 谱系面**：`_lineage_facet_score` 用谱系受控词（朝制/官署/三省六部/…）
+  匹配 `lineage_parts` 任意层（前缀/子树语义）。
+- **可解释**：`score_entry_recall_breakdown` 输出 text/status/court_code/lineage
+  分项 + `matched_structural`（P1-1 部分）。
+- 结构化 token 绕过 latest-N 回退；结构化命中以 `total>0` 准入（全语料词 idf 低），
+  文本命中保持 `RECALL_MIN_SCORE`。
+- 真实索引：`高价值`→4（value=A）、`朝制`→4、`202608`→8、`SCOS`→4、
+  `史馆`→8 结构化 latest；回归探针 5 项新增全绿。
+
 ---
 
 ## 4. 联网调研：先进方案与数学算法
