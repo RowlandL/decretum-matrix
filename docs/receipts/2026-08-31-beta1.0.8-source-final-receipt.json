@@ -1,10 +1,10 @@
 {
   "schema": "decretum.beta108.source_final_receipt.v1",
   "status": "SOURCE_PASS_HOST_PARTIAL",
-  "time_utc": "2026-08-31T11:24:59Z",
+  "time_utc": "2026-09-01T04:52:00Z",
   "source_root": "C:\\Users\\Administrator\\a02-takeover\\dm-dev",
   "branch": "release/beta1.0.8",
-  "head": "5e0b660",
+  "head": "942ba3a",
   "scope": "full_gate_suite_anchors_and_receipts",
   "gates": {
     "quick_validate": "PASS",
@@ -12,28 +12,29 @@
     "check_read_only_contract": "PASS",
     "check_source_state_budget": "PASS",
     "check_release_manifest": "PASS step_count=49",
-    "check_unified_cli": "PASS",
+    "check_unified_cli": "PASS entries=145 source_only=6",
     "check_court_open_fastpath": "PASS",
     "check_startup_fastpath_contract": "PASS",
     "check_court_result_semantics": "PASSED",
     "check_cli_performance": "PASS",
     "check_capability_index_gate": "PASS (--self-test)",
     "check_release_legal": "PASSED",
-    "release_payload_manifest": "PASS self_test_ok=true",
+    "release_payload_manifest": "PASS self_test_ok=true payload_bytes=7472502",
     "check_package_privacy": "PASS (64 tests)",
     "check_shiguan_concurrency": "SELF_TEST_OK",
     "check_shiguan_http": "PASS (36 static + live loopback)",
     "check_codex_agent_roles": "PARTIAL agents=14/14 config_errors=environment",
     "check_active_copy_hashes": "PARTIAL extra=4 protected shiguan anchors",
-    "check_court_mcp_server": "PASS probes=58",
-    "check_skill_identity": "PASSED",
+    "check_court_mcp_server": "PASS probes=62",
+    "check_skill_identity": "PASSED surfaces=11",
     "check_catalog": "PASS (--strict, CODEX_HOME=.codex)",
     "check_portability": "PASS",
     "phase2_extras": "PASS (envelope/audit/ledger probes inside check_court_mcp_server)",
     "phase3_extras": "PASS (code_session_numbering/iku_repair/closeout_conflict_scan/full_record_index/lineage_taxonomy/lineage_rebuild)",
     "phase4_extras": "PASS (check_court_model_router/check_court_codex_office_worker/check_court_agent_config self-test)",
-    "check_shiguan_git_federation": "PASS checks=20 errors=0",
-    "check_install_projection_closure": "PASS"
+    "check_shiguan_git_federation": "PASSED checks=20",
+    "check_install_projection_closure": "PASS",
+    "check_shiguan_recall_precision": "PASSED probes=27"
   },
   "payload_manifest": {
     "schema": "court.release_manifest.v2",
@@ -59,5 +60,7 @@
   ],
   "known_preexisting": [
     "check_install_current_agent_copy.py self-test _case_hermes_alias_commit_failure_restores_legacy_junction raises ValueError('alias_prepare' not in list); file unchanged since beta1.0.7 closeout 2571178, not in P5-1 gate list, not a phase regression"
-  ]
+  ],
+  "head_full": "942ba3a (final: recall algorithm fully landed + post-layering fixes)",
+  "note": "beta1.0.8 release prep complete: P0/P1/P2 recall algorithm fully landed (L0a/L0b/dedupe/synonyms/inverted-index/cache/RRF), A+B script layering, R-13 closed; post-layering regressions fixed (skill_identity real-path probes, NON_PUBLIC re-target). Host env-limited items unchanged (extra=4 protected anchors, codex config_errors=2)."
 }

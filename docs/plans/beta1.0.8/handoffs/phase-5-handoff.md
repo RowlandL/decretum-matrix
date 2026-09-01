@@ -110,6 +110,19 @@
   （否定 golden 兼容）、full_record、mcp_server 62、unified_cli、budget、payload
   self-test 全绿。
 
+## 6.3 彻底收尾与发布准备（2026-09-01，用户指示；HEAD 942ba3a）
+
+- 分层索引算法 **P0/P1/P2 全量落地**（fc4ff52/23e443c/913e48e/20ea330）：L0a 谱系面、
+  L0b 编号段位面、去重、matched_terms/fields、同义词、倒排索引、load 缓存
+  （16.8ms→0.1ms）、L2 向量面、RRF 融合；`check_shiguan_recall_precision` 27 探针。
+- A+B 脚本分层全量迁移（9f8e424/094fa6d）：checks 86 / commands 47 / services 12 /
+  根壳 ~145；命令名/id 不变；纯算法层不写回 md/jsonl。
+- 收尾修复（942ba3a）：check_skill_identity 指向真身路径（11 surfaces PASSED）、
+  NON_PUBLIC_ENTRYPOINTS 真身化（source_only=6）。
+- 最终门禁全绿（见 release-review §8.2）；source-final receipt 绑定 HEAD 942ba3a。
+- 发布就绪：版本锚点一致；外部发布动作（workspace.yaml 升版/正式安装机复验/
+  tag/GitHub Release/npm/镜像同步）**待 REVIEWER 单独授权**，本任务书范围未执行。
+
 ## 7. 交接自检
 
 - [x] phase-5-evidence.md 存在且与声明一致

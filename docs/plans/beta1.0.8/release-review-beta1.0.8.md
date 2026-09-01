@@ -127,3 +127,40 @@
 2. Phase 0/1/2/3/4 出口评审闭环（沿用，待 REVIEWER）。
 3. `--live-runtime` / check_codex_agent_roles 的 config 门禁归口：本机环境遗留是否记入 P5 已关闭清单（建议：正式安装机复验，本机不作为阻塞）。
 4. turn_context 为 null 时路由语义（P4-2 无回读环境回退 FAILED 不伪报）在真实 fresh worker 运行后的衔接确认。
+
+## 8. 最终收尾（2026-09-01，HEAD 942ba3a）——发布就绪
+
+REVIEWER 指示"彻底收尾 beta1.0.8 并准备线上发布"。收尾动作与结果：
+
+### 8.1 本阶段追加工作（全部闭环）
+- R-13 召回算法按 `shiguan-hierarchical-index-design.md` **全量落地**：
+  P0-1/2/3（四态断言/TF-IDF/字段剔除）、A+B+D（状态语义面/假设轴）、L0a 谱系面、
+  L0b 编号段位面、P1-1 去重+可解释、P1-2 倒排+缓存（load 16.8ms→0.1ms）、P2-1 gbrain
+  命名、P2-2 同义词、L2 向量面、RRF 融合；`check_shiguan_recall_precision` 27 探针全绿。
+- A+B 脚本分层全量迁移（checks 86 / commands 47 / services 12 / 根壳 ~145 /
+  库 46 保持根），命令名/id 不变，`check_unified_cli --all` PASS（145 条目）。
+- **收尾抓取并修复的迁移回归**：`check_skill_identity` 指向根壳导致
+  registry_api/legacy_migration 检查失败（11 surfaces 一度 FAILED）→ 修复为指向
+  `scripts/commands/` 真身，11 surfaces PASSED；`NON_PUBLIC_ENTRYPOINTS` 更新为真身
+  路径，维护工具恢复 source_only（source_only=6）。
+
+### 8.2 门禁最终状态（2026-09-01 本机复跑）
+- 全绿：quick_validate / release_legal / release_metadata(4) / release_manifest(49) /
+  release_payload_manifest self-test(7,472,502 B) / skill_identity(11) / unified_cli(145) /
+  governance(48) / court_mcp_server(62) / recall_precision(27) / lineage_taxonomy /
+  full_record_index / git_federation(20) / session_numbering / iku_repair / closeout /
+  model_router / codex_office_worker / agent_config / projection_closure / concurrency /
+  http / portability / budget(431 files / 7,988,100 B) / package_privacy(64)。
+- 环境受限（正式安装机复验，本机不作为阻塞）：check_active_copy_hashes drift=0、
+  **extra=4 受保护史馆锚点**；check_codex_agent_roles 14/14、config_errors=2。
+
+### 8.3 发布就绪结论
+- 版本锚点：VERSION=beta1.0.8、CHANGELOG/Release-Notes/plugin.json/SBOM/skill-identity/
+  release-manifest 一致；source-final receipt 已更新绑定 **HEAD 942ba3a**。
+- §7 未决决策 1/2/3 已在 REVIEWER_SIGNED（2026-08-31）闭环；第 4 项 turn_context
+  由 R-11 修复 + check_court_agent_config 探针覆盖，本机无 fresh worker 环境，
+  记入正式安装机复验项。
+- **外部发布动作（另行单独授权）**：权威环境 workspace.yaml 升版 →
+  正式安装机复验（clean install + repo-control doctor + config 门禁）→
+  打 tag（建议 `beta1.0.8` 或 `v1.0.8`）→ GitHub Release / npm 发布 →
+  镜像分支同步（P:/O:）。本任务书范围不执行上述外部动作。

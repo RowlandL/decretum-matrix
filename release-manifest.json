@@ -537,8 +537,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "40f8d8ed6d08d8da433e8e21e221992034979366f4aee0fea054ed52c3395a8a",
-      "size": 96499
+      "sha256": "29bcc69f0681d53be0aeea817a93b293862a571d406a967f605e1fde95b41091",
+      "size": 96481
     },
     {
       "mode": "100644",
@@ -567,8 +567,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "92aac895151ba75c6a5e49869d50da50b061749280d2d8d220170cec4b8a5957",
-      "size": 49685
+      "sha256": "3b56a6b8ff2237d3e344a9e7567d5330d93d15f310b9176306d6c25aacc18ca1",
+      "size": 49521
     },
     {
       "mode": "100644",
@@ -1251,8 +1251,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "baf23e9369bae58027ccecae7c5edf80fb96f26449d30399f2f9efa020046225",
-      "size": 73234
+      "sha256": "b15beb05ddb76771f1bc2f59d515d0e7acd5f34cb8e188209f640fccbddd23e0",
+      "size": 73259
     },
     {
       "mode": "100644",
@@ -1683,8 +1683,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_skill_identity.py",
-      "sha256": "420b01f83c72dbaec2d29460978cddc2589298e21fe5816207556fc754b66daa",
-      "size": 32813
+      "sha256": "6915e9d69308bba07ae48b2cd139e519efba19d250db57ff5cb324930f29035b",
+      "size": 32831
     },
     {
       "mode": "100644",
@@ -2812,10 +2812,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7472641,
+    "payload_bytes": 7472502,
     "payload_file_count": 463,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "c148ba77055dc7eb0d34a39d91a829aafb76aabcd7c126de4aa950535caf5b3c",
+    "payload_index_sha256": "a73a89b4e4dbbcbe2367a5243b787ff8f840604b51258d3131ae5259d2c4d68b",
     "source_packaged_tracked_file_count": 455,
     "source_tracked_file_count": 562
   },

@@ -549,13 +549,13 @@
     {
       "authority_source": "scripts/checks/check_doctor_debug_fix.py",
       "command": "check-doctor-debug-fix",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "check",
       "group": "check",
       "handler": "isolated_subprocess:scripts/checks/check_doctor_debug_fix.py",
       "id": "check.check-doctor-debug-fix",
       "legacy_path": "scripts/checks/check_doctor_debug_fix.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
     },
@@ -1459,13 +1459,13 @@
     {
       "authority_source": "scripts/commands/install_codex_plugin_projection.py",
       "command": "install-codex-plugin-projection",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "install",
       "group": "install",
       "handler": "isolated_subprocess:scripts/commands/install_codex_plugin_projection.py",
       "id": "install.install-codex-plugin-projection",
       "legacy_path": "scripts/commands/install_codex_plugin_projection.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },
@@ -1511,13 +1511,13 @@
     {
       "authority_source": "scripts/commands/memory_pipeline_fixture.py",
       "command": "memory-pipeline-fixture",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "check",
       "group": "check",
       "handler": "isolated_subprocess:scripts/commands/memory_pipeline_fixture.py",
       "id": "check.memory-pipeline-fixture",
       "legacy_path": "scripts/commands/memory_pipeline_fixture.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },
