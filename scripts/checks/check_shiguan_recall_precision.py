@@ -113,6 +113,52 @@ BASIC = [
         "summary": "deploy sync paused",
         "status": "BLOCKED",
     },
+    {
+        "record_uid": "f-court-risky",
+        "time": "2026-08-07T00:00:00",
+        "topic": "port firewall",
+        "keywords": ["firewall"],
+        "court_code": "SCOSZLSZUMC-20260801-1-CAAA",
+    },
+    {
+        "record_uid": "f-court-highvalue",
+        "time": "2026-08-07T01:00:00",
+        "topic": "skill catalog",
+        "keywords": ["catalog"],
+        "court_code": "SCOSZLSZUMC-20260802-2-DBAA",
+    },
+    {
+        "record_uid": "f-lineage",
+        "time": "2026-08-07T02:00:00",
+        "topic": "dispatch flow",
+        "keywords": ["flow"],
+        "court_code": "SCOSZLSZUMC-20260803-3-CDBB",
+        "lineage_parts": {
+            "root": "史馆总纪",
+            "zhi": "朝制",
+            "men": "官署",
+            "gang": "三省六部",
+            "mu": "政令流转",
+            "tiao": "上奏回奏",
+            "zhao": "流动诏",
+        },
+    },
+    {
+        "record_uid": "f-lineage-other",
+        "time": "2026-08-07T03:00:00",
+        "topic": "web ui",
+        "keywords": ["ui"],
+        "court_code": "SQAGPCKNDUWE-20260804-4-CDBB",
+        "lineage_parts": {
+            "root": "史馆总纪",
+            "zhi": "工艺",
+            "men": "界面",
+            "gang": "图谱",
+            "mu": "星树视图",
+            "tiao": "交互营造",
+            "zhao": "界面诏",
+        },
+    },
 ]
 
 COMMON = [
@@ -147,6 +193,10 @@ def evaluate() -> dict[str, Any]:
     # --- Empty query: latest-N (time descending) ---
     latest_uids = _query([], BASIC)
     expected_latest = [
+        "f-lineage-other",
+        "f-lineage",
+        "f-court-highvalue",
+        "f-court-risky",
         "f-blocked",
         "f-rejected",
         "f-hypo",
@@ -223,6 +273,29 @@ def evaluate() -> dict[str, Any]:
     rejected_rank = _query(["失败"], BASIC).index("f-rejected") if "f-rejected" in _query(["失败"], BASIC) else -1
     if rejected_rank > 0:
         failures.append("recall_status_facet_not_top")
+
+    # --- L0b: court_code four-code facet (risk/value/priority) ---
+    if "f-court-risky" not in _query(["高风险"], BASIC):
+        failures.append("recall_court_code_facet_risk")
+    high_value = _query(["高价值"], BASIC)
+    if "f-court-risky" not in high_value or "f-court-highvalue" not in high_value:
+        failures.append("recall_court_code_facet_value")
+    structural = _query(["高风险"], BASIC)
+    if not structural or len(structural) >= len(BASIC):
+        failures.append("recall_structural_not_latest_fallback")
+
+    # --- L0a: lineage controlled-vocabulary prefix facet ---
+    lineage_uids = _query(["朝制"], BASIC)
+    if "f-lineage" not in lineage_uids or "f-lineage-other" in lineage_uids:
+        failures.append("recall_lineage_facet_prefix")
+
+    # --- P1-1: explainable breakdown ---
+    breakdown = recall.score_entry_recall_breakdown(
+        next(entry for entry in BASIC if entry["record_uid"] == "f-court-risky"),
+        ["高风险"],
+    )
+    if float(breakdown["court_code"]) <= 0.0 or "高风险" not in breakdown["matched_structural"]:
+        failures.append("recall_breakdown_not_explainable")
 
     ok = not failures
     return {

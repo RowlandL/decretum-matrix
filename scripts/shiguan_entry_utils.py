@@ -642,6 +642,51 @@ STATUS_SEMANTICS = {
 }
 STATUS_FACET_WEIGHT = 6
 
+# L0b (hierarchical-index design §5.3): court_code four-code facet aliases.
+# Chinese aliases match by exact token equality so "高风险" never matches the
+# B-level alias "较高风险" via substring.
+COURT_CODE_FACET_WEIGHT = 6
+COURT_CODE_FACET_ALIASES = {
+    "risk": {
+        "S": ("极高风险", "不可逆", "extreme"),
+        "A": ("高风险", "回滚困难", "high"),
+        "B": ("较高风险", "持久配置", "b"),
+        "C": ("中风险", "medium", "c"),
+        "D": ("低风险", "low", "d"),
+        "E": ("极低风险", "e"),
+        "F": ("无实质风险", "无风险", "none", "f"),
+    },
+    "knowledge_value": {
+        "S": ("核心价值", "s"),
+        "A": ("高价值", "高频复用", "a"),
+        "B": ("较高价值", "b"),
+        "C": ("中价值", "c"),
+        "D": ("低价值", "d"),
+        "E": ("极低价值", "e"),
+        "F": ("无长期价值", "不召回", "f"),
+    },
+    "priority": {
+        "S": ("最高优先级", "阻断", "s"),
+        "A": ("高优先级", "a"),
+        "B": ("较高优先级", "b"),
+        "C": ("中优先级", "c"),
+        "D": ("低优先级", "d"),
+        "E": ("很低优先级", "e"),
+        "F": ("不排期", "f"),
+    },
+}
+# L0a (design §5.2): controlled lineage vocabulary -> prefix/subtree matching.
+LINEAGE_FACET_WEIGHT = 6
+LINEAGE_TERMS: frozenset[str] = frozenset(
+    {
+        value
+        for case in CONTENT_TAXONOMY
+        for value in case[:5]
+    }
+    | set(LINEAGE_CODE_OVERRIDES)
+    | {"史馆总纪", "待审"}
+)
+
 EDICT_CONTEXT_TERMS = (
     "圣旨",
     "诏书",
@@ -2005,6 +2050,118 @@ def _status_facet_score(
     return total
 
 
+def _court_code_facet_score(
+    entry: dict[str, object],
+    query_tokens: list[str],
+    idf: dict[str, float],
+) -> float:
+    """L0b: relevance from court_code segments (risk/value/priority/date/code prefix).
+
+    Queries like "高风险" / "高价值" / "202608" / "SCOS..." are structural, not
+    free text: they filter the four-code buckets and the date/lineage prefix
+    (hierarchical-index design §5.3).
+    """
+    parts = entry.get("court_code_parts")
+    if isinstance(parts, dict):
+        risk = str(parts.get("risk") or "")
+        value = str(parts.get("knowledge_value") or "")
+        priority = str(parts.get("priority") or "")
+        date = str(parts.get("date") or "")
+        lineage_code = str(parts.get("lineage") or "")
+    else:
+        code = str(entry.get("court_code") or "")
+        segments = code.split("-")
+        four = segments[-1] if len(segments) >= 4 and len(segments[-1]) >= 4 else ""
+        risk = four[1] if len(four) > 1 else ""
+        value = four[2] if len(four) > 2 else ""
+        priority = four[3] if len(four) > 3 else ""
+        date = segments[-3] if len(segments) >= 3 else ""
+        lineage_code = segments[0] if segments else ""
+    letters = {"risk": risk, "knowledge_value": value, "priority": priority}
+    total = 0.0
+    for token in query_tokens:
+        for dimension, aliases_map in COURT_CODE_FACET_ALIASES.items():
+            for level, aliases in aliases_map.items():
+                if letters.get(dimension) == level and token in aliases:
+                    total += COURT_CODE_FACET_WEIGHT * idf.get(token, 0.0)
+                    break
+        if re.fullmatch(r"\d{4}(?:\d{2}(?:\d{2})?)?", token) and date.startswith(token):
+            total += COURT_CODE_FACET_WEIGHT * idf.get(token, 0.0)
+        upper_token = token.upper()
+        if (
+            re.fullmatch(r"[A-Z0-9]{4,}", upper_token)
+            and not upper_token.isdigit()
+            and lineage_code.upper().startswith(upper_token)
+        ):
+            total += COURT_CODE_FACET_WEIGHT * idf.get(token, 0.0)
+    return total
+
+
+def _lineage_facet_score(
+    entry: dict[str, object],
+    query_tokens: list[str],
+    idf: dict[str, float],
+) -> float:
+    """L0a: relevance from the 古制谱系 controlled vocabulary (prefix/subtree).
+
+    A query token that is a lineage term (e.g. 朝制 / 官署 / 三省六部) matches
+    records whose lineage_parts contain it at any level (design §5.2).
+    """
+    parts = entry.get("lineage_parts")
+    if not isinstance(parts, dict):
+        try:
+            parts = content_lineage_parts(entry)
+        except Exception:
+            return 0.0
+    values = {str(parts.get(field) or "") for field in CONTENT_LINEAGE_FIELDS}
+    total = 0.0
+    for token in query_tokens:
+        if token in LINEAGE_TERMS and any(token in value for value in values):
+            total += LINEAGE_FACET_WEIGHT * idf.get(token, 0.0)
+    return total
+
+
+def _is_structural_token(token: str) -> bool:
+    if token in LINEAGE_TERMS:
+        return True
+    if any(
+        token in aliases
+        for aliases_map in COURT_CODE_FACET_ALIASES.values()
+        for aliases in aliases_map.values()
+    ):
+        return True
+    if re.fullmatch(r"\d{4}(?:\d{2}(?:\d{2})?)?", token):
+        return True
+    upper_token = token.upper()
+    if re.fullmatch(r"[A-Z0-9]{4,}", upper_token) and not upper_token.isdigit():
+        return True
+    return False
+
+
+def score_entry_recall_breakdown(
+    entry: dict[str, object],
+    terms: list[object],
+    *,
+    idf: dict[str, float] | None = None,
+) -> dict[str, object]:
+    """Explainable recall score: text + status + court_code + lineage (P1-1)."""
+    query_tokens = _recall_query_tokens(terms)
+    if idf is None:
+        idf = {token: 1.0 for token in query_tokens}
+    text = score_entry_recall(entry, terms, idf=idf)
+    status = _status_facet_score(entry, query_tokens, idf)
+    court_code = _court_code_facet_score(entry, query_tokens, idf)
+    lineage = _lineage_facet_score(entry, query_tokens, idf)
+    return {
+        "text": text,
+        "status": status,
+        "court_code": court_code,
+        "lineage": lineage,
+        "total": text + status + court_code + lineage,
+        "matched_structural": [token for token in query_tokens if _is_structural_token(token)],
+    }
+
+
 def score_entry(entry: dict[str, object], terms: list[str]) -> int:
     if not terms:
         return 0
@@ -2031,21 +2188,22 @@ def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[d
     if not query_tokens:
         return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
     idf = recall_idf(entries, terms)
-    if not any(idf.get(token, 0.0) >= RECALL_MIN_IDF for token in query_tokens):
-        # Non-discriminative query: every token is near-corpus-wide (e.g. 史馆
-        # inside every lineage/capability vector). Text ranking would be
-        # meaningless, so fall back to latest-first (time descending), matching
-        # the explicit "latest N" semantics (P2-3 direction).
+    has_structural = any(_is_structural_token(token) for token in query_tokens)
+    if not any(idf.get(token, 0.0) >= RECALL_MIN_IDF for token in query_tokens) and not has_structural:
+        # Non-discriminative query with no structural token: every token is
+        # near-corpus-wide (e.g. 史馆 inside every lineage/capability vector).
+        # Text ranking would be meaningless, so fall back to latest-first
+        # (time descending), matching the "latest N" semantics (P2-3). A
+        # structural token (lineage/segment/date/code prefix) instead routes to
+        # the structured facets below (L0a/L0b).
         return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
     scored = []
     for entry in entries:
-        score = score_entry_recall(entry, terms, idf=idf)
-        facet = _status_facet_score(entry, query_tokens, idf)
-        total = score + facet
-        if total >= RECALL_MIN_SCORE and (
-            _recall_matched_discriminative(entry, query_tokens, idf, RECALL_MIN_IDF)
-            or facet > 0.0
-        ):
+        breakdown = score_entry_recall_breakdown(entry, terms, idf=idf)
+        total = float(breakdown["total"])
+        facet = float(breakdown["status"]) + float(breakdown["court_code"]) + float(breakdown["lineage"])
+        text_matched = _recall_matched_discriminative(entry, query_tokens, idf, RECALL_MIN_IDF)
+        if (total >= RECALL_MIN_SCORE and text_matched) or (facet > 0.0 and total > 0.0):
             scored.append((total, entry))
     scored.sort(
         key=lambda item: (item[0], str(item[1].get("time", ""))),
