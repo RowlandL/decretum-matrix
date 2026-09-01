@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+# A+B layering: real module lives in scripts/services/; keep scripts root importable.
+import sys
+from pathlib import Path
+_SCRIPTS_ROOT = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS_ROOT not in sys.path:
+    sys.path.insert(0, _SCRIPTS_ROOT)
+
+
 from datetime import datetime, timedelta
 import argparse
 import hashlib
@@ -2787,3 +2795,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
