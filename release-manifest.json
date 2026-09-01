@@ -567,8 +567,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "3b56a6b8ff2237d3e344a9e7567d5330d93d15f310b9176306d6c25aacc18ca1",
-      "size": 49521
+      "sha256": "bbbd0185c82fc7f3492b09e8c0e88cbbc747dfc8bf127eae642b7fc55f61bca0",
+      "size": 49322
     },
     {
       "mode": "100644",
@@ -1034,12 +1034,6 @@
     },
     {
       "mode": "100644",
-      "path": "scripts/check_release_gate.py",
-      "sha256": "6af2af3c6f66fb081650c39ff30f51a79e26571b04feb95aadabe624d0c2d9b4",
-      "size": 842
-    },
-    {
-      "mode": "100644",
       "path": "scripts/check_release_legal.py",
       "sha256": "bd9277c5679103933d5a28efd12be2cd55b09cf3a3ca5d83033e0659e6d09d62",
       "size": 846
@@ -1251,8 +1245,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "b15beb05ddb76771f1bc2f59d515d0e7acd5f34cb8e188209f640fccbddd23e0",
-      "size": 73259
+      "sha256": "94a26713b7de97fd523a2d23c86e98e0fb70f0d0254b7b5d9ee608327831f4d7",
+      "size": 73226
     },
     {
       "mode": "100644",
@@ -2492,12 +2486,6 @@
     },
     {
       "mode": "100644",
-      "path": "scripts/release_payload_manifest.py",
-      "sha256": "4e31ad0d3a24b6afffe02e991cde5cbdbcb5f1ededd1a0fd82e530e9c357598c",
-      "size": 872
-    },
-    {
-      "mode": "100644",
       "path": "scripts/repair_archive_placeholders.py",
       "sha256": "23379b108ba250044f6ee5013053b503c7de890b8bf1796ada19985b3cc16f6e",
       "size": 884
@@ -2812,11 +2800,11 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7501783,
-    "payload_file_count": 463,
+    "payload_bytes": 7499837,
+    "payload_file_count": 461,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "97b2638ad73d7d798f7513b2f809747d363e17dba5e873f94bb5ce67864df755",
-    "source_packaged_tracked_file_count": 455,
+    "payload_index_sha256": "6eeca1f1957b325a89f3bde2bd9c76a8da42929c26d736a0e01cd1380b8b56db",
+    "source_packaged_tracked_file_count": 453,
     "source_tracked_file_count": 562
   },
   "license": {
@@ -2935,7 +2923,9 @@
     "references/user-manual-zh.md",
     "scripts/README.md",
     "scripts/build_npm_package.mjs",
-    "scripts/check_npm_package.mjs"
+    "scripts/check_npm_package.mjs",
+    "scripts/check_release_gate.py",
+    "scripts/release_payload_manifest.py"
   ],
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",

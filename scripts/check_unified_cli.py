@@ -74,7 +74,6 @@ CLI_SUPPORT_FILES = frozenset(
         "references/manifests/github-release-metadata.v1.json",
         "references/manifests/release-gates.v1.json",
         "references/manifests/source-state-budget.v1.json",
-        "release-manifest.json",
         "scripts/check_court_native_host_dispatch.py",
         "scripts/check_shiguan_git_federation.py",
         "scripts/codex_runtime_probe_support.py",
