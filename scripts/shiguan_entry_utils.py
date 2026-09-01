@@ -1771,10 +1771,28 @@ def index_path() -> Path:
     return reference_path("shiguan-index.jsonl")
 
 
+_LOAD_CACHE: dict[tuple[str, int, int], list[dict[str, object]]] = {}
+_LOAD_CACHE_MAX = 8
+
+
 def load_entries(path: Path | None = None) -> list[dict[str, object]]:
+    """Load and enrich Shiguan entries with a stat-keyed in-process cache (P1-2).
+
+    The authoritative store stays the md-derived jsonl; the cache is a pure
+    in-memory projection keyed by (path, mtime_ns, size) and is rebuilt on any
+    source change - it never writes back to documents.
+    """
     source = path or index_path()
     if not source.exists():
         return []
+    try:
+        stat = source.stat()
+    except OSError:
+        return []
+    cache_key = (str(source), stat.st_mtime_ns, stat.st_size)
+    cached = _LOAD_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     entries: list[dict[str, object]] = []
     for line in source.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -1787,6 +1805,9 @@ def load_entries(path: Path | None = None) -> list[dict[str, object]]:
         if isinstance(value, dict):
             enrich_entry(value)
             entries.append(value)
+    if len(_LOAD_CACHE) >= _LOAD_CACHE_MAX:
+        _LOAD_CACHE.pop(next(iter(_LOAD_CACHE)))
+    _LOAD_CACHE[cache_key] = entries
     return entries
 
 
@@ -1994,6 +2015,58 @@ def recall_idf(entries: list[dict[str, object]], terms: list[object]) -> dict[st
         token: math.log((total - df[token] + 0.5) / (df[token] + 0.5) + 1.0)
         for token in query_tokens
     }
+
+
+class RecallIndex:
+    """In-memory inverted index over the recall fields (P1-2, design §5.4).
+
+    Pure derived structure: ASCII tokens map to entry ids; CJK runs are kept
+    for substring candidate generation. Building and querying never touch the
+    source md/jsonl documents.
+    """
+
+    def __init__(self, entries: list[dict[str, object]]) -> None:
+        self._ascii: dict[str, set[int]] = {}
+        self._cjk_runs: list[tuple[str, int]] = []
+        for entry_index, entry in enumerate(entries):
+            seen_ascii: set[str] = set()
+            for _, value in _weighted_searchable_parts(entry):
+                lowered = value.casefold()
+                for match in TOKEN_RE.finditer(lowered):
+                    token = match.group(0)
+                    if CHINESE_RE.search(token):
+                        self._cjk_runs.append((token, entry_index))
+                    elif token not in seen_ascii:
+                        seen_ascii.add(token)
+                        self._ascii.setdefault(token, set()).add(entry_index)
+
+    def candidates(self, query_tokens: list[str]) -> set[int]:
+        """Entry ids that could match any query token (superset, never a subset)."""
+        result: set[int] = set()
+        for token in query_tokens:
+            if CHINESE_RE.search(token):
+                for run, entry_index in self._cjk_runs:
+                    if token in run:
+                        result.add(entry_index)
+                continue
+            for key, entry_ids in self._ascii.items():
+                if _recall_ascii_token_matches(key, token):
+                    result.update(entry_ids)
+        return result
+
+
+def build_inverted_index(entries: list[dict[str, object]]) -> RecallIndex:
+    return RecallIndex(entries)
+
+
+def recall_rrf(rankings: list[list[object]], k: int = 60) -> dict[str, float]:
+    """Reciprocal Rank Fusion (design §5.5): score = sum 1/(k + rank)."""
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, item in enumerate(ranking, start=1):
+            key = str(item)
+            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+    return scores
 
 
 def score_entry_recall(
@@ -2265,7 +2338,12 @@ def score_entry(entry: dict[str, object], terms: list[str]) -> int:
     return score
 
 
-def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[dict[str, object]]:
+def select_matches(
+    entries: list[dict[str, object]],
+    terms: list[str],
+    *,
+    index: RecallIndex | None = None,
+) -> list[dict[str, object]]:
     """Rank entries by TF-IDF recall score with a minimum-score admission floor.
 
     Terms are tokenized; ASCII matches are exact/separator-boundary tokens, CJK
@@ -2287,8 +2365,16 @@ def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[d
         # structural token (lineage/segment/date/code prefix) instead routes to
         # the structured facets below (L0a/L0b).
         return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
+    entry_pool: list[tuple[int, dict[str, object]]]
+    if index is not None and not has_structural:
+        entry_pool = [
+            (entry_index, entries[entry_index])
+            for entry_index in sorted(index.candidates(query_tokens))
+        ]
+    else:
+        entry_pool = list(enumerate(entries))
     scored = []
-    for entry in entries:
+    for _entry_index, entry in entry_pool:
         breakdown = score_entry_recall_breakdown(entry, terms, idf=idf)
         total = float(breakdown["total"])
         facet = float(breakdown["status"]) + float(breakdown["court_code"]) + float(breakdown["lineage"])
@@ -2308,3 +2394,55 @@ def select_matches(entries: list[dict[str, object]], terms: list[str]) -> list[d
         seen.add(key)
         deduped.append((score, entry))
     return [entry for _, entry in deduped]
+
+
+def select_matches_rrf(
+    entries: list[dict[str, object]],
+    terms: list[str],
+    *,
+    k: int = 60,
+    limit: int = 20,
+) -> list[dict[str, object]]:
+    """RRF-fused variant (design §5.5): text / structure / vector rankings merged.
+
+    The default ``select_matches`` keeps the linear fused score for full
+    backward compatibility; this variant exposes the Reciprocal Rank Fusion
+    path used when multiple retrieval signals should be combined rank-wise.
+    """
+    query_tokens = _recall_query_tokens(terms)
+    if not query_tokens:
+        return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
+    idf = recall_idf(entries, terms)
+    has_structural = any(_is_structural_token(token) for token in query_tokens)
+    if not any(idf.get(token, 0.0) >= RECALL_MIN_IDF for token in query_tokens) and not has_structural:
+        return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
+    text_rank: list[str] = []
+    struct_rank: list[str] = []
+    vector_rank: list[str] = []
+    for entry in entries:
+        uid = str(entry.get("record_uid") or "")
+        breakdown = score_entry_recall_breakdown(entry, terms, idf=idf)
+        if float(breakdown["text"]) > 0.0:
+            text_rank.append((float(breakdown["text"]), uid))
+        struct = float(breakdown["status"]) + float(breakdown["court_code"]) + float(breakdown["lineage"])
+        if struct > 0.0:
+            struct_rank.append((struct, uid))
+        if float(breakdown["vector"]) > 0.0:
+            vector_rank.append((float(breakdown["vector"]), uid))
+    rankings = [
+        [uid for _, uid in sorted(rank, reverse=True)][:limit]
+        for rank in (text_rank, struct_rank, vector_rank)
+    ]
+    fused = recall_rrf(rankings, k=k)
+    ranked = sorted(fused.items(), key=lambda item: (-item[1], str(item[0])))
+    by_uid = {str(entry.get("record_uid") or ""): entry for entry in entries}
+    selected = [by_uid[uid] for uid, _ in ranked if uid in by_uid]
+    deduped: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for entry in selected:
+        key = _recall_dedupe_key(entry)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    return deduped

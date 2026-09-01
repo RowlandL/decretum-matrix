@@ -337,6 +337,35 @@ def evaluate() -> dict[str, Any]:
     if "f-mem" not in en_memory or "f-neg" not in en_memory:
         failures.append("recall_synonym_en_baseline")
 
+    # --- P1-2: inverted-index candidate pruning is a pure superset ---
+    index = recall.build_inverted_index([dict(entry) for entry in BASIC])
+    indexed_uids = _uids(
+        recall.select_matches([dict(entry) for entry in BASIC], ["archive"], index=index)
+    )
+    if indexed_uids != archive_uids:
+        failures.append("recall_inverted_index_parity")
+
+    # --- P1-2: RRF fusion formula ---
+    fused = recall.recall_rrf([["a", "b"], ["a", "c"]], k=60)
+    if not (fused.get("a", 0.0) > fused.get("b", 0.0) > 0.0 and fused.get("a", 0.0) > fused.get("c", 0.0)):
+        failures.append("recall_rrf_merges")
+
+    # --- P1-2: load_entries stat-keyed cache reuses the same object ---
+    import json as _json
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        index_file = Path(tmp) / "shiguan-index.jsonl"
+        index_file.write_text(
+            _json.dumps({"topic": "cache probe", "time": "2026-08-01T00:00:00", "source": "probe.md"})
+            + "\n",
+            encoding="utf-8",
+        )
+        first = recall.load_entries(index_file)
+        second = recall.load_entries(index_file)
+        if first is not second or not first:
+            failures.append("recall_load_cache_reuse")
+
     ok = not failures
     return {
         "schema": "court.shiguan_recall_precision_check.v1",
