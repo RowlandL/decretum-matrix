@@ -1803,6 +1803,16 @@ RECALL_MIN_SCORE = 1.0
 RECALL_MIN_IDF = 0.4
 RECALL_ASCII_TOKEN_MIN = 3
 RECALL_DEDUPE_FIELDS = ("topic", "summary")
+RECALL_SYNONYMS = {
+    "史馆": ("shiguan",),
+    "shiguan": ("史馆",),
+    "记忆": ("memory",),
+    "memory": ("记忆",),
+    "编号": ("court_code",),
+    "court_code": ("编号",),
+    "索引": ("index",),
+    "index": ("索引",),
+}
 
 
 def _weighted_searchable_parts(
@@ -1901,13 +1911,23 @@ def _recall_any_positive_occurrence(value: str, needle: str) -> bool:
 
 
 def _recall_query_tokens(terms: list[object]) -> list[str]:
-    """Normalize query terms into recall tokens (ASCII runs / CJK runs)."""
+    """Normalize query terms into recall tokens (ASCII runs / CJK runs).
+
+    P2-2: direct-translation synonyms are expanded (史馆<->shiguan,
+    记忆<->memory, 编号<->court_code, 索引<->index) so cross-language queries
+    hit the same records. The expansion is intentionally conservative (only
+    literal equivalents) to keep precise-term semantics unchanged.
+    """
     tokens: list[str] = []
     for term in terms:
         for token in TOKEN_RE.findall(str(term or "")):
             lowered = token.casefold()
             if lowered and lowered not in tokens:
                 tokens.append(lowered)
+    for token in list(tokens):
+        for synonym in RECALL_SYNONYMS.get(token, ()):
+            if synonym not in tokens:
+                tokens.append(synonym)
     return tokens
 
 

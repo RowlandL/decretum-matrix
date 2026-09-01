@@ -173,6 +173,13 @@ BASIC = [
         "keywords": ["duplicate"],
         "summary": "same subject summary",
     },
+    {
+        "record_uid": "f-mem",
+        "time": "2026-08-07T06:00:00",
+        "topic": "memory retention",
+        "keywords": ["memory"],
+        "summary": "memory retention policy",
+    },
 ]
 
 COMMON = [
@@ -207,6 +214,7 @@ def evaluate() -> dict[str, Any]:
     # --- Empty query: latest-N (time descending) ---
     latest_uids = _query([], BASIC)
     expected_latest = [
+        "f-mem",
         "f-dup-2",
         "f-dup-1",
         "f-lineage-other",
@@ -320,6 +328,14 @@ def evaluate() -> dict[str, Any]:
     dup_present = [uid for uid in dup_uids if uid in ("f-dup-1", "f-dup-2")]
     if dup_present != ["f-dup-2"]:
         failures.append("recall_dedupe_same_topic")
+
+    # --- P2-2: direct-translation synonym expansion (记忆 <-> memory) ---
+    zh_memory = _query(["记忆"], BASIC)
+    if "f-mem" not in zh_memory:
+        failures.append("recall_synonym_zh_to_en")
+    en_memory = _query(["memory"], BASIC)
+    if "f-mem" not in en_memory or "f-neg" not in en_memory:
+        failures.append("recall_synonym_en_baseline")
 
     ok = not failures
     return {
