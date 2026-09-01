@@ -226,6 +226,9 @@
 | c71d22d | fix(beta1.0.8): four-state assertion recall with scope window and soft negation (A+D, TDD) | R-13 增强 |
 | dc567cb | fix(beta1.0.8): status semantics as a queryable relevance facet, never exclusion (B, TDD) | R-13 增强 |
 | fc4ff52 | feat(beta1.0.8): L0a lineage facet + L0b court_code facet + explainable breakdown | R-13 增强（分层索引落地） |
+| 23e443c | feat(beta1.0.8): dedupe + matched_terms/fields + L2 vector facet + gbrain naming (P1-1/P2-1) | R-13 增强（索引收尾） |
+| 913e48e | feat(beta1.0.8): direct-translation synonym expansion (P2-2) | R-13 增强（索引收尾） |
+| 20ea330 | feat(beta1.0.8): inverted index + load cache + RRF fusion (P1-2/L2) | R-13 增强（索引收尾） |
 
 ---
 

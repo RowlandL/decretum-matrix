@@ -140,6 +140,26 @@ knowledge_value/priority` 结构化字段。
 - 真实索引：`高价值`→4（value=A）、`朝制`→4、`202608`→8、`SCOS`→4、
   `史馆`→8 结构化 latest；回归探针 5 项新增全绿。
 
+### 3.3 P1/P2 剩余项全部落地（2026-09-01，23e443c / 913e48e / 20ea330）
+
+- **P1-1 去重**：`select_matches` 按 normalized topic+summary sha 折叠同题记录
+  （保留 top/最新）；真实索引 `archive` 2→1、`并行` 3→2。
+- **P1-1 可解释**：`score_entry_recall_breakdown` 输出 matched_terms /
+  matched_fields（text/status/court_code/lineage/vector）+ matched_structural。
+- **P2-1 gbrain 命名**：文档化 GBrain=元数据增强层（统一召回器之上），行为不变。
+- **P2-2 同义词**：仅直译等价（史馆↔shiguan、记忆↔memory、编号↔court_code、
+  索引↔index）在 `_recall_query_tokens` 内扩展，精确词（archive 等）不变。
+- **P1-2 倒排+缓存**：`RecallIndex`（ASCII token→ids + CJK run 子串候选）纯派生；
+  `load_entries` stat-keyed 内存缓存（path+mtime+size，cap 8），实测 16.8ms→0.1ms；
+  结构化查询保持全量以保证 facet 正确。
+- **L2+RRF**：向量面（现有 `bucketed_sparse_vector` 词袋重叠，仅排序信号）纳入
+  breakdown；`recall_rrf(rankings, k=60)` + `select_matches_rrf` 提供 RRF 融合路径，
+  默认 `select_matches` 保持线性融合完全兼容。
+
+**兼容性原则（用户约束）**：召回/索引是**纯算法层**——数据权威始终是 md 派生
+jsonl；倒排/缓存/去重键均为内存派生结构，绝不写回文档，源变更（mtime）即失效
+重建；算法 API（select_matches/score_entry*/query/MCP）向后兼容。
+
 ---
 
 ## 4. 联网调研：先进方案与数学算法
