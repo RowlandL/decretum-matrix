@@ -1,5 +1,19 @@
 # Release Log
 
+## beta1.0.8
+
+- 状态：发布阶段（M5）全量门禁 22 项与 Phase 2/3/4 新增独立 check 全绿（本机环境受限项另述）；
+  `release/beta1.0.8` 收据与版本锚点已同步，source-final / install-host-closeout 收据绑定当前 HEAD。
+- 范围：领域化账册与审计、统一编号 receipt、谱系防过拟合、IKU 受控修复、结诏冲突/过期、
+  GBrain 记忆治理、Codex host proof 模型路由（含 fresh-session 回读证明）与 MCP 12 工具矩阵。
+- 本机环境遗留（正式安装机复验）：check_active_copy_hashes 仅余 4 个受保护史馆锚点 extra；
+  check_codex_agent_roles / check_court_agent_config --live-runtime 的 Codex 配置
+  （agents.max_depth=4、v2 bounds/保留 schema）未在本机应用，ensure_court_agent_config 判定
+  REMINDER_ONLY 非阻塞。
+- 外部 tag、GitHub Release、npm 远端状态与宿主实际加载仍由对应回执证明；本条不替代
+  capability evidence 或外部发布回执。
+
+# Release Notes
 本文件逐条展开 README 的发布摘要。它是整理后的项目发布记录，不是运行日志，也不包含个人记忆记录。
 
 ## beta1.0.6 - 2026-08-01
