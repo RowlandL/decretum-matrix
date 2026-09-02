@@ -1,5 +1,18 @@
 # Changelog
 
+## beta1.0.9 - 2026-09-02
+
+### Changed
+
+- 语义纠正（不过拟合）：明确 **太子受旨定性**（Taizi intake：意图初判、历史线索初判、
+  建立结果章程）在三省会审**之前**由太子完成；问题拆解（decomposition）归属**中书省**
+  拟旨阶段，太子不代中书拆解；`court semantic checkpoint/verify` 的
+  VERIFIED/DISPATCHABLE 仅为三省会审的 P00 **语义门禁**，不构成中书/门下/尚书官署被
+  派遣或履职的证据；需要三省官署回奏时与六部同规则（`agent-admit` + host-native
+  spawn/reuse/wake，或显式 `serial_inline`），否则如实记录 `runtime_degraded`/`PARTIAL`。
+ 仅文档/帮助层落地，未新增状态机、命令或门禁（SKILL.md、`court open` 帮助、
+  `court_runtime` docstring）。
+
 ## beta1.0.8 - 2026-08-31
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "decretum-matrix",
-  "version": "beta1.0.8",
+  "version": "beta1.0.9",
   "description": "Decretum Matrix optional Codex plugin activation shell for the skill and read-only MCP.",
   "author": {
     "name": "RowlandL"
