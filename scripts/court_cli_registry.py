@@ -59,7 +59,10 @@ COURT_OPEN_GUIDANCE_MARKDOWN = """# Decretum Matrix court open
 
 1. Load `SKILL.md` and only the governing reference for the current behavior.
 2. If the latest user message does not select `approval`, `autonomous`, or `super`, ask for that choice and stop.
-3. Route a formal task through the Three Departments before implementation.
+3. Taizi intake first (受旨定性: intent inference, 历史线索初判, 建立结果章程;
+   flow state Taizi), then convene 三省会审 (中书拟旨/拆解, 门下封驳, 尚书评估)
+   before implementation. Semantic DISPATCHABLE is a P00 gate, never a
+   three-department office dispatch or reply.
 4. After the Taizi reply, Shangshu selects only the ministries that add evidence or execution value.
 5. Run machine admission immediately before a real host spawn; packets and admission checks are not spawn evidence.
 

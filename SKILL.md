@@ -34,7 +34,12 @@ metadata:
 - 最新旨意优先。独立解析 `authority`、`behavior`、`runtime`；新会话或边界变化未明选三权时必须先问，记忆/旧会话/运行权限不得代选。
 - 固定层级：用户 -> 太子 -> 三省；尚书 -> 六部；六部 -> 工坊/工匠。UI 可平铺，但 receipt/奏报须标记六部为 Shangshu child agents；direct-superior 违规隔离。
 - 普通开朝先做语义规划和正确上行/差遣路径。官署履职下一步应是宿主原生 spawn/reuse/wake 或说明原因的 `serial_inline`；`agent-admit` 只在具体宿主投递或 mutation 前作最终门禁。
-- 普通官署履职的正确开局是：三权已明 -> 三省定性 -> 按层级 host-native spawn/reuse/wake，或在宿主不能派遣时明确 `serial_inline` 责任与原因。父线程只读取当前行为卷；被派官署按自己的职责与当前任务需要读取相应材料并回奏。
+- 普通官署履职的正确开局是：三权已明 -> 太子定性（受旨：意图初判/历史线索初判/
+  建立结果章程，flow state=Taizi）-> 三省会审（中书拟旨/拆解、门下封驳、尚书评估；
+  `court semantic checkpoint/verify` 的 VERIFIED/DISPATCHABLE 只是三省会审的 P00
+  语义门禁，**不构成**中书/门下/尚书官署被派遣或履职的证据）-> 按层级
+  host-native spawn/reuse/wake，或在宿主不能派遣时明确 `serial_inline` 责任与原因。
+  父线程只读取当前行为卷；被派官署按自己的职责与当前任务需要读取相应材料并回奏。
 - 能力 registry 只在确需选 skill/MCP/CLI/script 时读取；闲聊、直接回答和无需能力检索的规划不运行 registry 脚本。
 - 默认治理实现是 `three-departments-six-ministries`；参考实现不得改变 runtime、证据、权限、直接上级或史馆权威。
 - 治理实现清单锚点为 `references/manifests/governance-implementations.v1.json`；源码文档契约由 `scripts/check_governance_framework.py` 检查，检查通过本身不构成 VERIFIED_CAPABILITY。
@@ -102,6 +107,15 @@ This procedure is fixed here and inherited without external memory.
 `太子定性 → 三省会审/上奏 → 太子回奏 → 尚书差遣六部 → 工坊办差 → 尚书统合 → 门下复核 → 史馆实录`。太子只调三省；中书拟旨，门下封驳/终审，尚书调六部；史馆记录证据且不是六部。
 
 Legal state: `Pending → Taizi → ThreeDepartments → ThreeDepartmentsPetition → TaiziReply → ShangshuDispatch → SixMinistries → Workshops → MenxiaReview → ShiguanRecorded → Done`.
+
+职责边界（历史锚定，非新规）：**太子**=受旨定性（intent inference、历史线索初判、
+建立结果章程；顶层拆解在受旨后交中书，太子不代中书拆解）；**中书省**=拟旨 +
+问题拆解（decomposition）/考据/验收标准；**门下省**=封驳/终审；**尚书省**=可分派性
+评估、资源顺序与六部差遣。`court_runtime semantic checkpoint/verify`
+（VERIFIED/DISPATCHABLE）是三省会审的语义门禁（actor 仅为记录方），**不构成**三省
+官署被派遣或履职的证据；需要中书/门下/尚书官署回奏时，与六部同规则：`agent-admit`
++ host-native spawn/reuse/wake，或显式 `serial_inline`，否则按
+`runtime_degraded`/`PARTIAL` 如实记录，不得以语义 receipt 冒充官署回奏。
 
 ## Dispatch, Preload, And Runtime
 

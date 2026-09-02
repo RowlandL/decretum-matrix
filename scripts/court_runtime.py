@@ -2,6 +2,12 @@
 
 This module is intentionally small and file-backed. It gives the skill a local
 runtime substrate without depending on a GUI service or an external agent host.
+
+Semantic checkpoint/verify (VERIFIED/DISPATCHABLE) are P00 semantic gates for
+三省会审; they never prove that zhongshu/menxia/shangshu were dispatched or
+replied as offices. Office work requires agent-admit plus host-native
+spawn/reuse/wake, or an explicit serial_inline record; semantic receipts must
+not be reported as office replies (runtime_degraded/PARTIAL otherwise).
 """
 
 from __future__ import annotations
