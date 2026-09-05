@@ -20,12 +20,18 @@ from typing import Any
 
 sys.dont_write_bytecode = True
 
+from install_projection_renderer import (
+    ActiveProjectionRenderError,
+    render_active_projection,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECTION_MANIFEST = ROOT / "references" / "manifests" / "install-projection.v1.json"
 CLI_REGISTRY = ROOT / "scripts" / "court_cli_registry.py"
 INSTALL_CHECKER_MODULE = "check_active_copy_hashes"
 INSTALL_CHECKER_RELATIVE = "scripts/check_active_copy_hashes.py"
+MANDATORY_RUNTIME_GUIDES = ("references/court-normal-startup.md",)
 SCRIPT_COUPLING_SUFFIXES = {".bat", ".cmd", ".ps1", ".sh"}
 RUNTIME_LOADING_CALLS = {
     "__import__",
@@ -404,6 +410,25 @@ def _self_test() -> dict[str, Any]:
             failures.append(
                 f"{name}:expected={sorted(expected)!r}:actual={sorted(actual)!r}"
             )
+    guide = MANDATORY_RUNTIME_GUIDES[0]
+    guide_fixture_baseline = _mandatory_guide_failures(
+        [guide],
+        {guide},
+        target="fixture",
+    )
+    guide_fixture_deleted = _mandatory_guide_failures(
+        [],
+        set(),
+        target="fixture",
+    )
+    evidence["mandatory_guide_fixture_deleted"] = guide_fixture_deleted
+    if (
+        guide_fixture_baseline
+        or f"fixture:mandatory_guide_not_declared:{guide}" not in guide_fixture_deleted
+        or f"fixture:mandatory_guide_not_projected:{guide}"
+        not in guide_fixture_deleted
+    ):
+        failures.append("mandatory_guide_fixture_deleted:expected_fail")
     return {
         "schema": "court.install_checker_isolation_self_test.v1",
         "ok": not failures,
@@ -525,6 +550,22 @@ def _fast_open_handlers() -> set[str]:
     raise ValueError("canonical_fast_open_registry_function_missing")
 
 
+def _mandatory_guide_failures(
+    raw_paths: list[str],
+    projected_files: set[str],
+    *,
+    target: str,
+) -> list[str]:
+    declared = set(raw_paths)
+    failures: list[str] = []
+    for guide in MANDATORY_RUNTIME_GUIDES:
+        if guide not in declared:
+            failures.append(f"{target}:mandatory_guide_not_declared:{guide}")
+        if guide not in projected_files:
+            failures.append(f"{target}:mandatory_guide_not_projected:{guide}")
+    return failures
+
+
 def evaluate() -> dict[str, Any]:
     projection = _load_json(PROJECTION_MANIFEST)
     projections = projection.get("projections")
@@ -563,6 +604,23 @@ def evaluate() -> dict[str, Any]:
         projected = set(combined_paths)
         projected_files = _projected_files(combined_paths)
         projected_coverage = projected | projected_files
+        guide_failures = _mandatory_guide_failures(
+            combined_paths,
+            projected_files,
+            target=target,
+        )
+        try:
+            rendered_files = render_active_projection(
+                source_root=ROOT,
+                target_class=target,
+            ).files
+            rendered_guide_missing = [
+                guide
+                for guide in MANDATORY_RUNTIME_GUIDES
+                if guide not in {relative.as_posix() for relative in rendered_files}
+            ]
+        except ActiveProjectionRenderError as exc:
+            rendered_guide_missing = [f"renderer_error:{exc}"]
         checker_projected = (
             [INSTALL_CHECKER_RELATIVE]
             if INSTALL_CHECKER_RELATIVE in projected_files
@@ -593,6 +651,8 @@ def evaluate() -> dict[str, Any]:
             "missing_local_imports": sorted(set(missing_imports)),
             "checker_projected": checker_projected,
             "forbidden_checker_couplings": sorted(set(checker_couplings)),
+            "mandatory_guide_failures": guide_failures,
+            "rendered_guide_missing": rendered_guide_missing,
         }
         failures.extend(
             f"{target}:cli_handler_not_projected:{item}"
@@ -609,6 +669,11 @@ def evaluate() -> dict[str, Any]:
         failures.extend(
             f"{target}:install_checker_runtime_coupling:{item}"
             for item in evidence[target]["forbidden_checker_couplings"]
+        )
+        failures.extend(guide_failures)
+        failures.extend(
+            f"{target}:mandatory_guide_renderer_missing:{item}"
+            for item in rendered_guide_missing
         )
 
     return {
@@ -656,5 +721,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

@@ -3445,6 +3445,10 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
         )
     semantic_binding = initial_semantic_binding(charter, invariant_capsule)
     case_selection = _case_create_selection(args)
+    if case_selection is not None and canonical_repo_relative_paths(
+        semantic_binding['invariant_capsule']['write_set'], allow_empty=True
+    ) is None:
+        raise ValueError('standard_create_capsule_write_set_requires_relative_paths')
     result: TransitionResult | None = None
     with runtime_lock():
         tasks = load_tasks()
@@ -3881,7 +3885,7 @@ def _runtime_checkpoint_receipt(
     return receipt
 
 
-def record_shiguan_preflight(args: argparse.Namespace) -> dict[str, object]:
+def record_shiguan_preflight(args: argparse.Namespace, *, include_residual_gaps: bool = False) -> dict[str, object]:
     with runtime_lock():
         tasks = load_tasks()
         task = tasks.get(args.task_id)
@@ -3902,6 +3906,9 @@ def record_shiguan_preflight(args: argparse.Namespace) -> dict[str, object]:
             "assessment_sha256": binding["assessment_sha256"],
             "assessment_gate": binding["gate"],
         }
+        if include_residual_gaps:
+            result.update(residual_gaps=deepcopy(binding.get("residual_gaps", [])),
+                          residual_gaps_sha256=canonical_json_sha256(binding.get("residual_gaps", [])))
         from court_case_binding import validate_case_binding, validate_task_case_binding
 
         case_binding = validate_task_case_binding(task, require_decree=True)
@@ -10763,12 +10770,14 @@ def public_intake_contract_payload() -> dict[str, object]:
         "minimal_formal_task": minimal_formal_task_example(),
         "workflow": [
             {"step": 1, "command": "intake-template --charter <exact UTF-8 charter>"},
-            {"step": 2, "command": "create --task-id <task-id> --session-id <host-session-id> --authority <selected-authority> --behavior <selected-behavior> --title <title> --work-kind <kind> --charter <same charter> --intake-file <gate.json>"},
-            {"step": 3, "command": "semantic-context-template --task-id <task-id>"},
-            {"step": 4, "command": "semantic checkpoint --task-id <task-id> --context-file <context.json> --trigger checkpoint --actor taizi --evidence <evidence>"},
-            {"step": 5, "command": "semantic verify --task-id <task-id> --context-file <same context.json> --trigger verify --actor taizi --evidence <evidence>"},
-            {"step": 6, "command": "admission-template --task-id <task-id> ..."},
-            {"step": 7, "command": "agent-admit <argv from admission-template>"},
+            {"step": 2, "command": "create --task-id <task-id> --session-id <host-session-id> --authority <selected-authority> --behavior <selected-behavior> --title <title> --work-kind <kind> --charter <same charter> --intake-file <gate.json> --invariant-capsule-file <capsule.json>"},
+            {"step": 3, "command": "transition --task-id <task-id> --to-state Taizi --actor taizi --evidence <evidence>"},
+            {"step": 4, "command": "transition --task-id <task-id> --to-state ThreeDepartments --actor taizi --evidence <evidence>"},
+            {"step": 5, "command": "semantic-context-template --task-id <task-id>"},
+            {"step": 6, "command": "semantic checkpoint --task-id <task-id> --context-file <context.json> --trigger checkpoint --actor taizi --evidence <evidence>"},
+            {"step": 7, "command": "semantic verify --task-id <task-id> --context-file <same context.json> --trigger verify --actor taizi --evidence <evidence>"},
+            {"step": 8, "command": "admission-template --task-id <task-id> ..."},
+            {"step": 9, "command": "agent-admit <argv from admission-template>"},
         ],
     }
 
@@ -10780,6 +10789,12 @@ def public_intake_template_payload(charter: str) -> dict[str, object]:
         "charter": charter,
         "conversation_gate": minimal_formal_task_example(),
         "invariant_capsule": invariant_capsule_template(charter),
+        "write_set_contract": {
+            "base": "active worktree",
+            "paths": "relative paths only; absolute paths and parent traversal are rejected before standard case allocation",
+            "example": [".codex/tmp/<task-id>"],
+            "read_only": ["NO_WRITES_DECLARED"],
+        },
     }
 
 

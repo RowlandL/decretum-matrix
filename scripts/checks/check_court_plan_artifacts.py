@@ -107,7 +107,7 @@ class RuntimePlanFlowTests(unittest.TestCase):
         result = subprocess.run(command, capture_output=True, encoding='utf-8', timeout=30)
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         value = json.loads(result.stdout)
-        return value.get('payload', value)
+        return value['payload'] if value.get('payload') is not None else value
 
     def write(self, name, value):
         path = self.root / name
@@ -141,6 +141,42 @@ class RuntimePlanFlowTests(unittest.TestCase):
         self.assertNotIn('no-session', court_runtime.load_tasks())
         self.cli(*arguments, '--legacy-compatibility')
         self.assertEqual(self.cli('workflow-status', '--task-id', 'no-session')['case_status'], 'LEGACY_UNBOUND')
+
+    def test_standard_create_rejects_absolute_scope_before_allocating(self):
+        import court_runtime
+        charter = 'Reject malformed standard scope before task allocation'
+        intake = self.cli('intake-template', '--charter', charter)
+        capsule = intake['invariant_capsule']
+        for scope in (['C:/outside/result.json'], ['../outside'], ['/absolute/result']):
+            capsule['write_set'] = scope
+            gate_file = self.write('gate.json', intake['conversation_gate'])
+            capsule_file = self.write('bad-scope.json', capsule)
+            before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+            value = self.cli('create', '--title', 'bad scope', '--charter', charter,
+                '--task-id', 'bad-scope', '--session-id', 'bad-scope-session', '--authority', 'super',
+                '--behavior', 'parallel', '--work-kind', 'audit', '--intake-file', gate_file,
+                '--invariant-capsule-file', capsule_file, ok=False)
+            self.assertIn('standard_create_capsule_write_set_requires_relative_paths', str(value))
+            self.assertEqual(court_runtime.load_tasks(), {})
+            self.assertEqual(before, {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()})
+
+    def test_standard_terminal_checkpoint_cannot_bypass_runtime_closeout(self):
+        task = self.start_case()
+        command = [sys.executable, '-B', str(Path(__file__).resolve().parents[1] / 'court_cli.py'),
+            '--format', 'json', 'shiguan', 'archive-checkpoint', '--topic', 'Unreviewed closeout',
+            '--phase', 'light closeout', '--summary', 'Fixture reports only', '--evidence', 'fixture', '--next', 'none',
+            '--session-id', task['session_id'], '--case-binding-json', json.dumps(task['case_binding']),
+            '--memory-decision', 'SKIP', '--refresh-mode', 'none']
+        before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        for status in ('DONE', 'DONE_WITH_CONCERNS', 'PASSED', 'PASSED_WITH_CONCERNS'):
+            result = subprocess.run([*command, '--status', status], capture_output=True, encoding='utf-8', timeout=30)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(before, {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()})
+        # Legacy standalone notes are still allowed to record text-only concerns.
+        legacy = command[:command.index('--session-id')]
+        result = subprocess.run([*legacy, '--status', 'DONE_WITH_CONCERNS', '--memory-decision', 'SKIP', '--refresh-mode', 'none'],
+                                capture_output=True, encoding='utf-8', timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_canonical_departments_have_distinct_instances_not_issuer_threads(self):
         task = self.start_case()

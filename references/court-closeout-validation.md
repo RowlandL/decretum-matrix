@@ -473,7 +473,7 @@ same task. It invalidates stale derived state, returns through Three Departments
 
 完成、暂停、阻塞、取消、handoff 或包装前，按任务类型重载 SKILL.md 及当前引用并经门下复核；结诏是客观终态行为，decree 进入终态即形成史馆实录与记忆裁定。
 
-- 轻量结诏（无写入、无外部状态变化的短回奏）：说明请求、实际 host dispatch/reuse/wake 或 `serial_inline` 原因、官署回奏、未做持久写入，并写入紧凑 archive checkpoint；不启动 Shiguan Web、Obsidian、GBrain、pending 队列或全量树。
+- 独立轻量记录（未创建标准 runtime task 的短回奏）：说明请求、真实派遣或 `serial_inline`、官署回奏和写入，使用紧凑 archive checkpoint；不启动无关服务。已有标准 task 必须走 `shiguan archive-runtime-task --task-id <id>` 的 plan/review/lifecycle/assessment/preflight 链；不能把带 case_binding 的独立 `DONE_WITH_CONCERNS` checkpoint 当作标准结诏。`PASSED_WITH_CONCERNS` 的残项必须与 assessment 的结构化 residual_gaps 一致。
 - 完整结诏：按本文件十四行 memorial 结构执行；行名/顺序不得改。
 - 标签：仅门下接受的当前报告可标记 `MenxiaReview`；最终交付始终为 `TaiziReply`。
 - 无有效 archive receipt 时不得发送十四行或自分配编号，改用 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause` 并说明归档门。

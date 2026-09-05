@@ -516,6 +516,39 @@ class StandardCaseRuntimeTests(unittest.TestCase):
         replayed = archive_runtime_task.archive_and_record_task(args)
         self.assertEqual(replayed["status"], "REPLAYED")
 
+    def test_case_concerns_require_assessment_gaps_before_producer_writes(self) -> None:
+        from check_court_runtime_completion import assessment
+
+        task = court_runtime.create_task(standard_create_args('case-concerns', 'case-concerns-session')).task
+        task.update(state='MenxiaReview', evidence_sha256='e' * 64)
+        task['zhongshu_plan'], task['case_reviews'] = reviewed_plan(task)
+        task['case_binding'] = refresh_case_binding(task)
+        gaps = ['fixture outstanding concern']
+        task = court_runtime.bind_assessment_record(task, assessment(task, gate='PASSED_WITH_CONCERNS', reasons=gaps, residual_gaps=gaps))
+        task = self._persist(task)
+        args = Namespace(task_id=task['task_id'], topic='', phase='fixture', status='', next='',
+                         memory_decision='SKIP', memory_content='', memory_reason='', event_limit=8)
+        preflight_args = archive_runtime_task._record_args(task, {})
+        old_shape = court_runtime.record_shiguan_preflight(preflight_args)
+        expanded = court_runtime.record_shiguan_preflight(preflight_args, include_residual_gaps=True)
+        self.assertNotIn('residual_gaps', old_shape)  # Preserve prior receipt-cache keys.
+        self.assertEqual(expanded['residual_gaps'], gaps)
+        command = archive_runtime_task.build_archive_command(task, args) + ['--refresh-mode', 'none']
+        invalid = list(command)
+        invalid[invalid.index('--residual-gaps-json') + 1] = '[]'
+        invalid[invalid.index('--residual-gaps-sha256') + 1] = digest([])
+        before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        rejected = subprocess.run(invalid, capture_output=True, encoding='utf-8', timeout=30)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('archive_runtime_assessment_or_residual_gaps_mismatch', rejected.stdout + rejected.stderr)
+        self.assertEqual(before, {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()})
+        produced = subprocess.run(command, capture_output=True, encoding='utf-8', timeout=30)
+        self.assertEqual(produced.returncode, 0, produced.stdout + produced.stderr)
+        receipt = json.loads(produced.stdout)
+        self.assertEqual(receipt['residual_gaps'], gaps)
+        recorded = court_runtime.record_shiguan_task(archive_runtime_task._record_args(task, receipt))
+        self.assertEqual(recorded.task['state'], 'ShiguanRecorded')
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -75,6 +75,7 @@ CLI_SUPPORT_FILES = frozenset(
         "THIRD_PARTY_NOTICES.md",
         "TRADEMARKS.md",
         "assets/brand",
+        "references/court-normal-startup.md",
         "references/manifests/direct-review-governance.v1.json",
         "references/manifests/github-release-metadata.v1.json",
         "references/manifests/release-gates.v1.json",
@@ -583,6 +584,7 @@ def evaluate_inventory() -> dict[str, object]:
     invalid_groups: list[str] = []
     public_not_projected: list[str] = []
     public_classification_drift: list[str] = []
+    support_not_projected: list[str] = []
     public_count = 0
     if manifest is None:
         missing = discovered
@@ -665,6 +667,9 @@ def evaluate_inventory() -> dict[str, object]:
         )
         if public_not_projected:
             problems.append("public_entrypoints_not_in_runtime_projection")
+        support_not_projected = sorted(CLI_SUPPORT_FILES - runtime_projection)
+        if support_not_projected:
+            problems.append("cli_support_files_not_in_runtime_projection")
         groups = {
             str(entry.get("group") or "")
             for entry in entries
@@ -689,6 +694,7 @@ def evaluate_inventory() -> dict[str, object]:
         "public_classification_drift": public_classification_drift,
         "source_only_count": len(entries) - public_count,
         "public_not_projected": public_not_projected,
+        "support_not_projected": support_not_projected,
         "missing": missing,
         "extra": extra,
         "duplicate_ids": duplicate_ids,
@@ -1005,7 +1011,7 @@ def evaluate_public_open_command() -> dict[str, object]:
         import shlex
         template_values = {
             "<id>": "STARTUP-TEMPLATE-CHECK", "<selected-authority>": "super",
-            "<selected-behavior>": "parallel", "<absolute-worktree>": str(ROOT),
+            "<selected-behavior>": "parallel", "<worktree>": ".",
             "<focus>": "read-only startup template regression",
         }
         advertised = [template_values.get(arg, arg) for arg in shlex.split(str(startup.get("request_template", "")))]

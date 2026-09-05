@@ -13,28 +13,29 @@ SKILL + guide + own materials + metadata must fit 20 KiB. Reuse unchanged reads.
 
 ## Required tool routes
 
-Use each interface when needed. Prefer MCP; CLI fallback if unavailable.
-Check domain success; help is discovery, not functional proof.
-
-| Operation | Required interface |
-| --- | --- |
-| Intake | CLI `court intake-template --charter <exact-charter>`; MCP `court.intake_validate` |
-| Capsule/context/plan validation | MCP `court.capsule_validate`, `court.semantic_context_validate`, `court.dispatch_plan_validate` respectively |
-| State/semantic mutation | Existing receipt-bound CLI |
-| Case/plan continuity | CLI `court plan`; MCP `court.workflow_status` |
-| Admit and deliver | CLI `agent-admit`, then host-native spawn/reuse/wake |
-| Relevant state/history | MCP `court.status`, `shiguan.query` or `shiguan.entries_query` |
-| Closeout | MCP `court.closeout_checklist`, Menxia review, CLI `shiguan archive-runtime-task --task-id <id>` |
+Validate intake/capsule/context/dispatch plan with MCP `court.intake_validate`,
+`court.capsule_validate`, `court.semantic_context_validate`,
+`court.dispatch_plan_validate`. Query state/case/history through `court.status`,
+`court.workflow_status`, `shiguan.query` / `shiguan.entries_query`. At closeout
+use `court.closeout_checklist`. Use CLI fallback if MCP is unavailable.
+Mutation uses CLI; delivery uses the host. Check domain success, not just help.
 
 ## Operational sequence
 
 Resolve authority/behavior from the user; ask if missing. Reuse the current task.
 
-Use the installed `decretum-matrix` CLI, not internal Python entry scripts.
+Use `decretum-matrix`. If Windows PATH is stale, resolve `npm prefix -g` and
+invoke that prefix's `decretum-matrix.cmd`; never substitute internal Python.
+Use relative write_set paths from the worktree, e.g. `.codex/tmp/<task-id>`;
+absolute/traversal paths fail before standard allocation. `--worktree .` in a
+template resolves from current cwd; relative worktree in a request file resolves
+from that file. Documents resolve from the skill root. Do not hardcode a drive
+or username. Resolved host evidence may carry absolute paths with its basis.
 For a new standard case, pass `--session-id <host-session-id> --authority
 <selected-authority> --behavior <selected-behavior>` to `court create` along
 with its intake fields. It issues/reuses the official number and opens the
-existing decree transaction. `court.workflow_status` shows the shared identity.
+existing decree transaction. Transition to Taizi then ThreeDepartments before
+semantic checkpoint/verify, open preparation and admission.
 
 Before drafting, the case is explicitly BOOTSTRAP_UNPLANNED. After real office
 reports, use `court plan template` / `submit` for Zhongshu's actual document,
@@ -42,11 +43,9 @@ then separate Menxia/Shangshu `review`. Plan changes invalidate reviews.
 Ministries require a reviewed plan and TaiziReply. `plan show` resolves the
 stored document; capsules cannot replace it.
 
-Use public templates/schemas, not source inspection or guessed hashes. Generate context
-after state changes with `court semantic-context-template --task-id <id>`;
-validate its `payload.context`. For checkpoint/verify, pass the corresponding
-required `--trigger checkpoint` / `--trigger verify`, task id, context, actor
-and evidence. `before_dispatch` is invalid.
+Generate context after state changes with `court semantic-context-template`;
+validate payload.context. Checkpoint/verify require matching `--trigger
+checkpoint` / `--trigger verify`, task id, context, actor and evidence.
 
 Use the request-template command from `court open` / MCP help with actual
 authority, offices and host facts; submit `--request-file <request.json>`.
@@ -59,9 +58,10 @@ current host trace; never supply invented host IDs or results.
 Preparation never proves office duty; deliver the original admission once.
 Bounded children perform their assigned duty, without repeating root intake.
 
-Three Departments are separate planning, review and coordination offices;
-Shangshu alone selects distinct ministries by duty. Real replies are required.
-Latest history: `shiguan.query(terms=[], limit=1)`, only when requested.
-Use archive-runtime-task for formal closeout to carry the original case binding.
+Record real office start/preload-ack/report/finish via CLI before plan/review.
+Only Shangshu selects ministries. `ok` replies do not prove this runtime chain.
+For latest history use `shiguan.query(terms=[], limit=1)`.
+Formal closeout uses archive-runtime-task and its producer_receipt.closeout_identity;
+standalone archive-checkpoint cannot complete a standard runtime case.
 
 Write UTF-8 JSON without BOM. Fresh acceptance uses CLI/MCP and no old memory.

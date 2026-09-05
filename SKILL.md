@@ -59,7 +59,7 @@ Legal state: `Pending → Taizi → ThreeDepartments → ThreeDepartmentsPetitio
 
 CLI (`scripts/court_cli.py` → `court_cli_registry.py`) 与 MCP 共用 `scripts/court_public_api.py`，命令权威为 [cli-command-surface.v1.json](references/manifests/cli-command-surface.v1.json)。MCP 不 spawn CLI、不解析 stdout；lifecycle/Git hooks 已撤回，.codex-plugin 仅兼容 metadata。
 
-需要只读校验、状态或史馆检索时，必须调用相应接口，优先已提供 MCP；不可只调 help 后翻源码手写同一功能。MCP 不可用或不支持才回退对应 CLI。状态变更、准入、归档、安装和发布走 receipt-bound CLI/script；真实派遣走宿主。不为增加次数执行无关调用；检查 domain success 和实际回执，失败后按明确原因处理。
+只读校验、状态和史馆检索优先调用对应 MCP；不可只调 help 后翻源码重写。生产和验收使用公开 `decretum-matrix` CLI；PATH 缺失时解析当前 npm prefix 下的命令入口，不降为内部 Python 业务脚本。状态变更走 receipt-bound CLI，真实派遣走宿主；检查 domain success，不凑调用次数。
 
 ## Progressive Loading Map
 
@@ -89,8 +89,8 @@ pending/private 仅允许 metadata governance；没有不可伪造主机授权�
 
 ## Closeout Skeleton
 
-仅在完成、暂停、阻塞、取消或 handoff 等终态行为时重载本入口/相关卷并经门下复核。轻量结诏记录请求、实际派遣或 serial_inline、官署回奏、写入和 archive checkpoint，不启动无关服务/队列/全量树；完整十四行及门禁见 [court-closeout-validation.md](references/court-closeout-validation.md)。
+仅在完成、暂停、阻塞、取消或 handoff 时重载本入口/相关卷并经门下复核。独立轻量记录保留请求、实际派遣、回奏、写入和 checkpoint；已有标准 task 必须走 plan/review/lifecycle/assessment 归档链，不能用独立记录代替完成。十四行及门禁见 [court-closeout-validation.md](references/court-closeout-validation.md)。
 
-仅门下接受者可标 MenxiaReview；最终回奏为 TaiziReply。编号、谱系和作业 AI 只逐字复制 CLI `shiguan archive-checkpoint` 的 `payload.closeout_identity`；MCP 不生成第二套编号，无有效 receipt 不编号，用 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause` 如实说明。
+仅门下接受者可标 MenxiaReview。标准任务用 `shiguan archive-runtime-task`，编号/谱系/作业 AI 复制 `payload.producer_receipt.closeout_identity`；独立记录才用 `archive-checkpoint` 的 `payload.closeout_identity`。MCP 不另编号，无有效回执标 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause`。
 
 记忆裁定为 WRITE | PROPOSE | SKIP | DEFERRED；WRITE 需当前授权与门下接受。安装、备份、回滚和源码包装规则见 [validation-packaging.md](references/validation-packaging.md)。

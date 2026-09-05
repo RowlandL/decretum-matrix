@@ -512,6 +512,34 @@ def finish_refresh(args: argparse.Namespace, entry: dict[str, object], path: Pat
     return {"mode": mode, **request_async_refresh(entry, path, mode)}
 
 
+def _validate_runtime_terminal_checkpoint(args: argparse.Namespace, case: dict[str, object]) -> None:
+    """A generic note cannot claim a live standard case's terminal outcome.
+
+    Validate the existing runtime producer contract before taking the Shiguan
+    lock. Standalone/historical records keep their original light-note surface.
+    """
+    status = str(args.status or '').strip().upper()
+    terminal = {'DONE', 'DONE_WITH_CONCERNS', 'COMPLETED', 'COMPLETE', 'VERIFIED_COMPLETE'}
+    if status not in terminal | {'PASSED', 'PASSED_WITH_CONCERNS'}:
+        return
+    import court_runtime
+
+    task = court_runtime.load_tasks().get(case['task_id'])
+    if not isinstance(task, dict) or not isinstance(task.get('case_binding'), dict):
+        return
+    if status in terminal:
+        raise ValueError('runtime_terminal_archive_requires_archive_runtime_task')
+    preflight = court_runtime.record_shiguan_preflight(argparse.Namespace(
+        task_id=case['task_id'], expected_revision=case['charter_revision'],
+        expected_charter_sha256=case['charter_sha256'], session_id=case['session_id'],
+        case_binding=case,
+    ), include_residual_gaps=True)
+    if (status != preflight['assessment_gate']
+            or args.residual_gaps != preflight['residual_gaps']
+            or args.residual_gaps_sha256 != preflight['residual_gaps_sha256']):
+        raise ValueError('archive_runtime_assessment_or_residual_gaps_mismatch')
+
+
 def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object], dict[str, object]]:
     memory_decision = (args.memory_decision or "DEFERRED").upper()
     memory_content = scrub_raw_placeholder_mentions(args.memory_content or "none")
@@ -531,6 +559,7 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
             supplied_case_binding,
         )
         args.case_binding = supplied_case_binding
+        _validate_runtime_terminal_checkpoint(args, supplied_case_binding)
 
     with file_lock(shiguan_write_lock_path(), timeout=lock_timeout):
         # Seed creation, sequence allocation, archive append, and index append

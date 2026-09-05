@@ -82,7 +82,7 @@ Optional preparation-only preflight:
 `decretum-matrix court open --fast --request-file <request.json>`
 
 Generate the request instead of reading implementation source:
-`decretum-matrix court open --fast --request-template --task-id <id> --authority <selected-authority> --behavior <selected-behavior> --worktree <absolute-worktree> --task-focus <focus>`
+`decretum-matrix court open --fast --request-template --task-id <id> --authority <selected-authority> --behavior <selected-behavior> --worktree <worktree> --task-focus <focus>`
 Use `court intake-template --charter <exact-charter>` for fresh intake;
 `court intake-schema` describes the existing stateful CLI workflow.
 MCP `court.intake_validate`, `court.semantic_context_validate` and
@@ -104,7 +104,9 @@ def normal_startup_guidance() -> dict[str, object]:
         "installation_checks": "installation_only",
         "fresh_intake": "court intake-template --charter <exact-charter>",
         "intake_contract": "court intake-schema",
-        "request_template": "court open --fast --request-template --task-id <id> --authority <selected-authority> --behavior <selected-behavior> --worktree <absolute-worktree> --task-focus <focus>",
+        "request_template": "court open --fast --request-template --task-id <id> --authority <selected-authority> --behavior <selected-behavior> --worktree <worktree> --task-focus <focus>",
+        "path_bases": {"write_set": "worktree-relative", "template_worktree": "caller cwd; . is accepted", "request_file_worktree": "request file directory", "documentation": "skill root"},
+        "windows_cli_fallback": "resolve npm prefix -g, then invoke <prefix>/decretum-matrix.cmd; no internal Python fallback",
         "preparation": "court open --fast --request-file <request.json>",
         "native_delivery": ["office native-request --request-file <selector.json>", "office native-capture --request-file <selector.json>"],
         "task_archive": "shiguan archive-runtime-task --task-id <id>",
