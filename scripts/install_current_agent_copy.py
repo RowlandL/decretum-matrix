@@ -769,6 +769,7 @@ def _remove_empty_source_only_directories(
     selected: list[tuple[str, Path, str]],
 ) -> None:
     targets = [target.resolve(strict=False) for _label, target, _kind in selected]
+    removed: set[Path] = set()
     for path, payload, _previous in applied:
         if payload is not None:
             continue
@@ -784,6 +785,8 @@ def _remove_empty_source_only_directories(
             raise _InstallContractError("managed_projection_drift", path.as_posix())
         current = path.parent
         while current != root:
+            if current in removed:
+                break
             relative = current.relative_to(root)
             if tuple(part.casefold() for part in relative.parts[:2]) != (
                 "scripts",
@@ -798,6 +801,7 @@ def _remove_empty_source_only_directories(
                 current.rmdir()
             except OSError:
                 break
+            removed.add(current)
             current = current.parent
 
 

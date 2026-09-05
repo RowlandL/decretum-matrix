@@ -3687,6 +3687,22 @@ def evaluate() -> Payload:
     passed = 0
     configuration_passed = 0
     if module is not None:
+        with tempfile.TemporaryDirectory(prefix='court-batch-retirement-') as tmp:
+            root = Path(tmp)
+            selected = [('fixture', root, 'shared_agents')]
+            operations = [(root / 'scripts/checks' / name, None, b'old source checker\n')
+                          for name in ('check_one.py', 'check_two.py')]
+            for path, _, previous in operations:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(previous)
+            try:
+                applied = module._apply_projection_writes(operations, selected)
+                assert not (root / 'scripts/checks').exists()
+                module._rollback_projection_writes(applied, selected)
+                assert all(path.read_bytes() == previous for path, _, previous in operations)
+            except Exception as exc:
+                errors.append('multi_file_empty_directory_retirement:' + str(exc))
+    if module is not None:
         target = getattr(module, "install_current_agent_copy", None)
         if not callable(target):
             errors.append("missing_callable:install_current_agent_copy")
