@@ -142,6 +142,23 @@ def build_archive_command(
     projection = court_runtime.completion_projection(task, event_history)
     binding = task.get("assessment_binding")
     assessment_gate = binding.get("gate") if isinstance(binding, dict) else None
+    residual_gaps = (
+        list(binding["residual_gaps"])
+        if isinstance(binding, dict) and isinstance(binding.get("residual_gaps"), list)
+        else []
+    )
+    residual_gaps_json = json.dumps(
+        residual_gaps, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    residual_gaps_sha256 = hashlib.sha256(
+        residual_gaps_json.encode("utf-8")
+    ).hexdigest()
+    if (
+        isinstance(binding, dict)
+        and binding.get("residual_gaps_sha256") is not None
+        and binding.get("residual_gaps_sha256") != residual_gaps_sha256
+    ):
+        raise ValueError("archive_runtime_residual_gaps_binding_mismatch")
     archive_status = str(
         args.status
         or (
@@ -173,6 +190,8 @@ def build_archive_command(
         "--memory-reason", memory_reason,
         "--keywords", f"{args.task_id},court runtime,Shiguan bridge,audit trail",
         "--key-actions", "archive runtime task,connect runtime ledger to Shiguan",
+        "--residual-gaps-json", residual_gaps_json,
+        "--residual-gaps-sha256", residual_gaps_sha256,
         "--format", "json",
     ]
     if result_json_path is not None:

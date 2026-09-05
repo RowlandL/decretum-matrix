@@ -2731,10 +2731,123 @@ def _validate_agent_semantic_args(
 def _validated_consultation_refs_for_task(
     task: Mapping[str, object],
     value: object,
+    *,
+    agent_id: str,
 ) -> list[dict[str, object]]:
     """Bind optional consultation evidence without creating an authority edge."""
 
     references = normalize_consultation_refs(value)
+    agents = task.get("agents")
+    reporter = agents.get(agent_id) if isinstance(agents, dict) else None
+    if not isinstance(reporter, Mapping):
+        raise ValueError("consultation_ref_sender_record_missing")
+
+    def _is_invalidated(record: Mapping[str, object]) -> bool:
+        if any(
+            str(record.get(field) or "").upper().startswith("INVALIDATED")
+            for field in ("status", "final_status", "assignment_status")
+        ):
+            return True
+        return (
+            record.get("invalidated_at") not in {None, ""}
+            or record.get("assignment_invalidated_by_semantic_resume") is True
+            or record.get("assignment_invalidated_by_charter_revision") not in {None, ""}
+        )
+
+    if _is_invalidated(reporter):
+        raise ValueError("consultation_ref_sender_agent_invalidated")
+    reporter_role = str(reporter.get("role") or "").strip().lower()
+    if reporter_role not in OFFICES:
+        raise ValueError("consultation_ref_sender_record_invalid")
+
+    def _binding_has_invalidated_agent(binding: Mapping[str, object]) -> bool:
+        if not isinstance(agents, Mapping):
+            return False
+        binding_role = str(binding.get("role") or "").strip().lower()
+        binding_instance_id = str(binding.get("instance_id") or "").strip()
+        if not binding_instance_id:
+            return True
+        for record in agents.values():
+            if not isinstance(record, Mapping):
+                continue
+            if str(record.get("role") or "").strip().lower() != binding_role:
+                continue
+            if str(record.get("admission_instance_id") or "").strip() != binding_instance_id:
+                continue
+            if _is_invalidated(record):
+                return True
+        return False
+
+    valid_bindings: list[tuple[str, Mapping[str, object]]] = []
+    admissions = task.get("agent_admissions")
+    if isinstance(admissions, Mapping):
+        for wave_id, admission in admissions.items():
+            if not isinstance(wave_id, str) or not isinstance(admission, Mapping):
+                continue
+            if admission.get("allowed") is not True or _is_invalidated(admission):
+                continue
+            selected_bindings = admission.get("selected_bindings")
+            if not isinstance(selected_bindings, (list, tuple)):
+                continue
+            bindings = tuple(
+                binding for binding in selected_bindings if isinstance(binding, Mapping)
+            )
+            if len(bindings) != len(selected_bindings):
+                continue
+            try:
+                _validate_admission_immutable_event_anchor(task, admission)
+                _validate_admission_semantic_receipt_anchors(
+                    task, admission, bindings
+                )
+            except ValueError:
+                continue
+            for binding in bindings:
+                role = str(binding.get("role") or "").strip().lower()
+                direct_superior = str(
+                    binding.get("direct_superior") or ""
+                ).strip().lower()
+                instance_id = str(binding.get("instance_id") or "").strip()
+                if (
+                    role in OFFICES
+                    and direct_superior in OFFICES
+                    and instance_id
+                    and not _binding_has_invalidated_agent(binding)
+                ):
+                    valid_bindings.append((wave_id, binding))
+
+    valid_recipient_roles = {
+        str(binding.get("role") or "").strip().lower()
+        for _, binding in valid_bindings
+    }
+
+    reporter_wave_id = str(reporter.get("wave_id") or "").strip()
+    reporter_instance_id = str(
+        reporter.get("admission_instance_id") or ""
+    ).strip()
+    reporter_direct_superior = str(
+        reporter.get("direct_superior") or ""
+    ).strip().lower()
+
+    def is_evidence_backed_superior_relay(recipient_role: str) -> bool:
+        if recipient_role != reporter_direct_superior:
+            return False
+        for wave_id, binding in valid_bindings:
+            if wave_id != reporter_wave_id:
+                continue
+            if str(binding.get("role") or "").strip().lower() != reporter_role:
+                continue
+            if (
+                str(binding.get("instance_id") or "").strip()
+                != reporter_instance_id
+            ):
+                continue
+            if (
+                str(binding.get("direct_superior") or "").strip().lower()
+                == recipient_role
+            ):
+                return True
+        return False
+
     for reference in references:
         if reference.get("task_id") != task.get("task_id"):
             raise ValueError("consultation_ref_task_mismatch")
@@ -2742,8 +2855,14 @@ def _validated_consultation_refs_for_task(
             raise ValueError("consultation_ref_charter_revision_mismatch")
         if reference.get("charter_sha256") != str(task.get("charter_sha256") or "").lower():
             raise ValueError("consultation_ref_charter_sha256_mismatch")
-        if reference.get("from_role") not in OFFICES or reference.get("to_role") not in OFFICES:
-            raise ValueError("consultation_ref_role_not_selected")
+        if reference.get("from_role") != reporter_role:
+            raise ValueError("consultation_ref_sender_role_mismatch")
+        recipient_role = str(reference.get("to_role") or "").strip().lower()
+        if (
+            recipient_role not in valid_recipient_roles
+            and not is_evidence_backed_superior_relay(recipient_role)
+        ):
+            raise ValueError("consultation_ref_recipient_not_task_valid")
     return references
 
 
@@ -3439,6 +3558,8 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
         "court_code",
         "recorded_at",
         "record_sha256",
+        "residual_gaps",
+        "residual_gaps_sha256",
     }
     if not required.issubset(receipt):
         raise ValueError("archive_producer_receipt_fields_missing")
@@ -3466,6 +3587,17 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
     record_sha256 = _canonical_sha256(
         receipt.get("record_sha256"), "archive_producer_receipt_sha256_invalid"
     )
+    raw_residual_gaps = receipt.get("residual_gaps")
+    producer_gate = (
+        "PASSED_WITH_CONCERNS"
+        if isinstance(raw_residual_gaps, list) and raw_residual_gaps
+        else "PASSED"
+    )
+    residual_gaps, residual_gaps_sha256 = _validated_residual_gaps(
+        raw_residual_gaps,
+        receipt.get("residual_gaps_sha256"),
+        gate=producer_gate,
+    )
     index = reference_path("shiguan-index.jsonl")
     if not index.is_file():
         raise ValueError("archive_producer_index_missing")
@@ -3484,6 +3616,11 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
     entry = entries[0]
     if canonical_json_sha256(entry) != record_sha256:
         raise ValueError("archive_producer_record_sha256_mismatch")
+    if (
+        entry.get("residual_gaps") != residual_gaps
+        or entry.get("residual_gaps_sha256") != residual_gaps_sha256
+    ):
+        raise ValueError("archive_producer_residual_gaps_mismatch")
     if _aware_timestamp(
         entry.get("time"), "archive_producer_record_time_invalid"
     ) != recorded_at:
@@ -3491,12 +3628,34 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
     archive_text = archive_path.read_text(encoding="utf-8", errors="replace")
     if f"- court_code: {court_code}" not in archive_text:
         raise ValueError("archive_producer_record_missing")
+    residual_gaps_json = json.dumps(
+        residual_gaps, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    if (
+        f"- residual_gaps_json: {residual_gaps_json}" not in archive_text
+        or f"- residual_gaps_sha256: {residual_gaps_sha256}" not in archive_text
+    ):
+        raise ValueError("archive_producer_archive_evidence_missing")
     receipt["receipt_id"] = receipt_id
     receipt["path"] = str(archive_path)
     receipt["court_code"] = court_code
     receipt["recorded_at"] = recorded_at
     receipt["record_sha256"] = record_sha256
+    receipt["residual_gaps"] = residual_gaps
+    receipt["residual_gaps_sha256"] = residual_gaps_sha256
     return receipt
+
+
+def _validate_archive_producer_residual_gaps(
+    producer_receipt: Mapping[str, object],
+    binding: Mapping[str, object],
+) -> None:
+    if (
+        producer_receipt.get("residual_gaps") != binding.get("residual_gaps")
+        or producer_receipt.get("residual_gaps_sha256")
+        != binding.get("residual_gaps_sha256")
+    ):
+        raise ValueError("archive_producer_residual_gaps_mismatch")
 
 
 def _record_shiguan_preconditions(task: dict[str, object]) -> dict[str, object]:
@@ -3606,6 +3765,7 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
                 raise ValueError("record_shiguan_replay_event_missing")
             return TransitionResult(deepcopy(task), deepcopy(matches[0]))
         binding = _record_shiguan_preconditions(task)
+        _validate_archive_producer_residual_gaps(producer_receipt, binding)
         runtime_receipt = _runtime_checkpoint_receipt(
             task, binding, producer_receipt
         )
@@ -3916,6 +4076,29 @@ def validate_checkpoint_receipt(
         validated["residual_gaps_sha256"] = residual_gaps_sha256
     elif concern_fields:
         raise ValueError("checkpoint_receipt_unexpected_concerns")
+    producer_receipt = checkpoint.get("producer_receipt")
+    producer_receipt_sha256 = checkpoint.get("producer_receipt_sha256")
+    if not isinstance(producer_receipt, dict) or not isinstance(
+        producer_receipt_sha256, str
+    ):
+        raise ValueError("archive_producer_evidence_missing")
+    validated_producer_receipt = _validated_archive_producer_receipt(
+        producer_receipt
+    )
+    if canonical_json_sha256(validated_producer_receipt) != producer_receipt_sha256:
+        raise ValueError("archive_producer_receipt_sha256_mismatch")
+    if (
+        validated_producer_receipt.get("receipt_id") != checkpoint.get("receipt_id")
+        or validated_producer_receipt.get("record_sha256")
+        != checkpoint.get("record_sha256")
+        or validated_producer_receipt.get("path") != checkpoint.get("archive_path")
+        or validated_producer_receipt.get("recorded_at")
+        != checkpoint.get("recorded_at")
+    ):
+        raise ValueError("archive_producer_checkpoint_mismatch")
+    _validate_archive_producer_residual_gaps(
+        validated_producer_receipt, binding
+    )
     validated["charter_sha256"] = charter_sha256
     validated["assessment_sha256"] = assessment_sha256
     validated["record_sha256"] = record_sha256
@@ -8155,13 +8338,13 @@ def agent_event(
             raw_consultation_refs = getattr(args, "consultation_refs", None)
             if raw_consultation_refs is not None:
                 consultation_refs = _validated_consultation_refs_for_task(
-                    task, raw_consultation_refs
+                    task, raw_consultation_refs, agent_id=agent_id
                 )
         elif lifecycle_action == "agent_finish":
             result_envelope = getattr(args, "_result_envelope", None)
             if isinstance(result_envelope, dict) and "consultation_refs" in result_envelope:
                 consultation_refs = _validated_consultation_refs_for_task(
-                    task, result_envelope["consultation_refs"]
+                    task, result_envelope["consultation_refs"], agent_id=agent_id
                 )
                 result_envelope["consultation_refs"] = deepcopy(consultation_refs)
         agents = task.setdefault("agents", {})

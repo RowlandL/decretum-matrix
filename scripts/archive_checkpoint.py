@@ -223,6 +223,45 @@ def next_daily_sequence(index: Path, date_text: str) -> str:
     return base36(max(count, highest) + 1)
 
 
+def normalize_residual_gaps(args: argparse.Namespace) -> tuple[list[str], str]:
+    raw_gaps = getattr(args, "residual_gaps_json", "")
+    if raw_gaps in (None, ""):
+        gaps_value: object = []
+    elif isinstance(raw_gaps, str):
+        try:
+            gaps_value = json.loads(raw_gaps)
+        except json.JSONDecodeError as exc:
+            raise ValueError("residual_gaps_json_invalid") from exc
+    else:
+        gaps_value = raw_gaps
+    if not isinstance(gaps_value, list) or len(gaps_value) > 32:
+        raise ValueError("residual_gaps_invalid")
+    gaps: list[str] = []
+    for item in gaps_value:
+        if not isinstance(item, str):
+            raise ValueError("residual_gaps_invalid")
+        gap = item.strip()
+        if (
+            not gap
+            or len(gap.encode("utf-8")) > 512
+            or any(character in gap for character in "\x00\r\n")
+            or gap in gaps
+        ):
+            raise ValueError("residual_gaps_invalid")
+        gaps.append(gap)
+    canonical = json.dumps(
+        gaps, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    supplied_digest = str(getattr(args, "residual_gaps_sha256", "") or "").lower()
+    if supplied_digest and (
+        re.fullmatch(r"[0-9a-f]{64}", supplied_digest) is None
+        or supplied_digest != digest
+    ):
+        raise ValueError("residual_gaps_sha256_mismatch")
+    return gaps, digest
+
+
 def build_index_entry(
     args: argparse.Namespace,
     now: datetime,
@@ -268,6 +307,10 @@ def build_index_entry(
         "memory_content": memory_content,
         "memory_reason": memory_reason,
         "has_full_record": has_full_record,
+        "residual_gaps": list(getattr(args, "residual_gaps", [])),
+        "residual_gaps_sha256": str(
+            getattr(args, "residual_gaps_sha256", "") or ""
+        ),
         "source": relative_to_data(path),
         "daily_sequence": (
             allocated_sequence
@@ -428,6 +471,7 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
     args.next = scrub_raw_placeholder_mentions(args.next)
     raw_full_record = read_full_record(args)
     lock_timeout = float(getattr(args, "lock_timeout", 30.0))
+    args.residual_gaps, args.residual_gaps_sha256 = normalize_residual_gaps(args)
 
     with file_lock(shiguan_write_lock_path(), timeout=lock_timeout):
         # Seed creation, sequence allocation, archive append, and index append
@@ -484,6 +528,13 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
                 else []
             ),
             f"- status: {args.status}",
+            "- residual_gaps_json: " + json.dumps(
+                args.residual_gaps,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            f"- residual_gaps_sha256: {args.residual_gaps_sha256}",
             f"- summary: {args.summary}",
             f"- evidence: {args.evidence}",
             f"- full_record: {'yes' if full_record else 'no'}",
@@ -545,6 +596,8 @@ def build_archive_receipt(
         "source_agent_label": source_agent_label,
         "closeout_identity": closeout_identity,
         "recorded_at": str(entry.get("time") or ""),
+        "residual_gaps": list(entry.get("residual_gaps") or []),
+        "residual_gaps_sha256": str(entry.get("residual_gaps_sha256") or ""),
         "record_sha256": hashlib.sha256(
             json.dumps(
                 entry,
@@ -584,6 +637,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--memory-decision", choices=["WRITE", "PROPOSE", "SKIP", "DEFERRED", "write", "propose", "skip", "deferred"])
     parser.add_argument("--memory-content")
     parser.add_argument("--memory-reason")
+    parser.add_argument(
+        "--residual-gaps-json",
+        default="",
+        help="Canonical JSON list of residual gaps bound into the archive and index.",
+    )
+    parser.add_argument(
+        "--residual-gaps-sha256",
+        default="",
+        help="SHA-256 of the canonical residual-gaps JSON list.",
+    )
     parser.add_argument("--risk-level", choices=list("SABCDEFsabcdef"))
     parser.add_argument("--knowledge-value", choices=list("SABCDEFsabcdef"))
     parser.add_argument("--priority-level", choices=list("SABCDEFsabcdef"))

@@ -870,7 +870,7 @@ def _consultation_refs(task: dict[str, object]) -> list[dict[str, object]]:
             "task_id": task["task_id"],
             "charter_revision": task["charter_revision"],
             "charter_sha256": task["charter_sha256"],
-            "from_role": "bingbu",
+            "from_role": "gongbu",
             "to_role": "shangshu",
             "purpose": "superior relay of bounded runtime evidence",
             "input_pointer": "fixture://consultation/input",
@@ -946,6 +946,79 @@ def check_consultation_refs_stay_on_existing_report_and_result_evidence() -> Non
                 invariant_capsule_sha256=admission["invariant_capsule_sha256"],
                 checkpoint_id=admission["checkpoint_id"],
             )
+            before_invalid_sender_tasks = court_runtime.tasks_path().read_bytes()
+            before_invalid_sender_events = court_runtime.events_path().read_bytes()
+            invalid_sender = deepcopy(report)
+            invalid_sender.consultation_refs[0]["from_role"] = "bingbu"
+            try:
+                court_runtime.agent_report(invalid_sender)
+            except ValueError as exc:
+                if str(exc) != "consultation_ref_sender_role_mismatch":
+                    raise AssertionError(
+                        "CONSULTATION_INVALID_SENDER_WRONG_ERROR " + str(exc)
+                    ) from exc
+            else:
+                raise AssertionError("CONSULTATION_INVALID_SENDER_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_invalid_sender_tasks
+            assert court_runtime.events_path().read_bytes() == before_invalid_sender_events
+
+            before_unselected_recipient_tasks = court_runtime.tasks_path().read_bytes()
+            before_unselected_recipient_events = court_runtime.events_path().read_bytes()
+            unselected_recipient = deepcopy(report)
+            unselected_recipient.consultation_refs[0]["to_role"] = "hubu"
+            unselected_recipient.selected_roles = ["hubu"]
+            try:
+                court_runtime.agent_report(unselected_recipient)
+            except ValueError as exc:
+                if str(exc) != "consultation_ref_recipient_not_task_valid":
+                    raise AssertionError(
+                        "CONSULTATION_UNSELECTED_RECIPIENT_WRONG_ERROR " + str(exc)
+                    ) from exc
+            else:
+                raise AssertionError("CONSULTATION_UNSELECTED_RECIPIENT_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_unselected_recipient_tasks
+            assert court_runtime.events_path().read_bytes() == before_unselected_recipient_events
+
+            unadmitted_agent_id = "hubu-unadmitted-consultation-0001"
+            before_unadmitted_office_fixture_tasks = court_runtime.tasks_path().read_bytes()
+            tasks_with_unadmitted_office = court_runtime.load_tasks()
+            tasks_with_unadmitted_office[task_id]["agents"][unadmitted_agent_id] = {
+                "agent_id": unadmitted_agent_id,
+                "role": "hubu",
+                "status": "running",
+                "preload_status": "PASSED",
+                "assignment_binding_ready": True,
+                "office_execution_ready": True,
+                "wave_id": "wave-default",
+                "admission_instance_id": "hubu-unadmitted-office-0001",
+                "office_instance_id": "hubu-unadmitted-office-0001",
+                "direct_superior": "shangshu",
+            }
+            court_runtime.write_tasks(tasks_with_unadmitted_office)
+            before_unadmitted_office_tasks = court_runtime.tasks_path().read_bytes()
+            before_unadmitted_office_events = court_runtime.events_path().read_bytes()
+            unadmitted_office = deepcopy(report)
+            unadmitted_office.consultation_refs[0]["to_role"] = "hubu"
+            try:
+                court_runtime.agent_report(unadmitted_office)
+            except ValueError as exc:
+                if str(exc) != "consultation_ref_recipient_not_task_valid":
+                    raise AssertionError(
+                        "CONSULTATION_UNADMITTED_OFFICE_WRONG_ERROR " + str(exc)
+                    ) from exc
+            else:
+                raise AssertionError("CONSULTATION_UNADMITTED_OFFICE_ACCEPTED")
+            finally:
+                tasks_without_unadmitted_office = court_runtime.load_tasks()
+                tasks_without_unadmitted_office[task_id]["agents"].pop(
+                    unadmitted_agent_id, None
+                )
+                court_runtime.write_tasks(tasks_without_unadmitted_office)
+            assert court_runtime.events_path().read_bytes() == before_unadmitted_office_events
+            restored_tasks = court_runtime.load_tasks()
+            assert unadmitted_agent_id not in restored_tasks[task_id]["agents"]
+            assert court_runtime.tasks_path().read_bytes() == before_unadmitted_office_fixture_tasks
+
             reported = court_runtime.agent_report(report)
             assert reported.event["action"] == "agent_report"
             assert reported.event["consultation_refs"] == refs
@@ -964,6 +1037,25 @@ def check_consultation_refs_stay_on_existing_report_and_result_evidence() -> Non
             else:
                 raise AssertionError("CONSULTATION_REPORT_WRITE_AUTHORITY_ACCEPTED")
             assert court_runtime.tasks_path().read_bytes() == before_bad_report
+
+            before_bad_finish_tasks = court_runtime.tasks_path().read_bytes()
+            before_bad_finish_events = court_runtime.events_path().read_bytes()
+            invalid_finish_envelope = _result_envelope(reported_record)
+            invalid_finish_envelope["consultation_refs"] = deepcopy(refs)
+            invalid_finish_envelope["consultation_refs"][0]["from_role"] = "bingbu"
+            try:
+                court_runtime.agent_finish(
+                    _finish_args(task_id, reported_record, envelope=invalid_finish_envelope)
+                )
+            except ValueError as exc:
+                if str(exc) != "consultation_ref_sender_role_mismatch":
+                    raise AssertionError(
+                        "CONSULTATION_FINISH_INVALID_SENDER_WRONG_ERROR " + str(exc)
+                    ) from exc
+            else:
+                raise AssertionError("CONSULTATION_FINISH_INVALID_SENDER_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_bad_finish_tasks
+            assert court_runtime.events_path().read_bytes() == before_bad_finish_events
 
             stale_envelope = _result_envelope(reported_record)
             stale_envelope["consultation_refs"] = deepcopy(refs)

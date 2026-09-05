@@ -235,6 +235,38 @@ def _persist_runtime_task(task: dict[str, object]) -> dict[str, object]:
     return court_runtime.load_tasks()[task["task_id"]]
 
 
+def archive_and_record_task(
+    task: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    persisted = _persist_runtime_task(task)
+    recorded = archive_runtime_task.archive_and_record_task(
+        Namespace(
+            task_id=persisted["task_id"],
+            topic="",
+            phase="archive runtime fixture",
+            status="",
+            next="",
+            memory_decision="SKIP",
+            memory_content="",
+            memory_reason="",
+            event_limit=8,
+        )
+    )
+    return (
+        court_runtime.load_tasks()[persisted["task_id"]],
+        recorded["runtime_receipt"],
+        recorded["producer_receipt"],
+    )
+
+
+def archived_checkpoint_task(
+    task_id: str,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    task = assessment_ready_task(task_id)
+    task = court_runtime.bind_assessment_record(task, assessment(task))
+    return archive_and_record_task(task)
+
+
 def _persist_menxia_report(
     task: dict[str, object],
     pointer: str,
@@ -552,45 +584,18 @@ def check_completion_sources_and_concerns_are_bound_end_to_end() -> None:
             completion_source_value=serial_source,
         ),
     )
-    receipt = checkpoint_receipt(serial_task)
-    serial_task["state"] = "ShiguanRecorded"
-    serial_task["shiguan_checkpoint"] = {
-        "status": "VERIFIED",
-        "receipt_id": receipt["receipt_id"],
-        "record_sha256": receipt["record_sha256"],
-        "archive_path": receipt["archive_path"],
-        "recorded_at": receipt["recorded_at"],
-        "residual_gaps": deepcopy(receipt["residual_gaps"]),
-        "residual_gaps_sha256": receipt["residual_gaps_sha256"],
-    }
-    serial_task["completion"] = {"status": "READY"}
     binding = serial_task["assessment_binding"]
     assert binding["status"] == "VERIFIED"
     assert binding["gate"] == "PASSED_WITH_CONCERNS"
     assert binding["residual_gaps"] == ["fixture residual gap"]
+    serial_task, receipt, producer_receipt = archive_and_record_task(serial_task)
     assert receipt["residual_gaps"] == ["fixture residual gap"]
     assert receipt["residual_gaps_sha256"] == binding["residual_gaps_sha256"]
+    assert producer_receipt["residual_gaps"] == ["fixture residual gap"]
     checkpoint_gate_task = deepcopy(serial_task)
     checkpoint_gate_task["state"] = "MenxiaReview"
     court_runtime.validate_runtime_gate(
         checkpoint_gate_task, "MenxiaReview", "ShiguanRecorded", "checkpoint guard"
-    )
-
-    tasks = court_runtime.load_tasks()
-    tasks[serial_task["task_id"]] = serial_task
-    court_runtime.write_tasks(tasks)
-    court_runtime.append_event(
-        {
-            "time": "2026-07-14T00:01:00+00:00",
-            "task_id": serial_task["task_id"],
-            "action": "record_shiguan",
-            "from_state": "MenxiaReview",
-            "to_state": "ShiguanRecorded",
-            "actor": "shiguan",
-            "receipt_id": receipt["receipt_id"],
-            "assessment_sha256": receipt["assessment_sha256"],
-            "record_sha256": receipt["record_sha256"],
-        }
     )
     completed = court_runtime.complete_task_atomically(complete_args(serial_task, receipt))
     events = court_runtime.events_for_task(serial_task["task_id"])
@@ -793,11 +798,98 @@ def check_archive_receipt_records_runtime_replays_and_completes_with_concerns() 
             assert current["state"] == "ShiguanRecorded"
             assert current["completion"]["status"] == "READY"
             assert current["shiguan_checkpoint"]["record_sha256"] == producer_receipt["record_sha256"]
+            assert producer_receipt["residual_gaps"] == ["fixture archive residual gap"]
+            assert (
+                producer_receipt["residual_gaps_sha256"]
+                == task["assessment_binding"]["residual_gaps_sha256"]
+            )
             recorded_events = court_runtime.events_for_task(task["task_id"])
             assert [event["action"] for event in recorded_events].count("record_shiguan") == 1
             index_path = shared_root / "references" / "shiguan-index.jsonl"
             index_lines = [line for line in index_path.read_text(encoding="utf-8").splitlines() if line]
             assert len(index_lines) == 1
+            index_entry = json.loads(index_lines[0])
+            assert index_entry["residual_gaps"] == ["fixture archive residual gap"]
+            assert (
+                index_entry["residual_gaps_sha256"]
+                == task["assessment_binding"]["residual_gaps_sha256"]
+            )
+            assert producer_receipt["record_sha256"] == envelope_sha256(index_entry)
+            archive_path = Path(str(producer_receipt["path"]))
+            archive_text = archive_path.read_text(encoding="utf-8")
+            assert "- residual_gaps_json: [\"fixture archive residual gap\"]" in archive_text
+            assert (
+                "- residual_gaps_sha256: "
+                + str(task["assessment_binding"]["residual_gaps_sha256"])
+            ) in archive_text
+
+            missing_both = deepcopy(current)
+            missing_both["shiguan_checkpoint"].pop("producer_receipt")
+            missing_both["shiguan_checkpoint"].pop("producer_receipt_sha256")
+            tasks = court_runtime.load_tasks()
+            tasks[task["task_id"]] = missing_both
+            court_runtime.write_tasks(tasks)
+            before_missing_both_tasks = court_runtime.tasks_path().read_bytes()
+            before_missing_both_events = court_runtime.events_path().read_bytes()
+            try:
+                court_runtime.complete_task_atomically(
+                    complete_args(missing_both, runtime_receipt)
+                )
+            except ValueError as exc:
+                if str(exc) != "archive_producer_evidence_missing":
+                    raise AssertionError(
+                        "ARCHIVE_MISSING_BOTH_PRODUCER_WRONG_ERROR " + str(exc)
+                    ) from exc
+            else:
+                raise AssertionError("ARCHIVE_MISSING_BOTH_PRODUCER_COMPLETION_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_missing_both_tasks
+            assert court_runtime.events_path().read_bytes() == before_missing_both_events
+            tasks = court_runtime.load_tasks()
+            tasks[task["task_id"]] = current
+            court_runtime.write_tasks(tasks)
+
+            original_index = index_path.read_bytes()
+            tampered_index_entry = deepcopy(index_entry)
+            tampered_index_entry["residual_gaps"] = ["tampered archive residual gap"]
+            index_path.write_text(
+                json.dumps(tampered_index_entry, ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            before_tampered_index_tasks = court_runtime.tasks_path().read_bytes()
+            before_tampered_index_events = court_runtime.events_path().read_bytes()
+            try:
+                court_runtime.complete_task_atomically(
+                    complete_args(current, runtime_receipt)
+                )
+            except ValueError as exc:
+                if str(exc) != "archive_producer_record_sha256_mismatch":
+                    raise AssertionError(
+                        "ARCHIVE_TAMPERED_INDEX_WRONG_ERROR " + str(exc)
+                    ) from exc
+            else:
+                raise AssertionError("ARCHIVE_TAMPERED_INDEX_COMPLETION_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_tampered_index_tasks
+            assert court_runtime.events_path().read_bytes() == before_tampered_index_events
+            index_path.write_bytes(original_index)
+
+            original_archive = archive_path.read_bytes()
+            archive_path.unlink()
+            before_missing_archive_tasks = court_runtime.tasks_path().read_bytes()
+            before_missing_archive_events = court_runtime.events_path().read_bytes()
+            try:
+                court_runtime.complete_task_atomically(
+                    complete_args(current, runtime_receipt)
+                )
+            except ValueError as exc:
+                if str(exc) != "archive_producer_receipt_path_invalid":
+                    raise AssertionError(
+                        "ARCHIVE_MISSING_PRODUCER_WRONG_ERROR " + str(exc)
+                    ) from exc
+            else:
+                raise AssertionError("ARCHIVE_MISSING_PRODUCER_COMPLETION_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_missing_archive_tasks
+            assert court_runtime.events_path().read_bytes() == before_missing_archive_events
+            archive_path.write_bytes(original_archive)
 
             replayed = archive_runtime_task.archive_and_record_task(args)
             assert replayed["status"] == "REPLAYED"
@@ -1178,9 +1270,11 @@ def check_checkpoint_receipt_strict_binding() -> None:
     task = checkpoint_ready_task("receipt-bind")
     receipt = checkpoint_receipt(task)
     source = deepcopy(receipt)
-    validated = court_runtime.validate_checkpoint_receipt(task, receipt)
+    expect_error(
+        lambda: court_runtime.validate_checkpoint_receipt(task, receipt),
+        "archive_producer_evidence_missing",
+    )
     assert receipt == source
-    assert validated == {**source, "recorded_at": "2026-07-14T00:01:00+00:00"}
 
     cases = (
         ({"schema": "wrong"}, "invalid_checkpoint_receipt_schema"),
@@ -1220,29 +1314,14 @@ def check_checkpoint_receipt_strict_binding() -> None:
     opaque_receipt["archive_path"] = "fixture://shiguan/link/../receipt-opaque"
     opaque["shiguan_checkpoint"]["receipt_id"] = "receipt-opaque"
     opaque["shiguan_checkpoint"]["archive_path"] = opaque_receipt["archive_path"]
-    assert court_runtime.validate_checkpoint_receipt(opaque, opaque_receipt)["archive_path"] == (
-        "fixture://shiguan/link/../receipt-opaque"
+    expect_error(
+        lambda: court_runtime.validate_checkpoint_receipt(opaque, opaque_receipt),
+        "archive_producer_evidence_missing",
     )
 
 
 def check_atomic_complete_and_exact_rollback() -> None:
-    task = checkpoint_ready_task("atomic-complete")
-    receipt = checkpoint_receipt(task)
-    tasks = court_runtime.load_tasks()
-    tasks[task["task_id"]] = task
-    court_runtime.write_tasks(tasks)
-    checkpoint_ledger_event = {
-        "time": "2026-07-14T00:01:00+00:00",
-        "task_id": task["task_id"],
-        "action": "record_shiguan",
-        "from_state": "MenxiaReview",
-        "to_state": "ShiguanRecorded",
-        "actor": "shiguan",
-        "receipt_id": receipt["receipt_id"],
-        "assessment_sha256": receipt["assessment_sha256"],
-        "record_sha256": receipt["record_sha256"],
-    }
-    court_runtime.append_event(checkpoint_ledger_event)
+    task, receipt, _producer_receipt = archived_checkpoint_task("atomic-complete")
     writes = 0
     events = 0
     original_write = court_runtime.write_tasks
@@ -1268,7 +1347,7 @@ def check_atomic_complete_and_exact_rollback() -> None:
     assert writes == 1 and events == 1
     assert result.task["state"] == "Done"
     assert result.task["completion"]["status"] == "COMPLETED"
-    assert result.task["consumed_checkpoint_receipt_ids"] == ["receipt-001"]
+    assert result.task["consumed_checkpoint_receipt_ids"] == [receipt["receipt_id"]]
     assert result.event["action"] == "complete"
     proof = result.task["completion"]["proof"]
     assert proof["schema"] == "court.completion_proof.v1"
@@ -1364,13 +1443,9 @@ def check_atomic_complete_and_exact_rollback() -> None:
         "checkpoint_receipt_already_consumed",
     )
 
-    rollback = checkpoint_ready_task("atomic-rollback")
-    rollback_receipt = checkpoint_receipt(rollback, "receipt-rollback")
-    rollback["shiguan_checkpoint"]["receipt_id"] = "receipt-rollback"
-    rollback["shiguan_checkpoint"]["archive_path"] = "fixture://shiguan/receipt-rollback"
-    tasks = court_runtime.load_tasks()
-    tasks[rollback["task_id"]] = rollback
-    court_runtime.write_tasks(tasks)
+    rollback, rollback_receipt, _producer_receipt = archived_checkpoint_task(
+        "atomic-rollback"
+    )
     before_tasks = court_runtime.tasks_path().read_bytes()
     before_events = court_runtime.events_path().read_bytes() if court_runtime.events_path().exists() else b""
 
@@ -1391,13 +1466,7 @@ def check_atomic_complete_and_exact_rollback() -> None:
     current_events = court_runtime.events_path().read_bytes() if court_runtime.events_path().exists() else b""
     assert current_events == before_events
 
-    stale = checkpoint_ready_task("atomic-stale")
-    stale_receipt = checkpoint_receipt(stale, "receipt-stale")
-    stale["shiguan_checkpoint"]["receipt_id"] = "receipt-stale"
-    stale["shiguan_checkpoint"]["archive_path"] = "fixture://shiguan/receipt-stale"
-    tasks = court_runtime.load_tasks()
-    tasks[stale["task_id"]] = stale
-    court_runtime.write_tasks(tasks)
+    stale, stale_receipt, _producer_receipt = archived_checkpoint_task("atomic-stale")
     before_tasks = court_runtime.tasks_path().read_bytes()
     before_events = court_runtime.events_path().read_bytes()
     stale_args = complete_args(stale, stale_receipt)
@@ -1470,13 +1539,7 @@ def check_generic_completion_paths_fail_closed() -> None:
 
 
 def check_persistent_completion_recovery() -> None:
-    task = checkpoint_ready_task("crash-recovery")
-    receipt = checkpoint_receipt(task, "receipt-crash")
-    task["shiguan_checkpoint"]["receipt_id"] = "receipt-crash"
-    task["shiguan_checkpoint"]["archive_path"] = "fixture://shiguan/receipt-crash"
-    tasks = court_runtime.load_tasks()
-    tasks[task["task_id"]] = task
-    court_runtime.write_tasks(tasks)
+    task, receipt, _producer_receipt = archived_checkpoint_task("crash-recovery")
     before_tasks = court_runtime.tasks_path().read_bytes()
     before_events = court_runtime.events_path().read_bytes()
     original_append = court_runtime.append_event
@@ -1526,18 +1589,12 @@ def check_persistent_completion_recovery() -> None:
     assert marker.exists()
     restarted = court_runtime.complete_task_atomically(complete_args(task, receipt))
     assert restarted.task["state"] == "Done"
-    assert restarted.task["consumed_checkpoint_receipt_ids"] == ["receipt-crash"]
+    assert restarted.task["consumed_checkpoint_receipt_ids"] == [receipt["receipt_id"]]
     assert not marker.exists()
 
 
 def check_event_written_marker_finalizes_consistent_ledgers() -> None:
-    task = checkpoint_ready_task("event-finalize")
-    receipt = checkpoint_receipt(task, "receipt-finalize")
-    task["shiguan_checkpoint"]["receipt_id"] = "receipt-finalize"
-    task["shiguan_checkpoint"]["archive_path"] = "fixture://shiguan/receipt-finalize"
-    tasks = court_runtime.load_tasks()
-    tasks[task["task_id"]] = task
-    court_runtime.write_tasks(tasks)
+    task, receipt, _producer_receipt = archived_checkpoint_task("event-finalize")
     original_remove = court_runtime._remove_completion_transaction_marker
 
     def leave_marker(_path: Path) -> None:
@@ -1814,8 +1871,21 @@ def check_cli_parser() -> None:
 
 def main() -> int:
     with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
         original_runtime_root = court_runtime.runtime_root
-        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        original_environment = {
+            key: os.environ.get(key)
+            for key in ("COURT_SHARED_SHIGUAN_ROOT", "COURT_RUNTIME_ROOT", "HOME", "USERPROFILE")
+        }
+        court_runtime.runtime_root = lambda: root / "runtime"  # type: ignore[assignment]
+        os.environ.update(
+            {
+                "COURT_SHARED_SHIGUAN_ROOT": str(root / "shared"),
+                "COURT_RUNTIME_ROOT": str(root / "runtime"),
+                "HOME": str(root / "home"),
+                "USERPROFILE": str(root / "home"),
+            }
+        )
         try:
             check_runtime_source_is_outcome_gate_independent()
             check_assessment_validation_and_deep_copy()
@@ -1840,6 +1910,11 @@ def main() -> int:
             check_cli_parser()
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+            for key, value in original_environment.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
     print("COURT_RUNTIME_COMPLETION_OK cases=21")
     return 0
 
