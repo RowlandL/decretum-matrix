@@ -51,6 +51,7 @@ NON_PUBLIC_ENTRYPOINTS = frozenset(
     {
         "scripts/build_npm_package.mjs",
         "scripts/check_npm_package.mjs",
+        "scripts/checks/check_active_copy_hashes.py",
         "scripts/court_mcp_server.py",
         "scripts/commands/install_codex_plugin_projection.py",
         "scripts/commands/memory_pipeline_fixture.py",

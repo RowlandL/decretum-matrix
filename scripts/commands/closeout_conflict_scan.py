@@ -91,6 +91,12 @@ def _content_fingerprint(entry: dict[str, object]) -> str:
     return ""
 
 
+def _structured_conflict_key(entry: dict[str, object]) -> str:
+    """Return an explicit claim key; topic/text alone never proves conflict."""
+    value = entry.get("conflict_key")
+    return " ".join(str(value or "").casefold().split())
+
+
 def _decision(
     *,
     record_uid: str,
@@ -168,10 +174,11 @@ def scan(
                 )
             )
 
-    # Conflict pass (deterministic SUPERSEDED / ambiguous REVIEW).
+    # Conflict pass considers only currently applicable claims. Future records
+    # already have an advisory REVIEW; expired records already have DEGRADED.
     groups: dict[str, list[dict[str, object]]] = {}
     for entry in entries:
-        if _in_scope(entry):
+        if _in_scope(entry) and _applicability(entry, instant) in {"undated", "current"}:
             groups.setdefault(_normalized_topic(entry), []).append(entry)
     for topic_key, group in groups.items():
         if len(group) < 2:
@@ -185,15 +192,22 @@ def scan(
         newest = ordered[0]
         newest_decision = str(newest.get("memory_decision") or "").upper()
         newest_content = _content_fingerprint(newest)
+        newest_key = _structured_conflict_key(newest)
         for older in ordered[1:]:
             older_decision = str(older.get("memory_decision") or "").upper()
             older_content = _content_fingerprint(older)
+            older_key = _structured_conflict_key(older)
             both_durable = (
                 newest_decision in DURABLE_DECISIONS
                 and older_decision in DURABLE_DECISIONS
             )
+            if newest_key and older_key and newest_key != older_key:
+                # Explicitly different claim keys describe complementary facts.
+                continue
             if (
                 both_durable
+                and newest_key
+                and newest_key == older_key
                 and newest_content
                 and older_content
                 and newest_content != older_content
@@ -214,6 +228,27 @@ def scan(
                         superseded_by=_record_uid(newest),
                     )
                 )
+            elif both_durable and newest_content and older_content and newest_content != older_content:
+                # Same topic and text drift alone are not enough structured
+                # evidence for an automatic downgrade.
+                for conflicted, conflicted_decision in (
+                    (older, older_decision),
+                    (newest, newest_decision),
+                ):
+                    decisions.append(
+                        _decision(
+                            record_uid=_record_uid(conflicted),
+                            topic=str(conflicted.get("topic") or ""),
+                            action="REVIEW",
+                            deterministic=False,
+                            reason="insufficient_structured_conflict_evidence",
+                            before=conflicted_decision,
+                            after="REVIEW",
+                            as_of=as_of,
+                            user_notice="同一主题缺少可证明矛盾的结构化 claim key，转门下复核。",
+                            superseded_by=_record_uid(newest),
+                        )
+                    )
             elif newest_decision != older_decision:
                 # Ambiguous conflict: both the newer and the older record go to
                 # menxia review (no scripted winner), staying advisory.
@@ -287,6 +322,7 @@ def apply_decisions(
     idempotency_keys = idempotency_keys or {}
     receipts: list[dict[str, object]] = []
     applied = 0
+    failure_count = 0
     for decision in decisions:
         if decision.get("action") not in DETERMINISTIC_ACTIONS:
             continue
@@ -319,12 +355,16 @@ def apply_decisions(
         )
         receipts.append(result)
         if result.get("ok"):
-            applied += 1
+            if not result.get("idempotent"):
+                applied += 1
+        else:
+            failure_count += 1
     return {
         "schema": SCHEMA,
-        "ok": True,
+        "ok": failure_count == 0,
         "applied": applied,
         "receipt_count": len(receipts),
+        "failure_count": failure_count,
         "receipts": receipts,
     }
 
@@ -388,13 +428,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     else:
+        status = "OK" if result["ok"] else "FAILED"
         print(
-            f"CLOSEOUT_CONFLICT_APPLY_OK applied={result['applied']} "
-            f"receipts={result['receipt_count']}"
+            f"CLOSEOUT_CONFLICT_APPLY_{status} applied={result['applied']} "
+            f"receipts={result['receipt_count']} failures={result['failure_count']}"
         )
-    return 0
+    return 0 if result["ok"] else 1
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

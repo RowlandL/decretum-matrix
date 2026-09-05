@@ -158,6 +158,24 @@ def _validate(family: str, semantics: dict[str, Any], errors: list[str], draft: 
 
 def evaluate(root: Path | None = None) -> dict[str, object]:
     errors: list[str] = []
+    completion_status_cases = (
+        ("PASSED", True, "DONE"),
+        ("PASSED_WITH_CONCERNS", True, "DONE_WITH_CONCERNS"),
+        ("PASSED_WITH_CONCERNS", False, "UNVERIFIED"),
+        ("PARTIAL", True, "PARTIAL"),
+        ("BLOCKED", True, "BLOCKED"),
+    )
+    for gate, verified, expected in completion_status_cases:
+        try:
+            rendered = court_result_semantics.rendered_completion_status(
+                assessment_gate=gate,
+                completion_verified=verified,
+            )
+        except (AttributeError, TypeError, ValueError) as exc:
+            _error(errors, "completion_status", f"{gate}:{exc}")
+            continue
+        if rendered != expected:
+            _error(errors, "completion_status", f"{gate}:{rendered}!={expected}")
     path = (root or ROOT) / "references" / "fixtures" / "response-draft-families.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -236,6 +254,7 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
         "families": len(REQUIRED_FAMILIES),
         "cases": len(fixtures),
         "attribution_cases": len(attribution_cases),
+        "completion_status_cases": len(completion_status_cases),
         "errors": errors,
     }
     return result
@@ -249,6 +268,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 

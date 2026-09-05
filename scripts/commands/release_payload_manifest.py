@@ -34,8 +34,8 @@ NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 PACKAGE_NAME = NAME
 LICENSE_ID = "AGPL-3.0-only"
-RELEASE_LABEL = "beta1.0.8"
-VERSION_CORE = "1.0.8"
+RELEASE_LABEL = "beta1.1.0"
+VERSION_CORE = "1.1.0"
 ARTIFACT_NAME = f"decretum-matrix-{RELEASE_LABEL}.zip"
 SIDECAR_NAME = f"{ARTIFACT_NAME}.sha256"
 ATTESTATION_NAME = f"decretum-matrix-{RELEASE_LABEL}.release-attestation.json"
@@ -530,9 +530,9 @@ def self_tests() -> dict[str, bool]:
             and globals().get("DISPLAY_NAME") == "Decretum Matrix（诏令矩阵）"
         ),
         "current_artifact_identity_required": (
-            RELEASE_LABEL == "beta1.0.8"
-            and VERSION_CORE == "1.0.8"
-            and ARTIFACT_NAME == "decretum-matrix-beta1.0.8.zip"
+            RELEASE_LABEL == "beta1.1.0"
+            and VERSION_CORE == "1.1.0"
+            and ARTIFACT_NAME == "decretum-matrix-beta1.1.0.zip"
         ),
         "agpl_only_license_required": base.get("license")
         == {"declared": "AGPL-3.0-only", "file": "LICENSE"},
@@ -708,6 +708,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 

@@ -73,5 +73,87 @@
       },
       "failure_code": "validation_conflict_silently_classified"
     }
+  ],
+  "regressions": [
+    {
+      "id": "source_path_not_taxonomy_evidence",
+      "label": "来源路径不污染内容分类",
+      "entry": {
+        "topic": "量子泡沫观测校准",
+        "evidence": "来源 docs/archive/index.md. 工具 archive_checkpoint.py"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "unknown",
+        "evidence": {
+          "positive_equals": [],
+          "negative_equals": []
+        }
+      },
+      "failure_code": "validation_source_path_contaminated_taxonomy"
+    },
+    {
+      "id": "mixed_same_term_assertion",
+      "label": "同词肯定与否定并存",
+      "entry": {
+        "topic": "需要 archive index，但是不涉及 archive index"
+      },
+      "expected": {
+        "status": "review",
+        "reason": "conflict",
+        "evidence": {
+          "positive_contains": ["archive", "index"],
+          "negative_contains": ["archive", "index"],
+          "overlap_contains": ["archive", "index"]
+        }
+      },
+      "failure_code": "validation_mixed_assertion_evidence_lost"
+    },
+    {
+      "id": "explicit_content_keywords_remain_evidence",
+      "label": "显式内容关键词仍可分类",
+      "entry": {
+        "topic": "记录整理",
+        "keywords": ["archive", "index"]
+      },
+      "expected": {
+        "status": "classified",
+        "reason": "matched",
+        "parts": {
+          "zhi": "典藏",
+          "men": "史馆",
+          "gang": "实录",
+          "mu": "生长树",
+          "tiao": "索引检索"
+        },
+        "evidence": {
+          "positive_contains": ["archive", "index"]
+        }
+      },
+      "failure_code": "validation_explicit_content_keywords_lost"
+    },
+    {
+      "id": "content_evidence_survives_source_path_filter",
+      "label": "内容证据不随来源路径一并丢失",
+      "entry": {
+        "topic": "记录整理",
+        "evidence": "依据 docs/archive/index.md，史馆 archive index 需要更新"
+      },
+      "expected": {
+        "status": "classified",
+        "reason": "matched",
+        "parts": {
+          "zhi": "典藏",
+          "men": "史馆",
+          "gang": "实录",
+          "mu": "生长树",
+          "tiao": "索引检索"
+        },
+        "evidence": {
+          "positive_contains": ["史馆", "archive", "index"]
+        }
+      },
+      "failure_code": "validation_content_evidence_removed_with_source_path"
+    }
   ]
 }

@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
+from unittest import mock
 
 sys.dont_write_bytecode = True
 
@@ -23,6 +24,8 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import archive_checkpoint  # noqa: E402
+import court_session_numbering as csn  # noqa: E402
 from archive_checkpoint import build_index_entry  # noqa: E402
 from court_session_numbering import (  # noqa: E402
     domain_court_code_issue,
@@ -64,7 +67,51 @@ def evaluate() -> dict[str, Any]:
         numbering_root = temp / "session-numbering"
         index = temp / "index.jsonl"
 
-        # 1. Issue at conversation start (unified generator, persisted).
+        # 1. The default index is the authoritative Shiguan index, rather
+        # than the legacy plan-archives/index.json. A highest sequence of Z
+        # must advance in base36 to 10.
+        shared = temp / "shared"
+        authority_index = shared / "shiguan-index.jsonl"
+        authority_index.parent.mkdir(parents=True, exist_ok=True)
+        authority_index.write_text(
+            json.dumps(
+                {
+                    "time": "2026-01-01T09:00:00+08:00",
+                    "daily_sequence": "Z",
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with (
+            mock.patch.object(
+                csn,
+                "reference_path",
+                side_effect=lambda *parts: shared.joinpath(*parts),
+            ),
+            mock.patch.object(
+                archive_checkpoint,
+                "index_path",
+                return_value=authority_index,
+            ),
+        ):
+            default_issued = domain_court_code_issue(
+                "sess-authority-index",
+                "权威索引默认入口",
+                date_text="20260101",
+                numbering_root=temp / "authority-numbering",
+            )
+        if default_issued.get("daily_sequence") != "10":
+            failures.append(
+                "default_authority_index_did_not_advance_z_to_10:"
+                f"{default_issued.get('daily_sequence')}"
+            )
+        evidence["default_authority_index_next_sequence"] = (
+            default_issued.get("daily_sequence") == "10"
+        )
+
+        # 2. Issue at conversation start (unified generator, persisted).
         issued = domain_court_code_issue(
             "sess-start-1",
             "史馆索引检索优化",
@@ -87,7 +134,7 @@ def evaluate() -> dict[str, Any]:
         evidence["issue_at_start_ok"] = True
         evidence["issued_court_code"] = court_code
 
-        # 2. Idempotent per session: re-issue returns the same code.
+        # 3. Idempotent per session: re-issue returns the same code.
         reissued = domain_court_code_issue(
             "sess-start-1",
             "史馆索引检索优化",
@@ -102,7 +149,7 @@ def evaluate() -> dict[str, Any]:
             and reissued.get("court_code") == court_code
         )
 
-        # 3. Collision avoidance: a second session on the same date gets a
+        # 4. Collision avoidance: a second session on the same date gets a
         # different daily sequence, even before any closeout writes the index.
         second = domain_court_code_issue(
             "sess-start-2",
@@ -127,9 +174,6 @@ def evaluate() -> dict[str, Any]:
         # concurrent sessions get distinct sequences.
         import threading
         import time
-        from unittest import mock
-        import court_session_numbering as csn
-
         concurrency_root = temp / "concurrency-numbering"
         overlap = {"detected": False}
         active = {"n": 0}
@@ -175,7 +219,7 @@ def evaluate() -> dict[str, Any]:
         evidence["concurrent_serialized_no_overlap"] = not overlap["detected"]
         evidence["concurrent_sequences_distinct"] = len(set(seqs)) == 2
 
-        # 4. Closeout reuse: build_index_entry with the session allocation must
+        # 5. Closeout reuse: build_index_entry with the session allocation must
         # keep the issued court_code verbatim (no regeneration).
         now = datetime.fromisoformat("2026-01-01T12:00:00+08:00")
         path = temp / "archive-20260101-sess.md"
@@ -202,7 +246,7 @@ def evaluate() -> dict[str, Any]:
             and entry.get("court_code_issued_at_start") is True
         )
 
-        # 5. Fallback: without an allocation, build_index_entry computes a
+        # 6. Fallback: without an allocation, build_index_entry computes a
         # normal number (existing behavior, no issued-at-start flag).
         fallback_args = _closeout_args("sess-noalloc", None)
         fallback_entry = build_index_entry(
@@ -224,14 +268,96 @@ def evaluate() -> dict[str, Any]:
             fallback_entry.get("court_code_issued_at_start") is None
         )
 
-        # 6. resolve_session_allocation: wrong date / missing session -> None.
-        if resolve_session_allocation("sess-start-1", "20260102", numbering_root) is not None:
-            failures.append("resolve_wrong_date_not_none")
+        # 7. The allocation belongs to the session, not to closeout's calendar
+        # date. A valid allocation must be reused verbatim after midnight.
+        cross_day = resolve_session_allocation(
+            "sess-start-1", "20260102", numbering_root
+        )
+        if not (
+            isinstance(cross_day, dict)
+            and cross_day.get("court_code") == court_code
+            and cross_day.get("daily_sequence") == issued.get("daily_sequence")
+        ):
+            failures.append("resolve_cross_day_did_not_reuse_allocation")
+        cross_day_entry = build_index_entry(
+            _closeout_args("sess-start-1", cross_day),
+            datetime.fromisoformat("2026-01-02T12:00:00+08:00"),
+            temp / "archive-20260102-sess.md",
+            "SKIP",
+            "none",
+            "cross-day closeout probe",
+            False,
+        )
+        if not (
+            cross_day_entry.get("court_code") == court_code
+            and cross_day_entry.get("daily_sequence") == issued.get("daily_sequence")
+            and cross_day_entry.get("court_code_issued_at_start") is True
+        ):
+            failures.append("cross_day_closeout_did_not_reuse_allocation")
+        if resolve_session_allocation("missing-session", "20260101", numbering_root) is not None:
+            failures.append("resolve_missing_session_not_none")
+        evidence["cross_day_reuses_issued_allocation"] = (
+            isinstance(cross_day, dict)
+            and cross_day.get("court_code") == court_code
+            and cross_day_entry.get("court_code") == court_code
+        )
+
+        # 8. The date relaxation must not admit an invalid allocation. Reject
+        # schema, session identity, and court-code/sequence mismatches. A
+        # direct closeout caller must also fall back instead of copying one.
+        bad_schema = {**issued, "session_id": "sess-bad-schema", "schema": "bad.schema"}
+        bad_session = {**issued, "session_id": "different-session"}
+        bad_number = {
+            **issued,
+            "session_id": "sess-bad-number",
+            "daily_sequence": "2",
+        }
+        bad_values = (
+            ("sess-bad-schema", bad_schema),
+            ("sess-bad-session", bad_session),
+            ("sess-bad-number", bad_number),
+        )
+        for requested_session, invalid in bad_values:
+            (numbering_root / f"{requested_session}.json").write_text(
+                json.dumps(invalid, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            if resolve_session_allocation(
+                requested_session, "20260102", numbering_root
+            ) is not None:
+                failures.append(f"bad_allocation_accepted:{requested_session}")
+        rejected_reissue = domain_court_code_issue(
+            "sess-bad-number",
+            "坏分配不可覆盖",
+            date_text="20260102",
+            index=index,
+            numbering_root=numbering_root,
+        )
+        if rejected_reissue.get("ok") is not False:
+            failures.append("bad_existing_allocation_not_rejected_on_issue")
+        bad_closeout_entry = build_index_entry(
+            _closeout_args("sess-bad-number", bad_number),
+            datetime.fromisoformat("2026-01-02T13:00:00+08:00"),
+            temp / "archive-20260102-bad.md",
+            "SKIP",
+            "none",
+            "bad allocation closeout probe",
+            False,
+        )
+        if bad_closeout_entry.get("court_code_issued_at_start") is not None:
+            failures.append("bad_allocation_reused_by_closeout")
+        evidence["bad_allocations_rejected"] = not any(
+            failure.startswith("bad_allocation_")
+            or failure == "bad_existing_allocation_not_rejected_on_issue"
+            for failure in failures
+        )
+
+        # 9. Missing allocations still take the original fallback path.
         if resolve_session_allocation("missing-session", "20260101", numbering_root) is not None:
             failures.append("resolve_missing_session_not_none")
         evidence["resolve_gates"] = True
 
-        # 7. CLI issue/show round-trip (isolated temp roots).
+        # 10. CLI issue/show round-trip (isolated temp roots).
         proc = subprocess.run(
             [
                 sys.executable,

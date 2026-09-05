@@ -92,6 +92,7 @@ from court_semantic_continuity import (
     initial_semantic_binding,
     invariant_capsule_json_schema,
     invariant_capsule_template,
+    normalize_consultation_refs,
     normalize_semantic_context,
     normalize_result_envelope,
     build_result_quarantine_core,
@@ -176,8 +177,15 @@ RUNTIME_SCHEMA_VERSION = 3
 OUTCOME_ASSESSMENT_SCHEMA = "court.outcome_assessment.v1"
 RUNTIME_ASSESSMENT_BINDING_SCHEMA = "court.runtime_assessment_binding.v1"
 CHECKPOINT_RECEIPT_SCHEMA = "court.shiguan_checkpoint_receipt.v1"
+ARCHIVE_PRODUCER_RECEIPT_SCHEMA = "court.shiguan_archive_checkpoint_receipt.v1"
 COMPLETION_TRANSACTION_SCHEMA = "court.completion_transaction.v1"
-OUTCOME_ASSESSMENT_GATES = {"PASSED", "PARTIAL", "BLOCKED"}
+COMPLETION_SOURCE_SCHEMA = "court.completion_source.v1"
+COMPLETION_SOURCE_KINDS = {"host_report", "bounded_trace", "serial_inline"}
+COMPLETION_SOURCE_MAX_ITEMS = 16
+RESIDUAL_GAPS_MAX_ITEMS = 16
+RESIDUAL_GAP_MAX_BYTES = 512
+OUTCOME_ASSESSMENT_GATES = {"PASSED", "PASSED_WITH_CONCERNS", "PARTIAL", "BLOCKED"}
+COMPLETABLE_OUTCOME_ASSESSMENT_GATES = {"PASSED", "PASSED_WITH_CONCERNS"}
 RUNTIME_ASSESSMENT_BINDING_FIELDS = {
     "schema",
     "task_id",
@@ -187,6 +195,10 @@ RUNTIME_ASSESSMENT_BINDING_FIELDS = {
     "evidence_sha256",
     "gate",
     "reasons",
+    "completion_source",
+    "completion_source_sha256",
+    "residual_gaps",
+    "residual_gaps_sha256",
     "assessed_at",
 }
 CHECKPOINT_RECEIPT_FIELDS = {
@@ -200,6 +212,7 @@ CHECKPOINT_RECEIPT_FIELDS = {
     "archive_path",
     "recorded_at",
 }
+CHECKPOINT_RECEIPT_CONCERN_FIELDS = {"residual_gaps", "residual_gaps_sha256"}
 CONTROL_STATES = {"Paused", "Cancelled"}
 SERIAL_OVERRIDE_RE = re.compile(
     r"(parallel_dispatch\s*=\s*NOT_APPLICABLE/user_serial_override|"
@@ -642,7 +655,7 @@ def validate_runtime_gate(
             raise ValueError(f"illegal paused resume: {paused_from} paused, cannot resume to {to_state}")
     if _runtime_schema_version(task) >= 3 and to_state == "ShiguanRecorded":
         revalidated_binding = _revalidate_stored_assessment_binding(task)
-        if revalidated_binding.get("gate") != "PASSED":
+        if revalidated_binding.get("gate") not in COMPLETABLE_OUTCOME_ASSESSMENT_GATES:
             raise ValueError("outcome_assessment_not_completable")
         checkpoint = task.get("shiguan_checkpoint")
         if not isinstance(checkpoint, dict) or checkpoint.get("status") != "VERIFIED":
@@ -2715,10 +2728,30 @@ def _validate_agent_semantic_args(
             raise ValueError(f"agent_semantic_binding_mismatch:{field}")
 
 
+def _validated_consultation_refs_for_task(
+    task: Mapping[str, object],
+    value: object,
+) -> list[dict[str, object]]:
+    """Bind optional consultation evidence without creating an authority edge."""
+
+    references = normalize_consultation_refs(value)
+    for reference in references:
+        if reference.get("task_id") != task.get("task_id"):
+            raise ValueError("consultation_ref_task_mismatch")
+        if reference.get("charter_revision") != task.get("charter_revision"):
+            raise ValueError("consultation_ref_charter_revision_mismatch")
+        if reference.get("charter_sha256") != str(task.get("charter_sha256") or "").lower():
+            raise ValueError("consultation_ref_charter_sha256_mismatch")
+        if reference.get("from_role") not in OFFICES or reference.get("to_role") not in OFFICES:
+            raise ValueError("consultation_ref_role_not_selected")
+    return references
+
+
 COMPLETION_PROOF_SCHEMA = "court.completion_proof.v1"
 COMPLETION_PROOF_FIELDS = {
     "schema", "task_id", "receipt_id", "assessment_sha256",
-    "record_sha256", "events", "proof_sha256",
+    "record_sha256", "completion_source_sha256", "residual_gaps",
+    "residual_gaps_sha256", "outcome_status", "events", "proof_sha256",
 }
 
 
@@ -2735,12 +2768,20 @@ def _completion_proof(
     receipt: dict[str, object],
     completion_event: dict[str, object],
 ) -> dict[str, object]:
+    binding = task.get("assessment_binding")
+    completion = task.get("completion")
+    if not isinstance(binding, dict) or not isinstance(completion, dict):
+        raise ValueError("completion_proof_binding_missing")
     proof: dict[str, object] = {
         "schema": COMPLETION_PROOF_SCHEMA,
         "task_id": task.get("task_id"),
         "receipt_id": receipt.get("receipt_id"),
         "assessment_sha256": receipt.get("assessment_sha256"),
         "record_sha256": receipt.get("record_sha256"),
+        "completion_source_sha256": binding.get("completion_source_sha256"),
+        "residual_gaps": deepcopy(binding.get("residual_gaps")),
+        "residual_gaps_sha256": binding.get("residual_gaps_sha256"),
+        "outcome_status": completion.get("outcome_status"),
         "events": [
             {
                 "kind": "checkpoint",
@@ -2784,6 +2825,10 @@ def completion_projection(
     checkpoint = task.get("shiguan_checkpoint")
     assessment_valid = False
     assessment_digest_valid = False
+    assessment_gate: str | None = None
+    completion_source_sha256 = ""
+    residual_gaps: list[str] = []
+    residual_gaps_sha256 = ""
     if isinstance(assessment, dict):
         try:
             stored_assessment = assessment
@@ -2794,9 +2839,18 @@ def completion_projection(
             )
             assessment_valid = (
                 stored_assessment.get("status") == "VERIFIED"
-                and revalidated_assessment.get("gate") == "PASSED"
+                and revalidated_assessment.get("gate")
+                in COMPLETABLE_OUTCOME_ASSESSMENT_GATES
             )
             assessment_digest_valid = assessment_digest == revalidated_assessment.get("assessment_sha256")
+            assessment_gate = str(revalidated_assessment.get("gate") or "")
+            completion_source_sha256 = str(
+                revalidated_assessment.get("completion_source_sha256") or ""
+            )
+            residual_gaps = list(revalidated_assessment.get("residual_gaps") or [])
+            residual_gaps_sha256 = str(
+                revalidated_assessment.get("residual_gaps_sha256") or ""
+            )
         except ValueError:
             assessment_valid = False
     if not isinstance(checkpoint, dict):
@@ -2825,6 +2879,23 @@ def completion_projection(
         checkpoint.get("status") == "VERIFIED"
         and checkpoint_digest_valid
         and receipt_current
+    )
+    checkpoint_concerns_valid = assessment_gate != "PASSED_WITH_CONCERNS"
+    if assessment_gate == "PASSED_WITH_CONCERNS":
+        checkpoint_concerns_valid = (
+            checkpoint.get("residual_gaps") == residual_gaps
+            and checkpoint.get("residual_gaps_sha256") == residual_gaps_sha256
+        )
+    expected_outcome_status = (
+        "DONE_WITH_CONCERNS"
+        if assessment_gate == "PASSED_WITH_CONCERNS"
+        else "DONE"
+    )
+    completion_concerns_valid = (
+        completion.get("outcome_status") == expected_outcome_status
+        and completion.get("completion_source_sha256") == completion_source_sha256
+        and completion.get("residual_gaps") == residual_gaps
+        and completion.get("residual_gaps_sha256") == residual_gaps_sha256
     )
 
     proof = completion.get("proof")
@@ -2857,6 +2928,10 @@ def completion_projection(
                     and proof.get("receipt_id") == receipt_id
                     and proof.get("assessment_sha256") == assessment_sha256
                     and proof.get("record_sha256") == record_digest
+                    and proof.get("completion_source_sha256") == completion_source_sha256
+                    and proof.get("residual_gaps") == residual_gaps
+                    and proof.get("residual_gaps_sha256") == residual_gaps_sha256
+                    and proof.get("outcome_status") == expected_outcome_status
                     and proof.get("proof_sha256") == _completion_proof_sha256(proof)
                     and checkpoint_event.get("kind") == "checkpoint"
                     and completion_event.get("kind") == "completion"
@@ -2903,15 +2978,20 @@ def completion_projection(
         and assessment_valid
         and assessment_digest_valid
         and checkpoint_verified
+        and checkpoint_concerns_valid
+        and completion_concerns_valid
         and proof_valid
         and external_event_valid
         and completion.get("status") == "COMPLETED"
     )
-    assessment_gate = assessment.get("gate") if isinstance(assessment, dict) else None
     if legacy:
         status = "LEGACY_UNVERIFIED"
     elif verified:
-        status = "COMPLETED"
+        status = (
+            "DONE_WITH_CONCERNS"
+            if assessment_gate == "PASSED_WITH_CONCERNS"
+            else "COMPLETED"
+        )
     elif completion.get("status") == "COMPLETED":
         status = "INVALID_UNVERIFIED" if (
             not assessment_valid or not assessment_digest_valid or not checkpoint_digest_valid
@@ -2929,6 +3009,9 @@ def completion_projection(
         "charter_revision": task.get("charter_revision"),
         "assessment_sha256": assessment_sha256,
         "record_sha256": record_digest or checkpoint.get("record_sha256"),
+        "completion_source_sha256": completion_source_sha256 or None,
+        "residual_gaps": residual_gaps,
+        "residual_gaps_sha256": residual_gaps_sha256 or None,
     }
 
 
@@ -3187,6 +3270,404 @@ def _source_envelope_sha256(value: dict[str, object]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _bounded_completion_pointer(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"completion_source_{field}_required")
+    pointer = value.strip()
+    if len(pointer.encode("utf-8")) > 512 or any(
+        character in pointer for character in "\x00\r\n"
+    ):
+        raise ValueError(f"completion_source_{field}_invalid")
+    lowered = pointer.casefold()
+    if any(token in lowered for token in ("pending/", "/pending/", "private/", "/private/")):
+        raise ValueError("completion_source_privacy_gate_failed")
+    return pointer
+
+
+def _validated_completion_source(
+    task: Mapping[str, object],
+    value: object,
+) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("completion_source_required")
+    source = dict(value)
+    expected_fields = {
+        "schema", "task_id", "charter_revision", "charter_sha256", "sources"
+    }
+    if set(source) != expected_fields:
+        raise ValueError("completion_source_fields_invalid")
+    if source.get("schema") != COMPLETION_SOURCE_SCHEMA:
+        raise ValueError("completion_source_schema_invalid")
+    if source.get("task_id") != task.get("task_id"):
+        raise ValueError("completion_source_task_mismatch")
+    if source.get("charter_revision") != task.get("charter_revision"):
+        raise ValueError("completion_source_charter_revision_mismatch")
+    charter_sha256 = _canonical_sha256(
+        source.get("charter_sha256"), "completion_source_charter_sha256_invalid"
+    )
+    if charter_sha256 != str(task.get("charter_sha256") or "").lower():
+        raise ValueError("completion_source_charter_sha256_mismatch")
+    raw_sources = source.get("sources")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise ValueError("completion_source_sources_required")
+    if len(raw_sources) > COMPLETION_SOURCE_MAX_ITEMS:
+        raise ValueError("completion_source_sources_exceed_limit")
+    normalized_sources: list[dict[str, object]] = []
+    seen: set[str] = set()
+    serial_roles: set[str] = set()
+    expected_source_fields = {"kind", "role", "pointer", "sha256"}
+    raw_menxia_sources = [
+        item
+        for item in raw_sources
+        if isinstance(item, dict)
+        and str(item.get("role") or "").strip().lower() == "menxia"
+    ]
+    if not raw_menxia_sources:
+        raise ValueError("completion_source_menxia_required")
+    report_events = events_for_task(task.get("task_id"), limit=None)
+    agents = task.get("agents")
+    if not isinstance(agents, dict):
+        agents = {}
+    verified_menxia_source = False
+    for item in raw_sources:
+        if not isinstance(item, dict) or set(item) != expected_source_fields:
+            raise ValueError("completion_source_item_fields_invalid")
+        kind = str(item.get("kind") or "").strip()
+        role = str(item.get("role") or "").strip().lower()
+        if kind not in COMPLETION_SOURCE_KINDS:
+            raise ValueError("completion_source_kind_invalid")
+        if role not in OFFICES:
+            raise ValueError("completion_source_role_invalid")
+        normalized = {
+            "kind": kind,
+            "role": role,
+            "pointer": _bounded_completion_pointer(item.get("pointer"), "pointer"),
+            "sha256": _canonical_sha256(
+                item.get("sha256"), "completion_source_sha256_invalid"
+            ),
+        }
+        if normalized["sha256"] != hashlib.sha256(
+            str(normalized["pointer"]).encode("utf-8")
+        ).hexdigest():
+            raise ValueError("completion_source_report_sha256_mismatch")
+        identity = canonical_json_sha256(normalized)
+        if identity in seen:
+            raise ValueError("completion_source_duplicate")
+        seen.add(identity)
+        if kind == "serial_inline":
+            if role in serial_roles:
+                raise ValueError("completion_source_serial_role_duplicate")
+            serial_roles.add(role)
+            if role == "menxia":
+                verified_menxia_source = True
+        else:
+            matches = [
+                event
+                for event in report_events
+                if isinstance(event, dict)
+                and event.get("action") == "agent_report"
+                and event.get("agent_role") == role
+                and event.get("evidence") == normalized["pointer"]
+            ]
+            if len(matches) != 1:
+                raise ValueError("completion_source_menxia_report_missing")
+            agent_id = str(matches[0].get("agent_id") or "")
+            agent = agents.get(agent_id)
+            if (
+                not isinstance(agent, dict)
+                or agent.get("role") != role
+                or agent.get("preload_status") != "PASSED"
+                or agent.get("office_execution_ready") is not True
+            ):
+                raise ValueError("completion_source_menxia_report_missing")
+            if role == "menxia":
+                verified_menxia_source = True
+        normalized_sources.append(normalized)
+    if not verified_menxia_source:
+        raise ValueError("completion_source_menxia_required")
+    return {
+        "schema": COMPLETION_SOURCE_SCHEMA,
+        "task_id": task.get("task_id"),
+        "charter_revision": task.get("charter_revision"),
+        "charter_sha256": charter_sha256,
+        "sources": normalized_sources,
+    }
+
+
+def _validated_residual_gaps(
+    value: object,
+    digest: object,
+    *,
+    gate: str,
+) -> tuple[list[str], str]:
+    if not isinstance(value, list):
+        raise ValueError("residual_gaps_required")
+    if len(value) > RESIDUAL_GAPS_MAX_ITEMS:
+        raise ValueError("residual_gaps_exceed_limit")
+    gaps: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("residual_gap_invalid")
+        gap = item.strip()
+        if len(gap.encode("utf-8")) > RESIDUAL_GAP_MAX_BYTES or any(
+            character in gap for character in "\x00\r\n"
+        ):
+            raise ValueError("residual_gap_invalid")
+        if gap in gaps:
+            raise ValueError("residual_gap_duplicate")
+        gaps.append(gap)
+    if gate == "PASSED_WITH_CONCERNS" and not gaps:
+        raise ValueError("concerns_assessment_requires_residual_gaps")
+    if gate == "PASSED" and gaps:
+        raise ValueError("passed_assessment_must_not_have_residual_gaps")
+    residual_digest = _canonical_sha256(
+        digest, "invalid_residual_gaps_sha256"
+    )
+    if residual_digest != canonical_json_sha256(gaps):
+        raise ValueError("residual_gaps_sha256_mismatch")
+    return gaps, residual_digest
+
+
+def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("archive_producer_receipt_required")
+    receipt = deepcopy(value)
+    required = {
+        "schema",
+        "receipt_id",
+        "path",
+        "court_code",
+        "recorded_at",
+        "record_sha256",
+    }
+    if not required.issubset(receipt):
+        raise ValueError("archive_producer_receipt_fields_missing")
+    if receipt.get("schema") != ARCHIVE_PRODUCER_RECEIPT_SCHEMA:
+        raise ValueError("archive_producer_receipt_schema_invalid")
+    receipt_id = str(receipt.get("receipt_id") or "")
+    court_code = str(receipt.get("court_code") or "")
+    if (
+        not re.fullmatch(r"shiguan:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", receipt_id)
+        or not court_code
+        or receipt_id != f"shiguan:{court_code}"
+    ):
+        raise ValueError("archive_producer_receipt_id_invalid")
+    archive_path = Path(str(receipt.get("path") or "")).resolve()
+    shared_references = reference_path().resolve()
+    try:
+        archive_path.relative_to(shared_references)
+    except ValueError as exc:
+        raise ValueError("archive_producer_receipt_path_invalid") from exc
+    if not archive_path.is_file():
+        raise ValueError("archive_producer_receipt_path_invalid")
+    recorded_at = _aware_timestamp(
+        receipt.get("recorded_at"), "archive_producer_receipt_time_invalid"
+    )
+    record_sha256 = _canonical_sha256(
+        receipt.get("record_sha256"), "archive_producer_receipt_sha256_invalid"
+    )
+    index = reference_path("shiguan-index.jsonl")
+    if not index.is_file():
+        raise ValueError("archive_producer_index_missing")
+    entries: list[dict[str, object]] = []
+    for line in index.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError("archive_producer_index_invalid") from exc
+        if isinstance(entry, dict) and entry.get("court_code") == court_code:
+            entries.append(entry)
+    if len(entries) != 1:
+        raise ValueError("archive_producer_record_missing")
+    entry = entries[0]
+    if canonical_json_sha256(entry) != record_sha256:
+        raise ValueError("archive_producer_record_sha256_mismatch")
+    if _aware_timestamp(
+        entry.get("time"), "archive_producer_record_time_invalid"
+    ) != recorded_at:
+        raise ValueError("archive_producer_record_time_mismatch")
+    archive_text = archive_path.read_text(encoding="utf-8", errors="replace")
+    if f"- court_code: {court_code}" not in archive_text:
+        raise ValueError("archive_producer_record_missing")
+    receipt["receipt_id"] = receipt_id
+    receipt["path"] = str(archive_path)
+    receipt["court_code"] = court_code
+    receipt["recorded_at"] = recorded_at
+    receipt["record_sha256"] = record_sha256
+    return receipt
+
+
+def _record_shiguan_preconditions(task: dict[str, object]) -> dict[str, object]:
+    require_semantic_mutation_binding(task)
+    if str(task.get("state") or "") != "MenxiaReview":
+        raise ValueError("record_shiguan_requires_menxia_review")
+    binding = _revalidate_stored_assessment_binding(task)
+    stored_binding = task.get("assessment_binding")
+    if (
+        not isinstance(stored_binding, dict)
+        or stored_binding.get("status") != "VERIFIED"
+        or binding.get("gate") not in COMPLETABLE_OUTCOME_ASSESSMENT_GATES
+    ):
+        raise ValueError("outcome_assessment_not_completable")
+    return binding
+
+
+def _runtime_checkpoint_receipt(
+    task: Mapping[str, object],
+    binding: Mapping[str, object],
+    producer_receipt: Mapping[str, object],
+) -> dict[str, object]:
+    receipt: dict[str, object] = {
+        "schema": CHECKPOINT_RECEIPT_SCHEMA,
+        "receipt_id": producer_receipt["receipt_id"],
+        "task_id": task["task_id"],
+        "charter_revision": task["charter_revision"],
+        "charter_sha256": task["charter_sha256"],
+        "assessment_sha256": binding["assessment_sha256"],
+        "record_sha256": producer_receipt["record_sha256"],
+        "archive_path": producer_receipt["path"],
+        "recorded_at": producer_receipt["recorded_at"],
+    }
+    if binding.get("gate") == "PASSED_WITH_CONCERNS":
+        receipt.update(
+            residual_gaps=deepcopy(binding["residual_gaps"]),
+            residual_gaps_sha256=binding["residual_gaps_sha256"],
+        )
+    return receipt
+
+
+def record_shiguan_preflight(args: argparse.Namespace) -> dict[str, object]:
+    with runtime_lock():
+        tasks = load_tasks()
+        task = tasks.get(args.task_id)
+        if not isinstance(task, dict):
+            raise ValueError(f"task not found: {args.task_id}")
+        if task.get("charter_revision") != args.expected_revision:
+            raise ValueError("stale_charter_revision")
+        expected_sha256 = _canonical_sha256(
+            args.expected_charter_sha256, "invalid_expected_charter_sha256"
+        )
+        if str(task.get("charter_sha256") or "").lower() != expected_sha256:
+            raise ValueError("stale_charter_sha256")
+        binding = _record_shiguan_preconditions(task)
+        return {
+            "task_id": task["task_id"],
+            "charter_revision": task["charter_revision"],
+            "charter_sha256": task["charter_sha256"],
+            "assessment_sha256": binding["assessment_sha256"],
+            "assessment_gate": binding["gate"],
+        }
+
+
+def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
+    if args.actor not in OFFICES:
+        raise ValueError("unknown_actor_office")
+    producer_receipt = _validated_archive_producer_receipt(
+        _json_object_from_args(
+            args,
+            "archive_receipt",
+            "archive_receipt_file",
+            "archive producer receipt",
+        )
+    )
+    producer_receipt_sha256 = canonical_json_sha256(producer_receipt)
+    with runtime_lock():
+        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
+        event_preimage = events_path().read_bytes() if events_path().exists() else None
+        tasks = load_tasks()
+        task = tasks.get(args.task_id)
+        if not isinstance(task, dict):
+            raise ValueError(f"task not found: {args.task_id}")
+        if task.get("charter_revision") != args.expected_revision:
+            raise ValueError("stale_charter_revision")
+        expected_sha256 = _canonical_sha256(
+            args.expected_charter_sha256, "invalid_expected_charter_sha256"
+        )
+        if str(task.get("charter_sha256") or "").lower() != expected_sha256:
+            raise ValueError("stale_charter_sha256")
+        checkpoint = task.get("shiguan_checkpoint")
+        if str(task.get("state") or "") == "ShiguanRecorded":
+            if not isinstance(checkpoint, dict):
+                raise ValueError("record_shiguan_replay_conflict")
+            if (
+                checkpoint.get("producer_receipt_sha256") != producer_receipt_sha256
+                or checkpoint.get("producer_receipt") != producer_receipt
+            ):
+                raise ValueError("record_shiguan_replay_conflict")
+            matches = [
+                event
+                for event in events_for_task(args.task_id, limit=None)
+                if event.get("action") == "record_shiguan"
+                and event.get("receipt_id") == checkpoint.get("receipt_id")
+            ]
+            if len(matches) != 1:
+                raise ValueError("record_shiguan_replay_event_missing")
+            return TransitionResult(deepcopy(task), deepcopy(matches[0]))
+        binding = _record_shiguan_preconditions(task)
+        runtime_receipt = _runtime_checkpoint_receipt(
+            task, binding, producer_receipt
+        )
+        recorded = deepcopy(task)
+        recorded["state"] = "ShiguanRecorded"
+        recorded["owner"] = args.actor
+        recorded["updated_at"] = now_text()
+        recorded["last_evidence"] = args.evidence
+        recorded["shiguan_checkpoint"] = {
+            "status": "VERIFIED",
+            "receipt_id": runtime_receipt["receipt_id"],
+            "record_sha256": runtime_receipt["record_sha256"],
+            "archive_path": runtime_receipt["archive_path"],
+            "recorded_at": runtime_receipt["recorded_at"],
+            "producer_receipt": deepcopy(producer_receipt),
+            "producer_receipt_sha256": producer_receipt_sha256,
+        }
+        if "residual_gaps" in runtime_receipt:
+            recorded["shiguan_checkpoint"].update(
+                residual_gaps=deepcopy(runtime_receipt["residual_gaps"]),
+                residual_gaps_sha256=runtime_receipt["residual_gaps_sha256"],
+            )
+        recorded["completion"] = {
+            "status": "READY",
+            "outcome_status": (
+                "DONE_WITH_CONCERNS"
+                if binding.get("gate") == "PASSED_WITH_CONCERNS"
+                else "DONE"
+            ),
+            "completion_source_sha256": binding["completion_source_sha256"],
+            "residual_gaps": deepcopy(binding["residual_gaps"]),
+            "residual_gaps_sha256": binding["residual_gaps_sha256"],
+        }
+        event = make_event(
+            recorded,
+            "record_shiguan",
+            "MenxiaReview",
+            "ShiguanRecorded",
+            args.actor,
+            args.evidence,
+            args.note,
+        )
+        event.update(
+            receipt_id=runtime_receipt["receipt_id"],
+            assessment_sha256=runtime_receipt["assessment_sha256"],
+            record_sha256=runtime_receipt["record_sha256"],
+            recorded_at=runtime_receipt["recorded_at"],
+            producer_receipt_sha256=producer_receipt_sha256,
+            outcome_status=recorded["completion"]["outcome_status"],
+            residual_gaps_sha256=recorded["completion"]["residual_gaps_sha256"],
+        )
+        tasks[args.task_id] = recorded
+        try:
+            write_tasks(tasks)
+            append_event(event)
+        except Exception:
+            _restore_ledger_preimage(tasks_path(), task_preimage)
+            _restore_ledger_preimage(events_path(), event_preimage)
+            raise
+    return TransitionResult(recorded, event)
+
+
 def _revalidate_stored_assessment_binding(
     task: dict[str, object],
 ) -> dict[str, object]:
@@ -3266,6 +3747,20 @@ def validate_runtime_assessment_binding(
     )
     if evidence_sha256 != canonical_task_evidence_sha256:
         raise ValueError("assessment_evidence_sha256_mismatch")
+    completion_source = _validated_completion_source(
+        task, validated.get("completion_source")
+    )
+    completion_source_sha256 = _canonical_sha256(
+        validated.get("completion_source_sha256"),
+        "invalid_completion_source_sha256",
+    )
+    if completion_source_sha256 != canonical_json_sha256(completion_source):
+        raise ValueError("completion_source_sha256_mismatch")
+    residual_gaps, residual_gaps_sha256 = _validated_residual_gaps(
+        validated.get("residual_gaps"),
+        validated.get("residual_gaps_sha256"),
+        gate=gate,
+    )
     assessed_at = _aware_timestamp(
         validated.get("assessed_at"),
         "invalid_assessment_timestamp",
@@ -3273,6 +3768,10 @@ def validate_runtime_assessment_binding(
     validated["charter_sha256"] = charter_sha256
     validated["evidence_sha256"] = evidence_sha256
     validated["assessment_sha256"] = assessment_sha256
+    validated["completion_source"] = completion_source
+    validated["completion_source_sha256"] = completion_source_sha256
+    validated["residual_gaps"] = residual_gaps
+    validated["residual_gaps_sha256"] = residual_gaps_sha256
     validated["assessed_at"] = assessed_at
     return validated
 
@@ -3298,11 +3797,13 @@ def bind_assessment_record(
         ):
             return bound
         raise ValueError("assessment_binding_conflict")
-    completable = validated["gate"] == "PASSED"
+    completable = validated["gate"] in COMPLETABLE_OUTCOME_ASSESSMENT_GATES
     bound["outcome_assessment"] = {
         "schema": OUTCOME_ASSESSMENT_SCHEMA,
         "gate": validated["gate"],
         "reasons": deepcopy(validated["reasons"]),
+        "residual_gaps": deepcopy(validated["residual_gaps"]),
+        "residual_gaps_sha256": validated["residual_gaps_sha256"],
         "outcome": None,
     }
     bound["assessment_binding"] = deepcopy(validated)
@@ -3311,9 +3812,20 @@ def bind_assessment_record(
     )
     bound["assessment_binding"]["source_envelope"] = source_envelope
     bound["assessment_binding"]["source_envelope_sha256"] = source_envelope_sha256
-    bound["completion"] = {
-        "status": "ASSESSMENT_BOUND" if completable else "NONCOMPLETABLE_ASSESSMENT"
-    }
+    bound["completion"] = (
+        {
+            "status": "ASSESSMENT_BOUND",
+            "outcome_status": (
+                "DONE_WITH_CONCERNS"
+                if validated["gate"] == "PASSED_WITH_CONCERNS"
+                else "DONE"
+            ),
+            "residual_gaps": deepcopy(validated["residual_gaps"]),
+            "residual_gaps_sha256": validated["residual_gaps_sha256"],
+        }
+        if completable
+        else {"status": "NONCOMPLETABLE_ASSESSMENT"}
+    )
     return bound
 
 
@@ -3326,9 +3838,10 @@ def validate_checkpoint_receipt(
     if not isinstance(receipt, dict):
         raise ValueError("checkpoint_receipt_must_be_object")
     validated = deepcopy(receipt)
-    if set(validated) - CHECKPOINT_RECEIPT_FIELDS:
+    receipt_fields = set(validated)
+    if receipt_fields - CHECKPOINT_RECEIPT_FIELDS - CHECKPOINT_RECEIPT_CONCERN_FIELDS:
         raise ValueError("checkpoint_receipt_unknown_fields")
-    if set(validated) != CHECKPOINT_RECEIPT_FIELDS:
+    if CHECKPOINT_RECEIPT_FIELDS - receipt_fields:
         raise ValueError("checkpoint_receipt_missing_fields")
     if validated.get("schema") != CHECKPOINT_RECEIPT_SCHEMA:
         raise ValueError("invalid_checkpoint_receipt_schema")
@@ -3380,6 +3893,29 @@ def validate_checkpoint_receipt(
     )
     if recorded_at != checkpoint_recorded_at:
         raise ValueError("checkpoint_receipt_time_mismatch")
+    concern_fields = receipt_fields & CHECKPOINT_RECEIPT_CONCERN_FIELDS
+    if binding.get("gate") == "PASSED_WITH_CONCERNS":
+        if concern_fields != CHECKPOINT_RECEIPT_CONCERN_FIELDS:
+            raise ValueError("checkpoint_receipt_concerns_missing")
+        residual_gaps, residual_gaps_sha256 = _validated_residual_gaps(
+            validated.get("residual_gaps"),
+            validated.get("residual_gaps_sha256"),
+            gate="PASSED_WITH_CONCERNS",
+        )
+        if (
+            residual_gaps != binding.get("residual_gaps")
+            or residual_gaps_sha256 != binding.get("residual_gaps_sha256")
+        ):
+            raise ValueError("checkpoint_receipt_residual_gaps_mismatch")
+        if (
+            checkpoint.get("residual_gaps") != residual_gaps
+            or checkpoint.get("residual_gaps_sha256") != residual_gaps_sha256
+        ):
+            raise ValueError("shiguan_checkpoint_residual_gaps_mismatch")
+        validated["residual_gaps"] = residual_gaps
+        validated["residual_gaps_sha256"] = residual_gaps_sha256
+    elif concern_fields:
+        raise ValueError("checkpoint_receipt_unexpected_concerns")
     validated["charter_sha256"] = charter_sha256
     validated["assessment_sha256"] = assessment_sha256
     validated["record_sha256"] = record_sha256
@@ -3510,7 +4046,10 @@ def complete_task_atomically(args: argparse.Namespace) -> TransitionResult:
             raise ValueError("stale_charter_sha256")
         _revalidate_stored_assessment_binding(task)
         binding = task["assessment_binding"]
-        if binding.get("status") != "VERIFIED" or binding.get("gate") != "PASSED":
+        if (
+            binding.get("status") != "VERIFIED"
+            or binding.get("gate") not in COMPLETABLE_OUTCOME_ASSESSMENT_GATES
+        ):
             raise ValueError("outcome_assessment_not_completable")
         checkpoint = task.get("shiguan_checkpoint")
         if not isinstance(checkpoint, dict) or checkpoint.get("status") != "VERIFIED":
@@ -3528,6 +4067,14 @@ def complete_task_atomically(args: argparse.Namespace) -> TransitionResult:
             "status": "COMPLETED",
             "receipt_id": validated_receipt["receipt_id"],
             "completed_at": completed["updated_at"],
+            "outcome_status": (
+                "DONE_WITH_CONCERNS"
+                if binding.get("gate") == "PASSED_WITH_CONCERNS"
+                else "DONE"
+            ),
+            "completion_source_sha256": binding.get("completion_source_sha256"),
+            "residual_gaps": deepcopy(binding.get("residual_gaps")),
+            "residual_gaps_sha256": binding.get("residual_gaps_sha256"),
         }
         consumed = list(completed.get("consumed_checkpoint_receipt_ids") or [])
         consumed.append(validated_receipt["receipt_id"])
@@ -3545,6 +4092,9 @@ def complete_task_atomically(args: argparse.Namespace) -> TransitionResult:
         event["assessment_sha256"] = validated_receipt["assessment_sha256"]
         event["record_sha256"] = validated_receipt["record_sha256"]
         event["completion_sequence"] = 2
+        event["outcome_status"] = completed["completion"]["outcome_status"]
+        event["completion_source_sha256"] = completed["completion"]["completion_source_sha256"]
+        event["residual_gaps_sha256"] = completed["completion"]["residual_gaps_sha256"]
         completed["completion"]["proof"] = _completion_proof(
             completed, validated_receipt, event
         )
@@ -6121,6 +6671,8 @@ def cancel_task(args: argparse.Namespace) -> TransitionResult:
 def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
     evidence = require_text(args.evidence, "evidence")
     with runtime_lock():
+        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
+        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -6356,7 +6908,6 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         task["updated_at"] = now
         task["last_evidence"] = f"agent_admit {result['decision']}: {evidence}"
         tasks[args.task_id] = task
-        write_tasks(tasks)
         event = make_event(
             task,
             "agent_admit",
@@ -6401,11 +6952,19 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         event["event_id"] = _office_event_id(event, primary_instance_id)
         result["event_id"] = event["event_id"]
         event.update({key: result[key] for key in AGENT_MESSAGE_BUDGET_FIELDS})
-        append_event(event)
+        try:
+            write_tasks(tasks)
+            append_event(event)
+        except Exception:
+            _restore_ledger_preimage(tasks_path(), task_preimage)
+            _restore_ledger_preimage(events_path(), event_preimage)
+            raise
     return result
 
 
 def office_admit(args: argparse.Namespace) -> dict[str, Any]:
+    if not hasattr(args, "note") or getattr(args, "note") is None:
+        args.note = ""
     _prepare_explicit_office_admission(args)
     result = agent_admit(args)
     if result.get("allowed") is not True:
@@ -7591,6 +8150,20 @@ def agent_event(
         actor = args.actor
         if actor not in OFFICES:
             raise ValueError(f"unknown actor office: {actor}")
+        consultation_refs: list[dict[str, object]] | None = None
+        if lifecycle_action == "agent_report":
+            raw_consultation_refs = getattr(args, "consultation_refs", None)
+            if raw_consultation_refs is not None:
+                consultation_refs = _validated_consultation_refs_for_task(
+                    task, raw_consultation_refs
+                )
+        elif lifecycle_action == "agent_finish":
+            result_envelope = getattr(args, "_result_envelope", None)
+            if isinstance(result_envelope, dict) and "consultation_refs" in result_envelope:
+                consultation_refs = _validated_consultation_refs_for_task(
+                    task, result_envelope["consultation_refs"]
+                )
+                result_envelope["consultation_refs"] = deepcopy(consultation_refs)
         agents = task.setdefault("agents", {})
         if not isinstance(agents, dict):
             agents = {}
@@ -8107,6 +8680,8 @@ def agent_event(
             consumed_instances[start_instance_id] = agent_id
         if lifecycle_action == "agent_report" and current.get("preload_status") == "PASSED":
             current.setdefault("first_office_report_at", now)
+        if lifecycle_action == "agent_report" and consultation_refs is not None:
+            current["consultation_refs"] = deepcopy(consultation_refs)
         if lifecycle_action == "agent_finish":
             current["finished_at"] = now
             result_envelope = getattr(args, "_result_envelope", None)
@@ -8174,6 +8749,8 @@ def agent_event(
                     for field in _HIERARCHY_EVIDENCE_FIELDS
                 }
             )
+        if consultation_refs is not None:
+            event["consultation_refs"] = deepcopy(consultation_refs)
         event["event_id"] = _office_event_id(
             event,
             str(current.get("office_instance_id") or agent_id),
@@ -9606,6 +10183,15 @@ def build_parser() -> argparse.ArgumentParser:
             raise argparse.ArgumentTypeError("JSON value must be an object")
         return parsed
 
+    def json_array_argument(value: str) -> list[object]:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise argparse.ArgumentTypeError("JSON array is invalid") from exc
+        if not isinstance(parsed, list):
+            raise argparse.ArgumentTypeError("JSON value must be an array")
+        return parsed
+
     def add_context_economy_request(command: argparse.ArgumentParser) -> None:
         command.add_argument(
             "--dispatch-context-packet-json",
@@ -10206,6 +10792,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_report_parser.add_argument("--role", required=True)
     agent_report_parser.add_argument("--actor", default="shangshu", choices=sorted(OFFICES))
     agent_report_parser.add_argument("--evidence", required=True)
+    agent_report_parser.add_argument("--consultation-refs-json", dest="consultation_refs", type=json_array_argument)
     agent_report_parser.add_argument("--note", default="")
 
     agent_finish_parser = sub.add_parser("agent-finish", help="record a child agent completion")

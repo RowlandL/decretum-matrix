@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Callable
+from unittest.mock import patch
 import uuid
 
 sys.dont_write_bytecode = True
@@ -147,7 +148,7 @@ def sha256(path: Path) -> str:
 
 
 def runtime_skill_requirements_json() -> str:
-    court_skill = Path(court_runtime.__file__).resolve().parents[2] / "SKILL.md"
+    court_skill = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
     task_skill = TASK_SPECIFIC_SKILL_PATH
     if task_skill is None or not task_skill.is_file():
         raise AssertionError("task-specific lifecycle skill fixture is unavailable")
@@ -1710,7 +1711,7 @@ def check_assignment_binding_toctou_rejected() -> None:
             encoding="utf-8",
         )
         skill_root = root / "skills"
-        court_skill = Path(court_runtime.__file__).resolve().parents[2] / "SKILL.md"
+        court_skill = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
         tdd_skill = skill_root / "tdd" / "SKILL.md"
         tdd_skill.parent.mkdir(parents=True)
         tdd_skill.write_text("tdd fixture\n", encoding="utf-8")
@@ -3722,7 +3723,10 @@ def run_agent_lifecycle_checks() -> None:
     check_import_root_isolation()
     # The pure binding gate must pass before lifecycle persistence checks can run.
     run_office_assignment_binding_checks()
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+        os.environ,
+        {"GIT_CEILING_DIRECTORIES": str(Path(temp_dir).resolve())},
+    ):
         fixture_root = Path(temp_dir)
         task_skill = fixture_root / "skills" / "task-specific-lifecycle" / "SKILL.md"
         task_skill.parent.mkdir(parents=True)
@@ -3798,6 +3802,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
 

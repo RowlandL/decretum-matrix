@@ -24,6 +24,9 @@ sys.dont_write_bytecode = True
 import court_open_fastpath
 
 
+SOURCE_PRELOAD_MARGIN_BYTES = 1024
+
+
 class FakeRuntime:
     def __init__(self, task: dict[str, object]) -> None:
         self.task = task
@@ -194,9 +197,26 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         source_roles,
         concurrent=False,
     )
-    checks["source_preload_target"] = all(
-        source_preloads[role].loaded_bytes <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
+    source_preload_bytes = {
+        role: {
+            "loaded_bytes": source_preloads[role].loaded_bytes,
+            "remaining_bytes": (
+                court_open_fastpath.MINIMAL_PRELOAD_BYTES - source_preloads[role].loaded_bytes
+            ),
+        }
         for role in source_roles
+    }
+    checks["source_preload_target"] = (
+        len(source_roles) == 9
+        and set(source_preloads) == set(source_roles)
+        and all(
+            source_preloads[role].loaded_bytes <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
+            for role in source_roles
+        )
+    )
+    checks["source_preload_margin"] = all(
+        values["remaining_bytes"] >= SOURCE_PRELOAD_MARGIN_BYTES
+        for values in source_preload_bytes.values()
     )
     with tempfile.TemporaryDirectory(prefix="court-open-fastpath-") as tmp_text:
         root = Path(tmp_text) / "skill"
@@ -605,6 +625,7 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             "capability_and_git_checks_are_opt_in",
             "serial_preserves_office_duties_without_child_spawn",
             "source_preload_target",
+            "source_preload_margin",
             "preload_budget_miss",
             "compact_metadata",
             "production_capability_not_checker_import",
@@ -645,6 +666,7 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         "SHANGSHU_FIRST_DISPATCH": "PASS" if shangshu_gate else "FAIL",
         "SIX_MINISTRY_DIRECT_SUPERIOR": "PASS" if checks.get("ministry_superiors") is True else "FAIL",
         "checks": checks,
+        "source_preload_bytes": source_preload_bytes,
         "problems": problems,
         "pending_body_access": "NO",
     }
@@ -674,4 +696,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

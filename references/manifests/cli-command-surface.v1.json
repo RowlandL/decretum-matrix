@@ -68,13 +68,13 @@
     {
       "authority_source": "scripts/checks/check_active_copy_hashes.py",
       "command": "check-active-copy-hashes",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "check",
       "group": "check",
       "handler": "isolated_subprocess:scripts/checks/check_active_copy_hashes.py",
       "id": "check.check-active-copy-hashes",
       "legacy_path": "scripts/checks/check_active_copy_hashes.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
     },

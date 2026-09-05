@@ -1295,6 +1295,27 @@ def capability_vector_fields(entry: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _taxonomy_content_text(value: object) -> str:
+    """Return content-bearing text without source or tool path tokens.
+
+    Evidence may contain both a human-readable claim and the path used to
+    support it.  Paths belong to capability/source metadata, so they must not
+    become taxonomy evidence merely because a filename contains a lineage
+    keyword such as ``archive`` or ``index``.
+    """
+    text = flattened_text(value)
+
+    def without_source_path(match: re.Match[str]) -> str:
+        candidate = match.group(0).strip("`'\"<>()[]{}。，；;,.")
+        return " " if SOURCE_PATH_HINT_RE.search(candidate) else match.group(0)
+
+    text = PATH_RE.sub(without_source_path, text)
+    for token in TOKEN_RE.findall(text):
+        if SOURCE_PATH_HINT_RE.search(token):
+            text = text.replace(token, " ")
+    return text
+
+
 def lineage_text(entry: dict[str, object]) -> str:
     values: list[str] = []
     for key in (
@@ -1307,11 +1328,7 @@ def lineage_text(entry: dict[str, object]) -> str:
         "keywords_zh",
         "keywords_en",
     ):
-        value = entry.get(key)
-        if isinstance(value, list):
-            values.extend(str(item) for item in value)
-        else:
-            values.append(str(value or ""))
+        values.append(_taxonomy_content_text(entry.get(key)))
     return "\n".join(values)
 
 
@@ -1692,6 +1709,10 @@ def build_keyword_summaries(entry: dict[str, object]) -> tuple[str, str]:
 
 def enrich_entry(entry: dict[str, object]) -> dict[str, object]:
     keywords = entry.get("keywords")
+    # Classify the record's supplied content before derived recall metadata is
+    # added.  Otherwise a source path or a negated term can return through an
+    # auto-generated keyword as an unrelated affirmative taxonomy match.
+    parts = existing_content_lineage_parts(entry) or content_lineage_parts(entry)
     if not isinstance(keywords, list) or not keywords:
         keywords = derive_keywords_from_text(
             entry.get("topic"),
@@ -1703,7 +1724,6 @@ def enrich_entry(entry: dict[str, object]) -> dict[str, object]:
         )
         entry["keywords"] = keywords
 
-    parts = existing_content_lineage_parts(entry) or content_lineage_parts(entry)
     lineage_values = [parts.get(key, "") for key in ("zhi", "men", "gang", "mu", "tiao", "zhao")]
     keywords_zh, keywords_en = split_keywords(keywords)
     text_keywords_zh = chinese_terms_from_text(

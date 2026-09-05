@@ -7,10 +7,35 @@ from typing import Mapping
 
 RESULT_SCHEMA = "court.result.attribution.v1"
 POST_MINISTRY_STAGES = {"post_ministry", "final"}
+FINAL_ASSESSMENT_GATES = {
+    "PASSED",
+    "PASSED_WITH_CONCERNS",
+    "PARTIAL",
+    "BLOCKED",
+}
 
 
 def _text(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def rendered_completion_status(
+    *,
+    assessment_gate: object,
+    completion_verified: object,
+) -> str:
+    """Map a verified runtime completion to the user-facing result label."""
+
+    gate = _text(assessment_gate).upper()
+    if gate not in FINAL_ASSESSMENT_GATES:
+        raise ValueError("assessment_gate_invalid")
+    if completion_verified is not True:
+        return "UNVERIFIED"
+    if gate == "PASSED":
+        return "DONE"
+    if gate == "PASSED_WITH_CONCERNS":
+        return "DONE_WITH_CONCERNS"
+    return gate
 
 
 def valid_menxia_report(

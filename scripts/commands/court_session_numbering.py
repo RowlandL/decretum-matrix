@@ -29,6 +29,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import sys
 from typing import Any
 from urllib.parse import quote
@@ -40,6 +41,11 @@ from shiguan_paths import reference_path
 
 
 ALLOCATION_SCHEMA = "court.session_court_code_allocation.v1"
+_DATE_RE = re.compile(r"\d{8}")
+_SEQUENCE_RE = re.compile(r"[0-9A-Z]+")
+_COURT_CODE_RE = re.compile(
+    r"^[A-Z0-9]+-(?P<date>\d{8})-(?P<sequence>[0-9A-Z]+)-[A-Z0-9]{4}$"
+)
 
 
 def default_numbering_root() -> Path:
@@ -51,6 +57,51 @@ def numbering_file(root: Path, session_id: str) -> Path:
     if directory in {"", ".", ".."}:
         raise ValueError("invalid_session_id")
     return Path(root) / f"{directory}.json"
+
+
+def validate_session_allocation(
+    allocation: object,
+    session_id: str,
+) -> dict[str, Any] | None:
+    """Return a valid persisted allocation for ``session_id`` or ``None``.
+
+    ``date_text`` supplied at closeout is deliberately not part of this gate:
+    an allocation belongs to the session that issued it. Its own allocation
+    date, sequence, and court-code segments must still agree so removing the
+    closeout-date equality check cannot admit a malformed allocation.
+    """
+    expected_session = str(session_id or "").strip()
+    if not expected_session or not isinstance(allocation, dict):
+        return None
+    if allocation.get("schema") != ALLOCATION_SCHEMA:
+        return None
+    if str(allocation.get("session_id") or "").strip() != expected_session:
+        return None
+
+    allocation_date = str(allocation.get("date") or "").strip()
+    if not _DATE_RE.fullmatch(allocation_date):
+        return None
+    try:
+        datetime.strptime(allocation_date, "%Y%m%d")
+    except ValueError:
+        return None
+
+    sequence = str(allocation.get("daily_sequence") or "").strip().upper()
+    if not _SEQUENCE_RE.fullmatch(sequence):
+        return None
+    try:
+        if int(sequence, 36) < 1 or base36(int(sequence, 36)) != sequence:
+            return None
+    except ValueError:
+        return None
+
+    court_code = str(allocation.get("court_code") or "").strip()
+    match = _COURT_CODE_RE.fullmatch(court_code)
+    if not match:
+        return None
+    if match.group("date") != allocation_date or match.group("sequence") != sequence:
+        return None
+    return dict(allocation)
 
 
 def _load_allocations(
@@ -65,12 +116,14 @@ def _load_allocations(
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if (
-            isinstance(value, dict)
-            and value.get("schema") == ALLOCATION_SCHEMA
-            and value.get("date") == date_text
-        ):
-            allocations.append(value)
+        candidate_session = (
+            str(value.get("session_id") or "").strip()
+            if isinstance(value, dict)
+            else ""
+        )
+        validated = validate_session_allocation(value, candidate_session)
+        if validated is not None and validated.get("date") == date_text:
+            allocations.append(validated)
     return allocations
 
 
@@ -156,14 +209,27 @@ def domain_court_code_issue(
                     existing = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
                     existing = None
-                if (
-                    isinstance(existing, dict)
-                    and existing.get("session_id") == session_id
-                    and existing.get("court_code")
-                ):
-                    return {**existing, "ok": True, "errors": [], "idempotent": True}
+                validated = validate_session_allocation(existing, session_id)
+                if validated is not None:
+                    return {**validated, "ok": True, "errors": [], "idempotent": True}
+                return {
+                    "schema": ALLOCATION_SCHEMA,
+                    "ok": False,
+                    "errors": [
+                        {
+                            "field": "allocation",
+                            "kind": "contract",
+                            "code": "invalid_existing_allocation",
+                        }
+                    ],
+                }
             selected_date = date_text or datetime.now(timezone.utc).strftime("%Y%m%d")
-            selected_index = Path(index) if index is not None else reference_path("plan-archives") / "index.json"
+            if index is not None:
+                selected_index = Path(index)
+            else:
+                from archive_checkpoint import index_path
+
+                selected_index = index_path()
             root.mkdir(parents=True, exist_ok=True)
             try:
                 sequence = _next_sequence(selected_index, selected_date, root)
@@ -232,7 +298,12 @@ def resolve_session_allocation(
     date_text: str,
     numbering_root: Path | None = None,
 ) -> dict[str, Any] | None:
-    """Read the persisted allocation for a session (closeout reuse)."""
+    """Read a valid persisted allocation for a session (closeout reuse).
+
+    ``date_text`` is retained for callers using the original signature. The
+    allocation date is intentionally checked against its court code instead
+    of the closeout date, so a valid session survives a cross-day closeout.
+    """
     session_id = str(session_id or "").strip()
     if not session_id:
         return None
@@ -247,15 +318,7 @@ def resolve_session_allocation(
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if (
-        isinstance(value, dict)
-        and value.get("session_id") == session_id
-        and value.get("date") == date_text
-        and value.get("court_code")
-        and value.get("daily_sequence")
-    ):
-        return value
-    return None
+    return validate_session_allocation(value, session_id)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -315,4 +378,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

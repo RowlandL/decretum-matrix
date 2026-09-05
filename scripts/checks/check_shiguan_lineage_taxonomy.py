@@ -91,6 +91,45 @@ def _classification_metadata_problems(
     return problems
 
 
+def _evidence_expectation_problems(
+    parts: dict[str, object],
+    expected: dict[str, object],
+) -> list[str]:
+    requirement = expected.get("evidence")
+    if requirement is None:
+        return []
+    if not isinstance(requirement, dict):
+        return ["evidence_expectation_invalid"]
+
+    positive = [str(item) for item in parts.get("positive_evidence") or []]
+    negative = [str(item) for item in parts.get("negative_evidence") or []]
+    actual_by_name = {"positive": positive, "negative": negative}
+    problems: list[str] = []
+    for name, actual in actual_by_name.items():
+        required_equals = requirement.get(f"{name}_equals")
+        if required_equals is not None:
+            if not isinstance(required_equals, list):
+                problems.append(f"{name}_equals_invalid")
+            elif actual != [str(item) for item in required_equals]:
+                problems.append(f"{name}_equals_mismatch")
+        required_contains = requirement.get(f"{name}_contains")
+        if required_contains is not None:
+            if not isinstance(required_contains, list):
+                problems.append(f"{name}_contains_invalid")
+            elif not set(str(item) for item in required_contains).issubset(actual):
+                problems.append(f"{name}_contains_missing")
+
+    required_overlap = requirement.get("overlap_contains")
+    if required_overlap is not None:
+        if not isinstance(required_overlap, list):
+            problems.append("overlap_contains_invalid")
+        elif not set(str(item) for item in required_overlap).issubset(
+            set(positive) & set(negative)
+        ):
+            problems.append("overlap_contains_missing")
+    return problems
+
+
 def evaluate() -> dict[str, Any]:
     corpus = json.loads(FIXTURE.read_text(encoding="utf-8"))
     if not isinstance(corpus, dict) or corpus.get("schema") != "court.shiguan_lineage_taxonomy_golden.v1":
@@ -196,56 +235,144 @@ def evaluate() -> dict[str, Any]:
         raise ValueError("classification_validation_fixture_schema_invalid")
     if str(validation.get("taxonomy_version") or "") != golden_version:
         failures.append("classification_validation_version_not_canonical")
+    validation_classes = validation.get("classes")
+    regression_cases = validation.get("regressions", [])
+    if not isinstance(validation_classes, list) or len(validation_classes) != 5:
+        raise ValueError("classification_validation_five_classes_required")
+    if not isinstance(regression_cases, list):
+        raise ValueError("classification_validation_regressions_invalid")
+    regression_ids = {
+        str(case.get("id") or "")
+        for case in regression_cases
+        if isinstance(case, dict)
+    }
+    if not {
+        "source_path_not_taxonomy_evidence",
+        "mixed_same_term_assertion",
+    }.issubset(regression_ids):
+        raise ValueError("classification_validation_t07_regressions_required")
+
     validation_results: list[dict[str, object]] = []
-    for case in validation.get("classes", []):
-        if not isinstance(case, dict) or not isinstance(case.get("entry"), dict):
-            raise ValueError("classification_validation_case_invalid")
-        expected = case.get("expected")
-        if not isinstance(expected, dict):
-            raise ValueError("classification_validation_expected_invalid")
-        parts = lineage.content_lineage_parts(dict(case["entry"]))
-        expected_status = str(expected.get("status") or "").casefold()
-        expected_reason = str(expected.get("reason") or "").casefold()
-        case_ok = (
-            str(parts.get("classification_status") or "").casefold() == expected_status
-            and str(parts.get("classification_reason") or "").casefold() == expected_reason
-        )
-        if expected_status == "classified":
-            expected_parts = expected.get("parts")
-            if isinstance(expected_parts, dict):
-                case_ok = case_ok and all(
-                    parts.get(key) == value for key, value in expected_parts.items()
+    regression_results: list[dict[str, object]] = []
+    validation_enrich_consistent: list[bool] = []
+    regression_enrich_consistent: list[bool] = []
+    for label, cases_to_check, output, enrich_consistency in (
+        ("validation", validation_classes, validation_results, validation_enrich_consistent),
+        ("regression", regression_cases, regression_results, regression_enrich_consistent),
+    ):
+        for case in cases_to_check:
+            if not isinstance(case, dict) or not isinstance(case.get("entry"), dict):
+                raise ValueError("classification_validation_case_invalid")
+            expected = case.get("expected")
+            if not isinstance(expected, dict):
+                raise ValueError("classification_validation_expected_invalid")
+            parts = lineage.content_lineage_parts(dict(case["entry"]))
+            enriched = lineage.enrich_entry(dict(case["entry"]))
+            enriched_parts = enriched.get("lineage_parts")
+            if not isinstance(enriched_parts, dict):
+                failures.append(f"{label}_enrich_lineage_parts_missing:{case.get('id')}")
+                enriched_parts = {}
+
+            expected_status = str(expected.get("status") or "").casefold()
+            expected_reason = str(expected.get("reason") or "").casefold()
+
+            def matches_expected(actual: dict[str, object]) -> bool:
+                matched = (
+                    str(actual.get("classification_status") or "").casefold()
+                    == expected_status
+                    and str(actual.get("classification_reason") or "").casefold()
+                    == expected_reason
                 )
-        rerun_parts = lineage.content_lineage_parts(dict(case["entry"]))
-        if json.dumps(parts, ensure_ascii=False, sort_keys=True).encode(
-            "utf-8"
-        ) != json.dumps(rerun_parts, ensure_ascii=False, sort_keys=True).encode("utf-8"):
-            failures.append(
-                f"validation_double_run_nondeterministic:{case.get('id')}"
+                if expected_status == "classified":
+                    expected_parts = expected.get("parts")
+                    if isinstance(expected_parts, dict):
+                        matched = matched and all(
+                            actual.get(key) == value
+                            for key, value in expected_parts.items()
+                        )
+                return matched and not _evidence_expectation_problems(actual, expected)
+
+            direct_ok = matches_expected(parts)
+            enriched_ok = matches_expected(enriched_parts)
+            direct_bytes = json.dumps(
+                parts, ensure_ascii=False, sort_keys=True
+            ).encode("utf-8")
+            enriched_bytes = json.dumps(
+                enriched_parts, ensure_ascii=False, sort_keys=True
+            ).encode("utf-8")
+            enrich_equal = direct_bytes == enriched_bytes
+            enrich_consistency.append(enrich_equal)
+            case_ok = direct_ok and enriched_ok and enrich_equal
+            evidence_problems = _evidence_expectation_problems(parts, expected)
+
+            rerun_parts = lineage.content_lineage_parts(dict(case["entry"]))
+            rerun_enriched = lineage.enrich_entry(dict(case["entry"])).get("lineage_parts")
+            if not isinstance(rerun_enriched, dict):
+                rerun_enriched = {}
+            if (
+                direct_bytes
+                != json.dumps(rerun_parts, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                or enriched_bytes
+                != json.dumps(
+                    rerun_enriched, ensure_ascii=False, sort_keys=True
+                ).encode("utf-8")
+            ):
+                failures.append(
+                    f"{label}_double_run_nondeterministic:{case.get('id')}"
+                )
+            if not enrich_equal:
+                failures.append(f"{label}_enrich_classification_drifted:{case.get('id')}")
+            if not case_ok:
+                failures.append(
+                    str(case.get("failure_code") or f"{label}_case_failed:{case.get('id')}")
+                )
+            output.append(
+                {
+                    "id": case.get("id"),
+                    "ok": case_ok,
+                    "expected": expected,
+                    "evidence_problems": evidence_problems,
+                    "direct_enrich_byte_equal": enrich_equal,
+                    "actual": {
+                        "status": parts.get("classification_status"),
+                        "reason": parts.get("classification_reason"),
+                        "score": parts.get("classification_score"),
+                        "margin": parts.get("classification_margin"),
+                        "positive_evidence": parts.get("positive_evidence"),
+                        "negative_evidence": parts.get("negative_evidence"),
+                    },
+                    "enriched_actual": {
+                        "status": enriched_parts.get("classification_status"),
+                        "reason": enriched_parts.get("classification_reason"),
+                        "score": enriched_parts.get("classification_score"),
+                        "margin": enriched_parts.get("classification_margin"),
+                        "positive_evidence": enriched_parts.get("positive_evidence"),
+                        "negative_evidence": enriched_parts.get("negative_evidence"),
+                    },
+                }
             )
-        if not case_ok:
-            failures.append(
-                str(case.get("failure_code") or f"validation_case_failed:{case.get('id')}")
-            )
-        validation_results.append(
-            {
-                "id": case.get("id"),
-                "ok": case_ok,
-                "expected": expected,
-                "actual": {
-                    "status": parts.get("classification_status"),
-                    "reason": parts.get("classification_reason"),
-                    "score": parts.get("classification_score"),
-                    "margin": parts.get("classification_margin"),
-                },
-            }
-        )
     validation_classes_ok = all(item["ok"] for item in validation_results)
+    regression_cases_ok = all(item["ok"] for item in regression_results)
+    source_path_regression_ok = any(
+        item["id"] == "source_path_not_taxonomy_evidence" and item["ok"]
+        for item in regression_results
+    )
+    mixed_assertion_evidence_ok = any(
+        item["id"] == "mixed_same_term_assertion"
+        and item["ok"]
+        and {"archive", "index"}.issubset(
+            set(str(value) for value in item["actual"].get("positive_evidence") or [])
+            & set(str(value) for value in item["actual"].get("negative_evidence") or [])
+        )
+        for item in regression_results
+    )
 
     # P3-2: contract fields (positive_evidence / negative_evidence / candidates)
-    # present on every output; negated terms never counted as positive evidence.
+    # are present on every output.  A term may occur in both collections when
+    # separate assertions affirm and negate it; a purely negated record may
+    # never acquire positive taxonomy evidence.
     contract_fields_ok = True
-    evidence_disjoint_ok = True
+    pure_negation_no_positive_ok = True
     unknown_no_positive_ok = True
     for result in results:
         actual = result["actual"]
@@ -258,10 +385,12 @@ def evaluate() -> dict[str, Any]:
         if not isinstance(actual.get("candidates"), list):
             contract_fields_ok = False
             failures.append(f"lineage_contract_candidates_not_list:{result['id']}")
-        overlap = set(positive) & set(negative)
-        if overlap:
-            evidence_disjoint_ok = False
-            failures.append(f"lineage_negated_term_counted_positive:{result['id']}")
+        if (
+            str(actual.get("classification_reason") or "") == "negated_evidence"
+            and positive
+        ):
+            pure_negation_no_positive_ok = False
+            failures.append(f"lineage_pure_negation_contributed_positive:{result['id']}")
         if (
             str(actual.get("classification_reason") or "") == "unknown"
             and positive
@@ -353,7 +482,9 @@ def evaluate() -> dict[str, Any]:
             },
             "contract": {
                 "evidence_fields_present": contract_fields_ok,
-                "negated_terms_never_positive": evidence_disjoint_ok,
+                "negated_terms_never_positive": pure_negation_no_positive_ok,
+                "pure_negated_terms_not_positive": pure_negation_no_positive_ok,
+                "mixed_positive_negative_evidence_preserved": mixed_assertion_evidence_ok,
                 "unknown_contributes_no_positive": unknown_no_positive_ok,
             },
             "validation_set": {
@@ -362,7 +493,21 @@ def evaluate() -> dict[str, Any]:
                     str(failure).startswith("validation_double_run_nondeterministic")
                     for failure in failures
                 ),
+                "direct_and_enrich_byte_identical": bool(validation_enrich_consistent)
+                and all(validation_enrich_consistent),
                 "results": validation_results,
+            },
+            "regressions": {
+                "all_cases_ok": regression_cases_ok,
+                "double_run_byte_identical": not any(
+                    str(failure).startswith("regression_double_run_nondeterministic")
+                    for failure in failures
+                ),
+                "direct_and_enrich_byte_identical": bool(regression_enrich_consistent)
+                and all(regression_enrich_consistent),
+                "source_paths_do_not_classify": source_path_regression_ok,
+                "mixed_assertion_evidence_preserved": mixed_assertion_evidence_ok,
+                "results": regression_results,
             },
             "tie": {
                 "tie_cases_ok": tie_cases_ok,

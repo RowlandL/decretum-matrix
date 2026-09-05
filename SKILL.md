@@ -3,7 +3,7 @@ name: decretum-matrix
 description: Decretum Matrix（诏令矩阵） routes capabilities and agents through the Codex/Hermes 三省六部 hierarchy. Use when dispatching /court or $decretum-matrix work under approval/autonomous/super authority, or when starting the separate superCC runtime; it gates dispatch with P00, loads references progressively, and returns court-status receipts.
 license: AGPL-3.0
 metadata:
-  version: beta1.0.9
+  version: beta1.1.0
   author: RowlandL
 ---
 
@@ -25,21 +25,16 @@ metadata:
 3. `execution_authority`=`approval|autonomous|super`；`behavior`=`serial|parallel`。serial 只禁物理 child 并发；官署责任与 `serial_inline` 证据仍保留。
 4. `super并行` 仅为 `authority=super, behavior=parallel, parallel_topology=native`；native 与 superCC 入口互斥且不探测、切换或回退。
 5. Production ordinary routing is V2 or `serial`; V2 hides model-reserved override fields. 子 agente 继承主线程 model/effort，除非 fresh-session worker 有精确 host proof。
-6. 开朝、自检、复核或状态类任务先判定目标是“官署履职回奏”还是“机器事实核验”。需要官署回奏时，主线是按层级形成真实 host-native spawn/reuse/wake 或明确 `serial_inline` 责任；CLI/script 只是对应官署在职责内调用的工具，不能替代官署履职、派遣证据或回奏。
+6. 开朝、自检、复核或状态类任务先判官署履职回奏或机器事实；官署回奏须按层级 host-native spawn/reuse/wake 或 `serial_inline`，CLI/script 只辅助且不代替派遣或回奏。
 
-开朝三权：最新消息未明选 `approval|autonomous|super` 时先问三权，并以“权力 + 解释”的可选项呈现：`approval（审批/默认只读）：只读勘验，执行/写入/联网/安装前上奏`、`autonomous（自主/范围内实施）：按用户给定边界自主办理，越界再问`、`super（超级执行/范围内连续推进）：范围内连续推进，高风险或越旨时上奏`。随后单独呈现行为选择：`serial（串行）：不物理并发，保留官署责任链与 serial_inline 证据`、`parallel（并行）：按层级真实 spawn/reuse/wake`。每个选项独立成行，以便 Codex/Claude/Hermes 用方向键或鼠标提交；不从旧会话、史馆/记忆、sandbox、prompt 或安装意图继承。权力≠运行方式；六部直属尚书。
+开朝：未由最新消息明确选择 `approval|autonomous|super` 时，独立询问权力与 `serial|parallel`；不可从记忆、旧会话、sandbox、prompt 或安装意图继承。`approval` 默认只读，`autonomous` 范围内实施，`super` 范围内连续推进；`serial` 保留 `serial_inline`，`parallel` 按层级真实 spawn/reuse/wake。两组独立呈现；权力≠运行方式，六部直属尚书。
 
 ## Pinned Initial Court Anchors
 
 - 最新旨意优先。独立解析 `authority`、`behavior`、`runtime`；新会话或边界变化未明选三权时必须先问，记忆/旧会话/运行权限不得代选。
 - 固定层级：用户 -> 太子 -> 三省；尚书 -> 六部；六部 -> 工坊/工匠。UI 可平铺，但 receipt/奏报须标记六部为 Shangshu child agents；direct-superior 违规隔离。
-- 普通开朝先做语义规划和正确上行/差遣路径。官署履职下一步应是宿主原生 spawn/reuse/wake 或说明原因的 `serial_inline`；`agent-admit` 只在具体宿主投递或 mutation 前作最终门禁。
-- 普通官署履职的正确开局是：三权已明 -> 太子定性（受旨：意图初判/历史线索初判/
-  建立结果章程，flow state=Taizi）-> 三省会审（中书拟旨/拆解、门下封驳、尚书评估；
-  `court semantic checkpoint/verify` 的 VERIFIED/DISPATCHABLE 只是三省会审的 P00
-  语义门禁，**不构成**中书/门下/尚书官署被派遣或履职的证据）-> 按层级
-  host-native spawn/reuse/wake，或在宿主不能派遣时明确 `serial_inline` 责任与原因。
-  父线程只读取当前行为卷；被派官署按自己的职责与当前任务需要读取相应材料并回奏。
+- 普通开朝先做语义规划和上行/差遣路径；`agent-admit` 只在具体宿主投递或 mutation 前作最终门禁。
+- 正确开局：三权已明 -> 太子受旨定性/结果章程 -> 中书拟旨/拆解、门下封驳、尚书可分派性评估 -> 三省上奏/太子回奏。`court semantic checkpoint/verify` 的 `VERIFIED/DISPATCHABLE` 只为 P00 语义门禁，不构成中书/门下/尚书履职或派遣证据；之后按层级 host-native spawn/reuse/wake；用户显式选择 `serial` 时可记录 `serial_inline`，否则仅宿主不能派遣时才记录该责任。父线程只读当前行为卷；被派官署按需读取材料并回奏。
 - 能力 registry 只在确需选 skill/MCP/CLI/script 时读取；闲聊、直接回答和无需能力检索的规划不运行 registry 脚本。
 - 默认治理实现是 `three-departments-six-ministries`；参考实现不得改变 runtime、证据、权限、直接上级或史馆权威。
 - 治理实现清单锚点为 `references/manifests/governance-implementations.v1.json`；源码文档契约由 `scripts/check_governance_framework.py` 检查，检查通过本身不构成 VERIFIED_CAPABILITY。
@@ -56,23 +51,18 @@ metadata:
 
 This memory-independent hard-gate entry binds blank and fresh installs:
 
-1. **Trigger**: Load `SKILL.md` through the host Skill mechanism (≤20 KiB), never a 67–80 KiB reference as entry.
-2. **Hard gates**: Apply `P00` and `Common Hard Gates` first. Without latest-message `approval|autonomous|super`, ask and stop; memory, prior sessions and runtime permission cannot select it.
-3. **Authority × behavior**: authority is independent of behavior; `super并行` means super + parallel + native. Present missing selections independently.
-4. **References**: Load only the active `Progressive Loading Map` volume. Segment large files; a preview is not a full read.
-5. **Tool-layer triad**:
-   - **CLI**: `scripts/court_cli.py` → `court_cli_registry.py`, schema `decretum.cli.result.v1`; `bin/decretum-matrix.py` is release-only. `doctor/debug` are read-only; `fix` writes only with `--apply`.
-   - **Host dispatch**: real spawn/reuse/wake; `court open --fast` is preparation-only and never proves delivery or an office reply.
-   - **References**: semantic contracts loaded on demand.
-6. **Hierarchy**: `太子 → 三省；尚书 → 六部；六部 → 工坊/工匠`. 中书/门下不调六部；real delivery/mutation 前运行 `agent-admit`，其回执不等于派遣。
+1. **Trigger**: Load `SKILL.md` through the host Skill mechanism; entry, current dossier/profile, and compact metadata total `<=20 KiB`. Never use a large reference as entry.
+2. **Hard gates**: Apply `P00` and `Common Hard Gates` first. Without latest-message `approval|autonomous|super`, ask and stop; memory, prior sessions, and runtime permission cannot select it.
+3. **Authority × behavior**: They are independent; `super并行` means super + parallel + native. Present missing selections independently.
+4. **References**: Load only the active `Progressive Loading Map` volume; a preview is not a full read.
+5. **Evidence layers**: CLI (`scripts/court_cli.py` → `court_cli_registry.py`) is distinct from host spawn/reuse/wake and on-demand references. `court open --fast` only prepares; `agent-admit` precedes delivery/mutation and its receipt is not delivery.
+6. **Hierarchy**: `太子 → 三省；尚书 → 六部；六部 → 工坊/工匠`. 中书/门下不调六部。
 7. **Shiguan**: `shiguan_paths.py` resolves the shared root; `query_shiguan_index.py` is advisory.
 8. **Closeout**: 门下复核后逐字复制 `shiguan archive-checkpoint` 的 `payload.closeout_identity`；无 receipt 不编号。
 
 ### Public Transport Contract
 
-CLI and MCP are peer transports over `scripts/court_public_api.py`; MCP never spawns `court_cli.py` or parses stdout. beta1.0.7 ships the skill plus five read-only MCP tools: status, command help, Shiguan query, archive dry-run, and memory scan. Lifecycle/Git hooks are withdrawn and are not shipped, installed, or enabled; `.codex-plugin` is metadata compatibility only. Mutations, archive commit, install/migration, release, and superCC remain receipt-bound CLI/script workflows.
-
-This procedure is fixed here and inherited without external memory.
+CLI and MCP share `scripts/court_public_api.py`; command surface follows [cli-command-surface.v1.json](references/manifests/cli-command-surface.v1.json). MCP never spawns `court_cli.py` or parses stdout. Lifecycle/Git hooks are withdrawn; `.codex-plugin` is metadata compatibility only. Mutations, archive, install/migration, release, and superCC remain receipt-bound CLI/script workflows.
 
 ## Progressive Loading Map
 
@@ -96,39 +86,30 @@ This procedure is fixed here and inherited without external memory.
 ## Common Hard Gates
 
 - Charter 绑定旨意、非目标、边界、动作、验收、证据、stop 与史馆策略。非平凡 intake 评估目标、使用场景、关键要求和验收标准；`court.request_understanding.v1` <95 时一次只问一个高影响问题并给 2–4 选项；>=95 简要复述后执行，不强行提问。
-- 非平凡任务先经中书拟旨、门下封驳、尚书评估、三省上奏、太子回奏；六部只由尚书差遣。
+- 非平凡任务先经中书拟旨、门下封驳、尚书评估、三省上奏、太子回奏；六部只由尚书差遣。CLI/script receipt 只证机器事实，官署回奏须 delivery/reply 或 `serial_inline`。
 - `approval` 只读；`autonomous` 范围内写；`super` 范围内连续执行。三权均不授权破坏、泄密、付费、私密上传、公网暴露、未验证安装或无界树。
 - `superCC` 不是第四权，须最新旨意与 zellij+squad/client 证据；`super GL` 仅在已确认 room 用真实 `@profile`，不模拟、`@all` 或无限催促。
 - 只读边界禁止写；时效/外部/冷门/高风险/需引用事实按需联网。skills/MCP/CLI/script 只是在 office 边界内办差的技艺。
-- 脚本 receipt 只证机器事实；官署履职须真实 delivery/reply 或 `serial_inline`，否则为 `runtime_degraded`/`PARTIAL`；太子不冒充官署成果。
 
 ## Court Flow And Roles
 
-`太子定性 → 三省会审/上奏 → 太子回奏 → 尚书差遣六部 → 工坊办差 → 尚书统合 → 门下复核 → 史馆实录`。太子只调三省；中书拟旨，门下封驳/终审，尚书调六部；史馆记录证据且不是六部。
+`太子定性 → 三省会审/上奏 → 太子回奏 → 尚书统合六部 → 工坊办差 → 门下复核 → 史馆实录`。太子只调三省；中书拟旨，门下封驳/终审，尚书统合六部；史馆记录证据且不是六部。
 
 Legal state: `Pending → Taizi → ThreeDepartments → ThreeDepartmentsPetition → TaiziReply → ShangshuDispatch → SixMinistries → Workshops → MenxiaReview → ShiguanRecorded → Done`.
 
-职责边界（历史锚定，非新规）：**太子**=受旨定性（intent inference、历史线索初判、
-建立结果章程；顶层拆解在受旨后交中书，太子不代中书拆解）；**中书省**=拟旨 +
-问题拆解（decomposition）/考据/验收标准；**门下省**=封驳/终审；**尚书省**=可分派性
-评估、资源顺序与六部差遣。`court_runtime semantic checkpoint/verify`
-（VERIFIED/DISPATCHABLE）是三省会审的语义门禁（actor 仅为记录方），**不构成**三省
-官署被派遣或履职的证据；需要中书/门下/尚书官署回奏时，与六部同规则：`agent-admit`
-+ host-native spawn/reuse/wake，或显式 `serial_inline`，否则按
-`runtime_degraded`/`PARTIAL` 如实记录，不得以语义 receipt 冒充官署回奏。
+职责边界：太子受旨定性并建立结果章程，顶层拆解交中书；中书拟旨/拆解/考据/验收，门下封驳/终审，尚书统合资源并差遣六部。`court_runtime semantic checkpoint/verify` 只为 P00 门禁；官署回奏须 `agent-admit` 加 host-native 证据或显式 `serial_inline`，否则记为 `runtime_degraded`/`PARTIAL`，不得以语义 receipt 冒充。
 
 ## Dispatch, Preload, And Runtime
 
-- 官署绑定 role/direct_superior、边界、P00、lease、必要 dossier/profile、证据和 stop；错角色、越级、越界、必需语义缺失或 delivery 失败才退回。
-- Child 默认 `fork_turns=none`；相关 live instance 在 context <80% 时优先复用。`serial` 禁物理 spawn/reuse/wake/follow-up，但保留 `serial_inline`。共享/外部写串行；拒绝、限流或语义漂移即停 wave。
-- `court open --fast` 仅为三省规划后的 machine preflight，不提问、选六部或证明派遣。
-- 只有 `runtime=superCC, entry_path=supercc` 可加载 superCC；普通 court 零加载。Old Claude/Codex logs、裸 `squad` 或手写 pane 仅是 drift evidence。superCC 健康官署各司其职并守层级；缺 turn-start、uniqueness、profile/task、wake/backoff、watchdog 或 closeout-silence 证据即 degraded。
+- 官署绑定 role/direct_superior、边界、P00、lease、必要 dossier/profile、证据和 stop；identity、scope、语义或 delivery 故障即退回。
+- Child 默认 `fork_turns=none`，优先复用 context <80% 的相关 live instance；`serial` 禁物理 spawn/reuse/wake/follow-up 但保留 `serial_inline`。共享/外部写串行；拒绝、限流或语义漂移即停 wave。
+- `court open --fast` 仅为三省规划后的 machine preflight，不证明派遣。只有 `runtime=superCC, entry_path=supercc` 可加载 superCC；普通 court 零加载，缺 identity/profile/task/wake/backoff/closeout-silence 证据即 degraded。
 
 ## Shiguan, Pending, And Memory
 
 - `shiguan_paths.py` resolves the authority；`shiguan archive-checkpoint` v1 receipt 是唯一用户侧 id/lineage 源且不覆盖最新旨意。
 - 史馆 GBrain 不取得当前任务执行权；其 query/index/Git/Obsidian 仅 advisory/preserve-only，普通 startup 不跑重型 Git。
-- pending/private permits metadata governance only; real bodies stay unopened, unmoved, undeleted and unmarked-seen without unforgeable host authorization. Never store secrets, raw private logs, transient output, unverified guesses or unapproved personal data.
+- pending/private 只允许 metadata governance；未经不可伪造主机授权不得打开、移动、删除或标记正文，也不得保留 secrets、原始私密日志、瞬态输出、猜测或未获批个人数据。
 - Closeout records `记忆裁定：WRITE | PROPOSE | SKIP | DEFERRED`; WRITE requires current scope and 门下 approval.
 
 ## Closeout Skeleton

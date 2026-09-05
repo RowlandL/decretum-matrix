@@ -534,7 +534,7 @@ def run_static_regressions() -> dict[str, object]:
             if tracked_cycle_args.get("publish_status") is not False:
                 raise AssertionError("run_once did not propagate daemon one-shot status suppression")
 
-            daemon_source = (scripts / "shiguan_autosync_daemon.py").read_text(encoding="utf-8")
+            daemon_source = (scripts / "services" / "shiguan_autosync_daemon.py").read_text(encoding="utf-8")
             for marker in ('"phase": "running"', '"fresh_for_seconds":'):
                 if marker not in daemon_source:
                     raise AssertionError(f"autosync in-progress heartbeat contract missing: {marker}")

@@ -11,6 +11,7 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import multiprocessing
 import os
@@ -158,6 +159,16 @@ def main() -> int:
         assert archive_text.count("## Checkpoint:") == CHECKPOINT_WRITERS
         for entry in entries:
             assert f"- court_code: {entry['court_code']}" in archive_text
+        from archive_checkpoint import build_archive_receipt
+
+        receipt = build_archive_receipt(archives[0], entries[0], {})
+        expected_record_sha256 = hashlib.sha256(
+            json.dumps(
+                entries[0], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        assert receipt["recorded_at"] == entries[0]["time"]
+        assert receipt["record_sha256"] == expected_record_sha256
         refresh_request = shared_root / "references" / "obsidian-sync" / "refresh-request.json"
         refresh_value = json.loads(refresh_request.read_text(encoding="utf-8"))
         assert refresh_value["reason"] == "archive_checkpoint"
@@ -226,6 +237,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 

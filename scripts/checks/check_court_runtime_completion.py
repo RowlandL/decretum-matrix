@@ -15,6 +15,7 @@ import contextlib
 import io
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -177,7 +178,11 @@ def assessment(
     gate: str = "PASSED",
     reasons: list[str] | None = None,
     evidence_sha256: str = "e" * 64,
+    residual_gaps: list[str] | None = None,
+    completion_source_value: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    normalized_gaps = list(residual_gaps or [])
+    source = completion_source_value or completion_source(task)
     return {
         "schema": BINDING_SCHEMA,
         "gate": gate,
@@ -188,7 +193,80 @@ def assessment(
         "assessment_sha256": "d" * 64,
         "evidence_sha256": evidence_sha256,
         "assessed_at": "2026-07-14T09:30:00+08:00",
+        "completion_source": source,
+        "completion_source_sha256": envelope_sha256(source),
+        "residual_gaps": normalized_gaps,
+        "residual_gaps_sha256": envelope_sha256(normalized_gaps),
     }
+
+
+def completion_source(
+    task: dict[str, object],
+    *,
+    sources: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    return {
+        "schema": "court.completion_source.v1",
+        "task_id": task["task_id"],
+        "charter_revision": task["charter_revision"],
+        "charter_sha256": task["charter_sha256"],
+        "sources": sources
+        or [
+            {
+                "kind": "serial_inline",
+                "role": "menxia",
+                "pointer": "serial_inline://fixture/menxia-completion",
+                "sha256": hashlib.sha256(
+                    b"serial_inline://fixture/menxia-completion"
+                ).hexdigest(),
+            }
+        ],
+    }
+
+
+def pointer_sha256(pointer: str) -> str:
+    return hashlib.sha256(pointer.encode("utf-8")).hexdigest()
+
+
+def _persist_runtime_task(task: dict[str, object]) -> dict[str, object]:
+    tasks = court_runtime.load_tasks()
+    tasks[task["task_id"]] = task
+    court_runtime.write_tasks(tasks)
+    return court_runtime.load_tasks()[task["task_id"]]
+
+
+def _persist_menxia_report(
+    task: dict[str, object],
+    pointer: str,
+) -> dict[str, object]:
+    agent_id = "menxia-completion-source-0001"
+    task = deepcopy(task)
+    task["agents"] = {
+        agent_id: {
+            "agent_id": agent_id,
+            "role": "menxia",
+            "status": "running",
+            "preload_status": "PASSED",
+            "office_execution_ready": True,
+        }
+    }
+    persisted = _persist_runtime_task(task)
+    court_runtime.append_event(
+        {
+            "time": "2026-07-14T00:00:30+00:00",
+            "task_id": persisted["task_id"],
+            "action": "agent_report",
+            "from_state": "MenxiaReview",
+            "to_state": "MenxiaReview",
+            "actor": "menxia",
+            "agent_id": agent_id,
+            "agent_role": "menxia",
+            "evidence": pointer,
+            "note": "bounded Menxia host report fixture",
+            "event_id": "EVT-MENXIA-COMPLETION-SOURCE-0001",
+        }
+    )
+    return court_runtime.load_tasks()[persisted["task_id"]]
 
 
 def assessment_args(task_id: str, record: dict[str, object]) -> Namespace:
@@ -205,7 +283,7 @@ def assessment_args(task_id: str, record: dict[str, object]) -> Namespace:
 
 
 def checkpoint_receipt(task: dict[str, object], receipt_id: str = "receipt-001") -> dict[str, object]:
-    return {
+    receipt = {
         "schema": RECEIPT_SCHEMA,
         "receipt_id": receipt_id,
         "task_id": task["task_id"],
@@ -216,11 +294,34 @@ def checkpoint_receipt(task: dict[str, object], receipt_id: str = "receipt-001")
         "archive_path": f"fixture://shiguan/{receipt_id}",
         "recorded_at": "2026-07-14T00:01:00Z",
     }
+    binding = task["assessment_binding"]
+    if binding.get("gate") == "PASSED_WITH_CONCERNS":
+        receipt.update(
+            residual_gaps=deepcopy(binding["residual_gaps"]),
+            residual_gaps_sha256=binding["residual_gaps_sha256"],
+        )
+    return receipt
 
 
-def checkpoint_ready_task(task_id: str) -> dict[str, object]:
+def checkpoint_ready_task(
+    task_id: str,
+    *,
+    gate: str = "PASSED",
+    reasons: list[str] | None = None,
+    residual_gaps: list[str] | None = None,
+    completion_source_value: dict[str, object] | None = None,
+) -> dict[str, object]:
     task = assessment_ready_task(task_id)
-    task = court_runtime.bind_assessment_record(task, assessment(task))
+    task = court_runtime.bind_assessment_record(
+        task,
+        assessment(
+            task,
+            gate=gate,
+            reasons=reasons,
+            residual_gaps=residual_gaps,
+            completion_source_value=completion_source_value,
+        ),
+    )
     receipt = checkpoint_receipt(task)
     task["state"] = "ShiguanRecorded"
     task["shiguan_checkpoint"] = {
@@ -230,6 +331,11 @@ def checkpoint_ready_task(task_id: str) -> dict[str, object]:
         "archive_path": receipt["archive_path"],
         "recorded_at": receipt["recorded_at"],
     }
+    if "residual_gaps" in receipt:
+        task["shiguan_checkpoint"].update(
+            residual_gaps=deepcopy(receipt["residual_gaps"]),
+            residual_gaps_sha256=receipt["residual_gaps_sha256"],
+        )
     task["completion"] = {"status": "READY"}
     return task
 
@@ -288,7 +394,12 @@ def check_assessment_validation_and_deep_copy() -> None:
     assert binding["source_envelope"] == source_record
     assert binding["source_envelope"] is not record
     assert binding["source_envelope_sha256"] == envelope_sha256(source_record)
-    assert bound["completion"] == {"status": "ASSESSMENT_BOUND"}
+    assert bound["completion"] == {
+        "status": "ASSESSMENT_BOUND",
+        "outcome_status": "DONE",
+        "residual_gaps": [],
+        "residual_gaps_sha256": envelope_sha256([]),
+    }
     bound["assessment_binding"]["reasons"].append("alias")
     assert record == source_record
 
@@ -357,6 +468,421 @@ def check_partial_and_blocked_are_noncompletable() -> None:
             lambda gate=gate: court_runtime.bind_assessment_record(task, assessment(task, gate=gate)),
             "nonpassed_assessment_requires_reasons",
         )
+
+
+def check_completion_sources_and_concerns_are_bound_end_to_end() -> None:
+    source_required = assessment_ready_task("completion-source-required")
+    missing_source = assessment(source_required)
+    for field in ("completion_source", "completion_source_sha256"):
+        missing_source.pop(field)
+    expect_error(
+        lambda: court_runtime.bind_assessment_record(source_required, missing_source),
+        "completion_source_required",
+    )
+
+    verified_serial_source = completion_source(
+        source_required,
+        sources=[
+            {
+                "kind": "serial_inline",
+                "role": "menxia",
+                "pointer": "serial_inline://fixture/menxia-review",
+                "sha256": pointer_sha256("serial_inline://fixture/menxia-review"),
+            },
+        ],
+    )
+    host_bound = court_runtime.bind_assessment_record(
+        source_required,
+        assessment(source_required, completion_source_value=verified_serial_source),
+    )
+    assert host_bound["assessment_binding"]["completion_source"] == verified_serial_source
+    assert host_bound["assessment_binding"]["completion_source_sha256"] == envelope_sha256(
+        verified_serial_source
+    )
+
+    serial_seed = assessment_ready_task("completion-with-concerns")
+    stale_source = completion_source(
+        assessment_ready_task("completion-source-shape"),
+        sources=[
+            {
+                "kind": "serial_inline",
+                "role": "menxia",
+                "pointer": "serial_inline://fixture/stale",
+                "sha256": pointer_sha256("serial_inline://fixture/stale"),
+            }
+        ],
+    )
+    expect_error(
+        lambda: court_runtime.bind_assessment_record(
+            serial_seed,
+            assessment(
+                serial_seed,
+                gate="PASSED_WITH_CONCERNS",
+                reasons=["bounded residual risk disclosed"],
+                residual_gaps=["fixture residual gap"],
+                completion_source_value=stale_source,
+            ),
+        ),
+        "completion_source_task_mismatch",
+    )
+
+    serial_source = completion_source(
+        serial_seed,
+        sources=[
+            {
+                "kind": "serial_inline",
+                "role": role,
+                "pointer": f"serial_inline://fixture/{role}",
+                "sha256": pointer_sha256(f"serial_inline://fixture/{role}"),
+            }
+            for role in (
+                "zhongshu",
+                "shangshu",
+                "menxia",
+            )
+        ],
+    )
+    serial_task = court_runtime.bind_assessment_record(
+        serial_seed,
+        assessment(
+            serial_seed,
+            gate="PASSED_WITH_CONCERNS",
+            reasons=["bounded residual risk disclosed"],
+            residual_gaps=["fixture residual gap"],
+            completion_source_value=serial_source,
+        ),
+    )
+    receipt = checkpoint_receipt(serial_task)
+    serial_task["state"] = "ShiguanRecorded"
+    serial_task["shiguan_checkpoint"] = {
+        "status": "VERIFIED",
+        "receipt_id": receipt["receipt_id"],
+        "record_sha256": receipt["record_sha256"],
+        "archive_path": receipt["archive_path"],
+        "recorded_at": receipt["recorded_at"],
+        "residual_gaps": deepcopy(receipt["residual_gaps"]),
+        "residual_gaps_sha256": receipt["residual_gaps_sha256"],
+    }
+    serial_task["completion"] = {"status": "READY"}
+    binding = serial_task["assessment_binding"]
+    assert binding["status"] == "VERIFIED"
+    assert binding["gate"] == "PASSED_WITH_CONCERNS"
+    assert binding["residual_gaps"] == ["fixture residual gap"]
+    assert receipt["residual_gaps"] == ["fixture residual gap"]
+    assert receipt["residual_gaps_sha256"] == binding["residual_gaps_sha256"]
+    checkpoint_gate_task = deepcopy(serial_task)
+    checkpoint_gate_task["state"] = "MenxiaReview"
+    court_runtime.validate_runtime_gate(
+        checkpoint_gate_task, "MenxiaReview", "ShiguanRecorded", "checkpoint guard"
+    )
+
+    tasks = court_runtime.load_tasks()
+    tasks[serial_task["task_id"]] = serial_task
+    court_runtime.write_tasks(tasks)
+    court_runtime.append_event(
+        {
+            "time": "2026-07-14T00:01:00+00:00",
+            "task_id": serial_task["task_id"],
+            "action": "record_shiguan",
+            "from_state": "MenxiaReview",
+            "to_state": "ShiguanRecorded",
+            "actor": "shiguan",
+            "receipt_id": receipt["receipt_id"],
+            "assessment_sha256": receipt["assessment_sha256"],
+            "record_sha256": receipt["record_sha256"],
+        }
+    )
+    completed = court_runtime.complete_task_atomically(complete_args(serial_task, receipt))
+    events = court_runtime.events_for_task(serial_task["task_id"])
+    projection = court_runtime.completion_projection(completed.task, events)
+    assert completed.task["state"] == "Done"
+    assert completed.task["completion"]["status"] == "COMPLETED"
+    assert completed.task["completion"]["outcome_status"] == "DONE_WITH_CONCERNS"
+    assert completed.task["completion"]["residual_gaps"] == ["fixture residual gap"]
+    assert projection["verified"] is True
+    assert projection["status"] == "DONE_WITH_CONCERNS"
+    assert projection["residual_gaps_sha256"] == binding["residual_gaps_sha256"]
+
+    legacy_false_done = deepcopy(completed.task)
+    legacy_false_done["assessment_binding"].pop("completion_source")
+    legacy_false_done["assessment_binding"].pop("completion_source_sha256")
+    legacy_false_done["assessment_binding"]["source_envelope"].pop("completion_source")
+    legacy_false_done["assessment_binding"]["source_envelope"].pop(
+        "completion_source_sha256"
+    )
+    legacy_projection = court_runtime.completion_projection(legacy_false_done, events)
+    assert legacy_projection["verified"] is False
+    assert legacy_projection["status"] != "DONE_WITH_CONCERNS"
+
+
+def check_completion_source_requires_verifiable_menxia_evidence() -> None:
+    no_menxia = _persist_runtime_task(assessment_ready_task("source-gongbu-only"))
+    gongbu_pointer = "fixture://gongbu-host-report"
+    expect_error(
+        lambda: court_runtime.bind_assessment_record(
+            no_menxia,
+            assessment(
+                no_menxia,
+                completion_source_value=completion_source(
+                    no_menxia,
+                    sources=[
+                        {
+                            "kind": "host_report",
+                            "role": "gongbu",
+                            "pointer": gongbu_pointer,
+                            "sha256": pointer_sha256(gongbu_pointer),
+                        }
+                    ],
+                ),
+            ),
+        ),
+        "completion_source_menxia_required",
+    )
+
+    menxia = _persist_menxia_report(
+        assessment_ready_task("source-missing-report"),
+        "fixture://menxia-real-report",
+    )
+    nonexistent_pointer = "fixture://menxia-nonexistent-report"
+    expect_error(
+        lambda: court_runtime.bind_assessment_record(
+            menxia,
+            assessment(
+                menxia,
+                completion_source_value=completion_source(
+                    menxia,
+                    sources=[
+                        {
+                            "kind": "host_report",
+                            "role": "menxia",
+                            "pointer": nonexistent_pointer,
+                            "sha256": pointer_sha256(nonexistent_pointer),
+                        }
+                    ],
+                ),
+            ),
+        ),
+        "completion_source_menxia_report_missing",
+    )
+
+    actual_pointer = "fixture://menxia-real-report"
+    expect_error(
+        lambda: court_runtime.bind_assessment_record(
+            menxia,
+            assessment(
+                menxia,
+                completion_source_value=completion_source(
+                    menxia,
+                    sources=[
+                        {
+                            "kind": "bounded_trace",
+                            "role": "menxia",
+                            "pointer": actual_pointer,
+                            "sha256": "0" * 64,
+                        }
+                    ],
+                ),
+            ),
+        ),
+        "completion_source_report_sha256_mismatch",
+    )
+
+    verified = court_runtime.bind_assessment_record(
+        menxia,
+        assessment(
+            menxia,
+            completion_source_value=completion_source(
+                menxia,
+                sources=[
+                    {
+                        "kind": "host_report",
+                        "role": "menxia",
+                        "pointer": actual_pointer,
+                        "sha256": pointer_sha256(actual_pointer),
+                    }
+                ],
+            ),
+        ),
+    )
+    assert verified["assessment_binding"]["status"] == "VERIFIED"
+
+    serial = assessment_ready_task("source-menxia-serial")
+    serial_pointer = "serial_inline://menxia/assessment"
+    serial_bound = court_runtime.bind_assessment_record(
+        serial,
+        assessment(
+            serial,
+            completion_source_value=completion_source(
+                serial,
+                sources=[
+                    {
+                        "kind": "serial_inline",
+                        "role": "menxia",
+                        "pointer": serial_pointer,
+                        "sha256": pointer_sha256(serial_pointer),
+                    }
+                ],
+            ),
+        ),
+    )
+    assert serial_bound["assessment_binding"]["status"] == "VERIFIED"
+
+
+def check_archive_receipt_records_runtime_replays_and_completes_with_concerns() -> None:
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        shared_root = root / "shared"
+        runtime_root = root / "runtime"
+        home_root = root / "home"
+        old_runtime_root = court_runtime.runtime_root
+        old_environment = {
+            key: os.environ.get(key)
+            for key in ("COURT_SHARED_SHIGUAN_ROOT", "COURT_RUNTIME_ROOT", "HOME", "USERPROFILE")
+        }
+        court_runtime.runtime_root = lambda: runtime_root  # type: ignore[assignment]
+        os.environ.update(
+            {
+                "COURT_SHARED_SHIGUAN_ROOT": str(shared_root),
+                "COURT_RUNTIME_ROOT": str(runtime_root),
+                "HOME": str(home_root),
+                "USERPROFILE": str(home_root),
+            }
+        )
+        try:
+            task = assessment_ready_task("archive-runtime-concerns")
+            serial_pointer = "serial_inline://menxia/archive-concerns"
+            task = court_runtime.bind_assessment_record(
+                task,
+                assessment(
+                    task,
+                    gate="PASSED_WITH_CONCERNS",
+                    reasons=["bounded residual risk disclosed"],
+                    residual_gaps=["fixture archive residual gap"],
+                    completion_source_value=completion_source(
+                        task,
+                        sources=[
+                            {
+                                "kind": "serial_inline",
+                                "role": "menxia",
+                                "pointer": serial_pointer,
+                                "sha256": pointer_sha256(serial_pointer),
+                            }
+                        ],
+                    ),
+                ),
+            )
+            task = _persist_runtime_task(task)
+            args = Namespace(
+                task_id=task["task_id"],
+                topic="",
+                phase="archive runtime fixture",
+                status="",
+                next="",
+                memory_decision="SKIP",
+                memory_content="",
+                memory_reason="",
+                event_limit=8,
+            )
+            recorded = archive_runtime_task.archive_and_record_task(args)
+            runtime_receipt = recorded["runtime_receipt"]
+            producer_receipt = recorded["producer_receipt"]
+            assert producer_receipt["schema"] == "court.shiguan_archive_checkpoint_receipt.v1"
+            assert len(producer_receipt["record_sha256"]) == 64
+            assert runtime_receipt["schema"] == RECEIPT_SCHEMA
+            current = court_runtime.load_tasks()[task["task_id"]]
+            assert current["state"] == "ShiguanRecorded"
+            assert current["completion"]["status"] == "READY"
+            assert current["shiguan_checkpoint"]["record_sha256"] == producer_receipt["record_sha256"]
+            recorded_events = court_runtime.events_for_task(task["task_id"])
+            assert [event["action"] for event in recorded_events].count("record_shiguan") == 1
+            index_path = shared_root / "references" / "shiguan-index.jsonl"
+            index_lines = [line for line in index_path.read_text(encoding="utf-8").splitlines() if line]
+            assert len(index_lines) == 1
+
+            replayed = archive_runtime_task.archive_and_record_task(args)
+            assert replayed["status"] == "REPLAYED"
+            assert [
+                event["action"] for event in court_runtime.events_for_task(task["task_id"])
+            ].count("record_shiguan") == 1
+            assert [line for line in index_path.read_text(encoding="utf-8").splitlines() if line] == index_lines
+
+            completed = court_runtime.complete_task_atomically(
+                complete_args(current, runtime_receipt)
+            )
+            projection = court_runtime.completion_projection(
+                completed.task,
+                court_runtime.events_for_task(task["task_id"]),
+            )
+            assert completed.task["state"] == "Done"
+            assert projection["verified"] is True
+            assert projection["status"] == "DONE_WITH_CONCERNS"
+
+            rollback_task = assessment_ready_task("archive-runtime-record-rollback")
+            rollback_pointer = "serial_inline://menxia/archive-rollback"
+            rollback_task = court_runtime.bind_assessment_record(
+                rollback_task,
+                assessment(
+                    rollback_task,
+                    completion_source_value=completion_source(
+                        rollback_task,
+                        sources=[
+                            {
+                                "kind": "serial_inline",
+                                "role": "menxia",
+                                "pointer": rollback_pointer,
+                                "sha256": pointer_sha256(rollback_pointer),
+                            }
+                        ],
+                    ),
+                ),
+            )
+            rollback_task = _persist_runtime_task(rollback_task)
+            rollback_args = Namespace(
+                task_id=rollback_task["task_id"],
+                topic="",
+                phase="archive rollback fixture",
+                status="",
+                next="",
+                memory_decision="SKIP",
+                memory_content="",
+                memory_reason="",
+                event_limit=8,
+            )
+            before_tasks = court_runtime.tasks_path().read_bytes()
+            before_events = court_runtime.events_path().read_bytes()
+            original_append = court_runtime.append_event
+
+            def failed_append(_event: dict[str, object]) -> None:
+                raise RuntimeError("injected record_shiguan append failure")
+
+            court_runtime.append_event = failed_append  # type: ignore[assignment]
+            try:
+                try:
+                    archive_runtime_task.archive_and_record_task(rollback_args)
+                except RuntimeError as exc:
+                    if str(exc) != "injected record_shiguan append failure":
+                        raise AssertionError("ARCHIVE_RECORD_ROLLBACK_WRONG_ERROR " + str(exc)) from exc
+                else:
+                    raise AssertionError("ARCHIVE_RECORD_APPEND_FAILURE_SWALLOWED")
+            finally:
+                court_runtime.append_event = original_append  # type: ignore[assignment]
+            assert court_runtime.tasks_path().read_bytes() == before_tasks
+            assert court_runtime.events_path().read_bytes() == before_events
+            archived_before_retry = [
+                line for line in index_path.read_text(encoding="utf-8").splitlines() if line
+            ]
+            recovered = archive_runtime_task.archive_and_record_task(rollback_args)
+            assert recovered["status"] == "COMMITTED"
+            assert [
+                line for line in index_path.read_text(encoding="utf-8").splitlines() if line
+            ] == archived_before_retry
+        finally:
+            court_runtime.runtime_root = old_runtime_root  # type: ignore[assignment]
+            for key, value in old_environment.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 def check_assessment_cli_cas_idempotency_and_rollback() -> None:
@@ -527,10 +1053,11 @@ def check_archive_builder_is_pure_and_unverified() -> None:
     assert "charter_revision=3" in evidence
     command = archive_runtime_task.build_archive_command(task, args)
     assert command[0] == archive_runtime_task.sys.executable
-    assert command[1].endswith("archive_checkpoint.py")
+    assert command[1] == "-B"
+    assert command[2].endswith("archive_checkpoint.py")
     assert command[command.index("--summary") + 1] == summary
     assert command[command.index("--evidence") + 1] == evidence
-    assert command[command.index("--status") + 1] == "READY"
+    assert command[command.index("--status") + 1] == "PASSED"
 
 
 def check_verified_completion_projection() -> None:
@@ -1257,6 +1784,33 @@ def check_cli_parser() -> None:
     )
     assert parsed.command == "bind-assessment"
 
+    consultation_refs = [
+        {
+            "task_id": "cli",
+            "charter_revision": 3,
+            "charter_sha256": "a" * 64,
+            "from_role": "bingbu",
+            "to_role": "shangshu",
+            "purpose": "superior relay",
+            "input_pointer": "fixture://input",
+            "input_sha256": "b" * 64,
+            "reply_pointer": "serial_inline://reply",
+            "reply_sha256": "c" * 64,
+            "write_authority_granted": False,
+        }
+    ]
+    parsed = court_runtime.build_parser().parse_args(
+        [
+            "agent-report",
+            "--task-id", "cli",
+            "--agent-id", "gongbu-cli-0001",
+            "--role", "gongbu",
+            "--evidence", "bounded report",
+            "--consultation-refs-json", json.dumps(consultation_refs),
+        ]
+    )
+    assert parsed.consultation_refs == consultation_refs
+
 
 def main() -> int:
     with TemporaryDirectory() as temp_dir:
@@ -1266,6 +1820,9 @@ def main() -> int:
             check_runtime_source_is_outcome_gate_independent()
             check_assessment_validation_and_deep_copy()
             check_partial_and_blocked_are_noncompletable()
+            check_completion_sources_and_concerns_are_bound_end_to_end()
+            check_completion_source_requires_verifiable_menxia_evidence()
+            check_archive_receipt_records_runtime_replays_and_completes_with_concerns()
             check_assessment_cli_cas_idempotency_and_rollback()
             check_stored_binding_integrity_is_revalidated()
             check_archive_builder_is_pure_and_unverified()
@@ -1283,12 +1840,9 @@ def main() -> int:
             check_cli_parser()
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
-    print("COURT_RUNTIME_COMPLETION_OK cases=18")
+    print("COURT_RUNTIME_COMPLETION_OK cases=21")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-

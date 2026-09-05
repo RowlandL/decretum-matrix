@@ -44,7 +44,7 @@ from stdio_encoding import configure_stdio
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
-RELEASE_LABEL = "beta1.0.8"
+RELEASE_LABEL = "beta1.1.0"
 LICENSE_ID = "AGPL-3.0-only"
 # Canonical package and physical install root. Legacy locators may only resolve
 # to this same authority through an explicitly validated compatibility link.
@@ -1424,4 +1424,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -33,3 +33,19 @@
 - check_shiguan_lineage_taxonomy.py：golden 版本 == TAXONOMY_VERSION；tie/unknown/negated/conflict →
   status=review + 对应 reason（阶段 3 扩展断言）；否定不贡献正分；unknown 无关键词→unknown。
 - check_shiguan_lineage_rebuild_compatibility.py（阶段 3）：历史 court_code/lineage 保留。
+
+## 后续修订说明（DM110-20260905 / T07）
+
+本节仅追加后续实现解释与回归边界，不改写上述 beta1.0.8 的历史结论、版本号或验收记录。
+
+- 内容分类输入须排除来源／工具路径；路径仍可作为 capability/source metadata 保留，不能因包含
+  `archive`、`index` 等字样成为内容谱系证据。真实 topic、内容性 evidence 与显式 keywords
+  仍是分类输入。`enrich_entry()` 必须在自动生成 `keywords` 前完成分类，避免路径或否定词经派生
+  关键词回流为肯定命中。
+- `positive_evidence` 与 `negative_evidence` 的“互斥”限定为同一次术语出现只能归入其中一侧。
+  同一术语在不同断言中可一处肯定、一处否定，词级集合因此允许重叠；此时保留两侧证据并输出
+  `classification_status=review`、`classification_reason=conflict`。既有 checker receipt 的
+  `negated_terms_never_positive` 继续表达这一逐次出现的约束。
+- `classification-contract-validation.json` 保留原有五类验证集，另以 `regressions` 记录来源路径
+  与同词混合断言；检查器对直接 `content_lineage_parts()` 与 `enrich_entry()` 两条路径均作确定性
+  与结果一致性验证。

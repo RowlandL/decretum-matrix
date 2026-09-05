@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -12,6 +13,23 @@ INVARIANT_CAPSULE_SCHEMA = "court.semantic.invariant_capsule.v1"
 INVARIANT_CAPSULE_MAX_BYTES = 2048
 SEMANTIC_RECEIPT_SCHEMA = "court.semantic.receipt.v1"
 OFFICE_RESULT_SCHEMA = "court.office.result.v1"
+CONSULTATION_REF_SCHEMA = "court.consultation_ref.v1"
+CONSULTATION_REF_FIELDS = {
+    "task_id",
+    "charter_revision",
+    "charter_sha256",
+    "from_role",
+    "to_role",
+    "purpose",
+    "input_pointer",
+    "input_sha256",
+    "reply_pointer",
+    "reply_sha256",
+    "write_authority_granted",
+}
+CONSULTATION_REF_MAX_COUNT = 16
+CONSULTATION_REF_MAX_POINTER_BYTES = 512
+CONSULTATION_REF_MAX_PURPOSE_BYTES = 256
 RESULT_RECOVERY_PROJECTION_SCHEMA = "court.office.recovered_result_projection.v1"
 RESULT_RECOVERY_BINDING_SCHEMA = "court.office.result_recovery_binding.v1"
 DISPATCH_CONTEXT_PACKET_SCHEMA = "court.semantic.dispatch_context_packet.v1"
@@ -815,6 +833,86 @@ def resume_context_problems(
     return context, problems
 
 
+def _bounded_consultation_text(value: object, field: str, limit: int) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"consultation_ref_{field}_required")
+    text = value.strip()
+    if len(text.encode("utf-8")) > limit or any(
+        character in text for character in "\x00\r\n"
+    ):
+        raise ValueError(f"consultation_ref_{field}_invalid")
+    return text
+
+
+def _consultation_role(value: object, field: str) -> str:
+    role = _bounded_consultation_text(value, field, 64).lower()
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", role):
+        raise ValueError(f"consultation_ref_{field}_invalid")
+    return role
+
+
+def _consultation_pointer(value: object, field: str) -> str:
+    pointer = _bounded_consultation_text(
+        value, field, CONSULTATION_REF_MAX_POINTER_BYTES
+    )
+    lowered = pointer.casefold()
+    if any(token in lowered for token in ("pending/", "/pending/", "private/", "/private/")):
+        raise ValueError("consultation_ref_privacy_gate_failed")
+    return pointer
+
+
+def normalize_consultation_refs(value: object) -> list[dict[str, object]]:
+    """Validate bounded, non-authoritative consultation metadata.
+
+    The references are attached to an existing report or result envelope only.
+    They never describe a new dispatch, transport, ledger, or authority edge.
+    """
+
+    if not isinstance(value, list) or not value:
+        raise ValueError("consultation_refs_required")
+    if len(value) > CONSULTATION_REF_MAX_COUNT:
+        raise ValueError("consultation_refs_exceed_limit")
+    normalized: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict) or set(item) != CONSULTATION_REF_FIELDS:
+            raise ValueError("consultation_ref_fields_invalid")
+        revision = item.get("charter_revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise ValueError("consultation_ref_charter_revision_invalid")
+        if item.get("write_authority_granted") is not False:
+            raise ValueError("consultation_ref_write_authority_forbidden")
+        reference = {
+            "task_id": _bounded_consultation_text(item.get("task_id"), "task_id", 128),
+            "charter_revision": revision,
+            "charter_sha256": _canonical_digest(
+                item.get("charter_sha256"), "consultation_ref_charter_sha256"
+            ),
+            "from_role": _consultation_role(item.get("from_role"), "from_role"),
+            "to_role": _consultation_role(item.get("to_role"), "to_role"),
+            "purpose": _bounded_consultation_text(
+                item.get("purpose"), "purpose", CONSULTATION_REF_MAX_PURPOSE_BYTES
+            ),
+            "input_pointer": _consultation_pointer(item.get("input_pointer"), "input_pointer"),
+            "input_sha256": _canonical_digest(
+                item.get("input_sha256"), "consultation_ref_input_sha256"
+            ),
+            "reply_pointer": _consultation_pointer(item.get("reply_pointer"), "reply_pointer"),
+            "reply_sha256": _canonical_digest(
+                item.get("reply_sha256"), "consultation_ref_reply_sha256"
+            ),
+            "write_authority_granted": False,
+        }
+        if reference["from_role"] == reference["to_role"]:
+            raise ValueError("consultation_ref_roles_must_differ")
+        identity = canonical_json_sha256(reference)
+        if identity in seen:
+            raise ValueError("consultation_ref_duplicate")
+        seen.add(identity)
+        normalized.append(reference)
+    return normalized
+
+
 def normalize_result_envelope(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError("structured_result_envelope_required")
@@ -843,6 +941,7 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
         "evidence",
         "produced_at",
         "recovery_input_ids",
+        "consultation_refs",
     }
     private_fields = {
         field
@@ -934,6 +1033,10 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
             raise ValueError("result_envelope_nested_field_forbidden")
         if len(set(recovery_ids)) != len(recovery_ids):
             raise ValueError("result_envelope_duplicate_recovery_id")
+    if "consultation_refs" in envelope:
+        envelope["consultation_refs"] = normalize_consultation_refs(
+            envelope["consultation_refs"]
+        )
     return envelope
 
 
@@ -957,6 +1060,32 @@ def _unique_string_array_schema() -> dict[str, object]:
         "type": "array",
         "uniqueItems": True,
         "items": {"type": "string", "minLength": 1},
+    }
+
+
+def _consultation_refs_json_schema() -> dict[str, object]:
+    return {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": CONSULTATION_REF_MAX_COUNT,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": sorted(CONSULTATION_REF_FIELDS),
+            "properties": {
+                "task_id": _string_schema(),
+                "charter_revision": _positive_integer_schema(),
+                "charter_sha256": _digest_schema(),
+                "from_role": _string_schema(),
+                "to_role": _string_schema(),
+                "purpose": _string_schema(),
+                "input_pointer": _string_schema(),
+                "input_sha256": _digest_schema(),
+                "reply_pointer": _string_schema(),
+                "reply_sha256": _digest_schema(),
+                "write_authority_granted": {"type": "boolean", "const": False},
+            },
+        },
     }
 
 
@@ -1003,7 +1132,6 @@ def office_result_envelope_json_schema() -> dict[str, object]:
         "evidence",
         "produced_at",
     }
-    optional = {"office_instance_kind", "carrier_proof", "recovery_input_ids"}
     properties: dict[str, object] = {
         "schema": _string_schema(const=OFFICE_RESULT_SCHEMA),
         "task_id": _string_schema(),
@@ -1029,6 +1157,7 @@ def office_result_envelope_json_schema() -> dict[str, object]:
         "evidence": _unique_string_array_schema(),
         "produced_at": _string_schema(),
         "recovery_input_ids": _unique_string_array_schema(),
+        "consultation_refs": _consultation_refs_json_schema(),
     }
     return {
         "type": "object",

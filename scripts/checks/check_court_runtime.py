@@ -492,7 +492,7 @@ def _instance_start_args(
     agent_id: str,
     dispatch_requested_at: str,
 ) -> Namespace:
-    skill_path = Path(court_runtime.__file__).resolve().parents[2] / "SKILL.md"
+    skill_path = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
     skill_hash = hashlib.sha256(skill_path.read_bytes()).hexdigest()
     suffix = instance_id.split("#", 1)[-1]
     args = court_runtime.build_parser().parse_args(

@@ -544,8 +544,12 @@ def evaluate() -> dict[str, Any]:
         or INSTALL_CHECKER_RELATIVE not in repository_only
     ):
         failures.append("checker_repository_only_declaration_missing")
-    if not (ROOT / INSTALL_CHECKER_RELATIVE).is_file():
+    checker_source = ROOT / INSTALL_CHECKER_RELATIVE
+    source_checkout = (ROOT / ".git").exists()
+    if source_checkout and not checker_source.is_file():
         failures.append("checker_source_missing")
+    if not source_checkout and checker_source.exists():
+        failures.append("checker_repository_only_present_in_installed_root")
     cli_public = projections.get("cli_public")
     if not isinstance(cli_public, list) or any(not isinstance(item, str) for item in cli_public):
         failures.append("cli_public:projection_list_invalid")
@@ -612,6 +616,11 @@ def evaluate() -> dict[str, Any]:
         "ok": not failures,
         "status": "PASS" if not failures else "FAIL",
         "contract": "INSTALL_PROJECTION_TRANSITIVE_CLOSURE",
+        "checker_repository_only_state": (
+            "SOURCE_PRESENT"
+            if checker_source.is_file()
+            else "INSTALLED_ABSENT"
+        ),
         "evidence": evidence,
         "failures": failures,
     }
@@ -647,6 +656,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

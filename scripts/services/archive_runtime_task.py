@@ -11,11 +11,14 @@ if _SCRIPTS_ROOT not in sys.path:
 
 
 import argparse
+import hashlib
+import json
 import subprocess
 import sys
 
 sys.dont_write_bytecode = True
 import court_runtime
+from court_file_lock import file_lock
 
 
 def validate_child_trace_summaries(records: object) -> dict[str, object]:
@@ -129,19 +132,39 @@ def runtime_evidence(
     )
 
 
-def build_archive_command(task: dict[str, object], args: argparse.Namespace) -> list[str]:
+def build_archive_command(
+    task: dict[str, object],
+    args: argparse.Namespace,
+    *,
+    result_json_path: Path | None = None,
+) -> list[str]:
     event_history = court_runtime.events_for_task(task.get("task_id"), limit=None)
     projection = court_runtime.completion_projection(task, event_history)
+    binding = task.get("assessment_binding")
+    assessment_gate = binding.get("gate") if isinstance(binding, dict) else None
+    archive_status = str(
+        args.status
+        or (
+            projection["status"]
+            if task.get("state") == "Done"
+            else (
+                assessment_gate
+                if assessment_gate in {"PASSED", "PASSED_WITH_CONCERNS"}
+                else projection["status"]
+            )
+        )
+    )
     memory_content = args.memory_content or (
         f"{args.task_id} is tracked by court_runtime.py and archived through archive_runtime_task.py"
     )
     memory_reason = args.memory_reason or "runtime-to-Shiguan bridge preserves audit continuity"
-    return [
+    command = [
         sys.executable,
+        "-B",
         str(court_runtime.skill_root() / "scripts" / "archive_checkpoint.py"),
         "--topic", args.topic or str(task.get("title") or args.task_id),
         "--phase", args.phase,
-        "--status", str(projection["status"]),
+        "--status", archive_status,
         "--summary", runtime_summary(task, event_history),
         "--evidence", runtime_evidence(task, args.event_limit, event_history),
         "--next", args.next or "continue according to current court state",
@@ -150,7 +173,145 @@ def build_archive_command(task: dict[str, object], args: argparse.Namespace) -> 
         "--memory-reason", memory_reason,
         "--keywords", f"{args.task_id},court runtime,Shiguan bridge,audit trail",
         "--key-actions", "archive runtime task,connect runtime ledger to Shiguan",
+        "--format", "json",
     ]
+    if result_json_path is not None:
+        command.extend(("--result-json", str(result_json_path)))
+    return command
+
+
+def _record_args(
+    task: dict[str, object],
+    producer_receipt: dict[str, object],
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        task_id=task["task_id"],
+        expected_revision=task["charter_revision"],
+        expected_charter_sha256=task["charter_sha256"],
+        archive_receipt=producer_receipt,
+        archive_receipt_file=None,
+        actor="shiguan",
+        evidence="archive_runtime_task verified producer receipt",
+        note="record Shiguan runtime checkpoint",
+    )
+
+
+def _runtime_receipt(task: dict[str, object]) -> dict[str, object]:
+    checkpoint = task.get("shiguan_checkpoint")
+    binding = task.get("assessment_binding")
+    if not isinstance(checkpoint, dict) or not isinstance(binding, dict):
+        raise ValueError("archive_runtime_checkpoint_missing")
+    receipt: dict[str, object] = {
+        "schema": "court.shiguan_checkpoint_receipt.v1",
+        "receipt_id": checkpoint["receipt_id"],
+        "task_id": task["task_id"],
+        "charter_revision": task["charter_revision"],
+        "charter_sha256": task["charter_sha256"],
+        "assessment_sha256": binding["assessment_sha256"],
+        "record_sha256": checkpoint["record_sha256"],
+        "archive_path": checkpoint["archive_path"],
+        "recorded_at": checkpoint["recorded_at"],
+    }
+    if binding.get("gate") == "PASSED_WITH_CONCERNS":
+        receipt.update(
+            residual_gaps=binding["residual_gaps"],
+            residual_gaps_sha256=binding["residual_gaps_sha256"],
+        )
+    return receipt
+
+
+def _producer_receipt_from_stdout(stdout: str) -> dict[str, object]:
+    try:
+        value = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("archive_runtime_producer_json_invalid") from exc
+    if not isinstance(value, dict):
+        raise ValueError("archive_runtime_producer_json_invalid")
+    return value
+
+
+def _receipt_cache_path(preflight: dict[str, object]) -> Path:
+    digest = hashlib.sha256(
+        json.dumps(
+            preflight,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return court_runtime.runtime_root() / "archive-runtime-receipts" / f"{digest}.json"
+
+
+def _cached_producer_receipt(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("archive_runtime_receipt_cache_invalid") from exc
+    if not isinstance(value, dict):
+        raise ValueError("archive_runtime_receipt_cache_invalid")
+    return value
+
+
+def archive_and_record_task(args: argparse.Namespace) -> dict[str, object]:
+    task = court_runtime.load_tasks().get(args.task_id)
+    if not isinstance(task, dict):
+        raise ValueError(f"task not found: {args.task_id}")
+    checkpoint = task.get("shiguan_checkpoint")
+    if str(task.get("state") or "") == "ShiguanRecorded":
+        if not isinstance(checkpoint, dict) or not isinstance(
+            checkpoint.get("producer_receipt"), dict
+        ):
+            raise ValueError("archive_runtime_replay_receipt_missing")
+        recorded = court_runtime.record_shiguan_task(
+            _record_args(task, dict(checkpoint["producer_receipt"]))
+        )
+        return {
+            "status": "REPLAYED",
+            "producer_receipt": checkpoint["producer_receipt"],
+            "runtime_receipt": _runtime_receipt(recorded.task),
+            "event": recorded.event,
+        }
+
+    preflight = court_runtime.record_shiguan_preflight(
+        _record_args(task, {"preflight": "not-used"})
+    )
+    cache_path = _receipt_cache_path(preflight)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(cache_path.with_suffix(".lock"), timeout=30.0):
+        if cache_path.is_file():
+            producer_receipt = _cached_producer_receipt(cache_path)
+        else:
+            command = build_archive_command(
+                task,
+                args,
+                result_json_path=cache_path,
+            )
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                check=False,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "archive_runtime_producer_failed:"
+                    + (result.stderr.strip() or result.stdout.strip() or str(result.returncode))
+                )
+            producer_receipt = _producer_receipt_from_stdout(result.stdout)
+            cached_receipt = _cached_producer_receipt(cache_path)
+            if cached_receipt != producer_receipt:
+                raise ValueError("archive_runtime_receipt_cache_mismatch")
+        recorded = court_runtime.record_shiguan_task(
+            _record_args(task, producer_receipt)
+        )
+    return {
+        "status": "COMMITTED",
+        "producer_receipt": producer_receipt,
+        "runtime_receipt": _runtime_receipt(recorded.task),
+        "event": recorded.event,
+    }
 
 
 def main() -> int:
@@ -166,22 +327,14 @@ def main() -> int:
     parser.add_argument("--event-limit", type=int, default=12)
     args = parser.parse_args()
 
-    task = court_runtime.load_tasks().get(args.task_id)
-    if not task:
-        print(f"RUNTIME_TASK_NOT_FOUND {args.task_id}", file=sys.stderr)
+    try:
+        result = archive_and_record_task(args)
+    except (RuntimeError, ValueError) as exc:
+        print(f"ARCHIVE_RUNTIME_ERROR {exc}", file=sys.stderr)
         return 2
-    task = court_runtime.normalize_task(task)
-    command = build_archive_command(task, args)
-    result = subprocess.run(command, text=True, capture_output=True, check=False)
-    if result.stdout:
-        print(result.stdout.strip())
-    if result.stderr:
-        print(result.stderr.strip(), file=sys.stderr)
-    return result.returncode
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-

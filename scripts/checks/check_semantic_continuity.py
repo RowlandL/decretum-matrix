@@ -18,6 +18,7 @@ if _SCRIPTS_ROOT not in sys.path:
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
+from copy import deepcopy
 import hashlib
 import io
 import json
@@ -578,7 +579,7 @@ def _admit_args(task: dict[str, object]) -> Namespace:
 
 
 def _start_args(task: dict[str, object], admission: dict[str, object]) -> Namespace:
-    skill_path = Path(court_runtime.__file__).resolve().parents[2] / "SKILL.md"
+    skill_path = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
     skill_hash = hashlib.sha256(skill_path.read_bytes()).hexdigest()
     args = court_runtime.build_parser().parse_args(
         [
@@ -623,6 +624,105 @@ def _start_args(task: dict[str, object], admission: dict[str, object]) -> Namesp
         ]
     )
     return args
+
+
+def _office_admit_args(task: dict[str, object]) -> Namespace:
+    args = _admit_args(task)
+    instance_id = "gongbu-office-admit-0001"
+    bindings = json.loads(args.requested_bindings_json)
+    lease = json.loads(args.budget_lease_json)
+    old_instance_id = bindings[0]["instance_id"]
+    bindings[0]["instance_id"] = instance_id
+    for field in (
+        "approved_instance_ids",
+        "approved_write_sets",
+        "approved_access_contracts",
+        "approved_instance_shapes",
+        "approved_preload_hashes",
+    ):
+        if field == "approved_instance_ids":
+            lease[field] = [instance_id]
+        else:
+            value = lease[field].pop(old_instance_id)
+            lease[field][instance_id] = value
+    args.requested_bindings_json = json.dumps(bindings, ensure_ascii=False)
+    args.budget_lease_json = json.dumps(lease, ensure_ascii=False)
+    args.office_instance_kind = "child_agent"
+    args.office_instance_id = instance_id
+    args.carrier_proof = {"agent_id": instance_id}
+    args.collaboration_task_name = "gongbu_office_admit_01"
+    args.dispatch_context_packet = court_runtime.public_dispatch_context_packet(
+        task, str(args.wave_id)
+    )
+    args.context_budget_pool = court_runtime.public_context_budget_pool(
+        task, str(args.wave_id)
+    )
+    args.context_result_mode = "bounded_structured_receipt"
+    args.context_tool_output_mode = "pointer"
+    args.context_override_source = None
+    args._context_contract_required = True
+    delattr(args, "note")
+    return args
+
+
+def _seed_office_admit_lineage(task_id: str) -> dict[str, object]:
+    tasks = court_runtime.load_tasks()
+    task = tasks[task_id]
+    task.update(
+        decree_id=f"DM-FIXTURE-{task_id}",
+        main_court_code=f"COURT-{task_id}",
+        lineage_parts=["fixture", task_id],
+        lineage_key=f"fixture/{task_id}",
+        lineage_version=1,
+    )
+    court_runtime.write_tasks(tasks)
+    return court_runtime.load_tasks()[task_id]
+
+
+def check_office_admit_missing_note_defaults_and_rolls_back() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            first_id = "office-admit-missing-note"
+            court_runtime.create_task(_create_args(first_id, "office admit charter"))
+            court_runtime.semantic_checkpoint_task(_semantic_args(first_id, "checkpoint"))
+            court_runtime.semantic_verify_task(_semantic_args(first_id, "verify"))
+            args = _office_admit_args(_seed_office_admit_lineage(first_id))
+            admitted = court_runtime.office_admit(args)
+            admission_event = court_runtime.events_for_task(first_id)[-1]
+            assert admission_event["action"] == "agent_admit"
+            assert admission_event["note"] == ""
+            assert admitted["event_id"] == admission_event["event_id"]
+
+            rollback_id = "office-admit-append-rollback"
+            court_runtime.create_task(_create_args(rollback_id, "rollback charter"))
+            court_runtime.semantic_checkpoint_task(_semantic_args(rollback_id, "checkpoint"))
+            court_runtime.semantic_verify_task(_semantic_args(rollback_id, "verify"))
+            rollback_args = _office_admit_args(_seed_office_admit_lineage(rollback_id))
+            rollback_args.note = ""
+            before_tasks = court_runtime.tasks_path().read_bytes()
+            before_events = court_runtime.events_path().read_bytes()
+            original_append = court_runtime.append_event
+
+            def failed_append(_event: dict[str, object]) -> None:
+                raise RuntimeError("injected office admission append failure")
+
+            court_runtime.append_event = failed_append  # type: ignore[assignment]
+            try:
+                try:
+                    court_runtime.office_admit(rollback_args)
+                except RuntimeError as exc:
+                    if str(exc) != "injected office admission append failure":
+                        raise AssertionError("OFFICE_ADMIT_ROLLBACK_WRONG_ERROR " + str(exc)) from exc
+                else:
+                    raise AssertionError("OFFICE_ADMIT_APPEND_FAILURE_SWALLOWED")
+            finally:
+                court_runtime.append_event = original_append  # type: ignore[assignment]
+            assert court_runtime.tasks_path().read_bytes() == before_tasks
+            assert court_runtime.events_path().read_bytes() == before_events
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
 def check_dispatch_start_report_bind_current_receipt() -> None:
@@ -764,6 +864,24 @@ def _result_envelope(
     return envelope
 
 
+def _consultation_refs(task: dict[str, object]) -> list[dict[str, object]]:
+    return [
+        {
+            "task_id": task["task_id"],
+            "charter_revision": task["charter_revision"],
+            "charter_sha256": task["charter_sha256"],
+            "from_role": "bingbu",
+            "to_role": "shangshu",
+            "purpose": "superior relay of bounded runtime evidence",
+            "input_pointer": "fixture://consultation/input",
+            "input_sha256": "1" * 64,
+            "reply_pointer": "serial_inline://consultation/reply",
+            "reply_sha256": "2" * 64,
+            "write_authority_granted": False,
+        }
+    ]
+
+
 def _finish_args(
     task_id: str,
     agent: dict[str, object],
@@ -789,6 +907,98 @@ def _finish_args(
         invariant_capsule_sha256=agent["invariant_capsule_sha256"],
         checkpoint_id=agent["checkpoint_id"],
     )
+
+
+def check_consultation_refs_stay_on_existing_report_and_result_evidence() -> None:
+    task_id = "semantic-consultation-refs"
+    agent_id = "gongbu-consultation-0001"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(_create_args(task_id, "consultation charter"))
+            court_runtime.semantic_checkpoint_task(_semantic_args(task_id, "checkpoint"))
+            dispatchable = court_runtime.semantic_verify_task(
+                _semantic_args(task_id, "verify")
+            ).task
+            admission = court_runtime.agent_admit(_admit_args(dispatchable))
+            start = _start_args(dispatchable, admission)
+            start.agent_id = agent_id
+            court_runtime.agent_start(start)
+            _ack_semantic_agent(task_id, agent_id)
+            task = court_runtime.load_tasks()[task_id]
+            agent = task["agents"][agent_id]
+            refs = _consultation_refs(task)
+            admissions_before = deepcopy(task["agent_admissions"])
+            events_before = court_runtime.events_for_task(task_id)
+            report = Namespace(
+                task_id=task_id,
+                agent_id=agent_id,
+                role="gongbu",
+                actor="shangshu",
+                evidence="consultation report fixture",
+                note="consultation report",
+                consultation_refs=deepcopy(refs),
+                dispatch_uid=admission["dispatch_uid"],
+                attempt=admission["attempt"],
+                semantic_epoch=admission["semantic_epoch"],
+                charter_sha256=admission["charter_sha256"],
+                invariant_capsule_sha256=admission["invariant_capsule_sha256"],
+                checkpoint_id=admission["checkpoint_id"],
+            )
+            reported = court_runtime.agent_report(report)
+            assert reported.event["action"] == "agent_report"
+            assert reported.event["consultation_refs"] == refs
+            reported_record = reported.task["agents"][agent_id]
+            assert reported_record["consultation_refs"] == refs
+            assert reported.task["agent_admissions"] == admissions_before
+
+            before_bad_report = court_runtime.tasks_path().read_bytes()
+            bad_report = deepcopy(report)
+            bad_report.consultation_refs[0]["write_authority_granted"] = True
+            try:
+                court_runtime.agent_report(bad_report)
+            except ValueError as exc:
+                if str(exc) != "consultation_ref_write_authority_forbidden":
+                    raise AssertionError("CONSULTATION_REPORT_WRONG_ERROR " + str(exc)) from exc
+            else:
+                raise AssertionError("CONSULTATION_REPORT_WRITE_AUTHORITY_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_bad_report
+
+            stale_envelope = _result_envelope(reported_record)
+            stale_envelope["consultation_refs"] = deepcopy(refs)
+            stale_envelope["consultation_refs"][0]["charter_revision"] = 999
+            before_stale_result = court_runtime.tasks_path().read_bytes()
+            try:
+                court_runtime.agent_finish(
+                    _finish_args(task_id, reported_record, envelope=stale_envelope)
+                )
+            except ValueError as exc:
+                if str(exc) != "consultation_ref_charter_revision_mismatch":
+                    raise AssertionError("CONSULTATION_RESULT_WRONG_ERROR " + str(exc)) from exc
+            else:
+                raise AssertionError("CONSULTATION_RESULT_STALE_BINDING_ACCEPTED")
+            assert court_runtime.tasks_path().read_bytes() == before_stale_result
+
+            result_envelope = _result_envelope(reported_record)
+            result_envelope["consultation_refs"] = deepcopy(refs)
+            finished = court_runtime.agent_finish(
+                _finish_args(task_id, reported_record, envelope=result_envelope)
+            )
+            final_record = finished.task["agents"][agent_id]
+            assert final_record["result_envelope"]["consultation_refs"] == refs
+            actions = [
+                event.get("action")
+                for event in court_runtime.events_for_task(task_id)[len(events_before):]
+            ]
+            assert actions == ["agent_report", "agent_finish"]
+            assert not any(
+                isinstance(action, str) and action.startswith("consultation")
+                for action in actions
+            )
+            assert finished.task["agent_admissions"] == admissions_before
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
 def check_finish_requires_structured_result_and_quarantines_stale() -> None:
@@ -3036,7 +3246,12 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
     envelope_schema = assert_closed_schema(
         "office_result_envelope_json_schema",
         envelope_required,
-        {"office_instance_kind", "carrier_proof", "recovery_input_ids"},
+        {
+            "office_instance_kind",
+            "carrier_proof",
+            "recovery_input_ids",
+            "consultation_refs",
+        },
     )
     assert_schema_const(envelope_schema, "court.office.result.v1")
     for field in ("charter_sha256", "invariant_capsule_sha256", "write_set_sha256"):
@@ -3781,7 +3996,15 @@ def evaluate() -> dict[str, object]:
         ("F-RED-002_CORRECTION_BINDING", check_correction_requires_and_binds_charter_body),
         ("SEMANTIC_CHECKPOINT_VERIFY", check_checkpoint_verify_promotes_dispatchable),
         ("SEMANTIC_DRIFT_QUARANTINE", check_drift_is_quarantined_before_mutation),
+        (
+            "T08_OFFICE_ADMIT_TRANSACTION",
+            check_office_admit_missing_note_defaults_and_rolls_back,
+        ),
         ("SEMANTIC_AGENT_BINDING", check_dispatch_start_report_bind_current_receipt),
+        (
+            "T08_CONSULTATION_REFS",
+            check_consultation_refs_stay_on_existing_report_and_result_evidence,
+        ),
         (
             "SEMANTIC_RESULT_ENVELOPE",
             check_finish_requires_structured_result_and_quarantines_stale,
@@ -3903,4 +4126,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -233,6 +234,11 @@ def build_index_entry(
 ) -> dict[str, object]:
     index = index_path()
     allocation = getattr(args, "session_allocation", None)
+    session_id = str(getattr(args, "session_id", "") or "").strip()
+    if allocation is not None:
+        from court_session_numbering import validate_session_allocation
+
+        allocation = validate_session_allocation(allocation, session_id)
     source_agent = detect_source_agent(args)
     agent_keywords = [
         f"agent:{source_agent['source_agent']}",
@@ -428,7 +434,7 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
         # form one serialized write transaction. Archive comes first so a crash
         # can leave only a recoverable orphan block, never a dangling index row.
         ensure_shared_seed()
-        now = datetime.now()
+        now = datetime.now().astimezone()
         date_text = now.strftime("%Y%m%d")
         path = archive_path(args.topic, date_text)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -538,6 +544,15 @@ def build_archive_receipt(
         "source_agent": str(entry.get("source_agent") or ""),
         "source_agent_label": source_agent_label,
         "closeout_identity": closeout_identity,
+        "recorded_at": str(entry.get("time") or ""),
+        "record_sha256": hashlib.sha256(
+            json.dumps(
+                entry,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest(),
         "refresh": refresh,
     }
     lineage_parts = existing_content_lineage_parts(entry)

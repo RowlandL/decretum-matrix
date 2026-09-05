@@ -659,6 +659,234 @@ def _domain_ledger_checks() -> list[tuple[str, bool]]:
     ]
 
 
+def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
+    """Exercise Git write-set isolation and rollback against real temporary repos."""
+    from concurrent.futures import ThreadPoolExecutor
+    import hashlib
+    import tempfile as _tempfile
+    from unittest import mock
+
+    import domain_ledger_api
+    from domain_ledger_api import domain_ledger_read, domain_ledger_write, ledger_file
+
+    def git_result(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if check and result.returncode != 0:
+            raise RuntimeError(f"git {' '.join(args)} failed: {(result.stderr or result.stdout).strip()}")
+        return result
+
+    def git_output(repo: Path, *args: str) -> str:
+        return git_result(repo, *args).stdout.strip()
+
+    def git_bytes(repo: Path, *args: str) -> bytes:
+        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(f"git {' '.join(args)} failed")
+        return result.stdout
+
+    def initialize_repo(repo: Path) -> None:
+        git_result(repo, "init", "-q")
+        git_result(repo, "config", "user.email", "check@local")
+        git_result(repo, "config", "user.name", "check")
+        (repo / "baseline.txt").write_text("baseline\n", encoding="utf-8")
+        git_result(repo, "add", "--", "baseline.txt")
+        git_result(repo, "commit", "-q", "-m", "baseline")
+
+    with _tempfile.TemporaryDirectory(prefix="dm-check-ledger-transaction-") as temp_dir:
+        repo = Path(temp_dir)
+        initialize_repo(repo)
+        (repo / "unrelated.txt").write_text("preserve\n", encoding="utf-8")
+        git_result(repo, "add", "--", "unrelated.txt")
+        created = domain_ledger_write(
+            kind="memory",
+            operation="create",
+            topic="transaction-fixture",
+            content="revision one",
+            actor="shiguan",
+            authority="autonomous",
+            write_set=["memory"],
+            root=repo,
+        )
+        ledger_path = ledger_file(repo, "memory")
+        created_record = created.get("record", {})
+        commit_sha = str(created_record.get("git_commit") or "")
+        receipt_ref = created_record.get("git_receipt", {})
+        receipt_relative = str(receipt_ref.get("path") or "") if isinstance(receipt_ref, dict) else ""
+        receipt_path = repo / receipt_relative
+        receipt_value = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.is_file() else {}
+        committed_paths = set(git_output(repo, "show", "--format=", "--name-only", "HEAD").splitlines())
+        success_isolated = (
+            created.get("ok") is True
+            and commit_sha == git_output(repo, "rev-parse", "HEAD")
+            and committed_paths == {"domain-ledger/memory.json", receipt_relative}
+            and "unrelated.txt" not in committed_paths
+            and git_output(repo, "diff", "--cached", "--name-only").splitlines() == ["unrelated.txt"]
+            and git_output(repo, "diff", "--name-only") == ""
+        )
+        success_receipt_consistent = (
+            receipt_value.get("ledger_path") == "domain-ledger/memory.json"
+            and receipt_value.get("ledger_sha256") == hashlib.sha256(ledger_path.read_bytes()).hexdigest()
+            and git_bytes(repo, "show", f"HEAD:domain-ledger/memory.json") == ledger_path.read_bytes()
+            and git_bytes(repo, "show", f"HEAD:{receipt_relative}") == receipt_path.read_bytes()
+            and git_result(repo, "diff", "--quiet", "HEAD", "--", "domain-ledger/memory.json", receipt_relative, check=False).returncode == 0
+            and git_result(repo, "diff", "--cached", "--quiet", "HEAD", "--", "domain-ledger/memory.json", receipt_relative, check=False).returncode == 0
+        )
+
+        index_path = Path(git_output(repo, "rev-parse", "--git-path", "index"))
+        if not index_path.is_absolute():
+            index_path = repo / index_path
+        before_head = git_output(repo, "rev-parse", "HEAD")
+        before_index = index_path.read_bytes()
+        before_ledger = ledger_path.read_bytes()
+        real_run = domain_ledger_api.subprocess.run
+
+        def reject_commit(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if command[:3] == ["git", "-C", str(repo)] and len(command) > 3 and command[3] == "commit":
+                return subprocess.CompletedProcess(command, 1, stdout="", stderr="fixture commit rejected")
+            return real_run(command, **kwargs)
+
+        with mock.patch.object(domain_ledger_api.subprocess, "run", side_effect=reject_commit):
+            failed = domain_ledger_write(
+                kind="memory",
+                operation="update",
+                topic="transaction-fixture",
+                content="revision two",
+                actor="shiguan",
+                authority="autonomous",
+                write_set=["memory"],
+                root=repo,
+            )
+        failed_commit_restored = (
+            failed.get("ok") is False
+            and git_output(repo, "rev-parse", "HEAD") == before_head
+            and index_path.read_bytes() == before_index
+            and ledger_path.read_bytes() == before_ledger
+            and git_output(repo, "diff", "--cached", "--name-only").splitlines() == ["unrelated.txt"]
+        )
+
+    with _tempfile.TemporaryDirectory(prefix="dm-check-ledger-receipt-") as temp_dir:
+        repo = Path(temp_dir)
+        initialize_repo(repo)
+        receipt_ledger_path = ledger_file(repo, "memory")
+        receipt_index_path = Path(git_output(repo, "rev-parse", "--git-path", "index"))
+        if not receipt_index_path.is_absolute():
+            receipt_index_path = repo / receipt_index_path
+        receipt_before_head = git_output(repo, "rev-parse", "HEAD")
+        receipt_before_index = receipt_index_path.read_bytes()
+        original_write = domain_ledger_api._atomic_write_text
+        calls = {"count": 0}
+
+        def fail_receipt_write(path: object, text: object) -> None:
+            calls["count"] += 1
+            if calls["count"] == 2:
+                raise OSError("fixture receipt persistence failure")
+            original_write(path, text)
+
+        with mock.patch.object(domain_ledger_api, "_atomic_write_text", side_effect=fail_receipt_write):
+            receipt_failed = domain_ledger_write(
+                kind="memory",
+                operation="create",
+                topic="receipt-fixture",
+                content="receipt content",
+                actor="shiguan",
+                authority="autonomous",
+                write_set=["memory"],
+                root=repo,
+            )
+        receipt_failure_atomic = (
+            receipt_failed.get("ok") is False
+            and "commit_receipt_persist_failed" in str(receipt_failed.get("errors", [{}])[0].get("code") or "")
+            and git_output(repo, "rev-parse", "HEAD") == receipt_before_head
+            and receipt_index_path.read_bytes() == receipt_before_index
+            and not receipt_ledger_path.exists()
+            and not list((repo / "domain-ledger" / "receipts").glob("*.json"))
+            and git_output(repo, "status", "--porcelain") == ""
+        )
+
+    with _tempfile.TemporaryDirectory(prefix="dm-check-ledger-concurrency-") as temp_dir:
+        repo = Path(temp_dir)
+        initialize_repo(repo)
+        shared = {
+            "kind": "memory",
+            "actor": "shiguan",
+            "authority": "autonomous",
+            "write_set": ["memory"],
+            "root": repo,
+        }
+        first = domain_ledger_write(operation="create", topic="idempotent", content="one", **shared)
+        repeated = domain_ledger_write(operation="create", topic="idempotent", content="one", **shared)
+        updated = domain_ledger_write(operation="update", topic="idempotent", content="two", idempotency_key="same-key", **shared)
+        repeated_update = domain_ledger_write(operation="update", topic="idempotent", content="two", idempotency_key="same-key", **shared)
+
+        def concurrent_create(topic: str) -> dict[str, Any]:
+            return domain_ledger_write(operation="create", topic=topic, content=topic, **shared)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            concurrent = list(pool.map(concurrent_create, ("concurrent-a", "concurrent-b")))
+        projected = domain_ledger_read("memory", root=repo)
+        idempotency_preserved = (
+            first.get("ok") is True
+            and repeated.get("idempotent") is True
+            and repeated.get("record", {}).get("git_commit") == first.get("record", {}).get("git_commit")
+            and updated.get("ok") is True
+            and repeated_update.get("idempotent") is True
+            and repeated_update.get("record", {}).get("git_commit") == updated.get("record", {}).get("git_commit")
+        )
+        concurrency_serialized = (
+            all(result.get("ok") is True for result in concurrent)
+            and sorted(int(result.get("record", {}).get("revision") or 0) for result in concurrent) == [3, 4]
+            and projected.get("count") == 4
+            and all(bool(item.get("git_commit")) for item in projected.get("revisions", []))
+            and git_output(repo, "status", "--porcelain") == ""
+        )
+        sidecar_anchor = domain_ledger_write(operation="create", topic="sidecar-anchor", content="anchor", **shared)
+        original_commit = str(sidecar_anchor.get("record", {}).get("git_commit") or "")
+        anchor_receipt = sidecar_anchor.get("record", {}).get("git_receipt", {})
+        anchor_receipt_relative = str(anchor_receipt.get("path") or "") if isinstance(anchor_receipt, dict) else ""
+        anchor_ledger_relative = str(anchor_receipt.get("ledger_path") or "") if isinstance(anchor_receipt, dict) else ""
+        anchor_receipt_path = repo / anchor_receipt_relative
+        anchor_receipt_path.write_text('{"tampered":true}\n', encoding="utf-8")
+        git_result(repo, "add", "--", anchor_receipt_relative)
+        git_result(repo, "commit", "-q", "-m", "fixture receipt sidecar change", "--", anchor_receipt_relative)
+        later_commit = git_output(repo, "rev-parse", "HEAD")
+        projected_after_change = domain_ledger_read("memory", root=repo)
+        repeated_after_change = domain_ledger_write(operation="create", topic="sidecar-anchor", content="anchor", **shared)
+        original_receipt = json.loads(git_bytes(repo, "show", f"{original_commit}:{anchor_receipt_relative}").decode("utf-8"))
+        original_ledger = git_bytes(repo, "show", f"{original_commit}:{anchor_ledger_relative}")
+        original_projection = next(
+            (item for item in projected_after_change.get("revisions", []) if item.get("topic") == "sidecar-anchor"),
+            {},
+        )
+        sidecar_change_does_not_retarget = (
+            original_commit
+            and original_commit != later_commit
+            and original_projection.get("git_commit") == original_commit
+            and repeated_after_change.get("idempotent") is True
+            and repeated_after_change.get("record", {}).get("git_commit") == original_commit
+            and original_receipt.get("schema") == domain_ledger_api.GIT_RECEIPT_SCHEMA
+            and original_receipt.get("transaction_id") == anchor_receipt.get("transaction_id")
+            and original_receipt.get("ledger_sha256") == hashlib.sha256(original_ledger).hexdigest()
+            and git_output(repo, "status", "--porcelain") == ""
+        )
+
+    return [
+        ("domain_ledger_commit_isolated_from_unrelated_staged", success_isolated),
+        ("domain_ledger_success_receipt_matches_repository", success_receipt_consistent),
+        ("domain_ledger_failed_commit_restores_head_file_index", failed_commit_restored),
+        ("domain_ledger_receipt_persist_failure_is_atomic", receipt_failure_atomic),
+        ("domain_ledger_idempotency_receipts_preserved", idempotency_preserved),
+        ("domain_ledger_concurrent_writes_serialized", concurrency_serialized),
+        ("domain_ledger_receipt_sidecar_change_cannot_retarget_commit", sidecar_change_does_not_retarget),
+    ]
+
+
 def _robustness_probes() -> list[tuple[str, bool]]:
     """Fail-closed / audit robustness probes for the MCP facade and domain ledger."""
 
@@ -1072,6 +1300,7 @@ def run() -> dict[str, object]:
         ),
     ]
     checks.extend(_domain_ledger_checks())
+    checks.extend(_domain_ledger_transaction_checks())
     checks.extend(_robustness_probes())
     return {
         "schema": "decretum.mcp_stdio_adapter_check.v2",
@@ -1109,6 +1338,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
