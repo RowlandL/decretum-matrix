@@ -1,0 +1,411 @@
+{
+  "schema": "decretum.review_evidence_summary.v1",
+  "source_beta108": "37df40da5232f230cde578599c8030982188bbd7",
+  "source_beta109": "0003b3800cd245abf870a82ff464a802cc0faeaf",
+  "source_check_count": 32,
+  "passed": 27,
+  "checks": [
+    {
+      "check": "quick_validate",
+      "exit_code": 0,
+      "seconds": 3.583
+    },
+    {
+      "check": "governance",
+      "exit_code": 0,
+      "seconds": 0.422
+    },
+    {
+      "check": "source_budget",
+      "exit_code": 0,
+      "seconds": 0.184
+    },
+    {
+      "check": "release_manifest",
+      "exit_code": 0,
+      "seconds": 0.325
+    },
+    {
+      "check": "unified_cli",
+      "exit_code": 2,
+      "seconds": 3.847
+    },
+    {
+      "check": "open_fastpath",
+      "exit_code": 0,
+      "seconds": 0.356
+    },
+    {
+      "check": "startup_fastpath",
+      "exit_code": 0,
+      "seconds": 1.436
+    },
+    {
+      "check": "result_semantics",
+      "exit_code": 0,
+      "seconds": 0.07
+    },
+    {
+      "check": "skill_identity",
+      "exit_code": 0,
+      "seconds": 0.286
+    },
+    {
+      "check": "projection_closure",
+      "exit_code": 1,
+      "seconds": 16.441
+    },
+    {
+      "check": "read_only",
+      "exit_code": 0,
+      "seconds": 5.505
+    },
+    {
+      "check": "mcp",
+      "exit_code": 0,
+      "seconds": 3.145
+    },
+    {
+      "check": "numbering",
+      "exit_code": 0,
+      "seconds": 0.746
+    },
+    {
+      "check": "iku",
+      "exit_code": 0,
+      "seconds": 0.179
+    },
+    {
+      "check": "conflict_scan",
+      "exit_code": 0,
+      "seconds": 0.847
+    },
+    {
+      "check": "full_record",
+      "exit_code": 0,
+      "seconds": 0.167
+    },
+    {
+      "check": "taxonomy",
+      "exit_code": 0,
+      "seconds": 0.145
+    },
+    {
+      "check": "lineage_compat",
+      "exit_code": 0,
+      "seconds": 0.489
+    },
+    {
+      "check": "recall",
+      "exit_code": 0,
+      "seconds": 0.289
+    },
+    {
+      "check": "git_federation",
+      "exit_code": 0,
+      "seconds": 14.126
+    },
+    {
+      "check": "model_router",
+      "exit_code": 0,
+      "seconds": 0.074
+    },
+    {
+      "check": "office_worker",
+      "exit_code": 0,
+      "seconds": 0.199
+    },
+    {
+      "check": "agent_config",
+      "exit_code": 0,
+      "seconds": 1.736
+    },
+    {
+      "check": "runtime",
+      "exit_code": 1,
+      "seconds": 6.011
+    },
+    {
+      "check": "completion",
+      "exit_code": 0,
+      "seconds": 1.398
+    },
+    {
+      "check": "runtime_concurrency",
+      "exit_code": 0,
+      "seconds": 1.375
+    },
+    {
+      "check": "shiguan_concurrency",
+      "exit_code": 0,
+      "seconds": 4.168
+    },
+    {
+      "check": "http_static",
+      "exit_code": 1,
+      "seconds": 0.458
+    },
+    {
+      "check": "installer_fixture",
+      "exit_code": 1,
+      "seconds": 10.43
+    },
+    {
+      "check": "package_privacy",
+      "exit_code": 0,
+      "seconds": 34.957
+    },
+    {
+      "check": "portability",
+      "exit_code": 0,
+      "seconds": 1.558
+    },
+    {
+      "check": "release_metadata",
+      "exit_code": 0,
+      "seconds": 0.091
+    }
+  ],
+  "installer_fixture_clean_env": {
+    "ok": false,
+    "passed_cases": 32,
+    "passed_configuration_cases": 31,
+    "errors": [
+      "repository_manifest:repository_only_overlap:scripts/install_codex_plugin_projection.py"
+    ]
+  },
+  "boundary_probes": [
+    {
+      "probe": "numbering_wrong_default_index",
+      "existing_max": "Z",
+      "default_sequence": "1",
+      "explicit_sequence": "10",
+      "default_code": "SDMLTIUI5-20260905-1-NBAA",
+      "explicit_code": "SDMLTIUI5-20260905-10-NBAA"
+    },
+    {
+      "probe": "cross_midnight_closeout",
+      "issued_code": "SDMLTIUI5-20260904-1-NBAA",
+      "same_day_found": true,
+      "next_day_found": false
+    },
+    {
+      "probe": "non_conflicting_facts_superseded",
+      "decisions": [
+        {
+          "record_uid": "current",
+          "topic": "service settings",
+          "action": "SUPERSEDED",
+          "deterministic": true,
+          "reason": "newer_record_supersedes_contradictory",
+          "before": "WRITE",
+          "after": "SUPERSEDED",
+          "as_of": "2026-09-05T00:00:00+00:00",
+          "user_notice": "同一主题存在更新的持久记忆且内容矛盾，旧记录标记 SUPERSEDED。",
+          "notify_user": true,
+          "superseded_by": "new"
+        }
+      ]
+    },
+    {
+      "probe": "future_fact_supersedes_current",
+      "decisions": [
+        {
+          "record_uid": "current",
+          "topic": "service settings",
+          "action": "SUPERSEDED",
+          "deterministic": true,
+          "reason": "newer_record_supersedes_contradictory",
+          "before": "WRITE",
+          "after": "SUPERSEDED",
+          "as_of": "2026-09-05T00:00:00+00:00",
+          "user_notice": "同一主题存在更新的持久记忆且内容矛盾，旧记录标记 SUPERSEDED。",
+          "notify_user": true,
+          "superseded_by": "future"
+        },
+        {
+          "record_uid": "future",
+          "topic": "service settings",
+          "action": "REVIEW",
+          "deterministic": false,
+          "reason": "future_record_not_yet_active",
+          "before": "WRITE",
+          "after": "REVIEW",
+          "as_of": "2026-09-05T00:00:00+00:00",
+          "user_notice": "记忆记录尚未生效（valid_from 晚于当前），转门下复核。",
+          "notify_user": true,
+          "superseded_by": null
+        }
+      ]
+    },
+    {
+      "probe": "unrelated_staged_file_committed",
+      "ok": true,
+      "commit_files": [
+        "domain-ledger/memory.json",
+        "unrelated.txt"
+      ]
+    },
+    {
+      "probe": "failed_commit_leaves_staged_revision",
+      "ok": false,
+      "disk_topics": [
+        "first"
+      ],
+      "staged_topics": [
+        "first",
+        "second"
+      ]
+    },
+    {
+      "probe": "failed_apply_reports_ok",
+      "result": {
+        "schema": "court.closeout_conflict_scan.v1",
+        "ok": true,
+        "applied": 0,
+        "receipt_count": 1,
+        "receipts": [
+          {
+            "schema": "court.domain_ledger.v1",
+            "kind": "memory",
+            "ok": false,
+            "errors": [
+              {
+                "field": "authority",
+                "kind": "acl",
+                "code": "authority_read_only"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "probe": "unknown_topic",
+      "status": "review",
+      "reason": "unknown",
+      "lineage": "待审/待审/待审/待审/待审",
+      "positive": [],
+      "negative": []
+    },
+    {
+      "probe": "evidence_path_changes_classification",
+      "status": "classified",
+      "reason": "matched",
+      "lineage": "典藏/史馆/实录/生长树/索引检索",
+      "positive": [
+        "archive",
+        "index"
+      ],
+      "negative": []
+    },
+    {
+      "probe": "positive_negative_evidence_overlap",
+      "status": "review",
+      "reason": "conflict",
+      "lineage": "待审/待审/待审/待审/待审",
+      "positive": [
+        "archive",
+        "index"
+      ],
+      "negative": [
+        "archive",
+        "index"
+      ]
+    }
+  ],
+  "actual_isolated_install": {
+    "schema": "decretum.isolated_install_review.v1",
+    "observed_at": "2026-09-05T11:00:53.913165+00:00",
+    "method": "unmodified production install_current_agent_copy API with real source manifest; no configuration adapter",
+    "network_install_or_service_activation": false,
+    "results": [
+      {
+        "version": "beta1.0.8",
+        "source_head": "37df40da5232f230cde578599c8030982188bbd7",
+        "source_clean": true,
+        "plan": {
+          "schema": "court.install_current_agent_copy.result.v1",
+          "ok": false,
+          "status": "REJECTED",
+          "reason": "projection_manifest_invalid",
+          "reason_codes": [
+            "projection_manifest_invalid"
+          ],
+          "errors": [
+            "repository_only_overlap"
+          ],
+          "targets": [],
+          "pending_body_accessed": false,
+          "real_host_configuration_accessed": false
+        },
+        "apply": {
+          "schema": "court.install_current_agent_copy.result.v1",
+          "ok": false,
+          "status": "REJECTED",
+          "reason": "projection_manifest_invalid",
+          "reason_codes": [
+            "projection_manifest_invalid"
+          ],
+          "errors": [
+            "repository_only_overlap"
+          ],
+          "targets": [],
+          "pending_body_accessed": false,
+          "real_host_configuration_accessed": false
+        },
+        "manifest_repository_only_overlap": [
+          "scripts/install_codex_plugin_projection.py"
+        ],
+        "before": [],
+        "after_plan": [],
+        "after_apply": [],
+        "isolated_home_exists_after": false,
+        "runtime_smoke": "NOT_RUN_NO_INSTALLED_COPY"
+      },
+      {
+        "version": "beta1.0.9",
+        "source_head": "0003b3800cd245abf870a82ff464a802cc0faeaf",
+        "source_clean": true,
+        "plan": {
+          "schema": "court.install_current_agent_copy.result.v1",
+          "ok": false,
+          "status": "REJECTED",
+          "reason": "projection_manifest_invalid",
+          "reason_codes": [
+            "projection_manifest_invalid"
+          ],
+          "errors": [
+            "repository_only_overlap"
+          ],
+          "targets": [],
+          "pending_body_accessed": false,
+          "real_host_configuration_accessed": false
+        },
+        "apply": {
+          "schema": "court.install_current_agent_copy.result.v1",
+          "ok": false,
+          "status": "REJECTED",
+          "reason": "projection_manifest_invalid",
+          "reason_codes": [
+            "projection_manifest_invalid"
+          ],
+          "errors": [
+            "repository_only_overlap"
+          ],
+          "targets": [],
+          "pending_body_accessed": false,
+          "real_host_configuration_accessed": false
+        },
+        "manifest_repository_only_overlap": [
+          "scripts/install_codex_plugin_projection.py"
+        ],
+        "before": [],
+        "after_plan": [],
+        "after_apply": [],
+        "isolated_home_exists_after": false,
+        "runtime_smoke": "NOT_RUN_NO_INSTALLED_COPY"
+      }
+    ]
+  }
+}

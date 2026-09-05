@@ -1,0 +1,35 @@
+{
+  "schema": "decretum.new_session_handoff.v1",
+  "source_task_id": "01a07100-9bb6-7ca3-9deb-25b1bb46f2d9",
+  "destination_task_id": "01a0715e-8957-7910-9800-eb19ed5d1437",
+  "destination_title": "诏令矩阵 1.1.0｜super 并行整改与验证",
+  "creation_method": "create_thread",
+  "environment": "local",
+  "fork": false,
+  "target_version": "beta1.1.0",
+  "baseline_commit": "0003b3800cd245abf870a82ff464a802cc0faeaf",
+  "execution": {"authority": "super", "behavior": "parallel", "runtime": "native"},
+  "acceptance": "HANDOFF_ACCEPTED",
+  "acceptance_baseline_and_empty_indexes_confirmed": true,
+  "root_model_evidence": {
+    "method": "creation_request_and_actual_turn_context",
+    "model": "gpt-6-astra",
+    "effort": "ultra"
+  },
+  "started_offices_verified": [
+    {"office": "zhongshu", "task_id": "01a07160-422a-72c3-976c-08794cf82adf", "model": "gpt-5.6-terra", "effort": "ultra"},
+    {"office": "menxia", "task_id": "01a07160-833f-78c3-8352-27180a7bbddf", "model": "gpt-5.6-terra", "effort": "ultra"},
+    {"office": "shangshu", "task_id": "01a07160-daab-7fa0-9e5d-ad05d6e34183", "model": "gpt-5.6-terra", "effort": "ultra"}
+  ],
+  "office_model_evidence_method": "actual_turn_context_for_each_started_office",
+  "future_office_model_requirement": "gpt-5.6-terra / ultra; receiver verifies each actual spawn",
+  "native_goal": {
+    "threadId": "01a0715e-8957-7910-9800-eb19ed5d1437",
+    "status": "active",
+    "createdAt": 1788608637,
+    "token_budget_specified": false,
+    "scope": "Prepare beta1.1.0 and complete the approved T01-T09 repairs and isolated validation"
+  },
+  "implementation_complete": false,
+  "ownership": "Destination task continues implementation; source task handoff is complete"
+}

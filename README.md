@@ -54,10 +54,11 @@ runtime 不在同一 task/process 中切换或回退。
 
 ## 文档
 
+- [项目架构框架：结果导向的三省六部流程](docs/wiki/Architecture.md)
+- [原始架构文档、设计来源与版本实现差异](docs/architecture/README.md)
 - [安装](docs/wiki/Installation.md)
 - [使用](docs/wiki/Usage.md)
 - [治理](docs/wiki/Governance.md)
-- [架构](docs/wiki/Architecture.md)
 - [排错](docs/wiki/Troubleshooting.md)
 - [发布说明](docs/wiki/Release-Notes.md)
 - [GitHub Wiki](https://github.com/RowlandL/decretum-matrix/wiki)

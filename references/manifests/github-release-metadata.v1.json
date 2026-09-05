@@ -1,6 +1,6 @@
 {
   "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.0.8",
+  "latest_tag": "beta1.1.0",
   "brief_policy": {
     "required": true,
     "max_body_chars": 1200,
@@ -9,6 +9,17 @@
     "latest_must_match_version": true
   },
   "releases": [
+    {
+      "tag": "beta1.1.0",
+      "title": "Decretum Matrix beta1.1.0",
+      "summary": "本地 1.1.0 开发候选：按已审批架构修复安装、编号、账册与分类边界，并核对三省六部协作的结果证据；验收状态以本版本实际验证回执为准。",
+      "highlights": [
+        "对齐真实安装投影、公开入口依赖与官署预载预算。",
+        "修复会话编号复用、账册事务和冲突裁定的边界行为。",
+        "核验三省往返、六部会办和最终结果之间的证据合同。"
+      ],
+      "asset_note": "此条目是本地候选说明，不代表已创建 tag、推送、发布 npm 或更新活动安装。"
+    },
     {
       "tag": "beta1.0.8",
       "title": "Decretum Matrix beta1.0.8",
