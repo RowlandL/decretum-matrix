@@ -12,7 +12,7 @@ _SCRIPTS_ROOT = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from copy import deepcopy
 import hashlib
 import importlib.util
@@ -47,6 +47,7 @@ IDENTITY_MANIFEST_PATH = ROOT / Path(IDENTITY_MANIFEST_RELATIVE)
 RESULT_SCHEMA = "court.install_current_agent_copy.result.v1"
 CHECK_SCHEMA = "court.install_current_agent_copy.check.v1"
 PROJECTION_SCHEMA = "court.install_projection.v1"
+ACTIVE_RENDER_SCHEMA = "court.install_projection.active_render.v1"
 CONFIG_REQUEST_SCHEMA = "court.blank_host_configuration.request.v1"
 CONFIG_RESULT_KEY = "configuration_remediation"
 
@@ -180,6 +181,8 @@ PORTABLE_FILES = (
     "agents/standing-officials/gongbu.toml",
     "agents/supercc-dossiers/gongbu/AGENTS.md",
     IDENTITY_MANIFEST_RELATIVE,
+    "references/manifests/install-projection.v1.json",
+    "references/manifests/cli-command-surface.v1.json",
     "scripts/portable-helper.py",
 )
 PROTECTED_SEEDS = {
@@ -191,6 +194,12 @@ PROTECTED_SEEDS = {
 REPOSITORY_ONLY_FILES = (
     "docs/internal-plan.md",
 )
+SOURCE_ONLY_CHECKER = "scripts/checks/check_fixture.py"
+A_B_ROOT_COMPATIBILITY_SHELL = "scripts/sync_active_copies.py"
+A_B_COMMAND_BODY = "scripts/commands/sync_active_copies.py"
+A_B_SERVICE_BODY = "scripts/services/serve_shiguan_tree.py"
+A_B_ROOT_SOURCE_ONLY_CHECKER = "scripts/check_active_copy_hashes.py"
+A_B_CHECKS_SOURCE_ONLY_CHECKER = "scripts/checks/check_active_copy_hashes.py"
 
 
 def _safe_relative(value: object) -> bool:
@@ -365,9 +374,17 @@ def _load_production(errors: list[str]) -> object | None:
 def _fixture_manifest() -> Payload:
     return {
         "schema": PROJECTION_SCHEMA,
+        "schema_version": 1,
         "identity_manifest": IDENTITY_MANIFEST_RELATIVE,
         "policy": dict(POLICY_EXPECTED),
         "protected_shared_agents_seeds": [],
+        "frozen_install_references": [],
+        "active_render": {
+            "schema": ACTIVE_RENDER_SCHEMA,
+            "path_matcher": "posix_glob.v1",
+            "exclude_path_globs": ["scripts/check_*.py", "scripts/checks/**"],
+            "excluded_cli_groups": ["check", "release"],
+        },
         "projections": {
             "shared_agents": list(PORTABLE_FILES),
             "portable_current_tool": list(PORTABLE_FILES),
@@ -411,6 +428,20 @@ def _write_fixture_source(
             "- court_skill_path: SKILL.md\n"
         ),
         "scripts/portable-helper.py": "VALUE = 'portable'\n",
+        SOURCE_ONLY_CHECKER: "CHECKER = 'source-only'\n",
+        "references/manifests/cli-command-surface.v1.json": json.dumps(
+            {
+                "schema": "court.cli.command_surface.v1",
+                "groups": ["court", "check", "release"],
+                "entries": [
+                    {"group": "court", "command": "status", "mcp": {"name": "court.status"}},
+                    {"group": "check", "command": "fixture-check"},
+                    {"group": "release", "command": "fixture-release"},
+                ],
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
         "docs/internal-plan.md": "# repository only\n",
     }
     contents.update(PROTECTED_SEEDS)
@@ -1774,13 +1805,18 @@ def _check_tx_cases(
             if exact_backup_root is not None
             else None
         )
+        rendered_metadata_replacements = len(exact_targets) * 2
         if (
             not isinstance(exact_result, dict)
             or exact_result.get("projection_counts", {}).get("create") != 0
-            or exact_result.get("projection_counts", {}).get("replace") != 0
+            or exact_result.get("projection_counts", {}).get("replace")
+            != rendered_metadata_replacements
+            or exact_result.get("projection_counts", {}).get("delete") != 0
             or not isinstance(exact_backup, dict)
             or exact_backup.get("status") != "CREATED"
-            or exact_backup.get("operation_count") != 0
+            or exact_backup.get("operation_count") != rendered_metadata_replacements
+            or exact_backup.get("replace_count") != rendered_metadata_replacements
+            or exact_backup.get("delete_count") != 0
             or not isinstance(exact_rollback, dict)
             or exact_rollback.get("ok") is not True
             or exact_rollback.get("legacy_locator_restored_count") != 2
@@ -2125,6 +2161,394 @@ def _check_cases(
                     )
                 else:
                     passed += 1
+
+    cleanup_name = "active_projection_cleanup_backup_and_rollback"
+    cleanup_manifest = _fixture_manifest()
+    cleanup_projections = cleanup_manifest["projections"]
+    assert isinstance(cleanup_projections, dict)
+    for projection_name in ("shared_agents", "portable_current_tool"):
+        projection = cleanup_projections[projection_name]
+        assert isinstance(projection, list)
+        projection.append(SOURCE_ONLY_CHECKER)
+    source, home, manifest, roots = _case_fixture(
+        temp_root,
+        cleanup_name,
+        cleanup_manifest,
+    )
+    cleanup_targets = [_agents_root(home), roots["codex"]]
+    for target in cleanup_targets:
+        for relative in (*PORTABLE_FILES, SOURCE_ONLY_CHECKER):
+            source_path = source / Path(relative)
+            target_path = target / Path(relative)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+        (target / "nonmanaged.txt").write_text("preserve\n", encoding="utf-8")
+    cleanup_result = _require_success(
+        install,
+        name=cleanup_name,
+        expected_targets=cleanup_targets,
+        errors=errors,
+        **install_args(source, home, manifest, roots, write=True),
+    )
+    if cleanup_result is not None:
+        backup = cleanup_result.get("backup")
+        backup_root = (
+            Path(str(backup.get("backup_root")))
+            if isinstance(backup, dict) and backup.get("backup_root")
+            else None
+        )
+        backup_manifest = (
+            _load_json(
+                backup_root / "manifest.json",
+                label="cleanup_backup_manifest",
+                errors=errors,
+            )
+            if backup_root is not None
+            else None
+        )
+        entries = (
+            backup_manifest.get("entries")
+            if isinstance(backup_manifest, dict)
+            else None
+        )
+        delete_entries = [
+            entry
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("action") == "DELETE"
+        ] if isinstance(entries, list) else []
+        source_checker_sha256 = hashlib.sha256(
+            (source / SOURCE_ONLY_CHECKER).read_bytes()
+        ).hexdigest()
+        active_manifest_ok = True
+        for target in cleanup_targets:
+            target_manifest = _load_json(
+                target / "references" / "manifests" / "install-projection.v1.json",
+                label="cleanup_active_manifest",
+                errors=errors,
+            )
+            active_manifest_ok = active_manifest_ok and isinstance(
+                target_manifest,
+                dict,
+            ) and "active_render" not in target_manifest
+            active_manifest_ok = active_manifest_ok and isinstance(
+                target_manifest.get("projections") if isinstance(target_manifest, dict) else None,
+                dict,
+            ) and target_manifest["projections"].get("repository_only") == []
+        applied_checks = (
+            cleanup_result.get("projection_counts", {}).get("delete")
+            == len(cleanup_targets),
+            isinstance(backup, dict)
+            and backup.get("delete_count") == len(cleanup_targets),
+            len(delete_entries) == len(cleanup_targets),
+            all(
+                entry.get("path") == SOURCE_ONLY_CHECKER
+                and entry.get("installed_sha256") is None
+                and entry.get("previous_sha256") == source_checker_sha256
+                and isinstance(entry.get("backup_path"), str)
+                for entry in delete_entries
+            ),
+            all(
+                not (target / SOURCE_ONLY_CHECKER).exists()
+                and not (target / "scripts" / "checks").exists()
+                and (target / "nonmanaged.txt").read_text(encoding="utf-8")
+                == "preserve\n"
+                for target in cleanup_targets
+            ),
+            active_manifest_ok,
+        )
+        rollback = (
+            install.__globals__["rollback_install_backup"](
+                home_root=home,
+                backup_root=backup_root,
+            )
+            if backup_root is not None
+            else None
+        )
+        rollback_checks = (
+            isinstance(rollback, dict)
+            and rollback.get("ok") is True,
+            all(
+                (target / SOURCE_ONLY_CHECKER).read_bytes()
+                == (source / SOURCE_ONLY_CHECKER).read_bytes()
+                and (target / "scripts" / "checks").is_dir()
+                and (target / "nonmanaged.txt").read_text(encoding="utf-8")
+                == "preserve\n"
+                for target in cleanup_targets
+            ),
+        )
+        if not all(applied_checks) or not all(rollback_checks):
+            errors.append(
+                f"{cleanup_name}:contract_failed:{cleanup_result}:{rollback}"
+            )
+        else:
+            passed += 1
+
+    cross_version_name = "active_projection_cleanup_cross_version_rollback"
+    cross_version_manifest = _fixture_manifest()
+    cross_version_projections = cross_version_manifest["projections"]
+    assert isinstance(cross_version_projections, dict)
+    for projection_name in ("shared_agents", "portable_current_tool"):
+        projection = cross_version_projections[projection_name]
+        assert isinstance(projection, list)
+        projection.append(SOURCE_ONLY_CHECKER)
+    source, home, manifest, roots = _case_fixture(
+        temp_root,
+        cross_version_name,
+        cross_version_manifest,
+    )
+    cross_version_targets = [_agents_root(home), roots["codex"]]
+    previous_checker_bytes = b"CHECKER = 'prior-release'\n"
+    for target in cross_version_targets:
+        for relative in (*PORTABLE_FILES, SOURCE_ONLY_CHECKER):
+            source_path = source / Path(relative)
+            target_path = target / Path(relative)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+        (target / SOURCE_ONLY_CHECKER).write_bytes(previous_checker_bytes)
+    cross_version_result = _require_success(
+        install,
+        name=cross_version_name,
+        expected_targets=cross_version_targets,
+        errors=errors,
+        **install_args(source, home, manifest, roots, write=True),
+    )
+    if cross_version_result is not None:
+        backup = cross_version_result.get("backup")
+        backup_root = (
+            Path(str(backup.get("backup_root")))
+            if isinstance(backup, dict) and backup.get("backup_root")
+            else None
+        )
+        backup_manifest = (
+            _load_json(
+                backup_root / "manifest.json",
+                label="cross_version_backup_manifest",
+                errors=errors,
+            )
+            if backup_root is not None
+            else None
+        )
+        entries = (
+            backup_manifest.get("entries")
+            if isinstance(backup_manifest, dict)
+            else None
+        )
+        delete_entries = [
+            entry
+            for entry in entries
+            if isinstance(entry, dict)
+            and entry.get("action") == "DELETE"
+            and entry.get("path") == SOURCE_ONLY_CHECKER
+        ] if isinstance(entries, list) else []
+        rollback = (
+            install.__globals__["rollback_install_backup"](
+                home_root=home,
+                backup_root=backup_root,
+            )
+            if backup_root is not None
+            else None
+        )
+        cross_version_checks = (
+            cross_version_result.get("projection_counts", {}).get("delete")
+            == len(cross_version_targets),
+            len(delete_entries) == len(cross_version_targets),
+            all(
+                entry.get("previous_sha256")
+                == hashlib.sha256(previous_checker_bytes).hexdigest()
+                and entry.get("previous_sha256")
+                != hashlib.sha256(
+                    (source / SOURCE_ONLY_CHECKER).read_bytes()
+                ).hexdigest()
+                for entry in delete_entries
+            ),
+            isinstance(rollback, dict)
+            and rollback.get("ok") is True,
+            all(
+                (target / SOURCE_ONLY_CHECKER).read_bytes() == previous_checker_bytes
+                and (target / "scripts" / "checks").is_dir()
+                for target in cross_version_targets
+            ),
+        )
+        if not all(cross_version_checks):
+            errors.append(
+                f"{cross_version_name}:contract_failed:"
+                f"{cross_version_result}:{rollback}"
+            )
+        else:
+            passed += 1
+
+    hierarchy_name = "legacy_flat_a_b_hierarchy_upgrade_and_rollback"
+    hierarchy_manifest = _fixture_manifest()
+    hierarchy_projections = hierarchy_manifest["projections"]
+    assert isinstance(hierarchy_projections, dict)
+    for projection_name in ("shared_agents", "portable_current_tool"):
+        projection = hierarchy_projections[projection_name]
+        assert isinstance(projection, list)
+        projection.extend(
+            (
+                A_B_ROOT_COMPATIBILITY_SHELL,
+                A_B_COMMAND_BODY,
+                A_B_SERVICE_BODY,
+                A_B_ROOT_SOURCE_ONLY_CHECKER,
+                A_B_CHECKS_SOURCE_ONLY_CHECKER,
+            )
+        )
+    source, home, manifest, roots = _case_fixture(
+        temp_root,
+        hierarchy_name,
+        hierarchy_manifest,
+    )
+    new_root_shell = b"from commands import sync_active_copies as _real\n"
+    new_command_body = b"COMMAND_BODY = 'new-hierarchy'\n"
+    new_service_body = b"SERVICE_BODY = 'new-hierarchy'\n"
+    source_root_checker = b"ROOT_CHECKER = 'source-only'\n"
+    source_checks_checker = b"CHECKS_CHECKER = 'source-only'\n"
+    for relative, payload in (
+        (A_B_ROOT_COMPATIBILITY_SHELL, new_root_shell),
+        (A_B_COMMAND_BODY, new_command_body),
+        (A_B_SERVICE_BODY, new_service_body),
+        (A_B_ROOT_SOURCE_ONLY_CHECKER, source_root_checker),
+        (A_B_CHECKS_SOURCE_ONLY_CHECKER, source_checks_checker),
+    ):
+        path = source / Path(relative)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    old_manifest = deepcopy(hierarchy_manifest)
+    old_projections = old_manifest["projections"]
+    assert isinstance(old_projections, dict)
+    for projection_name in ("shared_agents", "portable_current_tool"):
+        projection = old_projections[projection_name]
+        assert isinstance(projection, list)
+        for relative in (A_B_COMMAND_BODY, A_B_SERVICE_BODY):
+            projection.remove(relative)
+    historical_managed_paths = {
+        A_B_ROOT_COMPATIBILITY_SHELL,
+        A_B_ROOT_SOURCE_ONLY_CHECKER,
+        A_B_CHECKS_SOURCE_ONLY_CHECKER,
+    }
+    old_manifest_bytes = (
+        json.dumps(old_manifest, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n"
+    ).encode("utf-8")
+    hierarchy_targets = [_agents_root(home), roots["codex"]]
+    old_root_shell = b"OLD_FLAT_ROOT_COMMAND = True\n"
+    old_root_checker = b"OLD_FLAT_ROOT_CHECKER = True\n"
+    old_checks_checker = b"OLD_FLAT_CHECKS_CHECKER = True\n"
+    for target in hierarchy_targets:
+        for relative in (*PORTABLE_FILES, *historical_managed_paths):
+            source_path = source / Path(relative)
+            target_path = target / Path(relative)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+        (target / A_B_ROOT_COMPATIBILITY_SHELL).write_bytes(old_root_shell)
+        (target / A_B_ROOT_SOURCE_ONLY_CHECKER).write_bytes(old_root_checker)
+        (target / A_B_CHECKS_SOURCE_ONLY_CHECKER).write_bytes(old_checks_checker)
+        manifest_target = (
+            target / "references" / "manifests" / "install-projection.v1.json"
+        )
+        manifest_target.write_bytes(old_manifest_bytes)
+        unknown_user_file = target / "scripts" / "checks" / "user-owned.txt"
+        unknown_user_file.parent.mkdir(parents=True, exist_ok=True)
+        unknown_user_file.write_text("preserve user ownership\n", encoding="utf-8")
+    hierarchy_result = _require_success(
+        install,
+        name=hierarchy_name,
+        expected_targets=hierarchy_targets,
+        errors=errors,
+        **install_args(source, home, manifest, roots, write=True),
+    )
+    if hierarchy_result is not None:
+        backup = hierarchy_result.get("backup")
+        backup_root = (
+            Path(str(backup.get("backup_root")))
+            if isinstance(backup, dict) and backup.get("backup_root")
+            else None
+        )
+        backup_manifest = (
+            _load_json(
+                backup_root / "manifest.json",
+                label="hierarchy_backup_manifest",
+                errors=errors,
+            )
+            if backup_root is not None
+            else None
+        )
+        entries = (
+            backup_manifest.get("entries")
+            if isinstance(backup_manifest, dict)
+            else None
+        )
+        action_by_path = {
+            str(entry.get("path")): str(entry.get("action"))
+            for entry in entries
+            if isinstance(entry, dict)
+        } if isinstance(entries, list) else {}
+        delete_paths = {
+            str(entry.get("path"))
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("action") == "DELETE"
+        } if isinstance(entries, list) else set()
+        hierarchy_apply_checks = (
+            hierarchy_result.get("projection_counts", {}).get("delete")
+            == len(hierarchy_targets) * 2,
+            action_by_path.get(A_B_ROOT_COMPATIBILITY_SHELL) == "REPLACE",
+            action_by_path.get(A_B_COMMAND_BODY) == "CREATE",
+            action_by_path.get(A_B_SERVICE_BODY) == "CREATE",
+            delete_paths
+            == {
+                A_B_ROOT_SOURCE_ONLY_CHECKER,
+                A_B_CHECKS_SOURCE_ONLY_CHECKER,
+            },
+            delete_paths.issubset(historical_managed_paths),
+            all(
+                (target / A_B_ROOT_COMPATIBILITY_SHELL).read_bytes()
+                == new_root_shell
+                and (target / A_B_COMMAND_BODY).read_bytes() == new_command_body
+                and (target / A_B_SERVICE_BODY).read_bytes() == new_service_body
+                and not (target / A_B_ROOT_SOURCE_ONLY_CHECKER).exists()
+                and not (target / A_B_CHECKS_SOURCE_ONLY_CHECKER).exists()
+                and (target / "scripts" / "checks" / "user-owned.txt").is_file()
+                for target in hierarchy_targets
+            ),
+            (source / A_B_CHECKS_SOURCE_ONLY_CHECKER).is_file(),
+        )
+        rollback = (
+            install.__globals__["rollback_install_backup"](
+                home_root=home,
+                backup_root=backup_root,
+            )
+            if backup_root is not None
+            else None
+        )
+        hierarchy_rollback_checks = (
+            isinstance(rollback, dict) and rollback.get("ok") is True,
+            all(
+                (target / A_B_ROOT_COMPATIBILITY_SHELL).read_bytes()
+                == old_root_shell
+                and not (target / A_B_COMMAND_BODY).exists()
+                and not (target / A_B_SERVICE_BODY).exists()
+                and (target / A_B_ROOT_SOURCE_ONLY_CHECKER).read_bytes()
+                == old_root_checker
+                and (target / A_B_CHECKS_SOURCE_ONLY_CHECKER).read_bytes()
+                == old_checks_checker
+                and (
+                    target
+                    / "references"
+                    / "manifests"
+                    / "install-projection.v1.json"
+                ).read_bytes()
+                == old_manifest_bytes
+                and (target / "scripts" / "checks" / "user-owned.txt").is_file()
+                for target in hierarchy_targets
+            ),
+        )
+        if not all(hierarchy_apply_checks) or not all(hierarchy_rollback_checks):
+            errors.append(
+                f"{hierarchy_name}:contract_failed:"
+                f"{hierarchy_result}:{rollback}"
+            )
+        else:
+            passed += 1
 
     frozen_relative = "references/benchmarks/cft0808-edict.yaml"
     frozen_manifest = _fixture_manifest()
@@ -2784,6 +3208,112 @@ def _require_actual_files_verified(
         errors.append(f"{name}:runtime_probe_preceded_effective_reread")
 
 
+def _check_source_only_registry_gate(temp_root: Path, errors: list[str]) -> int:
+    name = "source_only_cli_registry_gate"
+    registry_path = ROOT / "scripts" / "court_cli_registry.py"
+    spec = importlib.util.spec_from_file_location(
+        "source_only_cli_registry_fixture",
+        registry_path,
+    )
+    if spec is None or spec.loader is None:
+        errors.append(f"{name}:module_spec_unavailable")
+        return 0
+    module = importlib.util.module_from_spec(spec)
+    previous_module = sys.modules.get(spec.name)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        errors.append(f"{name}:module_import_failed:{type(exc).__name__}:{exc}")
+        if previous_module is None:
+            sys.modules.pop(spec.name, None)
+        else:
+            sys.modules[spec.name] = previous_module
+        return 0
+
+    root = temp_root / "registry-root"
+    manifest_path = root / "references" / "manifests" / "cli-command-surface.v1.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "public": True,
+                        "group": "check",
+                        "command": "fixture-check",
+                        "legacy_path": "scripts/check_fixture.py",
+                        "handler": "isolated_subprocess:scripts/check_fixture.py",
+                        "side_effect": "read_only",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    module.ROOT = root
+    module.MANIFEST_PATH = manifest_path
+
+    missing_stdout, missing_stderr = io.StringIO(), io.StringIO()
+    with redirect_stdout(missing_stdout), redirect_stderr(missing_stderr):
+        missing_rc = module._resolve_and_run(
+            "check",
+            "fixture-check",
+            [],
+            "json",
+            invocation_cwd=root,
+        )
+    try:
+        missing_payload = json.loads(missing_stdout.getvalue())
+    except json.JSONDecodeError:
+        missing_payload = {}
+
+    handler = root / "scripts" / "check_fixture.py"
+    handler.parent.mkdir(parents=True)
+    handler.write_text("print('fixture check')\n", encoding="utf-8")
+    (root / ".git").mkdir()
+    directory_stdout, directory_stderr = io.StringIO(), io.StringIO()
+    with redirect_stdout(directory_stdout), redirect_stderr(directory_stderr):
+        directory_rc = module._resolve_and_run(
+            "check",
+            "fixture-check",
+            [],
+            "text",
+            invocation_cwd=root,
+        )
+    (root / ".git").rmdir()
+    (root / ".git").write_text("gitdir: ../fixture-worktree\n", encoding="utf-8")
+    worktree_stdout, worktree_stderr = io.StringIO(), io.StringIO()
+    with redirect_stdout(worktree_stdout), redirect_stderr(worktree_stderr):
+        worktree_rc = module._resolve_and_run(
+            "check",
+            "fixture-check",
+            [],
+            "text",
+            invocation_cwd=root,
+        )
+
+    checks = (
+        missing_rc == 3,
+        "source_checkout_required" in " ".join(
+            str(item) for item in missing_payload.get("problems", [])
+        ),
+        directory_rc == 0,
+        "source_checkout_required" not in directory_stderr.getvalue(),
+        worktree_rc == 0,
+        "source_checkout_required" not in worktree_stderr.getvalue(),
+    )
+    if not all(checks):
+        errors.append(
+            f"{name}:contract_failed:"
+            f"missing={missing_stdout.getvalue()!r}:{missing_stderr.getvalue()!r};"
+            f"directory={directory_rc}:{directory_stderr.getvalue()!r};"
+            f"worktree={worktree_rc}:{worktree_stderr.getvalue()!r}"
+        )
+        return 0
+    return 1
+
+
 def _check_blank_host_configuration_cases(
     install: Installer,
     temp_root: Path,
@@ -3168,6 +3698,13 @@ def evaluate() -> Payload:
             ) as temp_dir:
                 passed = _check_cases(target, Path(temp_dir), errors)
             with tempfile.TemporaryDirectory(
+                prefix="ctg-"
+            ) as temp_dir:
+                passed += _check_source_only_registry_gate(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
                 prefix="cbr-"
             ) as temp_dir:
                 configuration_passed = _check_blank_host_configuration_cases(
@@ -3187,7 +3724,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 32,
+        "declared_cases": 36,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,
@@ -3216,4 +3753,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

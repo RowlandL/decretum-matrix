@@ -41,9 +41,16 @@ def court_status(limit: int = 12) -> dict[str, object]:
 def court_command_help() -> dict[str, object]:
     """Return the public court help projection without invoking the CLI."""
 
-    from court_cli_registry import render_group_help
+    from court_cli_registry import normal_startup_guidance, render_group_help
 
-    return _api_result({"command": "court help", "help": render_group_help("court")})
+    return _api_result({"command": "court help", "help": render_group_help("court"),
+                        "startup": normal_startup_guidance()})
+
+
+def court_workflow_status(task_id: str) -> dict[str, object]:
+    """Read the same canonical identity/plan/review view exposed by the CLI."""
+    from court_runtime import workflow_status_payload
+    return _api_result(workflow_status_payload(task_id))
 
 
 def shiguan_query(terms: list[str] | None = None, limit: int = 5) -> dict[str, object]:

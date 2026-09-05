@@ -29,6 +29,10 @@ from typing import Any
 sys.dont_write_bytecode = True
 
 from court_platform import user_data_base
+from install_projection_renderer import (
+    ActiveProjectionRenderError,
+    render_active_projection,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -209,6 +213,16 @@ def _physical_authority_root(path: Path) -> Path:
     return _known_alias_target(absolute) or absolute
 
 
+def _active_target_class(path: Path) -> str:
+    primary = _absolute_no_follow(default_roots()[0])
+    physical = _absolute_no_follow(_physical_authority_root(path))
+    return (
+        "shared_agents"
+        if _root_identity(physical) == _root_identity(primary)
+        else "portable_current_tool"
+    )
+
+
 def _governed_root_contract(
     roots: list[Path], *, receipt_roots: list[Path] | None = None
 ) -> tuple[str, list[Path]]:
@@ -344,13 +358,26 @@ def check(
     root_contract, governed_roots = _governed_root_contract(
         roots, receipt_roots=receipt_roots
     )
-    projected_files = _load_projection(source, projection)
-    expected = {
-        relative.as_posix(): _sha256(source / relative)
-        for relative in projected_files
-    }
+    _load_projection(source, projection)
+    expected_by_class: dict[str, dict[str, str]] = {}
+    for target_class in ("shared_agents", "portable_current_tool"):
+        try:
+            rendered = render_active_projection(
+                source_root=source,
+                target_class=target_class,
+            )
+        except ActiveProjectionRenderError as exc:
+            raise ValueError(f"active_projection_render_failed:{exc}") from exc
+        expected_by_class[target_class] = {
+            relative.as_posix(): hashlib.sha256(payload).hexdigest()
+            for relative, payload in rendered.files.items()
+        }
     projection_sha256 = hashlib.sha256(
-        json.dumps(expected, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        json.dumps(
+            expected_by_class,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
     ).hexdigest()
     missing_roots: list[str] = []
     drift: list[dict[str, Any]] = []
@@ -362,6 +389,8 @@ def check(
     for root in governed_roots:
         physical = _physical_authority_root(root)
         physical_key = _root_identity(physical)
+        target_class = _active_target_class(root)
+        expected = expected_by_class[target_class]
         existing_evidence = verified_physical.get(physical_key)
         if existing_evidence is not None:
             root_evidence.append(
@@ -379,6 +408,7 @@ def check(
                     "extra_count": existing_evidence["extra_count"],
                     "unsafe_count": existing_evidence["unsafe_count"],
                     "checker_absent": existing_evidence["checker_absent"],
+                    "target_class": existing_evidence["target_class"],
                 }
             )
             continue
@@ -405,6 +435,7 @@ def check(
                     "extra_count": 0,
                     "unsafe_count": 1,
                     "checker_absent": None,
+                    "target_class": target_class,
                 }
             root_evidence.append(evidence)
             verified_physical[physical_key] = evidence
@@ -435,6 +466,7 @@ def check(
                     "extra_count": 0,
                     "unsafe_count": 1,
                     "checker_absent": None,
+                    "target_class": target_class,
                 }
             root_evidence.append(evidence)
             verified_physical[physical_key] = evidence
@@ -498,6 +530,7 @@ def check(
                 "extra_count": len(root_extras),
                 "unsafe_count": 0,
                 "checker_absent": CHECKER_RELATIVE.as_posix() not in installed_names,
+                "target_class": target_class,
             }
         root_evidence.append(evidence)
         verified_physical[physical_key] = evidence
@@ -559,7 +592,7 @@ def check(
         "roots": [str(path) for path in governed_roots],
         "physical_authority_count": len(verified_physical),
         "physical_authorities": sorted(verified_physical),
-        "checked_files": len(projected_files),
+        "checked_files": len(expected_by_class.get(projection, {})),
         "missing_roots": missing_roots,
         "drift": drift,
         "extra_files": extra_files,
@@ -579,10 +612,36 @@ def _write_fixture_source(root: Path) -> None:
     (root / "SKILL.md").write_text("# fixture\n", encoding="utf-8")
     (root / "VERSION").write_text("fixture\n", encoding="utf-8")
     (root / "scripts" / "runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (root / "references" / "manifests" / "cli-command-surface.v1.json").write_text(
+        json.dumps(
+            {
+                "schema": "court.cli_command_surface.v1",
+                "generated_by": "scripts/check_active_copy_hashes.py",
+                "groups": ["court", "check", "release"],
+                "public_command": "decretum-matrix",
+                "source_entry": "python -B scripts/runtime.py",
+                "entries": [
+                    {"group": "court", "command": "runtime"},
+                    {
+                        "group": "check",
+                        "command": "fixture-check",
+                        "legacy_path": "scripts/check_fixture.py",
+                    },
+                    {
+                        "group": "release",
+                        "command": "fixture-release",
+                        "legacy_path": "scripts/release_fixture.py",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     (root / "references" / "manifests" / "install-projection.v1.json").write_text(
         json.dumps(
             {
                 "schema": "court.install_projection.v1",
+                "schema_version": 1,
                 "identity_manifest": "references/manifests/skill-identity.v1.json",
                 "policy": {
                     "required_target": ".agents",
@@ -592,12 +651,22 @@ def _write_fixture_source(root: Path) -> None:
                 },
                 "protected_shared_agents_seeds": [],
                 "frozen_install_references": [],
+                "active_render": {
+                    "schema": "court.install_projection.active_render.v1",
+                    "path_matcher": "posix_glob.v1",
+                    "exclude_path_globs": [
+                        "scripts/check_*.py",
+                        "scripts/checks/**",
+                    ],
+                    "excluded_cli_groups": ["check", "release"],
+                },
                 "projections": {
                     "shared_agents": [
                         "SKILL.md",
                         "VERSION",
                         "references/manifests/install-projection.v1.json",
                         "references/manifests/skill-identity.v1.json",
+                        "references/manifests/cli-command-surface.v1.json",
                         "scripts/runtime.py",
                     ],
                     "portable_current_tool": [
@@ -605,6 +674,7 @@ def _write_fixture_source(root: Path) -> None:
                         "VERSION",
                         "references/manifests/install-projection.v1.json",
                         "references/manifests/skill-identity.v1.json",
+                        "references/manifests/cli-command-surface.v1.json",
                         "scripts/runtime.py",
                     ],
                     "cli_public": [],
@@ -654,6 +724,17 @@ def _write_fixture_source(root: Path) -> None:
     )
 
 
+def _write_rendered_fixture_root(source: Path, root: Path) -> None:
+    rendered = render_active_projection(
+        source_root=source,
+        target_class=_active_target_class(root),
+    )
+    for relative, payload in rendered.files.items():
+        target = root / Path(relative.as_posix())
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+
+
 def _self_test() -> dict[str, Any]:
     failures: list[str] = []
     evidence: dict[str, Any] = {}
@@ -673,7 +754,7 @@ def _self_test() -> dict[str, Any]:
         try:
             roots = [*default_roots(), qoder_root()]
             for root in roots:
-                shutil.copytree(source, root)
+                _write_rendered_fixture_root(source, root)
 
             matching = check(source=source, roots=roots, verify_codex_agent_roles=False)
             evidence["matching_six_roots"] = matching
@@ -685,6 +766,36 @@ def _self_test() -> dict[str, Any]:
                 failures.append("matching_six_roots:source_version_mismatch")
             if not isinstance(matching.get("projection_sha256"), str):
                 failures.append("matching_six_roots:projection_digest_missing")
+            active_projection = json.loads(
+                (
+                    roots[0]
+                    / "references"
+                    / "manifests"
+                    / "install-projection.v1.json"
+                ).read_text(encoding="utf-8")
+            )
+            active_cli = json.loads(
+                (
+                    roots[0]
+                    / "references"
+                    / "manifests"
+                    / "cli-command-surface.v1.json"
+                ).read_text(encoding="utf-8")
+            )
+            renderer_contract = (
+                "active_render" not in active_projection
+                and active_projection.get("projections", {}).get("repository_only")
+                == []
+                and "generated_by" not in active_cli
+                and not any(
+                    entry.get("group") in {"check", "release"}
+                    for entry in active_cli.get("entries", [])
+                    if isinstance(entry, dict)
+                )
+            )
+            evidence["rendered_manifest_contract"] = renderer_contract
+            if not renderer_contract:
+                failures.append("rendered_manifest_contract:expected_active_filter")
 
             custom_root = fixture / "custom-root"
             shutil.copytree(source, custom_root)
@@ -801,8 +912,8 @@ def _self_test() -> dict[str, Any]:
             # main 默认路径以 receipt 派生 roots 验证（roots 含 custom_root），而非硬编码五根；
             # 现状 main() 无条件回落 default_roots() → RED FAIL。
             r2_receipt_root = fixture / "receipt-selected-root"
-            shutil.copytree(source, r2_receipt_root)
-            r2_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "valid.json"
+            _write_rendered_fixture_root(source, r2_receipt_root)
+            r2_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "install-valid.json"
             r2_receipt.parent.mkdir(parents=True, exist_ok=True)
             r2_receipt.write_text(
                 json.dumps(
@@ -843,7 +954,7 @@ def _self_test() -> dict[str, Any]:
             # ---- M2 投影子门 RED：R-P4 install receipt 缺 §4.4 强制字段必须 fail closed（计划书 §4.4 第 4 条）----
             # 期望：含 receipt 但缺 selection_policy/current_tool_root_proof/selected_roots 等字段时，
             # checker 拒绝（reason=install_receipt_missing_required_fields）；现状无 receipt 读取/字段校验 → RED FAIL。
-            r4_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "invalid.json"
+            r4_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "install-invalid.json"
             r4_receipt.parent.mkdir(parents=True, exist_ok=True)
             r4_receipt.write_text(
                 json.dumps(

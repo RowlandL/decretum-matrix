@@ -32,6 +32,10 @@ import uuid
 sys.dont_write_bytecode = True
 
 from court_platform import user_data_base
+from install_projection_renderer import (
+    ActiveProjectionRenderError,
+    render_active_projection,
+)
 from sync_codex_agents_from_profiles import sync_agents as sync_codex_agent_roles
 
 
@@ -265,6 +269,52 @@ def _copy_regular_file(source: Path, target: Path) -> None:
         installed = _lstat(target)
         if installed is None or _stat_is_link_or_reparse(installed) or not stat.S_ISREG(installed.st_mode):
             raise ValueError(f"installed target is not a regular file: {target}")
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _same_payload(target: Path, payload: bytes) -> bool:
+    target_value = _lstat(target)
+    if target_value is None:
+        return False
+    if _stat_is_link_or_reparse(target_value) or not stat.S_ISREG(target_value.st_mode):
+        raise ValueError(f"target is not a safe regular file: {target}")
+    if target_value.st_size != len(payload):
+        return False
+    with target.open("rb") as stream:
+        return stream.read() == payload
+
+
+def _copy_regular_payload(target: Path, payload: bytes) -> None:
+    with tempfile.NamedTemporaryFile(
+        prefix=".decretum-sync-",
+        dir=target.parent,
+        delete=False,
+    ) as stream:
+        temporary = Path(stream.name)
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    try:
+        target_value = _lstat(target)
+        if target_value is not None:
+            if _stat_is_link_or_reparse(target_value) or not stat.S_ISREG(
+                target_value.st_mode
+            ):
+                raise ValueError(f"refusing to replace unsafe target: {target}")
+            make_writable(target)
+        os.replace(temporary, target)
+        installed = _lstat(target)
+        if (
+            installed is None
+            or _stat_is_link_or_reparse(installed)
+            or not stat.S_ISREG(installed.st_mode)
+            or not _same_payload(target, payload)
+        ):
+            raise ValueError(f"installed target does not match rendered bytes: {target}")
     finally:
         try:
             temporary.unlink()
@@ -652,15 +702,37 @@ def sync_target(
     *,
     write: bool,
     prune_obsolete: bool,
+    expected_files: dict[Path, bytes] | None = None,
 ) -> dict[str, object]:
     source = _assert_safe_root(source, allow_missing=False, label="source root")
     target = _assert_safe_root(target, allow_missing=True, label="target root")
+    prior_manifest_exists = (
+        _lstat(target / PROJECTION_MANIFEST_RELATIVE) is not None
+    )
     if not source_files:
         raise ValueError("source projection contains no files")
-    normalized_source_files = {
-        _safe_relative(relative, label="source projection path")
-        for relative in source_files
-    }
+    payloads: dict[Path, bytes] = {}
+    if expected_files is None:
+        normalized_source_files = {
+            _safe_relative(relative, label="source projection path")
+            for relative in source_files
+        }
+        for relative in normalized_source_files:
+            src = _assert_safe_descendant(
+                source,
+                source / relative,
+                allow_missing=False,
+                require_file=True,
+                label="source projection file",
+            )
+            payloads[relative] = src.read_bytes()
+    else:
+        for relative, payload in expected_files.items():
+            normalized = _safe_relative(relative, label="rendered projection path")
+            if not isinstance(payload, bytes):
+                raise ValueError(f"rendered projection payload is not bytes: {normalized}")
+            payloads[normalized] = payload
+        normalized_source_files = set(payloads)
     normalized_frozen_files = {
         _safe_relative(relative, label="frozen install path")
         for relative in frozen_files
@@ -672,13 +744,7 @@ def sync_target(
     unchanged = 0
 
     for relative in sorted(normalized_source_files):
-        src = _assert_safe_descendant(
-            source,
-            source / relative,
-            allow_missing=False,
-            require_file=True,
-            label="source projection file",
-        )
+        payload = payloads[relative]
         dst = _assert_safe_descendant(
             target,
             target / relative,
@@ -686,7 +752,7 @@ def sync_target(
             require_file=True,
             label="target projection file",
         )
-        if same_bytes(src, dst):
+        if _same_payload(dst, payload):
             unchanged += 1
             continue
         copied.append(relative.as_posix())
@@ -699,7 +765,7 @@ def sync_target(
                 require_file=True,
                 label="target projection file",
             )
-            _copy_regular_file(src, dst)
+            _copy_regular_payload(dst, payload)
 
     frozen: list[str] = []
     for relative in sorted(normalized_frozen_files):
@@ -715,13 +781,17 @@ def sync_target(
         frozen.append(relative.as_posix())
 
     if prune_obsolete:
-        removed.extend(
-            prune_obsolete_managed_files(
-                target,
-                normalized_source_files,
-                write=write,
+        if expected_files is not None:
+            if prior_manifest_exists:
+                raise ValueError("prune_obsolete_requires_installer_transaction")
+        else:
+            removed.extend(
+                prune_obsolete_managed_files(
+                    target,
+                    normalized_source_files,
+                    write=write,
+                )
             )
-        )
 
     return {
         "target": str(target),
@@ -764,6 +834,34 @@ def resolve_source(value: Path | None) -> Path:
     raise FileNotFoundError("cannot resolve source skill root")
 
 
+def active_target_class(target: Path) -> str:
+    primary = (
+        Path.home()
+        / ".agents"
+        / "skills"
+        / CANONICAL_INSTALL_DIRECTORY_NAME
+    )
+    return (
+        "shared_agents"
+        if _path_key(target) == _path_key(primary)
+        else "portable_current_tool"
+    )
+
+
+def rendered_active_files(source: Path, target: Path) -> dict[Path, bytes]:
+    try:
+        rendered = render_active_projection(
+            source_root=source,
+            target_class=active_target_class(target),
+        )
+    except ActiveProjectionRenderError as exc:
+        raise ValueError(f"active_projection_render_failed:{exc}") from exc
+    return {
+        Path(relative.as_posix()): payload
+        for relative, payload in rendered.files.items()
+    }
+
+
 def _self_test() -> dict[str, object]:
     failures: list[str] = []
     evidence: dict[str, object] = {}
@@ -773,6 +871,67 @@ def _self_test() -> dict[str, object]:
         (source / "scripts").mkdir(parents=True)
         (source / "scripts" / "runtime.py").write_text(
             "VALUE = 1\n",
+            encoding="utf-8",
+        )
+        renderer_manifest_dir = source / "references" / "manifests"
+        renderer_manifest_dir.mkdir(parents=True)
+        (renderer_manifest_dir / "skill-identity.v1.json").write_text(
+            json.dumps({"schema": "court.skill_identity.v1"}),
+            encoding="utf-8",
+        )
+        (renderer_manifest_dir / "cli-command-surface.v1.json").write_text(
+            json.dumps(
+                {
+                    "schema": "court.cli_command_surface.v1",
+                    "groups": ["court", "check", "release"],
+                    "entries": [
+                        {"group": "court", "command": "runtime"},
+                        {"group": "check", "command": "fixture-check"},
+                        {"group": "release", "command": "fixture-release"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (renderer_manifest_dir / "install-projection.v1.json").write_text(
+            json.dumps(
+                {
+                    "schema": "court.install_projection.v1",
+                    "schema_version": 1,
+                    "identity_manifest": "references/manifests/skill-identity.v1.json",
+                    "policy": {
+                        "required_target": ".agents",
+                        "default_optional_target": "current_agent_tool_only",
+                        "extra_targets": "explicit_latest_user_request_only",
+                        "fanout": "forbidden",
+                    },
+                    "protected_shared_agents_seeds": [],
+                    "frozen_install_references": [],
+                    "active_render": {
+                        "schema": "court.install_projection.active_render.v1",
+                        "path_matcher": "posix_glob.v1",
+                        "exclude_path_globs": ["scripts/check_*.py"],
+                        "excluded_cli_groups": ["check", "release"],
+                    },
+                    "projections": {
+                        "shared_agents": [
+                            "scripts/runtime.py",
+                            "references/manifests/install-projection.v1.json",
+                            "references/manifests/skill-identity.v1.json",
+                            "references/manifests/cli-command-surface.v1.json",
+                        ],
+                        "portable_current_tool": [
+                            "scripts/runtime.py",
+                            "references/manifests/install-projection.v1.json",
+                            "references/manifests/skill-identity.v1.json",
+                            "references/manifests/cli-command-surface.v1.json",
+                        ],
+                        "cli_public": [],
+                        "repository_only": [],
+                    },
+                    "persistent_bindings": [],
+                }
+            ),
             encoding="utf-8",
         )
         manifest: dict[str, object] = {
@@ -787,6 +946,62 @@ def _self_test() -> dict[str, object]:
         evidence["safe_projection"] = [item.as_posix() for item in sorted(source_files)]
         if source_files != {Path("scripts/runtime.py")}:
             failures.append("safe_projection:unexpected_files")
+
+        rendered_target = fixture / "rendered-active-target"
+        try:
+            expected_files = rendered_active_files(source, rendered_target)
+            rendered_sync = sync_target(
+                source,
+                rendered_target,
+                set(expected_files),
+                set(),
+                write=True,
+                prune_obsolete=False,
+                expected_files=expected_files,
+            )
+            active_projection = json.loads(
+                (
+                    rendered_target
+                    / "references"
+                    / "manifests"
+                    / "install-projection.v1.json"
+                ).read_text(encoding="utf-8")
+            )
+            active_cli = json.loads(
+                (
+                    rendered_target
+                    / "references"
+                    / "manifests"
+                    / "cli-command-surface.v1.json"
+                ).read_text(encoding="utf-8")
+            )
+            renderer_ok = (
+                rendered_sync.get("ok") is True
+                and all(
+                    (rendered_target / relative).read_bytes() == payload
+                    for relative, payload in expected_files.items()
+                )
+                and "active_render" not in active_projection
+                and active_projection.get("projections", {}).get("repository_only") == []
+                and "generated_by" not in active_cli
+                and not any(
+                    entry.get("group") in {"check", "release"}
+                    for entry in active_cli.get("entries", [])
+                    if isinstance(entry, dict)
+                )
+            )
+            evidence["renderer_expected_bytes"] = {
+                "file_count": len(expected_files),
+                "sync": rendered_sync,
+                "ok": renderer_ok,
+            }
+            if not renderer_ok:
+                failures.append("renderer_expected_bytes:contract_failed")
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            evidence["renderer_expected_bytes"] = (
+                f"{type(exc).__name__}:{exc}"
+            )
+            failures.append("renderer_expected_bytes:unexpected_error")
 
         outside_projection = fixture / "outside.py"
         outside_projection.write_text("VALUE = 2\n", encoding="utf-8")
@@ -926,9 +1141,26 @@ def _self_test() -> dict[str, object]:
                     },
                     "protected_shared_agents_seeds": [],
                     "frozen_install_references": [],
+                    "active_render": {
+                        "schema": "court.install_projection.active_render.v1",
+                        "path_matcher": "posix_glob.v1",
+                        "exclude_path_globs": ["scripts/check_*.py"],
+                        "excluded_cli_groups": ["check", "release"],
+                    },
                     "projections": {
-                        "shared_agents": ["scripts/runtime.py"],
-                        "portable_current_tool": ["scripts/runtime.py"],
+                        "shared_agents": [
+                            "scripts/runtime.py",
+                            "references/manifests/install-projection.v1.json",
+                            "references/manifests/skill-identity.v1.json",
+                            "references/manifests/cli-command-surface.v1.json",
+                        ],
+                        "portable_current_tool": [
+                            "scripts/runtime.py",
+                            "references/manifests/install-projection.v1.json",
+                            "references/manifests/skill-identity.v1.json",
+                            "references/manifests/cli-command-surface.v1.json",
+                        ],
+                        "cli_public": [],
                         "repository_only": [],
                     },
                     "persistent_bindings": [],
@@ -1024,9 +1256,26 @@ def _self_test() -> dict[str, object]:
                     },
                     "protected_shared_agents_seeds": [],
                     "frozen_install_references": [],
+                    "active_render": {
+                        "schema": "court.install_projection.active_render.v1",
+                        "path_matcher": "posix_glob.v1",
+                        "exclude_path_globs": ["scripts/check_*.py"],
+                        "excluded_cli_groups": ["check", "release"],
+                    },
                     "projections": {
-                        "shared_agents": ["scripts/runtime.py"],
-                        "portable_current_tool": ["scripts/runtime.py"],
+                        "shared_agents": [
+                            "scripts/runtime.py",
+                            "references/manifests/install-projection.v1.json",
+                            "references/manifests/skill-identity.v1.json",
+                            "references/manifests/cli-command-surface.v1.json",
+                        ],
+                        "portable_current_tool": [
+                            "scripts/runtime.py",
+                            "references/manifests/install-projection.v1.json",
+                            "references/manifests/skill-identity.v1.json",
+                            "references/manifests/cli-command-surface.v1.json",
+                        ],
+                        "cli_public": [],
                         "repository_only": [],
                     },
                     "persistent_bindings": [],
@@ -1467,8 +1716,9 @@ def main() -> int:
             "rollback_supported": True,
         }
     manifest = load_projection(source)
-    source_files = set(iter_projected_files(source, manifest))
-    frozen_files = frozen_install_references(manifest, source_files)
+    source_file_count = 0
+    frozen_relative_output: set[Path] = set()
+    rendered_by_physical: dict[str, tuple[dict[Path, bytes], set[Path]]] = {}
     def target_failure(target: Path, exc: BaseException) -> dict[str, object]:
         return {
             "target": str(target),
@@ -1531,13 +1781,26 @@ def main() -> int:
     plan_by_physical: dict[str, dict[str, object]] = {}
     for target in physical_targets:
         try:
+            expected_files = rendered_active_files(source, target)
+            target_source_files = set(expected_files)
+            target_frozen_files = frozen_install_references(
+                manifest,
+                target_source_files,
+            )
+            rendered_by_physical[physical_key(target)] = (
+                expected_files,
+                target_frozen_files,
+            )
+            source_file_count = max(source_file_count, len(target_source_files))
+            frozen_relative_output.update(target_frozen_files)
             plan_by_physical[physical_key(target)] = sync_target(
                 source,
                 target,
-                source_files,
-                frozen_files,
+                target_source_files,
+                target_frozen_files,
                 write=False,
                 prune_obsolete=args.prune_obsolete,
+                expected_files=expected_files,
             )
         except (OSError, ValueError) as exc:
             failures.append(f"{target}:{type(exc).__name__}:{exc}")
@@ -1564,13 +1827,17 @@ def main() -> int:
         if not failures:
             for target in physical_targets:
                 try:
+                    expected_files, target_frozen_files = rendered_by_physical[
+                        physical_key(target)
+                    ]
                     write_by_physical[physical_key(target)] = sync_target(
                         source,
                         target,
-                        source_files,
-                        frozen_files,
+                        set(expected_files),
+                        target_frozen_files,
                         write=True,
                         prune_obsolete=args.prune_obsolete,
+                        expected_files=expected_files,
                     )
                     applied_targets.append(str(target))
                 except (OSError, ValueError) as exc:
@@ -1634,12 +1901,14 @@ def main() -> int:
         ),
         "schema": "court.active_copy_sync.v1",
         "source": str(source),
-        "source_files": len(source_files),
+        "source_files": source_file_count,
         "write": args.write,
         "prune_obsolete": args.prune_obsolete,
         "include_qoder": args.include_qoder,
         "migrate_legacy_locators": args.migrate_legacy_locators,
-        "frozen_install_references": [item.as_posix() for item in sorted(frozen_files)],
+        "frozen_install_references": [
+            item.as_posix() for item in sorted(frozen_relative_output)
+        ],
         "targets": results,
         "logical_target_count": len(targets),
         "physical_authority_count": len(physical_targets),
@@ -1672,4 +1941,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

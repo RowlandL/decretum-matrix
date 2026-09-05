@@ -570,6 +570,7 @@ def run_checks() -> dict[str, object]:
     for name, function in (
         ("structured_execution_contract", check_structured_execution_contract),
         ("distinct_runtime_entries", check_distinct_runtime_entries),
+        ("runtime_selection_has_no_profile_io", fixture.check_runtime_selection_has_no_profile_io),
         ("cli_process_isolation", check_cli_process_isolation),
         ("optional_fast_flag_is_preparation_only", check_optional_fast_flag_is_preparation_only),
         ("runtime_import_graph", check_runtime_import_graph),
@@ -608,4 +609,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

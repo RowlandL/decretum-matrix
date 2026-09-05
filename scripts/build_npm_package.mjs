@@ -357,6 +357,21 @@ export const RELEASE_ASSETS = Object.freeze([
 ]);
 
 function buildPackageReadmeForContract(contract) {
+  if (contract.mode === "local-install-candidate") {
+    return `${[
+      `# ${contract.packageName}`,
+      "",
+      `Private local-install candidate for Decretum Matrix（诏令矩阵） ${contract.releaseLabel}.`,
+      "",
+      "This tarball is private and must not be published to any registry.",
+      `- Candidate ZIP SHA-256: \`${contract.localCandidate.zipSha256}\``,
+      `- Candidate receipt SHA-256: \`${contract.localCandidate.receiptSha256}\``,
+      `- Source commit: \`${contract.sourceCommit}\``,
+      `- Source tree: \`${contract.sourceTree}\``,
+      "",
+      "It carries the verified candidate ZIP as its runtime authority and is intended only for explicit local npm installation.",
+    ].join("\n")}\n`;
+  }
   return `${[
     `# ${contract.packageName}`,
     "",
@@ -376,6 +391,7 @@ function buildPackageReadmeForContract(contract) {
 
 function createPackageContract(options) {
   const contract = {
+    mode: options.mode || "release",
     identity: options.identity,
     packageName: options.packageName,
     packageVersion: options.identity.packageVersion,
@@ -401,6 +417,7 @@ function createPackageContract(options) {
     outputRelative: options.outputRelative,
     authorityReceiptId: options.authorityReceiptId,
     authorityCursor: options.authorityCursor,
+    localCandidate: options.localCandidate || null,
   };
   contract.readme = buildPackageReadmeForContract(contract);
   contract.expectedPackFiles = Object.freeze(
@@ -1861,6 +1878,217 @@ export async function runSyntheticSelfTest() {
       smokeStatus: "PASS",
       tagEvidence: annotatedTagEvidence,
     };
+
+    const localCandidateAuthority = path.join(root, "local-install-authority");
+    const localFixtureBranch = runFixtureCommand(
+      "git",
+      ["branch", "--show-current"],
+      { cwd: REPO_ROOT },
+    ).stdout.trim();
+    assert(localFixtureBranch, "local candidate fixture requires a current branch");
+    const clone = runFixtureCommand(
+      "git",
+      [
+        "-c",
+        "core.autocrlf=false",
+        "clone",
+        "--quiet",
+        "--local",
+        "--no-hardlinks",
+        "--branch",
+        localFixtureBranch,
+        REPO_ROOT,
+        localCandidateAuthority,
+      ],
+      { cwd: root },
+    );
+    assert(clone.status === 0, `local candidate fixture clone failed: ${clone.stderr}`);
+    const cloneStatus = runFixtureCommand(
+      "git",
+      ["status", "--porcelain=v1"],
+      { cwd: localCandidateAuthority },
+    );
+    assert(
+      cloneStatus.status === 0 && cloneStatus.stdout.trim() === "",
+      "local candidate fixture runtime normalization drifted from HEAD",
+    );
+    const localCandidateHead = runFixtureCommand(
+      "git",
+      ["rev-parse", "HEAD"],
+      { cwd: localCandidateAuthority },
+    ).stdout.trim();
+    const localCandidateTree = runFixtureCommand(
+      "git",
+      ["rev-parse", "HEAD^{tree}"],
+      { cwd: localCandidateAuthority },
+    ).stdout.trim();
+    const localCandidateVersion = (
+      await readFile(path.join(localCandidateAuthority, "VERSION"), "utf8")
+    ).trim();
+    const localCandidateManifestBytes = await readFile(
+      path.join(localCandidateAuthority, "release-manifest.json"),
+    );
+    const localCandidateManifest = JSON.parse(
+      localCandidateManifestBytes.toString("utf8"),
+    );
+    const localCandidateIdentity = deriveReleaseIdentity(
+      localCandidateVersion,
+      localCandidateManifest,
+    );
+    const localCandidateRuntimeFiles = Object.freeze(
+      await Promise.all(
+        CLI_RUNTIME_PATHS.map(async (runtimePath) => {
+          const filePath = path.join(localCandidateAuthority, ...runtimePath.split("/"));
+          const metadata = await stat(filePath);
+          return Object.freeze({
+            path: runtimePath,
+            sha256: await hashFile(filePath),
+            size: metadata.size,
+          });
+        }),
+      ),
+    );
+    const localCandidateLegalFiles = Object.freeze(
+      await Promise.all(
+        LEGAL_PATHS.map(async (legalPath) => {
+          const filePath = path.join(localCandidateAuthority, ...legalPath.split("/"));
+          const metadata = await stat(filePath);
+          return Object.freeze({
+            path: legalPath,
+            sha256: await hashFile(filePath),
+            size: metadata.size,
+          });
+        }),
+      ),
+    );
+    const localCandidateContract = createPackageContract({
+      identity: localCandidateIdentity,
+      packageName: "@rowlandl/decretum-matrix",
+      distTag: "beta",
+      registry: "https://npm.pkg.github.com",
+      license: LICENSE,
+      repository: Object.freeze({
+        owner: "RowlandL",
+        repository: "decretum-matrix",
+        canonicalUrl: "https://github.com/RowlandL/decretum-matrix.git",
+      }),
+      repoRoot: localCandidateAuthority,
+      releaseAssetDir: path.join(root, "local-install-candidates"),
+      releaseManifestSha256: createHash("sha256")
+        .update(localCandidateManifestBytes)
+        .digest("hex"),
+      sourceCommit: localCandidateHead,
+      sourceTree: localCandidateTree,
+      legalFiles: localCandidateLegalFiles,
+      runtimeFiles: localCandidateRuntimeFiles,
+      releaseAssets: Object.freeze([]),
+      outputRelative: "synthetic/local-install",
+      authorityReceiptId: `npm-local-${localCandidateHead.slice(0, 8)}`,
+      authorityCursor: "SYNTHETIC_NPM_LOCAL_INSTALL_CANDIDATE",
+    });
+    const localCandidateRoot = path.join(root, "local-install-candidates");
+    const candidateBuild = runPythonFixtureCommand(
+      [
+        path.join(localCandidateAuthority, "scripts", "build_release_artifacts.py"),
+        "--mode",
+        "candidate",
+        "--out-root",
+        localCandidateRoot,
+        "--json",
+      ],
+      { cwd: localCandidateAuthority },
+    );
+    assert(
+      candidateBuild.status === 0,
+      `complete local candidate fixture build failed: ${candidateBuild.stderr}`,
+    );
+    const localCandidateDirectory = path.join(
+      localCandidateRoot,
+      localCandidateIdentity.releaseLabel,
+      localCandidateHead,
+    );
+    const localCandidateReceiptFileName = localCandidateReceiptName(
+      localCandidateIdentity.releaseLabel,
+    );
+    const localCandidateBuild = await buildLocalInstallCandidate({
+      candidateDirectory: localCandidateDirectory,
+      candidateRoot: localCandidateRoot,
+      contract: localCandidateContract,
+      installedSmoke: false,
+      outputDirectory: path.join(root, "local-install-output"),
+      sourceRoot: localCandidateAuthority,
+    });
+    assert(
+      localCandidateBuild.publishPackage.private === true &&
+        localCandidateBuild.publishPackage.publishConfig === undefined,
+      "local-install package is not private and publication-free",
+    );
+    assert(
+      localCandidateBuild.receipt.candidate.source.head === localCandidateHead &&
+        localCandidateBuild.receipt.candidate.source.tree === localCandidateTree &&
+        /^[0-9a-f]{64}$/.test(localCandidateBuild.receipt.candidate.zip_sha256),
+      "local-install receipt is not bound to the candidate source and ZIP",
+    );
+    let tamperedLocalCandidateRejected = false;
+    const tamperedLocalCandidateRoot = path.join(root, "tampered-local-install-candidates");
+    const tamperedLocalCandidateDirectory = path.join(
+      tamperedLocalCandidateRoot,
+      localCandidateIdentity.releaseLabel,
+      localCandidateHead,
+    );
+    await mkdir(tamperedLocalCandidateDirectory, { recursive: true });
+    for (const entry of await readdir(localCandidateDirectory)) {
+      await copyFile(
+        path.join(localCandidateDirectory, entry),
+        path.join(tamperedLocalCandidateDirectory, entry),
+        fsConstants.COPYFILE_EXCL,
+      );
+    }
+    await writeFile(
+      path.join(tamperedLocalCandidateDirectory, localCandidateReceiptFileName),
+      "{}\n",
+      { encoding: "utf8", flag: "w" },
+    );
+    try {
+      await buildLocalInstallCandidate({
+        candidateDirectory: tamperedLocalCandidateDirectory,
+        candidateRoot: tamperedLocalCandidateRoot,
+        contract: localCandidateContract,
+        installedSmoke: false,
+        outputDirectory: path.join(root, "tampered-local-install-output"),
+        sourceRoot: localCandidateAuthority,
+      });
+    } catch (error) {
+      tamperedLocalCandidateRejected = error instanceof BlockedReleaseError;
+    }
+    assert(
+      tamperedLocalCandidateRejected,
+      "tampered local candidate receipt was not rejected",
+    );
+    const parsedLocalInstallCandidate = parseLocalInstallCandidateArguments([
+      "node",
+      "scripts/build_npm_package.mjs",
+      "--local-install-candidate",
+      localCandidateDirectory,
+    ]);
+    assert(
+      parsedLocalInstallCandidate === localCandidateDirectory,
+      "local-install candidate CLI argument was not parsed exactly",
+    );
+    let missingLocalInstallCandidateRejected = false;
+    try {
+      parseLocalInstallCandidateArguments([
+        "node",
+        "scripts/build_npm_package.mjs",
+        "--local-install-candidate",
+      ]);
+    } catch {
+      missingLocalInstallCandidateRejected = true;
+    }
+    assert(
+      missingLocalInstallCandidateRejected,
+      "missing local-install candidate path was not rejected",
+    );
     const outputRoot = path.join(root, "output");
     const created = await materializeVerifiedPackage(
       syntheticVerified,
@@ -2025,6 +2253,17 @@ export async function runSyntheticSelfTest() {
           second_sha256: secondPack.sha256,
         },
         npm_bin_cli_parity: cliParityEvidence,
+        local_install_candidate: {
+          candidate_zip_sha256: localCandidateBuild.receipt.candidate.zip_sha256,
+          local_tgz_sha256: localCandidateBuild.receipt.package.sha256,
+          private: localCandidateBuild.publishPackage.private === true,
+          publish_config_absent:
+            localCandidateBuild.publishPackage.publishConfig === undefined,
+          receipt_tamper_rejected: tamperedLocalCandidateRejected,
+          cli_argument_exact:
+            parsedLocalInstallCandidate === localCandidateDirectory,
+          cli_argument_missing_rejected: missingLocalInstallCandidateRejected,
+        },
       },
       validation: {
         canonical_privacy_fixture: "PASS",
@@ -2057,6 +2296,12 @@ export async function runSyntheticSelfTest() {
         lightweight_tag_rejected: "PASS",
         wrong_target_tag_rejected: "PASS",
         network_dependency: "NONE",
+        local_install_candidate_receipt_bound: "PASS",
+        local_install_candidate_runtime_zip_bound: "PASS",
+        local_install_candidate_private: "PASS",
+        local_install_candidate_publish_forbidden: "PASS",
+        local_install_candidate_receipt_tamper_rejected: "PASS",
+        local_install_candidate_cli_argument: "PASS",
       },
       repository_output: "NOT_WRITTEN",
     };
@@ -2165,6 +2410,89 @@ async function hashFile(filePath, algorithm = "sha256", encoding = "hex") {
 }
 
 function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
+  if (contract.mode === "local-install-candidate") {
+    return {
+      name: contract.packageName,
+      version: contract.packageVersion,
+      private: true,
+      description: `Private local-install Decretum Matrix（诏令矩阵） ${contract.releaseLabel} candidate CLI.`,
+      type: "module",
+      bin: {
+        "decretum-matrix": "bin/decretum-matrix.js",
+      },
+      scripts: {
+        postinstall: "node bin/decretum-matrix.js --npm-postinstall",
+      },
+      license: contract.license,
+      repository: contract.repositoryUrl,
+      homepage: contract.releaseUrl,
+      bugs: {
+        url: `${contract.repositoryUrl.replace(/\.git$/, "")}/issues`,
+      },
+      keywords: ["codex", "decretum-matrix", "local-install-candidate"],
+      files: [
+        "README.md",
+        "bin/",
+        ...contract.legalFiles.map((file) => file.path),
+        "release/",
+      ],
+      exports: {
+        "./package.json": "./package.json",
+        "./release/*": "./release/*",
+      },
+      gitHead: contract.sourceCommit,
+      engines: {
+        node: ">=18",
+      },
+      decretumMatrix: {
+        schema: "decretum.npm_local_install_candidate.v1",
+        candidate: "local-install",
+        private: true,
+        publication: "FORBIDDEN",
+        releaseLabel: contract.releaseLabel,
+        candidateReceipt: `release/${contract.localCandidate.receiptName}`,
+        candidateZipSha256: contract.localCandidate.zipSha256,
+        source: {
+          commit: contract.sourceCommit,
+          tree: contract.sourceTree,
+          tag: null,
+          tagRef: null,
+        },
+        release: {
+          url: contract.releaseUrl,
+          candidateReceipt: `release/${contract.localCandidate.receiptName}`,
+          sbom: "release/SBOM.spdx.json",
+        },
+        provenance: {
+          kind: "local-candidate-receipt",
+          repository: contract.repositoryUrl,
+          releaseUrl: contract.releaseUrl,
+        },
+        cli: {
+          entrypoint: "bin/decretum-matrix.js",
+          pythonBootstrap: "bin/decretum-matrix.py",
+          installLifecycleScripts: true,
+          postinstall: "node bin/decretum-matrix.js --npm-postinstall",
+          postinstallContract:
+            "structural_zip_then_transactional_canonical_install_and_physical_shiguan_bootstrap",
+          runtimeAuthority: `release/${contract.identity.artifactName}`,
+        },
+        legalSurface: {
+          revision: "local-install-candidate",
+          sourceCommit: contract.sourceCommit,
+          releaseManifestSha256: contract.releaseManifestSha256,
+          files: contract.legalFiles.map(({ path: legalPath, sha256, size }) => ({
+            path: legalPath,
+            sha256,
+            size,
+          })),
+        },
+        assets: contract.releaseAssets.map(({ path: assetPath }) => ({
+          path: assetPath,
+        })),
+      },
+    };
+  }
   return {
     name: contract.packageName,
     version: contract.packageVersion,
@@ -2627,6 +2955,609 @@ export async function validateReleaseAssets() {
   });
 }
 
+function localCandidateReceiptName(releaseLabel) {
+  return `decretum-matrix-${releaseLabel}.candidate-receipt.json`;
+}
+
+function sameResolvedPath(left, right) {
+  const normalizedLeft = path.resolve(left);
+  const normalizedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+function normalizedRuntimePayload(payload, runtimePath) {
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(payload);
+  } catch {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_RUNTIME",
+      "local-install launcher source is not valid UTF-8",
+      { runtime_file: runtimePath },
+    );
+  }
+  return Buffer.from(text.replace(/\r\n|\r/g, "\n"), "utf8");
+}
+
+const LOCAL_INSTALL_CANDIDATE_VALIDATOR = String.raw`
+import hashlib, json, sys, zipfile
+from pathlib import Path
+
+def fail(message):
+    raise RuntimeError(message)
+
+try:
+    if len(sys.argv) != 5:
+        fail("argument_contract")
+    candidate_directory = Path(sys.argv[1])
+    source_root = Path(sys.argv[2])
+    expected = json.loads(sys.argv[3])
+    validator_root = Path(sys.argv[4])
+    sys.path.insert(0, str(validator_root / "scripts"))
+    from commands import build_release_artifacts
+
+    manifest = json.loads((source_root / "release-manifest.json").read_text(encoding="utf-8"))
+    release_label = str(manifest.get("release_label") or "")
+    if release_label != expected.get("release_label"):
+        fail("release_label_mismatch")
+    source = build_release_artifacts.collect_candidate_source_identity(release_label, source_root)
+    if source.get("head_commit") != expected.get("source_commit"):
+        fail("source_commit_mismatch")
+    if source.get("tree") != expected.get("source_tree"):
+        fail("source_tree_mismatch")
+    if source.get("worktree_clean") is not True:
+        fail("source_worktree_not_clean")
+    artifacts = build_release_artifacts.read_artifact_directory(candidate_directory)
+    validation = build_release_artifacts.validate_tagless_candidate_artifacts(
+        artifacts,
+        manifest=manifest,
+        source=source,
+        root=source_root,
+    )
+    zip_name, _sidecar_name, receipt_name, _notes_name, _sbom_name = (
+        build_release_artifacts.expected_candidate_names(manifest)
+    )
+    receipt = validation.get("receipt")
+    if not isinstance(receipt, dict):
+        fail("candidate_receipt_missing")
+    with zipfile.ZipFile(candidate_directory / zip_name) as archive:
+        embedded_manifest = json.loads(
+            archive.read("decretum-matrix/release-manifest.json").decode("utf-8")
+        )
+        entries = embedded_manifest.get("files")
+        if not isinstance(entries, list):
+            fail("embedded_manifest_files_missing")
+        runtime_files = {}
+        for relative in ("bin/decretum-matrix.js", "bin/decretum-matrix.py"):
+            matches = [entry for entry in entries if isinstance(entry, dict) and entry.get("path") == relative]
+            if len(matches) != 1:
+                fail("embedded_runtime_entry_invalid:" + relative)
+            entry = matches[0]
+            digest = entry.get("sha256")
+            size = entry.get("size")
+            if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int):
+                fail("embedded_runtime_entry_shape_invalid:" + relative)
+            payload = archive.read("decretum-matrix/" + relative)
+            actual_digest = hashlib.sha256(payload).hexdigest()
+            if actual_digest != digest or len(payload) != size:
+                fail("embedded_runtime_payload_mismatch:" + relative)
+            runtime_files[relative] = {"sha256": actual_digest, "size": len(payload)}
+    print(json.dumps({
+        "ok": True,
+        "candidate_receipt_sha256": hashlib.sha256((candidate_directory / receipt_name).read_bytes()).hexdigest(),
+        "release_manifest_sha256": receipt.get("release_manifest", {}).get("sha256"),
+        "runtime_files": runtime_files,
+        "source": {
+            "head_commit": source.get("head_commit"),
+            "tree": source.get("tree"),
+            "worktree_clean": source.get("worktree_clean"),
+        },
+        "zip_sha256": validation.get("zip_sha256"),
+        "zip_size": validation.get("zip_size"),
+    }, sort_keys=True))
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": type(exc).__name__, "detail": str(exc)[:256]}, sort_keys=True))
+    raise SystemExit(2)
+`;
+
+function localCandidateAssetNames(contract) {
+  return [
+    "SBOM.spdx.json",
+    contract.identity.artifactName,
+    contract.identity.sidecarName,
+    contract.identity.releaseNotesName,
+    localCandidateReceiptName(contract.releaseLabel),
+  ].sort();
+}
+
+async function validateLocalInstallCandidate({
+  candidateDirectory,
+  candidateRoot,
+  contract,
+  sourceRoot,
+}) {
+  const resolvedCandidateRoot = path.resolve(candidateRoot);
+  const resolvedCandidateDirectory = path.resolve(candidateDirectory);
+  const resolvedSourceRoot = path.resolve(sourceRoot);
+  const expectedCandidateDirectory = path.join(
+    resolvedCandidateRoot,
+    contract.releaseLabel,
+    contract.sourceCommit,
+  );
+  if (!sameResolvedPath(resolvedCandidateDirectory, expectedCandidateDirectory)) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_PATH",
+      "local-install candidate directory is not the exact current HEAD candidate",
+      {
+        candidate_directory: resolvedCandidateDirectory,
+        expected_candidate_directory: expectedCandidateDirectory,
+      },
+    );
+  }
+  let rootStat;
+  let directoryStat;
+  try {
+    rootStat = await lstat(resolvedCandidateRoot);
+    directoryStat = await lstat(resolvedCandidateDirectory);
+  } catch (error) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_MISSING",
+      "local-install candidate directory is unavailable",
+      { candidate_directory: resolvedCandidateDirectory },
+    );
+  }
+  if (
+    !rootStat.isDirectory() ||
+    rootStat.isSymbolicLink() ||
+    !directoryStat.isDirectory() ||
+    directoryStat.isSymbolicLink()
+  ) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_UNSAFE",
+      "local-install candidate root must be physical directories",
+      { candidate_directory: resolvedCandidateDirectory },
+    );
+  }
+  const expectedNames = localCandidateAssetNames(contract);
+  const entries = await readdir(resolvedCandidateDirectory, { withFileTypes: true });
+  const actualNames = entries.map((entry) => entry.name).sort();
+  if (!isDeepStrictEqual(actualNames, expectedNames)) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_INVENTORY",
+      "local-install candidate asset allowlist differs",
+      {
+        candidate_directory: resolvedCandidateDirectory,
+        expected_assets: expectedNames,
+        actual_assets: actualNames,
+      },
+    );
+  }
+  const assets = [];
+  for (const name of expectedNames) {
+    const assetPath = path.join(resolvedCandidateDirectory, name);
+    const metadata = await lstat(assetPath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new BlockedReleaseError(
+        "BLOCKED_LOCAL_INSTALL_CANDIDATE_UNSAFE",
+        "local-install candidate asset is not a regular file",
+        { asset: name },
+      );
+    }
+    if (!name.endsWith(".zip")) {
+      scanTextForSecrets(await readFile(assetPath, "utf8"), name);
+    }
+    assets.push(
+      Object.freeze({
+        name,
+        path: `release/${name}`,
+        sha256: await hashFile(assetPath),
+        size: metadata.size,
+      }),
+    );
+  }
+  const validator = runPythonFixtureCommand(
+    [
+      "-c",
+      LOCAL_INSTALL_CANDIDATE_VALIDATOR,
+      resolvedCandidateDirectory,
+      resolvedSourceRoot,
+      JSON.stringify({
+        release_label: contract.releaseLabel,
+        source_commit: contract.sourceCommit,
+        source_tree: contract.sourceTree,
+      }),
+      REPO_ROOT,
+    ],
+    { cwd: resolvedSourceRoot },
+  );
+  if (validator.status !== 0) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_INVALID",
+      "local-install candidate receipt or ZIP validation failed",
+      {
+        candidate_directory: resolvedCandidateDirectory,
+        validator_status: validator.status,
+        validator_error: validator.stdout.trim().slice(0, 256),
+      },
+    );
+  }
+  let validation;
+  try {
+    validation = JSON.parse(validator.stdout.trim());
+  } catch {
+    validation = null;
+  }
+  if (!validation?.ok) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_INVALID",
+      "local-install candidate validator returned no accepted receipt",
+      { candidate_directory: resolvedCandidateDirectory },
+    );
+  }
+  if (
+    validation.source?.head_commit !== contract.sourceCommit ||
+    validation.source?.tree !== contract.sourceTree ||
+    validation.source?.worktree_clean !== true ||
+    validation.release_manifest_sha256 !== contract.releaseManifestSha256
+  ) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_BINDING",
+      "local-install candidate does not bind the current clean source",
+      { candidate_directory: resolvedCandidateDirectory },
+    );
+  }
+  for (const runtimeFile of contract.runtimeFiles) {
+    const embedded = validation.runtime_files?.[runtimeFile.path];
+    const sourcePayload = normalizedRuntimePayload(
+      await readFile(path.join(resolvedSourceRoot, ...runtimeFile.path.split("/"))),
+      runtimeFile.path,
+    );
+    const sourceSha256 = createHash("sha256").update(sourcePayload).digest("hex");
+    if (
+      embedded?.sha256 !== sourceSha256 ||
+      embedded?.size !== sourcePayload.length
+    ) {
+      throw new BlockedReleaseError(
+        "BLOCKED_LOCAL_INSTALL_CANDIDATE_RUNTIME",
+        "local-install candidate ZIP runtime differs from packaged launcher source",
+        {
+          runtime_file: runtimeFile.path,
+          expected_sha256: sourceSha256,
+          embedded_sha256: embedded?.sha256 || null,
+        },
+      );
+    }
+  }
+  const zip = assets.find((asset) => asset.name === contract.identity.artifactName);
+  const receiptName = localCandidateReceiptName(contract.releaseLabel);
+  const candidateReceipt = assets.find((asset) => asset.name === receiptName);
+  if (
+    !zip ||
+    !candidateReceipt ||
+    validation.zip_sha256 !== zip.sha256 ||
+    validation.candidate_receipt_sha256 !== candidateReceipt.sha256
+  ) {
+    throw new BlockedReleaseError(
+      "BLOCKED_LOCAL_INSTALL_CANDIDATE_BINDING",
+      "local-install candidate hashes are inconsistent",
+      { candidate_directory: resolvedCandidateDirectory },
+    );
+  }
+  return Object.freeze({
+    assets: Object.freeze(assets),
+    candidateDirectory: resolvedCandidateDirectory,
+    candidateReceipt: Object.freeze({
+      name: receiptName,
+      sha256: candidateReceipt.sha256,
+    }),
+    runtimeFiles: Object.freeze(validation.runtime_files),
+    source: Object.freeze(validation.source),
+    zip: Object.freeze({ sha256: zip.sha256, size: zip.size }),
+  });
+}
+
+function createLocalInstallCandidateContract({
+  baseContract,
+  candidate,
+}) {
+  const localVersion = `${baseContract.packageVersion}.local.${candidate.source.head_commit.slice(0, 12)}`;
+  const identity = Object.freeze({
+    ...baseContract.identity,
+    packageVersion: localVersion,
+    receiptName: `rowlandl-decretum-matrix-${localVersion}.local-install.receipt.json`,
+    tarballName: `rowlandl-decretum-matrix-${localVersion}.tgz`,
+  });
+  const runtimeFiles = Object.freeze(
+    baseContract.runtimeFiles.map((runtimeFile) => {
+      const candidateRuntime = candidate.runtimeFiles[runtimeFile.path];
+      if (
+        !candidateRuntime ||
+        !/^[0-9a-f]{64}$/.test(candidateRuntime.sha256) ||
+        !Number.isInteger(candidateRuntime.size) ||
+        candidateRuntime.size < 0
+      ) {
+        throw new BlockedReleaseError(
+          "BLOCKED_LOCAL_INSTALL_CANDIDATE_RUNTIME",
+          "local-install candidate does not provide a valid launcher runtime descriptor",
+          { runtime_file: runtimeFile.path },
+        );
+      }
+      return Object.freeze({
+        path: runtimeFile.path,
+        sha256: candidateRuntime.sha256,
+        size: candidateRuntime.size,
+      });
+    }),
+  );
+  return createPackageContract({
+    identity,
+    mode: "local-install-candidate",
+    packageName: baseContract.packageName,
+    distTag: "local",
+    registry: baseContract.registry,
+    license: baseContract.license,
+    repository: baseContract.repository,
+    repoRoot: baseContract.repoRoot,
+    releaseAssetDir: candidate.candidateDirectory,
+    releaseManifestSha256: baseContract.releaseManifestSha256,
+    sourceCommit: baseContract.sourceCommit,
+    sourceTree: baseContract.sourceTree,
+    legalFiles: baseContract.legalFiles,
+    runtimeFiles,
+    releaseAssets: candidate.assets,
+    outputRelative: `release-staging/decretum-matrix/npm-local/${baseContract.releaseLabel}/${candidate.source.head_commit}`,
+    authorityReceiptId: `npm-local-${baseContract.releaseLabel}-${candidate.source.head_commit.slice(0, 12)}`,
+    authorityCursor: `${baseContract.releaseLabel.toUpperCase()}_NPM_LOCAL_INSTALL_CANDIDATE`,
+    localCandidate: Object.freeze({
+      receiptName: candidate.candidateReceipt.name,
+      receiptSha256: candidate.candidateReceipt.sha256,
+      zipSha256: candidate.zip.sha256,
+    }),
+  });
+}
+
+async function createLocalInstallCandidatePackage({
+  candidateDirectory,
+  candidateRoot,
+  contract = LIVE_PACKAGE_CONTRACT,
+  installedSmoke = true,
+  sourceRoot = REPO_ROOT,
+}) {
+  await validateSourcePackageJson();
+  const candidate = await validateLocalInstallCandidate({
+    candidateDirectory,
+    candidateRoot,
+    contract,
+    sourceRoot,
+  });
+  const localContract = createLocalInstallCandidateContract({
+    baseContract: contract,
+    candidate,
+  });
+  const operationRoot = await mkdtemp(
+    path.join(tmpdir(), "decretum-npm-local-install-"),
+  );
+  let cleaned = false;
+  const cleanup = async () => {
+    if (!cleaned) {
+      cleaned = true;
+      await rm(operationRoot, { force: true, recursive: true });
+    }
+  };
+  try {
+    const packageRoot = path.join(operationRoot, "package");
+    await mkdir(packageRoot, { recursive: false });
+    const { packageText, publishPackage, readmeText } = await stagePackage(
+      packageRoot,
+      localContract,
+      candidate.assets,
+    );
+    const npmState = await prepareNpmState(operationRoot);
+    const expectedUnpackedSize =
+      Buffer.byteLength(packageText, "utf8") +
+      Buffer.byteLength(readmeText, "utf8") +
+      localContract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
+      candidate.assets.reduce((total, asset) => total + asset.size, 0) +
+      localContract.legalFiles.reduce((total, file) => total + file.size, 0);
+    const dryRun = await npmPackDryRun(
+      packageRoot,
+      npmState,
+      expectedUnpackedSize,
+      localContract,
+    );
+    const firstPack = await npmPackOnce(
+      packageRoot,
+      path.join(operationRoot, "pack-a"),
+      npmState,
+      expectedUnpackedSize,
+      localContract,
+    );
+    const secondPack = await npmPackOnce(
+      packageRoot,
+      path.join(operationRoot, "pack-b"),
+      npmState,
+      expectedUnpackedSize,
+      localContract,
+    );
+    assert(
+      firstPack.sha256 === secondPack.sha256 &&
+        firstPack.size === secondPack.size,
+      "npm pack is not deterministic for the local-install candidate",
+    );
+    const smokeStatus = installedSmoke
+      ? await runInstalledSmoke(
+          operationRoot,
+          firstPack.tarballPath,
+          npmState,
+          publishPackage,
+          candidate.assets,
+          localContract,
+        )
+      : "NOT_RUN";
+    return {
+      candidate,
+      cleanup,
+      contract: localContract,
+      dryRun,
+      firstPack,
+      publishPackage,
+      smokeStatus,
+    };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+}
+
+function buildLocalInstallCandidateReceipt(verified) {
+  const { candidate, contract, firstPack, smokeStatus } = verified;
+  return {
+    schema: "decretum.npm_local_install_candidate_receipt.v1",
+    status: "PASS",
+    private: true,
+    publication: "FORBIDDEN",
+    candidate: {
+      release_label: contract.releaseLabel,
+      receipt: {
+        name: candidate.candidateReceipt.name,
+        sha256: candidate.candidateReceipt.sha256,
+      },
+      source: {
+        head: candidate.source.head_commit,
+        tree: candidate.source.tree,
+      },
+      zip_sha256: candidate.zip.sha256,
+      zip_size: candidate.zip.size,
+      runtime_files: contract.runtimeFiles.map(({ path: runtimePath, sha256, size }) => ({
+        path: runtimePath,
+        sha256,
+        size,
+      })),
+    },
+    package: {
+      name: contract.packageName,
+      version: contract.packageVersion,
+      filename: contract.tarballName,
+      sha256: firstPack.sha256,
+      size: firstPack.size,
+      private: true,
+      publish_config: "ABSENT",
+    },
+    validation: {
+      candidate_receipt: "PASS",
+      candidate_zip: "PASS",
+      clean_head_tree_binding: "PASS",
+      runtime_bin_hashes: "PASS",
+      private_package: "PASS",
+      publish_config_absent: "PASS",
+      npm_pack_dry_run: "PASS",
+      deterministic_double_pack: "PASS",
+      installed_package_smoke: smokeStatus,
+      network_dependency: "NONE",
+    },
+    output: {
+      directory: contract.outputRelative,
+      tarball: contract.tarballName,
+      sha256_sidecar: contract.sidecarName,
+      receipt: contract.receiptName,
+      materialization_contract: "CONTENT_KEYED_CREATE_OR_REUSE",
+      publication: "FORBIDDEN",
+    },
+  };
+}
+
+export async function buildLocalInstallCandidate({
+  candidateDirectory,
+  candidateRoot,
+  contract = LIVE_PACKAGE_CONTRACT,
+  installedSmoke = true,
+  outputDirectory,
+  sourceRoot = REPO_ROOT,
+}) {
+  const verified = await createLocalInstallCandidatePackage({
+    candidateDirectory,
+    candidateRoot,
+    contract,
+    installedSmoke,
+    sourceRoot,
+  });
+  try {
+    const receipt = buildLocalInstallCandidateReceipt(verified);
+    const files = await packageOutputFiles(verified, receipt, verified.contract);
+    const materializedOutput = outputDirectory || path.join(
+      WORKSPACE_ROOT,
+      "release-staging",
+      "decretum-matrix",
+      "npm-local",
+      verified.contract.releaseLabel,
+      verified.candidate.source.head_commit,
+    );
+    if (isWithin(REPO_ROOT, materializedOutput)) {
+      throw new BlockedReleaseError(
+        "BLOCKED_LOCAL_INSTALL_OUTPUT_UNSAFE",
+        "local-install npm output must remain outside the repository",
+        { output_directory: materializedOutput },
+      );
+    }
+    const materialization = await createOrReuseOutput(materializedOutput, files);
+    return {
+      candidate: verified.candidate,
+      contract: verified.contract,
+      output: {
+        directory: materializedOutput,
+        materialization,
+      },
+      publishPackage: verified.publishPackage,
+      receipt,
+    };
+  } finally {
+    await verified.cleanup();
+  }
+}
+
+export function parseLocalInstallCandidateArguments(argv = process.argv) {
+  const flag = "--local-install-candidate";
+  const indexes = argv.reduce(
+    (found, value, index) => (value === flag ? [...found, index] : found),
+    [],
+  );
+  if (indexes.length === 0) {
+    return null;
+  }
+  if (indexes.length !== 1 || argv.includes("--self-test")) {
+    throw new Error("--local-install-candidate cannot be repeated or combined with --self-test");
+  }
+  const index = indexes[0];
+  const candidateDirectory = argv[index + 1];
+  if (!candidateDirectory || candidateDirectory.startsWith("--") || index + 2 !== argv.length) {
+    throw new Error("--local-install-candidate requires exactly one candidate directory");
+  }
+  return candidateDirectory;
+}
+
+async function buildLocalInstallCandidateArtifacts(candidateDirectory) {
+  const result = await buildLocalInstallCandidate({
+    candidateDirectory,
+    candidateRoot: path.join(
+      WORKSPACE_ROOT,
+      "release-staging",
+      "decretum-matrix",
+    ),
+  });
+  const execution = {
+    ...result.receipt,
+    output: {
+      ...result.receipt.output,
+      directory: result.output.directory,
+      materialization: result.output.materialization,
+    },
+  };
+  console.log(jsonText(execution).trimEnd());
+  return execution;
+}
+
 function loadSourceReleaseManifest() {
   const result = spawnSync(
     "git",
@@ -2748,12 +3679,28 @@ async function stagePackage(packageRoot, contract, releaseAssets) {
 
   for (const runtimeFile of contract.runtimeFiles) {
     const sourcePath = path.join(contract.repoRoot, runtimeFile.path);
-    assert(
-      (await hashFile(sourcePath)) === runtimeFile.sha256,
-      `CLI runtime source drift before copy: ${runtimeFile.path}`,
-    );
     const destinationPath = path.join(packageRoot, runtimeFile.path);
-    await copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL);
+    if (contract.mode === "local-install-candidate") {
+      const payload = normalizedRuntimePayload(
+        await readFile(sourcePath),
+        runtimeFile.path,
+      );
+      assert(
+        createHash("sha256").update(payload).digest("hex") === runtimeFile.sha256 &&
+          payload.length === runtimeFile.size,
+        `local-install CLI runtime source drift before copy: ${runtimeFile.path}`,
+      );
+      await writeFile(destinationPath, payload, {
+        flag: "wx",
+        mode: 0o755,
+      });
+    } else {
+      assert(
+        (await hashFile(sourcePath)) === runtimeFile.sha256,
+        `CLI runtime source drift before copy: ${runtimeFile.path}`,
+      );
+      await copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL);
+    }
     await chmod(destinationPath, 0o755);
     await utimes(destinationPath, FIXED_MTIME, FIXED_MTIME);
     const copiedStat = await stat(destinationPath);
@@ -3428,9 +4375,12 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
+  const localCandidateDirectory = parseLocalInstallCandidateArguments(process.argv);
   const action = process.argv.includes("--self-test")
     ? runSyntheticSelfTest
-    : buildPackageArtifacts;
+    : localCandidateDirectory
+      ? () => buildLocalInstallCandidateArtifacts(localCandidateDirectory)
+      : buildPackageArtifacts;
   action().then((report) => {
     if (process.argv.includes("--self-test")) {
       console.log(jsonText(report).trimEnd());

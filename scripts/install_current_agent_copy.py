@@ -25,6 +25,13 @@ import uuid
 
 sys.dont_write_bytecode = True
 
+from install_projection_renderer import (
+    ActiveProjectionRenderError,
+    RenderedActiveProjection,
+    active_path_is_excluded,
+    render_active_projection,
+)
+
 
 RESULT_SCHEMA = "court.install_current_agent_copy.result.v1"
 PROJECTION_SCHEMA = "court.install_projection.v1"
@@ -395,7 +402,7 @@ def _install_root_transition_candidates(
 
 def _required_root_transitions(
     candidates: list[dict[str, object]],
-    operations: list[tuple[Path, bytes, bytes | None]],
+    operations: list[tuple[Path, bytes | None, bytes | None]],
 ) -> list[dict[str, object]]:
     required: list[dict[str, object]] = []
     for candidate in candidates:
@@ -470,6 +477,99 @@ def _expand_projection(
     return [(PurePosixPath(key), expanded[key]) for key in sorted(expanded)]
 
 
+def _installed_projection_files(
+    *,
+    inspection_root: Path,
+    projection_name: str,
+    excluded_path_globs: tuple[str, ...],
+) -> set[PurePosixPath]:
+    """Return only source-only files declared by the prior installed manifest.
+
+    This intentionally reads manifest metadata and directory entries only. File
+    contents are read later, after a candidate passes every DELETE gate.
+    """
+
+    manifest_path = (
+        inspection_root / "references" / "manifests" / "install-projection.v1.json"
+    )
+    if not manifest_path.exists() and not manifest_path.is_symlink():
+        return set()
+    if (
+        not _within(manifest_path, inspection_root)
+        or manifest_path.is_symlink()
+        or _is_junction(manifest_path)
+        or not manifest_path.is_file()
+    ):
+        raise _InstallContractError(
+            "installed_projection_manifest_invalid", manifest_path.as_posix()
+        )
+    manifest = _read_json(
+        manifest_path,
+        reason="installed_projection_manifest_invalid",
+    )
+    if manifest.get("schema") != PROJECTION_SCHEMA:
+        raise _InstallContractError(
+            "installed_projection_manifest_invalid", "schema_mismatch"
+        )
+    projections = manifest.get("projections")
+    if not isinstance(projections, dict):
+        raise _InstallContractError(
+            "installed_projection_manifest_invalid", "projections_missing"
+        )
+    entries: list[PurePosixPath] = []
+    for name in (projection_name, "cli_public"):
+        values = projections.get(name)
+        if not isinstance(values, list) or any(not _safe_relative(value) for value in values):
+            raise _InstallContractError(
+                "installed_projection_manifest_invalid",
+                f"projection_invalid:{name}",
+            )
+        entries.extend(PurePosixPath(str(value)) for value in values)
+
+    candidates: set[PurePosixPath] = set()
+
+    def consider(relative: PurePosixPath) -> None:
+        if active_path_is_excluded(relative.as_posix(), excluded_path_globs):
+            candidates.add(relative)
+
+    def walk_directory(root: Path, relative_root: PurePosixPath) -> None:
+        stack = [(root, relative_root)]
+        while stack:
+            current, current_relative = stack.pop()
+            with os.scandir(current) as children:
+                for child in children:
+                    child_path = Path(child.path)
+                    child_relative = current_relative / child.name
+                    if child.is_symlink() or _is_junction(child_path):
+                        if active_path_is_excluded(
+                            child_relative.as_posix(),
+                            excluded_path_globs,
+                        ):
+                            candidates.add(child_relative)
+                        continue
+                    if child.is_dir(follow_symlinks=False):
+                        stack.append((child_path, child_relative))
+                    elif child.is_file(follow_symlinks=False):
+                        consider(child_relative)
+
+    for relative in entries:
+        candidate = inspection_root / Path(relative.as_posix())
+        if not _within(candidate, inspection_root):
+            raise _InstallContractError(
+                "installed_projection_manifest_invalid",
+                f"path_escape:{relative.as_posix()}",
+            )
+        if candidate.is_symlink() or _is_junction(candidate):
+            consider(relative)
+            continue
+        if candidate.is_file():
+            consider(relative)
+            continue
+        if candidate.is_dir():
+            walk_directory(candidate, relative)
+    return candidates
+
+
 def _parent_chain_is_directory(path: Path, stop: Path) -> bool:
     current = path.parent
     stop = stop.resolve(strict=False)
@@ -485,25 +585,29 @@ def _parent_chain_is_directory(path: Path, stop: Path) -> bool:
 def _plan_projection_writes(
     *,
     source_root: Path,
-    manifest: dict[str, object],
     selected: list[tuple[str, Path, str]],
     migration_sources: dict[Path, Path] | None = None,
-) -> tuple[list[tuple[Path, bytes, bytes | None]], dict[str, int]]:
-    projections = manifest["projections"]
-    assert isinstance(projections, dict)
-    expanded: dict[str, list[tuple[PurePosixPath, bytes]]] = {}
-    operations: list[tuple[Path, bytes, bytes | None]] = []
+) -> tuple[list[tuple[Path, bytes | None, bytes | None]], dict[str, int]]:
+    rendered: dict[str, RenderedActiveProjection] = {}
+    operations: list[tuple[Path, bytes | None, bytes | None]] = []
     identical = 0
     replacements = 0
+    deletions = 0
     protected_paths = PROTECTED_SHARED_AGENT_PATHS
     for _label, target, projection_name in selected:
         migration_source = (migration_sources or {}).get(target.resolve(strict=False))
         inspection_root = migration_source or target
-        expanded_name = f"{projection_name}+cli_public"
-        if expanded_name not in expanded:
-            values = [*projections[projection_name], *projections["cli_public"]]
-            assert isinstance(values, list)
-            expanded[expanded_name] = _expand_projection(source_root, values)
+        if projection_name not in rendered:
+            try:
+                rendered[projection_name] = render_active_projection(
+                    source_root=source_root,
+                    target_class=projection_name,
+                )
+            except ActiveProjectionRenderError as exc:
+                raise _InstallContractError(
+                    "active_projection_render_failed", str(exc)
+                ) from exc
+        rendered_target = rendered[projection_name]
         if projection_name != "shared_agents":
             for protected_path in sorted(protected_paths):
                 wrong_target = inspection_root / Path(protected_path)
@@ -511,7 +615,11 @@ def _plan_projection_writes(
                     raise _InstallContractError(
                         "protected_anchor_wrong_target", wrong_target.as_posix()
                     )
-        entries = expanded[expanded_name]
+        entries = sorted(
+            rendered_target.files.items(),
+            key=lambda item: item[0].as_posix(),
+        )
+        desired = {relative for relative, _payload in entries}
         for relative, payload in entries:
             destination = target / Path(relative.as_posix())
             existing = inspection_root / Path(relative.as_posix())
@@ -542,10 +650,42 @@ def _plan_projection_writes(
                 identical += 1
                 continue
             operations.append((destination, payload, None))
+        for relative in sorted(
+            _installed_projection_files(
+                inspection_root=inspection_root,
+                projection_name=projection_name,
+                excluded_path_globs=rendered_target.excluded_path_globs,
+            ),
+            key=lambda item: item.as_posix(),
+        ):
+            if relative in desired:
+                continue
+            if not active_path_is_excluded(
+                relative.as_posix(),
+                rendered_target.excluded_path_globs,
+            ):
+                continue
+            existing = inspection_root / Path(relative.as_posix())
+            if not existing.exists() and not existing.is_symlink():
+                continue
+            destination = target / Path(relative.as_posix())
+            if (
+                not _within(destination, target)
+                or existing.is_symlink()
+                or _is_junction(existing)
+                or not existing.is_file()
+            ):
+                raise _InstallContractError(
+                    "managed_projection_drift", existing.as_posix()
+                )
+            previous = existing.read_bytes()
+            operations.append((destination, None, previous))
+            deletions += 1
     return operations, {
-        "create": len(operations) - replacements,
+        "create": len(operations) - replacements - deletions,
         "replace": replacements,
         "identical": identical,
+        "delete": deletions,
     }
 
 
@@ -607,6 +747,60 @@ def _atomic_replace_file(path: Path, payload: bytes) -> None:
             temp_path.unlink()
 
 
+def _delete_projection_file(path: Path, expected: bytes) -> None:
+    if path.is_symlink() or not path.is_file() or path.read_bytes() != expected:
+        raise _InstallContractError("managed_projection_drift", path.as_posix())
+    original_mode = path.stat().st_mode
+    was_frozen = not bool(original_mode & stat.S_IWUSR)
+    if was_frozen:
+        if getattr(path.stat(), "st_nlink", 1) > 1:
+            raise _InstallContractError("target_conflict", path.as_posix())
+        path.chmod(original_mode | stat.S_IWUSR)
+    try:
+        path.unlink()
+    except Exception:
+        if was_frozen and path.exists() and not path.is_symlink():
+            path.chmod(original_mode)
+        raise
+
+
+def _remove_empty_source_only_directories(
+    applied: list[tuple[Path, bytes | None, bytes | None]],
+    selected: list[tuple[str, Path, str]],
+) -> None:
+    targets = [target.resolve(strict=False) for _label, target, _kind in selected]
+    for path, payload, _previous in applied:
+        if payload is not None:
+            continue
+        root = next(
+            (
+                target
+                for target in targets
+                if _within(path, target)
+            ),
+            None,
+        )
+        if root is None:
+            raise _InstallContractError("managed_projection_drift", path.as_posix())
+        current = path.parent
+        while current != root:
+            relative = current.relative_to(root)
+            if tuple(part.casefold() for part in relative.parts[:2]) != (
+                "scripts",
+                "checks",
+            ):
+                break
+            if current.is_symlink() or _is_junction(current) or not current.is_dir():
+                raise _InstallContractError(
+                    "managed_projection_drift", current.as_posix()
+                )
+            try:
+                current.rmdir()
+            except OSError:
+                break
+            current = current.parent
+
+
 def _operation_target(
     path: Path,
     selected: list[tuple[str, Path, str]],
@@ -634,7 +828,7 @@ def _operation_target(
 
 def _backup_projection_writes(
     *,
-    operations: list[tuple[Path, bytes, bytes | None]],
+    operations: list[tuple[Path, bytes | None, bytes | None]],
     selected: list[tuple[str, Path, str]],
     transitions: list[dict[str, object]],
     home_root: Path,
@@ -646,6 +840,7 @@ def _backup_projection_writes(
             "status": "NOT_REQUIRED",
             "operation_count": 0,
             "replace_count": 0,
+            "delete_count": 0,
             "rollback_supported": True,
         }
 
@@ -671,6 +866,10 @@ def _backup_projection_writes(
             label, target, relative = _operation_target(path, selected)
             backup_relative: str | None = None
             previous_sha256: str | None = None
+            if payload is None and previous is None:
+                raise _InstallContractError(
+                    "backup_manifest_invalid", f"delete_without_preimage:{relative}"
+                )
             if previous is not None:
                 backup_relative = (
                     PurePosixPath("preimages")
@@ -679,11 +878,22 @@ def _backup_projection_writes(
                 ).as_posix()
                 _atomic_create(backup_root / Path(backup_relative), previous)
                 previous_sha256 = hashlib.sha256(previous).hexdigest()
+            action = (
+                "DELETE"
+                if payload is None
+                else "REPLACE"
+                if previous is not None
+                else "CREATE"
+            )
             entries.append(
                 {
-                    "action": "REPLACE" if previous is not None else "CREATE",
+                    "action": action,
                     "backup_path": backup_relative,
-                    "installed_sha256": hashlib.sha256(payload).hexdigest(),
+                    "installed_sha256": (
+                        hashlib.sha256(payload).hexdigest()
+                        if payload is not None
+                        else None
+                    ),
                     "path": relative.as_posix(),
                     "previous_sha256": previous_sha256,
                     "target_class": label,
@@ -726,6 +936,7 @@ def _backup_projection_writes(
         "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         "operation_count": len(entries),
         "replace_count": sum(entry["action"] == "REPLACE" for entry in entries),
+        "delete_count": sum(entry["action"] == "DELETE" for entry in entries),
         "rollback_supported": True,
         "rollback_scope": "managed_files_and_atomic_legacy_locator_restore",
     }
@@ -800,7 +1011,7 @@ def rollback_install_backup(
                 )
             legacy_transitions.append((canonical, restore))
 
-        prepared: list[tuple[Path, bytes | None, bytes]] = []
+        prepared: list[tuple[str, Path, bytes | None, bytes | None]] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 raise _InstallContractError("backup_manifest_invalid", "entry_not_object")
@@ -820,13 +1031,9 @@ def rollback_install_backup(
             ):
                 raise _InstallContractError("backup_private_surface_forbidden")
             destination = target_root / Path(relative.as_posix())
-            if destination.is_symlink() or not destination.is_file():
-                raise _InstallContractError("rollback_target_drift", str(destination))
-            current = destination.read_bytes()
-            if hashlib.sha256(current).hexdigest() != entry.get("installed_sha256"):
-                raise _InstallContractError("rollback_target_drift", str(destination))
+            action = entry.get("action")
             previous: bytes | None = None
-            if entry.get("action") == "REPLACE":
+            if action in {"REPLACE", "DELETE"}:
                 backup_relative = entry.get("backup_path")
                 if not _safe_relative(backup_relative):
                     raise _InstallContractError("backup_manifest_invalid", "backup_path_invalid")
@@ -836,19 +1043,38 @@ def rollback_install_backup(
                 previous = preimage_path.read_bytes()
                 if hashlib.sha256(previous).hexdigest() != entry.get("previous_sha256"):
                     raise _InstallContractError("backup_preimage_drift", str(preimage_path))
-            elif entry.get("action") != "CREATE":
+            elif action != "CREATE":
                 raise _InstallContractError("backup_manifest_invalid", "action_invalid")
-            prepared.append((destination, previous, current))
+            if action == "DELETE":
+                if (
+                    destination.exists()
+                    or destination.is_symlink()
+                    or entry.get("installed_sha256") is not None
+                    or previous is None
+                ):
+                    raise _InstallContractError("rollback_target_drift", str(destination))
+                prepared.append((str(action), destination, previous, None))
+                continue
+            if destination.is_symlink() or not destination.is_file():
+                raise _InstallContractError("rollback_target_drift", str(destination))
+            current = destination.read_bytes()
+            if hashlib.sha256(current).hexdigest() != entry.get("installed_sha256"):
+                raise _InstallContractError("rollback_target_drift", str(destination))
+            prepared.append((str(action), destination, previous, current))
 
-        restored: list[tuple[Path, bytes]] = []
+        restored: list[tuple[str, Path, bytes | None]] = []
         moved: list[tuple[Path, Path]] = []
         try:
-            for destination, previous, current in reversed(prepared):
-                if previous is None:
+            for action, destination, previous, current in reversed(prepared):
+                if action == "DELETE":
+                    assert previous is not None
+                    _atomic_create(destination, previous)
+                elif action == "CREATE":
                     destination.unlink()
                 else:
+                    assert previous is not None
                     _atomic_replace_file(destination, previous)
-                restored.append((destination, current))
+                restored.append((action, destination, current))
             for canonical, restore in legacy_transitions:
                 os.replace(canonical, restore)
                 moved.append((canonical, restore))
@@ -856,7 +1082,12 @@ def rollback_install_backup(
             for canonical, restore in reversed(moved):
                 if restore.is_dir() and not canonical.exists():
                     os.replace(restore, canonical)
-            for destination, current in reversed(restored):
+            for action, destination, current in reversed(restored):
+                if action == "DELETE":
+                    if destination.is_file() and not destination.is_symlink():
+                        destination.unlink()
+                    continue
+                assert current is not None
                 if destination.exists():
                     _atomic_replace_file(destination, current)
                 else:
@@ -896,18 +1127,26 @@ def _transaction_checkpoint(
 
 
 def _rollback_projection_writes(
-    applied: list[tuple[Path, bytes | None]],
+    applied: list[tuple[Path, bytes | None, bytes | None]],
     selected: list[tuple[str, Path, str]],
 ) -> None:
     target_roots = [target.resolve(strict=False) for _label, target, _kind in selected]
-    for path, previous in reversed(applied):
-        if previous is None:
+    for path, payload, previous in reversed(applied):
+        if payload is None:
+            if previous is None:
+                raise _InstallContractError("install_rollback_failed", path.as_posix())
+            _atomic_create(path, previous)
+        elif previous is None:
             if path.is_file() and not path.is_symlink():
                 path.unlink()
         else:
             _atomic_replace_file(path, previous)
         parent = path.parent
-        while previous is None and parent.resolve(strict=False) not in target_roots:
+        while (
+            payload is not None
+            and previous is None
+            and parent.resolve(strict=False) not in target_roots
+        ):
             try:
                 parent.rmdir()
             except OSError:
@@ -916,25 +1155,34 @@ def _rollback_projection_writes(
 
 
 def _apply_projection_writes(
-    operations: list[tuple[Path, bytes, bytes | None]],
+    operations: list[tuple[Path, bytes | None, bytes | None]],
     selected: list[tuple[str, Path, str]],
     install_transaction_adapter: object | None = None,
-) -> list[tuple[Path, bytes | None]]:
-    applied: list[tuple[Path, bytes | None]] = []
+) -> list[tuple[Path, bytes | None, bytes | None]]:
+    applied: list[tuple[Path, bytes | None, bytes | None]] = []
     try:
         for path, payload, previous in operations:
-            if previous is None:
+            if payload is None:
+                if previous is None:
+                    raise _InstallContractError("managed_projection_drift", path.as_posix())
+                _delete_projection_file(path, previous)
+            elif previous is None:
                 _atomic_create(path, payload)
             else:
                 _atomic_replace_file(path, payload)
-            applied.append((path, previous))
-            if path.read_bytes() != payload:
+            applied.append((path, payload, previous))
+            if payload is None:
+                verified = not path.exists() and not path.is_symlink()
+            else:
+                verified = path.read_bytes() == payload
+            if not verified:
                 raise RuntimeError(f"projection verification failed: {path}")
             _transaction_checkpoint(
                 install_transaction_adapter,
                 "projection_file_applied",
                 path=str(path),
             )
+        _remove_empty_source_only_directories(applied, selected)
     except Exception:
         _rollback_projection_writes(applied, selected)
         raise
@@ -983,15 +1231,15 @@ def _staged_selected(
 
 
 def _staged_operations(
-    operations: list[tuple[Path, bytes, bytes | None]],
+    operations: list[tuple[Path, bytes | None, bytes | None]],
     records: list[dict[str, object]],
-) -> list[tuple[Path, bytes, bytes | None]]:
+) -> list[tuple[Path, bytes | None, bytes | None]]:
     roots = [
         (Path(str(record["canonical_root"])), Path(str(record["stage_root"])))
         for record in records
         if record.get("stage_root") is not None
     ]
-    staged: list[tuple[Path, bytes, bytes | None]] = []
+    staged: list[tuple[Path, bytes | None, bytes | None]] = []
     for path, payload, previous in operations:
         destination = path
         for canonical, stage in roots:
@@ -1007,7 +1255,7 @@ def _staged_operations(
 
 def _apply_install_transaction(
     *,
-    operations: list[tuple[Path, bytes, bytes | None]],
+    operations: list[tuple[Path, bytes | None, bytes | None]],
     selected: list[tuple[str, Path, str]],
     transitions: list[dict[str, object]],
     install_transaction_adapter: object | None,
@@ -1019,7 +1267,7 @@ def _apply_install_transaction(
     ):
         raise _InstallContractError("install_transaction_adapter_invalid")
     records: list[dict[str, object]] = []
-    applied: list[tuple[Path, bytes | None]] = []
+    applied: list[tuple[Path, bytes | None, bytes | None]] = []
     transaction_selected = selected
     alias_receipt: object | None = None
     backup_receipt: dict[str, object] | None = None
@@ -1106,7 +1354,12 @@ def _apply_install_transaction(
             install_transaction_adapter,
             "before_commit",
             migration_count=len(records),
-            created_count=sum(1 for _path, previous in applied if previous is None),
+            created_count=sum(
+                1
+                for _path, payload, previous in applied
+                if payload is not None and previous is None
+            ),
+            deleted_count=sum(1 for _path, payload, _previous in applied if payload is None),
         )
         for record in records:
             canonical = Path(str(record["canonical_root"]))
@@ -1746,7 +1999,6 @@ def install_current_agent_copy(
         transition_candidates = _install_root_transition_candidates(selected)
         operations, projection_counts = _plan_projection_writes(
             source_root=source,
-            manifest=manifest,
             selected=selected,
             migration_sources={
                 Path(str(item["canonical_root"])).resolve(strict=False): Path(
@@ -1785,6 +2037,7 @@ def install_current_agent_copy(
                 "status": "PLANNED" if operations or transitions else "NOT_REQUIRED",
                 "operation_count": len(operations),
                 "replace_count": projection_counts["replace"],
+                "delete_count": projection_counts["delete"],
                 "rollback_supported": True,
                 "rollback_scope": "managed_files_and_atomic_legacy_locator_restore",
             }

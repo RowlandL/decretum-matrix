@@ -579,7 +579,8 @@ def _check_documentation_contract() -> list[str]:
     skill = texts["SKILL.md"]
     assert "governance-implementations.v1.json" in skill
     assert "史馆 GBrain" in skill and ("不取得当前任务执行权" in skill or "无执行权" in skill)
-    assert "scripts/check_governance_framework.py" in skill
+    assert "references/validation-packaging.md" in skill
+    assert "scripts/check_governance_framework.py" not in skill, "source_checker_leaked_into_startup"
     understanding_terms = (
         "目标、使用场景、关键要求和验收标准",
         "95",
@@ -767,6 +768,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

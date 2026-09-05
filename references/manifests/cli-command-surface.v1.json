@@ -222,6 +222,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/checks/check_court_case_binding.py",
+      "command": "check-court-case-binding",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_court_case_binding.py",
+      "id": "check.check-court-case-binding",
+      "legacy_path": "scripts/checks/check_court_case_binding.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/checks/check_court_code_session_numbering.py",
       "command": "check-court-code-session-numbering",
       "compatibility_state": "unified_compatibility_adapter",
@@ -365,6 +378,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/checks/check_court_native_bridge.py",
+      "command": "check-court-native-bridge",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_court_native_bridge.py",
+      "id": "check.check-court-native-bridge",
+      "legacy_path": "scripts/checks/check_court_native_bridge.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/checks/check_court_native_host_dispatch.py",
       "command": "check-court-native-host-dispatch",
       "compatibility_state": "unified_compatibility_adapter",
@@ -425,6 +451,19 @@
       "handler": "isolated_subprocess:scripts/checks/check_court_outcome_gate.py",
       "id": "check.check-court-outcome-gate",
       "legacy_path": "scripts/checks/check_court_outcome_gate.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_court_plan_artifacts.py",
+      "command": "check-court-plan-artifacts",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_court_plan_artifacts.py",
+      "id": "check.check-court-plan-artifacts",
+      "legacy_path": "scripts/checks/check_court_plan_artifacts.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -1977,6 +2016,28 @@
           "side_effect": "read_only"
         },
         {
+          "description": "Read the shared task/session/court-code and real plan/review binding without mutation.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "task_id": {
+                "description": "The current formal task id; returns only its shared workflow status.",
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "task_id"
+            ],
+            "type": "object"
+          },
+          "name": "court.workflow_status",
+          "public_api": "court_workflow_status",
+          "side_effect": "read_only"
+        },
+        {
           "description": "Validate a blank-charter intake payload (conversation gate + invariant capsule).",
           "dry_run": false,
           "input_schema": {
@@ -2282,6 +2343,19 @@
       "legacy_path": "scripts/court_session_closeout.py",
       "public": true,
       "receipt_schema": "court.session_closeout.receipt.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
+      "authority_source": "scripts/services/archive_runtime_task.py",
+      "command": "archive-runtime-task",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/services/archive_runtime_task.py",
+      "id": "shiguan.archive-runtime-task",
+      "legacy_path": "scripts/services/archive_runtime_task.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },
     {

@@ -1371,7 +1371,7 @@ def check_public_create_help_contract() -> None:
             json.dumps(exact_template["conversation_gate"]), encoding="utf-8"
         )
         exact_create = run(
-            "create", "--task-id", "exact-charter", "--title", "exact charter",
+            "create", "--legacy-compatibility", "--task-id", "exact-charter", "--title", "exact charter",
             "--charter", exact_charter, "--work-kind", "audit",
             "--intake-file", str(exact_intake_file), "--format", "json",
         )
@@ -1399,7 +1399,7 @@ def check_public_create_help_contract() -> None:
             if path.is_file()
         }
         wrong_create = run(
-            "create", "--task-id", "wrong-capsule", "--title", "wrong capsule",
+            "create", "--legacy-compatibility", "--task-id", "wrong-capsule", "--title", "wrong capsule",
             "--charter", charter, "--work-kind", "audit", "--intake-file", str(intake_file),
             "--invariant-capsule-file", str(wrong_capsule_file), "--format", "json",
         )
@@ -1412,7 +1412,7 @@ def check_public_create_help_contract() -> None:
         assert wrong_after == wrong_before, "wrong capsule create mutated the runtime ledger"
 
         omitted = run(
-            "create", "--task-id", "omitted-capsule", "--title", "omitted capsule",
+            "create", "--legacy-compatibility", "--task-id", "omitted-capsule", "--title", "omitted capsule",
             "--charter", charter, "--work-kind", "audit", "--intake-file", str(intake_file),
             "--format", "json",
         )

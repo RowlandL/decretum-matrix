@@ -2068,6 +2068,10 @@ def _native_host_receipt_record_fields(
         "native_host_task_id": receipt.get("host_task_id"),
         "native_host_thread_id": receipt.get("host_thread_id"),
         "native_host_instance_id": receipt.get("host_instance_id"),
+        "native_host_identity_kind": receipt.get("host_identity_kind"),
+        "native_trace_issuer_thread_id": receipt.get("trace_issuer_thread_id"),
+        "native_trace_reader_thread_id": receipt.get("trace_reader_thread_id"),
+        "native_trace_session_id": receipt.get("trace_session_id"),
         "native_host_action_id": receipt.get("host_action_id"),
     }
 
@@ -2678,6 +2682,18 @@ def _validate_admission_immutable_event_anchor(
     task: Mapping[str, object],
     admission: Mapping[str, object],
 ) -> None:
+    if isinstance(task.get("case_binding"), dict):
+        from court_case_binding import refresh_case_binding
+        expected_task = deepcopy(task)
+        previous = admission.get("case_binding")
+        roles = set(admission.get("selected_roles") or [])
+        if (isinstance(previous, dict) and previous.get("zhongshu_plan") is None
+                and task.get("state") in {"Pending", "Taizi", "ThreeDepartments"}
+                and roles <= {"zhongshu", "menxia", "shangshu"}):
+            expected_task.pop("zhongshu_plan", None)
+            expected_task["case_reviews"] = {}
+        if previous != refresh_case_binding(expected_task):
+            raise ValueError("case_admission_binding_stale_or_foreign")
     stored = str(admission.get("admission_immutable_anchor_sha256") or "")
     if (
         re.fullmatch(r"[0-9a-f]{64}", stored) is None
@@ -3287,6 +3303,123 @@ def _text_from_args(
     return value
 
 
+def _case_create_selection(args: argparse.Namespace) -> dict[str, str] | None:
+    """Read the opt-in standard-session identity without changing legacy create."""
+
+    session_id = str(getattr(args, "session_id", "") or "").strip()
+    if not session_id:
+        return None
+    authority = str(getattr(args, "authority", "") or "").strip().lower()
+    behavior = str(getattr(args, "behavior", "") or "").strip().lower()
+    if authority not in {"approval", "autonomous", "super"}:
+        raise ValueError("case_create_authority_required")
+    if behavior not in {"serial", "parallel"}:
+        raise ValueError("case_create_behavior_required")
+    return {
+        "session_id": session_id,
+        "authority": authority,
+        "behavior": behavior,
+    }
+
+
+def _case_create_replay(
+    tasks: Mapping[str, dict[str, Any]],
+    selection: Mapping[str, str],
+    *,
+    requested_task_id: str,
+    title: str,
+    charter: str,
+    work_kind: str,
+) -> TransitionResult | None:
+    """Return the one exact standard-session create replay, if present."""
+
+    matches = [
+        task
+        for task in tasks.values()
+        if isinstance(task.get("case_binding"), dict)
+        and task["case_binding"].get("session_id") == selection["session_id"]
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError("case_create_session_binding_ambiguous")
+    task = matches[0]
+    from court_case_binding import validate_task_case_binding
+
+    binding = validate_task_case_binding(task)
+    if binding is None:
+        raise ValueError("case_create_session_binding_missing")
+    if requested_task_id and task.get("task_id") != requested_task_id:
+        raise ValueError("case_create_session_task_conflict")
+    if (
+        task.get("title") != title
+        or task.get("charter") != charter
+        or task.get("work_kind") != work_kind
+        or binding.get("case_execution")
+        != {"authority": selection["authority"], "behavior": selection["behavior"]}
+    ):
+        raise ValueError("case_create_session_replay_conflict")
+    events = [
+        event
+        for event in events_for_task(str(task.get("task_id") or ""), limit=None)
+        if event.get("action") == "create"
+    ]
+    if len(events) != 1:
+        raise ValueError("case_create_replay_event_missing")
+    return TransitionResult(deepcopy(task), deepcopy(events[0]))
+
+
+def _standard_case_decree_operation_id(binding: Mapping[str, object]) -> str:
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            "court.standard_case.decree_open.v1:"
+            + str(binding["session_id"])
+            + ":"
+            + str(binding["task_id"]),
+        )
+    )
+
+
+def _ensure_standard_case_decree(created: TransitionResult) -> TransitionResult:
+    """Run/replay the existing decree operation after the create lock is released."""
+
+    from court_case_binding import validate_task_case_binding
+
+    current_before = load_tasks().get(str(created.task.get("task_id") or ""))
+    if not isinstance(current_before, dict):
+        raise ValueError("case_create_task_missing_before_decree_open")
+    binding = validate_task_case_binding(current_before)
+    if binding is None:
+        return created
+    operation_id = _standard_case_decree_operation_id(binding)
+    operation = (
+        current_before.get("operations", {}).get(operation_id)
+        if isinstance(current_before.get("operations"), dict)
+        else None
+    )
+    if isinstance(operation, dict) and operation.get("status") == "ALLOCATED":
+        recover_decree_open_operation(operation_id)
+    else:
+        decree_open_task(
+            argparse.Namespace(
+                task_id=binding["task_id"],
+                operation_id=operation_id,
+                expected_task_revision=int(current_before["task_revision"]),
+                payload={"lineage_parts": ["court", "standard-session"]},
+                payload_file=None,
+                actor="taizi",
+                evidence="standard session create decree-open",
+                note="standard session create decree-open",
+                killpoint="",
+            )
+        )
+    current = load_tasks().get(str(binding["task_id"]))
+    if not isinstance(current, dict):
+        raise ValueError("case_create_task_missing_after_decree_open")
+    return TransitionResult(current, created.event)
+
+
 def create_task(args: argparse.Namespace) -> TransitionResult:
     gate = require_new_formal_task_gate(
         _json_object_from_args(args, "intake_gate", "intake_file", "formal conversation gate")
@@ -3311,39 +3444,89 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
             "invariant capsule",
         )
     semantic_binding = initial_semantic_binding(charter, invariant_capsule)
+    case_selection = _case_create_selection(args)
+    result: TransitionResult | None = None
     with runtime_lock():
         tasks = load_tasks()
-        task_id = args.task_id or f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{slugify(args.title)}"
-        if task_id in tasks:
-            raise ValueError(f"task already exists: {task_id}")
-        task = normalize_task({
-            "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
-            "task_id": task_id,
-            "title": args.title,
-            "charter": charter,
-            **semantic_binding,
-            "task_revision": 1,
-            "state": "Pending",
-            "owner": args.owner,
-            "report_tier": report_tier,
-            "read_only": read_only_decree(charter),
-            "created_at": now_text(),
-            "updated_at": now_text(),
-            "heartbeat": "created",
-            "last_evidence": args.evidence,
-            "work_kind": work_kind,
-            "conversation_gate": gate,
-            "agent_runtime": default_agent_runtime(),
-            "stop_condition": "",
-            "unsafe_remaining": "",
-            "evidence_preserved": "",
-            "agents": {},
-        })
-        tasks[task_id] = task
-        write_tasks(tasks)
-        event = make_event(task, "create", "", "Pending", args.owner, args.evidence, args.note)
-        append_event(event)
-    return TransitionResult(task, event)
+        if case_selection is not None:
+            replay = _case_create_replay(
+                tasks,
+                case_selection,
+                requested_task_id=str(args.task_id or ""),
+                title=args.title,
+                charter=charter,
+                work_kind=work_kind,
+            )
+            if replay is not None:
+                result = replay
+        if result is None:
+            task_id = args.task_id or f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{slugify(args.title)}"
+            if task_id in tasks:
+                raise ValueError(f"task already exists: {task_id}")
+            session_allocation: dict[str, object] | None = None
+            if case_selection is not None:
+                from court_session_numbering import domain_court_code_issue
+
+                issued = domain_court_code_issue(case_selection["session_id"], args.title)
+                if issued.get("ok") is not True:
+                    raise ValueError("case_create_allocation_failed")
+                session_allocation = dict(issued)
+            task = normalize_task({
+                "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
+                "task_id": task_id,
+                "title": args.title,
+                "charter": charter,
+                **semantic_binding,
+                "task_revision": 1,
+                "state": "Pending",
+                "owner": args.owner,
+                "report_tier": report_tier,
+                "read_only": read_only_decree(charter),
+                "created_at": now_text(),
+                "updated_at": now_text(),
+                "heartbeat": "created",
+                "last_evidence": args.evidence,
+                "work_kind": work_kind,
+                "conversation_gate": gate,
+                "agent_runtime": default_agent_runtime(),
+                "stop_condition": "",
+                "unsafe_remaining": "",
+                "evidence_preserved": "",
+                "agents": {},
+                **(
+                    {
+                        "session_id": case_selection["session_id"],
+                        "court_code": str(session_allocation["court_code"]),
+                        "case_execution": {
+                            "authority": case_selection["authority"],
+                            "behavior": case_selection["behavior"],
+                        },
+                    }
+                    if case_selection is not None and session_allocation is not None
+                    else {}
+                ),
+            })
+            if session_allocation is not None:
+                from court_case_binding import build_case_binding
+                from court_plan_artifacts import bootstrap_artifact
+
+                task["case_bootstrap"] = bootstrap_artifact(task)
+                task["case_binding"] = build_case_binding(task, session_allocation)
+            tasks[task_id] = task
+            write_tasks(tasks)
+            event = make_event(task, "create", "", "Pending", args.owner, args.evidence, args.note)
+            if session_allocation is not None:
+                event.update(
+                session_id=task["session_id"],
+                court_code=task["court_code"],
+                case_identity_sha256=task["case_binding"]["case_identity_sha256"],
+                case_binding_sha256=task["case_binding"]["binding_sha256"],
+                )
+            append_event(event)
+            result = TransitionResult(task, event)
+    if result is None:
+        raise ValueError("case_create_result_missing")
+    return _ensure_standard_case_decree(result) if case_selection is not None else result
 
 
 RECHARTERABLE_STATES = STATES - {"Done", "Cancelled", "Rejected"}
@@ -3659,6 +3842,7 @@ def _validate_archive_producer_residual_gaps(
 
 
 def _record_shiguan_preconditions(task: dict[str, object]) -> dict[str, object]:
+    _require_case_reviewed(task)
     require_semantic_mutation_binding(task)
     if str(task.get("state") or "") != "MenxiaReview":
         raise ValueError("record_shiguan_requires_menxia_review")
@@ -3711,13 +3895,34 @@ def record_shiguan_preflight(args: argparse.Namespace) -> dict[str, object]:
         if str(task.get("charter_sha256") or "").lower() != expected_sha256:
             raise ValueError("stale_charter_sha256")
         binding = _record_shiguan_preconditions(task)
-        return {
+        result: dict[str, object] = {
             "task_id": task["task_id"],
             "charter_revision": task["charter_revision"],
             "charter_sha256": task["charter_sha256"],
             "assessment_sha256": binding["assessment_sha256"],
             "assessment_gate": binding["gate"],
         }
+        from court_case_binding import validate_case_binding, validate_task_case_binding
+
+        case_binding = validate_task_case_binding(task, require_decree=True)
+        if case_binding is not None:
+            supplied = getattr(args, "case_binding", None)
+            if supplied is None:
+                raise ValueError("record_shiguan_case_binding_missing")
+            supplied_binding = validate_case_binding(
+                supplied, task, require_decree=True
+            )
+            if supplied_binding != case_binding:
+                raise ValueError("record_shiguan_case_binding_foreign")
+            if str(getattr(args, "session_id", "") or "").strip() != case_binding["session_id"]:
+                raise ValueError("record_shiguan_session_mismatch")
+            result.update(
+                session_id=case_binding["session_id"],
+                court_code=case_binding["court_code"],
+                case_identity_sha256=case_binding["case_identity_sha256"],
+                case_binding_sha256=case_binding["binding_sha256"],
+            )
+        return result
 
 
 def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
@@ -3746,6 +3951,35 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
         )
         if str(task.get("charter_sha256") or "").lower() != expected_sha256:
             raise ValueError("stale_charter_sha256")
+        from court_case_binding import validate_case_binding, validate_task_case_binding
+
+        case_binding = validate_task_case_binding(task, require_decree=True)
+        if case_binding is not None:
+            supplied = getattr(args, "case_binding", None)
+            if supplied is None:
+                raise ValueError("record_shiguan_case_binding_missing")
+            supplied_binding = validate_case_binding(
+                supplied, task, require_decree=True
+            )
+            if supplied_binding != case_binding:
+                raise ValueError("record_shiguan_case_binding_foreign")
+            if str(getattr(args, "session_id", "") or "").strip() != case_binding["session_id"]:
+                raise ValueError("record_shiguan_session_mismatch")
+            required_case_receipt = {
+                "task_id": case_binding["task_id"],
+                "session_id": case_binding["session_id"],
+                "court_code": case_binding["court_code"],
+                "charter_revision": case_binding["charter_revision"],
+                "charter_sha256": case_binding["charter_sha256"],
+                "case_binding": case_binding,
+                "case_identity_sha256": case_binding["case_identity_sha256"],
+                "case_binding_sha256": case_binding["binding_sha256"],
+            }
+            if any(
+                producer_receipt.get(field) != expected
+                for field, expected in required_case_receipt.items()
+            ):
+                raise ValueError("record_shiguan_producer_case_binding_mismatch")
         checkpoint = task.get("shiguan_checkpoint")
         if str(task.get("state") or "") == "ShiguanRecorded":
             if not isinstance(checkpoint, dict):
@@ -3769,6 +4003,13 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
         runtime_receipt = _runtime_checkpoint_receipt(
             task, binding, producer_receipt
         )
+        if case_binding is not None:
+            runtime_receipt.update(
+                session_id=case_binding["session_id"],
+                court_code=case_binding["court_code"],
+                case_identity_sha256=case_binding["case_identity_sha256"],
+                case_binding_sha256=case_binding["binding_sha256"],
+            )
         recorded = deepcopy(task)
         recorded["state"] = "ShiguanRecorded"
         recorded["owner"] = args.actor
@@ -3787,6 +4028,15 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
             recorded["shiguan_checkpoint"].update(
                 residual_gaps=deepcopy(runtime_receipt["residual_gaps"]),
                 residual_gaps_sha256=runtime_receipt["residual_gaps_sha256"],
+            )
+        if case_binding is not None:
+            recorded["shiguan_checkpoint"].update(
+                session_id=case_binding["session_id"],
+                court_code=case_binding["court_code"],
+                charter_revision=case_binding["charter_revision"],
+                charter_sha256=case_binding["charter_sha256"],
+                case_identity_sha256=case_binding["case_identity_sha256"],
+                case_binding_sha256=case_binding["binding_sha256"],
             )
         recorded["completion"] = {
             "status": "READY",
@@ -3817,6 +4067,15 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
             outcome_status=recorded["completion"]["outcome_status"],
             residual_gaps_sha256=recorded["completion"]["residual_gaps_sha256"],
         )
+        if case_binding is not None:
+            event.update(
+                session_id=case_binding["session_id"],
+                court_code=case_binding["court_code"],
+                charter_revision=case_binding["charter_revision"],
+                charter_sha256=case_binding["charter_sha256"],
+                case_identity_sha256=case_binding["case_identity_sha256"],
+                case_binding_sha256=case_binding["binding_sha256"],
+            )
         tasks[args.task_id] = recorded
         try:
             write_tasks(tasks)
@@ -4914,6 +5173,22 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
             receipt = operation.get("receipt")
             if not isinstance(receipt, dict):
                 raise ValueError("decree_open_receipt_corrupt")
+            from court_case_binding import validate_task_case_binding
+
+            replay_binding = validate_task_case_binding(task, require_decree=True)
+            if replay_binding is not None and (
+                receipt.get("task_id") != replay_binding["task_id"]
+                or receipt.get("court_code") != replay_binding["court_code"]
+                or receipt.get("session_id") != replay_binding["session_id"]
+                or receipt.get("case_identity_sha256")
+                != replay_binding["case_identity_sha256"]
+                or re.fullmatch(
+                    r"[0-9a-fA-F]{64}",
+                    str(receipt.get("case_binding_sha256") or ""),
+                )
+                is None
+            ):
+                raise ValueError("case_binding_decree_receipt_mismatch")
             _ensure_decree_open_event(task, operation)
             write_journal(
                 runtime_root(),
@@ -4934,6 +5209,9 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
         require_semantic_mutation_binding(task)
+        from court_case_binding import validate_task_case_binding
+
+        case_binding = validate_task_case_binding(task)
         try:
             current_revision = int(task.get("task_revision") or 1)
         except (TypeError, ValueError) as exc:
@@ -4942,9 +5220,22 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
             raise ValueError("expected_task_revision_conflict")
         created_at = now_text()
         date_key = created_at[:10].replace("-", "")
-        daily_sequence = _decree_daily_sequence(tasks, date_key)
+        if case_binding is not None:
+            from court_session_numbering import resolve_session_allocation
+
+            allocation = resolve_session_allocation(case_binding["session_id"], date_key)
+            if not isinstance(allocation, dict):
+                raise ValueError("case_binding_allocation_missing")
+            case_binding = validate_task_case_binding(task, allocation=allocation)
+            if case_binding is None:
+                raise ValueError("case_binding_missing")
+            daily_sequence = allocation["daily_sequence"]
+            main_court_code = allocation["court_code"]
+            date_key = allocation["date"]
+        else:
+            daily_sequence = _decree_daily_sequence(tasks, date_key)
+            main_court_code = f"CCR-{date_key}-{daily_sequence:04d}"
         next_revision = current_revision + 1
-        main_court_code = f"CCR-{date_key}-{daily_sequence:04d}"
         raw_lineage_parts = payload.get("lineage_parts")
         if raw_lineage_parts is None:
             raw_lineage_parts = ["court", "decree"]
@@ -4992,6 +5283,14 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
             "status": "DEGREE_OPEN_COMMITTED",
             "created_at": created_at,
         }
+        if case_binding is not None:
+            receipt.update(
+                session_id=case_binding["session_id"],
+                charter_revision=case_binding["charter_revision"],
+                charter_sha256=case_binding["charter_sha256"],
+                case_identity_sha256=case_binding["case_identity_sha256"],
+                case_binding_sha256=case_binding["binding_sha256"],
+            )
         operations = task.setdefault("operations", {})
         if not isinstance(operations, dict):
             raise ValueError("task_operation_ledger_corrupt")
@@ -5616,6 +5915,8 @@ def revise_charter_record(
             revised.get("semantic_dispatch_attempts")
         ),
         "task_point_capsules": deepcopy(revised.get("task_point_capsules")),
+        "zhongshu_plan": deepcopy(revised.get("zhongshu_plan")),
+        "case_reviews": deepcopy(revised.get("case_reviews")),
     }
     invalidations = list(revised.get("semantic_invalidations") or [])
     invalidations.append(invalidation_snapshot)
@@ -5763,6 +6064,13 @@ def revise_charter_record(
     )
     revised["semantic_state_history"] = state_history
     revised["semantic_state"] = "REVERIFY"
+    if isinstance(revised.get("case_binding"), dict):
+        from court_case_binding import refresh_case_binding
+        from court_plan_artifacts import bootstrap_artifact
+        revised.pop("zhongshu_plan", None)
+        revised["case_reviews"] = {}
+        revised["case_bootstrap"] = bootstrap_artifact(revised)
+        revised["case_binding"] = refresh_case_binding(revised)
     return revised
 
 
@@ -6032,6 +6340,7 @@ def semantic_checkpoint_task(args: argparse.Namespace) -> TransitionResult:
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
         require_semantic_mutation_binding(task)
+        _require_case_semantic_context(task, context)
         receipt_sequence = len(_semantic_receipt_history(task)) + 1
         receipt = build_semantic_receipt(
             task,
@@ -6091,6 +6400,7 @@ def semantic_verify_task(args: argparse.Namespace) -> TransitionResult:
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
         require_semantic_mutation_binding(task)
+        _require_case_semantic_context(task, context)
         if task.get("semantic_state") not in {"VERIFIED", "DISPATCHABLE"}:
             raise ValueError("semantic_checkpoint_not_verified")
         checkpoint_receipt = _current_checkpoint_receipt(task)
@@ -6715,6 +7025,8 @@ def apply_transition(
         to_state = args.to_state
         if to_state not in STATES:
             raise ValueError(f"unknown state: {to_state}")
+        if to_state in {"ThreeDepartmentsPetition", "TaiziReply", "ShangshuDispatch", "SixMinistries", "Workshops", "MenxiaReview", "ShiguanRecorded", "Done"}:
+            _require_case_reviewed(task)
         validate_runtime_gate(task, from_state, to_state, args.evidence, control_context)
         actor = args.actor
         if actor not in OFFICES:
@@ -6947,6 +7259,20 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         result["admission_binding_sha256s"] = {}
         if result.get("allowed") is not True:
             return result
+        if isinstance(task.get("case_binding"), dict):
+            from court_case_binding import refresh_case_binding
+            from court_plan_artifacts import require_reviewed_plan
+            _require_case_semantic_context(task, task.get("semantic_receipt", {}))
+            selected_roles = set(result.get("selected_roles") or [])
+            consultation = selected_roles <= {"zhongshu", "menxia", "shangshu"}
+            if not consultation:
+                plan = require_reviewed_plan(task)
+                if task.get("state") not in {"ShangshuDispatch", "SixMinistries", "Workshops"}:
+                    raise ValueError("case_ministry_dispatch_before_taizi_reply")
+                planned_roles = {step["role"] for step in plan["document"]["steps"]}
+                if not selected_roles <= planned_roles:
+                    raise ValueError("case_dispatch_roles_outside_reviewed_plan")
+            result["case_binding"] = refresh_case_binding(task)
         _validate_admission_capsule_write_scope(task, result.get("selected_bindings"))
         if semantic_expectations is not None:
             if attempt is None or dispatch_uid is None:
@@ -7079,6 +7405,8 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 ),
             )
         }
+        if "case_binding" in result:
+            admission_record["case_binding"] = deepcopy(result["case_binding"])
         anchor_sha256 = _admission_immutable_anchor_sha256(admission_record)
         admission_record["admission_immutable_anchor_sha256"] = anchor_sha256
         result["admission_immutable_anchor_sha256"] = anchor_sha256
@@ -9251,6 +9579,590 @@ def agent_close(args: argparse.Namespace) -> TransitionResult:
     return agent_event(args, "agent_close", "closed", "evidence")
 
 
+def _native_bridge_selector(
+    args: argparse.Namespace,
+    *,
+    capture: bool,
+) -> dict[str, str]:
+    from commands.court_native_bridge import (
+        normalize_native_capture_input,
+        normalize_native_request_input,
+    )
+
+    raw = {
+        field: getattr(args, field, None)
+        for field in ("schema", "task_id", "wave_id", "instance_id")
+    }
+    return (
+        normalize_native_capture_input(raw)
+        if capture
+        else normalize_native_request_input(raw)
+    )
+
+
+def _native_bridge_task_binding(
+    selector: Mapping[str, str],
+) -> tuple[dict[str, Any], dict[str, object], dict[str, object]]:
+    task_id = selector["task_id"]
+    wave_id = selector["wave_id"]
+    instance_id = selector["instance_id"]
+    task = load_tasks().get(task_id)
+    if not isinstance(task, dict):
+        raise ValueError(f"task not found: {task_id}")
+    require_semantic_mutation_binding(task)
+    admissions = task.get("agent_admissions")
+    admission = admissions.get(wave_id) if isinstance(admissions, Mapping) else None
+    if not isinstance(admission, dict) or admission.get("allowed") is not True:
+        raise ValueError("native_bridge:allowed_admission_required")
+    _validate_admission_immutable_event_anchor(task, admission)
+    selected = admission.get("selected_bindings")
+    if not isinstance(selected, (list, tuple)):
+        raise ValueError("native_bridge:admission_bindings_invalid")
+    matches = [
+        dict(binding)
+        for binding in selected
+        if isinstance(binding, Mapping)
+        and str(binding.get("instance_id") or "").strip().lower() == instance_id
+    ]
+    if len(matches) != 1:
+        raise ValueError("native_bridge:admitted_instance_not_unique")
+    binding = matches[0]
+    if str(binding.get("role") or "").strip().lower() not in OFFICES:
+        raise ValueError("native_bridge:binding_role_invalid")
+    if not str(binding.get("direct_superior") or "").strip():
+        raise ValueError("native_bridge:binding_superior_missing")
+    return task, admission, binding
+
+
+def _native_bridge_identity_context(
+    task: Mapping[str, object], binding: Mapping[str, object],
+) -> dict[str, object] | None:
+    """Trusted ancestry for capture, not a claim about the CLI caller's role.
+
+    A read-only request may be prepared before its caller identity is known.
+    Only the actual host-issued child path proves who spawned it. Shared
+    session IDs cannot prove a child thread or a followup sender.
+    """
+    from commands.court_native_bridge import current_host_identity
+    from court_case_binding import validate_case_binding
+
+    identity = current_host_identity()
+    case = task.get("case_binding")
+    if not isinstance(case, Mapping):
+        return None
+    validate_case_binding(case, task)
+    if str(case.get("session_id") or "").lower() != identity["session_id"]:
+        raise ValueError("native_bridge:case_root_binding_invalid")
+    superior = binding.get("direct_superior")
+    parents = []
+    if superior == "taizi":
+        parents.append({"path": "/root", "kind": "taizi_root"})
+    elif superior == "shangshu":
+        for record in task.get("agents", {}).values():
+            if (isinstance(record, Mapping) and record.get("role") == "shangshu"
+                    and record.get("direct_superior") == "taizi"
+                    and record.get("native_host_identity_kind") == "canonical_agent_path"
+                    and record.get("native_trace_session_id") == identity["session_id"]
+                    and record.get("semantic_epoch") == task.get("semantic_epoch")
+                    and record.get("charter_sha256") == task.get("charter_sha256")
+                    and record.get("preload_status") == "PASSED"
+                    and record.get("office_execution_ready") is True
+                    and record.get("status") not in TERMINAL_AGENT_STATUSES
+                    and record.get("release_status") not in {"closed", "cancel_requested"}
+                    and not any(str(record.get(field) or "").upper().startswith("INVALIDATED")
+                                for field in ("status", "final_status", "assignment_status"))
+                    and not record.get("invalidated_at")
+                    and record.get("assignment_invalidated_by_semantic_resume") is not True
+                    and not record.get("assignment_invalidated_by_charter_revision")
+                    and record.get("native_host_action_receipt_id")):
+                parents.append({"path": record.get("native_host_instance_id"),
+                                "kind": "same_case_ready_shangshu"})
+    return {"case_session_id": identity["session_id"],
+            "semantic_epoch": task.get("semantic_epoch"),
+            "trusted_parent_paths": parents}
+
+
+def _native_bridge_caller_guard(
+    task: Mapping[str, object],
+    binding: Mapping[str, object],
+) -> None:
+    from commands.court_native_bridge import current_host_identity
+
+    identity = current_host_identity()
+    current_thread = identity["thread_id"]
+    current_session = identity["session_id"]
+    context = _native_bridge_identity_context(task, binding)
+    if context and context["trusted_parent_paths"]:
+        # No mutation is admitted here. Capture must verify exact host ancestry.
+        return
+    case_binding = task.get("case_binding")
+    if isinstance(case_binding, Mapping):
+        try:
+            from court_case_binding import validate_case_binding
+
+            validate_case_binding(case_binding, task)
+        except (ImportError, TypeError, ValueError) as exc:
+            raise ValueError("native_bridge:case_root_binding_invalid") from exc
+        if (
+            str(case_binding.get("session_id") or "").strip().lower()
+            == current_session
+            and str(binding.get("direct_superior") or "").strip().lower()
+            == "taizi"
+        ):
+            return
+
+    expected_role = str(binding.get("direct_superior") or "").strip().lower()
+    agents = task.get("agents")
+    if not isinstance(agents, Mapping):
+        raise ValueError("native_bridge:caller_native_actor_required")
+    for record in agents.values():
+        if not isinstance(record, Mapping):
+            continue
+        if str(record.get("role") or "").strip().lower() != expected_role:
+            continue
+        if record.get("native_host_identity_kind") == "canonical_agent_path":
+            continue
+        if str(record.get("native_host_thread_id") or "").strip() != current_thread:
+            continue
+        if not str(record.get("native_host_action_receipt_id") or "").strip():
+            continue
+        if record.get("preload_status") != "PASSED" or record.get(
+            "office_execution_ready"
+        ) is not True:
+            continue
+        if str(record.get("status") or "").strip().lower() in TERMINAL_AGENT_STATUSES:
+            continue
+        return
+    raise ValueError("native_bridge:caller_native_actor_required")
+
+
+def _native_bridge_target_record(
+    task: Mapping[str, object],
+    binding: Mapping[str, object],
+) -> dict[str, object] | None:
+    agents = task.get("agents")
+    if not isinstance(agents, Mapping):
+        return None
+    instance_id = str(binding.get("instance_id") or "").strip().lower()
+    role = str(binding.get("role") or "").strip().lower()
+    matches = [
+        dict(record)
+        for record in agents.values()
+        if isinstance(record, Mapping)
+        and str(record.get("office_instance_id") or "").strip().lower()
+        == instance_id
+        and str(record.get("role") or "").strip().lower() == role
+    ]
+    if len(matches) > 1:
+        raise ValueError("native_bridge:target_native_actor_ambiguous")
+    return matches[0] if matches else None
+
+
+def _native_bridge_request(
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+) -> dict[str, object]:
+    from court_native_host_dispatch import normalize_native_host_dispatch_request
+
+    preload = binding.get("preload_hashes")
+    model_inputs = admission.get("model_route_inputs")
+    admission_event_id = _admission_event_id(task, admission)
+    if (
+        not isinstance(preload, Mapping)
+        or not isinstance(model_inputs, Mapping)
+        or not admission_event_id
+    ):
+        raise ValueError("native_bridge:admission_facts_incomplete")
+    assignment = require_text(model_inputs.get("assignment"), "assignment")
+    read_scope = binding.get("read_scope") or binding.get("write_set")
+    write_set = binding.get("write_set") or binding.get("read_scope")
+    if not isinstance(read_scope, (list, tuple)) or not isinstance(
+        write_set, (list, tuple)
+    ):
+        raise ValueError("native_bridge:binding_scope_invalid")
+    request: dict[str, object] = {
+        "schema": "court.native_host_dispatch_request.v1",
+        "task_id": task.get("task_id"),
+        "wave_id": admission.get("wave_id"),
+        "dispatch_uid": admission.get("dispatch_uid"),
+        "attempt": admission.get("attempt"),
+        "role": binding.get("role"),
+        "instance_id": binding.get("instance_id"),
+        "direct_superior": binding.get("direct_superior"),
+        "semantic_epoch": admission.get("semantic_epoch"),
+        "charter_sha256": admission.get("charter_sha256"),
+        "invariant_capsule_sha256": admission.get("invariant_capsule_sha256"),
+        "lease_id": binding.get("lease_id"),
+        "assignment": assignment,
+        "duty_scope": list(read_scope),
+        "write_set": list(write_set),
+        "role_ack": {
+            "role": binding.get("role"),
+            "direct_superior": binding.get("direct_superior"),
+            "profile_sha256": preload.get("profile_hash"),
+            "dossier_sha256": preload.get("dossier_hash"),
+        },
+        "admission_anchor": {
+            "schema": "court.agent.admission_receipt.v1",
+            "receipt_id": admission_event_id,
+            "receipt_sha256": admission.get("admission_immutable_anchor_sha256"),
+        },
+        "compatible_live_instances": [],
+    }
+    target = _native_bridge_target_record(task, binding)
+    if target is not None:
+        if target.get("native_host_identity_kind") == "canonical_agent_path":
+            raise ValueError("native_bridge:canonical_followup_issuer_unavailable")
+        if str(target.get("status") or "").strip().lower() in TERMINAL_AGENT_STATUSES:
+            raise ValueError("native_bridge:target_native_actor_terminal")
+        raw_ratio = target.get("native_host_context_utilization")
+        if isinstance(raw_ratio, bool) or not isinstance(raw_ratio, (int, float)):
+            raise ValueError("native_bridge:reuse_context_unavailable")
+        host_fields = {
+            "host_task_id": target.get("native_host_task_id"),
+            "host_thread_id": target.get("native_host_thread_id"),
+            "host_instance_id": target.get("native_host_instance_id"),
+        }
+        if not all(isinstance(value, str) and value.strip() for value in host_fields.values()):
+            raise ValueError("native_bridge:target_host_identity_missing")
+        request["compatible_live_instances"] = [
+            {
+                **host_fields,
+                "task_id": request["task_id"],
+                "role": request["role"],
+                "direct_superior": request["direct_superior"],
+                "assignment": request["assignment"],
+                "duty_scope": deepcopy(request["duty_scope"]),
+                "semantic_receipt": {
+                    "semantic_epoch": request["semantic_epoch"],
+                    "charter_sha256": request["charter_sha256"],
+                    "invariant_capsule_sha256": request[
+                        "invariant_capsule_sha256"
+                    ],
+                },
+                "lease_id": request["lease_id"],
+                "write_set": deepcopy(request["write_set"]),
+                "role_ack": deepcopy(request["role_ack"]),
+                "context_utilization": float(raw_ratio),
+                "status": str(target.get("status") or "").strip().lower(),
+            }
+        ]
+    return normalize_native_host_dispatch_request(request)
+
+
+def _native_bridge_host_message_inputs(
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    case_binding = task.get("case_binding")
+    if not isinstance(case_binding, Mapping):
+        raise ValueError("native_bridge:case_execution_required")
+    execution = case_binding.get("case_execution")
+    if not isinstance(execution, Mapping):
+        raise ValueError("native_bridge:case_execution_required")
+    normalized_execution = {
+        "authority": str(execution.get("authority") or "").strip().lower(),
+        "behavior": str(execution.get("behavior") or "").strip().lower(),
+    }
+    if normalized_execution != {"authority": "super", "behavior": "parallel"}:
+        raise ValueError("native_bridge:native_topology_required")
+    return normalized_execution, public_dispatch_context_packet(
+        task, str(admission.get("wave_id") or "")
+    )
+
+
+def _native_bridge_bound_agent_type(
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+) -> str | None:
+    """Use the admitted model-route spawn contract; never accept free overrides."""
+
+    instance_id = str(binding.get("instance_id") or "").strip().lower()
+    role = str(binding.get("role") or "").strip().lower()
+    selected_protocol = str(admission.get("selected_protocol") or "").strip().lower()
+    routes = admission.get("model_routes")
+    route = routes.get(instance_id) if isinstance(routes, Mapping) else None
+    if not isinstance(route, Mapping):
+        raise ValueError("native_bridge:model_route_binding_missing")
+    if (
+        str(route.get("transport") or "").strip().lower() != "codex"
+        or str(route.get("protocol") or "").strip().lower() != selected_protocol
+        or str(route.get("role") or "").strip().lower() != role
+    ):
+        raise ValueError("native_bridge:model_route_binding_mismatch")
+    metadata = route.get("spawn_metadata")
+    if not isinstance(metadata, Mapping):
+        raise ValueError("native_bridge:spawn_metadata_missing")
+    if any(field in metadata for field in ("model", "reasoning_effort")):
+        raise ValueError("native_bridge:model_override_rejected")
+    if metadata.get("fork_turns") != "none":
+        raise ValueError("native_bridge:spawn_fork_turns_mismatch")
+    value = metadata.get("agent_type")
+    if selected_protocol == "v1":
+        if not isinstance(value, str) or value.strip().lower() != role:
+            raise ValueError("native_bridge:bound_agent_type_missing_or_mismatch")
+        return role
+    if selected_protocol == "v2":
+        if value is not None:
+            raise ValueError("native_bridge:reserved_agent_type_override_rejected")
+        return None
+    raise ValueError("native_bridge:selected_protocol_invalid")
+
+
+NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES = 20 * 1024
+
+
+def _native_bridge_preload_input_budget(
+    binding: Mapping[str, object],
+    host_message: str,
+) -> dict[str, object]:
+    """Measure one selected office's verified preload plus compact host input."""
+
+    from court_office_bootstrap import ROOT as office_root
+
+    role = require_text(binding.get("role"), "role").strip().lower()
+    carrier_kind = str(binding.get("office_instance_kind") or "child_agent").strip()
+    if carrier_kind != "child_agent":
+        raise ValueError("native_bridge:ordinary_child_carrier_required")
+    manifest = build_preload_manifest(role, carrier_kind=carrier_kind)
+    expected_hashes = {
+        "profile_hash": manifest.profile_hash,
+        "dossier_hash": manifest.dossier_hash,
+        "court_skill_hash": manifest.court_skill_hash,
+    }
+    if binding.get("preload_hashes") != expected_hashes:
+        raise ValueError("native_bridge:preload_hash_binding_mismatch")
+    child_profile = binding.get("child_profile")
+    if isinstance(child_profile, Mapping) and (
+        child_profile.get("profile_sha256") != manifest.profile_hash
+        or child_profile.get("dossier_sha256") != manifest.dossier_hash
+        or child_profile.get("skill_sha256") != manifest.court_skill_hash
+    ):
+        raise ValueError("native_bridge:child_profile_preload_mismatch")
+    root = Path(office_root).resolve()
+    relative_paths = {
+        "profile_bytes": manifest.profile_source,
+        "dossier_bytes": manifest.dossier_path,
+        "court_skill_bytes": manifest.court_skill_path,
+    }
+    measured: dict[str, int] = {}
+    for label, locator in relative_paths.items():
+        source = root / Path(locator)
+        if source.is_symlink() or not source.is_file():
+            raise ValueError("native_bridge:preload_source_invalid")
+        candidate = source.resolve(strict=True)
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("native_bridge:preload_path_outside_root") from exc
+        if not candidate.is_file():
+            raise ValueError("native_bridge:preload_source_invalid")
+        measured[label] = candidate.stat().st_size
+    host_input_bytes = len(host_message.encode("utf-8"))
+    preload_bytes = sum(measured.values())
+    total_bytes = preload_bytes + host_input_bytes
+    if total_bytes > NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES:
+        raise ValueError("native_bridge:entry_preload_budget_exceeded")
+    return {
+        "schema": "court.native_host_input_budget.v1",
+        "limit_bytes": NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES,
+        **measured,
+        "preload_bytes": preload_bytes,
+        "host_input_bytes": host_input_bytes,
+        "total_bytes": total_bytes,
+        "status": "within_budget",
+    }
+
+
+def _native_bridge_request_result(
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+    request: Mapping[str, object],
+) -> dict[str, object]:
+    from commands.court_native_bridge import native_request_result
+
+    execution, p00_context = _native_bridge_host_message_inputs(task, admission)
+    agent_type = _native_bridge_bound_agent_type(admission, binding)
+    result = native_request_result(
+        request,
+        execution=execution,
+        p00_context=p00_context,
+        agent_type=agent_type,
+    )
+    message = result.get("host_message")
+    if not isinstance(message, str):
+        raise ValueError("native_bridge:host_message_missing")
+    result["host_input_budget"] = _native_bridge_preload_input_budget(
+        binding,
+        message,
+    )
+    result["bound_agent_type"] = agent_type
+    return result
+
+
+def _native_bridge_model_inputs(admission: Mapping[str, object]) -> dict[str, object]:
+    value = admission.get("model_route_inputs")
+    if not isinstance(value, Mapping):
+        raise ValueError("native_bridge:model_route_inputs_missing")
+    required = ("assignment", "task_focus", "complexity", "risk", "ambiguity", "transport")
+    result = {field: value.get(field) for field in required}
+    if any(not isinstance(item, str) or not item.strip() for item in result.values()):
+        raise ValueError("native_bridge:model_route_inputs_invalid")
+    return result
+
+
+def _native_bridge_start_request(
+    task: Mapping[str, object],
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+    request: Mapping[str, object],
+    capture: Mapping[str, object],
+) -> dict[str, object]:
+    request_sha256 = require_text(capture.get("request_sha256"), "request-sha256")
+    role = require_text(binding.get("role"), "role").strip().lower()
+    instance_id = require_text(binding.get("instance_id"), "instance-id").strip().lower()
+    inputs = _native_bridge_model_inputs(admission)
+    agent_id = f"{role}-native-{request_sha256[:16]}"
+    collaboration_task_name = f"{role.replace('-', '_')}_native_{request_sha256[:16]}"
+    office_request = {
+        "task_id": task.get("task_id"),
+        "semantic_epoch": admission.get("semantic_epoch"),
+        "charter_sha256": admission.get("charter_sha256"),
+        "invariant_capsule_sha256": admission.get("invariant_capsule_sha256"),
+        "checkpoint_id": admission.get("checkpoint_id"),
+        "dispatch_uid": admission.get("dispatch_uid"),
+        "attempt": admission.get("attempt"),
+        "role": role,
+        "collaboration_task_name": collaboration_task_name,
+        "requires_gongjiang": False,
+        "skill_requirements_json": "[]",
+        "scope": inputs["assignment"],
+        "task_focus": inputs["task_focus"],
+        "complexity": inputs["complexity"],
+        "risk": inputs["risk"],
+        "ambiguity": inputs["ambiguity"],
+        "transport": inputs["transport"],
+        "wave_id": admission.get("wave_id"),
+        "dispatch_requested_at": admission.get("dispatch_requested_at"),
+        "fork_turns": "none",
+        "context_tokens": admission.get("context_tokens", 0),
+        "dispatch_context_packet": public_dispatch_context_packet(
+            task, str(admission.get("wave_id") or "")
+        ),
+        "context_budget_pool": public_context_budget_pool(
+            task, str(admission.get("wave_id") or "")
+        ),
+        "context_result_mode": admission.get(
+            "context_result_mode", "bounded_structured_receipt"
+        ),
+        "context_tool_output_mode": admission.get("context_tool_output_mode", "pointer"),
+        "context_override_source": admission.get("context_override_source"),
+        "system_memory_percent": admission.get("context_system_memory_percent", 0.0),
+        "deadline_seconds": admission.get("deadline_seconds", AGENT_DEFAULT_DEADLINE_SECONDS),
+        "tool_call_budget": admission.get("tool_call_budget", AGENT_DEFAULT_TOOL_CALL_BUDGET),
+        "office_instance_kind": "child_agent",
+        "office_instance_id": instance_id,
+        "carrier_proof": {"agent_id": agent_id},
+        "native_host_action_receipt": deepcopy(capture["native_host_action_receipt"]),
+        "actor": binding.get("direct_superior"),
+        "evidence": f"native_host_capture request_sha256={request_sha256}",
+        "note": "current-session native host capture",
+    }
+    try:
+        _revalidate_context_economy_start(
+            dict(task),
+            dict(admission),
+            dict(binding),
+            argparse.Namespace(**office_request),
+            wave_id=str(admission.get("wave_id") or ""),
+        )
+    except ValueError as exc:
+        raise ValueError("native_bridge:office_start_context_reconstruction_failed") from exc
+    return office_request
+
+
+def _native_bridge_followup_request(
+    task: Mapping[str, object],
+    binding: Mapping[str, object],
+    request: Mapping[str, object],
+    capture: Mapping[str, object],
+) -> dict[str, object]:
+    record = _native_bridge_target_record(task, binding)
+    if not isinstance(record, Mapping):
+        raise ValueError("native_bridge:followup_target_missing")
+    carrier_proof = record.get("carrier_proof")
+    if not isinstance(carrier_proof, Mapping):
+        raise ValueError("native_bridge:followup_carrier_proof_missing")
+    return {
+        "task_id": task.get("task_id"),
+        "semantic_epoch": record.get("semantic_epoch"),
+        "charter_sha256": record.get("charter_sha256"),
+        "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
+        "checkpoint_id": record.get("checkpoint_id"),
+        "dispatch_uid": record.get("dispatch_uid"),
+        "attempt": record.get("attempt"),
+        "role": binding.get("role"),
+        "office_instance_kind": record.get("office_instance_kind"),
+        "office_instance_id": record.get("office_instance_id"),
+        "carrier_proof": deepcopy(dict(carrier_proof)),
+        "assignment": request.get("assignment"),
+        "duty_scope": deepcopy(request.get("duty_scope")),
+        "native_host_action_receipt": deepcopy(capture["native_host_action_receipt"]),
+        "actor": binding.get("direct_superior"),
+        "evidence": "native_host_capture request_sha256="
+        + require_text(capture.get("request_sha256"), "request-sha256"),
+        "note": "current-session native host capture",
+    }
+
+
+def office_native_request(args: argparse.Namespace) -> dict[str, object]:
+    """Build a host-native request from admitted runtime facts without mutation."""
+
+    selector = _native_bridge_selector(args, capture=False)
+    task, admission, binding = _native_bridge_task_binding(selector)
+    _native_bridge_caller_guard(task, binding)
+    request = _native_bridge_request(task, admission, binding)
+    return _native_bridge_request_result(task, admission, binding, request)
+
+
+def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
+    """Derive one existing office lifecycle request from current-session evidence."""
+
+    from commands.court_native_bridge import capture_current_native_delivery
+
+    selector = _native_bridge_selector(args, capture=True)
+    task, admission, binding = _native_bridge_task_binding(selector)
+    _native_bridge_caller_guard(task, binding)
+    request = _native_bridge_request(task, admission, binding)
+    native_request = _native_bridge_request_result(task, admission, binding, request)
+    execution, p00_context = _native_bridge_host_message_inputs(task, admission)
+    captured = capture_current_native_delivery(
+        request,
+        execution=execution,
+        p00_context=p00_context,
+        agent_type=native_request.get("bound_agent_type"),
+        identity_context=_native_bridge_identity_context(task, binding),
+    )
+    command = captured.get("office_command")
+    if command == "start":
+        office_request = _native_bridge_start_request(
+            task, admission, binding, request, captured
+        )
+    elif command == "followup":
+        office_request = _native_bridge_followup_request(
+            task, binding, request, captured
+        )
+    else:
+        raise ValueError("native_bridge:office_command_invalid")
+    result = dict(captured)
+    result["host_message"] = native_request["host_message"]
+    result["host_input_budget"] = native_request["host_input_budget"]
+    result["office_request"] = office_request
+    return result
+
+
 def office_start(args: argparse.Namespace) -> dict[str, object]:
     _prepare_office_start_args(args)
     result = agent_start(args)
@@ -9622,6 +10534,7 @@ def probe_payload() -> dict[str, Any]:
             "resume",
             "cancel",
             "office admit|start|followup|preload-ack|report|finish|close",
+            "office native-request|native-capture",
             "agent-admit",
             "agent-spawn",
             "agent-start",
@@ -9706,6 +10619,142 @@ def probe_payload() -> dict[str, Any]:
     }
 
 
+def _case_plan_view(task: Mapping[str, Any]) -> dict[str, object]:
+    from court_plan_artifacts import current_plan, require_reviewed_plan
+    from court_case_binding import refresh_case_binding
+    if not isinstance(task.get("case_binding"), dict):
+        return {"schema": "court.workflow_status.v1", "ok": True, "task_id": task.get("task_id"),
+                "state": task.get("state"), "case_status": "LEGACY_UNBOUND", "standard_workflow_ready": False}
+    problems: list[str] = []
+    try:
+        binding = refresh_case_binding(task)
+    except ValueError as exc:
+        binding = None
+        problems.append(str(exc))
+    try:
+        plan = current_plan(task)
+    except ValueError as exc:
+        plan = None
+        problems.append(str(exc))
+    reviewed = False
+    if plan is not None:
+        try:
+            require_reviewed_plan(task)
+            reviewed = True
+        except ValueError as exc:
+            problems.append(str(exc))
+    return {"schema": "court.workflow_status.v1", "ok": True, "task_id": task.get("task_id"),
+            "state": task.get("state"), "case_status": "BOUND" if binding else "NEEDS_REVIEW", "case_binding": binding,
+            "plan_status": "REVIEWED" if reviewed else "DRAFTED" if plan else "BOOTSTRAP_UNPLANNED",
+            "plan": {k: plan[k] for k in ("schema", "plan_id", "revision", "sha256", "producer")} if plan else None,
+            "case_reviews": deepcopy(task.get("case_reviews", {})), "problems": problems,
+            "next_operations": ["court plan --help", "court semantic-context-template --task-id " + str(task.get("task_id"))],
+            "standard_workflow_ready": reviewed and binding is not None}
+
+
+def _case_semantic_plan(task: Mapping[str, Any]) -> dict[str, object]:
+    from court_plan_artifacts import bootstrap_artifact, current_plan
+    plan = current_plan(task)
+    if plan:
+        return {"status": "DRAFTED", "revision": plan["revision"], "sha256": plan["sha256"], "field": "zhongshu_plan"}
+    bootstrap = task.get("case_bootstrap")
+    if bootstrap != bootstrap_artifact(task):
+        raise ValueError("case_bootstrap_missing_or_stale")
+    return {"status": "BOOTSTRAP_UNPLANNED", "revision": 0, "sha256": bootstrap["sha256"], "field": "case_bootstrap"}
+
+
+def _require_case_semantic_context(task: Mapping[str, Any], context: Mapping[str, Any]) -> None:
+    if not isinstance(task.get("case_binding"), dict):
+        return
+    expected = _case_semantic_plan(task)
+    if context.get("plan_sha256") != expected["sha256"] or context.get("plan_revision") != expected["revision"]:
+        raise ValueError("case_semantic_plan_binding_mismatch")
+
+
+def _require_case_reviewed(task: Mapping[str, Any]) -> None:
+    if isinstance(task.get("case_binding"), dict):
+        from court_plan_artifacts import require_reviewed_plan
+        from court_case_binding import validate_case_binding
+        validate_case_binding(task["case_binding"], task)
+        require_reviewed_plan(task)
+
+
+def workflow_status_payload(task_id: str) -> dict[str, object]:
+    task = load_tasks().get(require_text(task_id, "task-id"))
+    if not isinstance(task, dict):
+        raise ValueError("task not found: " + task_id)
+    return _case_plan_view(task)
+
+
+def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
+    from court_plan_artifacts import submit_plan, record_review
+    from court_case_binding import refresh_case_binding
+    if args.action == "status":
+        return workflow_status_payload(args.task_id)
+    if args.action == "show":
+        from court_plan_artifacts import current_plan
+        task = load_tasks().get(args.task_id)
+        if not isinstance(task, dict):
+            raise ValueError("task not found: " + args.task_id)
+        plan = current_plan(task)
+        return {"schema": "court.plan_artifact_projection.v1", "ok": True,
+                "task_id": args.task_id, "plan": plan,
+                "bootstrap": deepcopy(task.get("case_bootstrap")) if plan is None else None,
+                "storage": {"path": str(tasks_path()), "json_pointer": "/" + args.task_id.replace("~", "~0").replace("/", "~1")}}
+    if args.action == "template":
+        task = load_tasks().get(args.task_id, {})
+        return {"schema": "court.plan_request_template.v1", "task_id": args.task_id,
+                "expected_plan_revision": task.get("zhongshu_plan", {}).get("revision", 0),
+                "document": {"goal": "<goal>", "non_goals": [], "steps": [{"id": "step-1", "role": "gongbu", "action": "<action>"}], "acceptance": ["<acceptance>"], "write_set": []},
+                "producer": {"kind": "host_report", "agent_id": "<actual admitted agent id>", "evidence": "<actual agent_report evidence>"},
+                "review": {"role": "menxia", "decision": "approved", "plan_sha256": "<current plan sha256>"},
+                "notes": ["Template is not a plan or an office reply.", "Shangshu uses decision dispatchable|blocked; Menxia uses approved|rejected.", "serial_inline is allowed only for explicitly selected serial execution."]}
+    request = _json_object_from_args(args, "request", "request_file", "plan request")
+    expected = {"document", "producer", "expected_plan_revision"} if args.action == "submit" else {"role", "decision", "plan_sha256", "producer"}
+    if set(request) != expected:
+        raise ValueError("case_plan_request_fields_invalid")
+    with runtime_lock():
+        tasks = load_tasks()
+        task = tasks.get(args.task_id)
+        if not isinstance(task, dict) or not isinstance(task.get("case_binding"), dict):
+            raise ValueError("case_plan_standard_task_required")
+        require_semantic_mutation_binding(task)
+        if task.get("case_execution", {}).get("authority") not in {"autonomous", "super"}:
+            raise ValueError("case_plan_write_authority_required")
+        history = events_for_task(args.task_id)
+        if args.action == "submit":
+            revision = request["expected_plan_revision"]
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision != task.get("zhongshu_plan", {}).get("revision", 0):
+                raise ValueError("case_plan_revision_conflict")
+        updated = (submit_plan(task, request["document"], request["producer"], history)
+                   if args.action == "submit" else record_review(task, request["role"], request["decision"], request["plan_sha256"], request["producer"], history))
+        updated["case_binding"] = refresh_case_binding(updated)
+        if updated == task:
+            return {"ok": True, "status": "REPLAYED", **_case_plan_view(task)}
+        actor = "zhongshu" if args.action == "submit" else request["role"]
+        evidence = request["producer"]["evidence"]
+        event = make_event(updated, "case_plan_" + args.action, task["state"], task["state"], actor, evidence, "bounded plan artifact")
+        event["plan_sha256"] = updated["zhongshu_plan"]["sha256"]
+        event["case_identity_sha256"] = updated["zhongshu_plan"].get("case_identity_sha256")
+        updated["last_evidence"] = evidence
+        updated["updated_at"] = now_text()
+        originals = {path: path.read_bytes() if path.exists() else None for path in (tasks_path(), events_path())}
+        try:
+            tasks[args.task_id] = updated
+            write_tasks(tasks)
+            append_event(event)
+        except BaseException:
+            for path, payload in originals.items():
+                if (path.read_bytes() if path.exists() else None) == payload:
+                    continue
+                if payload is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_write_text(path, payload.decode("utf-8"))
+            raise
+        return {"ok": True, "status": "COMMITTED", "event": event, **_case_plan_view(updated)}
+
+
 def public_intake_contract_payload() -> dict[str, object]:
     return {
         "schema": "court.runtime.public_contract.v1",
@@ -9714,10 +10763,10 @@ def public_intake_contract_payload() -> dict[str, object]:
         "minimal_formal_task": minimal_formal_task_example(),
         "workflow": [
             {"step": 1, "command": "intake-template --charter <exact UTF-8 charter>"},
-            {"step": 2, "command": "create --charter <same charter> --intake-file <gate.json>"},
+            {"step": 2, "command": "create --task-id <task-id> --session-id <host-session-id> --authority <selected-authority> --behavior <selected-behavior> --title <title> --work-kind <kind> --charter <same charter> --intake-file <gate.json>"},
             {"step": 3, "command": "semantic-context-template --task-id <task-id>"},
-            {"step": 4, "command": "semantic checkpoint --context-file <context.json>"},
-            {"step": 5, "command": "semantic verify --context-file <same context.json>"},
+            {"step": 4, "command": "semantic checkpoint --task-id <task-id> --context-file <context.json> --trigger checkpoint --actor taizi --evidence <evidence>"},
+            {"step": 5, "command": "semantic verify --task-id <task-id> --context-file <same context.json> --trigger verify --actor taizi --evidence <evidence>"},
             {"step": 6, "command": "admission-template --task-id <task-id> ..."},
             {"step": 7, "command": "agent-admit <argv from admission-template>"},
         ],
@@ -9827,7 +10876,7 @@ def public_semantic_context_template_payload(task_id: str) -> dict[str, object]:
     revision = task.get("charter_revision")
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         raise ValueError("charter_revision_invalid")
-    return {
+    result = {
         "schema": "court.semantic.context_template.v1",
         "context": {
             "authority_revision": revision,
@@ -9841,6 +10890,13 @@ def public_semantic_context_template_payload(task_id: str) -> dict[str, object]:
             "shiguan_fingerprint": event_head_sha256,
         },
     }
+    if isinstance(task.get("case_binding"), dict):
+        plan = _case_semantic_plan(task)
+        result["context"].update(plan_revision=plan["revision"], plan_sha256=plan["sha256"])
+        result["plan_status"] = plan["status"]
+        result["plan_storage"] = {"path": str(tasks_path()), "json_pointer": "/" + task_id.replace("~", "~0").replace("/", "~1") + "/" + str(plan["field"])}
+        result["case_binding"] = deepcopy(task["case_binding"])
+    return result
 
 
 def public_semantic_context_validation_payload(value: object) -> dict[str, object]:
@@ -9868,7 +10924,7 @@ def public_dispatch_context_packet(
     if not isinstance(receipt, Mapping):
         raise ValueError("semantic_receipt_missing")
     wave_id = require_text(wave_id, "wave-id")
-    return {
+    result = {
         "schema": "court.semantic.dispatch_context_packet.v1",
         "task_id": task.get("task_id"),
         "sub_id": wave_id,
@@ -9891,6 +10947,16 @@ def public_dispatch_context_packet(
             "semantic_receipt_sha256": receipt.get("receipt_sha256"),
         },
     }
+    if isinstance(task.get("case_binding"), dict):
+        from urllib.parse import quote
+        plan = _case_semantic_plan(task)
+        escaped = quote(str(task["task_id"]), safe="")
+        result["pointers"] = [
+            {"path": f"court-runtime:tasks/{escaped}/charter", "sha256": receipt.get("authority_sha256")},
+            {"path": f"court-runtime:tasks/{escaped}/{plan['field']}", "sha256": plan["sha256"]},
+        ]
+        result["summary"]["text"] = "Official court_code=" + str(task["case_binding"]["court_code"]) + "; resolve task JSON objects through court plan show/workflow-status."
+    return result
 
 
 def public_context_budget_pool(
@@ -10245,6 +11311,8 @@ def office_cli_payload(command: str, value: object) -> dict[str, object]:
 
 OFFICE_CLI_COMMANDS = (
     "admit",
+    "native-request",
+    "native-capture",
     "start",
     "followup",
     "preload-ack",
@@ -10339,6 +11407,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = CourtArgumentParser(description=__doc__)
     parser.add_argument("--format", choices=["text", "json"], default="text")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    case_plan = sub.add_parser("plan", help="Record a real Zhongshu plan and independent Menxia/Shangshu reviews")
+    case_plan.add_argument("action", choices=("template", "submit", "review", "status", "show"))
+    case_plan.add_argument("--task-id", required=True)
+    case_plan.add_argument("--request-file", type=Path)
+    case_plan.add_argument("--format", choices=("text", "json"), default="json")
+    workflow_status = sub.add_parser("workflow-status", help="Read the shared task/code/plan/review binding")
+    workflow_status.add_argument("--task-id", required=True)
+    workflow_status.add_argument("--format", choices=("text", "json"), default="json")
 
     def accept_format_after_command(command: argparse.ArgumentParser) -> None:
         command.add_argument("--format", choices=["text", "json"], default=argparse.SUPPRESS)
@@ -10520,6 +11597,24 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--title", required=True)
     create.add_argument("--charter", required=True, help="required nonempty exact UTF-8 charter")
     create.add_argument("--task-id", default="")
+    create.add_argument("--legacy-compatibility", action="store_true", help="Explicitly create an unbound legacy record; never a standard workflow acceptance")
+    create.add_argument(
+        "--session-id",
+        default="",
+        help="opt into a standard session-backed case; requires --authority and --behavior",
+    )
+    create.add_argument(
+        "--authority",
+        choices=["approval", "autonomous", "super"],
+        default="",
+        help="required with --session-id; persisted in case_execution",
+    )
+    create.add_argument(
+        "--behavior",
+        choices=["serial", "parallel"],
+        default="",
+        help="required with --session-id; persisted in case_execution",
+    )
     create.add_argument("--owner", default="taizi", choices=sorted(OFFICES))
     create.add_argument("--report-tier", default="", choices=sorted(REPORT_TIERS) + [""])
     create.add_argument("--evidence", default="")
@@ -11089,7 +12184,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{parser.prog}: error: {exc}", file=sys.stderr)
         return 2
     try:
-        if args.command == "intake-schema":
+        if args.command == "plan":
+            output(case_plan_operation(args), "json")
+        elif args.command == "workflow-status":
+            output(workflow_status_payload(args.task_id), "json")
+        elif args.command == "intake-schema":
             output(public_intake_contract_payload(), "json")
         elif args.command == "intake-template":
             output(public_intake_template_payload(args.charter), "json")
@@ -11137,6 +12236,8 @@ def main(argv: list[str] | None = None) -> int:
             output(result, "json")
             return 0 if result["ok"] else 2
         elif args.command == "create":
+            if not getattr(args, "session_id", "") and not args.legacy_compatibility:
+                raise ValueError("standard_create_requires_session_id_authority_behavior")
             output(create_task(args), args.format)
         elif args.command == "revise-charter":
             output(revise_charter_task(args), args.format)
@@ -11214,6 +12315,8 @@ def main(argv: list[str] | None = None) -> int:
             office_request._context_contract_required = True
             office_handlers = {
                 "admit": office_admit,
+                "native-request": office_native_request,
+                "native-capture": office_native_capture,
                 "start": office_start,
                 "followup": office_followup,
                 "preload-ack": office_preload_ack,

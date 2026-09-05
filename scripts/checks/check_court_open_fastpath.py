@@ -13,7 +13,9 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 import argparse
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
+import io
 import json
 from pathlib import Path
 import sys
@@ -188,9 +190,251 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
     }
 
 
+def _main_json(argv: list[str]) -> tuple[int, dict[str, object]]:
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        code = court_open_fastpath.main([*argv, "--format", "json"])
+    result = json.loads(stdout.getvalue())
+    if not isinstance(result, dict):
+        raise AssertionError("fastpath main did not emit a JSON object")
+    return code, result
+
+
+def _main_parse_exit(argv: list[str]) -> tuple[int, str]:
+    stderr = io.StringIO()
+    with redirect_stderr(stderr):
+        try:
+            code = court_open_fastpath.main(argv)
+        except SystemExit as exc:
+            code = int(exc.code or 0)
+    return code, stderr.getvalue()
+
+
+def _request_template_checks() -> dict[str, bool]:
+    checks: dict[str, bool] = {}
+    with tempfile.TemporaryDirectory(prefix="court-open-template-") as temp_text:
+        worktree = Path(temp_text) / "worktree"
+        worktree.mkdir()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+        common = [
+            "--fast",
+            "--request-template",
+            "--task-id",
+            "template-fixture",
+            "--authority",
+            "super",
+            "--behavior",
+            "parallel",
+            "--worktree",
+            str(worktree),
+            "--task-focus",
+            "read-only request template fixture",
+        ]
+
+        template_prepare_calls: list[object] = []
+        original_prepare = court_open_fastpath.prepare_fast_open
+
+        def forbidden_prepare(value: object, **_kwargs: object) -> dict[str, object]:
+            template_prepare_calls.append(value)
+            raise AssertionError("request template entered prepare_fast_open")
+
+        court_open_fastpath.prepare_fast_open = forbidden_prepare
+        try:
+            default_code, default_template = _main_json(common)
+            known_code, known_template = _main_json(
+                [
+                    *common,
+                    "--host-capacity",
+                    "16",
+                    "--host-active-agents",
+                    "1",
+                    "--host-reclamation-status",
+                    "verified",
+                    "--expires-at-utc",
+                    expires_at,
+                ]
+            )
+            single_code, single_template = _main_json(
+                [
+                    *common,
+                    "--authority-source",
+                    "startup_question_answered",
+                    "--requested-office",
+                    "shangshu",
+                    "--host-capacity",
+                    "16",
+                    "--host-active-agents",
+                    "1",
+                    "--host-reclamation-status",
+                    "verified",
+                    "--expires-at-utc",
+                    expires_at,
+                ]
+            )
+            exclusive_code, exclusive = _main_json(
+                [*common, "--request-json", json.dumps({"schema": court_open_fastpath.REQUEST_SCHEMA})]
+            )
+        finally:
+            court_open_fastpath.prepare_fast_open = original_prepare
+
+        required_outer_fields = {
+            "schema",
+            "task_id",
+            "authority",
+            "authority_source",
+            "behavior",
+            "worktree",
+            "host_capacity",
+            "host_active_agents",
+            "host_reclamation_status",
+            "expires_at_utc",
+            "task_focus",
+        }
+        instructions = default_template.get("template_instructions")
+        checks["request_template_schema_and_required_fields"] = (
+            default_code == 0
+            and default_template.get("schema") == court_open_fastpath.REQUEST_SCHEMA
+            and required_outer_fields.issubset(default_template)
+            and default_template.get("authority_source") == "explicit_latest_user"
+            and default_template.get("requested_offices")
+            == list(court_open_fastpath.THREE_DEPARTMENTS)
+            and default_template.get("host_capacity") is None
+            and default_template.get("host_active_agents") is None
+            and default_template.get("host_reclamation_status") == "unknown"
+            and default_template.get("expires_at_utc") is None
+            and isinstance(instructions, dict)
+            and instructions.get("status") == "FILL_REQUIRED"
+            and all(field in instructions for field in (
+                "host_capacity",
+                "host_active_agents",
+                "host_reclamation_status",
+                "expires_at_utc",
+            ))
+        )
+
+        unknown_runtime = FakeRuntime(_task())
+        try:
+            court_open_fastpath.normalize_request(default_template)
+        except court_open_fastpath.FastPathInvalid as exc:
+            normalize_problem = str(exc)
+        else:
+            normalize_problem = ""
+        try:
+            court_open_fastpath.prepare_fast_open(
+                default_template,
+                runtime_api=unknown_runtime,
+                identity_loader=_identity,
+                concurrent_preload=False,
+            )
+        except court_open_fastpath.FastPathInvalid as exc:
+            prepare_problem = str(exc)
+        else:
+            prepare_problem = ""
+        checks["request_template_unknown_fails_closed"] = (
+            normalize_problem == "expires_at_utc_required"
+            and prepare_problem == "expires_at_utc_required"
+            and unknown_runtime.load_calls == 0
+            and unknown_runtime.admission_calls == 0
+        )
+
+        normalized = court_open_fastpath.normalize_request(known_template)
+        checks["request_template_known_facts_normalize_without_prepare"] = (
+            known_code == 0
+            and normalized.get("host_capacity") == 16
+            and normalized.get("host_active_agents") == 1
+            and normalized.get("host_reclamation_status") == "verified"
+            and normalized.get("expires_at_utc") == expires_at
+            and not template_prepare_calls
+        )
+        normalized_single = court_open_fastpath.normalize_request(single_template)
+        checks["request_template_authority_source_and_single_office"] = (
+            single_code == 0
+            and single_template.get("authority_source") == "startup_question_answered"
+            and single_template.get("requested_offices") == ["shangshu"]
+            and normalized_single.get("authority_source") == "startup_question_answered"
+            and normalized_single.get("requested_offices") == ["shangshu"]
+            and not template_prepare_calls
+        )
+        invalid_source_code, invalid_source_stderr = _main_parse_exit(
+            [*common, "--authority-source", "invalid-authority-source"]
+        )
+        checks["request_template_authority_source_parser_rejects_invalid"] = (
+            invalid_source_code == 2
+            and "invalid choice" in invalid_source_stderr
+            and "invalid-authority-source" in invalid_source_stderr
+        )
+        checks["request_template_sources_are_exclusive"] = (
+            exclusive_code == 3
+            and exclusive.get("status") == "INVALID"
+            and exclusive.get("problems") == ["request_template_exclusive"]
+            and not template_prepare_calls
+        )
+
+        root = Path(temp_text) / "skill"
+        root.mkdir()
+        _write_skill(root)
+        request = _request(root, worktree)
+        request_file = Path(temp_text) / "request.json"
+        request_file.write_text(json.dumps(request), encoding="utf-8")
+        source_template_option_code, source_template_option_stderr = _main_parse_exit(
+            [
+                "--fast",
+                "--request-json",
+                json.dumps(request),
+                "--authority-source",
+                "explicit_latest_user",
+            ]
+        )
+        source_calls: list[object] = []
+
+        def prepared(value: object, **_kwargs: object) -> dict[str, object]:
+            source_calls.append(value)
+            return {
+                "schema": court_open_fastpath.RECEIPT_SCHEMA,
+                "ok": True,
+                "status": "READY_FOR_HOST_DISPATCH",
+            }
+
+        court_open_fastpath.prepare_fast_open = prepared
+        try:
+            json_code, _json_result = _main_json(
+                ["--fast", "--request-json", json.dumps(request)]
+            )
+            file_code, _file_result = _main_json(
+                ["--fast", "--request-file", str(request_file)]
+            )
+        finally:
+            court_open_fastpath.prepare_fast_open = original_prepare
+        file_basis = source_calls[1].get("path_basis") if len(source_calls) == 2 else None
+        json_source = dict(source_calls[0]) if len(source_calls) == 2 else {}
+        file_source = dict(source_calls[1]) if len(source_calls) == 2 else {}
+        file_source.pop("path_basis", None)
+        checks["request_template_existing_request_sources_unchanged"] = (
+            json_code == 0
+            and file_code == 0
+            and len(source_calls) == 2
+            and source_calls[0].get("task_id") == request["task_id"]
+            and json_source == request
+            and file_source == request
+            and isinstance(file_basis, dict)
+            and file_basis.get("kind") == "request_file_parent"
+            and file_basis.get("path") == str(request_file.parent.resolve())
+            and source_template_option_code == 2
+            and "require --request-template" in source_template_option_stderr
+        )
+    return checks
+
+
 def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -> dict[str, object]:
     problems: list[str] = []
     checks: dict[str, object] = {}
+    checks.update(_request_template_checks())
+    root_reads = ('SKILL.md', 'references/court-normal-startup.md',
+                  'agents/office-dossiers/taizi/AGENTS.md', 'agents/standing-officials/taizi.toml')
+    checks['root_entry_with_metadata_budget'] = (
+        sum((court_open_fastpath.ROOT / name).stat().st_size for name in root_reads) + 512
+        <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
+    )
     source_roles = (*court_open_fastpath.THREE_DEPARTMENTS, *court_open_fastpath.SIX_MINISTRIES)
     source_preloads = court_open_fastpath.load_preloads(
         court_open_fastpath.ROOT,
@@ -630,6 +874,13 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             "compact_metadata",
             "production_capability_not_checker_import",
             "legacy_include_ministries_path_removed",
+            "request_template_schema_and_required_fields",
+            "request_template_unknown_fails_closed",
+            "request_template_known_facts_normalize_without_prepare",
+            "request_template_authority_source_and_single_office",
+            "request_template_authority_source_parser_rejects_invalid",
+            "request_template_sources_are_exclusive",
+            "request_template_existing_request_sources_unchanged",
         )
     )
     shangshu_gate = all(
@@ -670,6 +921,27 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         "problems": problems,
         "pending_body_access": "NO",
     }
+
+
+def check_runtime_selection_has_no_profile_io() -> dict[str, object]:
+    """Selecting a runtime must not inventory every office before admission."""
+    from unittest.mock import patch
+    import court_native_execution
+    import court_supercc_execution
+    accessed: list[str] = []
+
+    def unexpected_read(path: Path, *_args: object, **_kwargs: object) -> None:
+        accessed.append(str(path))
+        raise AssertionError("runtime_selection_read_office_content:" + str(path))
+
+    with tempfile.TemporaryDirectory(prefix="runtime-pointer-only-") as temp_text:
+        with patch.object(Path, "read_text", unexpected_read), patch.object(Path, "read_bytes", unexpected_read), patch.object(Path, "glob", unexpected_read):
+            native = court_native_execution.select_native_execution(authority="super", behavior="parallel", root=Path(temp_text)).as_dict()
+            supercc = court_supercc_execution.select_supercc_execution(authority="super", behavior="parallel", root=Path(temp_text)).as_dict()
+    assert not accessed, "runtime selection read profiles before an office was selected"
+    assert native["office_config"] == supercc["office_config"], "neutral pointer diverged across runtimes"
+    assert native["office_config"]["path"] == "references/manifests/court-dispatch-hierarchy.v1.json", "neutral hierarchy pointer lost"
+    return {"ok": True, "profile_io_count": len(accessed), "runtime_count": 2}
 
 
 def main(argv: list[str] | None = None) -> int:

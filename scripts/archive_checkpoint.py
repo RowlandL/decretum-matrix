@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 from datetime import datetime
 import hashlib
 import json
@@ -68,6 +69,44 @@ def refresh_request_path() -> Path:
 
 def archive_path(topic: str, date_text: str) -> Path:
     return archive_dir() / f"plan-{date_text}-{slugify(topic)}-1.md"
+
+
+def _case_binding_from_args(args: argparse.Namespace) -> dict[str, object] | None:
+    raw = getattr(args, "case_binding", None)
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("archive_case_binding_json_invalid") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("archive_case_binding_json_invalid")
+    from court_case_binding import canonical_case_binding_json
+
+    return json.loads(canonical_case_binding_json(raw))
+
+
+def _case_binding_allocation(
+    args: argparse.Namespace,
+    date_text: str,
+    binding: dict[str, object],
+) -> dict[str, object]:
+    session_id = str(getattr(args, "session_id", "") or "").strip()
+    if not session_id or session_id != binding["session_id"]:
+        raise ValueError("archive_case_binding_session_mismatch")
+    from court_session_numbering import resolve_session_allocation
+
+    allocation = resolve_session_allocation(session_id, date_text)
+    if not isinstance(allocation, dict):
+        raise ValueError("archive_case_binding_allocation_missing")
+    if (
+        allocation.get("court_code") != binding["court_code"]
+        or allocation.get("date") != binding["allocation_date"]
+        or allocation.get("daily_sequence") != binding["daily_sequence"]
+    ):
+        raise ValueError("archive_case_binding_allocation_foreign")
+    return allocation
 
 
 def split_terms(value: str | None) -> list[str]:
@@ -321,6 +360,17 @@ def build_index_entry(
     if isinstance(allocation, dict) and allocation.get("court_code"):
         entry["court_code"] = str(allocation["court_code"])
         entry["court_code_issued_at_start"] = True
+    case_binding = getattr(args, "case_binding", None)
+    if isinstance(case_binding, dict):
+        entry.update(
+            task_id=case_binding["task_id"],
+            session_id=case_binding["session_id"],
+            charter_revision=case_binding["charter_revision"],
+            charter_sha256=case_binding["charter_sha256"],
+            case_binding=deepcopy(case_binding),
+            case_identity_sha256=case_binding["case_identity_sha256"],
+            case_binding_sha256=case_binding["binding_sha256"],
+        )
     entry.update(source_agent)
     enrich_entry(entry)
     return entry
@@ -472,6 +522,15 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
     raw_full_record = read_full_record(args)
     lock_timeout = float(getattr(args, "lock_timeout", 30.0))
     args.residual_gaps, args.residual_gaps_sha256 = normalize_residual_gaps(args)
+    supplied_case_binding = _case_binding_from_args(args)
+    prepared_case_allocation: dict[str, object] | None = None
+    if supplied_case_binding is not None:
+        prepared_case_allocation = _case_binding_allocation(
+            args,
+            datetime.now().astimezone().strftime("%Y%m%d"),
+            supplied_case_binding,
+        )
+        args.case_binding = supplied_case_binding
 
     with file_lock(shiguan_write_lock_path(), timeout=lock_timeout):
         # Seed creation, sequence allocation, archive append, and index append
@@ -497,7 +556,9 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
             )
 
         session_id = str(getattr(args, "session_id", "") or "").strip()
-        if session_id:
+        if prepared_case_allocation is not None:
+            args.session_allocation = prepared_case_allocation
+        elif session_id:
             from court_session_numbering import resolve_session_allocation
 
             args.session_allocation = resolve_session_allocation(
@@ -516,11 +577,34 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
         )
         full_record = fill_generated_placeholders(raw_full_record, entry)
         lineage_parts_json = lineage_parts_archive_json(entry)
+        case_binding_json = (
+            json.dumps(
+                entry["case_binding"],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if isinstance(entry.get("case_binding"), dict)
+            else ""
+        )
         block_lines = [
             f"## Checkpoint: {args.phase}",
             "",
             f"- time: {now.isoformat(timespec='seconds')}",
             f"- court_code: {entry.get('court_code', '')}",
+            *(
+                [
+                    f"- task_id: {entry['task_id']}",
+                    f"- session_id: {entry['session_id']}",
+                    f"- charter_revision: {entry['charter_revision']}",
+                    f"- charter_sha256: {entry['charter_sha256']}",
+                    f"- case_identity_sha256: {entry['case_identity_sha256']}",
+                    f"- case_binding_sha256: {entry['case_binding_sha256']}",
+                    f"- case_binding_json: {case_binding_json}",
+                ]
+                if case_binding_json
+                else []
+            ),
             f"- ancient_lineage: {entry.get('ancient_lineage', '')}",
             *(
                 [f"- lineage_parts_json: {lineage_parts_json}"]
@@ -611,6 +695,16 @@ def build_archive_receipt(
     lineage_parts = existing_content_lineage_parts(entry)
     if lineage_parts is not None:
         receipt["lineage_parts"] = lineage_parts
+    if isinstance(entry.get("case_binding"), dict):
+        receipt.update(
+            task_id=entry["task_id"],
+            session_id=entry["session_id"],
+            charter_revision=entry["charter_revision"],
+            charter_sha256=entry["charter_sha256"],
+            case_binding=deepcopy(entry["case_binding"]),
+            case_identity_sha256=entry["case_identity_sha256"],
+            case_binding_sha256=entry["case_binding_sha256"],
+        )
     return receipt
 
 
@@ -628,6 +722,12 @@ def main(argv: list[str] | None = None) -> int:
             "closeout reuses the session's issued court_code instead of "
             "generating a new number."
         ),
+    )
+    parser.add_argument(
+        "--case-binding-json",
+        dest="case_binding",
+        default="",
+        help="Canonical court.case_binding.v1 JSON; requires matching --session-id allocation.",
     )
     parser.add_argument("--phase", required=True)
     parser.add_argument("--status", required=True)

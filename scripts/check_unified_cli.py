@@ -60,6 +60,10 @@ NON_PUBLIC_ENTRYPOINTS = frozenset(
 )
 CLI_SUPPORT_FILES = frozenset(
     {
+        "scripts/commands/court_native_bridge.py",
+        "scripts/court_native_identity.py",
+        "scripts/court_case_binding.py",
+        "scripts/court_plan_artifacts.py",
         "AUTHORS.md",
         "CLA.md",
         "COMMERCIAL-LICENSE.md",
@@ -88,6 +92,9 @@ CLI_SUPPORT_FILES = frozenset(
     }
 )
 BOOTSTRAP_ENTRYPOINTS = (
+    PurePosixPath("scripts/checks/check_court_native_bridge.py"),
+    PurePosixPath("scripts/checks/check_court_case_binding.py"),
+    PurePosixPath("scripts/checks/check_court_plan_artifacts.py"),
     PurePosixPath("scripts/check_unified_cli.py"),
     PurePosixPath("scripts/court_open_fastpath.py"),
     PurePosixPath("scripts/check_court_open_fastpath.py"),
@@ -111,7 +118,6 @@ RETIRED_COMPATIBILITY_ENTRYPOINTS = frozenset(
         "scripts/ensure_shiguan_web.py",
         "scripts/export_shiguan_obsidian.py",
         "scripts/serve_shiguan_tree.py",
-        "scripts/services/archive_runtime_task.py",
         "scripts/services/court_heartbeat_watch.py",
         "scripts/services/ensure_shiguan_autosync.py",
         "scripts/services/ensure_shiguan_service_daemon.py",
@@ -953,6 +959,28 @@ def evaluate_public_open_command() -> dict[str, object]:
             problems.append("court_open_guidance_payload_missing")
             payload = {}
         open_markdown = str(payload.get("markdown") or "")
+        startup = payload.get("startup", {})
+        if not isinstance(startup, dict) or not startup.get("guide"):
+            problems.append("normal_startup_actionable_guide_missing")
+            startup = {}
+        else:
+            guide_path = ROOT / str(startup["guide"])
+            entry_paths = [ROOT / "SKILL.md", guide_path, ROOT / "agents/office-dossiers/taizi/AGENTS.md", ROOT / "agents/standing-officials/taizi.toml"]
+            if not all(path.is_file() for path in entry_paths):
+                problems.append("normal_startup_entry_missing")
+            elif sum(path.stat().st_size for path in entry_paths) > 20 * 1024:
+                problems.append("normal_startup_entry_exceeds_20kib")
+        from court_public_api import court_command_help
+        mcp_help = court_command_help().get("stdout", {})
+        if not startup or mcp_help.get("startup") != startup:
+            problems.append("cli_mcp_startup_guidance_parity_missing")
+        if "--request-template" not in str(startup.get("request_template", "")):
+            problems.append("normal_startup_request_template_not_discoverable")
+        routes = startup.get("tool_routes", {})
+        if not routes.get("validate_intake") or not routes.get("query_history"):
+            problems.append("normal_startup_mcp_routes_missing")
+        if startup.get("installation_checks") != "installation_only":
+            problems.append("normal_startup_installation_checks_not_deferred")
         if not open_markdown.startswith("# Decretum Matrix court open"):
             problems.append("court_open_markdown_missing")
         if payload.get("progressive_loading") is not True:
@@ -974,16 +1002,37 @@ def evaluate_public_open_command() -> dict[str, object]:
         fast_help = str(fast_envelope.get("payload") or "")
         if "--request-json" not in fast_help or "--request-file" not in fast_help:
             problems.append("court_open_fast_help_missing_request_sources")
+        import shlex
+        template_values = {
+            "<id>": "STARTUP-TEMPLATE-CHECK", "<selected-authority>": "super",
+            "<selected-behavior>": "parallel", "<absolute-worktree>": str(ROOT),
+            "<focus>": "read-only startup template regression",
+        }
+        advertised = [template_values.get(arg, arg) for arg in shlex.split(str(startup.get("request_template", "")))]
+        generated = _json_stdout(_run_cli(["--format", "json", *advertised]))
+        request = generated.get("payload", {})
+        if not isinstance(request, dict) or request.get("schema") != "court.open.fast.request.v2":
+            problems.append("normal_startup_request_template_not_executable")
+        else:
+            if request.get("host_capacity") is not None or request.get("expires_at_utc") is not None:
+                problems.append("normal_startup_template_fabricated_host_facts")
+            rejected = _run_cli([
+                "--format", "json", "court", "open", "--fast",
+                "--request-json", json.dumps(request),
+            ])
+            if rejected.returncode == 0:
+                problems.append("normal_startup_unfilled_template_was_accepted")
 
         runtime = subprocess.run(
             [sys.executable, "-B", str(ROOT / "scripts" / "court_runtime.py"), "--help"],
             cwd=ROOT,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
             timeout=30,
         )
-        runtime_help = runtime.stdout
+        runtime_help = runtime.stdout or ""
         if runtime.returncode != 0:
             problems.append(f"runtime_help_failed:{runtime.returncode}")
         if "runtime-internal" not in runtime_help or "public startup is court open" not in runtime_help:

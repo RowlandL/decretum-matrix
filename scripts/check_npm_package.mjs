@@ -664,6 +664,12 @@ export async function selfTestNpmPackage() {
     "checker_independent_origin_userinfo_rejected",
     "checker_independent_origin_userinfo_redacted",
     "python_interpreter_contract",
+    "local_install_candidate_receipt_bound",
+    "local_install_candidate_runtime_zip_bound",
+    "local_install_candidate_private",
+    "local_install_candidate_publish_forbidden",
+    "local_install_candidate_receipt_tamper_rejected",
+    "local_install_candidate_cli_argument",
   ];
   const missing = requiredPasses.filter(
     (name) => report.validation?.[name] !== "PASS",

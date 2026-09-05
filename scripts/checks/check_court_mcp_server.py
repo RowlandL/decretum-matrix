@@ -25,6 +25,7 @@ import court_mcp_server
 ROOT = Path(__file__).resolve().parents[2]
 SERVER = ROOT / "scripts" / "court_mcp_server.py"
 EXPECTED_TOOLS = {
+    "court.workflow_status",
     "court.status",
     "court.command_help",
     "shiguan.query",
@@ -45,6 +46,7 @@ CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo"
 CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities"
 SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
 EXPECTED_COMMAND_IDS = {
+    "court.workflow_status": "court.court-runtime",
     "court.status": "court.court-runtime",
     "court.command_help": "court.court-runtime",
     "court.intake_validate": "court.court-runtime",

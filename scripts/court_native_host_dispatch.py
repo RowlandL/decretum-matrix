@@ -49,6 +49,20 @@ HOST_BINDING_FIELDS = (
     "host_instance_id",
     "host_action_id",
 )
+CANONICAL_AGENT_PATH_IDENTITY_KIND = "canonical_agent_path"
+CANONICAL_IDENTITY_RECEIPT_FIELDS = (
+    "host_identity_kind",
+    "trace_issuer_thread_id",
+    "trace_reader_thread_id",
+    "trace_session_id",
+    "case_session_id",
+    "trusted_parent_kind",
+)
+CANONICAL_AGENT_PATH_RE = re.compile(r"^/root(?:/[a-z0-9_]+)+$")
+SESSION_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def canonical_json_sha256(value: object) -> str:
@@ -289,6 +303,10 @@ def _normalize_host_result(value: object) -> dict[str, object]:
     if not isinstance(value, Mapping) or not isinstance(value.get("ok"), bool):
         raise ValueError("native_host_action_receipt:host_result_invalid")
     result = deepcopy(dict(value))
+    if result.get("host_identity_kind") is not None:
+        if result.get("ok") is not True:
+            raise ValueError("native_host_action_receipt:canonical_identity_requires_success")
+        return _normalize_canonical_agent_path_result(result)
     for field in HOST_BINDING_FIELDS:
         result[field] = _text(result.get(field), field)
     if result["ok"] is False:
@@ -299,6 +317,57 @@ def _normalize_host_result(value: object) -> dict[str, object]:
             result.get("reason") or "host refused delivery", "reason", maximum=2048
         )
     return result
+
+
+def _canonical_agent_path(value: object, field: str) -> str:
+    path = _text(value, field)
+    if CANONICAL_AGENT_PATH_RE.fullmatch(path) is None:
+        raise ValueError(f"native_host_action_receipt:{field}_invalid")
+    return path
+
+
+def _canonical_session_id(value: object, field: str) -> str:
+    session_id = _text(value, field, maximum=64).lower()
+    if SESSION_ID_RE.fullmatch(session_id) is None:
+        raise ValueError(f"native_host_action_receipt:{field}_invalid")
+    return session_id
+
+
+def _normalize_canonical_agent_path_result(value: Mapping[str, object]) -> dict[str, object]:
+    if value.get("host_identity_kind") != CANONICAL_AGENT_PATH_IDENTITY_KIND:
+        raise ValueError("native_host_action_receipt:host_identity_kind_invalid")
+    host_task_id = _canonical_agent_path(value.get("host_task_id"), "host_task_id")
+    host_instance_id = _canonical_agent_path(
+        value.get("host_instance_id"), "host_instance_id"
+    )
+    if host_task_id != host_instance_id:
+        raise ValueError("native_host_action_receipt:canonical_identity_path_mismatch")
+    if value.get("host_thread_id") is not None:
+        raise ValueError("native_host_action_receipt:canonical_identity_thread_must_be_null")
+    if value.get("trace_issuer_thread_id") is not None:
+        raise ValueError("native_host_action_receipt:canonical_identity_issuer_must_be_null")
+    parent_kind = _text(value.get("trusted_parent_kind"), "trusted_parent_kind", maximum=64)
+    if parent_kind not in {"taizi_root", "same_case_ready_shangshu"}:
+        raise ValueError("native_host_action_receipt:trusted_parent_kind_invalid")
+    return {
+        **deepcopy(dict(value)),
+        "host_identity_kind": CANONICAL_AGENT_PATH_IDENTITY_KIND,
+        "host_task_id": host_task_id,
+        "host_instance_id": host_instance_id,
+        "host_thread_id": None,
+        "trace_issuer_thread_id": None,
+        "trace_reader_thread_id": _text(
+            value.get("trace_reader_thread_id"), "trace_reader_thread_id"
+        ),
+        "trace_session_id": _canonical_session_id(
+            value.get("trace_session_id"), "trace_session_id"
+        ),
+        "case_session_id": _canonical_session_id(
+            value.get("case_session_id"), "case_session_id"
+        ),
+        "trusted_parent_kind": parent_kind,
+        "host_action_id": _text(value.get("host_action_id"), "host_action_id"),
+    }
 
 
 def _build_receipt(
@@ -321,6 +390,13 @@ def _build_receipt(
         **{field: deepcopy(request[field]) for field in REQUEST_BINDING_FIELDS},
         **{field: host_result[field] for field in HOST_BINDING_FIELDS},
     }
+    if host_result.get("host_identity_kind") == CANONICAL_AGENT_PATH_IDENTITY_KIND:
+        receipt.update(
+            {
+                field: deepcopy(host_result[field])
+                for field in CANONICAL_IDENTITY_RECEIPT_FIELDS
+            }
+        )
     receipt["receipt_id"] = "native-host-" + canonical_json_sha256(receipt)[:24]
     receipt["receipt_sha256"] = canonical_json_sha256(receipt)
     return receipt
@@ -355,8 +431,13 @@ def validate_native_host_action_receipt(
     for field in REQUEST_BINDING_FIELDS:
         if value.get(field) != request.get(field):
             raise ValueError(f"native_host_action_receipt:{field}_mismatch")
-    for field in HOST_BINDING_FIELDS:
-        _text(value.get(field), field)
+    if value.get("host_identity_kind") is None:
+        if any(field in value for field in CANONICAL_IDENTITY_RECEIPT_FIELDS[1:]):
+            raise ValueError("native_host_action_receipt:legacy_identity_metadata_unexpected")
+        for field in HOST_BINDING_FIELDS:
+            _text(value.get(field), field)
+    else:
+        _normalize_canonical_agent_path_result(value)
     if value.get("request_sha256") != canonical_json_sha256(request):
         raise ValueError("native_host_action_receipt:request_sha256_mismatch")
     _sha256(value.get("result_sha256"), "result_sha256")
@@ -403,6 +484,8 @@ def dispatch_native_host_action(
         host_result = _normalize_host_result(
             callback(str(candidate["host_instance_id"]), deepcopy(request))
         )
+        if host_result.get("host_identity_kind") == CANONICAL_AGENT_PATH_IDENTITY_KIND:
+            raise ValueError("native_host_action_receipt:canonical_followup_issuer_unavailable")
         if host_result["host_instance_id"] != candidate["host_instance_id"]:
             raise ValueError("native_host_action_receipt:reuse_host_identity_mismatch")
         for field in ("host_task_id", "host_thread_id"):

@@ -34,16 +34,25 @@ PROJECT_ROOT_GROUPS = frozenset({"check", "release"})
 DAILY_HELP_COMMANDS: dict[str, tuple[str, ...]] = {
     "court": (
         "closeout-session",
-        "intake-schema",
         "intake-template",
-        "intake-validate",
         "open",
+        "plan",
         "status",
+        "workflow-status",
     ),
-    "office": ("admit", "close", "finish", "preload-ack", "report", "start"),
+    "office": (
+        "admit",
+        "close",
+        "finish",
+        "native-capture",
+        "native-request",
+        "preload-ack",
+        "report",
+        "start",
+    ),
     "shiguan": (
         "archive-checkpoint",
-        "build-shiguan-knowledge-graph",
+        "archive-runtime-task",
         "grow-shiguan-tree",
         "memory-decision",
         "query-shiguan-index",
@@ -57,7 +66,9 @@ DAILY_HELP_COMMANDS: dict[str, tuple[str, ...]] = {
 }
 COURT_OPEN_GUIDANCE_MARKDOWN = """# Decretum Matrix court open
 
-1. Load `SKILL.md` and only the governing reference for the current behavior.
+1. Load `SKILL.md` and `references/court-normal-startup.md` once. Defer other
+   reference volumes, capability inventories, installation checks and closeout
+   material until the current operation actually needs them.
 2. If the latest user message does not select `approval`, `autonomous`, or `super`, ask for that choice and stop.
 3. Taizi intake first (受旨定性: intent inference, 历史线索初判, 建立结果章程;
    flow state Taizi), then convene 三省会审 (中书拟旨/拆解, 门下封驳, 尚书评估)
@@ -69,7 +80,48 @@ COURT_OPEN_GUIDANCE_MARKDOWN = """# Decretum Matrix court open
 Optional preparation-only preflight:
 
 `decretum-matrix court open --fast --request-file <request.json>`
+
+Generate the request instead of reading implementation source:
+`decretum-matrix court open --fast --request-template --task-id <id> --authority <selected-authority> --behavior <selected-behavior> --worktree <absolute-worktree> --task-focus <focus>`
+Use `court intake-template --charter <exact-charter>` for fresh intake;
+`court intake-schema` describes the existing stateful CLI workflow.
+MCP `court.intake_validate`, `court.semantic_context_validate` and
+`court.dispatch_plan_validate` validate data without admitting or dispatching.
+MCP `shiguan.query` with `terms=[]`, `limit=1` queries the latest index entry.
+Pass `--trigger checkpoint` / `--trigger verify`; do not invent trigger names.
 """
+
+
+def normal_startup_guidance() -> dict[str, object]:
+    """Bounded discovery metadata shared by CLI guidance and MCP help.
+
+    No runtime, capability catalog, installer, or office preload is needed to
+    discover the supported entrypoints. The guide owns the human workflow.
+    """
+    return {
+        "guide": "references/court-normal-startup.md",
+        "entry_budget_bytes": 20 * 1024,
+        "installation_checks": "installation_only",
+        "fresh_intake": "court intake-template --charter <exact-charter>",
+        "intake_contract": "court intake-schema",
+        "request_template": "court open --fast --request-template --task-id <id> --authority <selected-authority> --behavior <selected-behavior> --worktree <absolute-worktree> --task-focus <focus>",
+        "preparation": "court open --fast --request-file <request.json>",
+        "native_delivery": ["office native-request --request-file <selector.json>", "office native-capture --request-file <selector.json>"],
+        "task_archive": "shiguan archive-runtime-task --task-id <id>",
+        "preparation_is_dispatch": False,
+        "tool_routes": {
+            "validate_intake": "court.intake_validate",
+            "validate_capsule": "court.capsule_validate",
+            "validate_context": "court.semantic_context_validate",
+            "validate_plan": "court.dispatch_plan_validate",
+            "query_history": {"name": "shiguan.query", "arguments": {"terms": [], "limit": 1}},
+            "query_history_metadata": "shiguan.entries_query",
+            "runtime_status": "court.status",
+            "case_binding_status": "court.workflow_status",
+            "closeout_only": "court.closeout_checklist",
+        },
+        "mutations": "existing receipt-bound CLI commands; host delivery remains host-native",
+    }
 COURT_RUNTIME_HINTS = (
     "admission-schema",
     "admission-template",
@@ -87,14 +139,18 @@ COURT_RUNTIME_HINTS = (
     "intake-template",
     "intake-validate",
     "probe",
+    "plan",
     "semantic",
     "semantic-context-schema",
     "semantic-context-template",
     "semantic-context-validate",
     "status",
+    "workflow-status",
 )
 OFFICE_RUNTIME_COMMANDS = (
     "admit",
+    "native-request",
+    "native-capture",
     "start",
     "followup",
     "preload-ack",
@@ -311,6 +367,9 @@ def render_group_help(group: str) -> str:
                 "  Default help shows the daily Skill surface; compatibility adapters remain callable explicitly.",
             )
         )
+    if group == "court":
+        rows.extend(("", "Startup: court open (bounded guide and CLI/MCP routes).",
+                     "Request template: " + str(normal_startup_guidance()["request_template"])))
     return "\n".join(rows)
 
 
@@ -506,6 +565,7 @@ def _capture_court_open(
                 "ok": True,
                 "status": "GUIDANCE",
                 "markdown": COURT_OPEN_GUIDANCE_MARKDOWN,
+                "startup": normal_startup_guidance(),
                 "progressive_loading": True,
                 "fastpath_executed": False,
                 "mutations": [],
@@ -883,6 +943,21 @@ def _resolve_and_run(
 ) -> int:
     records = load_registry()
     key = (group, command)
+    source_only_record = records.get(key)
+    source_only_handler_exists = (
+        source_only_record is not None
+        and (ROOT / source_only_record.legacy_path).is_file()
+    )
+    if (
+        group in PROJECT_ROOT_GROUPS
+        and not source_only_handler_exists
+        and not (ROOT / ".git").exists()
+    ):
+        return _emit_usage(
+            f"source_checkout_required: {group} {command}",
+            output_format,
+            f"{group} {command}",
+        )
     cwd = command_cwd(group, invocation_cwd)
     if group == "court" and command == "status":
         result = _capture_public_api(command, arguments)

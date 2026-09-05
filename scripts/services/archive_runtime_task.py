@@ -11,6 +11,7 @@ if _SCRIPTS_ROOT not in sys.path:
 
 
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import subprocess
@@ -138,6 +139,12 @@ def build_archive_command(
     *,
     result_json_path: Path | None = None,
 ) -> list[str]:
+    from court_case_binding import (
+        canonical_case_binding_json,
+        validate_task_case_binding,
+    )
+
+    case_binding = validate_task_case_binding(task, require_decree=True)
     event_history = court_runtime.events_for_task(task.get("task_id"), limit=None)
     projection = court_runtime.completion_projection(task, event_history)
     binding = task.get("assessment_binding")
@@ -196,6 +203,15 @@ def build_archive_command(
     ]
     if result_json_path is not None:
         command.extend(("--result-json", str(result_json_path)))
+    if case_binding is not None:
+        command.extend(
+            (
+                "--session-id",
+                str(case_binding["session_id"]),
+                "--case-binding-json",
+                canonical_case_binding_json(case_binding),
+            )
+        )
     return command
 
 
@@ -212,6 +228,10 @@ def _record_args(
         actor="shiguan",
         evidence="archive_runtime_task verified producer receipt",
         note="record Shiguan runtime checkpoint",
+        session_id=task.get("session_id", ""),
+        case_binding=deepcopy(task.get("case_binding"))
+        if isinstance(task.get("case_binding"), dict)
+        else None,
     )
 
 
@@ -235,6 +255,16 @@ def _runtime_receipt(task: dict[str, object]) -> dict[str, object]:
         receipt.update(
             residual_gaps=binding["residual_gaps"],
             residual_gaps_sha256=binding["residual_gaps_sha256"],
+        )
+    case_binding = task.get("case_binding")
+    if isinstance(case_binding, dict):
+        receipt.update(
+            session_id=case_binding["session_id"],
+            court_code=case_binding["court_code"],
+            charter_revision=case_binding["charter_revision"],
+            charter_sha256=case_binding["charter_sha256"],
+            case_identity_sha256=case_binding["case_identity_sha256"],
+            case_binding_sha256=case_binding["binding_sha256"],
         )
     return receipt
 

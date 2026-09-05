@@ -44,6 +44,19 @@ AUTHORITY_SOURCE_VALUES = frozenset({
     "startup_question_answered",
     "same_conversation_same_boundary",
 })
+TEMPLATE_ONLY_OPTIONS = frozenset({
+    "--task-id",
+    "--authority",
+    "--authority-source",
+    "--behavior",
+    "--worktree",
+    "--task-focus",
+    "--requested-office",
+    "--host-capacity",
+    "--host-active-agents",
+    "--host-reclamation-status",
+    "--expires-at-utc",
+})
 AGENT_REUSE_CONTEXT_OCCUPANCY_LIMIT = 0.80
 TASK_REUSE_RELATED_VALUES = frozenset(
     {"same", "related", "continuation", "overlapping", "overlap"}
@@ -133,6 +146,118 @@ def _optional_bool(value: object, field: str, *, default: bool = False) -> bool:
     if not isinstance(value, bool):
         raise FastPathInvalid(f"{field}_invalid")
     return value
+
+
+def _normalized_expires_at_utc(value: object) -> str:
+    expires_at = _required_text(value, "expires_at_utc")
+    try:
+        expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise FastPathInvalid("expires_at_utc_invalid") from exc
+    if expires.tzinfo is None:
+        raise FastPathInvalid("expires_at_utc_timezone_required")
+    return expires.isoformat()
+
+
+def build_request_template(
+    *,
+    task_id: object,
+    authority: object,
+    behavior: object,
+    worktree: object,
+    task_focus: object,
+    authority_source: object = "explicit_latest_user",
+    requested_offices: object = None,
+    host_capacity: object = None,
+    host_active_agents: object = None,
+    host_reclamation_status: object = None,
+    expires_at_utc: object = None,
+) -> dict[str, object]:
+    """Build a read-only, caller-completed fast-open request skeleton."""
+    selected_authority = _required_text(authority, "authority")
+    if selected_authority not in AUTHORITIES:
+        raise FastPathInvalid("authority_invalid")
+    selected_authority_source = _required_text(
+        authority_source,
+        "authority_source",
+    ).casefold()
+    if selected_authority_source not in AUTHORITY_SOURCE_VALUES:
+        raise FastPathInvalid("authority_source_invalid")
+    selected_behavior = _required_text(behavior, "behavior")
+    if selected_behavior not in BEHAVIORS:
+        raise FastPathInvalid("behavior_invalid")
+    resolved_worktree = str(
+        Path(_required_text(worktree, "worktree")).expanduser().resolve(strict=False)
+    )
+
+    known_reclamation = "unknown"
+    if host_reclamation_status is not None:
+        known_reclamation = _required_text(
+            host_reclamation_status,
+            "host_reclamation_status",
+        )
+        if known_reclamation.casefold() == "unknown":
+            raise FastPathInvalid("host_reclamation_status_unknown")
+
+    selected_offices = list(THREE_DEPARTMENTS)
+    if requested_offices is not None:
+        if not isinstance(requested_offices, list) or not requested_offices:
+            raise FastPathInvalid("requested_offices_invalid")
+        selected_offices = [
+            _required_text(role, "requested_office").lower()
+            for role in requested_offices
+        ]
+        if len(selected_offices) != len(set(selected_offices)):
+            raise FastPathInvalid("requested_offices_duplicate")
+
+    return {
+        "schema": REQUEST_SCHEMA,
+        "task_id": _required_text(task_id, "task_id"),
+        "authority": selected_authority,
+        "authority_source": selected_authority_source,
+        "behavior": selected_behavior,
+        "worktree": resolved_worktree,
+        "host_capacity": (
+            _required_int(host_capacity, "host_capacity", minimum=1)
+            if host_capacity is not None
+            else None
+        ),
+        "host_active_agents": (
+            _required_int(host_active_agents, "host_active_agents", minimum=1)
+            if host_active_agents is not None
+            else None
+        ),
+        "host_reclamation_status": known_reclamation,
+        "requested_offices": selected_offices,
+        "ministry_assignments": [],
+        "write_sets": {},
+        "git_check_requested": False,
+        "expected_branch": None,
+        "expected_head": None,
+        "expected_semantic_receipt_sha256": None,
+        "expected_plan_sha256": None,
+        "transport": "codex",
+        "task_focus": _required_text(task_focus, "task_focus"),
+        "capability_check_requested": False,
+        "admission_precheck_requested": False,
+        "capability_query": "",
+        "capability_manifest": "",
+        "capability_manifest_state": "current",
+        "expires_at_utc": (
+            _normalized_expires_at_utc(expires_at_utc)
+            if expires_at_utc is not None
+            else None
+        ),
+        "template_instructions": {
+            "schema": "court.open.fast.request_template_instructions.v1",
+            "status": "FILL_REQUIRED",
+            "host_capacity": "Replace null with the current verified host capacity (integer >= 1).",
+            "host_active_agents": "Replace null with the current verified active-agent count (integer >= 1).",
+            "host_reclamation_status": "Replace unknown with the current verified reclamation status; prepare requires verified.",
+            "expires_at_utc": "Replace null with a known timezone-aware ISO-8601 UTC expiry timestamp.",
+            "semantic_and_hostproof": "No semantic receipt, lease, host proof, runtime state, admission, or dispatch fact is fabricated by this template.",
+        },
+    }
 
 
 def _request_boundary() -> tuple[Callable[[argparse.Namespace], object], Callable[[dict[str, object]], dict[str, str] | None]]:
@@ -321,13 +446,7 @@ def normalize_request(value: object) -> dict[str, object]:
         if len(normalized_paths) != len(set(normalized_paths)):
             raise FastPathInvalid(f"write_set_duplicate:{role}")
         write_sets[role] = normalized_paths
-    expires_at = _required_text(value.get("expires_at_utc"), "expires_at_utc")
-    try:
-        expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise FastPathInvalid("expires_at_utc_invalid") from exc
-    if expires.tzinfo is None:
-        raise FastPathInvalid("expires_at_utc_timezone_required")
+    expires_at = _normalized_expires_at_utc(value.get("expires_at_utc"))
     capability_query = str(value.get("capability_query") or "").strip()
     capability_manifest = str(value.get("capability_manifest") or "").strip()
     capability_check_requested = _optional_bool(
@@ -371,7 +490,7 @@ def normalize_request(value: object) -> dict[str, object]:
         "capability_query": capability_query,
         "capability_manifest": capability_manifest,
         "capability_manifest_state": str(value.get("capability_manifest_state") or "current").strip().casefold(),
-        "expires_at_utc": expires.isoformat(),
+        "expires_at_utc": expires_at,
     }
     operation_source = {key: item for key, item in normalized.items() if key != "operation_id"}
     normalized["operation_id"] = str(
@@ -1232,6 +1351,22 @@ def prepare_fast_open(
             raise FastPathMiss("plan_drift")
 
         roles = [*requested, *ministry_assignments]
+        case_binding = None
+        if isinstance(task.get("case_binding"), Mapping):
+            from court_case_binding import refresh_case_binding, validate_case_binding
+            from court_plan_artifacts import require_reviewed_plan
+            try:
+                validate_case_binding(task["case_binding"], task)
+                case_binding = refresh_case_binding(task)
+                runtime_api._require_case_semantic_context(task, receipt)
+                if set(roles) - set(THREE_DEPARTMENTS):
+                    plan = require_reviewed_plan(task)
+                    if task.get("state") not in {"ShangshuDispatch", "SixMinistries", "Workshops"}:
+                        raise ValueError("case_ministry_dispatch_before_taizi_reply")
+                    if not set(ministry_assignments) <= {step["role"] for step in plan["document"]["steps"]}:
+                        raise ValueError("case_dispatch_roles_outside_reviewed_plan")
+            except ValueError as exc:
+                raise FastPathMiss("case_binding_not_dispatchable", str(exc)) from exc
         capability_requested = bool(
             normalized["capability_check_requested"] or capability_loader is not None
         )
@@ -1304,6 +1439,8 @@ def prepare_fast_open(
                 packet["admission"] = None
                 packet["admission_status"] = "NOT_REQUESTED_PREPARATION_ONLY"
                 packet["dispatch_evidence_status"] = "host_dispatch_required"
+            if case_binding is not None:
+                packet["case_binding"] = case_binding
             department_packets.append(packet)
         for role in ministry_assignments:
             ordinal += 1
@@ -1334,6 +1471,8 @@ def prepare_fast_open(
                 packet["admission"] = None
                 packet["admission_status"] = "NOT_REQUESTED_PREPARATION_ONLY"
                 packet["dispatch_evidence_status"] = "host_dispatch_required"
+            if case_binding is not None:
+                packet["case_binding"] = case_binding
             ministry_packets.append(packet)
         shangshu_ministry_coordination = (
             _shangshu_ministry_coordination(normalized, ministry_packets)
@@ -1379,6 +1518,7 @@ def prepare_fast_open(
             "authority_selection_gate": authority_selection_gate,
             "semantic_receipt_id": receipt.get("receipt_id"),
             "semantic_receipt_sha256": receipt.get("receipt_sha256"),
+            **({"case_binding": case_binding} if case_binding is not None else {}),
             "plan_cursor": receipt.get("plan_cursor"),
             "worktree": identity,
             "capability_snapshot": capability_snapshot,
@@ -1425,6 +1565,7 @@ def prepare_fast_open(
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--fast",
@@ -1433,15 +1574,58 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--request-json")
     parser.add_argument("--request-file")
+    parser.add_argument(
+        "--request-template",
+        action="store_true",
+        help="Print a read-only court.open.fast.request.v2 skeleton without preparing an open.",
+    )
+    parser.add_argument("--task-id")
+    parser.add_argument("--authority")
+    parser.add_argument(
+        "--authority-source",
+        choices=AUTHORITY_SOURCE_VALUES,
+        default="explicit_latest_user",
+    )
+    parser.add_argument("--behavior")
+    parser.add_argument("--worktree")
+    parser.add_argument("--task-focus")
+    parser.add_argument("--requested-office", action="append")
+    parser.add_argument("--host-capacity", type=int)
+    parser.add_argument("--host-active-agents", type=int)
+    parser.add_argument("--host-reclamation-status")
+    parser.add_argument("--expires-at-utc")
     parser.add_argument("--serial-preload", action="store_true")
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
+    if not args.request_template and any(
+        argument.split("=", 1)[0] in TEMPLATE_ONLY_OPTIONS
+        for argument in raw_argv
+    ):
+        parser.error("template request arguments require --request-template")
     try:
-        result = prepare_fast_open(
-            _request_value(args),
-            concurrent_preload=not args.serial_preload,
-        )
-        exit_code = 0 if result["ok"] else 2
+        if args.request_template:
+            if args.request_json is not None or args.request_file is not None:
+                raise FastPathInvalid("request_template_exclusive")
+            result = build_request_template(
+                task_id=args.task_id,
+                authority=args.authority,
+                authority_source=args.authority_source,
+                behavior=args.behavior,
+                worktree=args.worktree,
+                task_focus=args.task_focus,
+                requested_offices=args.requested_office,
+                host_capacity=args.host_capacity,
+                host_active_agents=args.host_active_agents,
+                host_reclamation_status=args.host_reclamation_status,
+                expires_at_utc=args.expires_at_utc,
+            )
+            exit_code = 0
+        else:
+            result = prepare_fast_open(
+                _request_value(args),
+                concurrent_preload=not args.serial_preload,
+            )
+            exit_code = 0 if result["ok"] else 2
     except FastPathInvalid as exc:
         result = {
             "schema": RECEIPT_SCHEMA,
@@ -1450,7 +1634,7 @@ def main(argv: list[str] | None = None) -> int:
             "problems": [str(exc)],
         }
         exit_code = 3
-    if args.format == "json":
+    if args.request_template or args.format == "json":
         print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
     else:
         print(result["status"])
@@ -1461,6 +1645,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
