@@ -36,6 +36,7 @@ from install_projection_renderer import (
     ActiveProjectionRenderError,
     render_active_projection,
 )
+from install_current_agent_copy import install_current_agent_copy
 from sync_codex_agents_from_profiles import sync_agents as sync_codex_agent_roles
 
 
@@ -859,6 +860,100 @@ def rendered_active_files(source: Path, target: Path) -> dict[Path, bytes]:
     return {
         Path(relative.as_posix()): payload
         for relative, payload in rendered.files.items()
+    }
+
+
+def _latest_install_receipt() -> dict[str, object] | None:
+    receipts_dir = (
+        Path.home()
+        / ".agents"
+        / "install-receipts"
+        / CANONICAL_INSTALL_DIRECTORY_NAME
+    )
+    if not receipts_dir.is_dir():
+        return None
+    candidates = sorted(
+        (path for path in receipts_dir.glob("install-*.json") if path.is_file()),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    if not candidates:
+        return None
+    value = json.loads(candidates[0].read_text(encoding="utf-8"))
+    return value if isinstance(value, dict) else None
+
+
+def _receipt_selected_installer_request(
+    source: Path,
+    receipt: dict[str, object],
+    targets: list[Path],
+    *,
+    write: bool,
+) -> dict[str, object]:
+    selected = receipt.get("selected_roots")
+    current_tool = receipt.get("current_tool")
+    current_root = receipt.get("current_tool_root")
+    explicit = receipt.get("explicit_extra_targets")
+    if (
+        receipt.get("selection_policy") != "receipt"
+        or not isinstance(selected, list)
+        or not isinstance(current_tool, str)
+        or not current_tool
+        or not isinstance(current_root, str)
+        or not current_root
+        or not isinstance(explicit, list)
+    ):
+        raise ValueError("receipt_installer_mapping_invalid")
+    selected_roots = [_absolute_no_follow(Path(value)) for value in selected]
+    expected_roots = [_absolute_no_follow(path) for path in targets]
+    if [_path_key(path) for path in selected_roots] != [
+        _path_key(path) for path in expected_roots
+    ]:
+        raise ValueError("receipt_installer_targets_mismatch")
+    home = Path.home()
+    primary = _absolute_no_follow(
+        home / ".agents" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
+    )
+    known_tools = {
+        "codex": _absolute_no_follow(
+            home / ".codex" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
+        ),
+        "claude": _absolute_no_follow(
+            home / ".claude" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
+        ),
+        "hermes": _absolute_no_follow(
+            user_data_base() / "hermes" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
+        ),
+    }
+    if primary not in selected_roots or current_tool not in known_tools:
+        raise ValueError("receipt_installer_primary_or_tool_invalid")
+    current = _absolute_no_follow(Path(current_root))
+    if current != known_tools[current_tool] or current not in selected_roots:
+        raise ValueError("receipt_installer_current_root_invalid")
+    explicit_roots = [_absolute_no_follow(Path(value)) for value in explicit]
+    expected_explicit = [
+        path for path in selected_roots if path not in {primary, current}
+    ]
+    if {_path_key(path) for path in explicit_roots} != {
+        _path_key(path) for path in expected_explicit
+    }:
+        raise ValueError("receipt_installer_explicit_targets_invalid")
+    explicit_tools = [
+        name
+        for path in expected_explicit
+        for name, known_root in known_tools.items()
+        if path == known_root and name != current_tool
+    ]
+    if len(explicit_tools) != len(expected_explicit):
+        raise ValueError("receipt_installer_explicit_tool_unknown")
+    return {
+        "source_root": source,
+        "home_root": home,
+        "current_tool": current_tool,
+        "explicit_tools": explicit_tools,
+        "tool_roots": known_tools,
+        "projection_manifest": source / PROJECTION_MANIFEST_RELATIVE,
+        "write": write,
     }
 
 
@@ -1715,6 +1810,118 @@ def main() -> int:
             "backup_root": None,
             "rollback_supported": True,
         }
+    existing_projection_roots = [
+        target
+        for target in physical_targets
+        if _lstat(target / PROJECTION_MANIFEST_RELATIVE) is not None
+    ]
+    if (
+        args.write
+        and args.prune_obsolete
+        and not args.migrate_legacy_locators
+        and existing_projection_roots
+        and len(physical_targets) == len(targets)
+    ):
+        try:
+            receipt = _latest_install_receipt()
+            if receipt is None:
+                raise ValueError("receipt_installer_mapping_missing")
+            request = _receipt_selected_installer_request(
+                source,
+                receipt,
+                targets,
+                write=True,
+            )
+            installer_transaction = install_current_agent_copy(**request)
+            if installer_transaction.get("ok") is not True:
+                raise ValueError(
+                    "installer_transaction_rejected:"
+                    + str(installer_transaction.get("reason", "unknown"))
+                )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            result = {
+                "ok": False,
+                "status": "FAIL",
+                "schema": "court.active_copy_sync.v1",
+                "source": str(source),
+                "source_files": 0,
+                "write": True,
+                "prune_obsolete": True,
+                "include_qoder": args.include_qoder,
+                "migrate_legacy_locators": False,
+                "targets": [],
+                "logical_target_count": len(targets),
+                "physical_authority_count": len(physical_targets),
+                "physical_authorities": [str(item) for item in physical_targets],
+                "installer_transaction": {
+                    "ok": False,
+                    "status": "REJECTED",
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+                "failures": [f"installer_transaction:{type(exc).__name__}:{exc}"],
+            }
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+            else:
+                print("ACTIVE_COPY_SYNC_FAIL installer_transaction")
+            return 1
+        counts = installer_transaction.get("projection_counts", {})
+        create_count = int(counts.get("create", 0)) if isinstance(counts, dict) else 0
+        replace_count = int(counts.get("replace", 0)) if isinstance(counts, dict) else 0
+        delete_count = int(counts.get("delete", 0)) if isinstance(counts, dict) else 0
+        result = {
+            "ok": True,
+            "status": "PASS",
+            "schema": "court.active_copy_sync.v1",
+            "source": str(source),
+            "source_files": len(rendered_active_files(source, targets[0])),
+            "write": True,
+            "prune_obsolete": True,
+            "include_qoder": args.include_qoder,
+            "migrate_legacy_locators": False,
+            "targets": [
+                {
+                    "target": str(target),
+                    "physical_authority": str(target),
+                    "write": True,
+                    "prune_obsolete": True,
+                    "ok": True,
+                    "status": "APPLIED",
+                    "counts_source": "installer_transaction.projection_counts (aggregate)",
+                    "copied": [],
+                    "frozen": [],
+                    "removed": [],
+                }
+                for target in targets
+            ],
+            "logical_target_count": len(targets),
+            "physical_authority_count": len(physical_targets),
+            "physical_authorities": [str(item) for item in physical_targets],
+            "partial_applied": False,
+            "recovery_required": None,
+            "failures": [],
+            "legacy_locator_conflicts": conflicts,
+            "legacy_migration": legacy_migration,
+            "codex_agent_roles": {
+                "ok": True,
+                "mode": "not-run",
+                "status": "NOT_RUN_TRANSACTIONAL_CACHE",
+                "rows": [],
+            },
+            "installer_transaction": installer_transaction,
+            "projection_counts": counts,
+        }
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(
+                "ACTIVE_COPY_SYNC_APPLIED source_files={} copied={} removed={}".format(
+                    result["source_files"],
+                    create_count + replace_count,
+                    delete_count,
+                )
+            )
+        return 0
     manifest = load_projection(source)
     source_file_count = 0
     frozen_relative_output: set[Path] = set()

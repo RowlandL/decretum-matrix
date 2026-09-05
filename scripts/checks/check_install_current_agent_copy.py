@@ -3314,6 +3314,162 @@ def _check_source_only_registry_gate(temp_root: Path, errors: list[str]) -> int:
     return 1
 
 
+def _check_sanitized_cache_receipt_transaction(
+    install: Installer,
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    name = "sanitized_cache_receipt_selected_transaction"
+    try:
+        from commands import sync_active_copies as sync_active
+        from install_projection_renderer import render_active_projection
+    except Exception as exc:
+        errors.append(f"{name}:imports:{type(exc).__name__}:{exc}")
+        return 0
+    root = temp_root / _fixture_slug(name)
+    cache, home = root / "npm-runtime", root / "home"
+    local = home / "AppData" / "Local"
+    try:
+        rendered = {
+            kind: render_active_projection(source_root=ROOT, target_class=kind)
+            for kind in ("shared_agents", "portable_current_tool")
+        }
+        for value in rendered.values():
+            for relative, payload in value.files.items():
+                path = cache / Path(relative.as_posix())
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+        cache_manifest = cache / "references" / "manifests" / "install-projection.v1.json"
+        cache_manifest.write_bytes(PROJECTION_MANIFEST_PATH.read_bytes())
+        cache_manifest_value = json.loads(cache_manifest.read_text(encoding="utf-8"))
+        roots = [
+            home / ".agents" / "skills" / "decretum-matrix",
+            home / ".codex" / "skills" / "decretum-matrix",
+            local / "hermes" / "skills" / "decretum-matrix",
+        ]
+        old_manifest = json.loads(PROJECTION_MANIFEST_PATH.read_text(encoding="utf-8"))
+        projections = old_manifest["projections"]
+        assert isinstance(projections, dict)
+        for projection_name in ("shared_agents", "portable_current_tool"):
+            projection = projections[projection_name]
+            assert isinstance(projection, list)
+            projection.extend(
+                (
+                    A_B_ROOT_SOURCE_ONLY_CHECKER,
+                    A_B_CHECKS_SOURCE_ONLY_CHECKER,
+                )
+            )
+        old_manifest_bytes = (
+            json.dumps(old_manifest, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n"
+        ).encode("utf-8")
+        old_shell = b"OLD_FLAT_CACHE_SHELL = True\n"
+        for index, target in enumerate(roots):
+            source_files = rendered[
+                "shared_agents" if index == 0 else "portable_current_tool"
+            ].files
+            for relative, payload in source_files.items():
+                path = target / Path(relative.as_posix())
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+            (
+                target / "references" / "manifests" / "install-projection.v1.json"
+            ).write_bytes(old_manifest_bytes)
+            (target / A_B_ROOT_COMPATIBILITY_SHELL).write_bytes(old_shell)
+            for relative in (
+                A_B_ROOT_SOURCE_ONLY_CHECKER,
+                A_B_CHECKS_SOURCE_ONLY_CHECKER,
+            ):
+                path = target / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("historical checker\n", encoding="utf-8")
+            (target / "scripts" / "checks" / "user-owned.txt").write_text(
+                "user-owned\n",
+                encoding="utf-8",
+            )
+        receipt = {
+            "selection_policy": "receipt",
+            "primary_root": str(roots[0]),
+            "current_tool": "codex",
+            "current_tool_root": str(roots[1]),
+            "current_tool_root_proof": "fixture",
+            "status": "INSTALLED",
+            "explicit_extra_targets": [str(roots[2])],
+            "selected_roots": [str(path) for path in roots],
+            "authority": "installer",
+            "receipt_sha256": "fixture",
+        }
+        receipt_path = home / ".agents" / "install-receipts" / "decretum-matrix" / "install-fixture.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+        environment = {
+            "HOME": str(home),
+            "USERPROFILE": str(home),
+            "LOCALAPPDATA": str(local),
+            "APPDATA": str(home / "AppData" / "Roaming"),
+        }
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, environment, clear=False), mock.patch.object(
+            sys,
+            "argv",
+            [
+                "sync_active_copies.py",
+                "--source",
+                str(cache),
+                "--write",
+                "--prune-obsolete",
+                "--json",
+            ],
+        ), redirect_stdout(output):
+            returncode = sync_active.main()
+        result = json.loads(output.getvalue())
+        transaction = result.get("installer_transaction")
+        backup = transaction.get("backup") if isinstance(transaction, dict) else None
+        applied = (
+            isinstance(cache_manifest_value.get("active_render"), dict)
+            and not (cache / A_B_ROOT_SOURCE_ONLY_CHECKER).exists()
+            and not (cache / A_B_CHECKS_SOURCE_ONLY_CHECKER).exists()
+            and returncode == 0
+            and result.get("ok") is True
+            and isinstance(transaction, dict)
+            and transaction.get("ok") is True
+            and isinstance(backup, dict)
+            and backup.get("delete_count") == len(roots) * 2
+            and all(
+                not (target / A_B_ROOT_SOURCE_ONLY_CHECKER).exists()
+                and not (target / A_B_CHECKS_SOURCE_ONLY_CHECKER).exists()
+                and (target / "scripts" / "checks" / "user-owned.txt").is_file()
+                for target in roots
+            )
+        )
+        rollback = (
+            install.__globals__["rollback_install_backup"](
+                home_root=home,
+                backup_root=Path(str(backup.get("backup_root"))),
+            )
+            if isinstance(backup, dict) and backup.get("backup_root")
+            else None
+        )
+        restored = (
+            isinstance(rollback, dict)
+            and rollback.get("ok") is True
+            and all(
+                (target / A_B_ROOT_COMPATIBILITY_SHELL).read_bytes() == old_shell
+                and (target / A_B_ROOT_SOURCE_ONLY_CHECKER).is_file()
+                and (target / A_B_CHECKS_SOURCE_ONLY_CHECKER).is_file()
+                and (target / "scripts" / "checks" / "user-owned.txt").is_file()
+                for target in roots
+            )
+        )
+    except Exception as exc:
+        errors.append(f"{name}:unexpected_error:{type(exc).__name__}:{exc}")
+        return 0
+    if not applied or not restored:
+        errors.append(f"{name}:contract_failed:{result}:{rollback}")
+        return 0
+    return 1
+
+
 def _check_blank_host_configuration_cases(
     install: Installer,
     temp_root: Path,
@@ -3721,6 +3877,14 @@ def evaluate() -> Payload:
                     errors,
                 )
             with tempfile.TemporaryDirectory(
+                prefix="cts-"
+            ) as temp_dir:
+                passed += _check_sanitized_cache_receipt_transaction(
+                    target,
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
                 prefix="cbr-"
             ) as temp_dir:
                 configuration_passed = _check_blank_host_configuration_cases(
@@ -3740,7 +3904,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 36,
+        "declared_cases": 37,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,
