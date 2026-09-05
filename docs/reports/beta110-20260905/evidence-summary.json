@@ -1,14 +1,14 @@
 {
   "schema": "decretum.beta110.implementation_evidence.v1",
-  "status": "CANDIDATE_PENDING_INTEGRATION",
+  "status": "VERIFIED_LOCAL_CANDIDATE",
   "task_id": "01a0715e-8957-7910-9800-eb19ed5d1437",
   "target_version": "beta1.1.0",
   "baseline_commit": "0003b3800cd245abf870a82ff464a802cc0faeaf",
   "product_branch": "release/beta1.1.0",
   "evidence_root": "D:\\project\\.staging\\dm110-20260905",
-  "actual_install_verified": false,
-  "final_regression_verified": false,
-  "menxia_final_review": "NOT_RUN",
+  "actual_install_verified": true,
+  "final_regression_verified": true,
+  "menxia_final_review": "PASSED_WITH_CONCERNS",
   "results": [
     {
       "id": "T01",
@@ -299,24 +299,17 @@
     }
   ],
   "t08": {
-    "role": "bingbu",
-    "status": "PENDING_REAL_ARCHIVE_PRODUCER_AND_MENXIA_SOURCE_VALIDATION",
-    "completed_first_scope_files": [
-      "scripts/court_runtime.py",
-      "scripts/court_result_semantics.py",
-      "scripts/court_semantic_continuity.py",
-      "scripts/checks/check_court_runtime_completion.py",
-      "scripts/checks/check_court_result_semantics.py",
-      "scripts/checks/check_semantic_continuity.py"
+    "status": "VERIFIED",
+    "review": "PASSED_WITH_CONCERNS",
+    "covered": [
+      "current selected consultation roles and superior relay",
+      "real Menxia completion source",
+      "persisted producer residual gaps and digest",
+      "mandatory producer receipt and digest at completion",
+      "real archive-record-complete flow and DONE_WITH_CONCERNS",
+      "atomic admission/event rollback"
     ],
-    "pending_archive_scope_files": [
-      "scripts/court_runtime.py",
-      "scripts/archive_checkpoint.py",
-      "scripts/services/archive_runtime_task.py",
-      "scripts/checks/check_court_runtime_completion.py",
-      "scripts/checks/check_shiguan_concurrency.py"
-    ],
-    "boundary": "New logical archive admission is native same-host followup only; START_PROJECTION_UNSUPPORTED/runtime_degraded applies to the product start projection, not to the actual host delivery."
+    "evidence": "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\lastfix"
   },
   "historical_diagnostic": {
     "check": "preload_semantics",
@@ -324,5 +317,373 @@
     "baseline_and_candidate_same_red_count": 4,
     "passing_behavior_checks": 18,
     "release_gate_required": false
+  },
+  "tested_source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+  "menxia_review_evidence": {
+    "schema": "court.menxia_final_review.v1",
+    "reviewed_at": "2026-09-06",
+    "role": "menxia",
+    "direct_superior": "taizi",
+    "candidate": {
+      "commit": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "worktree_clean": true
+    },
+    "scope": {
+      "included": [
+        "DM110-20260905 agreed beta1.1.0 release candidate checks",
+        "two repaired consultation and archive-producer gates",
+        "current required regression suite, source budget rerun, and isolated dual-root install receipt",
+        "A03 selected/admitted peer consultation positive validation"
+      ],
+      "excluded": [
+        "historical A02 preload_semantics diagnostic remediation",
+        "new product changes, active-host installation, external publication, and unrelated audit reopening"
+      ]
+    },
+    "five_level_review": [
+      {
+        "level": 1,
+        "name": "final_usable_result",
+        "status": "PASSED",
+        "evidence": [
+          "final-install-b938188/results.json: apply.ok=true, status=INSTALLED, 890 projected files",
+          "installed smoke: CLI beta1.1.0, MCP tool count=12, nine office preload records, six smoke commands with zero failures"
+        ]
+      },
+      {
+        "level": 2,
+        "name": "closure_and_non_regression",
+        "status": "PASSED",
+        "evidence": [
+          "final-suite-b938188/suite-summary.json: 37 of 39 initial checks passed; source_budget was rerun clean on the same source head",
+          "final-source-budget-b938188/source_budget.json: exit_code=0, generated_runtime files=0 and bytes=0",
+          "install repeat: status=INSTALLED with 890 identical files"
+        ]
+      },
+      {
+        "level": 3,
+        "name": "risk_boundary",
+        "status": "PASSED",
+        "evidence": [
+          "isolated install receipt records network_or_active_host_mutation=false, pending_body_accessed=false, and real_host_configuration_accessed=false",
+          "controlled rollback failure preserved installed file bytes=true",
+          "completion and semantic continuity checks include the repaired producer-evidence and invalidated/unadmitted-recipient gates"
+        ]
+      },
+      {
+        "level": 4,
+        "name": "verifiable_current_evidence",
+        "status": "PASSED",
+        "evidence": [
+          "candidate head and every final evidence receipt bind b938188ee825026eef1d5dd524033f47f5ce896d with an empty source diff hash",
+          "A03 isolated positive validation: selected/admitted gongbu#0001 and hubu#0001 accepted gongbu to hubu consultation with write_authority_granted=false",
+          "A03 produced agent_report only in a TemporaryDirectory runtime and did not touch an active court state"
+        ]
+      },
+      {
+        "level": 5,
+        "name": "records_and_single_task_consistency",
+        "status": "PASSED_WITH_CONCERNS",
+        "evidence": [
+          "release_manifest, release_metadata, package_privacy, semantic_continuity, completion, and installer_fixture checks passed in the final suite",
+          "the historical preload_semantics diagnostic remains separately recorded and is not a beta1.1.0 release gate"
+        ]
+      }
+    ],
+    "targeted_gate_review": {
+      "consultation_recipient": {
+        "status": "PASSED",
+        "negative_controls": [
+          "unadmitted recipient rejected",
+          "invalidated recipient rejected"
+        ],
+        "positive_control": "A03 selected/admitted gongbu to hubu consultation passed without write authority"
+      },
+      "archive_producer": {
+        "status": "PASSED",
+        "controls": [
+          "producer receipt and sha256 are mandatory at completion",
+          "missing both producer fields is rejected",
+          "wrong digest, fake pointer, archive/index tampering, and missing archive path are rejected"
+        ]
+      }
+    },
+    "suite_summary": {
+      "initial_groups": 39,
+      "initial_passed": 37,
+      "current_required_groups_passed": 38,
+      "historical_non_release_diagnostic": {
+        "check": "preload_semantics",
+        "status": "RED",
+        "gap_count": 4,
+        "classification": "existing A02 baseline; retained without source change"
+      }
+    },
+    "residual_gaps": [
+      {
+        "id": "historical-a02-preload-semantics",
+        "status": "NON_BLOCKING",
+        "detail": "Four established preload_semantics diagnostic gaps remain outside the beta1.1.0 release gate: pinned_initial_semantics, amended_behavior_source_reachability, pinned_capability_registry_contract, governing_capability_registry_contract."
+      }
+    ],
+    "decision": {
+      "verdict": "PASSED_WITH_CONCERNS",
+      "release_gate": "PASSED",
+      "next": "Taizi may perform the already-authorized closeout using the candidate-bound evidence."
+    }
+  },
+  "required_check_count": 38,
+  "required_checks": [
+    {
+      "check": "source_budget",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-source-budget-b938188\\source_budget.json"
+    },
+    {
+      "check": "quick_validate",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\quick_validate.json"
+    },
+    {
+      "check": "release_manifest",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\release_manifest.json"
+    },
+    {
+      "check": "governance",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\governance.json"
+    },
+    {
+      "check": "result_semantics",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\result_semantics.json"
+    },
+    {
+      "check": "open_fastpath",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\open_fastpath.json"
+    },
+    {
+      "check": "skill_identity",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\skill_identity.json"
+    },
+    {
+      "check": "startup_fastpath",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\startup_fastpath.json"
+    },
+    {
+      "check": "unified_cli",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\unified_cli.json"
+    },
+    {
+      "check": "numbering",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\numbering.json"
+    },
+    {
+      "check": "iku",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\iku.json"
+    },
+    {
+      "check": "read_only",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\read_only.json"
+    },
+    {
+      "check": "full_record",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\full_record.json"
+    },
+    {
+      "check": "taxonomy",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\taxonomy.json"
+    },
+    {
+      "check": "lineage_compat",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\lineage_compat.json"
+    },
+    {
+      "check": "recall",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\recall.json"
+    },
+    {
+      "check": "conflict_scan",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\conflict_scan.json"
+    },
+    {
+      "check": "model_router",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\model_router.json"
+    },
+    {
+      "check": "office_worker",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\office_worker.json"
+    },
+    {
+      "check": "agent_config",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\agent_config.json"
+    },
+    {
+      "check": "mcp",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\mcp.json"
+    },
+    {
+      "check": "git_federation",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\git_federation.json"
+    },
+    {
+      "check": "completion",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\completion.json"
+    },
+    {
+      "check": "projection_closure",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\projection_closure.json"
+    },
+    {
+      "check": "runtime_concurrency",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\runtime_concurrency.json"
+    },
+    {
+      "check": "http_static",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\http_static.json"
+    },
+    {
+      "check": "shiguan_concurrency",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\shiguan_concurrency.json"
+    },
+    {
+      "check": "portability",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\portability.json"
+    },
+    {
+      "check": "release_metadata",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\release_metadata.json"
+    },
+    {
+      "check": "hierarchy",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\hierarchy.json"
+    },
+    {
+      "check": "context_survival",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\context_survival.json"
+    },
+    {
+      "check": "installer_fixture",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\installer_fixture.json"
+    },
+    {
+      "check": "semantic_continuity",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\semantic_continuity.json"
+    },
+    {
+      "check": "outcome_gate",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\outcome_gate.json"
+    },
+    {
+      "check": "session_closeout",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\session_closeout.json"
+    },
+    {
+      "check": "runtime",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\runtime.json"
+    },
+    {
+      "check": "package_privacy",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\package_privacy.json"
+    },
+    {
+      "check": "agent_lifecycle",
+      "exit_code": 0,
+      "source_head": "b938188ee825026eef1d5dd524033f47f5ce896d",
+      "evidence": "D:\\project\\.staging\\dm110-20260905\\final-suite-b938188\\agent_lifecycle.json"
+    }
+  ],
+  "install_evidence": "D:\\project\\.staging\\dm110-20260905\\final-install-b938188\\results.json",
+  "installation": {
+    "selected_roots": [
+      "D:\\project\\.staging\\dm110-20260905\\final-install-b938188\\installed-home\\.agents\\skills\\decretum-matrix",
+      "D:\\project\\.staging\\dm110-20260905\\final-install-b938188\\installed-home\\.codex\\skills\\decretum-matrix"
+    ],
+    "installed_file_count": 890,
+    "mcp_tool_count": 12,
+    "maximum_office_preload_bytes": 19394,
+    "repeat_install": "PASSED",
+    "controlled_rollback": "PASSED"
+  },
+  "model_evidence": {
+    "ok": true,
+    "source": "D:\\project\\.staging\\dm110-20260905\\model-evidence.json",
+    "method": "actual native session_meta and turn_context",
+    "historical_instances": 22,
+    "maximum_observed_simultaneous_tree": 16,
+    "maximum_observed_depth": 4,
+    "root_model": "gpt-6-astra/ultra",
+    "child_models": "gpt-5.6-terra/ultra"
   }
 }
