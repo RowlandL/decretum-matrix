@@ -8701,6 +8701,7 @@ def agent_event(
         start_context_economy: dict[str, object] | None = None
         start_hierarchy_evidence: dict[str, object] | None = None
         start_native_host_receipt: dict[str, object] | None = None
+        captured_carrier: dict[str, object] | None = None
         if lifecycle_action == "agent_start":
             _reject_native_host_receipt_replay(task, args)
             if agent_id in agents:
@@ -8814,6 +8815,22 @@ def agent_event(
                 ).strip().lower():
                     raise ValueError("office_instance_id_mismatch")
                 admitted_proof = matching_bindings[0].get("carrier_proof")
+                admitted_task_name = str(matching_bindings[0].get("collaboration_task_name") or "")
+                # Public admission reserves an office before its host carrier
+                # exists. Bind that carrier from the validated capture without
+                # rewriting the immutable admission or changing its office ID.
+                if admitted_proof is None and not admitted_task_name and requested_kind == "child_agent":
+                    start_native_host_receipt = _validate_native_host_receipt_for_runtime(
+                        task, admission, matched_binding, args,
+                        decision="spawn", host_action="spawn", outcome="succeeded")
+                    if not start_native_host_receipt or not start_native_host_receipt.get("host_spawn_evidence"):
+                        raise ValueError("native_carrier_capture_required")
+                    request_digest = start_native_host_receipt["request_sha256"]
+                    admitted_task_name = f"{role.replace('-', '_')}_native_{request_digest[:16]}"
+                    if str(start_native_host_receipt.get("host_instance_id", "")).rsplit("/", 1)[-1] != admitted_task_name:
+                        raise ValueError("native_carrier_capture_name_mismatch")
+                    admitted_proof = {"agent_id": f"{role}-native-{request_digest[:16]}"}
+                    captured_carrier = {"carrier_proof": admitted_proof, "collaboration_task_name": admitted_task_name}
                 requested_proof = _normalize_carrier_proof(
                     requested_kind,
                     getattr(args, "carrier_proof", None),
@@ -8827,9 +8844,6 @@ def agent_event(
                         raise ValueError("office_child_agent_id_mismatch")
                 elif agent_id != requested_office_id:
                     raise ValueError("office_worktree_storage_id_mismatch")
-                admitted_task_name = str(
-                    matching_bindings[0].get("collaboration_task_name") or ""
-                )
                 if admitted_task_name != str(
                     getattr(args, "collaboration_task_name", "") or ""
                 ):
@@ -9190,6 +9204,8 @@ def agent_event(
             current.update(deepcopy(assignment_binding))
             if isinstance(matching_bindings[0], dict) and matching_bindings[0].get("dispatch_uid"):
                 current.update(deepcopy(matching_bindings[0]))
+            if captured_carrier is not None:
+                current.update(deepcopy(captured_carrier))
             if start_hierarchy_evidence is not None:
                 current.update(start_hierarchy_evidence)
             current["assignment_binding_ready"] = bool(
