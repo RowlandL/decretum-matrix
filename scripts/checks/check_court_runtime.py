@@ -23,6 +23,8 @@ import uuid
 sys.dont_write_bytecode = True
 
 import court_runtime
+import court_office_bootstrap
+from checks.installed_identity_fixture import FIXTURE_DIGEST
 from court_office_bootstrap import (
     build_child_office_profile,
     canonical_child_office_binding_sha256,
@@ -43,6 +45,7 @@ from check_court_agent_lifecycle import (
     context_budget_pool,
     dispatch_context_packet,
     run_agent_lifecycle_checks,
+    installed_runtime_identity_fixture,
 )
 import report_office_startup_latency as startup_latency
 
@@ -492,8 +495,8 @@ def _instance_start_args(
     agent_id: str,
     dispatch_requested_at: str,
 ) -> Namespace:
-    skill_path = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
-    skill_hash = hashlib.sha256(skill_path.read_bytes()).hexdigest()
+    skill_path = court_office_bootstrap.SKILL_PATH
+    skill_hash = FIXTURE_DIGEST
     suffix = instance_id.split("#", 1)[-1]
     args = court_runtime.build_parser().parse_args(
         [
@@ -1431,7 +1434,7 @@ def check_public_create_help_contract() -> None:
         ).hexdigest()
 
 
-def main() -> int:
+def _main() -> int:
     check_public_create_help_contract()
     check_omitted_capsule_denies_mutable_admission()
     check_full_context_private_body_not_persisted()
@@ -2494,6 +2497,11 @@ max_threads = 6
     run_agent_lifecycle_checks()
     print("COURT_RUNTIME_SELF_TEST_OK")
     return 0
+
+
+def main() -> int:
+    with installed_runtime_identity_fixture():
+        return _main()
 
 
 if __name__ == "__main__":

@@ -37,11 +37,34 @@ os.environ["COURT_SHARED_SHIGUAN_ROOT"] = str(_IMPORT_SHIGUAN_ROOT)
 os.environ["SHIGUAN_SHARED_ROOT"] = str(_IMPORT_SHIGUAN_ROOT)
 
 import court_runtime
+import court_office_bootstrap
+from checks.installed_identity_fixture import FIXTURE_DIGEST, write_skill
 from court_intake_gate import minimal_request_understanding_example
 from court_agent_admission import budget_lease_access_contract_error
 from court_complexity_budget import normalize_budget_pool
 from check_court_office_assignment_binding import run_office_assignment_binding_checks
 from court_office_bootstrap import canonical_child_office_binding_sha256
+
+
+@contextmanager
+def installed_runtime_identity_fixture():
+    """Bind real runtime preload consumers to one temporary installation."""
+    with tempfile.TemporaryDirectory(prefix="court-runtime-install-identity-") as directory:
+        root = Path(directory)
+        write_skill(root)
+
+        def preload(role: str, **kwargs: object):
+            kwargs.setdefault("skill_root", root)
+            return court_office_bootstrap.build_preload_manifest(role, **kwargs)
+
+        def assignment(**kwargs: object):
+            kwargs.setdefault("profile_root", root / "agents" / "standing-officials")
+            return court_office_bootstrap.build_office_assignment_binding(**kwargs)
+
+        with patch.object(court_office_bootstrap, "SKILL_PATH", root / "SKILL.md"), patch.object(
+            court_runtime, "build_preload_manifest", preload
+        ), patch.object(court_runtime, "build_office_assignment_binding", assignment):
+            yield root
 
 
 ROUTE = {
@@ -105,7 +128,7 @@ def evaluate_native_host_lifecycle() -> dict[str, object]:
         ),
         "behavior_evaluated": False,
     }
-    with tempfile.TemporaryDirectory(prefix="court-native-host-lifecycle-") as temp_dir:
+    with installed_runtime_identity_fixture(), tempfile.TemporaryDirectory(prefix="court-native-host-lifecycle-") as temp_dir:
         fixture_root = Path(temp_dir)
         task_skill = fixture_root / "skills" / "native-host-lifecycle" / "SKILL.md"
         task_skill.parent.mkdir(parents=True)
@@ -144,11 +167,12 @@ def check_import_root_isolation() -> None:
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Synthetic declarations only; never hash source or installed file bytes.
+    return FIXTURE_DIGEST
 
 
 def runtime_skill_requirements_json() -> str:
-    court_skill = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
+    court_skill = court_office_bootstrap.SKILL_PATH
     task_skill = TASK_SPECIFIC_SKILL_PATH
     if task_skill is None or not task_skill.is_file():
         raise AssertionError("task-specific lifecycle skill fixture is unavailable")
@@ -1605,7 +1629,6 @@ def check_office_name_identity_binding() -> None:
     skill_admission = admit(skill_task, "office-bound-invalid-skill-wave")
     bad_requirements = json.loads(runtime_skill_requirements_json())
     bad_requirements[1]["sha256"] = "0" * 64
-    bad_requirements[1]["ack_sha256"] = "0" * 64
     for attempt in range(2):
         reject_runtime_bytes_unchanged(
             lambda: court_runtime.agent_start(
@@ -1618,7 +1641,7 @@ def check_office_name_identity_binding() -> None:
                 )
             ),
             f"invalid skill binding was accepted on attempt {attempt}",
-            "required_skill_hash_mismatch",
+            "skill_ack_incomplete",
         )
 
     profile_task = "office-bound-invalid-profile"
@@ -1702,8 +1725,8 @@ def check_assignment_binding_toctou_rejected() -> None:
     admission = admit(task_id, "assignment-binding-toctou-wave")
     with tempfile.TemporaryDirectory() as fixture_dir:
         root = Path(fixture_dir)
-        profiles = root / "profiles"
-        profiles.mkdir()
+        write_skill(root)
+        profiles = root / "agents" / "standing-officials"
         profile = profiles / "gongbu.toml"
         profile.write_text(
             '[profile]\nrole_key = "gongbu"\noffice_zh = "工部"\n'
@@ -1711,7 +1734,7 @@ def check_assignment_binding_toctou_rejected() -> None:
             encoding="utf-8",
         )
         skill_root = root / "skills"
-        court_skill = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
+        court_skill = court_office_bootstrap.SKILL_PATH
         tdd_skill = skill_root / "tdd" / "SKILL.md"
         tdd_skill.parent.mkdir(parents=True)
         tdd_skill.write_text("tdd fixture\n", encoding="utf-8")
@@ -1741,8 +1764,9 @@ def check_assignment_binding_toctou_rejected() -> None:
         @contextmanager
         def mutating_lock(*args: object, **kwargs: object):
             with original_lock(*args, **kwargs):  # type: ignore[arg-type]
-                profile.write_text(profile.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
-                tdd_skill.write_text(tdd_skill.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
+                # A declaration pin does not verify changing file bytes. Keep
+                # this TOCTOU check about the role's live semantic identity.
+                profile.write_text(profile.read_text(encoding="utf-8").replace('direct_superior = "shangshu"', 'direct_superior = "taizi"'), encoding="utf-8")
                 yield
 
         court_runtime.build_office_assignment_binding = fixture_builder  # type: ignore[assignment]
@@ -2941,7 +2965,15 @@ def check_office_lifecycle_json_cli() -> None:
     ack.office_instance_kind = "child_agent"
     ack.office_instance_id = instance_id
     ack.carrier_proof = proof
-    assert office_cli("preload-ack", ack)["receipt"]["action"] == "preload_ack"
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.agent_preload_ack(ack),
+        "legacy native receipt without child trace must remain pending",
+        "preload_pending",
+    )
+    # This test's host UUID strings are synthetic. Continue its downstream JSON
+    # lifecycle contract with an explicit adapter fixture; this is not host acceptance.
+    with patch('commands.court_native_bridge.captured_child_read_order', return_value=None):
+        assert office_cli("preload-ack", ack)["receipt"]["action"] == "preload_ack"
 
     report = event_args(task_id, instance_id)
     report.office_instance_kind = "child_agent"
@@ -3723,7 +3755,7 @@ def run_agent_lifecycle_checks() -> None:
     check_import_root_isolation()
     # The pure binding gate must pass before lifecycle persistence checks can run.
     run_office_assignment_binding_checks()
-    with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+    with installed_runtime_identity_fixture(), tempfile.TemporaryDirectory() as temp_dir, patch.dict(
         os.environ,
         {"GIT_CEILING_DIRECTORIES": str(Path(temp_dir).resolve())},
     ):
@@ -3802,4 +3834,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

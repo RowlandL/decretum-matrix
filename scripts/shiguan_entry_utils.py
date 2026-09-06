@@ -431,6 +431,7 @@ TAXONOMY_VERSION = "2026-08-28.beta1.0.8"
 CONTENT_TAXONOMY_VERSION = TAXONOMY_VERSION
 CONTENT_TAXONOMY_MIN_SCORE = 2
 CONTENT_LINEAGE_FIELDS = ("root", "zhi", "men", "gang", "mu", "tiao", "zhao")
+LEGACY_REVIEW_CODE_RE = re.compile(r"S(?:UIK){5}U[A-Z0-9]{2}", re.IGNORECASE)
 CONTENT_NEGATION_MARKERS = (
     "不涉及",
     "不包括",
@@ -1083,10 +1084,11 @@ def enrich_court_code(entry: dict[str, object]) -> None:
     entry.pop("court_code_v2", None)
     entry["kb_uid"] = uid
     entry["record_uid"] = record_uid(entry)
+    issued_parts = stable_code.split("-")
     entry["court_code_parts"] = {
-        "lineage": layer_code(entry),
-        "date": date_text(entry),
-        "sequence": daily_sequence(entry),
+        "lineage": issued_parts[0],
+        "date": issued_parts[1],
+        "sequence": issued_parts[2],
         "status": four_code[0],
         "risk": risk,
         "knowledge_value": value,
@@ -1658,6 +1660,13 @@ def lineage_code(entry: dict[str, object]) -> str:
     parts = entry.get("lineage_parts")
     if not isinstance(parts, dict):
         parts = content_lineage_parts(entry)
+    if parts.get("classification_status") == "review" or any(
+        str(parts.get(key) or "").strip() == "待审"
+        for key in ("zhi", "men", "gang", "mu", "tiao")
+    ):
+        # A review state is one unresolved classification, not five taxonomy
+        # nodes. Existing issued codes remain preserved by enrich_court_code.
+        return "SREVIEWU" + stable_base36_code(str(parts.get("zhao") or "zhao"), 2)
     codes: list[str] = []
     for key in ("root", "zhi", "men", "gang", "mu", "tiao", "zhao"):
         value = str(parts.get(key, ""))
@@ -1667,6 +1676,38 @@ def lineage_code(entry: dict[str, object]) -> str:
         code = re.sub(r"[^A-Z0-9]", "", code.upper()) or ("U" + stable_base36_code(value or key, 2))
         codes.append(code)
     return "".join(codes[:7])
+
+
+def court_code_requires_review(value: object) -> bool:
+    prefix = str(value or "").strip().upper().split("-", 1)[0]
+    return bool(
+        LEGACY_REVIEW_CODE_RE.fullmatch(prefix)
+        or re.fullmatch(r"SREVIEWU[A-Z0-9]{2}", prefix)
+    )
+
+
+def lineage_review_metadata(entry: dict[str, object]) -> dict[str, object]:
+    """Expose unresolved historical identity without reclassifying stored parts."""
+    parts = entry.get("lineage_parts")
+    parts = parts if isinstance(parts, dict) else {}
+    status = str(parts.get("classification_status") or "classified")
+    reason = str(parts.get("classification_reason") or "stored_lineage")
+    if any(
+        str(parts.get(key) or "").strip() == "待审"
+        for key in ("zhi", "men", "gang", "mu", "tiao")
+    ):
+        status = "review"
+        if reason == "stored_lineage":
+            reason = "stored_review_lineage"
+    code_review = court_code_requires_review(entry.get("court_code"))
+    if code_review and status != "review":
+        status, reason = "review", "unresolved_lineage_code"
+    return {
+        "classification_status": status,
+        "classification_reason": reason,
+        "taxonomy_version": str(parts.get("taxonomy_version") or "historical_unversioned"),
+        "court_code_review_required": code_review,
+    }
 
 
 def build_keyword_summaries(entry: dict[str, object]) -> tuple[str, str]:
@@ -1780,6 +1821,7 @@ def enrich_entry(entry: dict[str, object]) -> dict[str, object]:
     entry["lineage_key"] = content_lineage_key(parts)
     entry["lineage_display"] = content_lineage_display(parts)
     enrich_court_code(entry)
+    entry.update(lineage_review_metadata(entry))
     entry["facet_dimensions"] = facet_dimensions(entry)
     entry.update(capability_vector_fields(entry))
     return entry

@@ -17,13 +17,16 @@ from pathlib import Path
 from pathlib import PurePosixPath
 import re
 import stat
+import subprocess
 import sys
+import tempfile
 from typing import Any
 
 sys.dont_write_bytecode = True
 
 from install_projection_renderer import (
     ActiveProjectionRenderError,
+    active_path_is_excluded,
     render_active_projection,
 )
 
@@ -985,13 +988,89 @@ def evaluate() -> dict[str, Any]:
     }
 
 
+def native_import_smoke() -> dict[str, Any]:
+    """Import native support from isolated projection payloads, without installing."""
+    manifest = _load_json(PROJECTION_MANIFEST)
+    projection = manifest["projections"]
+    excluded_globs = tuple(manifest.get("active_render", {}).get("exclude_path_globs", []))
+    required = {
+        "scripts/court_native_identity.py",
+        "scripts/court_native_trace.py",
+        "scripts/court_native_host_dispatch.py",
+        "scripts/commands/court_native_bridge.py",
+    }
+    from check_unified_cli import CLI_SUPPORT_FILES
+
+    failures: list[str] = []
+    evidence: dict[str, Any] = {}
+    if "scripts/court_native_trace.py" not in CLI_SUPPORT_FILES:
+        failures.append("native_trace_cli_support_missing")
+    if "scripts/court_native_trace.py" not in projection["cli_public"]:
+        failures.append("native_trace_cli_projection_missing")
+    probe = (
+        "import json, pathlib, sys; "
+        "root = pathlib.Path(sys.argv[1]).resolve(); "
+        "sys.path.insert(0, str(root / 'scripts')); "
+        "import court_native_identity, court_native_trace, court_native_host_dispatch; "
+        "from commands import court_native_bridge; "
+        "modules = (court_native_identity, court_native_trace, court_native_host_dispatch, court_native_bridge); "
+        "paths = [pathlib.Path(module.__file__).resolve().relative_to(root).as_posix() for module in modules]; "
+        "print(json.dumps({'imported': paths, 'trace_schema': court_native_trace.SCHEMA}))"
+    )
+    with tempfile.TemporaryDirectory(prefix="native-projection-import-") as temp:
+        for target in ("shared_agents", "portable_current_tool"):
+            declared = projection[target]
+            for relative in required:
+                if relative not in declared:
+                    failures.append(f"{target}:native_support_not_declared:{relative}")
+            files = _projected_files([*declared, *projection["cli_public"]])
+            destination = Path(temp) / target
+            destination.mkdir()
+            # Copy the declared Python payload verbatim; no pin production,
+            # file hashing, installer transaction, or source import fallback.
+            for relative in sorted(files):
+                if not relative.endswith(".py") or active_path_is_excluded(relative, excluded_globs):
+                    continue
+                output = destination / relative
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes((ROOT / relative).read_bytes())
+            env = dict(os.environ)
+            for key in ("HOME", "USERPROFILE", "CODEX_HOME", "COURT_SHARED_SHIGUAN_ROOT"):
+                env[key] = str(destination / "isolated-home")
+            result = subprocess.run(
+                [sys.executable, "-B", "-I", "-c", probe, str(destination)],
+                cwd=destination, env=env, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=30,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            payload: dict[str, Any] = {"exit_status": result.returncode}
+            if result.returncode:
+                failures.append(f"{target}:native_import_failed")
+                payload["stderr"] = result.stderr[-2000:]
+            else:
+                payload.update(json.loads(result.stdout))
+                if set(payload["imported"]) != required:
+                    failures.append(f"{target}:native_import_path_mismatch")
+            evidence[target] = payload
+    return {
+        "schema": "court.install_projection_native_import_smoke.v1",
+        "ok": not failures, "status": "PASS" if not failures else "FAIL",
+        "evidence": evidence, "failures": failures,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--native-import-smoke", action="store_true")
     args = parser.parse_args(argv)
     if args.self_test:
         result = _self_test()
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if result["ok"] else 1
+    if args.native_import_smoke:
+        result = native_import_smoke()
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if result["ok"] else 1
     try:

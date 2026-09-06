@@ -35,12 +35,13 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 sys.dont_write_bytecode = True
 
-from court_file_lock import atomic_write_text
+from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
 from shiguan_paths import code_root, ensure_shared_seed, reference_path
-from iku_candidates import detect_candidates
+from iku_candidates import detect_record_candidates
 
 
 def skill_root() -> Path:
@@ -70,17 +71,17 @@ def _replacement_line(candidate: dict[str, object], line: str) -> str | None:
         code = str(candidate.get("nearest_court_code") or "").strip()
         if not code:
             return None
-        return f"诏令编号：{code}"
+        prefix = "- court_code: " if line.lstrip().startswith("- court_code:") else "诏令编号："
+        return f"{prefix}{code}"
     if field == "古制谱系":
         lineage = str(candidate.get("nearest_lineage") or "").strip()
         if not lineage:
             return None
+        for prefix in ("- ancient_lineage:", "- lineage_display:"):
+            if line.lstrip().startswith(prefix):
+                return f"{prefix} {lineage}"
         return f"古制谱系：{lineage}"
     return None
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -118,52 +119,29 @@ def plan_repairs(
 ) -> list[dict[str, object]]:
     """Return a read-only repair plan (REPAIR_CANDIDATE identity fields only)."""
     selected_root = Path(root) if root is not None else archive_root()
-    candidates = detect_candidates(scope="plan-archives", limit=limit, root=selected_root)
-    by_file: dict[str, list[dict[str, object]]] = {}
-    for candidate in candidates:
-        if candidate.get("suggested_action") != "REPAIR_CANDIDATE":
-            continue
-        by_file.setdefault(str(candidate.get("record_path") or ""), []).append(candidate)
-
     plan: list[dict[str, object]] = []
-    for record_path, items in by_file.items():
-        path = selected_root / Path(record_path).name
-        if not path.exists():
+    for path in sorted(selected_root.glob("*.md")):
+        text = path.read_bytes().decode("utf-8")
+        plan.extend(_plan_record_repairs(text, path, selected_root))
+        if len(plan) >= max(1, min(int(limit), 100)):
+            break
+    return plan[:max(1, min(int(limit), 100))]
+
+
+def _plan_record_repairs(text: str, path: Path, root: Path) -> list[dict[str, object]]:
+    lines = text.splitlines(keepends=True)
+    plan: list[dict[str, object]] = []
+    for candidate in detect_record_candidates(text, path, root):
+        if candidate["suggested_action"] != "REPAIR_CANDIDATE":
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        used: set[str] = set()
-        for line_no, line in enumerate(text.splitlines(keepends=True), start=1):
-            fragment = line.strip()
-            if not fragment:
-                continue
-            fragment_sha = hashlib.sha256(fragment.encode("utf-8")).hexdigest()
-            for candidate in items:
-                key = str(candidate.get("fragment_sha256") or "")
-                if key != fragment_sha or key in used:
-                    continue
-                replacement = _replacement_line(candidate, line)
-                if replacement is None:
-                    continue
-                used.add(key)
-                plan.append(
-                    {
-                        "record_path": record_path,
-                        "record_id": candidate.get("record_id"),
-                        "field": candidate.get("field"),
-                        "placeholder_kind": candidate.get("placeholder_kind"),
-                        "fragment_sha256": fragment_sha,
-                        "original_line_sha256": hashlib.sha256(
-                            line.encode("utf-8")
-                        ).hexdigest(),
-                        "line_number": line_no,
-                        "replacement_line": replacement,
-                        "nearest_court_code": candidate.get("nearest_court_code"),
-                        "nearest_lineage": candidate.get("nearest_lineage"),
-                        "receipt_hint": candidate.get("receipt_hint"),
-                    }
-                )
-                break
-    plan.sort(key=lambda item: (str(item["record_path"]), int(item["line_number"])))
+        line = lines[int(candidate["line_number"]) - 1]
+        replacement = _replacement_line(candidate, line)
+        if replacement is not None:
+            plan.append({
+                **candidate,
+                "original_line_sha256": hashlib.sha256(line.encode("utf-8")).hexdigest(),
+                "replacement_line": replacement,
+            })
     return plan
 
 
@@ -183,6 +161,19 @@ def apply_repairs(
     backup_root: Path | None = None,
     yes: bool = False,
 ) -> dict[str, Any]:
+    """Apply under the shared archive lock; explicit roots use an isolated lock."""
+    if not yes:
+        raise ValueError("repair_requires_yes")
+    if not plan:
+        return {"ok": True, "files": 0, "replacements": 0, "journal_path": None}
+    lock = shiguan_write_lock_path() if root is None else Path(root).parent / "court-runtime" / "shiguan-write.lock"
+    with file_lock(lock):
+        return _apply_repairs_locked(plan, root=root, backup_root=backup_root, yes=yes)
+
+
+def _apply_repairs_locked(
+    plan: list[dict[str, object]], *, root: Path | None, backup_root: Path | None, yes: bool,
+) -> dict[str, Any]:
     """Apply a repair plan with rollback snapshots + journal/receipt (P3-4/P3-5).
 
     Requires ``yes=True`` (the CLI ``--yes`` gate). Returns a journal with one
@@ -195,11 +186,14 @@ def apply_repairs(
     if not plan:
         return {"ok": True, "files": 0, "replacements": 0, "journal_path": None}
     selected_root = Path(root) if root is not None else archive_root()
+    current_plan = plan_repairs(root=selected_root)
+    if any(item not in current_plan for item in plan):
+        raise ValueError("repair_plan_source_changed")
     selected_backup_root = (
         Path(backup_root) if backup_root is not None else default_backup_root()
     )
     selected_backup_root.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex
     journal: dict[str, Any] = {
         "schema": "court.iku_repair_journal.v1",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -209,26 +203,35 @@ def apply_repairs(
     }
     files_changed = 0
     replacements_changed = 0
+    journal_path = selected_backup_root / f"repair-journal-{timestamp}.json"
+    journal["journal_path"] = str(journal_path)
+
+    def persist_journal() -> None:
+        atomic_write_text(journal_path, json.dumps(journal, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     for record_path, items in _grouped_repairs(plan).items():
         path = selected_root / Path(record_path).name
         if not path.exists():
-            continue
+            raise ValueError("repair_source_missing")
         original_bytes = path.read_bytes()
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines(
-            keepends=True
-        )
-        used: set[str] = set()
+        original_text = original_bytes.decode("utf-8")
+        snapshot_plan = _plan_record_repairs(original_text, path, selected_root)
+        if any(item not in snapshot_plan for item in items):
+            raise ValueError("repair_plan_source_changed")
+        lines = original_text.splitlines(keepends=True)
+        used: set[tuple[int, str]] = set()
         replaced_lines: list[dict[str, object]] = []
         for index, line in enumerate(lines):
             fragment_sha = hashlib.sha256(line.strip().encode("utf-8")).hexdigest()
             for item in items:
+                if item.get("line_number") != index + 1:
+                    continue
                 key = str(item.get("fragment_sha256") or "")
-                if key != fragment_sha or key in used:
+                if key != fragment_sha or (index + 1, key) in used:
                     continue
                 replacement = str(item.get("replacement_line") or "")
                 newline = line[len(line.rstrip("\r\n")) :]
                 lines[index] = replacement + newline
-                used.add(key)
+                used.add((index + 1, key))
                 replaced_lines.append(
                     {
                         "field": item.get("field"),
@@ -236,6 +239,10 @@ def apply_repairs(
                         "original_line_sha256": item.get("original_line_sha256"),
                         "replacement_line": replacement,
                         "line_number": int(item.get("line_number") or index + 1),
+                        **{key: item.get(key) for key in (
+                            "checkpoint", "checkpoint_line_number", "record_id", "receipt_hint",
+                            "nearest_court_code", "nearest_lineage",
+                        )},
                     }
                 )
                 break
@@ -245,30 +252,40 @@ def apply_repairs(
         backup_name = f"{timestamp}-{path.name}.bak"
         backup_path = selected_backup_root / backup_name
         _atomic_write_bytes(backup_path, original_bytes)
-        atomic_write_text(path, repaired_text, encoding="utf-8", newline="\n")
+
+        def single_source(field: str) -> object:
+            values = {item.get(field) for item in items}
+            return next(iter(values)) if len(values) == 1 else None
+
+        file_journal = {
+                "record_path": record_path,
+                "record_id": single_source("record_id"),
+                "beforeimage_verification": "exact_bytes",
+                "original_size_bytes": len(original_bytes),
+                "repaired_size_bytes": len(repaired_text.encode("utf-8")),
+                "backup_path": str(backup_path),
+                "receipt_hint": single_source("receipt_hint"),
+                "nearest_court_code": single_source("nearest_court_code"),
+                "nearest_lineage": single_source("nearest_lineage"),
+                "source_scope": "per_replacement",
+                "replacements": replaced_lines,
+                "write_status": "PREPARED",
+        }
+        journal["files"].append(file_journal)
+        persist_journal()
+        try:
+            if path.read_bytes() != original_bytes:
+                raise ValueError("repair_beforeimage_changed")
+            atomic_write_text(path, repaired_text, encoding="utf-8", newline="")
+        except BaseException as exc:
+            file_journal["write_status"] = "FAILED"
+            file_journal["error"] = type(exc).__name__
+            persist_journal()
+            raise
+        file_journal["write_status"] = "APPLIED"
         files_changed += 1
         replacements_changed += len(replaced_lines)
-        journal["files"].append(
-            {
-                "record_path": record_path,
-                "record_id": items[0].get("record_id"),
-                "original_sha256": _sha256_bytes(original_bytes),
-                "repaired_sha256": _sha256_bytes(repaired_text.encode("utf-8")),
-                "backup_path": str(backup_path),
-                "receipt_hint": items[0].get("receipt_hint"),
-                "nearest_court_code": items[0].get("nearest_court_code"),
-                "nearest_lineage": items[0].get("nearest_lineage"),
-                "replacements": replaced_lines,
-            }
-        )
-    journal_path = selected_backup_root / f"repair-journal-{timestamp}.json"
-    journal["journal_path"] = str(journal_path)
-    atomic_write_text(
-        journal_path,
-        json.dumps(journal, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+        persist_journal()
     return {
         "ok": True,
         "files": files_changed,
@@ -351,4 +368,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

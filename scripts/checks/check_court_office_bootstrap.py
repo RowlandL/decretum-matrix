@@ -4,6 +4,8 @@ from __future__ import annotations
 
 # A+B layering: real module lives in scripts/checks/; keep scripts root importable.
 import sys
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
 _SCRIPTS_ROOT = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS_ROOT not in sys.path:
@@ -15,6 +17,7 @@ import sys
 sys.dont_write_bytecode = True
 
 from court_office_bootstrap import build_preload_manifest, build_spawn_contract, validate_preload_ack
+from checks.installed_identity_fixture import write_skill
 
 
 def require(condition: bool, message: str) -> None:
@@ -22,7 +25,7 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-def main() -> int:
+def run_checks() -> int:
     manifest = build_preload_manifest("xingbu")
     require(manifest.role_key == "xingbu", "xingbu role identity missing")
     require(manifest.office_zh == "刑部", "xingbu Chinese office mismatch")
@@ -98,7 +101,7 @@ def main() -> int:
     validated = validate_preload_ack(manifest, ack, model_route=contract["model_route"])
     require(validated["preload_status"] == "PASSED", "valid preload ack did not pass")
     try:
-        validate_preload_ack(manifest, {**ack, "profile_hash": "wrong"}, model_route=contract["model_route"])
+        validate_preload_ack(manifest, {**ack, "profile_hash": "b" * 64}, model_route=contract["model_route"])
     except ValueError:
         mismatch_rejected = True
     else:
@@ -121,8 +124,15 @@ def main() -> int:
     return 0
 
 
+def main() -> int:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        write_skill(root)
+        with patch.dict(build_preload_manifest.__kwdefaults__, skill_root=root), patch.object(Path, "read_bytes", side_effect=AssertionError("runtime file bytes read")), patch("court_office_bootstrap.sha256_file", side_effect=AssertionError("runtime file rehash")):
+            return run_checks()
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

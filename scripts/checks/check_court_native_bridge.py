@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from unittest.mock import patch
 from argparse import Namespace
 from types import MappingProxyType
 
@@ -410,7 +411,15 @@ def main() -> int:
         "caller trace_path",
     )
     _runtime_request_builder_fixture()
-    _runtime_host_message_fixture()
+    from installed_identity_fixture import write_skill
+    with tempfile.TemporaryDirectory(prefix='native-bridge-installed-identity-') as tmp:
+        fixture_root = Path(tmp)
+        write_skill(fixture_root)
+        original_builder = court_runtime.build_preload_manifest
+        with patch.object(court_runtime, 'build_preload_manifest',
+                          side_effect=lambda *a, **k: original_builder(*a, **{**k, 'skill_root': fixture_root})), \
+                patch.object(court_runtime, 'skill_root', return_value=fixture_root):
+            _runtime_host_message_fixture()
     _caller_guard_fixture()
 
     session_id = "019f4eb0-38e7-7760-bbc9-77a030b7cf0e"
@@ -531,7 +540,7 @@ def main() -> int:
     canonical_context = {
         "case_session_id": session_id,
         "semantic_epoch": request["semantic_epoch"],
-        "trusted_parent_paths": [{"path": "/root", "kind": "taizi_root"}],
+        "trusted_parent_paths": [{"path": "/root", "kind": "taizi_root", "thread_id": session_id}],
     }
     with tempfile.TemporaryDirectory(prefix="court-native-bridge-canonical-") as temp_dir:
         home = Path(temp_dir)

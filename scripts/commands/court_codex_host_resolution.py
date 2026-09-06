@@ -24,7 +24,6 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 from datetime import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -49,14 +48,6 @@ def parse_codex_version(output: str) -> str:
     if not match:
         raise ValueError("unexpected Codex version output")
     return match.group(1)
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _strict_native(path: Path) -> Path:
@@ -101,18 +92,21 @@ def build_resolution_report(
     front = front_path.expanduser().absolute()
     if not front.is_file():
         raise FileNotFoundError(f"front Codex executable missing: {front}")
-    native_sha = sha256_file(native)
-    front_sha = sha256_file(front)
+    native_sha = None
+    identity_status = "UNAVAILABLE_NOT_REHASHED"
     native_version = parse_codex_version(native_version_output)
     front_version = parse_codex_version(front_version_output)
     bare_version = parse_codex_version(bare_version_output)
     same_identity = _same_file(native, front)
+    front_sha = native_sha if same_identity else None
     which_identity = bool(which_path and _same_file(native, Path(which_path)))
-    hash_equal = native_sha == front_sha
+    hash_equal = bool(native_sha and front_sha == native_sha) if native_sha else None
     versions_equal = native_version == front_version == bare_version
     return {
         "schema": "court.codex_host_resolution.v1",
-        "healthy": same_identity and which_identity and hash_equal and versions_equal,
+        "healthy": same_identity and which_identity and versions_equal,
+        "health_basis": "same_file_identity_and_version",
+        "binary_identity_status": identity_status,
         "native_path": str(native),
         "front_path": str(front),
         "which_path": str(which_path) if which_path else None,
@@ -236,4 +230,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

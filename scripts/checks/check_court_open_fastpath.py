@@ -20,10 +20,12 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
 import court_open_fastpath
+from checks.installed_identity_fixture import write_identity
 
 
 SOURCE_PRELOAD_MARGIN_BYTES = 1024
@@ -162,6 +164,7 @@ def _write_skill(root: Path, *, wrong_ministry: str | None = None, oversized: bo
             encoding="utf-8",
         )
         dossier.write_text(f"# Fixture\n\n- role: {role}\n", encoding="utf-8")
+    write_identity(root, ["SKILL.md", *[f"agents/{folder}/{role}{suffix}" for role in office_zh for folder, suffix in (("standing-officials", ".toml"), ("office-dossiers", "/AGENTS.md"))]])
 
 
 def _request(root: Path, worktree: Path) -> dict[str, object]:
@@ -436,11 +439,16 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
     )
     source_roles = (*court_open_fastpath.THREE_DEPARTMENTS, *court_open_fastpath.SIX_MINISTRIES)
-    source_preloads = court_open_fastpath.load_preloads(
-        court_open_fastpath.ROOT,
-        source_roles,
-        concurrent=False,
-    )
+    with tempfile.TemporaryDirectory() as temp:
+        source_fixture = Path(temp)
+        source_paths = ["SKILL.md", "references/manifests/court-dispatch-hierarchy.v1.json", *[f"agents/{folder}/{role}{suffix}" for role in source_roles for folder, suffix in (("standing-officials", ".toml"), ("office-dossiers", "/AGENTS.md"))]]
+        for relative in source_paths:
+            target = source_fixture / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text((court_open_fastpath.ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+        write_identity(source_fixture, source_paths)
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("fastpath file rehash")):
+            source_preloads = court_open_fastpath.load_preloads(source_fixture, source_roles, concurrent=False)
     source_preload_bytes = {
         role: {
             "loaded_bytes": source_preloads[role].loaded_bytes,

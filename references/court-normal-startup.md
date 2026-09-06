@@ -4,16 +4,19 @@
 
 | Phase | Read in full once | Defer |
 | --- | --- | --- |
-| Root intake | Exact installed SKILL.md and this guide | Capability index, other reference volumes, source/install checks |
-| Own office duty | Own `agents/office-dossiers/<role>/AGENTS.md`, `agents/standing-officials/<role>.toml`, current bounded packet | Other offices' materials |
-| Specialized operation/dispute | The relevant volume in SKILL.md's map | Unrelated volumes |
-| Closeout | Closeout volume and required memorial shard, Menxia result, archive receipt | Closeout reads/services during startup |
+| Intake | Installed SKILL.md, this guide | Index, other volumes, source checks |
+| Own duty | Own `agents/office-dossiers/<role>/AGENTS.md`, `agents/standing-officials/<role>.toml`, bounded packet | Other offices |
+| Operation/dispute | Relevant SKILL.md volume | Unrelated volumes |
+| Closeout | Closeout volume, memorial shard, Menxia result, archive receipt | Startup closeout services |
 
 SKILL + guide + own materials + metadata must fit 20 KiB. Reuse unchanged reads.
 
+Read `references/manifests/installed-preload-identity.v1.json` declarations for
+preload/ack; never rehash files. Missing pins require installation update.
+
 ## Required tool routes
 
-Validate intake/capsule/context/dispatch plan with MCP `court.intake_validate`,
+Validate intake/capsule/context/plan via MCP `court.intake_validate`,
 `court.capsule_validate`, `court.semantic_context_validate`,
 `court.dispatch_plan_validate`. Query state/case/history through `court.status`,
 `court.workflow_status`, `shiguan.query` / `shiguan.entries_query`. At closeout
@@ -22,41 +25,40 @@ Mutation uses CLI; delivery uses the host. Check domain success, not just help.
 
 ## Operational sequence
 
-Resolve authority/behavior from the user; ask if missing. Reuse the current task.
+Resolve user authority/behavior; ask if missing. Reuse the current task.
 
-Use `decretum-matrix`. If Windows PATH is stale, resolve `npm prefix -g` and
-invoke that prefix's `decretum-matrix.cmd`; never substitute internal Python.
-Use relative write_set paths from the worktree, e.g. `.codex/tmp/<task-id>`;
-absolute/traversal paths fail before standard allocation. `--worktree .` in a
-template resolves from current cwd; relative worktree in a request file resolves
-from that file. Documents resolve from the skill root. Do not hardcode a drive
-or username. Resolved host evidence may carry absolute paths with its basis.
-For a new standard case, pass `--session-id <host-session-id> --authority
-<selected-authority> --behavior <selected-behavior>` to `court create` along
-with its intake fields. It issues/reuses the official number and opens the
-existing decree transaction. Transition to Taizi then ThreeDepartments before
-semantic checkpoint/verify, open preparation and admission.
+Use `decretum-matrix`; stale PATH uses `npm prefix -g`'s `decretum-matrix.cmd`,
+never internal Python. write_set is worktree-relative; absolute/traversal fails.
+Template `--worktree .` is cwd-relative, request-file worktree file-relative,
+documents skill-relative. Host evidence may record resolved paths and bases.
+New cases use `court create --session-id <host-id> --authority <authority>
+--behavior <behavior>` plus intake fields to issue/reuse the official number
+and decree transaction. Enter Taizi then ThreeDepartments before semantic
+checkpoint/verify, open preparation and admission.
 
-Before drafting, the case is explicitly BOOTSTRAP_UNPLANNED. After real office
-reports, use `court plan template` / `submit` for Zhongshu's actual document,
-then separate Menxia/Shangshu `review`. Plan changes invalidate reviews.
-Ministries require a reviewed plan and TaiziReply. `plan show` resolves the
-stored document; capsules cannot replace it.
+Cases begin BOOTSTRAP_UNPLANNED. After real reports, use `court plan template`
+/ `submit` for Zhongshu's document, then Menxia/Shangshu each `review`.
+Changes invalidate reviews. Ministries require reviewed plan and TaiziReply.
+`plan show` resolves the document; capsules cannot replace it.
 
 Generate context after state changes with `court semantic-context-template`;
 validate payload.context. Checkpoint/verify require matching `--trigger
 checkpoint` / `--trigger verify`, task id, context, actor and evidence.
 
-Use the request-template command from `court open` / MCP help with actual
-authority, offices and host facts; submit `--request-file <request.json>`.
+Use `court open` / MCP request-template with actual authority/offices/host
+facts; submit `--request-file <request.json>`.
 After admission, run `office native-request --request-file <selector.json>`
 using schema `court.office.native_request.v1`, task_id, wave_id and instance_id.
 Execute the exact returned host_invocation, then call `office native-capture`
 with the same selector (schema `court.office.native_capture.v1`). Submit its
 office_request through the returned office_command. Receipts come from the
 current host trace; never supply invented host IDs or results.
-Preparation never proves office duty; deliver the original admission once.
-Bounded children perform their assigned duty, without repeating root intake.
+Opaque messages use call/activity/child metadata; capture proves spawn only.
+Child reads installed SKILL, then profile/dossier, emits `child_acceptance` as
+JSON-only commentary and waits for superior CLI ack before business tools.
+Ack echoes the supplied request ID. Missing evidence stays retryable PENDING;
+parent declarations and saved-trace replays cannot prove fresh acceptance.
+Deliver admission once. Children perform assigned duty without root intake.
 
 Record real office start/preload-ack/report/finish via CLI before plan/review.
 Only Shangshu selects ministries. `ok` replies do not prove this runtime chain.

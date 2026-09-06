@@ -13,6 +13,7 @@ from pathlib import Path
 import os
 import sys
 import tempfile
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -40,7 +41,8 @@ def main() -> int:
         front.parent.mkdir()
         os.link(native, front)
 
-        report = build_resolution_report(
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("host file rehash")):
+            report = build_resolution_report(
             native_path=native,
             front_path=front,
             native_version_output="codex-cli 0.144.1",
@@ -50,6 +52,8 @@ def main() -> int:
         )
         assert report["healthy"] is True
         assert report["same_file_identity"] is True
+        assert report["native_sha256"] is None
+        assert report["binary_identity_status"] == "UNAVAILABLE_NOT_REHASHED"
 
         copied = root / "copied-codex.exe"
         copied.write_bytes(native.read_bytes())
@@ -61,7 +65,7 @@ def main() -> int:
             bare_version_output="codex-cli 0.144.1",
             which_path=copied,
         )
-        assert stale["hash_equal"] is True
+        assert stale["hash_equal"] is None
         assert stale["same_file_identity"] is False
         assert stale["healthy"] is False
 
@@ -90,6 +94,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
 

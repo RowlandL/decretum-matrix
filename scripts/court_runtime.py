@@ -2073,6 +2073,8 @@ def _native_host_receipt_record_fields(
         "native_trace_reader_thread_id": receipt.get("trace_reader_thread_id"),
         "native_trace_session_id": receipt.get("trace_session_id"),
         "native_host_action_id": receipt.get("host_action_id"),
+        "native_host_spawn_evidence": deepcopy(receipt.get('host_spawn_evidence')),
+        "native_child_thread_id": (receipt.get('host_spawn_evidence') or {}).get('child_thread_id'),
     }
 
 
@@ -9414,6 +9416,7 @@ def agent_start(args: argparse.Namespace) -> TransitionResult:
 
 
 def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
+    from commands.court_native_bridge import captured_child_read_order, NativeEvidencePending
     evidence = require_text(args.evidence, "evidence")
     agent_id = require_text(args.agent_id, "agent-id")
     role = require_text(args.role, "role")
@@ -9473,6 +9476,17 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
             if not isinstance(model_route, dict):
                 raise ValueError("started agent is missing model route")
             validated = validate_preload_ack(manifest, ack, model_route=model_route)
+            if isinstance(current.get('native_host_spawn_evidence'), dict):
+                if not getattr(args, 'native_request_sha256', None):
+                    raise NativeEvidencePending('native_spawn_child_request_acknowledgement_missing')
+                if (getattr(args, 'native_request_sha256', None)
+                        != current.get('native_host_request_sha256')):
+                    raise ValueError('native_spawn_requires_child_request_acknowledgement')
+            read_order = captured_child_read_order(current, manifest, task_id=args.task_id)
+        except NativeEvidencePending as exc:
+            # An incomplete host trace is retryable; it does not close the office
+            # or credit a parent-supplied declaration as child acceptance.
+            raise ValueError(f'preload_pending: {exc}') from exc
         except ValueError as exc:
             failure = str(exc)
             current.update(
@@ -9488,6 +9502,10 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
                 closed_at=now,
             )
         else:
+            if read_order is not None:
+                current['child_skill_read_order'] = read_order
+                current['native_request_delivery'] = 'PRELOAD_ACKNOWLEDGED'
+                current['preload_ack_request_sha256'] = args.native_request_sha256
             current.update(
                 status="running",
                 preload_status="PASSED",
@@ -9682,8 +9700,11 @@ def _native_bridge_identity_context(
                     and record.get("assignment_invalidated_by_semantic_resume") is not True
                     and not record.get("assignment_invalidated_by_charter_revision")
                     and record.get("native_host_action_receipt_id")):
-                parents.append({"path": record.get("native_host_instance_id"),
-                                "kind": "same_case_ready_shangshu"})
+                parent = {"path": record.get("native_host_instance_id"),
+                          "kind": "same_case_ready_shangshu"}
+                if record.get('native_child_thread_id'):
+                    parent['thread_id'] = record['native_child_thread_id']
+                parents.append(parent)
     return {"case_session_id": identity["session_id"],
             "semantic_epoch": task.get("semantic_epoch"),
             "trusted_parent_paths": parents}
@@ -12054,6 +12075,8 @@ def build_parser() -> argparse.ArgumentParser:
     preload_parser.add_argument("--profile-hash", required=True)
     preload_parser.add_argument("--dossier-hash", required=True)
     preload_parser.add_argument("--court-skill-hash", required=True)
+    preload_parser.add_argument('--native-request-sha256', default='',
+                                help='Echo the received request id for opaque host capture; never hash a file.')
     preload_parser.add_argument("--loaded-skills", required=True)
     preload_parser.add_argument("--agent-dossier-loaded", choices=["YES", "NO"], required=True)
     preload_parser.add_argument("--model-route-id", required=True)

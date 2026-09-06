@@ -71,7 +71,7 @@ def normalize_identity_context(
     normalized: list[dict[str, str]] = []
     seen: set[str] = set()
     for raw in parents:
-        if not isinstance(raw, Mapping) or set(raw) != {"path", "kind"}:
+        if not isinstance(raw, Mapping) or not {'path', 'kind'} <= set(raw) or set(raw) - {'path', 'kind', 'thread_id'}:
             raise ValueError("native_identity:trusted_parents_invalid")
         kind = _text(raw.get("kind"), "trusted_parent.kind", maximum=64)
         path = _text(raw.get("path"), "trusted_parent.path")
@@ -85,7 +85,10 @@ def normalize_identity_context(
         if path in seen:
             raise ValueError("native_identity:trusted_parent_duplicate")
         seen.add(path)
-        normalized.append({"path": path, "kind": kind})
+        parent = {'path': path, 'kind': kind}
+        if raw.get('thread_id') is not None:
+            parent['thread_id'] = _session_id(raw['thread_id'], 'parent_thread_id')
+        normalized.append(parent)
     return {
         "schema": IDENTITY_CONTEXT_SCHEMA,
         "case_session_id": _session_id(value.get("case_session_id"), "case_session_id"),

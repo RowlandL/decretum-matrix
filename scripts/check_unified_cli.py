@@ -62,6 +62,7 @@ CLI_SUPPORT_FILES = frozenset(
     {
         "scripts/commands/court_native_bridge.py",
         "scripts/court_native_identity.py",
+        "scripts/court_native_trace.py",
         "scripts/court_case_binding.py",
         "scripts/court_plan_artifacts.py",
         "AUTHORS.md",

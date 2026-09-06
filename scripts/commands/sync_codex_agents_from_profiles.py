@@ -27,7 +27,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None  # type: ignore[assignment]
 
 from shiguan_paths import reference_path
-from court_office_bootstrap import resolve_office_dossier_locator
+from court_office_bootstrap import installed_file_sha256, resolve_office_dossier_locator
 
 
 REQUIRED_PROFILE_FILES = (
@@ -83,6 +83,15 @@ ORDINARY_IDENTITY_FIELDS = (
 
 AGENT_DOSSIER_FILE = "AGENTS.md"
 PRELOAD_CONTRACT_VERSION = "court.office.preload_ack.v1"
+ORDINARY_PRELOAD_ANCHOR = "\n".join((
+    "ORDINARY_PRELOAD_ANCHOR",
+    "1. installed_skill_full_read: read the exact installed court_skill_path in full.",
+    "2. own_profile_dossier_full_read: read this office's bound profile_source and agent_dossier_path in full.",
+    "3. child_preload_acceptance_returned: return court.office.preload_ack.v1 to the direct superior using only the existing declared digest strings; child preload acceptance must be returned.",
+    "4. parent_preload_ack_accepted: the parent preload ack must be accepted. Remain PENDING until both child preload acceptance has returned and parent preload ack has been accepted.",
+    "5. business_cli_mcp: only then enter running and invoke business CLI/MCP within the assigned scope.",
+    "Post-install asset rehash is forbidden: do not run Get-FileHash, hashlib, or equivalent checks on installed files, including pin JSON serialization/self-hash. Keep business P00, case, plan and receipt digests.",
+))
 AGENT_DOSSIER_POLICY = (
     "Installed .codex/agents TOML files are native auto-discovered role files and must remain "
     "one-file-per-agent and model-neutral. Use the referenced ordinary AGENTS.md dossier as the "
@@ -132,7 +141,7 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def sha256_file(path: Path) -> str:
-    return sha256_bytes(path.read_bytes())
+    return installed_file_sha256(path, skill_root=agent_template_skill_root())
 
 
 def read_toml(path: Path) -> dict[str, object]:
@@ -159,11 +168,12 @@ def render_agent_dossier_block(role: str) -> list[str]:
         f"- preload_contract_version: {PRELOAD_CONTRACT_VERSION}",
         "- carrier_kind: child_agent",
         f"- agent_dossier_path: {path}",
-        f"- agent_dossier_hash: {sha256_file(path) if exists else 'missing'}",
+        f"- agent_dossier_hash: {installed_file_sha256(path, skill_root=agent_template_skill_root()) if exists else 'missing'}",
         f"- court_skill_path: {skill}",
-        f"- court_skill_hash: {sha256_file(skill) if skill.exists() else 'missing'}",
-        "- preload_ack: required before the office lifecycle may enter running.",
-        "- agent_dossier_loaded: report exactly YES or NO; only YES with matching hashes passes preload.",
+        f"- court_skill_hash: {installed_file_sha256(skill, skill_root=agent_template_skill_root()) if skill.exists() else 'missing'}",
+        "- preload_ack: child preload acceptance and accepted parent preload ack are both required before leaving PENDING or invoking business CLI/MCP.",
+        "- agent_dossier_loaded: report exactly YES or NO; YES and matching installation-declared identity fields are required.",
+        "- Copy profile/dossier/skill hashes from this installation manifest into the acknowledgement; do not run Get-FileHash, hashlib, or another file rehash during startup/preload/dispatch.",
         "- loaded_skills: must include decretum-matrix in the preload ack.",
         f"- ordinary_carrier_dossier_policy: {AGENT_DOSSIER_POLICY}",
         f"- office_voice_policy: {OFFICE_VOICE_POLICY}",
@@ -175,12 +185,12 @@ def render_agent_dossier_block(role: str) -> list[str]:
 
 
 def render_profile_block(template_path: Path, profile: dict[str, object]) -> str:
-    computed_hash = sha256_file(template_path)
+    declared_hash = installed_file_sha256(template_path, skill_root=template_path.resolve().parents[2])
     role = str(profile.get("role_key", template_path.stem)).strip() or template_path.stem
     lines = [
         "Standing profile/soul compact manifest:",
         f"- profile_source: {template_path}",
-        f"- profile_hash: {computed_hash}",
+        f"- profile_hash: {declared_hash}",
     ]
     for field in ORDINARY_IDENTITY_FIELDS:
         value = str(profile.get(field, "")).strip()
@@ -223,8 +233,8 @@ def rendered_agent_data(template_path: Path) -> dict[str, str]:
         (
             "Ordinary Decretum Matrix office carrier.",
             f"Role: {office_zh} ({role}); direct_superior={direct_superior}.",
-            "Load the exact Decretum Matrix SKILL.md, shared standing profile identity, and referenced ordinary dossier before work.",
-            "Return the exact preload acknowledgement before entering running, stay inside the assigned scope, and report only through the direct superior.",
+            ORDINARY_PRELOAD_ANCHOR,
+            "Stay inside the assigned scope and report only through the direct superior.",
         )
     )
     rendered_instructions = (
@@ -245,8 +255,9 @@ def render_agent_toml(template_path: Path) -> str:
     return "".join(f"{key} = {toml_string(data[key])}\n" for key in ("name", "description", "developer_instructions"))
 
 
-def expected_rendered_hash(template_path: Path) -> str:
-    return sha256_bytes(render_agent_toml(template_path).encode("utf-8"))
+def expected_rendered_hash(template_path: Path) -> str | None:
+    """Generated role files have no installer pin; do not rehash their text."""
+    return None
 
 
 def unique_backup_dir(root: Path) -> Path:
@@ -314,9 +325,10 @@ def sync_agents(write: bool, only: set[str] | None = None) -> dict[str, object]:
             rows.append({"agent": name, "status": "missing_template", "template": str(template)})
             continue
         rendered = render_agent_toml(template)
-        rendered_hash = sha256_bytes(rendered.encode("utf-8"))
-        installed_hash = sha256_file(installed) if installed.exists() else None
-        needs_write = installed_hash != rendered_hash
+        rendered_hash = expected_rendered_hash(template)
+        matches = installed.is_file() and installed.read_text(encoding="utf-8") == rendered
+        installed_hash = rendered_hash if matches else None
+        needs_write = not matches
         if write and needs_write:
             installed.write_text(rendered, encoding="utf-8", newline="\n")
             written += 1
@@ -330,7 +342,8 @@ def sync_agents(write: bool, only: set[str] | None = None) -> dict[str, object]:
                 "installed": str(installed),
                 "expected_rendered_hash": rendered_hash,
                 "installed_hash": installed_hash,
-                "status": "synced" if installed_hash == rendered_hash else "would_update",
+                "installed_hash_basis": "UNAVAILABLE_NOT_INSTALLER_PINNED",
+                "status": "synced" if matches or (write and needs_write) else "would_update",
             }
         )
     if missing_templates:
@@ -377,6 +390,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-

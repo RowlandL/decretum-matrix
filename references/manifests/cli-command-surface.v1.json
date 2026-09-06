@@ -612,6 +612,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/checks/check_iku_lineage_review.py",
+      "command": "check-iku-lineage-review",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_iku_lineage_review.py",
+      "id": "check.check-iku-lineage-review",
+      "legacy_path": "scripts/checks/check_iku_lineage_review.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/checks/check_iku_repair.py",
       "command": "check-iku-repair",
       "compatibility_state": "unified_compatibility_adapter",
@@ -685,6 +698,19 @@
       "handler": "isolated_subprocess:scripts/checks/check_memory_pipeline_fixture.py",
       "id": "check.check-memory-pipeline-fixture",
       "legacy_path": "scripts/checks/check_memory_pipeline_fixture.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_native_opaque_capture.py",
+      "command": "check-native-opaque-capture",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_native_opaque_capture.py",
+      "id": "check.check-native-opaque-capture",
+      "legacy_path": "scripts/checks/check_native_opaque_capture.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -841,6 +867,32 @@
       "handler": "isolated_subprocess:scripts/checks/check_runtime_identity_contract.py",
       "id": "check.check-runtime-identity-contract",
       "legacy_path": "scripts/checks/check_runtime_identity_contract.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_runtime_no_file_rehash.py",
+      "command": "check-runtime-no-file-rehash",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_runtime_no_file_rehash.py",
+      "id": "check.check-runtime-no-file-rehash",
+      "legacy_path": "scripts/checks/check_runtime_no_file_rehash.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_runtime_probe_recruitment_install_identity.py",
+      "command": "check-runtime-probe-recruitment-install-identity",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_runtime_probe_recruitment_install_identity.py",
+      "id": "check.check-runtime-probe-recruitment-install-identity",
+      "legacy_path": "scripts/checks/check_runtime_probe_recruitment_install_identity.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"

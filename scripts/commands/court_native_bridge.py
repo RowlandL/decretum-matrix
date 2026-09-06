@@ -23,6 +23,8 @@ from court_native_host_dispatch import (
     select_native_host_action,
 )
 from court_native_identity import canonical_agent_path_identity
+from court_native_trace import (bind_opaque_spawn, is_opaque_message, spawn_activity,
+                                skill_read_order, NativeEvidencePending)
 
 
 NATIVE_REQUEST_INPUT_SCHEMA = "court.office.native_request.v1"
@@ -203,6 +205,22 @@ def canonical_host_message(
         "marker": host_message_marker(normalized),
         "request_sha256": request_sha256,
         "binding_sha256": _binding_sha256(normalized),
+        "bootstrap": {
+            "first_action": "Fully read SKILL.md before any business CLI or MCP call.",
+            "skill_base": "Use the installed skill location declared by your role card; all paths below are relative to it.",
+            "skill": "SKILL.md",
+            "then_read": [f"agents/standing-officials/{normalized['role']}.toml",
+                          f"agents/office-dossiers/{normalized['role']}/AGENTS.md"],
+            "then": "Emit child_acceptance as one JSON-only assistant commentary after all reads; send preload acknowledgement to the direct superior, echo supplied request_sha256 as native_request_sha256, and wait for acceptance before business CLI/MCP.",
+            "child_acceptance": {
+                "schema": "court.child_preload_acceptance.v1",
+                "task_id": normalized['task_id'], "role_key": normalized['role'],
+                "office_instance_id": normalized['instance_id'],
+                "request_sha256": request_sha256,
+                "skill_loaded": True, "profile_loaded": True, "dossier_loaded": True,
+            },
+            "file_hash_checks": "FORBIDDEN_AFTER_INSTALL; use supplied installation identity only",
+        },
         "task": {
             "task_id": normalized["task_id"],
             "role_key": normalized["role"],
@@ -471,7 +489,14 @@ def _exact_spawn_call(
         return None
     name = str(payload.get("name") or "").strip().lower()
     if not _marker_present(payload, marker):
-        return None
+        if name != invocation.get('tool_name'):
+            return None
+        candidate = _call_arguments(payload)
+        expected = invocation.get('arguments', {})
+        if candidate.get('task_name') != expected.get('task_name'):
+            return None
+        if not is_opaque_message(candidate.get('message')):
+            raise ValueError('native_bridge:host_message_mismatch')
     if name != invocation.get("tool_name"):
         raise ValueError("native_bridge:unknown_host_tool_shape")
     arguments = _call_arguments(payload)
@@ -485,7 +510,8 @@ def _exact_spawn_call(
         raise ValueError("native_bridge:host_task_name_mismatch")
     if arguments.get("fork_turns") != "none":
         raise ValueError("native_bridge:host_fork_turns_mismatch")
-    _exact_message(arguments, str(expected.get("message") or ""))
+    if not is_opaque_message(arguments.get('message')):
+        _exact_message(arguments, str(expected.get("message") or ""))
     _agent_type_guard(
         arguments,
         request,
@@ -659,6 +685,95 @@ class _ReceiptCollector:
         raise ValueError("native_bridge:host_tool_not_successful")
 
 
+def _read_session_header(path: Path) -> dict[str, object]:
+    with path.open(encoding='utf-8') as handle:
+        line = handle.readline(262145)
+    if len(line.encode('utf-8')) > 262144:
+        raise ValueError('native_bridge:child_metadata_too_large')
+    try:
+        row = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ValueError('native_bridge:child_metadata_invalid') from exc
+    if row.get('type') != 'session_meta' or not isinstance(row.get('payload'), dict):
+        raise ValueError('native_bridge:child_metadata_missing')
+    return row['payload']
+
+
+def _root_thread_from_trace(home: Path, reader_thread: str, session: str) -> str:
+    """Walk host-recorded ancestry; a session identifier is not a thread identifier."""
+    seen = set()
+    current = reader_thread
+    for _ in range(32):
+        if current in seen:
+            raise ValueError('native_bridge:root_ancestry_cycle')
+        seen.add(current)
+        meta = _read_session_header(_session_metadata_path(home, _session_id(current)))
+        if meta.get('id') != current or (meta.get('session_id') or meta.get('id')) != session:
+            raise ValueError('native_bridge:root_ancestry_session_mismatch')
+        if meta.get('thread_source') != 'subagent' and not meta.get('parent_thread_id'):
+            if meta.get('agent_path') not in (None, '', '/root'):
+                raise ValueError('native_bridge:root_agent_path_invalid')
+            return current
+        current = _session_id(meta.get('parent_thread_id'))
+    raise ValueError('native_bridge:root_ancestry_too_deep')
+
+
+def captured_child_read_order(record: Mapping[str, object], manifest: object,
+                             *, task_id: str = '') -> dict[str, object] | None:
+    evidence = record.get('native_host_spawn_evidence')
+    if not isinstance(evidence, Mapping):
+        if record.get('native_host_action_receipt_id'):
+            raise NativeEvidencePending('native_bridge:child_spawn_metadata_not_observed')
+        return None
+    env, _reader, session_id = _current_environment(None)
+    if session_id != evidence.get('root_session_id'):
+        raise ValueError('native_bridge:preload_session_mismatch')
+    home = Path(env.get('CODEX_HOME') or (Path.home() / '.codex'))
+    path = _session_metadata_path(home, _session_id(evidence.get('child_thread_id')))
+    meta = _read_session_header(path)
+    if (meta.get('id') != evidence.get('child_thread_id')
+            or meta.get('session_id') != session_id
+            or meta.get('agent_path') != evidence.get('child_agent_path')
+            or meta.get('parent_thread_id') != evidence.get('parent_thread_id')):
+        raise ValueError('native_bridge:preload_child_identity_mismatch')
+    if path.stat().st_size > TRACE_MAX_BYTES:
+        raise ValueError('native_bridge:child_trace_too_large')
+    rows = []
+    with path.open(encoding='utf-8') as handle:
+        for number, line in enumerate(handle, 1):
+            if number > TRACE_MAX_LINES:
+                raise ValueError('native_bridge:child_trace_too_many_lines')
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                rows.append(value)
+    # Supported installed aliases; paths are resolved only at the host boundary.
+    from court_office_bootstrap import installed_file_sha256
+    roots = set()
+    # Only active native skill projections with the supplied installation pins.
+    # Source trees and npm caches do not qualify by containing this module.
+    for root in {Path.home() / '.agents/skills/decretum-matrix', home / 'skills/decretum-matrix'}:
+        try:
+            for attr, pin in (('court_skill_path', 'court_skill_hash'), ('profile_source', 'profile_hash'),
+                              ('dossier_path', 'dossier_hash')):
+                if installed_file_sha256(root / str(getattr(manifest, attr)), skill_root=root) != getattr(manifest, pin):
+                    raise ValueError('native_bridge:installed_pin_mismatch')
+        except (OSError, ValueError):
+            continue
+        roots.add(root)
+    if not roots:
+        raise NativeEvidencePending('native_bridge:active_install_identity_not_observed')
+    required = {name: [str(r / str(getattr(manifest, attr))) for r in roots]
+                for name, attr in (('skill', 'court_skill_path'), ('profile', 'profile_source'), ('dossier', 'dossier_path'))}
+    ack = {'schema': 'court.child_preload_acceptance.v1', 'task_id': task_id,
+           'role_key': record.get('role'), 'office_instance_id': record.get('office_instance_id'),
+           'request_sha256': record.get('native_host_request_sha256'),
+           'skill_loaded': True, 'profile_loaded': True, 'dossier_loaded': True}
+    return skill_read_order(rows, required, child_ack=ack, child_thread_id=str(evidence['child_thread_id']))
+
+
 def capture_current_native_delivery(
     request: object,
     *,
@@ -691,7 +806,27 @@ def capture_current_native_delivery(
         message=expected_message,
         agent_type=agent_type,
     )
-    trace_path = _session_metadata_path(home, session_id)
+    # Capture may be requested by the coordinator, but evidence must come from
+    # the actual permitted parent, never from the reader's identity by inference.
+    parent_threads = set()
+    if isinstance(identity_context, Mapping):
+        identity_context = deepcopy(dict(identity_context))
+        for parent in identity_context.get('trusted_parent_paths', []):
+            if isinstance(parent, Mapping):
+                if parent.get('kind') == 'taizi_root' and not parent.get('thread_id'):
+                    parent['thread_id'] = _root_thread_from_trace(home, thread_id, session_id)
+                parent_id = parent.get('thread_id')
+                if parent_id:
+                    parent_threads.add(str(parent_id))
+    if len(parent_threads) == 1:
+        trace_id = next(iter(parent_threads))
+    elif thread_id in parent_threads:
+        trace_id = thread_id
+    elif parent_threads:
+        raise ValueError('native_bridge:parent_trace_ambiguous')
+    else:
+        trace_id = session_id  # Legacy plaintext protocol uses its declared session trace.
+    trace_path = _session_metadata_path(home, trace_id)
     try:
         info = trace_path.stat()
     except OSError as exc:
@@ -703,6 +838,10 @@ def capture_current_native_delivery(
     thread_values: set[str] = set()
     marked_calls: list[tuple[str, str]] = []
     outputs: dict[str, dict[str, object]] = {}
+    activities: list[dict[str, object]] = []
+    opaque_calls: dict[str, tuple[int, str]] = {}
+    spawn_calls: dict[str, tuple[int, str]] = {}
+    trace_ids: set[str] = set()
     try:
         with trace_path.open(encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, start=1):
@@ -715,7 +854,8 @@ def capture_current_native_delivery(
                 if not isinstance(item, Mapping):
                     continue
                 if item.get("type") == "session_meta" and isinstance(item.get("payload"), Mapping):
-                    value = item["payload"].get("id")
+                    trace_ids.add(str(item['payload'].get('id') or '').lower())
+                    value = item["payload"].get("session_id") or item['payload'].get('id')
                     if isinstance(value, str) and value.strip():
                         session_values.add(value.strip().lower())
                     for field in ("thread_id", "threadId"):
@@ -723,6 +863,9 @@ def capture_current_native_delivery(
                         if isinstance(thread_value, str) and thread_value.strip():
                             thread_values.add(thread_value.strip())
                     continue
+                activity = spawn_activity(item, line_number)
+                if activity is not None:
+                    activities.append(activity)
                 payload = _payload(item)
                 if payload is None:
                     continue
@@ -744,6 +887,10 @@ def capture_current_native_delivery(
                 )
                 if marked is not None:
                     marked_calls.append(marked)
+                    if expected_action == 'spawn':
+                        spawn_calls[marked[0]] = (line_number, str(item.get('timestamp') or ''))
+                    if expected_action == 'spawn' and is_opaque_message(_call_arguments(payload).get('message')):
+                        opaque_calls[marked[0]] = (line_number, str(item.get('timestamp') or ''))
                     continue
                 event_type = str(payload.get("type") or "").strip().lower()
                 if event_type in _OUTPUT_TYPES:
@@ -761,6 +908,8 @@ def capture_current_native_delivery(
 
     if session_values != {session_id}:
         raise ValueError("native_bridge:session_metadata_mismatch")
+    if trace_ids != {trace_id.lower()}:
+        raise ValueError('native_bridge:trace_thread_metadata_mismatch')
     if len(marked_calls) != 1:
         raise ValueError("native_bridge:marked_host_action_missing_or_ambiguous")
     call_id, tool_name = marked_calls[0]
@@ -782,6 +931,24 @@ def capture_current_native_delivery(
         trace_session_id=session_id,
         expected_epoch=int(normalized["semantic_epoch"]),
     )
+    matching = [activity for activity in activities if activity.get('call_id') == call_id]
+    if call_id in opaque_calls or (expected_action == 'spawn' and matching
+                                   and host_result.get('host_identity_kind') == 'canonical_agent_path'):
+        if host_result.get('host_identity_kind') != 'canonical_agent_path' or not isinstance(identity_context, Mapping):
+            raise ValueError('native_bridge:opaque_spawn_requires_host_metadata')
+        if len(matching) != 1:
+            raise ValueError('native_bridge:opaque_spawn_activity_missing_or_ambiguous')
+        child_id = _session_id(matching[0].get('child_thread_id'))
+        child_path = _session_metadata_path(home, child_id)
+        child_meta = _read_session_header(child_path)
+        call_line, call_time = spawn_calls[call_id]
+        host_result['host_spawn_evidence'] = bind_opaque_spawn(
+            call_id=call_id, call_line=call_line, call_time=call_time, activity=matching[0],
+            child_meta=child_meta, host_result=host_result, identity_context=identity_context,
+            trace_thread_id=trace_id,
+        )
+        if call_id not in opaque_calls:
+            host_result['host_spawn_evidence']['message_verification'] = 'PLAINTEXT_EXACT_MATCHED'
     if host_result.get("host_identity_kind") != "canonical_agent_path":
         if thread_values and thread_values != {thread_id}:
             raise ValueError("native_bridge:thread_metadata_mismatch")
@@ -812,6 +979,9 @@ def capture_current_native_delivery(
             "source": "host_managed_current_session_metadata",
         },
     }
+    if 'host_spawn_evidence' in host_result:
+        result['host_spawn_evidence'] = deepcopy(host_result['host_spawn_evidence'])
+        result['capture_scope'] = 'HOST_SPAWN_ONLY_PRELOAD_PENDING'
     if host_result.get("host_identity_kind") == "canonical_agent_path":
         result.update(
             host_identity_kind="canonical_agent_path",

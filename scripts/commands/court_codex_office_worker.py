@@ -167,14 +167,13 @@ def build_worker_plan(
     dossier_dir = str(dossier_file.parent)
     native_path_text: str | None = None
     native_sha256: str | None = None
+    native_file_identity: dict[str, int] | None = None
     if native_codex_path is not None:
         native_path = Path(native_codex_path).expanduser().resolve()
         info = native_path.lstat()
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
             raise ValueError("native Codex path must be a strict regular file")
-        native_sha256 = hashlib.sha256(native_path.read_bytes()).hexdigest()
-        if native_sha256 != normalized_proof["binary_sha256"]:
-            raise ValueError("native Codex binary does not match the host proof")
+        native_file_identity = {"device": info.st_dev, "inode": info.st_ino, "size": info.st_size, "mtime_ns": info.st_mtime_ns}
         native_path_text = str(native_path)
     argv = (
         native_path_text or executable,
@@ -218,6 +217,10 @@ def build_worker_plan(
         "host_proof_binary_sha256": normalized_proof["binary_sha256"],
         "native_codex_path": native_path_text,
         "native_codex_sha256": native_sha256,
+        "native_file_identity": native_file_identity,
+        "native_identity_basis": "path_and_stat" if native_path_text else "UNAVAILABLE_PLAN_ONLY",
+        "native_binary_verification": "UNAVAILABLE_NOT_REHASHED",
+        "host_proof_binary_identity_basis": "HOST_PROOF_DECLARED",
         "sandbox": sandbox_mode,
         "argv": argv,
     }
@@ -307,9 +310,11 @@ def run_worker(plan: dict[str, object], *, timeout_seconds: int = 600) -> dict[s
     native_path = plan.get("native_codex_path")
     if not native_path:
         raise ValueError("fresh worker execution requires an exact native Codex path")
-    current_native_sha256 = hashlib.sha256(Path(str(native_path)).read_bytes()).hexdigest()
-    if current_native_sha256 != plan.get("host_proof_binary_sha256"):
-        raise ValueError("fresh worker native Codex binary changed after planning")
+    native = Path(str(native_path)).resolve()
+    info = native.lstat()
+    identity = {"device": info.st_dev, "inode": info.st_ino, "size": info.st_size, "mtime_ns": info.st_mtime_ns}
+    if not stat.S_ISREG(info.st_mode) or identity != plan.get("native_file_identity") or str(native) != str(plan["argv"][0]):
+        raise ValueError("fresh worker native Codex path/stat changed after planning")
     version_check = subprocess.run(
         [str(plan["argv"][0]), "--version"],  # type: ignore[index]
         capture_output=True,
@@ -353,6 +358,7 @@ def run_worker(plan: dict[str, object], *, timeout_seconds: int = 600) -> dict[s
         "reasoning_effort": plan["reasoning_effort"],
         "model_override_applied": True,
         "session_evidence": metadata,
+        "native_binary_verification": "UNAVAILABLE_NOT_REHASHED",
         "final_text": final_text,
         "raw_stderr_persisted": False,
     }
@@ -456,4 +462,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

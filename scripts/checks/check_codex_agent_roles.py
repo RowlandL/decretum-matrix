@@ -192,12 +192,13 @@ def validate_installed_agents(agents_dir: Path | None = None, templates_dir: Pat
         template = templates / name
         installed = agents / name
         expected_hash = expected_rendered_hash(template) if template.exists() else None
-        installed_hash = sha256_file(installed) if installed.exists() else None
+        installed_hash = None  # Generated role file has no installation digest.
+        content_matches = installed.is_file() and template.is_file() and installed.read_text(encoding="utf-8") == render_agent_toml(template)
         if not installed.exists():
             status = "missing_installed_agent"
         elif name in malformed_by_name:
             status = "malformed"
-        elif installed_hash == expected_hash:
+        elif content_matches:
             status = "synced"
         else:
             status = "different"
@@ -206,6 +207,7 @@ def validate_installed_agents(agents_dir: Path | None = None, templates_dir: Pat
             "template_exists": template.exists(),
             "installed_exists": installed.exists(),
             "expected_rendered_hash": expected_hash,
+            "hash_status": "UNAVAILABLE_NOT_INSTALLER_PINNED",
             "installed_hash": installed_hash,
             "status": status,
         }
@@ -330,6 +332,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
 

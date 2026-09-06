@@ -173,11 +173,20 @@ def resolve_codex_executable(command: str = "codex", *, include_binary_hash: boo
         "exact_native_executable": exact_native,
         "resolution_source": source,
     }
+    identity_errors = []
     if include_binary_hash and exact_native and executable.is_file():
-        payload["executable_sha256"] = sha256_file(executable)
+        try:
+            payload["executable_sha256"] = sha256_file(executable)
+            payload["executable_hash_status"] = "installation_pinned"
+        except (ImportError, OSError, ValueError) as exc:
+            payload["executable_hash_status"] = "UNAVAILABLE_NOT_REHASHED"
+            identity_errors.append(f"executable_installation_identity:{exc}")
+        payload["file_content_verified"] = False
     validation = validate_codex_resolution(payload)
     payload["ok"] = validation["ok"]
     payload["errors"] = validation["errors"]
+    if identity_errors:
+        payload["identity_notes"] = identity_errors
     return payload
 
 
@@ -324,6 +333,12 @@ def run_store_false_probe(
 ) -> dict[str, object]:
     if agent_protocol not in {"serial", "v1", "v2"}:
         raise ValueError(f"unsupported agent protocol probe: {agent_protocol}")
+    identity_notes = []
+    try:
+        probe_identity = sha256_file(Path(__file__))
+    except (ImportError, OSError, ValueError) as exc:
+        probe_identity = None
+        identity_notes.append(f"probe_installation_identity:{exc}")
     started = time.perf_counter()
     prompt_marker = f"COURT_PROMPT_{uuid.uuid4().hex}"
     response_marker = f"COURT_RESPONSE_{uuid.uuid4().hex}"
@@ -582,8 +597,12 @@ def run_store_false_probe(
     evidence: dict[str, object] = {
         "schema": "court.codex-store-false-proof.v1",
         "run_id": uuid.uuid4().hex,
-        "harness_sha256": sha256_file(Path(__file__)),
-        "verifier_sha256": sha256_file(Path(__file__)),
+        "harness_sha256": probe_identity,
+        "verifier_sha256": probe_identity,
+        "hash_evidence_basis": "installation_manifest" if probe_identity else "unavailable",
+        "hash_status": "INSTALLATION_PINNED" if probe_identity else "UNAVAILABLE_NOT_REHASHED",
+        "identity_notes": identity_notes,
+        "file_content_verified": False,
         "config_template_sha256": config_template_sha256,
         "config_key_names": config_keys,
         "listener_bind": "127.0.0.1",
@@ -739,7 +758,10 @@ def skill_root() -> Path:
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Consume an installer identity; never recompute runtime file digests."""
+    from court_office_bootstrap import installed_file_sha256
+
+    return installed_file_sha256(path, skill_root=skill_root())
 
 
 def command_version(command: str) -> str:
@@ -1014,42 +1036,80 @@ def effective_config_agent_summary(home: Path) -> dict[str, object]:
     return user_config
 
 
-def standing_profile_summary(agents_dir: Path, templates_dir: Path) -> dict[str, object]:
-    scripts_dir = skill_root() / "scripts"
-    if str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
+def _native_role_schema_errors(path: Path) -> list[str]:
+    """Check the native model-neutral role shape without installer tooling."""
     try:
-        import check_codex_agent_roles  # type: ignore
+        if tomllib is None:
+            return ["tomllib_unavailable"]
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        return [f"invalid_toml:{exc}"]
+    errors = [
+        f"{key}:missing_or_not_string"
+        for key in ("name", "description", "developer_instructions")
+        if not isinstance(data.get(key), str) or not str(data.get(key, "")).strip()
+    ]
+    errors.extend(f"{key}:not_string" for key, value in data.items() if not isinstance(value, str))
+    if "profile" in data:
+        errors.append("TEMPLATE_COPIED_DIRECTLY:profile_table_present")
+    for key in ("model", "model_reasoning_effort", "reasoning_effort"):
+        if key in data:
+            errors.append(f"{key}:must_be_dynamic_spawn_metadata")
+    instructions = str(data.get("developer_instructions") or "")
+    for term in (
+        "preload_contract_version", "court_skill_hash", "preload_ack",
+        "agent_dossier_loaded", "loaded_skills", "/root/*",
+        "Codex model route", "Claude Code model route", "Hermes model route",
+    ):
+        if term not in instructions:
+            errors.append(f"developer_instructions:missing_{term}")
+    return errors
 
-        required_files = list(check_codex_agent_roles.REQUIRED_PROFILE_FILES)
-        role_state = check_codex_agent_roles.validate_installed_agents(agents_dir, templates_dir)
-        sync_rows = list(role_state["sync_rows"])
-    except Exception as exc:
-        required_files = sorted(path.name for path in templates_dir.glob("*.toml")) if templates_dir.exists() else []
-        role_state = {
-            "ok": False,
-            "error": str(exc),
-            "malformed_count": None,
-            "unsynced_count": None,
-            "schema_rows": [],
-        }
-        sync_rows = []
-        for name in required_files:
-            template = templates_dir / name
-            installed = agents_dir / name
-            template_hash = sha256_file(template) if template.exists() else None
-            installed_hash = sha256_file(installed) if installed.exists() else None
-            status = "synced" if installed.exists() and template_hash == installed_hash else "unknown_render_status"
-            sync_rows.append(
-                {
-                    "agent": name,
-                    "template_exists": template.exists(),
-                    "installed_exists": installed.exists(),
-                    "template_hash": template_hash,
-                    "installed_hash": installed_hash,
-                    "status": status,
-                }
-            )
+
+def standing_profile_summary(agents_dir: Path, templates_dir: Path) -> dict[str, object]:
+    import court_office_bootstrap
+    from sync_codex_agents_from_profiles import render_agent_toml
+
+    required_files = sorted(f"{role}.toml" for role in court_office_bootstrap.OFFICE_ASSIGNMENT_IDENTITIES)
+    schema_rows = []
+    for path in sorted(agents_dir.glob("*.toml")):
+        errors = _native_role_schema_errors(path)
+        schema_rows.append({
+            "agent": path.name, "path": str(path),
+            "schema_status": "malformed" if errors else "ok", "errors": errors,
+        })
+    malformed = {row["agent"] for row in schema_rows if row["errors"]}
+    sync_rows = []
+    for name in required_files:
+        template, installed = templates_dir / name, agents_dir / name
+        errors = []
+        if not installed.is_file():
+            status = "missing_installed_agent"
+        elif name in malformed:
+            status = "malformed"
+        else:
+            try:
+                status = "synced" if installed.read_text(encoding="utf-8") == render_agent_toml(template) else "different"
+            except (OSError, ValueError) as exc:
+                status = "unknown_render_status"
+                errors.append(str(exc))
+        sync_rows.append({
+            "agent": name, "template_exists": template.is_file(), "installed_exists": installed.is_file(),
+            "expected_rendered_hash": None, "installed_hash": None,
+            "status": status, "errors": errors,
+            "hash_status": "UNAVAILABLE_NOT_REHASHED", "hash_evidence_basis": "unavailable",
+            "sync_evidence_basis": "exact_content_comparison", "file_content_verified": False,
+        })
+    unsynced_count = sum(row["status"] != "synced" for row in sync_rows)
+    role_state = {
+        "ok": not malformed and not unsynced_count,
+        "agents_dir": str(agents_dir), "template_root": str(templates_dir),
+        "installed_count": len(schema_rows), "required_count": len(required_files),
+        "malformed_count": len(malformed), "unsynced_count": unsynced_count,
+        "schema_rows": schema_rows, "sync_rows": sync_rows,
+        "hash_evidence_basis": "unavailable", "sync_evidence_basis": "exact_content_comparison",
+        "file_content_verified": False,
+    }
     validation_errors: list[str] = []
     validated_profiles = 0
     try:

@@ -11,6 +11,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 import json
+import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import stat
@@ -26,6 +27,26 @@ PROJECTION_MANIFEST_RELATIVE = PurePosixPath(
 CLI_SURFACE_RELATIVE = PurePosixPath(
     "references/manifests/cli-command-surface.v1.json"
 )
+PRELOAD_IDENTITY_RELATIVE = PurePosixPath("references/manifests/installed-preload-identity.v1.json")
+
+
+def render_installed_preload_identity(files: dict[PurePosixPath, bytes]) -> bytes:
+    """Pin final projected preload bytes once, as part of installation rendering."""
+    body = {
+        "schema": "court.installed_preload_identity.v1",
+        "authority": "installer",
+        "status": "INSTALLATION_PINNED",
+        "file_sha256": {
+            relative.as_posix(): hashlib.sha256(payload).hexdigest()
+            for relative, payload in sorted(files.items(), key=lambda item: item[0].as_posix())
+            if relative.as_posix() == "SKILL.md"
+            or relative.as_posix().startswith(("agents/standing-officials/", "agents/office-dossiers/", "agents/supercc-dossiers/"))
+        },
+    }
+    body["identity_sha256"] = hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return _json_bytes(body)
+
+
 RUNTIME_PROJECTION_NAMES = (
     "shared_agents",
     "portable_current_tool",
@@ -201,6 +222,9 @@ def render_active_projection_manifest(
         for name in RUNTIME_PROJECTION_NAMES
     }
     projections["repository_only"] = []
+    for name in TARGET_PROJECTION_NAMES:
+        if PRELOAD_IDENTITY_RELATIVE.as_posix() not in projections[name]:
+            projections[name].append(PRELOAD_IDENTITY_RELATIVE.as_posix())
     required_fields = (
         "schema",
         "schema_version",
@@ -475,6 +499,7 @@ def render_active_projection(
         *list(projections[target_class]),
         *list(projections["cli_public"]),
     ]
+    entries = [entry for entry in entries if entry != PRELOAD_IDENTITY_RELATIVE.as_posix()]
     files = _expand_projected_files(root, entries, globs)
     if (
         PROJECTION_MANIFEST_RELATIVE not in files
@@ -485,7 +510,7 @@ def render_active_projection(
     files[PROJECTION_MANIFEST_RELATIVE] = _json_bytes(active_manifest)
     files[CLI_SURFACE_RELATIVE] = _json_bytes(active_cli)
     files[identity_relative] = active_identity_bytes
-    import hashlib
+    files[PRELOAD_IDENTITY_RELATIVE] = render_installed_preload_identity(files)
 
     return RenderedActiveProjection(
         target_class=target_class,

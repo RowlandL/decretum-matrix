@@ -31,6 +31,7 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 from argparse import ArgumentParser, Namespace
+from contextlib import contextmanager, ExitStack
 import hashlib
 import inspect
 import json
@@ -39,6 +40,7 @@ import re
 import sys
 import tempfile
 from typing import Callable
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -51,6 +53,7 @@ import court_office_bootstrap
 import court_runtime
 from court_intake_gate import minimal_request_understanding_example
 import check_capability_index_gate
+from checks.installed_identity_fixture import write_skill
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +63,7 @@ DOSSIER_ROOT = ROOT / "agents" / "office-dossiers"
 CAPABILITY_REGISTRY_PATH = ROOT / "references" / "court-capability-registry.md"
 CAPABILITY_INDEX_GATE_PATH = ROOT / "scripts" / "checks" / "check_capability_index_gate.py"
 REFRESH_CAPABILITY_REGISTRY_PATH = ROOT / "scripts" / "commands" / "refresh_capability_registry.py"
+PRELOAD_FIXTURE_ROOT: Path | None = None
 
 MINISTRY_ROLES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 ACTIVE_DERIVED_STATUSES = {"admitted", "starting", "running", "active", "assigned"}
@@ -280,7 +284,53 @@ def require(condition: bool, message: str) -> None:
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    require(PRELOAD_FIXTURE_ROOT is not None, "isolated preload installation is required")
+    return court_office_bootstrap.installed_file_sha256(path, skill_root=PRELOAD_FIXTURE_ROOT)
+
+
+@contextmanager
+def isolated_preload_installation():
+    """Bind runtime defaults to distinct, declared identities in a temp root."""
+    global PRELOAD_FIXTURE_ROOT
+    with tempfile.TemporaryDirectory(prefix="preload-semantics-") as temporary, ExitStack() as stack:
+        root = Path(temporary)
+        write_skill(root)
+        pin_path = root / court_office_bootstrap.INSTALLED_PRELOAD_IDENTITY
+        identity = json.loads(pin_path.read_text(encoding="utf-8"))
+        identity.pop("identity_sha256")
+        # Distinct declarations preserve cross-role/carrier mismatch rejection.
+        identity["file_sha256"] = {
+            relative: f"{ordinal:064x}"
+            for ordinal, relative in enumerate(sorted(identity["file_sha256"]), start=1)
+        }
+        identity["identity_sha256"] = sha256_text(json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+        pin_path.write_text(json.dumps(identity), encoding="utf-8")
+        profiles = root / "agents" / "standing-officials"
+        for function, keyword, value in (
+            (court_office_bootstrap.build_preload_manifest, "skill_root", root),
+            (court_office_bootstrap.load_standing_profile_binding, "profile_root", profiles),
+            (court_office_bootstrap.build_office_assignment_binding, "profile_root", profiles),
+        ):
+            stack.enter_context(patch.dict(function.__kwdefaults__, {keyword: value}))
+        stack.enter_context(patch.object(court_office_bootstrap, "PROFILE_ROOT", profiles))
+        stack.enter_context(patch.object(court_office_bootstrap, "SKILL_PATH", root / "SKILL.md"))
+        stack.enter_context(patch.object(court_office_bootstrap, "sha256_file", side_effect=AssertionError("runtime file rehash")))
+        scratch = root / "tmp"
+        scratch.mkdir()
+        stack.enter_context(patch.object(tempfile, "tempdir", str(scratch)))
+        original_read_bytes = Path.read_bytes
+
+        def fixture_bytes_only(path: Path) -> bytes:
+            require(path.resolve().is_relative_to(root), "real source/host byte read forbidden: " + str(path))
+            return original_read_bytes(path)
+
+        stack.enter_context(patch.object(Path, "read_bytes", fixture_bytes_only))
+        previous = PRELOAD_FIXTURE_ROOT
+        PRELOAD_FIXTURE_ROOT = root
+        try:
+            yield root
+        finally:
+            PRELOAD_FIXTURE_ROOT = previous
 
 
 def sha256_text(value: str) -> str:
@@ -406,12 +456,14 @@ def resolve_manifest_path(value: object) -> Path:
     if candidate.is_absolute():
         return candidate.resolve()
     relative = PurePosixPath(text.replace("\\", "/"))
-    return ROOT.joinpath(*relative.parts).resolve()
+    require(PRELOAD_FIXTURE_ROOT is not None, "isolated preload installation is required")
+    return PRELOAD_FIXTURE_ROOT.joinpath(*relative.parts).resolve()
 
 
 def skill_requirement_fixture() -> list[dict[str, str]]:
-    digest = sha256_file(SKILL_PATH)
-    source = str(SKILL_PATH.resolve())
+    fixture_skill = court_office_bootstrap.SKILL_PATH
+    digest = sha256_file(fixture_skill)
+    source = str(fixture_skill.resolve())
     return [
         {
             "name": "decretum-matrix",
@@ -603,9 +655,9 @@ def check_registry_first_routing_behavior() -> None:
         + ", ".join(missing_parameters),
     )
 
-    def snapshot(root: Path) -> dict[str, str]:
+    def snapshot(root: Path) -> dict[str, bytes]:
         return {
-            path.relative_to(root).as_posix(): sha256_file(path)
+            path.relative_to(root).as_posix(): path.read_bytes()
             for path in sorted(root.rglob("*"))
             if path.is_file()
         }
@@ -639,12 +691,12 @@ def check_registry_first_routing_behavior() -> None:
         skill_root = root / "codex-skills"
         skill_path = skill_root / "fixture-registry-skill" / "SKILL.md"
         skill_path.parent.mkdir(parents=True)
-        skill_path.write_text(
+        skill_text = (
             "---\nname: fixture-registry-skill\n"
-            "description: Verified registry-first fixture.\n---\n",
-            encoding="utf-8",
+            "description: Verified registry-first fixture.\n---\n"
         )
-        digest = sha256_file(skill_path)
+        skill_path.write_text(skill_text, encoding="utf-8", newline="\n")
+        digest = sha256_text(skill_text)  # Synthetic literal, never source file content.
         manifest = root / "installed-capabilities-manifest.json"
         base_record: dict[str, object] = {
             "kind": "skill",
@@ -990,16 +1042,20 @@ def check_ordinary_runtime_probe_zero_load() -> None:
     import agent_runtime_probe
 
     sys.modules.pop("check_supercc_profiles", None)
-    home = agent_runtime_probe.codex_home()
+    require(PRELOAD_FIXTURE_ROOT is not None, "isolated preload installation is required")
+    home = PRELOAD_FIXTURE_ROOT / "codex-home"
+    home.mkdir(exist_ok=True)
     summary = agent_runtime_probe.standing_profile_summary(
         home / "agents",
-        ROOT / "agents" / "standing-officials",
+        PRELOAD_FIXTURE_ROOT / "agents" / "standing-officials",
     )
     require(
         "check_supercc_profiles" not in sys.modules,
         "ordinary runtime probe imported the visible carrier validator",
     )
-    payload = agent_runtime_probe.probe()
+    probe_module = sys.modules[agent_runtime_probe.probe.__module__]
+    with patch.object(probe_module, "codex_home", return_value=home), patch.object(probe_module, "skill_root", return_value=PRELOAD_FIXTURE_ROOT), patch.object(probe_module, "resolve_codex_executable", return_value={"ok": False, "version": None}), patch.object(probe_module, "command_version", return_value="unavailable_fixture"), patch.object(probe_module.subprocess, "run", side_effect=AssertionError("live probe launch forbidden")):
+        payload = agent_runtime_probe.probe()
     serialized = json.dumps(
         {"standing_profiles": summary, "probe": payload},
         ensure_ascii=False,
@@ -1082,11 +1138,11 @@ def _check_manifest_hashes(
     profile_path = resolve_manifest_path(manifest.profile_source)
     dossier_path = resolve_manifest_path(manifest.dossier_path)
     skill_path = resolve_manifest_path(manifest.court_skill_path)
-    if profile_path != (PROFILE_ROOT / f"{role}.toml").resolve():
+    if profile_path != (PRELOAD_FIXTURE_ROOT / "agents" / "standing-officials" / f"{role}.toml").resolve():
         problems.append(f"{role}:manifest_profile_path_wrong")
-    if dossier_path != (DOSSIER_ROOT / role / "AGENTS.md").resolve():
+    if dossier_path != (PRELOAD_FIXTURE_ROOT / "agents" / "office-dossiers" / role / "AGENTS.md").resolve():
         problems.append(f"{role}:manifest_dossier_path_wrong")
-    if skill_path != SKILL_PATH.resolve():
+    if skill_path != (PRELOAD_FIXTURE_ROOT / "SKILL.md").resolve():
         problems.append(f"{role}:manifest_skill_path_wrong")
     if manifest.profile_hash != sha256_file(profile_path):
         problems.append(f"{role}:manifest_profile_hash_wrong")
@@ -1707,6 +1763,15 @@ CHECKS: tuple[tuple[str, Callable[[], None]], ...] = (
     ),
 )
 
+NO_FILE_REHASH_CHECKS = frozenset({
+    "ordinary_child_agent_manifest", "ordinary_worktree_spawn_contract",
+    "disabled_supercc_fails_before_path_resolution", "legacy_supercc_carrier_rejected",
+    "missing_ordinary_dossier_fails_closed", "carrier_pointer_semantic_independence",
+    "fourteen_office_manifest_hashes", "relative_persisted_preload_paths",
+    "preload_ack_rejections", "ministry_responsibility_guard",
+    "strict_ministry_worker_dispatch_hierarchy",
+})
+
 
 def main() -> int:
     parser = ArgumentParser(description=__doc__)
@@ -1721,19 +1786,23 @@ def main() -> int:
     )
     passed: list[str] = []
     gaps: list[dict[str, str]] = []
-    for name, check in selected_checks:
-        try:
-            check()
-        except Exception as exc:  # RED aggregator: report every independent gap.
-            gaps.append(
-                {
-                    "check": name,
-                    "error": type(exc).__name__,
-                    "detail": str(exc),
-                }
-            )
-        else:
-            passed.append(name)
+    with isolated_preload_installation():
+        for name, check in selected_checks:
+            try:
+                with ExitStack() as guards:
+                    if name in NO_FILE_REHASH_CHECKS:
+                        guards.enter_context(patch.object(Path, "read_bytes", side_effect=AssertionError("preload file rehash/byte reread forbidden")))
+                    check()
+            except Exception as exc:  # RED aggregator: report every independent gap.
+                gaps.append(
+                    {
+                        "check": name,
+                        "error": type(exc).__name__,
+                        "detail": str(exc),
+                    }
+                )
+            else:
+                passed.append(name)
 
     print(
         json.dumps(

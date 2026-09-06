@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from unittest.mock import patch
+from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
 
@@ -21,7 +23,10 @@ from court_codex_office_worker import (
     build_worker_plan,
     verify_session_metadata,
     verify_worker_session_override,
+    run_worker,
 )
+from court_office_bootstrap import build_preload_manifest
+from checks.installed_identity_fixture import write_skill
 
 
 def proof() -> dict[str, object]:
@@ -55,7 +60,7 @@ def plan_for(*, assignment: str, task_focus: str, complexity: str, risk: str, am
     )
 
 
-def main() -> int:
+def run_checks() -> int:
     repo_root = Path(__file__).resolve().parents[2]
     luna = plan_for(
         assignment="light clerical status",
@@ -144,9 +149,7 @@ def main() -> int:
         native = Path(temp_dir) / "codex.exe"
         native.write_bytes(b"host-proof-binary")
         native_proof = proof()
-        import hashlib
-
-        native_proof["binary_sha256"] = hashlib.sha256(native.read_bytes()).hexdigest()
+        native_proof["binary_sha256"] = "b" * 64
         native_plan = build_worker_plan(
             role="hubu",
             assignment="general implementation",
@@ -160,10 +163,11 @@ def main() -> int:
             native_codex_path=native,
             host_proof=native_proof,
         )
-        assert native_plan["native_codex_sha256"] == native_proof["binary_sha256"]
+        assert native_plan["native_codex_sha256"] is None
+        assert native_plan["host_proof_binary_sha256"] == native_proof["binary_sha256"]
+        assert native_plan["native_binary_verification"] == "UNAVAILABLE_NOT_REHASHED"
         assert native_plan["argv"][0] == str(native.resolve())
-        try:
-            build_worker_plan(
+        declared_plan = build_worker_plan(
                 role="hubu",
                 assignment="general implementation",
                 task_focus="balanced coordination",
@@ -176,10 +180,31 @@ def main() -> int:
                 native_codex_path=native,
                 host_proof=proof(),
             )
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("stale binary proof was accepted")
+        assert declared_plan["host_proof_binary_identity_basis"] == "HOST_PROOF_DECLARED"
+        assert declared_plan["native_codex_sha256"] is None
+        worker_module = sys.modules[run_worker.__module__]
+        session_id = "019f4eb0-38e7-7760-bbc9-77a030b7cf0e"
+        session.write_text("\n".join([
+            json.dumps({"type": "session_meta", "payload": {"id": session_id}}),
+            json.dumps({"type": "turn_context", "payload": {"model": native_plan["model"], "effort": native_plan["reasoning_effort"], "cwd": native_plan["dossier_dir"]}}),
+        ]), encoding="utf-8")
+        completed = "\n".join([
+            json.dumps({"type": "thread.started", "thread_id": session_id}),
+            json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "fixture result"}}),
+        ])
+        with patch.object(worker_module, "_session_path", return_value=session), patch.object(worker_module.subprocess, "run", side_effect=[SimpleNamespace(returncode=0, stdout="codex-cli 0.144.1", stderr=""), SimpleNamespace(returncode=0, stdout=completed, stderr="")]) as launch:
+            execution = run_worker(native_plan)
+            assert execution["status"] == "completed"
+            assert execution["native_binary_verification"] == "UNAVAILABLE_NOT_REHASHED"
+            assert launch.call_count == 2
+        native.write_bytes(b"replaced fixture binary")
+        with patch.object(worker_module.subprocess, "run", side_effect=AssertionError("changed path/stat was launched")):
+            try:
+                run_worker(native_plan)
+            except ValueError as exc:
+                assert "path/stat changed" in str(exc)
+            else:
+                raise AssertionError("changed native stat accepted")
 
     # ---- P4-3 fresh-session read-back proof: applied vs fallback/degraded ----
     session_id = "019f4eb0-38e7-7760-bbc9-77a030b7cf0e"
@@ -282,8 +307,13 @@ def main() -> int:
     return 0
 
 
+def main() -> int:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        write_skill(root)
+        with patch.dict(build_preload_manifest.__kwdefaults__, skill_root=root), patch.object(Path, "read_bytes", side_effect=AssertionError("worker file rehash")):
+            return run_checks()
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-

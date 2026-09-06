@@ -33,7 +33,7 @@ metadata:
 
 - 入口、当前官署 profile/dossier、启动指引及紧凑 metadata 合计 `<=20 KiB`。具体官署派遣前才读自己的材料，父级不预读全部子署。
 - 已指定能力时直接用 CLI/MCP；不全读能力索引、core/dispatch/state/closeout 大卷，不翻源码猜参数。操作或语义争议确需时才读对应卷。
-- 安装/发布检查、全根哈希扫描不属于普通启动。安装首次校验成功后，活动副本不保留安装专用检查脚本及失效注册字段；运行时语义/准入完整性校验保留。
+- 安装首次校验并固定文件身份；活动副本不保留安装专用检查及失效注册。普通启动/角色卡/plan/preload/ack/dispatch 禁止 Get-FileHash、hashlib 等文件重算，只核对安装声明；缺 pin 要求安装更新。canonical JSON/P00/receipt/语义 digest 保留。
 
 ## Common Hard Gates
 

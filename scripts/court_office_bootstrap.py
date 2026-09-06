@@ -32,6 +32,8 @@ COURT_SKILL_NAME = "decretum-matrix"
 LEGACY_TECHNICAL_LOCATOR_NAME = "court-capability-router"
 ORDINARY_CARRIERS = frozenset({"child_agent", "worktree_thread"})
 SUPERCC_CLI_CARRIER = "supercc_cli_office"
+INSTALLED_PRELOAD_IDENTITY = "references/manifests/installed-preload-identity.v1.json"
+INSTALLED_PRELOAD_SCHEMA = "court.installed_preload_identity.v1"
 MINISTRY_ROLES = frozenset({"libu-hr", "libu", "hubu", "gongbu", "xingbu", "bingbu"})
 
 
@@ -72,7 +74,45 @@ class OfficePreloadManifest:
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Compatibility entry: consume an installation pin, never hash file bytes."""
+    return installed_file_sha256(path)
+
+
+def installed_file_sha256(
+    path: Path,
+    *,
+    skill_root: Path = ROOT,
+    expected_identity_sha256: str | None = None,
+) -> str:
+    """Read an installer-declared digest; absence requires an install update.
+
+    Runtime checks shape, portable locator and supplied binding strings only.
+    Neither an installed file nor its identity document may be rehashed, even
+    after JSON serialization. Missing pins require an installation update.
+    """
+    root = Path(skill_root).resolve()
+    try:
+        relative = Path(path).resolve().relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("installed_identity_path_outside_root") from exc
+    try:
+        document = json.loads((root / INSTALLED_PRELOAD_IDENTITY).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("installed_preload_identity_missing_or_invalid") from exc
+    if (
+        not isinstance(document, dict)
+        or document.get("schema") != INSTALLED_PRELOAD_SCHEMA
+        or document.get("authority") != "installer"
+        or document.get("status") != "INSTALLATION_PINNED"
+        or not isinstance(document.get("file_sha256"), dict)
+    ):
+        raise ValueError("installed_preload_identity_invalid")
+    declared = _canonical_sha256(document.get("identity_sha256"), "identity_sha256")
+    if expected_identity_sha256 is not None and declared != _canonical_sha256(expected_identity_sha256, "expected_identity_sha256"):
+        raise ValueError("installed_preload_identity_binding_mismatch")
+    if relative == INSTALLED_PRELOAD_IDENTITY or relative not in document["file_sha256"]:
+        raise ValueError("installed_file_identity_missing:" + relative)
+    return _canonical_sha256(document["file_sha256"][relative], "installed_file_sha256")
 
 
 def _canonical_sha256(value: object, field: str) -> str:
@@ -121,7 +161,7 @@ def load_standing_profile_binding(
     )
     return {
         "profile_source": profile_source,
-        "profile_hash": sha256_file(resolved).lower(),
+        "profile_hash": installed_file_sha256(resolved, skill_root=root.parent.parent),
         "office_zh": office_zh.strip(),
         "direct_superior": direct_superior.strip(),
     }
@@ -144,8 +184,6 @@ def validate_skill_requirements(requirements: list[dict[str, str]]) -> list[dict
             raise ValueError("skill_source_not_resolved")
         if not source.is_file():
             raise ValueError("required_skill_missing")
-        if sha256_file(source).lower() != item["sha256"]:
-            raise ValueError("required_skill_hash_mismatch")
         if item["ack_name"] != item["name"] or item["ack_sha256"] != item["sha256"]:
             raise ValueError("skill_ack_incomplete")
         if item["name"] == LEGACY_TECHNICAL_LOCATOR_NAME:
@@ -164,9 +202,18 @@ def validate_skill_requirements(requirements: list[dict[str, str]]) -> list[dict
     authoritative_court = SKILL_PATH.resolve()
     if Path(court["source"]).resolve() != authoritative_court:
         raise ValueError("court_skill_source_mismatch")
-    authoritative_hash = sha256_file(authoritative_court).lower()
-    if court["sha256"] != authoritative_hash or court["ack_sha256"] != authoritative_hash:
-        raise ValueError("required_skill_hash_mismatch")
+    for item in validated:
+        source = Path(item["source"])
+        item["current_file_verification"] = "NOT_PERFORMED"
+        # Preserve custom skill paths without promoting a caller-owned sidecar
+        # or a matching acknowledgement into installation verification.
+        if item["name"] != COURT_SKILL_NAME:
+            item["identity_basis"] = "CALLER_DECLARED"
+            continue
+        item["identity_basis"] = "INSTALLATION_DECLARED"
+        authoritative_hash = installed_file_sha256(source, skill_root=authoritative_court.parent)
+        if item["sha256"] != authoritative_hash:
+            raise ValueError("required_skill_hash_mismatch")
     return validated
 
 
@@ -372,6 +419,8 @@ def build_office_assignment_binding(
         "name_binding": "PASSED",
         "profile_binding": "PASSED",
         "skill_binding": "PASSED",
+        "skill_binding_basis": "path_declared_identity_and_ack",
+        "current_file_verification": "NOT_PERFORMED",
         **profile,
         "direct_superior": assignment_direct_superior,
         "required_skill_bindings": skills,
@@ -451,12 +500,12 @@ def build_preload_manifest(
         office_zh=office_zh,
         direct_superior=direct_superior,
         profile_source=PurePosixPath("agents", "standing-officials", f"{role}.toml").as_posix(),
-        profile_hash=sha256_file(profile_path),
+        profile_hash=installed_file_sha256(profile_path, skill_root=root),
         dossier_path=dossier_locator.as_posix(),
-        dossier_hash=sha256_file(dossier),
+        dossier_hash=installed_file_sha256(dossier, skill_root=root),
         court_skill_name=COURT_SKILL_NAME,
         court_skill_path="SKILL.md",
-        court_skill_hash=sha256_file(skill_path),
+        court_skill_hash=installed_file_sha256(skill_path, skill_root=root),
     )
 
 

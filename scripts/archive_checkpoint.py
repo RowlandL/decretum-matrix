@@ -17,7 +17,9 @@ import tempfile
 sys.dont_write_bytecode = True
 
 from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
-from shiguan_entry_utils import base36, enrich_entry, existing_content_lineage_parts
+from shiguan_entry_utils import (
+    base36, enrich_entry, existing_content_lineage_parts, lineage_review_metadata,
+)
 from shiguan_paths import (
     code_root,
     detect_runtime_agent,
@@ -658,6 +660,10 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
             f"- memory_content: {memory_content}",
             f"- memory_reason: {memory_reason}",
             f"- next: {args.next}",
+            "- archive_receipt_json: " + json.dumps(
+                build_archive_receipt(path, entry, {}),
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ),
             "",
         ]
         if full_record:
@@ -724,6 +730,7 @@ def build_archive_receipt(
     lineage_parts = existing_content_lineage_parts(entry)
     if lineage_parts is not None:
         receipt["lineage_parts"] = lineage_parts
+    receipt.update(lineage_review_metadata(entry))
     if isinstance(entry.get("case_binding"), dict):
         receipt.update(
             task_id=entry["task_id"],

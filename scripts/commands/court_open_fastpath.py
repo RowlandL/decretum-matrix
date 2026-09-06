@@ -615,10 +615,11 @@ def _capability_snapshot(
             continue
         seen.add(identity)
         proposed[kind].append(_allocation(candidate))
-    try:
-        manifest_sha256 = _sha256_bytes(manifest.read_bytes())
-    except OSError:
-        manifest_sha256 = ""
+    # The registry owner supplies its accepted snapshot identity. A path is not
+    # permission to hash the installed registry again during ordinary opening.
+    manifest_sha256 = route.get("manifest_sha256")
+    if not isinstance(manifest_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", manifest_sha256):
+        manifest_sha256 = None
     body: dict[str, object] = {
         "schema": "court.capability.snapshot.v1",
         "owner": "libu-hr",
@@ -626,6 +627,7 @@ def _capability_snapshot(
         "registry": {
             "path": str(manifest),
             "sha256": manifest_sha256,
+            "identity_status": "DECLARED" if manifest_sha256 else "UNAVAILABLE_NOT_REHASHED",
             "state": route.get("manifest_state"),
         },
         "selection_source": route.get("selection_source"),
@@ -743,17 +745,20 @@ def live_worktree_identity(worktree: Path) -> tuple[dict[str, object], list[list
 def _role_preload(
     skill_root: Path,
     role: str,
-    skill_bytes: bytes,
+    skill_bytes: int,
     hierarchy: Mapping[str, object],
 ) -> RolePreload:
+    from court_office_bootstrap import installed_file_sha256
     profile_relative = Path("agents") / "standing-officials" / f"{role}.toml"
     dossier_relative = Path("agents") / "office-dossiers" / role / "AGENTS.md"
     profile_path = skill_root / profile_relative
     dossier_path = skill_root / dossier_relative
     try:
-        profile_bytes = profile_path.read_bytes()
-        dossier_bytes = dossier_path.read_bytes()
-        profile = tomllib.loads(profile_bytes.decode("utf-8"))
+        profile_text = profile_path.read_text(encoding="utf-8")
+        dossier_text = dossier_path.read_text(encoding="utf-8")
+        profile_bytes = profile_path.stat().st_size
+        dossier_bytes = dossier_path.stat().st_size
+        profile = tomllib.loads(profile_text)
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
         raise FastPathMiss("preload_unavailable", f"{role}:{type(exc).__name__}:{exc}") from exc
     identity = profile.get("profile")
@@ -765,7 +770,6 @@ def _role_preload(
             "hierarchy_incomplete",
             f"{role}:expected={ROLE_SUPERIORS.get(role)}:actual={direct_superior}",
         )
-    dossier_text = dossier_bytes.decode("utf-8")
     if f"- role: {role}" not in dossier_text:
         raise FastPathMiss("preload_identity_mismatch", f"dossier:{role}")
     canonical_roles = hierarchy.get("canonical_roles")
@@ -792,19 +796,25 @@ def _role_preload(
         "registry_owner": "libu-hr",
     }
     metadata_payload = _canonical_bytes(metadata)
+    try:
+        skill_digest = installed_file_sha256(skill_root / "SKILL.md", skill_root=skill_root)
+        dossier_digest = installed_file_sha256(dossier_path, skill_root=skill_root)
+        profile_digest = installed_file_sha256(profile_path, skill_root=skill_root)
+    except ValueError as exc:
+        raise FastPathMiss("preload_install_identity_unavailable", str(exc)) from exc
     return RolePreload(
         role=role,
         direct_superior=direct_superior,
         office_zh=str(identity.get("office_zh") or role),
         skill_path="SKILL.md",
-        skill_sha256=_sha256_bytes(skill_bytes),
-        skill_bytes=len(skill_bytes),
+        skill_sha256=skill_digest,
+        skill_bytes=skill_bytes,
         dossier_path=dossier_relative.as_posix(),
-        dossier_sha256=_sha256_bytes(dossier_bytes),
-        dossier_bytes=len(dossier_bytes),
+        dossier_sha256=dossier_digest,
+        dossier_bytes=dossier_bytes,
         profile_path=profile_relative.as_posix(),
-        profile_sha256=_sha256_bytes(profile_bytes),
-        profile_bytes=len(profile_bytes),
+        profile_sha256=profile_digest,
+        profile_bytes=profile_bytes,
         metadata_sources=(
             "SKILL.md",
             "references/manifests/court-dispatch-hierarchy.v1.json",
@@ -818,6 +828,7 @@ def _role_preload(
 def _preload_cache_key(skill_root: Path, roles: Sequence[str]) -> tuple[object, ...]:
     paths = [
         Path("SKILL.md"),
+        Path("references/manifests/installed-preload-identity.v1.json"),
         Path("references") / "manifests" / "court-dispatch-hierarchy.v1.json",
     ]
     for role in roles:
@@ -849,7 +860,8 @@ def load_preloads(
             cached = _PRELOAD_CACHE.get(cache_key)
         if cached is not None:
             return dict(cached)
-        skill_bytes = (skill_root / "SKILL.md").read_bytes()
+        (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        skill_bytes = (skill_root / "SKILL.md").stat().st_size
         hierarchy = json.loads(
             (skill_root / "references" / "manifests" / "court-dispatch-hierarchy.v1.json").read_text(
                 encoding="utf-8"
@@ -899,6 +911,8 @@ def _preload_payload(value: RolePreload) -> dict[str, object]:
             *value.metadata_sources[1:],
         ],
         "preload_evidence_kind": "dispatcher_source_validation",
+        "file_identity_basis": "INSTALLATION_DECLARED",
+        "current_file_verification": "NOT_PERFORMED",
         "child_preload_ack_status": "NOT_AVAILABLE_PRE_SPAWN",
         "loaded_bytes": value.loaded_bytes,
         "target_bytes": MINIMAL_PRELOAD_BYTES,

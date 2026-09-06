@@ -4,12 +4,12 @@ receipt pointers (FR-A A2 / P3-4 / P3-5) against isolated temp directories."""
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import sys
 import tempfile
 from typing import Any
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -20,6 +20,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from iku_candidates import detect_candidates, placeholder_kind  # noqa: E402
+import archive_checkpoint
 from repair_archive_placeholders import (  # noqa: E402
     apply_repairs,
     plan_repairs,
@@ -47,30 +48,40 @@ def evaluate() -> dict[str, Any]:
     failures: list[str] = []
     evidence: dict[str, Any] = {}
 
-    # IKU literal marker must not match inside alphanumeric court codes.
+    # A normal alphanumeric substring is not a placeholder. The old repeated
+    # review lineage code is a separate, review-only identity candidate.
     false_positive = placeholder_kind(
-        "- court_code: SUIKUIKUIKUIKUIKULD-20260101-1-ABAA"
+        "- court_code: SAIKUB-20260101-1-ABAA"
     )
     if false_positive is not None:
         failures.append("iku_literal_matched_court_code_substring")
     evidence["iku_literal_court_code_false_positive_rejected"] = (
         false_positive is None
     )
+    if placeholder_kind("- court_code: SUIKUIKUIKUIKUIKULD-20260101-1-ABAA") != "LEGACY_REVIEW_CODE":
+        failures.append("legacy_review_code_not_detected")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp = Path(temp_dir)
         archive = temp / "plan-archives"
         archive.mkdir(parents=True)
         record_path = archive / "probe-20260101-iku.md"
-        record_path.write_text(RECORD, encoding="utf-8", newline="\n")
-        original_sha = hashlib.sha256(record_path.read_bytes()).hexdigest()
+        with patch.object(archive_checkpoint, "relative_to_data", return_value=record_path.relative_to(archive.parent.parent).as_posix()):
+            receipt = archive_checkpoint.build_archive_receipt(record_path, {
+                "court_code": "SDMLTIUW7-20260101-1-ABAA",
+                "lineage_display": "史馆总纪/中书省委/尚书省丞/典创专部/应用部/考据条",
+                "time": "2026-01-01T00:00:00+00:00",
+            }, {})
+        fixture = RECORD.replace("- receipt: archive_checkpoint 2026-01-01T09:00:00Z", "- archive_receipt_json: " + json.dumps(receipt, ensure_ascii=False))
+        record_path.write_text(fixture, encoding="utf-8", newline="\n")
+        original_bytes = record_path.read_bytes()
 
         # Dry-run: plan exists, zero byte mutation.
         plan = plan_repairs(root=archive)
-        after_dry_sha = hashlib.sha256(record_path.read_bytes()).hexdigest()
-        if after_dry_sha != original_sha:
+        after_dry_bytes = record_path.read_bytes()
+        if after_dry_bytes != original_bytes:
             failures.append("dry_run_mutated_file")
-        evidence["dry_run_zero_byte_unchanged"] = after_dry_sha == original_sha
+        evidence["dry_run_zero_byte_unchanged"] = after_dry_bytes == original_bytes
         if len(plan) < 2:
             failures.append("repair_plan_missing_identity_candidates")
         evidence["repair_plan_candidate_count"] = len(plan)
@@ -93,11 +104,11 @@ def evaluate() -> dict[str, Any]:
             refused = str(exc) == "repair_requires_yes"
         if not refused:
             failures.append("apply_without_yes_not_refused")
-        after_refuse_sha = hashlib.sha256(record_path.read_bytes()).hexdigest()
-        if after_refuse_sha != original_sha:
+        after_refuse_bytes = record_path.read_bytes()
+        if after_refuse_bytes != original_bytes:
             failures.append("refused_apply_mutated_file")
         evidence["apply_requires_yes_gate"] = refused and (
-            after_refuse_sha == original_sha
+            after_refuse_bytes == original_bytes
         )
 
         # Apply with --yes: backup + journal/receipt written, file repaired.
@@ -107,8 +118,8 @@ def evaluate() -> dict[str, Any]:
         )
         if not (result.get("ok") is True and result.get("files") == 1):
             failures.append("apply_result_invalid")
-        repaired_sha = hashlib.sha256(record_path.read_bytes()).hexdigest()
-        if repaired_sha == original_sha:
+        repaired_bytes = record_path.read_bytes()
+        if repaired_bytes == original_bytes:
             failures.append("apply_did_not_repair")
         backup_files = list(backup_root.glob("*.bak"))
         if not backup_files:
@@ -125,8 +136,10 @@ def evaluate() -> dict[str, Any]:
         if len(journal_entries) != 1:
             failures.append("repair_journal_entry_count_invalid")
         entry = journal_entries[0] if journal_entries else {}
-        if entry.get("original_sha256") != original_sha:
-            failures.append("repair_journal_original_fingerprint_missing")
+        if entry.get("original_size_bytes") != len(original_bytes) or entry.get("beforeimage_verification") != "exact_bytes":
+            failures.append("repair_journal_beforeimage_verification_missing")
+        if not backup_files or backup_files[0].read_bytes() != original_bytes:
+            failures.append("repair_backup_beforeimage_mismatch")
         if not entry.get("backup_path") or not entry.get("receipt_hint"):
             failures.append("repair_journal_receipt_or_snapshot_pointer_missing")
         if not entry.get("nearest_court_code") or not entry.get("nearest_lineage"):
@@ -137,7 +150,8 @@ def evaluate() -> dict[str, Any]:
             ):
                 failures.append("repair_journal_line_fingerprint_missing")
         evidence["repair_journal_receipt_and_snapshot"] = (
-            entry.get("original_sha256") == original_sha
+            entry.get("original_size_bytes") == len(original_bytes)
+            and entry.get("beforeimage_verification") == "exact_bytes"
             and bool(entry.get("backup_path"))
             and bool(entry.get("receipt_hint"))
             and bool(entry.get("nearest_court_code"))
@@ -168,11 +182,11 @@ def evaluate() -> dict[str, Any]:
         # Rollback: restore original bytes from snapshot.
         if backup_files:
             rollback(backup_files[0], record_path)
-            rolled_back_sha = hashlib.sha256(record_path.read_bytes()).hexdigest()
-            if rolled_back_sha != original_sha:
+            rolled_back_bytes = record_path.read_bytes()
+            if rolled_back_bytes != original_bytes:
                 failures.append("rollback_did_not_restore_original")
             evidence["rollback_restores_original"] = (
-                rolled_back_sha == original_sha
+                rolled_back_bytes == original_bytes
             )
         else:
             evidence["rollback_restores_original"] = False

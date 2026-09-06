@@ -15,12 +15,14 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from unittest.mock import patch
 from typing import get_type_hints
 
 sys.dont_write_bytecode = True
 
 import court_office_bootstrap
 import court_dispatch_hierarchy
+from checks.installed_identity_fixture import FIXTURE_DIGEST, write_identity
 
 
 CANONICAL_OFFICES = (
@@ -47,7 +49,8 @@ EXACT_TASK_NAME_STATEMENT = "task_name is routing metadata; name_binding does no
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # A fixture declaration, never a digest of real source/installed files.
+    return FIXTURE_DIGEST
 
 
 def canonical_json_sha256(value: object) -> str:
@@ -78,6 +81,7 @@ def fixture_skill_requirements(root: Path) -> list[dict[str, str]]:
     tdd = root / "test-driven-development" / "SKILL.md"
     tdd.parent.mkdir(parents=True, exist_ok=True)
     tdd.write_text("# tdd fixture\n", encoding="utf-8")
+    write_identity(tdd.parent, ["SKILL.md"])
     return [
         {"name": "decretum-matrix", "source": str(court.resolve()), "sha256": sha256(court), "purpose": "governing court workflow", "ack_name": "decretum-matrix", "ack_sha256": sha256(court)},
         {"name": "test-driven-development", "source": str(tdd.resolve()), "sha256": sha256(tdd), "purpose": "RED-GREEN implementation discipline", "ack_name": "test-driven-development", "ack_sha256": sha256(tdd)},
@@ -223,7 +227,14 @@ def check_skill_rejects(build: object, profile_root: Path, skills: list[dict[str
     missing = dict(skills[1]); missing["source"] = str((root / "absent" / "SKILL.md").resolve())
     assert_reason(lambda: call([skills[0], missing]), "required_skill_missing")
     wrong = dict(skills[1]); wrong["sha256"] = "0" * 64
-    assert_reason(lambda: call([skills[0], wrong]), "required_skill_hash_mismatch")
+    assert_reason(lambda: call([skills[0], wrong]), "skill_ack_incomplete")
+    wrong["ack_sha256"] = wrong["sha256"]
+    declared = call([skills[0], wrong])
+    assert declared["required_skill_bindings"][1]["identity_basis"] == "CALLER_DECLARED"
+    assert declared["required_skill_bindings"][1]["current_file_verification"] == "NOT_PERFORMED"
+    assert call(skills)["required_skill_bindings"][0]["identity_basis"] == "INSTALLATION_DECLARED"
+    wrong_court = {**skills[0], "sha256": "0" * 64, "ack_sha256": "0" * 64}
+    assert_reason(lambda: call([wrong_court]), "required_skill_hash_mismatch")
     incomplete = [dict(item) for item in skills]; incomplete[1].pop("ack_sha256")
     assert_reason(lambda: call(incomplete), "skill_ack_incomplete")
     wrong_ack_hash = [dict(item) for item in skills]; wrong_ack_hash[1]["ack_sha256"] = "f" * 64
@@ -465,14 +476,18 @@ def run_office_assignment_binding_checks() -> None:
     check_child_office_profile_builder()
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
-        profiles = root / "profiles"; profiles.mkdir()
+        profiles = root / "agents" / "standing-officials"; profiles.mkdir(parents=True)
         for role, _, _, _, office_zh, direct_superior in CANONICAL_OFFICES:
             write_profile(profiles, role, office_zh=office_zh, direct_superior=direct_superior)
-        skills = fixture_skill_requirements(root / "skills")
-        check_canonical_table(build, profiles, skills)
-        check_name_rejects(build, profiles, skills)
-        check_profile_rejects(build, root, skills)
-        check_skill_rejects(build, profiles, skills, root)
+        skill = root / "SKILL.md"
+        skill.write_text("# Isolated court fixture\n", encoding="utf-8")
+        write_identity(root, ["SKILL.md", *[f"agents/standing-officials/{row[0]}.toml" for row in CANONICAL_OFFICES]])
+        with patch.object(court_office_bootstrap, "SKILL_PATH", skill), patch.object(Path, "read_bytes", side_effect=AssertionError("runtime file bytes read")), patch.object(court_office_bootstrap, "sha256_file", side_effect=AssertionError("runtime file rehash")):
+            skills = fixture_skill_requirements(root / "skills")
+            check_canonical_table(build, profiles, skills[:1])
+            check_name_rejects(build, profiles, skills[:1])
+            check_profile_rejects(build, root, skills[:1])
+            check_skill_rejects(build, profiles, skills, root)
 
 
 def main() -> int:
@@ -483,6 +498,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-

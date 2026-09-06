@@ -607,27 +607,22 @@ def _hash_evidence(record: Mapping[str, object], source_roots: Mapping[str, obje
     declared_conflict = bool(declared and immutable_hash and declared != immutable_hash)
     expected = declared or immutable_hash
     path = _resolved_record_path(record, source_roots)
-    actual = ""
-    if path is not None and path.is_file():
-        try:
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError:
-            actual = ""
+    # Registry capabilities span unrelated skill, MCP and plugin roots. Their
+    # caller declarations are not Decretum installation pins or observed bytes.
     if declared_conflict:
         status = "DECLARED_CONFLICT"
-    elif expected and actual:
-        status = "MATCH" if expected == actual else "MISMATCH"
     elif expected:
-        status = "SOURCE_UNAVAILABLE"
-    elif actual:
-        status = "ACTUAL_ONLY"
+        status = "DECLARED"
     else:
-        status = "UNAVAILABLE"
+        status = "UNAVAILABLE_NOT_REHASHED"
     return {
         "hash_status": status,
         "declared_content_hash": expected,
-        "observed_content_hash": actual,
-        "immutable_ref": f"sha256:{actual}" if actual else immutable_ref,
+        "observed_content_hash": "",
+        "immutable_ref": immutable_ref,
+        "hash_evidence_basis": "CALLER_DECLARED" if expected else "unavailable",
+        "hash_errors": ["capability_source_unavailable"] if path is None or not path.exists() else [],
+        "file_content_verified": False,
     }
 
 
@@ -700,7 +695,7 @@ def route_registry_first(
                     record.get("stale") is True
                     or str(record.get("state") or "").casefold() == "stale"
                     or record.get("hash_drift") is True
-                    or hash_evidence["hash_status"] in {"MISMATCH", "DECLARED_CONFLICT", "SOURCE_UNAVAILABLE"}
+                    or hash_evidence["hash_status"] == "DECLARED_CONFLICT"
                     or version_evidence["version_status"] == "MISMATCH"
                 )
                 stale_match = stale_match or stale

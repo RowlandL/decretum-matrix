@@ -303,6 +303,9 @@ def _normalize_host_result(value: object) -> dict[str, object]:
     if not isinstance(value, Mapping) or not isinstance(value.get("ok"), bool):
         raise ValueError("native_host_action_receipt:host_result_invalid")
     result = deepcopy(dict(value))
+    if 'host_spawn_evidence' in result:
+        from court_native_trace import validate_spawn_evidence
+        result['host_spawn_evidence'] = validate_spawn_evidence(result['host_spawn_evidence'], result)
     if result.get("host_identity_kind") is not None:
         if result.get("ok") is not True:
             raise ValueError("native_host_action_receipt:canonical_identity_requires_success")
@@ -397,6 +400,10 @@ def _build_receipt(
                 for field in CANONICAL_IDENTITY_RECEIPT_FIELDS
             }
         )
+    if 'host_spawn_evidence' in host_result:
+        if host_action != 'spawn' or outcome != 'succeeded':
+            raise ValueError('native_host_action_receipt:spawn_evidence_action_mismatch')
+        receipt['host_spawn_evidence'] = deepcopy(host_result['host_spawn_evidence'])
     receipt["receipt_id"] = "native-host-" + canonical_json_sha256(receipt)[:24]
     receipt["receipt_sha256"] = canonical_json_sha256(receipt)
     return receipt
@@ -440,6 +447,11 @@ def validate_native_host_action_receipt(
         _normalize_canonical_agent_path_result(value)
     if value.get("request_sha256") != canonical_json_sha256(request):
         raise ValueError("native_host_action_receipt:request_sha256_mismatch")
+    if 'host_spawn_evidence' in value:
+        from court_native_trace import validate_spawn_evidence
+        if host_action != 'spawn' or outcome != 'succeeded':
+            raise ValueError('native_host_action_receipt:spawn_evidence_action_mismatch')
+        validate_spawn_evidence(value['host_spawn_evidence'], value)
     _sha256(value.get("result_sha256"), "result_sha256")
     acted_at = _text(value.get("acted_at"), "acted_at", maximum=64)
     try:
