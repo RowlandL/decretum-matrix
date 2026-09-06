@@ -10060,6 +10060,12 @@ def _native_bridge_start_request(
     inputs = _native_bridge_model_inputs(admission)
     agent_id = f"{role}-native-{request_sha256[:16]}"
     collaboration_task_name = f"{role.replace('-', '_')}_native_{request_sha256[:16]}"
+    preload = build_preload_manifest(role)
+    required_skill = {
+        "name": "decretum-matrix", "source": str((skill_root() / "SKILL.md").resolve()),
+        "sha256": preload.court_skill_hash, "purpose": "native office lifecycle",
+        "ack_name": "decretum-matrix", "ack_sha256": preload.court_skill_hash,
+    }
     office_request = {
         "task_id": task.get("task_id"),
         "semantic_epoch": admission.get("semantic_epoch"),
@@ -10071,7 +10077,7 @@ def _native_bridge_start_request(
         "role": role,
         "collaboration_task_name": collaboration_task_name,
         "requires_gongjiang": False,
-        "skill_requirements_json": "[]",
+        "skill_requirements_json": json.dumps([required_skill]),
         "scope": inputs["assignment"],
         "task_focus": inputs["task_focus"],
         "complexity": inputs["complexity"],

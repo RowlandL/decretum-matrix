@@ -287,6 +287,23 @@ def _runtime_host_message_fixture() -> None:
     assert result["host_input_budget"]["total_bytes"] <= 20 * 1024
     assert result["bound_agent_type"] is None
 
+    # Exercise the capture's actual start-request generator, not a hand-filled
+    # lifecycle request that could hide an empty required-skill list.
+    with patch.object(court_runtime, '_native_bridge_model_inputs', return_value={
+        'assignment':'fixture', 'task_focus':'fixture', 'complexity':'low',
+        'risk':'low', 'ambiguity':'low', 'transport':'codex'}), patch.object(
+        court_runtime, 'public_dispatch_context_packet', return_value={}), patch.object(
+        court_runtime, 'public_context_budget_pool', return_value={}), patch.object(
+        court_runtime, '_revalidate_context_economy_start', return_value=None):
+        generated = court_runtime._native_bridge_start_request(
+            task, admission, {**binding, 'instance_id':'gongbu#0001'}, request,
+            {'request_sha256':'a'*64, 'native_host_action_receipt':{}})
+    required = json.loads(generated['skill_requirements_json'])
+    assert len(required) == 1 and required[0]['name'] == 'decretum-matrix'
+    assert required[0]['source'] == str((court_runtime.skill_root() / 'SKILL.md').resolve())
+    assert required[0]['sha256'] == court_runtime.build_preload_manifest('gongbu').court_skill_hash
+    assert required[0]['ack_sha256'] == required[0]['sha256']
+
     v1_admission = {
         **admission,
         "selected_protocol": "v1",
