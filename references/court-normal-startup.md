@@ -9,11 +9,11 @@
 | Operation/dispute | Relevant SKILL.md volume | Unrelated volumes |
 | Closeout | Closeout volume, memorial shard, Menxia result, archive receipt | Startup closeout services |
 
-SKILL + guide + own materials + metadata must fit 20 KiB. Reuse unchanged reads.
+Reuse unchanged reads; total preload <=20 KiB.
 
-Read installation declarations only when preparing preload/ack; never rehash.
-Fresh acceptance reads no prior tasks or memory. Do not scan source or run
-installation checks at startup. Read help only for the next operation.
+Preload/ack use installation declarations; never rehash.
+Fresh acceptance reads no past tasks/memory. No source scans or installation
+checks at startup; load help only for the next command.
 
 ## Required tool routes
 
@@ -27,21 +27,25 @@ Mutation uses CLI; delivery uses the host. Check domain success, not just help.
 
 ## Operational sequence
 
-Resolve user authority/behavior; ask if missing. Reuse the current task.
+Use current task and user authority/behavior; ask if absent.
 
 Use `decretum-matrix`; stale PATH uses `npm prefix -g`'s `decretum-matrix.cmd`,
 never internal Python. write_set is worktree-relative; absolute/traversal fails.
 Template `--worktree .` is cwd-relative, request-file worktree file-relative,
 documents skill-relative. Host evidence may record resolved paths and bases.
+Within a task, keep parent `shangshu/` and child `ministries/<role>/` writes
+disjoint; directory ownership includes descendants. Read scope is separate.
 New cases use `court create --session-id <host-id> --authority <authority>
 --behavior <behavior>` plus intake fields to issue/reuse the official number
 and decree transaction. Enter Taizi then ThreeDepartments before semantic
 checkpoint/verify, open preparation and admission.
 
-Cases begin BOOTSTRAP_UNPLANNED. After real reports, use `court plan template`
-/ `submit` for Zhongshu's document, then Menxia/Shangshu each `review`.
+After real reports, use `court plan template` / `submit` for Zhongshu's document,
+then Menxia/Shangshu each `review`.
 Changes invalidate reviews. Ministries require reviewed plan and TaiziReply.
 `plan show` resolves the document; capsules cannot replace it.
+For `plan review`, fill `template.review.producer`, role and decision; submit
+that complete `review` object or the whole template. Its plan hash is prefilled.
 
 Generate context after state changes with `court semantic-context-template`;
 validate payload.context. Checkpoint/verify require matching `--trigger
@@ -62,10 +66,7 @@ Ack echoes the supplied request ID. Missing evidence stays retryable PENDING;
 parent declarations and saved-trace replays cannot prove fresh acceptance.
 Deliver admission once. Children perform assigned duty without root intake.
 
-Record real office start/preload-ack/report/finish via CLI before plan/review.
-Only Shangshu selects ministries. `ok` replies do not prove this runtime chain.
-For latest history use `shiguan.query(terms=[], limit=1)`.
-Formal closeout uses archive-runtime-task and its producer_receipt.closeout_identity;
-standalone archive-checkpoint cannot complete a standard runtime case.
+Record real office lifecycle via CLI before plan/review; only Shangshu dispatches
+ministries. For closeout load the SKILL phase reference and use archive-runtime-task.
 
 Write UTF-8 JSON without BOM. Fresh acceptance uses CLI/MCP and no old memory.

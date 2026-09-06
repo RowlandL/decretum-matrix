@@ -10772,23 +10772,31 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
         task = load_tasks().get(args.task_id, {})
         if not task:
             raise ValueError("task not found: " + args.task_id)
+        plan = task.get('zhongshu_plan') or {}
+        producer = {"kind":"host_report", "agent_id":"<actual admitted agent id>", "evidence":"<actual agent_report evidence>"}
         return {"schema": "court.plan_request_template.v1", "task_id": args.task_id,
-                "expected_plan_revision": task.get("zhongshu_plan", {}).get("revision", 0),
+                "expected_plan_revision": plan.get("revision", 0),
                 "document": {"goal": "<goal>", "non_goals": [], "steps": [{"id": "step-1", "role": "gongbu", "action": "<action>"}], "acceptance": ["<acceptance>"], "write_set": []},
-                "producer": {"kind": "host_report", "agent_id": "<actual admitted agent id>", "evidence": "<actual agent_report evidence>"},
-                "review": {"role": "menxia", "decision": "approved", "plan_sha256": "<current plan sha256>"},
+                "producer": producer,
+                "review": {"role": "menxia", "decision": "approved", "plan_sha256": plan.get('sha256', '<current plan sha256>'), "producer":dict(producer)},
                 "notes": ["Template is not a plan or an office reply.", "Shangshu uses decision dispatchable|blocked; Menxia uses approved|rejected.", "serial_inline is allowed only for explicitly selected serial execution."]}
     request = _json_object_from_args(args, "request", "request_file", "plan request")
     expected = {"document", "producer", "expected_plan_revision"} if args.action == "submit" else {"role", "decision", "plan_sha256", "producer"}
-    if args.action == 'submit' and request.get('schema') == 'court.plan_request_template.v1':
-        if set(request) != expected | {'schema', 'task_id', 'review', 'notes'}:
+    if request.get('schema') == 'court.plan_request_template.v1':
+        if set(request) != {'document','producer','expected_plan_revision','schema','task_id','review','notes'}:
             raise ValueError('case_plan_template_fields_invalid')
         if request['task_id'] != args.task_id:
             raise ValueError('case_plan_template_task_mismatch')
-        request = {key: request[key] for key in expected}
+        if args.action == 'submit':
+            request = {key: request[key] for key in expected}
+        else:
+            review = request.get('review')
+            if not isinstance(review, dict):
+                raise ValueError('case_plan_review_template_fields_invalid')
+            request = {**review, 'producer':review.get('producer', request['producer'])}
     if set(request) != expected:
         raise ValueError("case_plan_request_fields_invalid: expected " + ','.join(sorted(expected))
-                         + "; submit also accepts the complete plan template payload")
+                         + "; submit/review also accept the complete plan template payload")
     with runtime_lock():
         tasks = load_tasks()
         task = tasks.get(args.task_id)

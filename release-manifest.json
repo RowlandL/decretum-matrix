@@ -459,8 +459,8 @@
     {
       "mode": "100644",
       "path": "references/court-normal-startup.md",
-      "sha256": "658b5bfbe18a47cb4fdc814b71703eade56d7c4bda61914d5c1e91e8525adf3f",
-      "size": 4038
+      "sha256": "a02cd3465128cf0bfde95b259deefa3d61e099fd4a5b530431a95880be94ee61",
+      "size": 4030
     },
     {
       "mode": "100644",
@@ -471,8 +471,8 @@
     {
       "mode": "100644",
       "path": "references/court-offices-dispatch.md",
-      "sha256": "7e31774d21e8d4a87cad384e1deb525f49acfbf098b3d5e3a39bf9ccf1612ebb",
-      "size": 69614
+      "sha256": "1ecf6d356f6c8c50b07cf262fd8838f6f0261d029879816f84fbab299f632e5a",
+      "size": 70071
     },
     {
       "mode": "100644",
@@ -1455,8 +1455,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_plan_artifacts.py",
-      "sha256": "43a02b385467463ad54a00cf6c204a3cddbcabcd24ee7b7bd187a5bbeb636722",
-      "size": 23928
+      "sha256": "6353320080ad6b090e93f6042cf5f0a6079e9d32e1ff52572c37419b2d31517d",
+      "size": 24706
     },
     {
       "mode": "100644",
@@ -2337,8 +2337,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "31f617fc0a30cb9958b92cdeffa25f1ece998085587ef94709f5065d4fee1631",
-      "size": 545551
+      "sha256": "1270fa0e5423cb243430c662bb0d8a37d7c05e88b8901c6f7d3e10d50f064f44",
+      "size": 545964
     },
     {
       "mode": "100644",
@@ -2908,10 +2908,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8120785,
+    "payload_bytes": 8122425,
     "payload_file_count": 479,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "5101954c2680d6729e1c90c3137f417de92b13bf3443d5471b30c4d0cb445490",
+    "payload_index_sha256": "394b5a78f8276d26a308a39a559ce8aafc3d0a68bad852b67e314398846af761",
     "source_packaged_tracked_file_count": 471,
     "source_tracked_file_count": 600
   },

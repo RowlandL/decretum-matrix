@@ -589,6 +589,12 @@ clarification request and the user's answers as 实录 checkpoints.
   using `/` separators and case-folded components; absolute, drive, UNC,
   empty-component, `.`, or `..` paths are rejected. Equal paths and either
   ancestor/descendant direction are one writer conflict.
+- Task plan/budget coordination authority is distinct from exclusive writes.
+  Under the task output root, keep `shangshu/` and `ministries/<role>/` as
+  siblings. The parent stays live and owns its own outputs; children return
+  bounded receipts through the host channel. Reading sibling evidence files
+  requires an approved `read_scope`, not a broader exclusive `write_set`.
+  Preserve failed-attempt evidence when regenerating admission for a new path.
 - Role is an authorization dimension, not a runtime identity key. Admission
   preserves repeated roles and binds the approved indices to
   `selected_bindings` and `selected_instance_ids`. Model routes and lease

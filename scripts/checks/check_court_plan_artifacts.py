@@ -305,8 +305,18 @@ class RuntimePlanFlowTests(unittest.TestCase):
         context = self.cli('semantic-context-template', '--task-id', 'plan-flow')
         self.assertEqual(context['context']['plan_sha256'], shown['sha256'])
         for role, decision in (('menxia', 'approved'), ('shangshu', 'dispatchable')):
-            review = {'role': role, 'decision': decision, 'plan_sha256': shown['sha256'], 'producer': producer}
-            self.cli('plan', 'review', '--task-id', 'plan-flow', '--request-file', self.write(role + '.json', review))
+            template = self.cli('plan', 'template', '--task-id', 'plan-flow')
+            self.assertEqual(template['review']['plan_sha256'], shown['sha256'])
+            self.assertIn('producer', template['review'])
+            template['review'].update(role=role, decision=decision, producer=producer)
+            review = template['review']
+            supplied = review if role == 'menxia' else template
+            self.cli('plan', 'review', '--task-id', 'plan-flow', '--request-file', self.write(role + '.json', supplied))
+        self.assertEqual(self.cli('plan', 'review', '--task-id', 'plan-flow',
+                         '--request-file', self.write('flat-review-replay.json', review))['status'], 'REPLAYED')
+        legacy=copy.deepcopy(template);legacy['review'].pop('producer');legacy['producer']=producer
+        self.assertEqual(self.cli('plan','review','--task-id','plan-flow',
+                         '--request-file',self.write('legacy-review-template.json',legacy))['status'],'REPLAYED')
         status = self.cli('workflow-status', '--task-id', 'plan-flow')
         self.assertEqual(status['plan_status'], 'REVIEWED')
         server = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve().parents[1] / 'court_mcp_server.py')],
