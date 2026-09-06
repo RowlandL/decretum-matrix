@@ -22,6 +22,12 @@ digest verification. Semantic P00, case and receipt digests are unchanged.
 All 14 generated role anchors state SKILL -> own materials -> child acceptance
 and superior ack -> business CLI/MCP, with PENDING before acknowledgement.
 
+Installed acceptance also exposed a cached transactional upgrade early return
+that skipped native role synchronization. Both upgrade branches now share role
+sync against the installed canonical profiles. Role failures preserve the
+applied installer transaction and backup evidence as FAIL_PARTIAL_APPLIED.
+The local role refresh updated 14 files with a pre-write backup.
+
 The historical two-character code for the review label was IK. Repeated UIK
 segments escaped the IKU detector's alphanumeric boundary and hid uncertain
 lineage. This defect exists in both examined beta1.0.8 and beta1.0.9 references

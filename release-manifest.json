@@ -543,8 +543,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "f1516742f93d6e00163f15436c7f40b246e4e5361c2f88d3db2a8c1c3fc71707",
-      "size": 101779
+      "sha256": "d9f602982acf165692a9d7e805c89807f5505f1e693e50e0a311fdf8d46d1886",
+      "size": 102426
     },
     {
       "mode": "100644",
@@ -573,8 +573,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "6cdf7b19456ba829d5f51fbc2f18c359898866334ffb01fea429580fa87128e2",
-      "size": 51965
+      "sha256": "3950373152f8ffc1cbfb110c54d1a609c6a1b06721e394a3f09c96cde474e0f7",
+      "size": 52037
     },
     {
       "mode": "100644",
@@ -1832,6 +1832,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/checks/check_sync_active_copies_transactional_roles.py",
+      "sha256": "8bcd9667e051ffc54464e55988c75ca604a132c70032eab41fad07bf2c7ed1b2",
+      "size": 7469
+    },
+    {
+      "mode": "100644",
       "path": "scripts/closeout_conflict_scan.py",
       "sha256": "6f966e34935bb231a286b642570d55e37dc7df21bbc22fe91717e5cd7dc2315d",
       "size": 864
@@ -2115,8 +2121,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/sync_active_copies.py",
-      "sha256": "8325361ea014d86460393dff30e0c6e95e55d2069d2d844ba0de3d5128b24b99",
-      "size": 87963
+      "sha256": "29014c345c29ac252f27f82aa0b9f09b719b77c63546801582503687f990159c",
+      "size": 90743
     },
     {
       "mode": "100644",
@@ -2902,12 +2908,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8095494,
-    "payload_file_count": 478,
+    "payload_bytes": 8106462,
+    "payload_file_count": 479,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "d7c4fbe300e2bb51ec8c99dcb79e18a6d526045d5c1bb5303d36e9265afe687e",
-    "source_packaged_tracked_file_count": 470,
-    "source_tracked_file_count": 598
+    "payload_index_sha256": "5a43aae8a33e36bbc1691d06eadd56ed7b1c5844fd8801752fee08529a414409",
+    "source_packaged_tracked_file_count": 471,
+    "source_tracked_file_count": 599
   },
   "license": {
     "declared": "AGPL-3.0-only",

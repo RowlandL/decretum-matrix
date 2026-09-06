@@ -1275,6 +1275,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/checks/check_sync_active_copies_transactional_roles.py",
+      "command": "check-sync-active-copies-transactional-roles",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_sync_active_copies_transactional_roles.py",
+      "id": "check.check-sync-active-copies-transactional-roles",
+      "legacy_path": "scripts/checks/check_sync_active_copies_transactional_roles.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/commands/agent_runtime_probe.py",
       "command": "agent-runtime-probe",
       "compatibility_state": "unified_compatibility_adapter",

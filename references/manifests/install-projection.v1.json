@@ -959,6 +959,7 @@
       "scripts/checks/check_supercc_state_concurrency.py",
       "scripts/checks/check_supercc_super_entry.py",
       "scripts/checks/check_supercc_truth_gates.py",
+      "scripts/checks/check_sync_active_copies_transactional_roles.py",
       "scripts/codex_runtime_probe_support.py",
       "scripts/commands/agent_runtime_probe.py",
       "scripts/commands/agente_terminal.py",

@@ -38,6 +38,7 @@ from install_projection_renderer import (
 )
 from install_current_agent_copy import install_current_agent_copy
 from sync_codex_agents_from_profiles import sync_agents as sync_codex_agent_roles
+from sync_codex_agents_from_profiles import backup_root as codex_role_backup_root
 
 
 CANONICAL_INSTALL_DIRECTORY_NAME = "decretum-matrix"
@@ -1475,11 +1476,19 @@ def _self_test() -> dict[str, object]:
         r3_buffer = io.StringIO()
         r3_old_argv = _sys.argv
         _sys.argv = ["sync_active_copies.py", "--json", "--source", str(source)]
+        # This case tests receipt-derived target selection, not installed role
+        # generation. Keep its role plan isolated from the operator's install;
+        # real pinned role writes are covered by the transactional role checker.
+        r3_role_sync = globals()["sync_codex_agent_roles"]
+        globals()["sync_codex_agent_roles"] = lambda **_kwargs: {
+            "ok": True, "rows": [{"status": "would_update"}],
+        }
         try:
             with contextlib.redirect_stdout(r3_buffer):
                 r3_rc = main()
         finally:
             _sys.argv = r3_old_argv
+            globals()["sync_codex_agent_roles"] = r3_role_sync
         try:
             r3_main = json.loads(r3_buffer.getvalue())
         except json.JSONDecodeError:
@@ -1624,6 +1633,57 @@ def _write_first_install_receipt(canonical_root: Path) -> dict[str, object]:
         "receipt_sha256": str(receipt_body["receipt_sha256"]),
         "selected_roots": [str(primary_root)],
     }
+
+
+def sync_installed_codex_roles(*, write: bool) -> dict[str, object]:
+    """Share the post-copy role sync and retain its existing rollback evidence."""
+    backup_base: Path | None = None
+    prior_backups: set[Path] = set()
+    role_result: dict[str, object] = {}
+    try:
+        canonical_profiles = Path.home() / ".agents" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME / "agents" / "standing-officials"
+        if write and not canonical_profiles.is_dir():
+            raise FileNotFoundError(f"installed canonical standing profile root missing: {canonical_profiles}")
+        role_plan = sync_codex_agent_roles(write=False)
+        if not isinstance(role_plan, dict) or role_plan.get("ok") is not True:
+            raise ValueError("codex_agent_roles_plan_rejected")
+        role_drift = any(
+            row.get("status") == "would_update"
+            for row in role_plan.get("rows", []) if isinstance(row, dict)
+        )
+        if write and role_drift:
+            backup_base = codex_role_backup_root()
+            prior_backups = set(backup_base.glob("agents-backup-*"))
+            role_result = sync_codex_agent_roles(write=True)
+            if not isinstance(role_result, dict) or role_result.get("ok") is not True:
+                raise ValueError("codex_agent_roles_write_rejected")
+        else:
+            role_result = {**role_plan, "mode": "write" if write else "dry-run"}
+        return {
+            **role_result,
+            "status": "APPLIED" if write and role_drift else "WOULD_UPDATE" if role_drift else "CURRENT",
+            "canonical_profiles": str(canonical_profiles) if canonical_profiles.is_dir() else None,
+        }
+    except Exception as exc:
+        # The renderer creates complete backups before writing any roles. Its
+        # exception does not carry a result, so retain the newly created paths.
+        backup_paths = []
+        backup_lookup_error = None
+        try:
+            if backup_base is not None:
+                backup_paths = sorted(str(path) for path in set(backup_base.glob("agents-backup-*")) - prior_backups)
+        except OSError as backup_exc:
+            backup_lookup_error = f"{type(backup_exc).__name__}: {backup_exc}"
+        if isinstance(role_result, dict) and role_result.get("backup_path"):
+            backup_paths = sorted(set(backup_paths + [str(role_result["backup_path"])]))
+        return {
+            "ok": False, "mode": "write" if write else "dry-run", "status": "FAIL",
+            "error": f"{type(exc).__name__}: {exc}", "rows": [],
+            "backup_paths": backup_paths,
+            "backup_base": str(backup_base) if backup_base is not None else None,
+            "backup_evidence_source": "existing_codex_role_renderer",
+            **({"backup_lookup_error": backup_lookup_error} if backup_lookup_error else {}),
+        }
 
 
 def main() -> int:
@@ -1869,9 +1929,11 @@ def main() -> int:
         create_count = int(counts.get("create", 0)) if isinstance(counts, dict) else 0
         replace_count = int(counts.get("replace", 0)) if isinstance(counts, dict) else 0
         delete_count = int(counts.get("delete", 0)) if isinstance(counts, dict) else 0
+        codex_agent_roles = sync_installed_codex_roles(write=True)
+        roles_ok = codex_agent_roles.get("ok") is True
         result = {
-            "ok": True,
-            "status": "PASS",
+            "ok": roles_ok,
+            "status": "PASS" if roles_ok else "FAIL_PARTIAL_APPLIED",
             "schema": "court.active_copy_sync.v1",
             "source": str(source),
             "source_files": len(rendered_active_files(source, targets[0])),
@@ -1897,17 +1959,12 @@ def main() -> int:
             "logical_target_count": len(targets),
             "physical_authority_count": len(physical_targets),
             "physical_authorities": [str(item) for item in physical_targets],
-            "partial_applied": False,
-            "recovery_required": None,
-            "failures": [],
+            "partial_applied": not roles_ok,
+            "recovery_required": None if roles_ok else "review installer_transaction backup receipt and codex_agent_roles backup_paths before retry or rollback",
+            "failures": [] if roles_ok else [f"codex_agent_roles:{codex_agent_roles.get('error', 'sync failed')}"],
             "legacy_locator_conflicts": conflicts,
             "legacy_migration": legacy_migration,
-            "codex_agent_roles": {
-                "ok": True,
-                "mode": "not-run",
-                "status": "NOT_RUN_TRANSACTIONAL_CACHE",
-                "rows": [],
-            },
+            "codex_agent_roles": codex_agent_roles,
             "installer_transaction": installer_transaction,
             "projection_counts": counts,
         }
@@ -1915,13 +1972,14 @@ def main() -> int:
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         else:
             print(
-                "ACTIVE_COPY_SYNC_APPLIED source_files={} copied={} removed={}".format(
+                "ACTIVE_COPY_SYNC_{} source_files={} copied={} removed={}".format(
+                    "APPLIED" if roles_ok else "FAIL_PARTIAL_APPLIED",
                     result["source_files"],
                     create_count + replace_count,
                     delete_count,
                 )
             )
-        return 0
+        return 0 if roles_ok else 1
     manifest = load_projection(source)
     source_file_count = 0
     frozen_relative_output: set[Path] = set()
@@ -2066,36 +2124,9 @@ def main() -> int:
             if not rollback.get("ok", False):
                 failures.append("legacy migration rollback failed")
     if not failures:
-        try:
-            role_plan = sync_codex_agent_roles(write=False)
-            role_drift = any(
-                row.get("status") == "would_update"
-                for row in role_plan.get("rows", [])
-                if isinstance(row, dict)
-            )
-            if args.write and role_drift:
-                codex_agent_roles = sync_codex_agent_roles(write=True)
-            else:
-                codex_agent_roles = {
-                    **role_plan,
-                    "mode": "write" if args.write else "dry-run",
-                }
-            codex_agent_roles["status"] = (
-                "APPLIED"
-                if args.write and role_drift
-                else "WOULD_UPDATE"
-                if role_drift
-                else "CURRENT"
-            )
-        except (OSError, RuntimeError, ValueError) as exc:
-            failures.append(f"codex_agent_roles:{type(exc).__name__}:{exc}")
-            codex_agent_roles = {
-                "ok": False,
-                "mode": "write" if args.write else "dry-run",
-                "status": "FAIL",
-                "error": f"{type(exc).__name__}: {exc}",
-                "rows": [],
-            }
+        codex_agent_roles = sync_installed_codex_roles(write=args.write)
+        if codex_agent_roles.get("ok") is not True:
+            failures.append(f"codex_agent_roles:{codex_agent_roles.get('error', 'sync failed')}")
             partial_applied = args.write and bool(results)
     result = {
         "ok": not failures,
