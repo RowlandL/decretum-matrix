@@ -809,6 +809,68 @@ def _run_cli(
     )
 
 
+def evaluate_isolated_subprocess_utf8() -> dict[str, object]:
+    """Exercise the shared isolated-command transport under a CP936 ambient env."""
+
+    problems: list[str] = []
+    payload: dict[str, object] = {}
+    helper = "\n".join(
+        (
+            "import json",
+            "import os",
+            "import sys",
+            "from pathlib import Path",
+            f"sys.path.insert(0, {str(ROOT / 'scripts')!r})",
+            "import court_cli_registry",
+            "os.environ['PYTHONUTF8'] = '0'",
+            "os.environ['PYTHONIOENCODING'] = 'cp936'",
+            "record = court_cli_registry.load_registry()[('install', 'refresh-capability-registry')]",
+            "captured = court_cli_registry._capture_subprocess(record, ['--help'], cwd=Path(" + repr(str(ROOT)) + "))",
+            "print(json.dumps({'returncode': captured.returncode, 'contains_replacement': '\ufffd' in captured.stdout, 'contains_chinese': '吏部/户部' in captured.stdout}, ensure_ascii=False))",
+        )
+    )
+    helper_env = dict(os.environ)
+    helper_env.pop("PYTHONIOENCODING", None)
+    helper_env["PYTHONUTF8"] = "1"
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-B", "-c", helper],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            check=False,
+            shell=False,
+            env=helper_env,
+        )
+        if completed.returncode != 0:
+            problems.append(f"helper_failed:{completed.returncode}:{completed.stderr.strip()}")
+        else:
+            value = json.loads(completed.stdout)
+            if not isinstance(value, dict):
+                raise AssertionError("helper payload must be an object")
+            payload = value
+            if value.get("returncode") != 0:
+                problems.append(f"refresh_help_failed:{value.get('returncode')}")
+            if value.get("contains_replacement") is not False:
+                problems.append("isolated_subprocess_utf8_replacement")
+            if value.get("contains_chinese") is not True:
+                problems.append("isolated_subprocess_utf8_chinese_missing")
+    except (AssertionError, OSError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        problems.append(f"isolated_subprocess_utf8_unavailable:{type(exc).__name__}:{exc}")
+    return {
+        "schema": "decretum.cli_isolated_subprocess_utf8_check.v1",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_ISOLATED_SUBPROCESS_UTF8": "PASS" if not problems else "FAIL",
+        "refresh_help_returncode": payload.get("returncode"),
+        "contains_replacement": payload.get("contains_replacement"),
+        "contains_chinese": payload.get("contains_chinese"),
+        "problems": problems,
+    }
+
+
 def _json_stdout(completed: subprocess.CompletedProcess[str]) -> object:
     try:
         return json.loads(completed.stdout)
@@ -1705,6 +1767,8 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
         selected.append(evaluate_archive_receipt())
     if args.npm_runtime:
         selected.append(evaluate_npm_launcher_runtime_selection())
+    if args.subprocess_utf8:
+        selected.append(evaluate_isolated_subprocess_utf8())
     if not selected or args.all:
         selected = [
             evaluate_inventory(),
@@ -1717,6 +1781,7 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
             evaluate_archive_receipt(),
             evaluate_npm_launcher_stdio(),
             evaluate_npm_launcher_runtime_selection(),
+            evaluate_isolated_subprocess_utf8(),
         ]
     return selected
 
@@ -1759,6 +1824,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--install-core", action="store_true")
     parser.add_argument("--archive-receipt", action="store_true")
     parser.add_argument("--npm-runtime", action="store_true")
+    parser.add_argument("--subprocess-utf8", action="store_true")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--write-manifest", action="store_true")
     parser.add_argument("--json", action="store_true")

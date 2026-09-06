@@ -58,8 +58,8 @@ SKILL_PATH = ROOT / "SKILL.md"
 PROFILE_ROOT = ROOT / "agents" / "standing-officials"
 DOSSIER_ROOT = ROOT / "agents" / "office-dossiers"
 CAPABILITY_REGISTRY_PATH = ROOT / "references" / "court-capability-registry.md"
-CAPABILITY_INDEX_GATE_PATH = ROOT / "scripts" / "check_capability_index_gate.py"
-REFRESH_CAPABILITY_REGISTRY_PATH = ROOT / "scripts" / "refresh_capability_registry.py"
+CAPABILITY_INDEX_GATE_PATH = ROOT / "scripts" / "checks" / "check_capability_index_gate.py"
+REFRESH_CAPABILITY_REGISTRY_PATH = ROOT / "scripts" / "commands" / "refresh_capability_registry.py"
 
 MINISTRY_ROLES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 ACTIVE_DERIVED_STATUSES = {"admitted", "starting", "running", "active", "assigned"}
@@ -94,8 +94,8 @@ AMENDED_BEHAVIOR_SOURCE_CONTRACTS: dict[
         (r"\bno_sufficient_match\b",),
         (r"\bskill_install\b",),
         (r"\bskill_upgrade\b",),
-        (r"\bhash_drift\b",),
-        (r"\bversion_drift\b",),
+        (r"\bhash(?:_|\s+)drift\b",),
+        (r"\bversion(?:_|\s+)drift\b",),
         (r"\bdispatch_failure\b",),
         (r"\bphase_closeout\b",),
     ),
@@ -288,9 +288,9 @@ def sha256_text(value: str) -> str:
 
 
 def pinned_nucleus_text(skill_text: str) -> str:
-    marker = re.search(r"(?m)^## Overview\s*$", skill_text)
-    require(marker is not None, "SKILL.md has no bounded Overview marker")
-    return skill_text[: marker.start()]
+    """The current short SKILL is the pinned entry; detail lives in direct refs."""
+
+    return skill_text
 
 
 def text_satisfies_source_contract(
@@ -352,7 +352,7 @@ def check_amended_behavior_source_reachability() -> None:
 
     # MEMORY.md is intentionally ineligible: only the supplied SKILL text and its
     # direct project-reference mapping enter source resolution.
-    fixture_sources = amended_behavior_sources("# Fixture\n\n## Overview\n", {})
+    fixture_sources = amended_behavior_sources("# Fixture\n", {})
     require(
         all(not sources for sources in fixture_sources.values()),
         "fake MEMORY.md satisfied a missing SKILL/reference source",
@@ -425,79 +425,78 @@ def skill_requirement_fixture() -> list[dict[str, str]]:
 
 
 def check_pinned_initial_semantics() -> None:
-    lines = SKILL_PATH.read_text(encoding="utf-8").splitlines()
-    try:
-        overview_index = next(
-            index for index, line in enumerate(lines) if line.strip() == "## Overview"
-        )
-    except StopIteration as exc:
-        raise AssertionError("SKILL.md has no bounded Overview marker") from exc
-
-    require(overview_index <= 160, "pinned initial semantics are not early")
-    pinned = "\n".join(lines[:overview_index])
+    pinned = SKILL_PATH.read_text(encoding="utf-8")
     missing: list[str] = []
 
-    if not ("最新旨意" in pinned or "Newest user wording controls" in pinned):
-        missing.append("newest_decree")
+    if len(pinned.encode("utf-8")) > 20 * 1024:
+        missing.append("short_entry_budget")
+    for heading in (
+        "## P00 Highest-Priority Semantic Dispatch And Resume Contract",
+        "## Unified Dynamic Dispatch Semantics",
+        "## Normal Startup Entry / Loading Procedure",
+        "## Court Flow And Roles",
+        "## Public Transport Contract",
+        "## Progressive Loading Map",
+    ):
+        if heading not in pinned:
+            missing.append(f"entry_heading:{heading[3:20]}")
     if not all(token in pinned for token in ("approval", "autonomous", "super", "superCC")):
         missing.append("authority_classes")
-    if not (
-        ("super并行" in pinned or "ordinary_parallel" in pinned)
-        and ("topology" in pinned.lower() or "拓扑" in pinned)
-    ):
+    if "super并行" not in pinned or "native" not in pinned:
         missing.append("authority_topology_split")
-    if not all(token in pinned for token in ("太子", "中书省", "门下省", "尚书省", "六部")):
-        missing.append("taizi_three_departments_six_ministries")
-    if not ("工坊" in pinned or "工匠" in pinned):
-        missing.append("workshop_worker_duty")
-    if "agent-admit" not in pinned:
-        missing.append("agent_admit")
-    if not (
-        ("共享史馆" in pinned or "shared Shiguan" in pinned)
-        and ".agents" in pinned
-        and ("当前工具" in pinned or "current tool" in pinned.lower())
+    if not all(token in pinned for token in ("太子", "中书", "门下", "尚书", "六部", "agent-admit")):
+        missing.append("court_flow_or_admission")
+
+    reference_paths = {
+        path.relative_to(ROOT).as_posix()
+        for path in direct_governing_reference_paths(pinned)
+    }
+    for reference in (
+        "references/court-normal-startup.md",
+        "references/court-capability-registry.md",
+        "references/court-offices-dispatch.md",
+        "references/court-closeout-validation.md",
     ):
-        missing.append("shared_shiguan_current_tool")
-    if not (
-        ("结诏" in pinned or "closeout" in pinned.lower())
-        and ("门下复核" in pinned or "archive_checkpoint.py" in pinned)
-    ):
-        missing.append("closeout")
+        if reference not in reference_paths:
+            missing.append(f"governing_reference:{reference}")
 
     require(
         not missing,
-        "pinned initial semantic block is missing: " + ", ".join(missing),
+        "short SKILL entry or governing-reference map is missing: " + ", ".join(missing),
     )
 
 
 def check_pinned_capability_registry_contract() -> None:
-    lines = SKILL_PATH.read_text(encoding="utf-8").splitlines()
-    try:
-        overview_index = next(
-            index for index, line in enumerate(lines) if line.strip() == "## Overview"
-        )
-    except StopIteration as exc:
-        raise AssertionError("SKILL.md has no bounded Overview marker") from exc
-
-    pinned = "\n".join(lines[:overview_index])
-    pinned_folded = pinned.casefold()
+    pinned = SKILL_PATH.read_text(encoding="utf-8")
+    linked_references = {
+        path.relative_to(ROOT).as_posix()
+        for path in direct_governing_reference_paths(pinned)
+    }
     missing: list[str] = []
-    if not (
-        "references/court-capability-registry.md" in pinned_folded
-        and ("registry-first" in pinned_folded or "index-first" in pinned_folded)
-    ):
-        missing.append("existing_registry_index_first")
-    if not ("current-tool" in pinned_folded or "当前工具" in pinned):
+    if "references/court-capability-registry.md" not in linked_references:
+        missing.append("capability_governing_reference")
+    registry_text = CAPABILITY_REGISTRY_PATH.read_text(encoding="utf-8")
+    registry_folded = registry_text.casefold()
+    if "index-first" not in registry_folded:
+        missing.append("registry_index_first")
+    if not ("current-tool" in registry_folded or "当前工具" in registry_text):
         missing.append("current_tool_compatibility")
     if not (
-        ("libu-hr" in pinned_folded or "吏部" in pinned)
-        and ("owner" in pinned_folded or "负责" in pinned or "维护" in pinned)
+        "吏部" in registry_text and "maintain" in registry_folded
     ):
         missing.append("libu_hr_registry_owner")
+    drift_patterns = (
+        r"selected\s+capability.*?metadata",
+        r"version\s+drift",
+        r"hash\s+drift",
+        r"invalidat\w*\s+(?:its\s+)?availability\s+evidence",
+    )
+    if not all(re.search(pattern, registry_text, re.IGNORECASE | re.DOTALL) for pattern in drift_patterns):
+        missing.append("selected_metadata_drift_invalidates_evidence")
 
     require(
         not missing,
-        "pinned capability roster contract missing before Overview: "
+        "capability governing source contract missing: "
         + ", ".join(missing),
     )
 
@@ -1760,4 +1759,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

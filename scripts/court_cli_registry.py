@@ -8,6 +8,7 @@ import importlib
 import io
 import re
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -641,6 +642,9 @@ def _capture_subprocess(
     *,
     cwd: Path,
 ) -> InvocationResult:
+    environment = dict(os.environ)
+    environment["PYTHONUTF8"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
     completed = subprocess.run(
         _subprocess_command(record, arguments),
         cwd=cwd,
@@ -650,6 +654,7 @@ def _capture_subprocess(
         errors="replace",
         check=False,
         shell=False,
+        env=environment,
     )
     return InvocationResult(
         returncode=completed.returncode,

@@ -25,7 +25,7 @@ This is the section-level shard index for large governing references. Read `SKIL
 | `court-closeout-validation.md` | `## Official Report Contract` |  | Full memorial fields, evidence contract, token policy fields, superCC closeout fields. |
 | `court-closeout-validation.md` | `## Memorial Format` | `references/sections/court-closeout-memorial-format.md` | User-facing memorial shape, abbreviated vs full report projection, `hard_memorial_gate`, Shiguan Web URL line. |
 | `court-closeout-validation.md` | `## Long Conversation Drift Guard` / context compaction | `references/sections/court-context-compression-survival.md` | Multi-cycle semantic compression, original decree/plan preservation, mandatory 三省六部 skill reload, or post-resume reply-format drift repair. |
-| `court-closeout-validation.md` | `## Installation And Validation` | `references/sections/court-closeout-installation-validation.md` | Validation commands, packaging rules, portable checks, read-only vs mutating validation classes, `package_ready_gate`, `package_exclusion_check`. |
+| `court-closeout-validation.md` | `## Installation And Validation` |  | Runtime receipt verification; installation/package validation requires a source checkout. |
 | `court-shiguan-memory.md` | `## Shiguan Lineage And Court Code` |  | 诏令编号/court_code lineage, Shiguan taxonomy, graph/tree identifiers, import/export identifier display. |
 | `court-shiguan-memory.md` | `## 史馆实录` |  | Shiguan checkpoints, archive commands, evidence pointers, record lifecycle, memory decision fields. |
 | `court-shiguan-memory.md` | `## Token Three-Level Optimization / 令牌三级优化` |  | Metadata precision, concise body references, on-demand loading, token policy for Shiguan/memory packets. |
@@ -36,10 +36,10 @@ This is the section-level shard index for large governing references. Read `SKIL
 
 | Governing area | Physical shard | Load when... |
 | --- | --- | --- |
-| `court-capability-registry.md` | `references/sections/court-capability-verification-index.md` | Capability verification, recruitment, skill repair, registry drift, or audit needs the active index skill gate for `find-skills`, `skill-creator`, `refresh_capability_registry.py`, and `check_catalog.py`. |
+| `court-capability-registry.md` |  | Capability verification, recruitment and registry drift use public interfaces and current evidence; source checks are maintenance only. |
 | `court-supercc-runtime-selection.md` | `supercc-phase-cycling-model.md` | superCC phase-cycling rules, default visible core vs silent supervision, non-visible ministry dispatch, or request-rate budget semantics. |
-| `court-offices-dispatch.md` / `court-closeout-validation.md` | `references/sections/court-response-fewshot-format.md`; `references/sections/court-office-voice-fewshot.md`; fixture `references/fixtures/response-draft-families.json`; gate `scripts/check_response_draft_fixtures.py` | Reply formatting, few-shot response prompt, office-title grammar positive/counterexamples, generated draft fixture lint, progress updates, clarification question shape, code review report shape, blocked/partial answer shape, or office report samples. |
-| `court-closeout-validation.md` | `references/sections/court-context-compression-survival.md`; fixture `references/fixtures/context-compression-survival.json`; gate `scripts/check_context_compression_survival.py` | Multi-cycle context compression survival, post-compaction semantic reload, original decree/plan anchors, and reply-format preservation. |
+| `court-offices-dispatch.md` / `court-closeout-validation.md` | `references/sections/court-response-fewshot-format.md`; `references/sections/court-office-voice-fewshot.md` | Reply fields, office-title grammar, progress, clarification, code review, blocked/partial replies and office reports. |
+| `court-closeout-validation.md` | `references/sections/court-context-compression-survival.md` | Context compression survival, semantic reload, original decree/plan anchors and reply-format preservation. |
 
 ## Loading Rule
 

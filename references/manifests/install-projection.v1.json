@@ -431,7 +431,11 @@
       "scripts/sync_shiguan_obsidian_vault.py",
       "scripts/tidy_shiguan_records.py",
       "scripts/watch_session_completion.py",
-      "web/shiguan-tree"
+      "web/shiguan-tree",
+      "references/sections/court-runtime-result-and-recruitment-contract.md",
+      "references/sections/court-response-fewshot-format.md",
+      "references/sections/court-office-voice-fewshot.md",
+      "references/sections/court-context-compression-survival.md"
     ],
     "portable_current_tool": [
       "INSTALL-PROMPT.md",
@@ -821,7 +825,11 @@
       "scripts/sync_shiguan_obsidian_vault.py",
       "scripts/tidy_shiguan_records.py",
       "scripts/watch_session_completion.py",
-      "web/shiguan-tree"
+      "web/shiguan-tree",
+      "references/sections/court-runtime-result-and-recruitment-contract.md",
+      "references/sections/court-response-fewshot-format.md",
+      "references/sections/court-office-voice-fewshot.md",
+      "references/sections/court-context-compression-survival.md"
     ],
     "repository_only": [
       ".git",

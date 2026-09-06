@@ -448,15 +448,14 @@ Shiguan memorial template, `hard_memorial_gate`, Shiguan Web URL requirements,
 and final drift checks.
 ## Installation And Validation
 
-Detailed installation, validation, and package-ready policy now lives in
-[sections/court-closeout-installation-validation.md](sections/court-closeout-installation-validation.md).
-This parent section remains the stable closeout anchor.
-
-Load the shard for concrete read-only validation, writeback validation,
-Obsidian/export validation, catalog prerequisite handling, and package-ready
-hard gates including `package_ready_gate`, `package_exclusion_check`, and the
-rule that `package_skill.py` requires separate 太子回奏 authorization for the
-current decree.
+For an installed standard task, use `decretum-matrix shiguan archive-runtime-task`
+and verify its producer/runtime receipts; query the same case through CLI/MCP.
+Follow `validation-packaging.md` for the boundary between runtime operations and
+source maintenance. Installation/package validators require a source checkout;
+their absence from the active skill is deliberate and never a startup repair
+trigger. Package-ready still requires source gate receipts, and packaging needs
+the current user's authority. Do not manufacture a successful receipt from a
+missing checker or from unrelated past checks.
 
 ## Phase Review And Continuation Gates
 

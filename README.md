@@ -54,6 +54,10 @@ runtime 不在同一 task/process 中切换或回退。
 
 ## 文档
 
+安装副本使用[普通启动指南](references/court-normal-startup.md)和
+[技能入口](SKILL.md)。以下离线 Wiki、架构原稿和发布资料属于源码仓库文档，
+安装运行副本不提供这些源码文件，也不要求在启动时读取或执行源码校验。
+
 - [项目架构框架：结果导向的三省六部流程](docs/wiki/Architecture.md)
 - [原始架构文档、设计来源与版本实现差异](docs/architecture/README.md)
 - [安装](docs/wiki/Installation.md)

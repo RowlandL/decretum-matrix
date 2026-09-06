@@ -87,8 +87,8 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "22258f6f76dadbfac8eda2bf81ef9017c21a539a2275055593a7c7e0c52cbf15",
-      "size": 4873
+      "sha256": "4eea8ea8424035de7f6ae72b4b22cc14ce028e22939777078db1bea0431ffb88",
+      "size": 5157
     },
     {
       "mode": "100644",
@@ -423,8 +423,8 @@
     {
       "mode": "100644",
       "path": "references/README.md",
-      "sha256": "5167522ec7da220bfa7a31bea756829c685ebb8479deea2747ff9de63e535fe1",
-      "size": 5892
+      "sha256": "6c9ddea44e9d69c18af40532ba2b90799f7e1da89c1057bd3dcfb304052bd7cc",
+      "size": 5309
     },
     {
       "mode": "100644",
@@ -435,14 +435,14 @@
     {
       "mode": "100644",
       "path": "references/court-capability-registry.md",
-      "sha256": "45817cfee0ead60358f8db3e64df84a6898945b5e62cf0ca16a6a680c9437434",
-      "size": 16297
+      "sha256": "1d36f0345942434e917e746f19bcab041d62ff1de1a6af67b2d18000b26a1306",
+      "size": 16684
     },
     {
       "mode": "100644",
       "path": "references/court-closeout-validation.md",
-      "sha256": "6574bab35b2dd1f40457cd8114fe37c6c704f04f6a086089a57a2ae3ec5412fe",
-      "size": 44689
+      "sha256": "944eebd03c966fe25a9771d7df75a52d16db8f38ea30b38f3d59370453928e25",
+      "size": 44731
     },
     {
       "mode": "100644",
@@ -573,8 +573,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "d8908366c8789df19d4d1d16b630975273ed51934fba1c43a164df4236f2879d",
-      "size": 51077
+      "sha256": "2266a9ecbe05e852da69e87954c22a8c056e031a8fd27e34d15e96802a886021",
+      "size": 51609
     },
     {
       "mode": "100644",
@@ -597,8 +597,8 @@
     {
       "mode": "100644",
       "path": "references/reference-section-index.md",
-      "sha256": "ce8622aee6e8180fa9f4c327ce73e48c704bba9ca25521f5e0ac9af16391f6f6",
-      "size": 6769
+      "sha256": "6908a3900378bb571b8be6bba9f4f38307b6b0258b953739ddac7c6b38fe26d7",
+      "size": 6131
     },
     {
       "mode": "100644",
@@ -608,15 +608,39 @@
     },
     {
       "mode": "100644",
+      "path": "references/sections/court-context-compression-survival.md",
+      "sha256": "f30848c5616ec5679acd892af963ce87b91ef11dcbe4647622b46fb42a404203",
+      "size": 6550
+    },
+    {
+      "mode": "100644",
       "path": "references/sections/court-office-name-profile-skill-binding.md",
       "sha256": "535fe58114f4fb095d6907264017c1301ffa642f9001266a6dc81316d1cb6f3f",
       "size": 8862
     },
     {
       "mode": "100644",
+      "path": "references/sections/court-office-voice-fewshot.md",
+      "sha256": "13cea4aabcfda5ae9de5568606112f2b02679536e43b9c28c86e150ea50233e7",
+      "size": 3680
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-response-fewshot-format.md",
+      "sha256": "00666f31d7a35d2749cbd91b99e0548fe3c68ad4aefab6bb1f4921512a04bf84",
+      "size": 11252
+    },
+    {
+      "mode": "100644",
+      "path": "references/sections/court-runtime-result-and-recruitment-contract.md",
+      "sha256": "2e75b9132a4301be414c3cd33702315590df55da050ef23a102ab66095fb9087",
+      "size": 12044
+    },
+    {
+      "mode": "100644",
       "path": "references/sections/court-startup-approval-policy-details.md",
-      "sha256": "6e4e59fd0ed60a5573e24e8898d23d974bad83b5d25e2b8671cb61c61b5b3e86",
-      "size": 6854
+      "sha256": "57a45bff00dd9719e7a14cfe75b9fd92a359495b38150d58b01ed18d4888c778",
+      "size": 6798
     },
     {
       "mode": "100644",
@@ -1251,8 +1275,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "97a49dc857ccfcb6fd0d37a580f568f3b6b158eaf99116f1ef7878f07e3b953d",
-      "size": 76608
+      "sha256": "3c0f9107544795d0abb43324165602d73417a9a0f8308452e9cf12e85ef94a63",
+      "size": 79662
     },
     {
       "mode": "100644",
@@ -1437,8 +1461,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_preload_semantics.py",
-      "sha256": "fc948ddfc31895b9c96459b5daa7f036de8e98f4db2053b70b27c9df73cb086e",
-      "size": 71442
+      "sha256": "4d2ee84800798df3cce6bddb9717a993d55ef10ae52722ee7e8eb2fa6ba75bbb",
+      "size": 71358
     },
     {
       "mode": "100644",
@@ -1515,8 +1539,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_projection_closure.py",
-      "sha256": "72f6316f3d49bf52177b3553454bc933a8fbb1c48ff7b4a69f7d5a9968d18f20",
-      "size": 26967
+      "sha256": "55f8a6fc3e1a5c1afd27661d3393611388ff84475c05d78062e884f4b5846f6b",
+      "size": 38394
     },
     {
       "mode": "100644",
@@ -2115,8 +2139,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_cli_registry.py",
-      "sha256": "509230ad7da2f24409c9a2c15cc552c16b4dd66f6b89840908e11464dcbe3248",
-      "size": 41344
+      "sha256": "eeda976ace852f80eb0d29b79d8609df1ed6b77eea58ac4fbb5e688a1b215b4d",
+      "size": 41496
     },
     {
       "mode": "100644",
@@ -2848,11 +2872,11 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 7926829,
-    "payload_file_count": 469,
+    "payload_bytes": 7974872,
+    "payload_file_count": 473,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "1f681f3cfc7ac2deba5a8907ad4c3993386217daa067f89e607d01182613cf6e",
-    "source_packaged_tracked_file_count": 461,
+    "payload_index_sha256": "da87242b5d0bf97631f65a425252088f79c6d061e17ad4330e6ee1d997778a95",
+    "source_packaged_tracked_file_count": 465,
     "source_tracked_file_count": 591
   },
   "license": {
@@ -2984,10 +3008,6 @@
     "references/obsidian-autosync-rest.md",
     "references/sections/court-capability-verification-index.md",
     "references/sections/court-closeout-installation-validation.md",
-    "references/sections/court-context-compression-survival.md",
-    "references/sections/court-office-voice-fewshot.md",
-    "references/sections/court-response-fewshot-format.md",
-    "references/sections/court-runtime-result-and-recruitment-contract.md",
     "references/user-manual-zh.md",
     "scripts/README.md",
     "scripts/build_npm_package.mjs",

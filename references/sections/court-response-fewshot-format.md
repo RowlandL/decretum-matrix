@@ -315,6 +315,10 @@ Use when pausing a long task or handing off with live state.
 
 ## Draft Reply Fixture Lint
 
+This section is source-checkout-only maintenance. Its checker and fixture are
+not installed runtime prerequisites; ordinary replies use the field contract
+and examples above without running source validators.
+
 Generated reply drafts are linted by
 `scripts/check_response_draft_fixtures.py` against
 `references/fixtures/response-draft-families.json`.

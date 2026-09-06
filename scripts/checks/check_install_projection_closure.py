@@ -14,6 +14,8 @@ import ast
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
+import re
 import stat
 import sys
 from typing import Any
@@ -32,7 +34,20 @@ CLI_REGISTRY = ROOT / "scripts" / "court_cli_registry.py"
 INSTALL_CHECKER_MODULE = "check_active_copy_hashes"
 INSTALL_CHECKER_RELATIVE = "scripts/check_active_copy_hashes.py"
 MANDATORY_RUNTIME_GUIDES = ("references/court-normal-startup.md",)
+RUNTIME_DOCUMENT_ROOTS = (
+    "SKILL.md",
+    "references/court-normal-startup.md",
+    "references/README.md",
+    "references/reference-section-index.md",
+)
 SCRIPT_COUPLING_SUFFIXES = {".bat", ".cmd", ".ps1", ".sh"}
+MARKDOWN_LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
+PLAIN_SECTION_POINTER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_./-])"
+    r"((?:(?:\.{1,2}/)?(?:references/)?sections/)"
+    r"[A-Za-z0-9][A-Za-z0-9_.-]*\.md)"
+    r"(?![A-Za-z0-9_./-])"
+)
 RUNTIME_LOADING_CALLS = {
     "__import__",
     "exec",
@@ -429,6 +444,108 @@ def _self_test() -> dict[str, Any]:
         not in guide_fixture_deleted
     ):
         failures.append("mandatory_guide_fixture_deleted:expected_fail")
+
+    document_roots = {
+        "SKILL.md",
+        "references/court-normal-startup.md",
+        "references/README.md",
+        "references/reference-section-index.md",
+    }
+    identity_documents = {
+        "agents/standing-officials/libu.toml",
+        "agents/office-dossiers/libu/AGENTS.md",
+    }
+    runtime_documents = {
+        "SKILL.md": "[dispatch](references/court-offices-dispatch.md)\n",
+        "references/court-normal-startup.md": "\n",
+        "references/README.md": "\n",
+        "references/reference-section-index.md": "\n",
+        "references/court-offices-dispatch.md": (
+            "[reply](sections/court-response-fewshot-format.md)\n"
+        ),
+        "references/sections/court-response-fewshot-format.md": (
+            "Load `references/sections/court-office-voice-fewshot.md`.\n"
+        ),
+        "references/sections/court-office-voice-fewshot.md": "\n",
+        "agents/standing-officials/libu.toml": "\n",
+        "agents/office-dossiers/libu/AGENTS.md": "\n",
+    }
+    runtime_projected = {
+        "SKILL.md",
+        "references/court-normal-startup.md",
+        "references/README.md",
+        "references/reference-section-index.md",
+        "references/court-offices-dispatch.md",
+        "agents/standing-officials/libu.toml",
+        "agents/office-dossiers/libu/AGENTS.md",
+    }
+    runtime_expected = {
+        "fixture:runtime_document_not_projected:references/sections/court-office-voice-fewshot.md",
+        "fixture:runtime_document_not_projected:references/sections/court-response-fewshot-format.md",
+    }
+    runtime_closure = globals().get("_runtime_document_closure")
+    runtime_actual = (
+        set(
+            runtime_closure(
+                documents=runtime_documents,
+                projected_files=runtime_projected,
+                target="fixture",
+                document_roots=document_roots,
+                identity_documents=identity_documents,
+            )["failures"]
+        )
+        if callable(runtime_closure)
+        else set()
+    )
+    evidence["runtime_document_markdown_and_plain_fixture"] = sorted(runtime_actual)
+    if runtime_actual != runtime_expected:
+        failures.append(
+            "runtime_document_markdown_and_plain_fixture:"
+            f"expected={sorted(runtime_expected)!r}:actual={sorted(runtime_actual)!r}"
+        )
+
+    source_only_documents = {
+        "SKILL.md": "[closeout](references/court-closeout-validation.md)\n",
+        "references/court-normal-startup.md": "\n",
+        "references/README.md": "\n",
+        "references/reference-section-index.md": "\n",
+        "references/court-closeout-validation.md": (
+            "[installation](sections/court-closeout-installation-validation.md)\n"
+        ),
+        "references/sections/court-closeout-installation-validation.md": "\n",
+        "agents/standing-officials/libu.toml": "\n",
+        "agents/office-dossiers/libu/AGENTS.md": "\n",
+    }
+    source_only_expected = {
+        "fixture:runtime_document_not_projected:references/sections/court-closeout-installation-validation.md"
+    }
+    source_only_actual = (
+        set(
+            runtime_closure(
+                documents=source_only_documents,
+                projected_files={
+                    "SKILL.md",
+                    "references/court-normal-startup.md",
+                    "references/README.md",
+                    "references/reference-section-index.md",
+                    "references/court-closeout-validation.md",
+                    "agents/standing-officials/libu.toml",
+                    "agents/office-dossiers/libu/AGENTS.md",
+                },
+                target="fixture",
+                document_roots=document_roots,
+                identity_documents=identity_documents,
+            )["failures"]
+        )
+        if callable(runtime_closure)
+        else set()
+    )
+    evidence["runtime_document_source_only_parent_fixture"] = sorted(source_only_actual)
+    if source_only_actual != source_only_expected:
+        failures.append(
+            "runtime_document_source_only_parent_fixture:"
+            f"expected={sorted(source_only_expected)!r}:actual={sorted(source_only_actual)!r}"
+        )
     return {
         "schema": "court.install_checker_isolation_self_test.v1",
         "ok": not failures,
@@ -566,19 +683,183 @@ def _mandatory_guide_failures(
     return failures
 
 
+def _normalize_document_reference(source: str, value: str) -> str | None:
+    candidate = value.strip().split(None, 1)[0].strip("<>")
+    if not candidate or candidate.startswith("#") or "://" in candidate:
+        return None
+    if candidate.casefold().startswith(("mailto:", "data:")):
+        return None
+    candidate = candidate.split("#", 1)[0].split("?", 1)[0].replace("\\", "/")
+    if not candidate.endswith(".md") or candidate.startswith("/"):
+        return None
+    if candidate.startswith("references/"):
+        combined = PurePosixPath(candidate)
+    else:
+        combined = PurePosixPath(source).parent / PurePosixPath(candidate)
+    parts: list[str] = []
+    for part in combined.parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts) if parts else None
+
+
+def _markdown_document_references(source: str, text: str) -> set[str]:
+    references: set[str] = set()
+    for match in MARKDOWN_LINK_PATTERN.finditer(text):
+        normalized = _normalize_document_reference(source, match.group(1))
+        if normalized:
+            references.add(normalized)
+    return references
+
+
+def _section_document_references(source: str, text: str) -> set[str]:
+    references = {
+        value
+        for value in _markdown_document_references(source, text)
+        if value.startswith("references/sections/")
+    }
+    for match in PLAIN_SECTION_POINTER_PATTERN.finditer(text):
+        normalized = _normalize_document_reference(source, match.group(1))
+        if normalized and normalized.startswith("references/sections/"):
+            references.add(normalized)
+    return references
+
+
+def _runtime_document_closure(
+    *,
+    documents: dict[str, str],
+    projected_files: set[str],
+    target: str,
+    document_roots: set[str],
+    identity_documents: set[str],
+) -> dict[str, Any]:
+    failures: set[str] = set()
+    governing_documents: set[str] = set()
+    section_edges: set[str] = set()
+
+    def require_document(relative: str, *, source: str | None = None) -> bool:
+        if relative not in documents:
+            if source:
+                failures.add(
+                    f"{target}:runtime_document_source_missing:{source}->{relative}"
+                )
+            else:
+                failures.add(f"{target}:runtime_document_source_missing:{relative}")
+            return False
+        if relative not in projected_files:
+            failures.add(f"{target}:runtime_document_not_projected:{relative}")
+        return True
+
+    for relative in sorted(document_roots | identity_documents):
+        require_document(relative)
+
+    skill = "SKILL.md"
+    if skill in documents:
+        for relative in sorted(_markdown_document_references(skill, documents[skill])):
+            if not relative.startswith("references/"):
+                continue
+            if require_document(relative, source=skill):
+                governing_documents.add(relative)
+
+    governing_documents.update(
+        relative
+        for relative in document_roots
+        if relative != skill and relative in documents
+    )
+    pending_governing = sorted(governing_documents)
+    visited_governing: set[str] = set()
+    pending_sections: list[str] = []
+    visited_sections: set[str] = set()
+
+    while pending_governing:
+        source = pending_governing.pop(0)
+        if source in visited_governing or source not in documents:
+            continue
+        visited_governing.add(source)
+        for relative in sorted(_markdown_document_references(source, documents[source])):
+            if not relative.startswith("references/sections/"):
+                continue
+            section_edges.add(f"{source}->{relative}")
+            if require_document(relative, source=source):
+                pending_sections.append(relative)
+
+    while pending_sections:
+        source = pending_sections.pop(0)
+        if source in visited_sections or source not in documents:
+            continue
+        visited_sections.add(source)
+        for relative in sorted(_section_document_references(source, documents[source])):
+            section_edges.add(f"{source}->{relative}")
+            if require_document(relative, source=source):
+                pending_sections.append(relative)
+
+    return {
+        "roots": sorted(document_roots),
+        "identity_documents": sorted(identity_documents),
+        "governing_documents": sorted(governing_documents),
+        "section_edges": sorted(section_edges),
+        "failures": sorted(failures),
+    }
+
+
+def _runtime_document_inputs() -> tuple[dict[str, str], set[str], set[str]]:
+    documents: dict[str, str] = {}
+    document_roots = set(RUNTIME_DOCUMENT_ROOTS)
+    identity_documents = {
+        path.relative_to(ROOT).as_posix()
+        for path in sorted((ROOT / "agents" / "standing-officials").glob("*.toml"))
+    }
+    identity_documents.update(
+        path.relative_to(ROOT).as_posix()
+        for path in sorted((ROOT / "agents" / "office-dossiers").glob("*/AGENTS.md"))
+    )
+
+    def add_document(relative: str) -> None:
+        normalized = _safe_projection_relative(relative)
+        try:
+            path = _safe_projected_path(normalized)
+        except ValueError as exc:
+            if str(exc).startswith("projected path missing:"):
+                return
+            raise
+        metadata = path.lstat()
+        if stat.S_ISREG(metadata.st_mode):
+            documents[normalized.as_posix()] = path.read_text(encoding="utf-8")
+
+    for relative in sorted(document_roots | identity_documents):
+        add_document(relative)
+    skill = documents.get("SKILL.md")
+    if skill is not None:
+        for relative in _markdown_document_references("SKILL.md", skill):
+            if relative.startswith("references/"):
+                add_document(relative)
+    sections_root = ROOT / "references" / "sections"
+    if sections_root.is_dir():
+        for path in sorted(sections_root.glob("*.md")):
+            add_document(path.relative_to(ROOT).as_posix())
+    return documents, document_roots, identity_documents
+
+
 def evaluate() -> dict[str, Any]:
     projection = _load_json(PROJECTION_MANIFEST)
     projections = projection.get("projections")
     if not isinstance(projections, dict):
         raise ValueError("install_projection_entries_invalid")
     fast_open_handlers = _fast_open_handlers()
+    runtime_documents, document_roots, identity_documents = _runtime_document_inputs()
 
     local_modules = {
         path.stem: path.relative_to(ROOT).as_posix()
         for path in (ROOT / "scripts").glob("*.py")
     }
     failures: list[str] = []
-    evidence: dict[str, dict[str, list[str]]] = {}
+    evidence: dict[str, dict[str, Any]] = {}
     repository_only = projections.get("repository_only")
     if (
         not isinstance(repository_only, list)
@@ -614,13 +895,24 @@ def evaluate() -> dict[str, Any]:
                 source_root=ROOT,
                 target_class=target,
             ).files
+            rendered_file_paths = {
+                relative.as_posix() for relative in rendered_files
+            }
             rendered_guide_missing = [
                 guide
                 for guide in MANDATORY_RUNTIME_GUIDES
-                if guide not in {relative.as_posix() for relative in rendered_files}
+                if guide not in rendered_file_paths
             ]
         except ActiveProjectionRenderError as exc:
+            rendered_file_paths = set()
             rendered_guide_missing = [f"renderer_error:{exc}"]
+        runtime_document_closure = _runtime_document_closure(
+            documents=runtime_documents,
+            projected_files=rendered_file_paths,
+            target=target,
+            document_roots=document_roots,
+            identity_documents=identity_documents,
+        )
         checker_projected = (
             [INSTALL_CHECKER_RELATIVE]
             if INSTALL_CHECKER_RELATIVE in projected_files
@@ -653,6 +945,7 @@ def evaluate() -> dict[str, Any]:
             "forbidden_checker_couplings": sorted(set(checker_couplings)),
             "mandatory_guide_failures": guide_failures,
             "rendered_guide_missing": rendered_guide_missing,
+            "runtime_document_closure": runtime_document_closure,
         }
         failures.extend(
             f"{target}:cli_handler_not_projected:{item}"
@@ -675,6 +968,7 @@ def evaluate() -> dict[str, Any]:
             f"{target}:mandatory_guide_renderer_missing:{item}"
             for item in rendered_guide_missing
         )
+        failures.extend(runtime_document_closure["failures"])
 
     return {
         "schema": "court.install_projection_closure_check.v1",

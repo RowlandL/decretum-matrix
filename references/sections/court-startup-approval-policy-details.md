@@ -55,16 +55,14 @@ not share runtime state, dossiers, transports, admissions, or lifecycle paths.
 
 ## Capability Invocation
 
-Capability selection is index-first. The court does not wait for the user to
-name a specific local skill, agente, or MCP, and it must not invoke every
-possibly related capability. 吏部/户部 first read the refreshed 官籍/catalog and
-active index gate, select the smallest suitable skill/agent/MCP/CLI/script set,
-then 尚书省 dispatches or calls the selected capability under the current
-authority and evidence contract.
+Capability selection is index-first when discovery is needed: use a bounded
+catalog query, not the full catalog. An explicit installed skill path already
+selects the capability. 吏部/户部 select the smallest suitable skill/agent/MCP/CLI
+set, then 尚书省 dispatches under the current authority and evidence contract.
 
-Use `references/sections/court-capability-verification-index.md` and
-`scripts/check_capability_index_gate.py --query <need>` for capability
-verification. If the selected capability requires a state-changing MCP write,
+Use the runtime availability contract in `references/court-capability-registry.md`
+and verify selected capabilities through their public interfaces. Source catalog
+checkers are not installed-runtime prerequisites. If a capability requires a state-changing MCP write,
 install, paid action, external service, secret, private upload, or broader
 workspace change, stop according to the active authority; otherwise proceed
 without an extra user prompt.

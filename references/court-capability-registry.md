@@ -163,13 +163,18 @@ Authorities:
 
 ## Capability Verification Index Skill Gate
 
-For capability verification, recruitment, skill repair, and registry-drift review,
-load `references/sections/court-capability-verification-index.md`. The gate makes
-`refresh_capability_registry.py`, `find-skills`, system `skill-creator`,
-`quick_validate.py`, and `check_catalog.py --strict` part of the active index
-layer instead of treating them as passive prerequisites. Use
-`scripts/check_capability_index_gate.py --query <need>` to surface matching
-skills, agents, MCPs, CLIs, and scripts before dispatch. Report
+For capability verification, recruitment and registry review, use the host's
+public tool/skill discovery or a bounded catalog lookup, then verify the selected
+capability through its public interface. An explicit installed skill path already
+selects that capability; it does not require a full index read. Use
+`decretum-matrix install refresh-capability-registry --json` only when catalog
+writeback is authorized. `find-skills` supports discovery and `skill-creator`
+supports authorized format repair; neither tool's mere presence proves readiness.
+Source catalog/format validators belong in a source checkout and are not startup
+or installed-runtime prerequisites. Version drift or hash drift in the selected
+capability's existing metadata invalidates its availability evidence; revalidate
+that capability through its public interface within the current scope.
+Preserve the I1/C boundaries above. Report
 `capability_index_skill_gate=PASSED | PARTIAL | FAILED | authority_blocked |
 runtime_degraded` before claiming that a missing, new, repaired, or stale
 capability is dispatchable.
