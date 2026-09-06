@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import re
+import uuid
 from datetime import datetime
 from typing import Any, Mapping
+
+import sys
+
+sys.dont_write_bytecode = True
 
 
 INVARIANT_CAPSULE_SCHEMA = "court.semantic.invariant_capsule.v1"
@@ -48,7 +54,6 @@ SEMANTIC_CONTEXT_FIELDS = (
 INVARIANT_CAPSULE_REQUIRED_FIELDS = {
     "schema",
     "latest_decree_anchor",
-    "latest_decree_sha256",
     "non_goals",
     "boundaries",
     "allowed_actions",
@@ -57,10 +62,17 @@ INVARIANT_CAPSULE_REQUIRED_FIELDS = {
     "evidence_requirements",
     "stop_gates",
     "write_set",
-    "governing_hashes",
-    "charter_sha256",
+    "case_ref",
 }
-SEMANTIC_RECEIPT_ID_FIELDS = {"receipt_id", "receipt_sha256"}
+SEMANTIC_RECEIPT_ID_FIELDS = {"receipt_id"}
+REFERENCE_SEMANTIC_CONTEXT_FIELDS = (
+    "authority_revision",
+    "case_ref",
+    "plan_ref",
+    "plan_cursor",
+    "recovery_checkpoint_id",
+    "shiguan_revision",
+)
 SEMANTIC_GATE_TRIGGERS = {
     "semantic_checkpoint": {
         "checkpoint",
@@ -148,10 +160,27 @@ def semantic_receipt_payload(receipt: dict[str, object]) -> dict[str, object]:
 
 
 def finalize_semantic_receipt(receipt: dict[str, object]) -> dict[str, object]:
-    finalized = semantic_receipt_payload(dict(receipt))
-    digest = canonical_json_sha256(finalized)
-    finalized["receipt_id"] = "SR-" + digest[:24].upper()
-    finalized["receipt_sha256"] = digest
+    """Assign only an ordinary receipt id to a reference-bound receipt.
+
+    The receipt is tied to the recorded case and event ids.  It deliberately
+    does not derive either identity from a serialization of its content.
+    """
+
+    if not isinstance(receipt, dict):
+        raise ValueError("semantic_receipt_required")
+    finalized = dict(receipt)
+    if "case_ref" not in finalized:
+        raise ValueError("court_code_required")
+    from court_case_binding import case_reference
+
+    finalized["case_ref"] = case_reference(finalized["case_ref"])
+    if _contains_digest_reference(finalized):
+        raise ValueError("semantic_receipt_digest_field_forbidden")
+    receipt_id = finalized.get("receipt_id")
+    if receipt_id is None:
+        finalized["receipt_id"] = "SEM-" + uuid.uuid4().hex.upper()
+    elif not isinstance(receipt_id, str) or not receipt_id.strip():
+        raise ValueError("semantic_receipt_id_invalid")
     return finalized
 
 
@@ -164,10 +193,18 @@ def derive_semantic_receipt(
     trigger: str,
     reason_codes: list[str],
     created_at: str,
-    event_head_sha256: str,
-    event_head_bytes: int,
+    event_head_id: str,
     updates: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    if not isinstance(receipt, dict) or "case_ref" not in receipt:
+        raise ValueError("court_code_required")
+    if not isinstance(receipt_sequence, int) or isinstance(receipt_sequence, bool) or receipt_sequence < 1:
+        raise ValueError("semantic_receipt_sequence_invalid")
+    if not isinstance(reason_codes, list) or any(
+        not isinstance(reason, str) or not reason.strip() for reason in reason_codes
+    ):
+        raise ValueError("semantic_receipt_reason_codes_invalid")
+    head_id = _required_reference_text(event_head_id, "event_head_id")
     derived = semantic_receipt_payload(dict(receipt))
     derived.update(
         receipt_sequence=receipt_sequence,
@@ -176,11 +213,7 @@ def derive_semantic_receipt(
         trigger=trigger,
         reason_codes=list(reason_codes),
         created_at=created_at,
-        event_head_sha256=_canonical_digest(
-            event_head_sha256,
-            "event_head_sha256",
-        ),
-        event_head_bytes=event_head_bytes,
+        event_head_id=head_id,
     )
     if updates:
         derived.update(updates)
@@ -191,18 +224,17 @@ def semantic_checkpoint_material(receipt: dict[str, object]) -> dict[str, object
     fields = (
         "task_id",
         "semantic_epoch",
-        "charter_sha256",
-        "invariant_capsule_sha256",
-        *SEMANTIC_CONTEXT_FIELDS,
-        "write_set_sha256",
-        "event_head_sha256",
-        "event_head_bytes",
+        *REFERENCE_SEMANTIC_CONTEXT_FIELDS,
+        "event_head_id",
     )
     return {field: receipt.get(field) for field in fields}
 
 
 def semantic_checkpoint_id(receipt: dict[str, object]) -> str:
-    return "SC-" + canonical_json_sha256(semantic_checkpoint_material(receipt))[:24].upper()
+    checkpoint_id = receipt.get("checkpoint_id")
+    if not isinstance(checkpoint_id, str) or not checkpoint_id.strip():
+        raise ValueError("semantic_checkpoint_id_missing")
+    return checkpoint_id
 
 
 def _timezone_aware(value: object) -> bool:
@@ -224,6 +256,29 @@ def _is_digest(value: object) -> bool:
     )
 
 
+def _required_reference_text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"semantic_receipt_{field}_required")
+    return value.strip()
+
+
+def _contains_digest_reference(value: object) -> bool:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            lowered = str(key).lower()
+            if (
+                "sha256" in lowered
+                or "fingerprint" in lowered
+                or "governing_hash" in lowered
+            ):
+                return True
+            if _contains_digest_reference(nested):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_digest_reference(item) for item in value)
+    return False
+
+
 def semantic_receipt_integrity_problems(
     task: dict[str, object],
     receipt: object,
@@ -231,30 +286,18 @@ def semantic_receipt_integrity_problems(
     if not isinstance(receipt, dict):
         return ["semantic_receipt_integrity:missing"]
     problems: list[str] = []
+    problems.extend(
+        "semantic_binding:" + problem
+        for problem in semantic_binding_problems(task, require_complete=True)
+    )
     if receipt.get("schema") != SEMANTIC_RECEIPT_SCHEMA:
         problems.append("semantic_receipt_integrity:schema")
     sequence = receipt.get("receipt_sequence")
     if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
         problems.append("semantic_receipt_integrity:receipt_sequence")
-    canonical = finalize_semantic_receipt(receipt)
-    for field in ("receipt_id", "receipt_sha256"):
-        if receipt.get(field) != canonical[field]:
+    for field in ("receipt_id", "checkpoint_id", "event_head_id"):
+        if not isinstance(receipt.get(field), str) or not str(receipt[field]).strip():
             problems.append(f"semantic_receipt_integrity:{field}")
-    for field in (
-        "charter_sha256",
-        "invariant_capsule_sha256",
-        "write_set_sha256",
-        "event_head_sha256",
-    ):
-        if not _is_digest(receipt.get(field)):
-            problems.append(f"semantic_receipt_integrity:{field}")
-    event_head_bytes = receipt.get("event_head_bytes")
-    if (
-        not isinstance(event_head_bytes, int)
-        or isinstance(event_head_bytes, bool)
-        or event_head_bytes < 0
-    ):
-        problems.append("semantic_receipt_integrity:event_head_bytes")
     if not _timezone_aware(receipt.get("created_at")):
         problems.append("semantic_receipt_integrity:created_at")
     gate = str(receipt.get("gate") or "")
@@ -270,23 +313,29 @@ def semantic_receipt_integrity_problems(
         not isinstance(reason, str) or not reason for reason in reason_codes
     ):
         problems.append("semantic_receipt_integrity:reason_codes")
+    try:
+        from court_case_binding import case_reference
+
+        expected_case_ref = case_reference(task)
+        if receipt.get("case_ref") != expected_case_ref:
+            problems.append("semantic_receipt_integrity:case_ref")
+        context = {
+            field: receipt.get(field)
+            for field in REFERENCE_SEMANTIC_CONTEXT_FIELDS
+        }
+        normalize_semantic_context(context)
+    except ValueError as exc:
+        problems.append("semantic_receipt_integrity:context:" + str(exc))
     capsule = task.get("invariant_capsule")
     if isinstance(capsule, dict):
-        expected_write_set = canonical_json_sha256(capsule.get("write_set", []))
-        if receipt.get("write_set_sha256") != expected_write_set:
-            problems.append("semantic_receipt_integrity:write_set_sha256_binding")
+        if receipt.get("write_set") != capsule.get("write_set"):
+            problems.append("semantic_receipt_integrity:write_set_binding")
     else:
         problems.append("semantic_receipt_integrity:write_set_source_missing")
-    if gate == "semantic_checkpoint":
-        if receipt.get("checkpoint_id") != semantic_checkpoint_id(receipt):
-            problems.append("semantic_receipt_integrity:checkpoint_id")
-        for field in SEMANTIC_CONTEXT_FIELDS:
-            if field not in receipt:
-                problems.append(f"semantic_receipt_integrity:{field}")
-    elif not isinstance(receipt.get("checkpoint_id"), str) or not str(
-        receipt.get("checkpoint_id")
-    ).startswith("SC-"):
-        problems.append("semantic_receipt_integrity:checkpoint_id")
+    if receipt.get("semantic_epoch") != task.get("semantic_epoch"):
+        problems.append("semantic_receipt_integrity:semantic_epoch")
+    if _contains_digest_reference(receipt):
+        problems.append("semantic_receipt_integrity:digest_field_forbidden")
     return problems
 
 
@@ -310,11 +359,33 @@ def _utf8_prefix(value: str, limit: int) -> str:
     return ""
 
 
-def build_invariant_capsule(charter: str, charter_sha256: str) -> dict[str, Any]:
+INVARIANT_CAPSULE_TEMPLATE_FIELDS = frozenset(
+    INVARIANT_CAPSULE_REQUIRED_FIELDS - {"case_ref"}
+)
+INVARIANT_CAPSULE_BODY_LIST_FIELDS = (
+    "non_goals",
+    "boundaries",
+    "allowed_actions",
+    "forbidden_actions",
+    "acceptance",
+    "evidence_requirements",
+    "stop_gates",
+    "write_set",
+)
+
+
+def build_invariant_capsule(charter: str) -> dict[str, Any]:
+    """Return the pre-allocation capsule body used by public intake.
+
+    The court number is intentionally bound only after allocation.  The body
+    remains the original scope, authority, acceptance, and write-set contract.
+    """
+
+    if not isinstance(charter, str) or not charter.strip():
+        raise ValueError("charter_body_required")
     capsule: dict[str, Any] = {
         "schema": INVARIANT_CAPSULE_SCHEMA,
         "latest_decree_anchor": _utf8_prefix(charter, 256),
-        "latest_decree_sha256": charter_sha256,
         "non_goals": ["no unstated scope expansion"],
         "boundaries": ["exact charter only"],
         "allowed_actions": ["no mutation until explicit authority is bound"],
@@ -323,8 +394,6 @@ def build_invariant_capsule(charter: str, charter_sha256: str) -> dict[str, Any]
         "evidence_requirements": ["machine-readable runtime evidence"],
         "stop_gates": ["authority or semantic drift"],
         "write_set": ["NO_WRITES_DECLARED"],
-        "governing_hashes": {"charter_sha256": charter_sha256},
-        "charter_sha256": charter_sha256,
     }
     if len(canonical_json_bytes(capsule)) > INVARIANT_CAPSULE_MAX_BYTES:
         raise ValueError("invariant_capsule_exceeds_2kib")
@@ -335,22 +404,20 @@ def invariant_capsule_json_schema() -> dict[str, object]:
     properties: dict[str, object] = {
         "schema": {"type": "string", "const": INVARIANT_CAPSULE_SCHEMA},
         "latest_decree_anchor": {"type": "string"},
-        "latest_decree_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "governing_hashes": {"type": "object", "additionalProperties": {"type": "string"}},
-        "charter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "case_ref": {"type": "object"},
     }
-    for field in INVARIANT_CAPSULE_REQUIRED_FIELDS - set(properties):
+    for field in INVARIANT_CAPSULE_TEMPLATE_FIELDS - set(properties):
         properties[field] = {"type": "array", "items": {"type": "string"}}
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": INVARIANT_CAPSULE_SCHEMA,
         "type": "object",
-        "required": sorted(INVARIANT_CAPSULE_REQUIRED_FIELDS),
-        "optional": [],
+        "required": sorted(INVARIANT_CAPSULE_TEMPLATE_FIELDS),
+        "optional": ["case_ref"],
         "properties": properties,
         "additionalProperties": False,
         "anchor_rule": "UTF-8 prefix of exact charter, at most 256 bytes",
-        "hash_rule": "latest_decree_sha256 == charter_sha256 == sha256(exact UTF-8 charter)",
+        "binding_rule": "case_ref is required after a court code is allocated",
         "canonical_max_bytes": INVARIANT_CAPSULE_MAX_BYTES,
     }
 
@@ -359,71 +426,65 @@ def invariant_capsule_template(
     charter: str,
     overrides: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
-    digest = sha256_text(charter)
-    capsule = build_invariant_capsule(charter, digest)
+    capsule = build_invariant_capsule(charter)
     for field, value in dict(overrides or {}).items():
-        if field not in INVARIANT_CAPSULE_REQUIRED_FIELDS:
+        if field not in INVARIANT_CAPSULE_TEMPLATE_FIELDS:
             raise ValueError(f"invariant_capsule_fields_unknown:{field}")
-        if field in {"schema", "latest_decree_anchor", "latest_decree_sha256", "charter_sha256"}:
+        if field in {"schema", "latest_decree_anchor"}:
             raise ValueError(f"invariant_capsule_binding_field_not_customizable:{field}")
         capsule[field] = value
-    return normalize_invariant_capsule(charter, digest, capsule)
+    return normalize_invariant_capsule(charter, capsule)
 
 
 def validate_invariant_capsule(charter: str, value: object) -> dict[str, Any]:
-    return normalize_invariant_capsule(charter, sha256_text(charter), value)
+    return normalize_invariant_capsule(charter, value)
 
 
 def normalize_invariant_capsule(
     charter: str,
-    charter_sha256: str,
     value: object | None,
+    *,
+    case_ref: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
+    expected_case_ref: dict[str, object] | None = None
+    if case_ref is not None:
+        from court_case_binding import case_reference
+
+        expected_case_ref = case_reference(case_ref)
     if value is None:
-        return build_invariant_capsule(charter, charter_sha256)
+        if expected_case_ref is not None:
+            capsule = build_invariant_capsule(charter)
+            capsule["case_ref"] = expected_case_ref
+            return capsule
+        return build_invariant_capsule(charter)
     if not isinstance(value, dict):
         raise ValueError("invariant_capsule_must_be_object")
     capsule = dict(value)
-    missing = sorted(INVARIANT_CAPSULE_REQUIRED_FIELDS - set(capsule))
+    required = (
+        INVARIANT_CAPSULE_REQUIRED_FIELDS
+        if expected_case_ref is not None
+        else INVARIANT_CAPSULE_TEMPLATE_FIELDS
+    )
+    missing = sorted(required - set(capsule))
     if missing:
         raise ValueError("invariant_capsule_fields_missing:" + ",".join(missing))
-    unknown = sorted(set(capsule) - INVARIANT_CAPSULE_REQUIRED_FIELDS)
+    unknown = sorted(set(capsule) - required)
     if unknown:
         raise ValueError("invariant_capsule_fields_unknown:" + ",".join(unknown))
     if capsule.get("schema") != INVARIANT_CAPSULE_SCHEMA:
         raise ValueError("invalid_invariant_capsule_schema")
     if capsule.get("latest_decree_anchor") != _utf8_prefix(charter, 256):
         raise ValueError("invariant_capsule_decree_anchor_mismatch")
-    if capsule.get("charter_sha256") != charter_sha256:
-        raise ValueError("invariant_capsule_charter_sha256_mismatch")
-    if capsule.get("latest_decree_sha256") != charter_sha256:
-        raise ValueError("invariant_capsule_decree_sha256_mismatch")
-    for field in (
-        "non_goals",
-        "boundaries",
-        "allowed_actions",
-        "forbidden_actions",
-        "acceptance",
-        "evidence_requirements",
-        "stop_gates",
-        "write_set",
-    ):
+    if expected_case_ref is not None and capsule.get("case_ref") != expected_case_ref:
+        raise ValueError("invariant_capsule_case_ref_mismatch")
+    for field in INVARIANT_CAPSULE_BODY_LIST_FIELDS:
         items = capsule.get(field)
         if not isinstance(items, list) or any(
             not isinstance(item, str) or not item.strip() for item in items
         ):
             raise ValueError(f"invalid_invariant_capsule_field:{field}")
-    governing_hashes = capsule.get("governing_hashes")
-    if not isinstance(governing_hashes, dict) or any(
-        not isinstance(key, str)
-        or not key.strip()
-        or not isinstance(digest, str)
-        or digest != digest.lower()
-        or len(digest) != 64
-        or any(character not in "0123456789abcdef" for character in digest)
-        for key, digest in governing_hashes.items()
-    ):
-        raise ValueError("invalid_invariant_capsule_field:governing_hashes")
+    if _contains_digest_reference(capsule):
+        raise ValueError("invariant_capsule_digest_field_forbidden")
     if len(canonical_json_bytes(capsule)) > INVARIANT_CAPSULE_MAX_BYTES:
         raise ValueError("invariant_capsule_exceeds_2kib")
     return capsule
@@ -438,17 +499,19 @@ def semantic_binding_problems(
     charter = task.get("charter")
     if not isinstance(charter, str) or not charter.strip():
         problems.append("charter_body_missing")
-        charter_digest = None
-    else:
-        charter_digest = sha256_text(charter)
     revision = task.get("charter_revision")
     epoch = task.get("semantic_epoch")
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         problems.append("charter_revision_invalid")
     if epoch != revision:
         problems.append("semantic_epoch_mismatch")
-    if charter_digest is None or task.get("charter_sha256") != charter_digest:
-        problems.append("charter_sha256_mismatch")
+    try:
+        from court_case_binding import case_reference
+
+        case_ref = case_reference(task)
+    except ValueError:
+        case_ref = None
+        problems.append("court_code_required")
     capsule = task.get("invariant_capsule")
     if not isinstance(capsule, dict):
         problems.append("invariant_capsule_missing")
@@ -456,24 +519,27 @@ def semantic_binding_problems(
         missing = sorted(INVARIANT_CAPSULE_REQUIRED_FIELDS - set(capsule))
         if missing:
             problems.append("invariant_capsule_fields_missing:" + ",".join(missing))
+        unknown = sorted(set(capsule) - INVARIANT_CAPSULE_REQUIRED_FIELDS)
+        if unknown:
+            problems.append("invariant_capsule_fields_unknown:" + ",".join(unknown))
         if len(canonical_json_bytes(capsule)) > INVARIANT_CAPSULE_MAX_BYTES:
             problems.append("invariant_capsule_exceeds_2kib")
-        if capsule.get("charter_sha256") != charter_digest:
-            problems.append("invariant_capsule_charter_sha256_mismatch")
-        if task.get("invariant_capsule_sha256") != canonical_json_sha256(capsule):
-            problems.append("invariant_capsule_sha256_mismatch")
-        if require_complete:
-            for field in (
-                "non_goals",
-                "boundaries",
-                "allowed_actions",
-                "forbidden_actions",
-                "acceptance",
-                "evidence_requirements",
-                "stop_gates",
-                "write_set",
-                "governing_hashes",
+        if isinstance(charter, str) and charter.strip() and capsule.get(
+            "latest_decree_anchor"
+        ) != _utf8_prefix(charter, 256):
+            problems.append("invariant_capsule_decree_anchor_mismatch")
+        if case_ref is not None and capsule.get("case_ref") != case_ref:
+            problems.append("invariant_capsule_case_ref_mismatch")
+        if _contains_digest_reference(capsule):
+            problems.append("invariant_capsule_digest_field_forbidden")
+        for field in INVARIANT_CAPSULE_BODY_LIST_FIELDS:
+            value = capsule.get(field)
+            if not isinstance(value, list) or any(
+                not isinstance(item, str) or not item.strip() for item in value
             ):
+                problems.append(f"invalid_invariant_capsule_field:{field}")
+        if require_complete:
+            for field in INVARIANT_CAPSULE_BODY_LIST_FIELDS:
                 value = capsule.get(field)
                 if not value:
                     problems.append(f"invariant_capsule_empty:{field}")
@@ -483,28 +549,64 @@ def semantic_binding_problems(
 def normalize_semantic_context(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError("semantic_context_required")
-    context: dict[str, object] = {}
-    for field in ("authority_revision", "plan_revision", "shiguan_revision"):
-        raw = value.get(field)
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw < 0:
-            raise ValueError(f"invalid_{field}")
-        context[field] = raw
-    for field in ("authority_sha256", "plan_sha256", "shiguan_fingerprint"):
-        context[field] = _canonical_digest(value.get(field), field)
-    for field in ("plan_cursor", "git_fingerprint", "recovery_checkpoint_id"):
-        text = str(value.get(field) or "").strip()
-        if not text:
-            raise ValueError(f"invalid_{field}")
-        context[field] = text
-    return context
+    if "case_ref" in value:
+        from court_case_binding import case_reference, plan_reference
+
+        required = {
+            "authority_revision",
+            "case_ref",
+            "plan_ref",
+            "plan_cursor",
+            "recovery_checkpoint_id",
+            "shiguan_revision",
+        }
+        if set(value) != required:
+            raise ValueError("reference_semantic_context_fields_invalid")
+        case_ref = case_reference(value["case_ref"])
+        authority_revision = value.get("authority_revision")
+        if (
+            not isinstance(authority_revision, int)
+            or isinstance(authority_revision, bool)
+            or authority_revision != case_ref["charter_revision"]
+        ):
+            raise ValueError("reference_semantic_context_authority_invalid")
+        raw_plan = value.get("plan_ref")
+        plan_ref = None
+        if raw_plan is not None:
+            if not isinstance(raw_plan, Mapping):
+                raise ValueError("reference_semantic_context_plan_invalid")
+            plan_ref = plan_reference(raw_plan)
+            if (
+                plan_ref["court_code"] != case_ref["court_code"]
+                or plan_ref["charter_revision"] != case_ref["charter_revision"]
+            ):
+                raise ValueError("reference_semantic_context_plan_foreign")
+        for field in ("plan_cursor", "recovery_checkpoint_id"):
+            if not isinstance(value.get(field), str) or not value[field].strip():
+                raise ValueError(f"invalid_{field}")
+        shiguan_revision = value.get("shiguan_revision")
+        if (
+            not isinstance(shiguan_revision, int)
+            or isinstance(shiguan_revision, bool)
+            or shiguan_revision < 0
+        ):
+            raise ValueError("invalid_shiguan_revision")
+        return {
+            "authority_revision": authority_revision,
+            "case_ref": case_ref,
+            "plan_ref": plan_ref,
+            "plan_cursor": str(value["plan_cursor"]).strip(),
+            "recovery_checkpoint_id": str(value["recovery_checkpoint_id"]).strip(),
+            "shiguan_revision": shiguan_revision,
+        }
+    raise ValueError("court_code_required")
 
 
 def build_semantic_receipt(
     task: dict[str, object],
     context_value: object,
     *,
-    event_head_sha256: str,
-    event_head_bytes: int,
+    event_head_id: str,
     trigger: str,
     created_at: str,
     receipt_sequence: int = 1,
@@ -513,33 +615,45 @@ def build_semantic_receipt(
     if problems:
         raise ValueError("semantic_binding_drift:" + ",".join(problems))
     context = normalize_semantic_context(context_value)
-    event_head = _canonical_digest(event_head_sha256, "event_head_sha256")
+    from court_case_binding import case_reference
+
+    case_ref = case_reference(task)
+    if context["case_ref"] != case_ref:
+        raise ValueError("semantic_receipt_case_reference_mismatch")
+    capsule = task.get("invariant_capsule")
+    if not isinstance(capsule, Mapping):
+        raise ValueError("semantic_receipt_write_set_source_missing")
+    write_set = capsule.get("write_set")
+    if not isinstance(write_set, list) or any(
+        not isinstance(item, str) or not item.strip() for item in write_set
+    ):
+        raise ValueError("semantic_receipt_write_set_invalid")
     trigger_text = str(trigger or "").strip()
     if not trigger_text:
         raise ValueError("invalid_semantic_trigger")
-    capsule = task["invariant_capsule"]
-    assert isinstance(capsule, dict)
+    if not isinstance(receipt_sequence, int) or isinstance(receipt_sequence, bool) or receipt_sequence < 1:
+        raise ValueError("semantic_receipt_sequence_invalid")
+    head_id = _required_reference_text(event_head_id, "event_head_id")
+    if not _timezone_aware(created_at):
+        raise ValueError("invalid_semantic_created_at")
     receipt = {
         "schema": SEMANTIC_RECEIPT_SCHEMA,
         "receipt_sequence": receipt_sequence,
         "task_id": task.get("task_id"),
         "semantic_epoch": task.get("semantic_epoch"),
-        "charter_sha256": task.get("charter_sha256"),
-        "invariant_capsule_sha256": task.get("invariant_capsule_sha256"),
         **context,
         "dispatch_uid": None,
         "attempt": None,
         "agent_id": None,
-        "write_set_sha256": canonical_json_sha256(capsule.get("write_set", [])),
-        "event_head_sha256": event_head,
-        "event_head_bytes": event_head_bytes,
+        "write_set": list(write_set),
+        "event_head_id": head_id,
         "trigger": trigger_text,
         "gate": "semantic_checkpoint",
         "verdict": "VERIFIED",
         "reason_codes": [],
         "created_at": created_at,
+        "checkpoint_id": "SC-" + uuid.uuid4().hex.upper(),
     }
-    receipt["checkpoint_id"] = semantic_checkpoint_id(receipt)
     finalized = finalize_semantic_receipt(receipt)
     integrity = semantic_receipt_integrity_problems(task, finalized)
     if integrity:
@@ -552,25 +666,34 @@ def verify_semantic_receipt(
     receipt: object,
     context_value: object,
 ) -> list[str]:
-    problems = semantic_binding_problems(task)
+    context = normalize_semantic_context(context_value)
+    problems = semantic_binding_problems(task, require_complete=True)
     if not isinstance(receipt, dict):
         return [*problems, "semantic_receipt_missing"]
     problems.extend(semantic_receipt_integrity_problems(task, receipt))
-    context = normalize_semantic_context(context_value)
+    from court_case_binding import case_reference
+
+    try:
+        expected_case_ref = case_reference(task)
+    except ValueError:
+        return [*problems, "court_code_required"]
     expected = {
         "schema": SEMANTIC_RECEIPT_SCHEMA,
         "task_id": task.get("task_id"),
         "semantic_epoch": task.get("semantic_epoch"),
-        "charter_sha256": task.get("charter_sha256"),
-        "invariant_capsule_sha256": task.get("invariant_capsule_sha256"),
         **context,
     }
-    for field, value in expected.items():
-        if receipt.get(field) != value:
+    for field, expected_value in expected.items():
+        if receipt.get(field) != expected_value:
             problems.append(f"semantic_receipt_mismatch:{field}")
+    capsule = task.get("invariant_capsule")
+    if not isinstance(capsule, Mapping) or receipt.get("write_set") != capsule.get("write_set"):
+        problems.append("semantic_receipt_mismatch:write_set")
     if receipt.get("verdict") not in {"VERIFIED", "DISPATCHABLE"}:
         problems.append("semantic_receipt_not_verified")
-    return problems
+    if receipt.get("case_ref") != expected_case_ref:
+        problems.append("semantic_receipt_mismatch:case_ref")
+    return list(dict.fromkeys(problems))
 
 
 def _normalize_dispatch_context_pointers(
@@ -665,149 +788,177 @@ def validate_dispatch_context_packet(
     previous_packet: object | None = None,
     reloaded_pointers: object | None = None,
 ) -> dict[str, object]:
-    if not isinstance(receipt, dict):
-        raise ValueError("dispatch_context_current_receipt_required")
+    if not isinstance(receipt, dict) or "case_ref" not in receipt:
+        raise ValueError("court_code_required")
+    binding_problems = semantic_binding_problems(task, require_complete=True)
+    if binding_problems:
+        raise ValueError(
+            "dispatch_context_semantic_binding_failed:" + ",".join(binding_problems)
+        )
     integrity = semantic_receipt_integrity_problems(task, receipt)
     if integrity:
         raise ValueError("dispatch_context_receipt_integrity_failed:" + ",".join(integrity))
-    current_receipt = task.get("semantic_receipt")
-    if not isinstance(current_receipt, dict):
-        raise ValueError("dispatch_context_current_receipt_required")
-    for field in ("receipt_id", "receipt_sha256"):
-        if current_receipt.get(field) != receipt.get(field):
-            raise ValueError(f"dispatch_context_receipt_not_current:{field}")
     if not isinstance(value, dict):
         raise ValueError("dispatch_context_packet_required")
-    missing = sorted(DISPATCH_CONTEXT_PACKET_REQUIRED_FIELDS - set(value))
-    if missing:
-        raise ValueError("dispatch_context_packet_fields_missing:" + ",".join(missing))
-    unknown = sorted(
-        set(value)
-        - DISPATCH_CONTEXT_PACKET_REQUIRED_FIELDS
-        - DISPATCH_CONTEXT_PACKET_OPTIONAL_FIELDS
-    )
-    if unknown:
-        raise ValueError("dispatch_context_packet_fields_unknown:" + ",".join(unknown))
-    if value.get("schema") != DISPATCH_CONTEXT_PACKET_SCHEMA:
-        raise ValueError("invalid_dispatch_context_packet_schema")
-    task_id = str(task.get("task_id") or "")
-    if not task_id or value.get("task_id") != task_id or receipt.get("task_id") != task_id:
-        raise ValueError("dispatch_context_task_id_mismatch")
-    sub_id = value.get("sub_id")
-    if not isinstance(sub_id, str) or not sub_id.strip():
-        raise ValueError("invalid_dispatch_context_sub_id")
-    semantic_epoch = task.get("semantic_epoch")
-    if (
-        value.get("semantic_epoch") != semantic_epoch
-        or receipt.get("semantic_epoch") != semantic_epoch
+    from court_case_binding import case_reference, plan_reference
+
+    required = {
+        "schema", "task_id", "sub_id", "semantic_epoch", "case_ref", "plan_ref",
+        "semantic_receipt_id", "plan_cursor", "fork_context", "context_mode", "pointers",
+    }
+    optional = {"summary", "full_context", "budget_override"}
+    missing = sorted(required - set(value))
+    unknown = sorted(set(value) - required - optional)
+    if missing or unknown or value.get("schema") != DISPATCH_CONTEXT_PACKET_SCHEMA:
+        raise ValueError("reference_dispatch_context_fields_invalid")
+    current_receipt = task.get("semantic_receipt")
+    if not isinstance(current_receipt, Mapping) or (
+        current_receipt.get("receipt_id") != receipt.get("receipt_id")
     ):
-        raise ValueError("dispatch_context_semantic_epoch_mismatch")
-    capsule_sha256 = task.get("invariant_capsule_sha256")
+        raise ValueError("dispatch_context_receipt_not_current:receipt_id")
+    case_ref = case_reference(task)
+    receipt_plan = receipt.get("plan_ref")
+    plan_ref = None
+    if isinstance(receipt_plan, Mapping):
+        plan_ref = plan_reference(receipt_plan)
+        if (
+            plan_ref["court_code"] != case_ref["court_code"]
+            or plan_ref["charter_revision"] != case_ref["charter_revision"]
+        ):
+            raise ValueError("reference_dispatch_context_plan_foreign")
     if (
-        value.get("invariant_capsule_sha256") != capsule_sha256
-        or receipt.get("invariant_capsule_sha256") != capsule_sha256
+        value.get("task_id") != task.get("task_id")
+        or value.get("semantic_epoch") != task.get("semantic_epoch")
+        or case_reference(value.get("case_ref")) != case_ref
+        or receipt.get("case_ref") != case_ref
+        or value.get("semantic_receipt_id") != receipt.get("receipt_id")
+        or value.get("plan_cursor") != receipt.get("plan_cursor")
     ):
-        raise ValueError("dispatch_context_capsule_authority_mismatch")
-    for field in ("semantic_receipt_id", "semantic_receipt_sha256"):
-        receipt_field = field.removeprefix("semantic_")
-        if value.get(field) != receipt.get(receipt_field):
-            raise ValueError(f"dispatch_context_receipt_mismatch:{field}")
-    for field in ("authority_sha256", "plan_sha256", "plan_cursor"):
-        if value.get(field) != receipt.get(field):
-            raise ValueError(f"dispatch_context_receipt_mismatch:{field}")
-    fork_context = value.get("fork_context")
-    if fork_context not in {"none", "minimal"}:
+        raise ValueError("reference_dispatch_context_scope_mismatch")
+    raw_packet_plan = value.get("plan_ref")
+    packet_plan = None if raw_packet_plan is None else plan_reference(raw_packet_plan)
+    if packet_plan != plan_ref:
+        raise ValueError("reference_dispatch_context_plan_mismatch")
+    sub_id = _required_reference_text(value.get("sub_id"), "sub_id")
+    if value.get("fork_context") not in {"none", "minimal"}:
         raise ValueError("invalid_dispatch_context_fork_context")
     context_mode = value.get("context_mode")
     if context_mode not in {"bounded", "full"}:
         raise ValueError("invalid_dispatch_context_mode")
 
-    packet = dict(value)
-    pointers = _normalize_dispatch_context_pointers(
-        value.get("pointers"),
-        field="dispatch_context_pointers",
-    )
-    packet["pointers"] = pointers
-    pointer_hashes = {pointer["sha256"] for pointer in pointers}
-    for field in ("authority_sha256", "plan_sha256"):
-        if receipt.get(field) not in pointer_hashes:
-            raise ValueError(f"dispatch_context_pointer_missing:{field}")
-    if "summary" in value:
-        packet["summary"] = _normalize_dispatch_context_summary(
-            value.get("summary"),
-            receipt,
-        )
+    def normalize_pointers(raw: object, *, field: str) -> list[dict[str, object]]:
+        if not isinstance(raw, list) or not raw:
+            raise ValueError(f"invalid_{field}")
+        normalized: list[dict[str, object]] = []
+        seen_paths: set[str] = set()
+        for index, pointer in enumerate(raw):
+            if not isinstance(pointer, Mapping):
+                raise ValueError(f"invalid_{field}:{index}")
+            path = pointer.get("path")
+            if (
+                not isinstance(path, str) or not path or path != path.strip()
+                or path.endswith(("/", "\\"))
+                or any(character in path for character in "*?[]{}\x00\r\n")
+                or ".." in path.replace("\\", "/").split("/")
+            ):
+                raise ValueError(f"dispatch_context_pointer_not_exact:{index}:path")
+            if path in seen_paths:
+                raise ValueError(f"dispatch_context_pointer_duplicate:{path}")
+            seen_paths.add(path)
+            has_case = "case_ref" in pointer
+            has_plan = "plan_ref" in pointer
+            if has_case == has_plan:
+                raise ValueError("reference_dispatch_context_pointer_kind_invalid")
+            if has_case:
+                if set(pointer) != {"path", "case_ref"} or case_reference(pointer["case_ref"]) != case_ref:
+                    raise ValueError("reference_dispatch_context_pointer_case_mismatch")
+                normalized.append({"path": path, "case_ref": case_ref})
+            else:
+                if (
+                    plan_ref is None
+                    or set(pointer) != {"path", "plan_ref"}
+                    or plan_reference(pointer["plan_ref"]) != plan_ref
+                ):
+                    raise ValueError("reference_dispatch_context_pointer_plan_mismatch")
+                normalized.append({"path": path, "plan_ref": plan_ref})
+        return normalized
 
+    packet = dict(value)
+    packet["case_ref"] = case_ref
+    packet["plan_ref"] = plan_ref
+    packet["sub_id"] = sub_id
+    packet["pointers"] = normalize_pointers(value.get("pointers"), field="dispatch_context_pointers")
+    if "summary" in packet:
+        summary = packet["summary"]
+        if (
+            not isinstance(summary, Mapping)
+            or set(summary) != {"text", "semantic_receipt_id"}
+            or not isinstance(summary.get("text"), str)
+            or not summary.get("text", "").strip()
+            or summary.get("semantic_receipt_id") != receipt.get("receipt_id")
+        ):
+            raise ValueError("invalid_dispatch_context_summary")
+        packet["summary"] = {
+            "text": str(summary["text"]),
+            "semantic_receipt_id": str(summary["semantic_receipt_id"]),
+        }
     if context_mode == "bounded":
-        if "full_context" in value or "budget_override" in value:
+        if "full_context" in packet or "budget_override" in packet:
             raise ValueError("dispatch_context_bounded_full_context_forbidden")
         packet_bytes = len(canonical_json_bytes(packet))
         if packet_bytes > DISPATCH_CONTEXT_PACKET_MAX_BYTES:
             raise ValueError("dispatch_context_packet_exceeds_2kib")
     else:
-        if "full_context" not in value:
+        if "full_context" not in packet:
             raise ValueError("dispatch_context_full_context_required")
-        override = _normalize_dispatch_context_budget_override(
-            value.get("budget_override")
+        packet["budget_override"] = _normalize_dispatch_context_budget_override(
+            packet.get("budget_override")
         )
-        packet["budget_override"] = override
         packet_bytes = len(canonical_json_bytes(packet))
-        if packet_bytes > int(override["max_bytes"]):
+        if packet_bytes > int(packet["budget_override"]["max_bytes"]):
             raise ValueError("dispatch_context_packet_exceeds_explicit_budget")
 
     reload_required: list[str] = []
     if previous_packet is not None:
-        if not isinstance(previous_packet, dict):
+        if not isinstance(previous_packet, Mapping):
             raise ValueError("invalid_previous_dispatch_context_packet")
-        if previous_packet.get("task_id") != task_id:
+        if previous_packet.get("task_id") != task.get("task_id"):
             raise ValueError("dispatch_context_resume_task_id_mismatch")
         if previous_packet.get("sub_id") != sub_id:
             raise ValueError("dispatch_context_resume_sub_id_mismatch")
-        if previous_packet.get("invariant_capsule_sha256") != capsule_sha256:
-            raise ValueError("dispatch_context_resume_capsule_changed")
-        previous_pointers = _normalize_dispatch_context_pointers(
-            previous_packet.get("pointers"),
-            field="previous_dispatch_context_pointers",
+        if (
+            case_reference(previous_packet.get("case_ref")) != case_ref
+            or (None if previous_packet.get("plan_ref") is None else plan_reference(previous_packet["plan_ref"])) != plan_ref
+        ):
+            raise ValueError("dispatch_context_resume_case_or_plan_changed")
+        previous_pointers = normalize_pointers(
+            previous_packet.get("pointers"), field="previous_dispatch_context_pointers"
         )
-        previous_by_path = {
-            pointer["path"]: pointer["sha256"] for pointer in previous_pointers
-        }
+        previous_by_path = {pointer["path"]: pointer for pointer in previous_pointers}
+        current_by_path = {pointer["path"]: pointer for pointer in packet["pointers"]}
         reload_required = sorted(
-            pointer["path"]
-            for pointer in pointers
-            if previous_by_path.get(pointer["path"]) != pointer["sha256"]
+            path for path, pointer in current_by_path.items()
+            if previous_by_path.get(path) != pointer
         )
-        if reloaded_pointers is None:
-            reloaded_by_path: dict[str, str] = {}
-        else:
-            normalized_reloaded = _normalize_dispatch_context_pointers(
-                reloaded_pointers,
-                field="reloaded_dispatch_context_pointers",
-            )
+        reloaded_by_path: dict[str, dict[str, object]] = {}
+        if reloaded_pointers is not None:
             reloaded_by_path = {
-                pointer["path"]: pointer["sha256"]
-                for pointer in normalized_reloaded
+                pointer["path"]: pointer
+                for pointer in normalize_pointers(
+                    reloaded_pointers, field="reloaded_dispatch_context_pointers"
+                )
             }
-        current_by_path = {
-            pointer["path"]: pointer["sha256"] for pointer in pointers
-        }
-        for path in sorted(reloaded_by_path):
+        for path, pointer in reloaded_by_path.items():
             if path not in reload_required:
                 raise ValueError(f"dispatch_context_reload_not_required:{path}")
-            if reloaded_by_path[path] != current_by_path.get(path):
-                raise ValueError(f"dispatch_context_reload_hash_mismatch:{path}")
+            if pointer != current_by_path.get(path):
+                raise ValueError(f"dispatch_context_reload_reference_mismatch:{path}")
         for path in reload_required:
             if reloaded_by_path.get(path) != current_by_path[path]:
                 raise ValueError(f"dispatch_context_reload_required:{path}")
     elif reloaded_pointers is not None:
         raise ValueError("dispatch_context_reload_without_resume")
-
-    return {
-        "packet": packet,
-        "packet_bytes": packet_bytes,
-        "packet_sha256": canonical_json_sha256(packet),
-        "reload_required": reload_required,
-    }
+    return {"packet": packet, "packet_bytes": packet_bytes, "reload_required": reload_required}
 
 
 def resume_context_problems(
@@ -818,8 +969,10 @@ def resume_context_problems(
     if not isinstance(receipt, dict):
         return context, ["semantic_receipt_missing"]
     problems: list[str] = []
-    for field in SEMANTIC_CONTEXT_FIELDS:
-        if field in {"authority_revision", "authority_sha256"}:
+    if "case_ref" not in receipt:
+        return context, ["court_code_required"]
+    for field in REFERENCE_SEMANTIC_CONTEXT_FIELDS:
+        if field == "authority_revision":
             continue
         if receipt.get(field) != context.get(field):
             problems.append(f"semantic_receipt_mismatch:{field}")
@@ -872,44 +1025,69 @@ def normalize_consultation_refs(value: object) -> list[dict[str, object]]:
         raise ValueError("consultation_refs_required")
     if len(value) > CONSULTATION_REF_MAX_COUNT:
         raise ValueError("consultation_refs_exceed_limit")
+    if not all(isinstance(item, dict) and "case_ref" in item for item in value):
+        raise ValueError("court_code_required")
+    from court_case_binding import case_reference, plan_reference
+
+    fields = {
+        "consultation_id",
+        "case_ref",
+        "plan_ref",
+        "from_role",
+        "to_role",
+        "purpose",
+        "input_pointer",
+        "reply_pointer",
+        "write_authority_granted",
+    }
     normalized: list[dict[str, object]] = []
-    seen: set[str] = set()
+    seen_ids: set[str] = set()
     for item in value:
-        if not isinstance(item, dict) or set(item) != CONSULTATION_REF_FIELDS:
+        if set(item) != fields:
             raise ValueError("consultation_ref_fields_invalid")
-        revision = item.get("charter_revision")
-        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
-            raise ValueError("consultation_ref_charter_revision_invalid")
+        reference = case_reference(item["case_ref"])
+        raw_plan = item.get("plan_ref")
+        plan_ref = None
+        if raw_plan is not None:
+            if not isinstance(raw_plan, Mapping):
+                raise ValueError("consultation_ref_plan_invalid")
+            plan_ref = plan_reference(raw_plan)
+            if (
+                plan_ref["court_code"] != reference["court_code"]
+                or plan_ref["charter_revision"] != reference["charter_revision"]
+            ):
+                raise ValueError("consultation_ref_plan_foreign")
+        consultation_id = _bounded_consultation_text(
+            item.get("consultation_id"), "consultation_id", 128
+        )
+        if consultation_id in seen_ids:
+            raise ValueError("consultation_ref_duplicate")
+        seen_ids.add(consultation_id)
+        from_role = _consultation_role(item.get("from_role"), "from_role")
+        to_role = _consultation_role(item.get("to_role"), "to_role")
+        if from_role == to_role:
+            raise ValueError("consultation_ref_roles_must_differ")
         if item.get("write_authority_granted") is not False:
             raise ValueError("consultation_ref_write_authority_forbidden")
-        reference = {
-            "task_id": _bounded_consultation_text(item.get("task_id"), "task_id", 128),
-            "charter_revision": revision,
-            "charter_sha256": _canonical_digest(
-                item.get("charter_sha256"), "consultation_ref_charter_sha256"
-            ),
-            "from_role": _consultation_role(item.get("from_role"), "from_role"),
-            "to_role": _consultation_role(item.get("to_role"), "to_role"),
-            "purpose": _bounded_consultation_text(
-                item.get("purpose"), "purpose", CONSULTATION_REF_MAX_PURPOSE_BYTES
-            ),
-            "input_pointer": _consultation_pointer(item.get("input_pointer"), "input_pointer"),
-            "input_sha256": _canonical_digest(
-                item.get("input_sha256"), "consultation_ref_input_sha256"
-            ),
-            "reply_pointer": _consultation_pointer(item.get("reply_pointer"), "reply_pointer"),
-            "reply_sha256": _canonical_digest(
-                item.get("reply_sha256"), "consultation_ref_reply_sha256"
-            ),
-            "write_authority_granted": False,
-        }
-        if reference["from_role"] == reference["to_role"]:
-            raise ValueError("consultation_ref_roles_must_differ")
-        identity = canonical_json_sha256(reference)
-        if identity in seen:
-            raise ValueError("consultation_ref_duplicate")
-        seen.add(identity)
-        normalized.append(reference)
+        normalized.append(
+            {
+                "consultation_id": consultation_id,
+                "case_ref": reference,
+                "plan_ref": plan_ref,
+                "from_role": from_role,
+                "to_role": to_role,
+                "purpose": _bounded_consultation_text(
+                    item.get("purpose"), "purpose", CONSULTATION_REF_MAX_PURPOSE_BYTES
+                ),
+                "input_pointer": _consultation_pointer(
+                    item.get("input_pointer"), "input_pointer"
+                ),
+                "reply_pointer": _consultation_pointer(
+                    item.get("reply_pointer"), "reply_pointer"
+                ),
+                "write_authority_granted": False,
+            }
+        )
     return normalized
 
 
@@ -919,12 +1097,18 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
     envelope = dict(value)
     if envelope.get("schema") != OFFICE_RESULT_SCHEMA:
         raise ValueError("invalid_result_envelope_schema")
+    if "case_ref" not in envelope:
+        raise ValueError("court_code_required")
+    if "plan_ref" not in envelope:
+        raise ValueError("result_envelope_plan_ref_required")
+    from court_case_binding import case_reference, plan_reference
+
     allowed_fields = {
         "schema",
         "task_id",
         "semantic_epoch",
-        "charter_sha256",
-        "invariant_capsule_sha256",
+        "case_ref",
+        "plan_ref",
         "checkpoint_id",
         "dispatch_uid",
         "attempt",
@@ -935,7 +1119,7 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
         "role",
         "direct_superior",
         "worktree",
-        "write_set_sha256",
+        "write_set",
         "status",
         "summary",
         "evidence",
@@ -959,8 +1143,6 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
         raise ValueError("result_envelope_unknown_field")
     text_fields = (
         "task_id",
-        "charter_sha256",
-        "invariant_capsule_sha256",
         "checkpoint_id",
         "dispatch_uid",
         "office_instance_id",
@@ -968,7 +1150,6 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
         "role",
         "direct_superior",
         "worktree",
-        "write_set_sha256",
         "status",
         "summary",
         "produced_at",
@@ -980,12 +1161,23 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
         raw = envelope.get(field)
         if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
             raise ValueError(f"invalid_result_envelope_field:{field}")
-    for field in (
-        "charter_sha256",
-        "invariant_capsule_sha256",
-        "write_set_sha256",
+    envelope["case_ref"] = case_reference(envelope["case_ref"])
+    raw_plan = envelope.get("plan_ref")
+    if raw_plan is not None:
+        if not isinstance(raw_plan, Mapping):
+            raise ValueError("invalid_result_envelope_field:plan_ref")
+        envelope["plan_ref"] = plan_reference(raw_plan)
+        if (
+            envelope["plan_ref"]["court_code"] != envelope["case_ref"]["court_code"]
+            or envelope["plan_ref"]["charter_revision"]
+            != envelope["case_ref"]["charter_revision"]
+        ):
+            raise ValueError("result_envelope_plan_foreign")
+    write_set = envelope.get("write_set")
+    if not isinstance(write_set, list) or any(
+        not isinstance(item, str) or not item.strip() for item in write_set
     ):
-        envelope[field] = _canonical_digest(envelope[field], field)
+        raise ValueError("invalid_result_envelope_field:write_set")
     if envelope["status"] not in {"completed", "failed", "cancelled"}:
         raise ValueError("invalid_result_envelope_field:status")
     evidence = envelope.get("evidence")
@@ -995,11 +1187,11 @@ def normalize_result_envelope(value: object) -> dict[str, object]:
         raise ValueError("invalid_result_envelope_field:evidence")
     if len(set(evidence)) != len(evidence):
         raise ValueError("result_envelope_duplicate_evidence")
+    kind = envelope.get("office_instance_kind")
+    proof = envelope.get("carrier_proof")
     if "office_instance_kind" in envelope:
-        kind = envelope["office_instance_kind"]
         if kind not in {"child_agent", "worktree_thread"}:
             raise ValueError("result_envelope_invalid_office_instance_kind")
-        proof = envelope.get("carrier_proof")
         if not isinstance(proof, dict):
             raise ValueError("result_envelope_carrier_proof_required")
         if kind == "child_agent":
@@ -1064,6 +1256,29 @@ def _unique_string_array_schema() -> dict[str, object]:
 
 
 def _consultation_refs_json_schema() -> dict[str, object]:
+    case_ref = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["court_code", "charter_revision"],
+        "properties": {
+            "court_code": _string_schema(),
+            "charter_revision": _positive_integer_schema(),
+        },
+    }
+    plan_ref = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["court_code", "charter_revision", "plan_revision"],
+        "properties": {
+            "court_code": _string_schema(),
+            "charter_revision": _positive_integer_schema(),
+            "plan_revision": _positive_integer_schema(),
+        },
+    }
+    fields = {
+        "consultation_id", "case_ref", "plan_ref", "from_role", "to_role",
+        "purpose", "input_pointer", "reply_pointer", "write_authority_granted",
+    }
     return {
         "type": "array",
         "minItems": 1,
@@ -1071,18 +1286,16 @@ def _consultation_refs_json_schema() -> dict[str, object]:
         "items": {
             "type": "object",
             "additionalProperties": False,
-            "required": sorted(CONSULTATION_REF_FIELDS),
+            "required": sorted(fields),
             "properties": {
-                "task_id": _string_schema(),
-                "charter_revision": _positive_integer_schema(),
-                "charter_sha256": _digest_schema(),
+                "consultation_id": _string_schema(),
+                "case_ref": case_ref,
+                "plan_ref": {"oneOf": [plan_ref, {"type": "null"}]},
                 "from_role": _string_schema(),
                 "to_role": _string_schema(),
                 "purpose": _string_schema(),
                 "input_pointer": _string_schema(),
-                "input_sha256": _digest_schema(),
                 "reply_pointer": _string_schema(),
-                "reply_sha256": _digest_schema(),
                 "write_authority_granted": {"type": "boolean", "const": False},
             },
         },
@@ -1116,8 +1329,8 @@ def office_result_envelope_json_schema() -> dict[str, object]:
         "schema",
         "task_id",
         "semantic_epoch",
-        "charter_sha256",
-        "invariant_capsule_sha256",
+        "case_ref",
+        "plan_ref",
         "checkpoint_id",
         "dispatch_uid",
         "attempt",
@@ -1126,7 +1339,7 @@ def office_result_envelope_json_schema() -> dict[str, object]:
         "role",
         "direct_superior",
         "worktree",
-        "write_set_sha256",
+        "write_set",
         "status",
         "summary",
         "evidence",
@@ -1136,8 +1349,30 @@ def office_result_envelope_json_schema() -> dict[str, object]:
         "schema": _string_schema(const=OFFICE_RESULT_SCHEMA),
         "task_id": _string_schema(),
         "semantic_epoch": _positive_integer_schema(),
-        "charter_sha256": _digest_schema(),
-        "invariant_capsule_sha256": _digest_schema(),
+        "case_ref": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["court_code", "charter_revision"],
+            "properties": {
+                "court_code": _string_schema(),
+                "charter_revision": _positive_integer_schema(),
+            },
+        },
+        "plan_ref": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["court_code", "charter_revision", "plan_revision"],
+                    "properties": {
+                        "court_code": _string_schema(),
+                        "charter_revision": _positive_integer_schema(),
+                        "plan_revision": _positive_integer_schema(),
+                    },
+                },
+                {"type": "null"},
+            ],
+        },
         "checkpoint_id": _string_schema(),
         "dispatch_uid": _string_schema(),
         "attempt": _positive_integer_schema(),
@@ -1151,7 +1386,7 @@ def office_result_envelope_json_schema() -> dict[str, object]:
         "role": _string_schema(),
         "direct_superior": _string_schema(),
         "worktree": _string_schema(),
-        "write_set_sha256": _digest_schema(),
+        "write_set": _unique_string_array_schema(),
         "status": {"type": "string", "enum": ["completed", "failed", "cancelled"]},
         "summary": _string_schema(),
         "evidence": _unique_string_array_schema(),
@@ -1170,9 +1405,9 @@ def office_result_envelope_json_schema() -> dict[str, object]:
 def result_quarantine_core_json_schema() -> dict[str, object]:
     required = {
         "schema", "quarantine_id", "payload_sha256", "task_id", "semantic_epoch",
-        "charter_sha256", "invariant_capsule_sha256", "checkpoint_id", "dispatch_uid",
-        "attempt", "office_instance_id", "office_instance_kind", "carrier_proof_sha256",
-        "agent_id", "role", "direct_superior", "worktree", "write_set_sha256",
+        "case_ref", "plan_ref", "checkpoint_id", "dispatch_uid",
+        "attempt", "office_instance_id", "office_instance_kind", "carrier_proof",
+        "agent_id", "role", "direct_superior", "worktree", "write_set",
         "source_status", "source_final_status", "source_release_status",
         "source_result_state", "failure_kind", "reason_codes", "received_at",
         "quarantine_event_id", "core_sha256",
@@ -1184,10 +1419,10 @@ def result_quarantine_core_json_schema() -> dict[str, object]:
             "semantic_epoch": _positive_integer_schema(),
             "attempt": _positive_integer_schema(),
             "payload_sha256": _digest_schema(),
-            "charter_sha256": _digest_schema(),
-            "invariant_capsule_sha256": _digest_schema(),
-            "carrier_proof_sha256": _digest_schema(),
-            "write_set_sha256": _digest_schema(),
+            "case_ref": {"type": "object"},
+            "plan_ref": {"type": ["object", "null"]},
+            "carrier_proof": {"type": "object"},
+            "write_set": _unique_string_array_schema(),
             "core_sha256": _digest_schema(),
             "source_status": _string_schema(const="failed"),
             "source_final_status": _string_schema(const="failed"),
@@ -1239,11 +1474,32 @@ def _result_recovery_receipt_schema(schema_name: str, fields: set[str]) -> dict[
     for field in (
         "quarantine_core_sha256", "previous_head_sha256", "projection_sha256",
         "review_receipt_sha256", "handoff_receipt_sha256", "target_binding_sha256",
-        "native_host_request_sha256", "native_host_action_receipt_sha256",
         "evidence_sha256", "receipt_sha256", "target_result_envelope_sha256",
     ):
         if field in fields:
             properties[field] = _digest_schema()
+    if "native_host_request_ref" in fields:
+        properties["native_host_request_ref"] = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["court_code", "office_instance_id", "dispatch_uid", "attempt"],
+            "properties": {
+                "court_code": _string_schema(),
+                "office_instance_id": _string_schema(),
+                "dispatch_uid": _string_schema(),
+                "attempt": _positive_integer_schema(),
+            },
+        }
+    if "native_host_action_receipt" in fields:
+        properties["native_host_action_receipt"] = {
+            "type": "object",
+            "required": ["receipt_id", "request_ref", "host_action_id"],
+            "properties": {
+                "receipt_id": _string_schema(),
+                "request_ref": properties.get("native_host_request_ref", {"type": "object"}),
+                "host_action_id": _string_schema(),
+            },
+        }
     return {"type": "object", "additionalProperties": False, "required": sorted(fields), "properties": properties}
 
 
@@ -1265,8 +1521,8 @@ def result_recovery_handoff_receipt_json_schema() -> dict[str, object]:
         {
             "schema", "receipt_id", "operation_id", "task_id", "task_revision", "quarantine_id",
             "recovery_id", "recovery_revision", "previous_head_sha256", "review_receipt_sha256",
-            "target_binding_sha256", "native_host_request_sha256", "native_host_action_receipt_id",
-            "native_host_action_receipt_sha256", "reason_codes", "evidence_pointer", "evidence_sha256",
+            "target_binding_sha256", "native_host_request_ref", "native_host_action_receipt_id",
+            "native_host_action_receipt", "reason_codes", "evidence_pointer", "evidence_sha256",
             "actor", "handed_off_at", "event_id", "receipt_sha256",
         },
     )
@@ -1288,15 +1544,15 @@ def result_recovery_projection_json_schema() -> dict[str, object]:
     """Closed, metadata-only projection used after Menxia review.
 
     The projection deliberately keeps the bounded result envelope shape and
-    adds only recovery identifiers and digests.  It never carries the source
+    adds only recovery identifiers and its own recovery integrity fields. It never carries the source
     envelope, transcript, prompt, or other raw/private material.
     """
     required = {
         "schema", "recovery_id", "quarantine_id", "source_payload_sha256",
-        "task_id", "semantic_epoch", "charter_sha256", "invariant_capsule_sha256",
+        "task_id", "semantic_epoch", "case_ref", "plan_ref",
         "checkpoint_id", "dispatch_uid", "attempt", "office_instance_id",
-        "office_instance_kind", "carrier_proof_sha256", "agent_id", "role",
-        "direct_superior", "worktree", "write_set_sha256", "status", "summary",
+        "office_instance_kind", "carrier_proof", "agent_id", "role",
+        "direct_superior", "worktree", "write_set", "status", "summary",
         "evidence", "produced_at", "projection_sha256",
     }
     properties: dict[str, object] = {field: _string_schema() for field in required}
@@ -1305,14 +1561,19 @@ def result_recovery_projection_json_schema() -> dict[str, object]:
             "schema": _string_schema(const=RESULT_RECOVERY_PROJECTION_SCHEMA),
             "semantic_epoch": _positive_integer_schema(),
             "attempt": _positive_integer_schema(),
+            "case_ref": {
+                "type": "object", "additionalProperties": False,
+                "required": ["court_code", "charter_revision"],
+                "properties": {"court_code": _string_schema(), "charter_revision": _positive_integer_schema()},
+            },
+            "plan_ref": {"type": ["object", "null"]},
+            "carrier_proof": {"type": "object"},
+            "write_set": _unique_string_array_schema(),
             "evidence": _unique_string_array_schema(),
             "projection_sha256": _digest_schema(),
         }
     )
-    for field in (
-        "source_payload_sha256", "charter_sha256", "invariant_capsule_sha256",
-        "carrier_proof_sha256", "write_set_sha256",
-    ):
+    for field in ("source_payload_sha256",):
         properties[field] = _digest_schema()
     properties["office_instance_kind"] = {
         "type": "string",
@@ -1416,19 +1677,19 @@ def build_result_recovery_projection(
         "source_payload_sha256": source_result_payload_sha256(envelope),
         "task_id": envelope["task_id"],
         "semantic_epoch": envelope["semantic_epoch"],
-        "charter_sha256": envelope["charter_sha256"],
-        "invariant_capsule_sha256": envelope["invariant_capsule_sha256"],
+        "case_ref": deepcopy(envelope["case_ref"]),
+        "plan_ref": deepcopy(envelope["plan_ref"]),
         "checkpoint_id": envelope["checkpoint_id"],
         "dispatch_uid": envelope["dispatch_uid"],
         "attempt": envelope["attempt"],
         "office_instance_id": envelope["office_instance_id"],
         "office_instance_kind": kind,
-        "carrier_proof_sha256": canonical_json_sha256(envelope.get("carrier_proof", {})),
+        "carrier_proof": deepcopy(envelope.get("carrier_proof", {})),
         "agent_id": envelope["agent_id"],
         "role": envelope["role"],
         "direct_superior": envelope["direct_superior"],
         "worktree": envelope["worktree"],
-        "write_set_sha256": envelope["write_set_sha256"],
+        "write_set": deepcopy(envelope["write_set"]),
         "status": envelope["status"],
         "summary": summary,
         "evidence": _bounded_evidence_pointers(envelope["evidence"]),
@@ -1448,16 +1709,35 @@ def validate_result_recovery_projection(
     required = set(result_recovery_projection_json_schema()["required"])
     if set(value) != required or value.get("schema") != RESULT_RECOVERY_PROJECTION_SCHEMA:
         raise ValueError("result_recovery_projection_schema_mismatch")
-    for field in (
-        "source_payload_sha256", "charter_sha256", "invariant_capsule_sha256",
-        "carrier_proof_sha256", "write_set_sha256", "projection_sha256",
-    ):
+    for field in ("source_payload_sha256", "projection_sha256"):
         _canonical_digest(value.get(field), field)
     for field in ("semantic_epoch", "attempt"):
         raw = value.get(field)
         if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
             raise ValueError("result_recovery_projection_schema_mismatch")
     if value.get("office_instance_kind") not in {"child_agent", "worktree_thread"}:
+        raise ValueError("result_recovery_projection_schema_mismatch")
+    try:
+        from court_case_binding import case_reference, plan_reference
+
+        case_ref = case_reference(value.get("case_ref"))
+        raw_plan = value.get("plan_ref")
+        if raw_plan is not None:
+            plan_ref = plan_reference(raw_plan)
+            if (
+                plan_ref["court_code"] != case_ref["court_code"]
+                or plan_ref["charter_revision"] != case_ref["charter_revision"]
+            ):
+                raise ValueError("result_recovery_projection_schema_mismatch")
+    except (TypeError, ValueError) as exc:
+        if isinstance(exc, ValueError) and str(exc) == "result_recovery_projection_schema_mismatch":
+            raise
+        raise ValueError("result_recovery_projection_schema_mismatch") from exc
+    if not isinstance(value.get("carrier_proof"), Mapping):
+        raise ValueError("result_recovery_projection_schema_mismatch")
+    if not isinstance(value.get("write_set"), list) or any(
+        not isinstance(item, str) or not item.strip() for item in value["write_set"]
+    ):
         raise ValueError("result_recovery_projection_schema_mismatch")
     summary = value.get("summary")
     if not isinstance(summary, str) or len(summary.encode("utf-8")) > 2048 or any(
@@ -1558,19 +1838,19 @@ def build_result_quarantine_core(
         "payload_sha256": source_payload,
         "task_id": envelope["task_id"],
         "semantic_epoch": envelope["semantic_epoch"],
-        "charter_sha256": envelope["charter_sha256"],
-        "invariant_capsule_sha256": envelope["invariant_capsule_sha256"],
+        "case_ref": deepcopy(envelope["case_ref"]),
+        "plan_ref": deepcopy(envelope["plan_ref"]),
         "checkpoint_id": envelope["checkpoint_id"],
         "dispatch_uid": envelope["dispatch_uid"],
         "attempt": envelope["attempt"],
         "office_instance_id": envelope["office_instance_id"],
         "office_instance_kind": kind,
-        "carrier_proof_sha256": canonical_json_sha256(carrier),
+        "carrier_proof": deepcopy(carrier),
         "agent_id": envelope["agent_id"],
         "role": envelope["role"],
         "direct_superior": envelope["direct_superior"],
         "worktree": envelope["worktree"],
-        "write_set_sha256": envelope["write_set_sha256"],
+        "write_set": deepcopy(envelope["write_set"]),
         "source_status": "failed",
         "source_final_status": "failed",
         "source_release_status": "closed",
@@ -1596,8 +1876,30 @@ def validate_result_quarantine_core(value: object) -> dict[str, object]:
         raise ValueError("result_quarantine_core_schema_mismatch")
     if value.get("schema") != "court.office.result_quarantine.v2":
         raise ValueError("result_quarantine_core_schema_mismatch")
-    for field in ("payload_sha256", "charter_sha256", "invariant_capsule_sha256", "carrier_proof_sha256", "write_set_sha256", "core_sha256"):
+    for field in ("payload_sha256", "core_sha256"):
         _canonical_digest(value.get(field), field)
+    try:
+        from court_case_binding import case_reference, plan_reference
+
+        case_ref = case_reference(value.get("case_ref"))
+        raw_plan = value.get("plan_ref")
+        if raw_plan is not None:
+            plan_ref = plan_reference(raw_plan)
+            if (
+                plan_ref["court_code"] != case_ref["court_code"]
+                or plan_ref["charter_revision"] != case_ref["charter_revision"]
+            ):
+                raise ValueError("result_quarantine_core_schema_mismatch")
+    except (TypeError, ValueError) as exc:
+        if isinstance(exc, ValueError) and str(exc) == "result_quarantine_core_schema_mismatch":
+            raise
+        raise ValueError("result_quarantine_core_schema_mismatch") from exc
+    if not isinstance(value.get("carrier_proof"), Mapping):
+        raise ValueError("result_quarantine_core_schema_mismatch")
+    if not isinstance(value.get("write_set"), list) or any(
+        not isinstance(item, str) or not item.strip() for item in value["write_set"]
+    ):
+        raise ValueError("result_quarantine_core_schema_mismatch")
     if value.get("source_status") != "failed" or value.get("source_final_status") != "failed" or value.get("source_release_status") != "closed" or value.get("source_result_state") != "QUARANTINED" or value.get("failure_kind") != "result_binding_quarantine":
         raise ValueError("result_quarantine_core_terminal_state_mismatch")
     reasons = value.get("reason_codes")
@@ -1686,9 +1988,9 @@ def validate_result_recovery_head(
 
 def result_recovery_target_binding_fields() -> tuple[str, ...]:
     return (
-        "task_id", "semantic_epoch", "charter_sha256", "invariant_capsule_sha256",
+        "task_id", "semantic_epoch", "case_ref", "plan_ref",
         "checkpoint_id", "dispatch_uid", "attempt", "office_instance_id", "office_instance_kind",
-        "carrier_proof", "agent_id", "role", "direct_superior", "worktree", "write_set_sha256",
+        "carrier_proof", "agent_id", "role", "direct_superior", "worktree", "write_set",
         "hierarchy_schema", "hierarchy_gate", "hierarchy_edge_class", "preload_status",
         "office_execution_ready", "status", "final_status", "release_status", "result_state",
     )
@@ -1764,11 +2066,21 @@ def result_binding_problems(
     envelope: dict[str, object],
     binding: dict[str, object],
 ) -> list[str]:
+    if "case_ref" not in envelope:
+        return ["agent_result_binding_mismatch:case_ref"]
+    from court_case_binding import case_reference
+
+    binding_ref = binding.get("case_ref")
+    if not isinstance(binding_ref, Mapping):
+        binding_ref = {
+            "court_code": binding.get("court_code"),
+            "charter_revision": binding.get(
+                "charter_revision", binding.get("semantic_epoch")
+            ),
+        }
     expected = {
-        "task_id": binding.get("task_id"),
+        "case_ref": case_reference(binding_ref),
         "semantic_epoch": binding.get("semantic_epoch"),
-        "charter_sha256": binding.get("charter_sha256"),
-        "invariant_capsule_sha256": binding.get("invariant_capsule_sha256"),
         "checkpoint_id": binding.get("checkpoint_id"),
         "dispatch_uid": binding.get("dispatch_uid"),
         "attempt": binding.get("attempt"),
@@ -1777,7 +2089,7 @@ def result_binding_problems(
         "role": binding.get("role"),
         "direct_superior": binding.get("direct_superior"),
         "worktree": binding.get("worktree"),
-        "write_set_sha256": canonical_json_sha256(binding.get("write_set", [])),
+        "write_set": binding.get("write_set", []),
     }
     problems = [
         f"agent_result_binding_mismatch:{field}"
@@ -1821,19 +2133,31 @@ def semantic_binding_for_revision(
     charter: object,
     revision: int,
     invariant_capsule: object | None = None,
+    *,
+    court_code: str | None = None,
 ) -> dict[str, object]:
     if not isinstance(charter, str) or not charter.strip():
         raise ValueError("charter_body_required")
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         raise ValueError("invalid_charter_revision")
-    charter_sha256 = sha256_text(charter)
-    capsule = normalize_invariant_capsule(charter, charter_sha256, invariant_capsule)
+    if court_code is None:
+        raise ValueError("court_code_required")
+    from court_case_binding import case_reference
+
+    case_ref = case_reference(
+        {"court_code": court_code, "charter_revision": revision}
+    )
+    template = normalize_invariant_capsule(charter, invariant_capsule)
+    capsule = normalize_invariant_capsule(
+        charter,
+        {**template, "case_ref": case_ref},
+        case_ref=case_ref,
+    )
     return {
         "charter_revision": revision,
         "semantic_epoch": revision,
-        "charter_sha256": charter_sha256,
+        "court_code": case_ref["court_code"],
         "invariant_capsule": capsule,
-        "invariant_capsule_sha256": canonical_json_sha256(capsule),
         "semantic_state": "UNVERIFIED",
         "semantic_receipt": {},
         "semantic_receipt_id": None,
@@ -1844,8 +2168,15 @@ def semantic_binding_for_revision(
 def initial_semantic_binding(
     charter: object,
     invariant_capsule: object | None = None,
+    *,
+    court_code: str | None = None,
 ) -> dict[str, object]:
     return {
-        **semantic_binding_for_revision(charter, 1, invariant_capsule),
+        **semantic_binding_for_revision(
+            charter,
+            1,
+            invariant_capsule,
+            court_code=court_code,
+        ),
         "charter_revision_history": [],
     }

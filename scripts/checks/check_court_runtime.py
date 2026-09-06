@@ -14,6 +14,7 @@ from copy import deepcopy
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,7 +28,6 @@ import court_office_bootstrap
 from checks.installed_identity_fixture import FIXTURE_DIGEST
 from court_office_bootstrap import (
     build_child_office_profile,
-    canonical_child_office_binding_sha256,
 )
 from court_multi_agent_protocol import (
     ProtocolRequirements,
@@ -42,8 +42,6 @@ from court_multi_agent_protocol import (
 )
 from court_codex_protocol_launcher import ProtocolSwitchLedger, SwitchInProgress, execute_switch
 from check_court_agent_lifecycle import (
-    context_budget_pool,
-    dispatch_context_packet,
     run_agent_lifecycle_checks,
     installed_runtime_identity_fixture,
 )
@@ -73,7 +71,6 @@ def formal_gate_fixture(*, mutates_state: bool = False) -> dict[str, object]:
 
 def create_args(task_id: str, *, intake_gate: object, work_kind: str = "audit") -> Namespace:
     charter = "formal runtime schema fixture"
-    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
     return Namespace(
         title=task_id,
         charter=charter,
@@ -88,7 +85,6 @@ def create_args(task_id: str, *, intake_gate: object, work_kind: str = "audit") 
         invariant_capsule={
             "schema": "court.semantic.invariant_capsule.v1",
             "latest_decree_anchor": charter,
-            "latest_decree_sha256": charter_sha256,
             "non_goals": ["do not mutate real runtime state"],
             "boundaries": ["TemporaryDirectory fixture only"],
             "allowed_actions": ["synthetic runtime verification"],
@@ -97,30 +93,38 @@ def create_args(task_id: str, *, intake_gate: object, work_kind: str = "audit") 
             "evidence_requirements": ["machine-readable receipt"],
             "stop_gates": ["semantic drift"],
             "write_set": ["scripts/check_court_runtime.py"],
-            "governing_hashes": {"fixture": charter_sha256},
-            "charter_sha256": charter_sha256,
         },
         invariant_capsule_file=None,
     )
 
 
-def _semantic_context_fixture() -> dict[str, object]:
-    digest = lambda label: hashlib.sha256(label.encode("utf-8")).hexdigest()
+def _semantic_context_fixture(task_id: str | None = None) -> dict[str, object]:
+    task = court_runtime.load_tasks().get(task_id or "")
+    if isinstance(task, dict):
+        from court_case_binding import case_reference, plan_reference
+
+        reference = case_reference(task)
+        plan = task.get("zhongshu_plan")
+        return {
+            "authority_revision": reference["charter_revision"],
+            "case_ref": reference,
+            "plan_ref": plan_reference(plan) if isinstance(plan, dict) else None,
+            "plan_cursor": "runtime-checker",
+            "recovery_checkpoint_id": "runtime-checker-recovery",
+            "shiguan_revision": 0,
+        }
     return {
         "authority_revision": 1,
-        "authority_sha256": digest("runtime-authority"),
-        "plan_revision": 1,
-        "plan_sha256": digest("runtime-plan"),
+        "case_ref": {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 1},
+        "plan_ref": None,
         "plan_cursor": "runtime-checker",
-        "git_fingerprint": "runtime-checker-head",
         "recovery_checkpoint_id": "runtime-checker-recovery",
         "shiguan_revision": 0,
-        "shiguan_fingerprint": digest("runtime-synthetic-shiguan"),
     }
 
 
 def _make_task_dispatchable(task_id: str) -> dict[str, object]:
-    context = _semantic_context_fixture()
+    context = _semantic_context_fixture(task_id)
     common = dict(
         task_id=task_id,
         semantic_context=context,
@@ -138,28 +142,25 @@ def _make_task_dispatchable(task_id: str) -> dict[str, object]:
 
 
 def _bind_admission_args(args: Namespace, task: dict[str, object]) -> Namespace:
+    from court_case_binding import case_reference
+
     receipt = task["semantic_receipt"]
     args.expected_semantic_epoch = task["semantic_epoch"]
-    args.expected_charter_sha256 = task["charter_sha256"]
-    args.expected_invariant_capsule_sha256 = task["invariant_capsule_sha256"]
+    args.case_ref = case_reference(task)
     args.expected_checkpoint_id = receipt["checkpoint_id"]
-    bindings = json.loads(args.requested_bindings_json)
-    for binding in bindings:
-        if binding.pop("child_profile", None) is None:
-            continue
-        role = str(binding["role"])
-        binding.update(
-            child_role="GongBu-GongJiang" if role == "gongbu" else f"{role}-worker",
-            bounded_mandate="execute one synthetic runtime admission shard",
-            expected_result="return one bounded runtime admission receipt",
-            terminal_condition="stop after the synthetic admission is evaluated",
-        )
+    # New contract: bindings already carry the full child_profile produced by
+    # build_child_office_profile; do not pop/rebuild it or the lease's
+    # approved_bindings will no longer byte-match the requested bindings.
     lease = json.loads(args.budget_lease_json)
     lease.pop("approved_binding_sha256s", None)
-    args.requested_bindings_json = json.dumps(bindings, ensure_ascii=False)
+    args.requested_bindings_json = args.requested_bindings_json
     args.budget_lease_json = json.dumps(lease, ensure_ascii=False)
-    args.dispatch_context_packet = dispatch_context_packet(task, args.wave_id)
-    args.context_budget_pool = context_budget_pool(str(task["task_id"]), args.wave_id)
+    args.dispatch_context_packet = court_runtime.public_dispatch_context_packet(
+        task, args.wave_id
+    )
+    args.context_budget_pool = court_runtime.public_context_budget_pool(
+        task, args.wave_id
+    )
     args.context_result_mode = "bounded_structured_receipt"
     args.context_tool_output_mode = "pointer"
     args.context_override_source = None
@@ -176,6 +177,8 @@ def _public_admission_fixture(
     calling_office: str = "shangshu",
     worker_only: bool = False,
     next_depth: int = 2,
+    approved_bindings_count: int | None = None,
+    generated_profiles: bool = False,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     normalized_roles = court_runtime.parse_requested_roles(roles, len(roles))
     count = len(normalized_roles) if approved_count is None else approved_count
@@ -197,18 +200,24 @@ def _public_admission_fixture(
     ministry_roles = {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
     role_counts: dict[str, int] = {}
     bindings: list[dict[str, object]] = []
+    task = court_runtime.load_tasks().get(task_id)
+    from court_case_binding import case_reference
+
+    case_ref = case_reference(task) if isinstance(task, dict) else {
+        "court_code": "COURT-20260906-1-AAAA", "charter_revision": 1,
+    }
     for index, role in enumerate(normalized_roles):
         role_counts[role] = role_counts.get(role, 0) + 1
         role_number = role_counts[role]
         instance_id = f"{role}#{role_number:04d}"
         worker = role in ministry_roles and (worker_only or role_number > 1)
         try:
-            preload_hashes = court_runtime._semantic_preload_hashes(role)
+            preload_sources = court_runtime._semantic_preload_sources(role)
         except ValueError:
-            preload_hashes = {
-                "profile_hash": "1" * 64,
-                "dossier_hash": "2" * 64,
-                "court_skill_hash": "3" * 64,
+            preload_sources = {
+                "profile_source": f"agents/standing-officials/{role}.toml",
+                "dossier_path": f"agents/office-dossiers/{role}/AGENTS.md",
+                "court_skill_path": "SKILL.md",
             }
         binding: dict[str, object] = {
             "role": role,
@@ -223,9 +232,9 @@ def _public_admission_fixture(
             "read_scope": [f"work/{role}/{role_number:04d}.txt"],
             "mutation_allowed": True,
             "integration_authority": False,
-            "preload_hashes": dict(preload_hashes),
+            "preload_sources": dict(preload_sources),
         }
-        if worker:
+        if worker and not generated_profiles:
             child_profile = dict(
                 build_child_office_profile(
                     {
@@ -238,16 +247,14 @@ def _public_admission_fixture(
                         "terminal_condition": "stop after the synthetic admission is evaluated",
                     },
                     child_role="GongBu-GongJiang" if role == "gongbu" else f"{role}-worker",
-                    profile_sha256=preload_hashes["profile_hash"],
-                    dossier_sha256=preload_hashes["dossier_hash"],
-                    skill_sha256=preload_hashes["court_skill_hash"],
-                    dispatch_context_packet_sha256="4" * 64,
-                    semantic_receipt_sha256="5" * 64,
-                    invariant_capsule_sha256="6" * 64,
+                    case_ref=case_ref,
+                    semantic_receipt_id="SC-RUNTIME-FIXTURE",
                     expires_at_utc="2099-01-01T00:00:00Z",
                 )
             )
             binding["child_profile"] = child_profile
+            binding["case_ref"] = child_profile["case_ref"]
+            binding["semantic_receipt_id"] = child_profile["semantic_receipt_id"]
             for outer_field, profile_field in {
                 "child_role": "child_role",
                 "bounded_mandate": "bounded_mandate",
@@ -306,18 +313,20 @@ def _public_admission_fixture(
             }
             for binding in approved
         },
-        "approved_binding_sha256s": {
-            str(binding["instance_id"]): canonical_child_office_binding_sha256(
-                binding
-            )
-            for binding in approved
-            if isinstance(binding.get("child_profile"), dict)
-        },
-        "approved_preload_hashes": {
-            str(binding["instance_id"]): dict(binding["preload_hashes"])
+        "approved_preload_sources": {
+            str(binding["instance_id"]): dict(binding["preload_sources"])
             for binding in approved
         },
     }
+    if approved_bindings_count is not None and not generated_profiles:
+        lease["approved_bindings"] = {
+            str(binding["instance_id"]): dict(binding)
+            for binding in approved[:approved_bindings_count]
+            if (
+                binding.get("canonical_authority") is False
+                or isinstance(binding.get("child_profile"), dict)
+            )
+        }
     return lease, bindings
 
 
@@ -348,7 +357,12 @@ def _public_admission_fields(
     }
 
 
-def _cardinality_fixture(*, approved_count: int = 17) -> tuple[dict[str, object], list[dict[str, object]]]:
+def _cardinality_fixture(
+    *,
+    approved_count: int = 17,
+    approved_bindings_count: int | None = None,
+    generated_profiles: bool = False,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
     return _public_admission_fixture(
         task_id="runtime-cardinality",
         roles=tuple("gongbu" for _ in range(17)),
@@ -356,6 +370,8 @@ def _cardinality_fixture(*, approved_count: int = 17) -> tuple[dict[str, object]
         approved_count=approved_count,
         calling_office="gongbu",
         worker_only=True,
+        approved_bindings_count=approved_bindings_count,
+        generated_profiles=generated_profiles,
     )
 
 
@@ -366,8 +382,16 @@ def _cardinality_args(
     unlimited: bool = False,
     control_source: str | None = None,
     memory_percent: float = 40.0,
+    approved_bindings_count: int | None = None,
+    generated_profiles: bool = False,
 ) -> Namespace:
-    lease, bindings = _cardinality_fixture(approved_count=approved_count)
+    lease, bindings = _cardinality_fixture(
+        approved_count=approved_count,
+        approved_bindings_count=(
+            approved_count if approved_bindings_count is None else approved_bindings_count
+        ),
+        generated_profiles=generated_profiles,
+    )
     argv = [
         "agent-admit",
         "--task-id", "runtime-cardinality",
@@ -425,31 +449,49 @@ def _cardinality_create_args() -> Namespace:
 def check_runtime_parallel_cardinality() -> None:
     task = {"task_id": "runtime-cardinality", "agents": {}}
 
-    default = court_runtime.evaluate_agent_admission(task, _cardinality_args())
+    default = court_runtime.evaluate_agent_admission(
+        task, _cardinality_args(approved_bindings_count=17)
+    )
     assert len(default["selected_roles"]) == 15
 
     explicit_17 = court_runtime.evaluate_agent_admission(
         task,
-        _cardinality_args(explicit_count=17, control_source="current_user_explicit"),
+        _cardinality_args(
+            explicit_count=17,
+            control_source="current_user_explicit",
+            approved_bindings_count=17,
+        ),
     )
     assert len(explicit_17["selected_roles"]) == 16
 
     explicit_18 = court_runtime.evaluate_agent_admission(
         task,
-        _cardinality_args(explicit_count=18, control_source="current_user_explicit"),
+        _cardinality_args(
+            explicit_count=18,
+            control_source="current_user_explicit",
+            approved_bindings_count=17,
+        ),
     )
     assert len(explicit_18["selected_roles"]) == 17
 
     unlimited = court_runtime.evaluate_agent_admission(
         task,
-        _cardinality_args(unlimited=True, control_source="current_user_explicit"),
+        _cardinality_args(
+            unlimited=True,
+            control_source="current_user_explicit",
+            approved_bindings_count=17,
+        ),
     )
     assert len(unlimited["selected_roles"]) == 17
 
     for source in (None, "prior_memory"):
         stale = court_runtime.evaluate_agent_admission(
             task,
-            _cardinality_args(explicit_count=18, control_source=source),
+            _cardinality_args(
+                explicit_count=18,
+                control_source=source,
+                approved_bindings_count=17,
+            ),
         )
         assert stale["allowed"] is False
         assert "parallel_override_not_current_user_explicit" in stale["selection_basis"]
@@ -465,6 +507,7 @@ def check_runtime_parallel_cardinality() -> None:
             explicit_count=18,
             control_source="current_user_explicit",
             memory_percent=99.0,
+            approved_bindings_count=17,
         ),
     )
     assert len(pressure["selected_roles"]) == 15
@@ -478,7 +521,7 @@ def check_runtime_instance_keyed_routes() -> None:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             admission = court_runtime.agent_admit(
-                _bind_admission_args(_cardinality_args(approved_count=3), task)
+                _bind_admission_args(_cardinality_args(approved_count=3, generated_profiles=True), task)
             )
             assert tuple(admission["model_routes"]) == (
                 "gongbu#0001",
@@ -541,12 +584,12 @@ def _instance_start_args(
     )
     for field in court_runtime.AGENT_SEMANTIC_ARG_FIELDS:
         setattr(args, field, binding[field])
-    args.dispatch_context_packet = dispatch_context_packet(
+    args.dispatch_context_packet = court_runtime.public_dispatch_context_packet(
         task,
         "runtime-cardinality-wave",
     )
-    args.context_budget_pool = context_budget_pool(
-        str(task["task_id"]),
+    args.context_budget_pool = court_runtime.public_context_budget_pool(
+        task,
         "runtime-cardinality-wave",
     )
     args.context_result_mode = binding["context_result_mode"]
@@ -581,7 +624,7 @@ def check_runtime_instance_keyed_spawn_failure() -> None:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             court_runtime.agent_admit(
-                _bind_admission_args(_cardinality_args(approved_count=3), task)
+                _bind_admission_args(_cardinality_args(approved_count=3, generated_profiles=True), task)
             )
             try:
                 court_runtime.agent_spawn_failed(_spawn_failed_args(instance_id=None))
@@ -617,7 +660,7 @@ def check_runtime_instance_keyed_spawn_failure() -> None:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             court_runtime.agent_admit(
-                _bind_admission_args(_cardinality_args(approved_count=1), task)
+                _bind_admission_args(_cardinality_args(approved_count=1, generated_profiles=True), task)
             )
             inferred = court_runtime.agent_spawn_failed(
                 _spawn_failed_args(instance_id=None)
@@ -635,7 +678,7 @@ def check_runtime_instance_keyed_consumption() -> None:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             admission = court_runtime.agent_admit(
-                _bind_admission_args(_cardinality_args(approved_count=3), task)
+                _bind_admission_args(_cardinality_args(approved_count=3, generated_profiles=True), task)
             )
             dispatch_requested_at = str(admission["dispatch_requested_at"])
             court_runtime.agent_start(
@@ -1067,7 +1110,7 @@ def check_rejected_admission_has_zero_runtime_side_effects() -> None:
         try:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
-            args = _bind_admission_args(_cardinality_args(approved_count=1), task)
+            args = _bind_admission_args(_cardinality_args(approved_count=1, generated_profiles=True), task)
             args.requested_fork_turns = "all"
             before = deepcopy(court_runtime.load_tasks()["runtime-cardinality"])
             before_events = court_runtime.events_for_task(
@@ -1102,7 +1145,7 @@ def check_admission_immutable_event_anchor_rejects_coherent_rewrite() -> None:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             admission = court_runtime.agent_admit(
-                _bind_admission_args(_cardinality_args(approved_count=1), task)
+                _bind_admission_args(_cardinality_args(approved_count=1, generated_profiles=True), task)
             )
             tasks = court_runtime.load_tasks()
             stored = tasks["runtime-cardinality"]["agent_admissions"][
@@ -1122,12 +1165,10 @@ def check_admission_immutable_event_anchor_rejects_coherent_rewrite() -> None:
             lease["approved_access_contracts"]["gongbu#0001"][
                 "read_scope"
             ] = list(rebound_scope)
-            lease["approved_binding_sha256s"]["gongbu#0001"] = (
-                canonical_child_office_binding_sha256(requested)
-            )
-            stored["admission_binding_sha256s"]["gongbu#0001"] = (
-                canonical_child_office_binding_sha256(selected)
-            )
+            # Non-hash anchor: detect tamper by changing a field that the
+            # binding-dict anchor actually compares (write/read scope are
+            # excluded by contract; hash maps are no longer part of the product).
+            selected["direct_superior"] = "taizi"
             court_runtime.write_tasks(tasks)
 
             try:
@@ -1155,13 +1196,13 @@ def check_canonical_preload_hashes_bound_before_admission() -> None:
         try:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
-            args = _bind_admission_args(_cardinality_args(approved_count=1), task)
+            args = _bind_admission_args(_cardinality_args(approved_count=1, generated_profiles=True), task)
             bindings = json.loads(args.requested_bindings_json)
             lease = json.loads(args.budget_lease_json)
-            forged = dict(bindings[0]["preload_hashes"])
-            forged["profile_hash"] = "f" * 64
-            bindings[0]["preload_hashes"] = forged
-            lease["approved_preload_hashes"]["gongbu#0001"] = dict(forged)
+            forged = dict(bindings[0]["preload_sources"])
+            forged["dossier_path"] = "agents/office-dossiers/forged/AGENTS.md"
+            bindings[0]["preload_sources"] = dict(forged)
+            lease["approved_preload_sources"]["gongbu#0001"] = dict(forged)
             args.requested_bindings_json = json.dumps(bindings, ensure_ascii=False)
             args.budget_lease_json = json.dumps(lease, ensure_ascii=False)
 
@@ -1171,7 +1212,7 @@ def check_canonical_preload_hashes_bound_before_admission() -> None:
                 assert "agent_admission_canonical_preload_mismatch" in str(exc)
             else:
                 raise AssertionError(
-                    "forged but request/lease-consistent preload hashes were admitted"
+                    "forged but request/lease-consistent preload sources were admitted"
                 )
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
@@ -1191,7 +1232,7 @@ def check_omitted_capsule_denies_mutable_admission() -> None:
             court_runtime.create_task(create)
             task = _make_task_dispatchable("runtime-cardinality")
             args = _bind_admission_args(
-                _cardinality_args(approved_count=1),
+                _cardinality_args(approved_count=1, generated_profiles=True),
                 task,
             )
             before = {
@@ -1223,7 +1264,7 @@ def check_full_context_private_body_not_persisted() -> None:
             court_runtime.create_task(_cardinality_create_args())
             task = _make_task_dispatchable("runtime-cardinality")
             args = _bind_admission_args(
-                _cardinality_args(approved_count=1),
+                _cardinality_args(approved_count=1, generated_profiles=True),
                 task,
             )
             private_sentinel = "PRIVATE-CONTEXT-BODY-MUST-NOT-PERSIST"
@@ -1293,8 +1334,7 @@ def check_public_create_help_contract() -> None:
             "court.semantic.invariant_capsule.v1",
             "court.request_understanding.v1",
             "95",
-            "sha256(exact UTF-8 charter)",
-            "13 fields",
+            "The issued court_code and",
             "2048",
         ):
             assert fragment in help_text, f"PUBLIC_CREATE_HELP_MISSING:{fragment}"
@@ -1310,7 +1350,7 @@ def check_public_create_help_contract() -> None:
         assert gate_schema["additionalProperties"] is False
         assert capsule_schema["additionalProperties"] is False
         assert gate_schema["optional"] == ["target_task_id", "understanding"]
-        assert capsule_schema["optional"] == []
+        assert capsule_schema["optional"] == ["case_ref"]
         assert contract["minimal_formal_task"]["message_class"] == "FORMAL_TASK"
         assert contract["minimal_formal_task"]["understanding"]["score"] >= 95
         assert gate_schema["properties"]["understanding"]["$id"] == "court.request_understanding.v1"
@@ -1352,22 +1392,20 @@ def check_public_create_help_contract() -> None:
         assert template_result.returncode == 0, template_result.stderr
         template = json.loads(template_result.stdout)
         capsule = template["invariant_capsule"]
-        expected_digest = hashlib.sha256(charter.encode("utf-8")).hexdigest()
-        assert len(capsule) == 13
-        assert capsule["latest_decree_sha256"] == expected_digest == capsule["charter_sha256"]
+        assert len(capsule) == 10
+        assert "charter_sha256" not in capsule and "latest_decree_sha256" not in capsule
         anchor = capsule["latest_decree_anchor"]
         assert charter.startswith(anchor) and len(anchor.encode("utf-8")) <= 256
         assert len(json.dumps(capsule, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")) <= 2048
 
         exact_charter = " \r\n诏令：保留前后空白、CRLF 与非 ASCII。\r\n "
-        exact_digest = hashlib.sha256(exact_charter.encode("utf-8")).hexdigest()
         exact_template_result = run(
             "intake-template", "--charter", exact_charter, "--format", "json"
         )
         assert exact_template_result.returncode == 0, exact_template_result.stderr
         exact_template = json.loads(exact_template_result.stdout)
         assert exact_template["charter"] == exact_charter, "PUBLIC_EXACT_CHARTER_REWRITTEN"
-        assert exact_template["invariant_capsule"]["charter_sha256"] == exact_digest
+        assert "charter_sha256" not in exact_template["invariant_capsule"]
         assert exact_template["invariant_capsule"]["latest_decree_anchor"] == exact_charter
         exact_intake_file = temp_root / "exact-intake.json"
         exact_intake_file.write_text(
@@ -1381,8 +1419,12 @@ def check_public_create_help_contract() -> None:
         assert exact_create.returncode == 0, exact_create.stderr
         exact_task = json.loads(exact_create.stdout)["task"]
         assert exact_task["charter"] == exact_charter, "STORED_EXACT_CHARTER_REWRITTEN"
-        assert exact_task["charter_sha256"] == exact_digest
-        assert exact_task["invariant_capsule"]["charter_sha256"] == exact_digest
+        assert exact_task["charter_revision"] == 1
+        assert re.fullmatch(
+            r"[A-Z0-9]+-\d{8}-[A-Z0-9]+-(?:[A-Z0-9]{4,6}-)?[A-Z0-9]{4}",
+            str(exact_task["court_code"]),
+        )
+        assert "charter_sha256" not in exact_task["invariant_capsule"]
 
         intake_file = temp_root / "intake.json"
         intake_file.write_text(json.dumps(template["conversation_gate"]), encoding="utf-8")
@@ -1395,7 +1437,7 @@ def check_public_create_help_contract() -> None:
             "--invariant-capsule-file", str(wrong_capsule_file), "--format", "json",
         )
         assert wrong_validate.returncode == 2
-        assert "charter_sha256_mismatch" in wrong_validate.stdout
+        assert "invariant_capsule_fields_unknown:charter_sha256" in wrong_validate.stdout
         wrong_before = {
             path.relative_to(runtime_root).as_posix(): path.read_bytes()
             for path in runtime_root.rglob("*")
@@ -1421,17 +1463,12 @@ def check_public_create_help_contract() -> None:
         )
         assert omitted.returncode == 0, omitted.stderr
         omitted_task = json.loads(omitted.stdout)["task"]
-        assert len(omitted_task["invariant_capsule"]) == 13
-        assert omitted_task["invariant_capsule"]["charter_sha256"] == expected_digest
-        omitted_canonical = json.dumps(
-            omitted_task["invariant_capsule"],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        assert omitted_task["invariant_capsule_sha256"] == hashlib.sha256(
-            omitted_canonical
-        ).hexdigest()
+        assert len(omitted_task["invariant_capsule"]) == 11
+        assert "charter_sha256" not in omitted_task["invariant_capsule"]
+        assert omitted_task["invariant_capsule"].get("case_ref") == {
+            "court_code": str(omitted_task["court_code"]),
+            "charter_revision": int(omitted_task["charter_revision"]),
+        }
 
 
 def _main() -> int:
@@ -1510,10 +1547,10 @@ def _main() -> int:
             "read_scope": [f"synthetic/runtime-capacity/{index}"],
             "mutation_allowed": True,
             "integration_authority": False,
-            "preload_hashes": {
-                "profile_hash": "1" * 64,
-                "dossier_hash": "2" * 64,
-                "court_skill_hash": "3" * 64,
+            "preload_sources": {
+                "profile_source": f"agents/standing-officials/{role}.toml",
+                "dossier_path": f"agents/office-dossiers/{role}/AGENTS.md",
+                "court_skill_path": "SKILL.md",
             },
         }
         for index, role in enumerate(capacity_roles)
@@ -1566,8 +1603,8 @@ def _main() -> int:
             }
             for binding in capacity_bindings
         },
-        "approved_preload_hashes": {
-            str(binding["instance_id"]): dict(binding["preload_hashes"])
+        "approved_preload_sources": {
+            str(binding["instance_id"]): dict(binding["preload_sources"])
             for binding in capacity_bindings
         },
     }

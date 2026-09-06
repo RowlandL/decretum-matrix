@@ -1057,7 +1057,7 @@ def _native_role_schema_errors(path: Path) -> list[str]:
             errors.append(f"{key}:must_be_dynamic_spawn_metadata")
     instructions = str(data.get("developer_instructions") or "")
     for term in (
-        "preload_contract_version", "court_skill_hash", "preload_ack",
+        "preload_contract_version", "court_skill_path", "preload_ack",
         "agent_dossier_loaded", "loaded_skills", "/root/*",
         "Codex model route", "Claude Code model route", "Hermes model route",
     ):

@@ -1,17 +1,20 @@
 {
-  "name": "decretum-matrix",
-  "version": "beta1.1.0",
-  "description": "Decretum Matrix optional Codex plugin activation shell for the skill and read-only MCP.",
   "author": {
     "name": "RowlandL"
   },
-  "license": "AGPL-3.0-only",
+  "description": "Decretum Matrix optional Codex plugin activation shell for the skill and read-only MCP.",
   "interface": {
-    "displayName": "Decretum Matrix",
-    "shortDescription": "Skill activation metadata and read-only MCP routing.",
-    "longDescription": "Keeps the optional Codex plugin activation entrypoint available while beta1.0.8 ships the skill and read-only MCP only. CLI and MCP remain the authoritative transports.",
-    "developerName": "RowlandL",
+    "capabilities": [
+      "Optional plugin activation",
+      "Read-only court integration"
+    ],
     "category": "Productivity",
-    "capabilities": ["Optional plugin activation", "Read-only court integration"]
-  }
+    "developerName": "RowlandL",
+    "displayName": "Decretum Matrix",
+    "longDescription": "Keeps the optional Codex plugin activation entrypoint available while beta1.0.8 ships the skill and read-only MCP only. CLI and MCP remain the authoritative transports.",
+    "shortDescription": "Skill activation metadata and read-only MCP routing."
+  },
+  "license": "AGPL-3.0-only",
+  "name": "decretum-matrix",
+  "version": "beta1.1.1"
 }

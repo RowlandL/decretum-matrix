@@ -2118,8 +2118,7 @@ def install_current_agent_copy(
             "explicit_extra_targets": _explicit_extra_targets,
             "selected_roots": _selected_roots,
             "authority": "installer",
-            "preload_identity_manifest": "references/manifests/installed-preload-identity.v1.json",
-            "preload_identity_policy": "installation_pinned_runtime_no_file_rehash",
+            "preload_identity_policy": "court_number_with_observed_office_reads",
         }
         if validated_source_package_sha256 is not None:
             _receipt_body["source_package_sha256"] = validated_source_package_sha256

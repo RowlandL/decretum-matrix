@@ -23,7 +23,7 @@ def load_module(name: str, path: Path) -> Any:
         raise RuntimeError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module
+    return sys.modules.get(name, module)
 
 
 def check(condition: bool, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:

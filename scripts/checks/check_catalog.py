@@ -367,8 +367,16 @@ def check_agent_capability_access(agents_root: Path) -> list[str]:
                 if isinstance(instructions, str):
                     capability_text = instructions
                     bound_text = bound_standing_profile_text(instructions, agent_name)
+            profile_text = ""
+            profile_path = skill_root() / "agents" / "standing-officials" / agent_name
+            if profile_path.is_file():
+                profile_text = profile_path.read_text(encoding="utf-8", errors="replace")
             for term in REQUIRED_AGENT_ACCESS_TERMS:
-                if term not in capability_text and (bound_text is None or term not in bound_text):
+                if (
+                    term not in capability_text
+                    and (bound_text is None or term not in bound_text)
+                    and term not in profile_text
+                ):
                     missing.append(f"{root_label}:{agent_name}:{term}")
     return missing
 

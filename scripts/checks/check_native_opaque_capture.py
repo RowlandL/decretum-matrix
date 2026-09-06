@@ -1,4 +1,4 @@
-"""Opaque host storage and skill-before-tool order regressions; no file hashes."""
+"""Opaque host storage and skill-before-tool order regressions."""
 from pathlib import Path
 import sys
 sys.dont_write_bytecode = True
@@ -12,7 +12,8 @@ from unittest.mock import patch
 from commands import court_native_bridge as bridge
 from checks.check_court_native_bridge import _request, _execution, _p00_context
 from court_native_host_dispatch import validate_native_host_action_receipt
-from court_native_trace import skill_read_order, NativeEvidencePending
+from court_case_binding import office_capsule_reference
+from court_native_trace import skill_read_order, NativeEvidencePending, _invokes_court_cli, _command_text
 from court_office_bootstrap import build_preload_manifest
 from checks.installed_identity_fixture import write_skill
 
@@ -26,6 +27,10 @@ def fixture(home: Path, *, ministry=False, root_distinct=False):
     if not ministry:
         request.update(role='zhongshu', direct_superior='taizi')
         request['role_ack'].update(role='zhongshu', direct_superior='taizi')
+    request['office_capsule_ref'] = office_capsule_reference(
+        request['case_ref'], request['role'], request['instance_id'],
+        '2026-09-06T09:05:00+08:00',
+    )
     native = bridge.native_request_result(request, execution=_execution(), p00_context=_p00_context(request))
     arguments = copy.deepcopy(native['host_invocation']['arguments'])
     arguments['message'] = 'gAAAAA' + 'A' * 120  # Deliberately not a decryptable payload.
@@ -121,6 +126,10 @@ class OpaqueCaptureTests(unittest.TestCase):
             rows, meta, context, save, capture = fixture(Path(tmp))
             request = _request(); request.update(role='zhongshu', direct_superior='taizi')
             request['role_ack'].update(role='zhongshu', direct_superior='taizi')
+            request['office_capsule_ref'] = office_capsule_reference(
+                request['case_ref'], request['role'], request['instance_id'],
+                '2026-09-06T09:05:00+08:00',
+            )
             args = json.loads(rows[1]['payload']['arguments'])
             args['message'] = bridge.canonical_host_message(request, execution=_execution(), p00_context=_p00_context(request))
             rows[1]['payload']['arguments'] = json.dumps(args); save()
@@ -132,6 +141,17 @@ class OpaqueCaptureTests(unittest.TestCase):
 
 
 class SkillOrderTests(unittest.TestCase):
+    def test_shell_wrappers_preserve_executable_positions(self):
+        for argv in (
+            ['bash', '-lc', 'exec decretum-matrix court status'],
+            ['pwsh.exe', '-Command', '$r = decretum-matrix court status'],
+            ['python', 'bin/decretum-matrix.py', 'court', 'status'],
+        ):
+            with self.subTest(argv=argv):
+                self.assertTrue(_invokes_court_cli(_command_text({'command': argv})))
+        self.assertFalse(_invokes_court_cli(_command_text(
+            {'command': ['rg', '-c', 'decretum-matrix', 'scripts']})))
+
     def test_captured_ack_requires_active_install_and_child_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -140,7 +160,7 @@ class SkillOrderTests(unittest.TestCase):
             root = home/'skills/decretum-matrix'; root.mkdir(parents=True); write_skill(root)
             manifest = build_preload_manifest('zhongshu', skill_root=root)
             record = {'native_host_spawn_evidence':captured,'role':'zhongshu','office_instance_id':'instance',
-                      'native_host_request_sha256':'a'*64}
+                      'native_host_request_ref':{'court_code':'ZL-20260906-0001-TEST','office_instance_id':'instance','dispatch_uid':'DSP-test','attempt':1}}
             trace = next((home/'sessions').rglob(f'*{CHILD}.jsonl'))
             header = json.loads(trace.read_text(encoding='utf-8'))
             reads = []
@@ -149,7 +169,7 @@ class SkillOrderTests(unittest.TestCase):
                     'item':{'type':'CommandExecution','id':'read-'+kind,'status':'completed','exit_code':0,
                     'command':['Get-Content -Raw'],'parsed_cmd':[{'type':'read','cmd':'Get-Content -Raw','path':str(root/path)}]}}})
             ack = {'schema':'court.child_preload_acceptance.v1','task_id':'test','role_key':'zhongshu',
-                'office_instance_id':'instance','request_sha256':'a'*64,
+                'office_instance_id':'instance','request_ref':{'court_code':'ZL-20260906-0001-TEST','office_instance_id':'instance','dispatch_uid':'DSP-test','attempt':1},
                 'skill_loaded':True,'profile_loaded':True,'dossier_loaded':True}
             event = {'type':'event_msg','payload':{'type':'item_completed','thread_id':CHILD,
                 'item':{'type':'AgentMessage','phase':'commentary','id':'ack','content':[{'type':'Text','text':json.dumps(ack)}]}}}
@@ -178,7 +198,7 @@ class SkillOrderTests(unittest.TestCase):
             batch_text = '; '.join("Get-Content -LiteralPath '"+paths[k][0]+"' -Raw" for k in ('profile','dossier'))
             batch = command(batch_text, [{'type':'unknown','cmd':batch_text}])
             ack = {'schema':'court.child_preload_acceptance.v1','task_id':'test','role_key':'zhongshu',
-                'office_instance_id':'instance','request_sha256':'a'*64,
+                'office_instance_id':'instance','request_ref':{'court_code':'ZL-20260906-0001-TEST','office_instance_id':'instance','dispatch_uid':'DSP-test','attempt':1},
                 'skill_loaded':True,'profile_loaded':True,'dossier_loaded':True}
             event = {'type':'event_msg','payload':{'type':'item_completed','thread_id':CHILD,
                 'item':{'type':'AgentMessage','id':'child-acceptance','phase':'commentary','content':[{'type':'Text','text':json.dumps(ack)}]}}}
@@ -188,6 +208,14 @@ class SkillOrderTests(unittest.TestCase):
             def verify(values):
                 return skill_read_order(values,paths,child_ack=ack,child_thread_id=CHILD)
             self.assertEqual(verify(rows)['child_acceptance_event'],'child-acceptance')
+            for lookup in (
+                "rg -n -m 5 -A 8 -B 2 'decretum-matrix' CODE_CAPABILITY_INDEX.md",
+                "Get-Command decretum-matrix",
+                "Write-Output 'decretum-matrix court status'",
+            ):
+                with self.subTest(lookup=lookup):
+                    self.assertEqual(verify([command(lookup, []), *rows])['child_acceptance_event'],
+                                     'child-acceptance')
             mixed = command('Get-Content full batch', [*skill['payload']['item']['parsed_cmd'], *batch['payload']['item']['parsed_cmd']])
             self.assertEqual(verify([mixed,event,output])['child_acceptance_event'],'child-acceptance')
             for option in ('', '-Path ', '-LiteralPath '):
@@ -209,7 +237,11 @@ class SkillOrderTests(unittest.TestCase):
                 with self.subTest(alias=alias), self.assertRaises(ValueError):verify([cli,*rows])
                 with self.subTest(alias=alias), self.assertRaises(ValueError):verify([skill,cli,batch,event])
             for entrance in ('python -B scripts/court_cli.py', 'python -B scripts/court_runtime.py',
-                             'node bin/decretum-matrix.js'):
+                             'node bin/decretum-matrix.js',
+                             "& 'C:/Program Files/court/decretum-matrix.cmd'",
+                             "rg 'decretum-matrix' index.md; decretum-matrix",
+                             "$result = decretum-matrix", "$result=decretum-matrix",
+                             "try { decretum-matrix"):
                 with self.subTest(entrance=entrance), self.assertRaises(ValueError):
                     verify([command(entrance+' agent-report', []), *rows])
             for suffix in (' | Select-Object -First 1', ' -TotalCount 2'):

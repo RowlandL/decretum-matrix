@@ -162,13 +162,8 @@ def main() -> int:
         from archive_checkpoint import build_archive_receipt
 
         receipt = build_archive_receipt(archives[0], entries[0], {})
-        expected_record_sha256 = hashlib.sha256(
-            json.dumps(
-                entries[0], ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            ).encode("utf-8")
-        ).hexdigest()
         assert receipt["recorded_at"] == entries[0]["time"]
-        assert receipt["record_sha256"] == expected_record_sha256
+        assert receipt["record_ref"] == "shiguan:" + str(entries[0]["court_code"])
         refresh_request = shared_root / "references" / "obsidian-sync" / "refresh-request.json"
         refresh_value = json.loads(refresh_request.read_text(encoding="utf-8"))
         assert refresh_value["reason"] == "archive_checkpoint"

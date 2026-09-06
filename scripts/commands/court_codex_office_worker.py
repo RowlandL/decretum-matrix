@@ -18,7 +18,6 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 from datetime import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -37,13 +36,8 @@ from court_office_bootstrap import build_preload_manifest
 
 HOST_PROOF_SCHEMA = "court.codex_fresh_worker_host_proof.v1"
 WORKER_SCHEMA = "court.codex_fresh_worker.v1"
-SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 ALLOWED_SANDBOXES = frozenset({"read-only", "workspace-write"})
 REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _canonical_json(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _bounded(value: object, field: str, *, maximum: int) -> str:
@@ -64,20 +58,12 @@ def _canonical_uuid(value: object, field: str) -> str:
     return canonical
 
 
-def _canonical_sha256(value: object, field: str) -> str:
-    text = str(value or "").strip()
-    if not SHA256_RE.fullmatch(text):
-        raise ValueError(f"{field} must be a SHA256 digest")
-    return text.lower()
-
-
 def validate_host_proof(value: object) -> dict[str, object]:
     if not isinstance(value, dict) or value.get("schema") != HOST_PROOF_SCHEMA:
         raise ValueError("fresh-worker host proof schema mismatch")
     if value.get("verified") is not True:
         raise ValueError("fresh-worker host proof is not verified")
     version = _bounded(value.get("codex_version"), "codex_version", maximum=64)
-    binary_sha256 = _canonical_sha256(value.get("binary_sha256"), "binary_sha256")
     verified_at = _bounded(value.get("verified_at"), "verified_at", maximum=64)
     try:
         parsed = datetime.fromisoformat(verified_at)
@@ -112,11 +98,9 @@ def validate_host_proof(value: object) -> dict[str, object]:
         "schema": HOST_PROOF_SCHEMA,
         "verified": True,
         "codex_version": version,
-        "binary_sha256": binary_sha256,
         "verified_at": verified_at,
         "model_effort_pairs": pairs,
     }
-    normalized["proof_sha256"] = hashlib.sha256(_canonical_json(normalized)).hexdigest()
     return normalized
 
 
@@ -159,14 +143,15 @@ def build_worker_plan(
     if (model, effort) not in proved_pairs:
         raise ValueError("recommended model/effort pair lacks host proof")
     manifest = build_preload_manifest(str(role).strip().lower())
-    dossier_file = (REPO_ROOT / Path(manifest.dossier_path)).resolve()
+    skill_path = Path(manifest.court_skill_path)
+    preload_root = skill_path.resolve().parent if skill_path.is_absolute() else REPO_ROOT
+    dossier_file = (preload_root / Path(manifest.dossier_path)).resolve()
     try:
-        dossier_file.relative_to(REPO_ROOT)
+        dossier_file.relative_to(preload_root)
     except ValueError as exc:
         raise ValueError("office dossier locator escaped the repository root") from exc
     dossier_dir = str(dossier_file.parent)
     native_path_text: str | None = None
-    native_sha256: str | None = None
     native_file_identity: dict[str, int] | None = None
     if native_codex_path is not None:
         native_path = Path(native_codex_path).expanduser().resolve()
@@ -204,23 +189,18 @@ def build_worker_plan(
         "direct_superior": manifest.direct_superior,
         "dossier_dir": dossier_dir,
         "dossier_locator": manifest.dossier_path,
-        "dossier_hash": manifest.dossier_hash,
-        "profile_hash": manifest.profile_hash,
-        "court_skill_hash": manifest.court_skill_hash,
+        "profile_source": manifest.profile_source,
+        "court_skill_path": manifest.court_skill_path,
         "model_route_id": route["model_route_id"],
         "model": model,
         "reasoning_effort": effort,
         "model_override_applied": True,
         "inheritance_policy": "fresh_session_top_level_host_override_verified",
-        "host_proof_sha256": normalized_proof["proof_sha256"],
+        "host_proof": normalized_proof,
         "host_proof_codex_version": normalized_proof["codex_version"],
-        "host_proof_binary_sha256": normalized_proof["binary_sha256"],
         "native_codex_path": native_path_text,
-        "native_codex_sha256": native_sha256,
         "native_file_identity": native_file_identity,
         "native_identity_basis": "path_and_stat" if native_path_text else "UNAVAILABLE_PLAN_ONLY",
-        "native_binary_verification": "UNAVAILABLE_NOT_REHASHED",
-        "host_proof_binary_identity_basis": "HOST_PROOF_DECLARED",
         "sandbox": sandbox_mode,
         "argv": argv,
     }
@@ -358,7 +338,6 @@ def run_worker(plan: dict[str, object], *, timeout_seconds: int = 600) -> dict[s
         "reasoning_effort": plan["reasoning_effort"],
         "model_override_applied": True,
         "session_evidence": metadata,
-        "native_binary_verification": "UNAVAILABLE_NOT_REHASHED",
         "final_text": final_text,
         "raw_stderr_persisted": False,
     }

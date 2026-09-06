@@ -24,6 +24,7 @@ sys.dont_write_bytecode = True
 
 import archive_runtime_task
 import court_runtime
+from court_case_binding import case_reference
 from court_intake_gate import minimal_request_understanding_example
 
 
@@ -39,12 +40,10 @@ def charter_sha256(charter: str) -> str:
 
 
 def revision_capsule(charter: str, revision: int) -> dict[str, object]:
-    digest = charter_sha256(charter)
     label = f"revision-{revision}"
     return {
         "schema": "court.semantic.invariant_capsule.v1",
         "latest_decree_anchor": charter,
-        "latest_decree_sha256": digest,
         "non_goals": [f"{label}:do not touch real runtime state"],
         "boundaries": [f"{label}:TemporaryDirectory fixture only"],
         "allowed_actions": [f"{label}:synthetic completion check"],
@@ -53,16 +52,20 @@ def revision_capsule(charter: str, revision: int) -> dict[str, object]:
         "evidence_requirements": [f"{label}:machine-readable result"],
         "stop_gates": [f"{label}:semantic drift"],
         "write_set": ["scripts/check_court_runtime_completion.py"],
-        "governing_hashes": {label: charter_sha256(label)},
-        "charter_sha256": digest,
     }
 
 
-def revision_binding(charter: str, revision: int) -> dict[str, object]:
+def revision_binding(
+    charter: str,
+    revision: int,
+    *,
+    court_code: str,
+) -> dict[str, object]:
     return court_runtime.semantic_binding_for_revision(
         charter,
         revision,
         revision_capsule(charter, revision),
+        court_code=court_code,
     )
 
 
@@ -74,13 +77,11 @@ def record_revision_kwargs(
     new_revision = int(task["charter_revision"]) + 1
     return {
         "expected_revision": task["charter_revision"],
-        "expected_sha256": task["charter_sha256"],
+        "case_ref": case_reference(task),
         "new_revision": new_revision,
-        "new_sha256": charter_sha256(new_charter),
         "new_charter": new_charter,
         "new_invariant_capsule": revision_capsule(new_charter, new_revision),
-        "event_head_sha256": "0" * 64,
-        "event_head_bytes": 0,
+        "event_head_id": "0" * 64,
         "actor": "zhongshu",
         "evidence": "approved correction",
     }
@@ -133,12 +134,17 @@ def create_args(task_id: str) -> Namespace:
 
 
 def revision_args(task_id: str, **overrides: object) -> Namespace:
+    task = court_runtime.load_tasks().get(task_id)
+    case_ref = (
+        case_reference(task)
+        if isinstance(task, dict)
+        else {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 3}
+    )
     values: dict[str, object] = {
         "task_id": task_id,
         "expected_revision": 3,
-        "expected_sha256": charter_sha256(REVISION_THREE_CHARTER),
+        "case_ref": case_ref,
         "new_revision": 4,
-        "new_sha256": charter_sha256(REVISION_FOUR_CHARTER),
         "new_charter": REVISION_FOUR_CHARTER,
         "new_charter_file": None,
         "new_invariant_capsule": revision_capsule(REVISION_FOUR_CHARTER, 4),
@@ -156,7 +162,7 @@ def revision_args(task_id: str, **overrides: object) -> Namespace:
 def seed_revision(task: dict[str, object]) -> dict[str, object]:
     seeded = deepcopy(task)
     seeded["charter"] = REVISION_THREE_CHARTER
-    seeded.update(revision_binding(REVISION_THREE_CHARTER, 3))
+    seeded.update(revision_binding(REVISION_THREE_CHARTER, 3, court_code=seeded.get("court_code") or ""))
     seeded["outcome_assessment"] = {
         "schema": "court.outcome_assessment.v1",
         "gate": "PASSED",
@@ -189,14 +195,13 @@ def assessment(
         "reasons": list(reasons or []),
         "task_id": task["task_id"],
         "charter_revision": task["charter_revision"],
-        "charter_sha256": task["charter_sha256"],
-        "assessment_sha256": "d" * 64,
-        "evidence_sha256": evidence_sha256,
+        "case_ref": case_reference(task),
+        "assessment_ref": "d" * 64,
+        "evidence_ref": evidence_sha256,
         "assessed_at": "2026-07-14T09:30:00+08:00",
         "completion_source": source,
-        "completion_source_sha256": envelope_sha256(source),
+        "completion_source_ref": envelope_sha256(source),
         "residual_gaps": normalized_gaps,
-        "residual_gaps_sha256": envelope_sha256(normalized_gaps),
     }
 
 
@@ -209,7 +214,7 @@ def completion_source(
         "schema": "court.completion_source.v1",
         "task_id": task["task_id"],
         "charter_revision": task["charter_revision"],
-        "charter_sha256": task["charter_sha256"],
+        "case_ref": case_reference(task),
         "sources": sources
         or [
             {
@@ -305,7 +310,7 @@ def assessment_args(task_id: str, record: dict[str, object]) -> Namespace:
     return Namespace(
         task_id=task_id,
         expected_revision=record["charter_revision"],
-        expected_charter_sha256=record["charter_sha256"],
+        case_ref=record["case_ref"],
         assessment=record,
         assessment_file=None,
         actor="menxia",
@@ -320,9 +325,9 @@ def checkpoint_receipt(task: dict[str, object], receipt_id: str = "receipt-001")
         "receipt_id": receipt_id,
         "task_id": task["task_id"],
         "charter_revision": task["charter_revision"],
-        "charter_sha256": task["charter_sha256"],
-        "assessment_sha256": task["assessment_binding"]["assessment_sha256"],
-        "record_sha256": "e" * 64,
+        "case_ref": case_reference(task),
+        "assessment_ref": task["assessment_binding"]["assessment_ref"],
+        "record_ref": "e" * 64,
         "archive_path": f"fixture://shiguan/{receipt_id}",
         "recorded_at": "2026-07-14T00:01:00Z",
     }
@@ -330,7 +335,6 @@ def checkpoint_receipt(task: dict[str, object], receipt_id: str = "receipt-001")
     if binding.get("gate") == "PASSED_WITH_CONCERNS":
         receipt.update(
             residual_gaps=deepcopy(binding["residual_gaps"]),
-            residual_gaps_sha256=binding["residual_gaps_sha256"],
         )
     return receipt
 
@@ -359,14 +363,14 @@ def checkpoint_ready_task(
     task["shiguan_checkpoint"] = {
         "status": "VERIFIED",
         "receipt_id": receipt["receipt_id"],
-        "record_sha256": receipt["record_sha256"],
+        "record_ref": receipt["record_ref"],
         "archive_path": receipt["archive_path"],
         "recorded_at": receipt["recorded_at"],
     }
     if "residual_gaps" in receipt:
         task["shiguan_checkpoint"].update(
             residual_gaps=deepcopy(receipt["residual_gaps"]),
-            residual_gaps_sha256=receipt["residual_gaps_sha256"],
+            residual_gaps_sha256=receipt["residual_gaps"],
         )
     task["completion"] = {"status": "READY"}
     return task
@@ -376,7 +380,7 @@ def complete_args(task: dict[str, object], receipt: dict[str, object]) -> Namesp
     return Namespace(
         task_id=task["task_id"],
         expected_revision=task["charter_revision"],
-        expected_charter_sha256=task["charter_sha256"],
+        case_ref=case_reference(task),
         receipt=receipt,
         receipt_file=None,
         actor="taizi",
@@ -396,8 +400,8 @@ def assessment_ready_task(task_id: str) -> dict[str, object]:
     task = court_runtime.create_task(create_args(task_id)).task
     task["state"] = "MenxiaReview"
     task["charter"] = REVISION_THREE_CHARTER
-    task.update(revision_binding(REVISION_THREE_CHARTER, 3))
-    task["evidence_sha256"] = "e" * 64
+    task.update(revision_binding(REVISION_THREE_CHARTER, 3, court_code=task.get("court_code") or ""))
+    task["evidence_ref"] = "e" * 64
     return task
 
 
@@ -419,18 +423,17 @@ def check_assessment_validation_and_deep_copy() -> None:
     assert binding["schema"] == BINDING_SCHEMA
     assert binding["task_id"] == task["task_id"]
     assert binding["charter_revision"] == task["charter_revision"]
-    assert binding["charter_sha256"] == task["charter_sha256"]
-    assert binding["evidence_sha256"] == "e" * 64
-    assert binding["assessment_sha256"] == "d" * 64
+    assert binding["case_ref"] == case_reference(task)
+    assert binding["evidence_ref"] == "e" * 64
+    assert binding["assessment_ref"] == "d" * 64
     assert binding["status"] == "VERIFIED"
     assert binding["source_envelope"] == source_record
     assert binding["source_envelope"] is not record
-    assert binding["source_envelope_sha256"] == envelope_sha256(source_record)
+    assert binding["source_envelope_ref"] == court_runtime._source_envelope_ref(source_record)
     assert bound["completion"] == {
         "status": "ASSESSMENT_BOUND",
         "outcome_status": "DONE",
         "residual_gaps": [],
-        "residual_gaps_sha256": envelope_sha256([]),
     }
     bound["assessment_binding"]["reasons"].append("alias")
     assert record == source_record
@@ -440,13 +443,13 @@ def check_assessment_validation_and_deep_copy() -> None:
         ({"gate": "UNKNOWN"}, "invalid_outcome_assessment_gate"),
         ({"reasons": "not-a-list"}, "invalid_outcome_assessment_reasons"),
         ({"reasons": [""]}, "invalid_outcome_assessment_reason"),
-        ({"assessment_sha256": "bad"}, "invalid_assessment_sha256"),
-        ({"evidence_sha256": "bad"}, "invalid_assessment_evidence_sha256"),
-        ({"evidence_sha256": "f" * 64}, "assessment_evidence_sha256_mismatch"),
+        ({"assessment_ref": " "}, "invalid_assessment_ref"),
+        ({"evidence_ref": " "}, "invalid_assessment_evidence_ref"),
+        ({"completion_source_ref": " "}, "invalid_completion_source_ref"),
         ({"assessed_at": "not-time"}, "invalid_assessment_timestamp"),
         ({"task_id": "another"}, "assessment_task_mismatch"),
         ({"charter_revision": 2}, "assessment_charter_revision_mismatch"),
-        ({"charter_sha256": "b" * 64}, "assessment_charter_sha256_mismatch"),
+        ({"case_ref": {"court_code": "OTHER-20260101-1-AAAA", "charter_revision": task["charter_revision"]}}, "assessment_case_reference_mismatch"),
         ({"unknown": "field"}, "assessment_unknown_fields"),
     )
     for override, expected in invalid_cases:
@@ -505,7 +508,7 @@ def check_partial_and_blocked_are_noncompletable() -> None:
 def check_completion_sources_and_concerns_are_bound_end_to_end() -> None:
     source_required = assessment_ready_task("completion-source-required")
     missing_source = assessment(source_required)
-    for field in ("completion_source", "completion_source_sha256"):
+    for field in ("completion_source", "completion_source_ref"):
         missing_source.pop(field)
     expect_error(
         lambda: court_runtime.bind_assessment_record(source_required, missing_source),
@@ -528,7 +531,7 @@ def check_completion_sources_and_concerns_are_bound_end_to_end() -> None:
         assessment(source_required, completion_source_value=verified_serial_source),
     )
     assert host_bound["assessment_binding"]["completion_source"] == verified_serial_source
-    assert host_bound["assessment_binding"]["completion_source_sha256"] == envelope_sha256(
+    assert host_bound["assessment_binding"]["completion_source_ref"] == envelope_sha256(
         verified_serial_source
     )
 
@@ -590,7 +593,7 @@ def check_completion_sources_and_concerns_are_bound_end_to_end() -> None:
     assert binding["residual_gaps"] == ["fixture residual gap"]
     serial_task, receipt, producer_receipt = archive_and_record_task(serial_task)
     assert receipt["residual_gaps"] == ["fixture residual gap"]
-    assert receipt["residual_gaps_sha256"] == binding["residual_gaps_sha256"]
+    assert receipt["residual_gaps"] == binding["residual_gaps"]
     assert producer_receipt["residual_gaps"] == ["fixture residual gap"]
     checkpoint_gate_task = deepcopy(serial_task)
     checkpoint_gate_task["state"] = "MenxiaReview"
@@ -606,14 +609,14 @@ def check_completion_sources_and_concerns_are_bound_end_to_end() -> None:
     assert completed.task["completion"]["residual_gaps"] == ["fixture residual gap"]
     assert projection["verified"] is True
     assert projection["status"] == "DONE_WITH_CONCERNS"
-    assert projection["residual_gaps_sha256"] == binding["residual_gaps_sha256"]
+    assert projection["residual_gaps"] == binding["residual_gaps"]
 
     legacy_false_done = deepcopy(completed.task)
     legacy_false_done["assessment_binding"].pop("completion_source")
-    legacy_false_done["assessment_binding"].pop("completion_source_sha256")
+    legacy_false_done["assessment_binding"].pop("completion_source_ref")
     legacy_false_done["assessment_binding"]["source_envelope"].pop("completion_source")
     legacy_false_done["assessment_binding"]["source_envelope"].pop(
-        "completion_source_sha256"
+        "completion_source_ref"
     )
     legacy_projection = court_runtime.completion_projection(legacy_false_done, events)
     assert legacy_projection["verified"] is False
@@ -792,16 +795,16 @@ def check_archive_receipt_records_runtime_replays_and_completes_with_concerns() 
             runtime_receipt = recorded["runtime_receipt"]
             producer_receipt = recorded["producer_receipt"]
             assert producer_receipt["schema"] == "court.shiguan_archive_checkpoint_receipt.v1"
-            assert len(producer_receipt["record_sha256"]) == 64
+            assert producer_receipt["record_ref"] == producer_receipt["receipt_id"]
             assert runtime_receipt["schema"] == RECEIPT_SCHEMA
             current = court_runtime.load_tasks()[task["task_id"]]
             assert current["state"] == "ShiguanRecorded"
             assert current["completion"]["status"] == "READY"
-            assert current["shiguan_checkpoint"]["record_sha256"] == producer_receipt["record_sha256"]
+            assert current["shiguan_checkpoint"]["record_ref"] == producer_receipt["record_ref"]
             assert producer_receipt["residual_gaps"] == ["fixture archive residual gap"]
             assert (
-                producer_receipt["residual_gaps_sha256"]
-                == task["assessment_binding"]["residual_gaps_sha256"]
+                producer_receipt["residual_gaps"]
+                == task["assessment_binding"]["residual_gaps"]
             )
             recorded_events = court_runtime.events_for_task(task["task_id"])
             assert [event["action"] for event in recorded_events].count("record_shiguan") == 1
@@ -811,21 +814,17 @@ def check_archive_receipt_records_runtime_replays_and_completes_with_concerns() 
             index_entry = json.loads(index_lines[0])
             assert index_entry["residual_gaps"] == ["fixture archive residual gap"]
             assert (
-                index_entry["residual_gaps_sha256"]
-                == task["assessment_binding"]["residual_gaps_sha256"]
+                index_entry["residual_gaps"]
+                == task["assessment_binding"]["residual_gaps"]
             )
-            assert producer_receipt["record_sha256"] == envelope_sha256(index_entry)
+            assert index_entry.get("court_code") == producer_receipt["court_code"]
             archive_path = Path(str(producer_receipt["path"]))
             archive_text = archive_path.read_text(encoding="utf-8")
             assert "- residual_gaps_json: [\"fixture archive residual gap\"]" in archive_text
-            assert (
-                "- residual_gaps_sha256: "
-                + str(task["assessment_binding"]["residual_gaps_sha256"])
-            ) in archive_text
 
             missing_both = deepcopy(current)
             missing_both["shiguan_checkpoint"].pop("producer_receipt")
-            missing_both["shiguan_checkpoint"].pop("producer_receipt_sha256")
+            missing_both["shiguan_checkpoint"].pop("producer_receipt_ref")
             tasks = court_runtime.load_tasks()
             tasks[task["task_id"]] = missing_both
             court_runtime.write_tasks(tasks)
@@ -862,7 +861,7 @@ def check_archive_receipt_records_runtime_replays_and_completes_with_concerns() 
                     complete_args(current, runtime_receipt)
                 )
             except ValueError as exc:
-                if str(exc) != "archive_producer_record_sha256_mismatch":
+                if str(exc) != "archive_producer_residual_gaps_mismatch":
                     raise AssertionError(
                         "ARCHIVE_TAMPERED_INDEX_WRONG_ERROR " + str(exc)
                     ) from exc
@@ -1019,7 +1018,7 @@ def check_assessment_cli_cas_idempotency_and_rollback() -> None:
     before_tasks = court_runtime.tasks_path().read_bytes()
     before_events = court_runtime.events_path().read_bytes()
     different = assessment(first.task)
-    different["assessment_sha256"] = "f" * 64
+    different["assessment_ref"] = "f" * 64
     expect_error(
         lambda: court_runtime.bind_assessment_task(assessment_args("bind-cli", different)),
         "assessment_binding_conflict",
@@ -1102,12 +1101,12 @@ def check_stored_binding_integrity_is_revalidated() -> None:
     )
     tampered_cases.append(source_changed)
     source_rehashed = deepcopy(source_changed)
-    source_rehashed["assessment_binding"]["source_envelope_sha256"] = envelope_sha256(
+    source_rehashed["assessment_binding"]["source_envelope_ref"] = court_runtime._source_envelope_ref(
         source_rehashed["assessment_binding"]["source_envelope"]
     )
     tampered_cases.append(source_rehashed)
     hash_changed = deepcopy(passed)
-    hash_changed["assessment_binding"]["source_envelope_sha256"] = "0" * 64
+    hash_changed["assessment_binding"]["source_envelope_ref"] = "SOURCE-ENVELOPE-OTHER"
     tampered_cases.append(hash_changed)
     core_changed = deepcopy(passed)
     core_changed["assessment_binding"]["gate"] = "PARTIAL"
@@ -1184,11 +1183,11 @@ def check_verified_completion_projection() -> None:
     stale_receipt["completion"]["receipt_id"] = "receipt-stale"
 
     omitted_assessment_digest = deepcopy(raw_done)
-    omitted_assessment_digest["assessment_binding"].pop("assessment_sha256")
+    omitted_assessment_digest["assessment_binding"].pop("assessment_ref")
     omitted_checkpoint_digest = deepcopy(raw_done)
-    omitted_checkpoint_digest["shiguan_checkpoint"].pop("record_sha256")
+    omitted_checkpoint_digest["shiguan_checkpoint"].pop("record_ref")
     malformed_record_digest = deepcopy(raw_done)
-    malformed_record_digest["shiguan_checkpoint"]["record_sha256"] = "not-a-digest"
+    malformed_record_digest["shiguan_checkpoint"]["record_ref"] = ""
     partial_complete = deepcopy(raw_done)
     partial_complete["completion"]["status"] = "PARTIAL_COMPLETE"
     reordered_history = deepcopy(raw_done)
@@ -1198,7 +1197,7 @@ def check_verified_completion_projection() -> None:
             {"kind": "completion", "sequence": 2},
             {"kind": "checkpoint", "sequence": 1},
         ],
-        "proof_sha256": "0" * 64,
+        "proof_ref": "0" * 64,
     }
 
     cases = {
@@ -1281,10 +1280,10 @@ def check_checkpoint_receipt_strict_binding() -> None:
         ({"receipt_id": "fake receipt"}, "invalid_checkpoint_receipt_id"),
         ({"task_id": "another"}, "checkpoint_receipt_task_mismatch"),
         ({"charter_revision": 2}, "checkpoint_receipt_revision_mismatch"),
-        ({"charter_sha256": "f" * 64}, "checkpoint_receipt_charter_mismatch"),
-        ({"assessment_sha256": "f" * 64}, "checkpoint_receipt_assessment_mismatch"),
-        ({"record_sha256": ""}, "invalid_checkpoint_record_sha256"),
-        ({"record_sha256": "f" * 64}, "checkpoint_receipt_record_mismatch"),
+        ({"case_ref": {"court_code": "OTHER-20260101-1-AAAA", "charter_revision": task["charter_revision"]}}, "checkpoint_receipt_case_reference_mismatch"),
+        ({"assessment_ref": "f" * 64}, "checkpoint_receipt_assessment_mismatch"),
+        ({"record_ref": ""}, "invalid_checkpoint_record_ref"),
+        ({"record_ref": "f" * 64}, "checkpoint_receipt_record_mismatch"),
         ({"archive_path": "fixture://shiguan/other"}, "checkpoint_receipt_path_mismatch"),
         ({"recorded_at": "2026-07-14T00:02:00Z"}, "checkpoint_receipt_time_mismatch"),
         ({"unknown": "field"}, "checkpoint_receipt_unknown_fields"),
@@ -1353,12 +1352,12 @@ def check_atomic_complete_and_exact_rollback() -> None:
     assert proof["schema"] == "court.completion_proof.v1"
     assert proof["task_id"] == task["task_id"]
     assert proof["receipt_id"] == receipt["receipt_id"]
-    assert proof["assessment_sha256"] == receipt["assessment_sha256"]
-    assert proof["record_sha256"] == receipt["record_sha256"]
+    assert proof["assessment_ref"] == receipt["assessment_ref"]
+    assert proof["record_ref"] == receipt["record_ref"]
     assert [item["kind"] for item in proof["events"]] == ["checkpoint", "completion"]
     assert proof["events"][0]["sequence"] < proof["events"][1]["sequence"]
     assert proof["events"][1]["event"] == result.event
-    assert len(proof["proof_sha256"]) == 64
+    assert proof["proof_ref"] == "proof:" + receipt["receipt_id"]
     persisted_events = court_runtime.read_events(limit=10, task_id=task["task_id"])
     assert persisted_events[-1] == proof["events"][1]["event"] == result.event
     assert court_runtime.completion_projection(result.task)["verified"] is False
@@ -1631,16 +1630,10 @@ def check_revision_invalidates_derived_state() -> None:
     task = seed_revision(court_runtime.create_task(create_args("pure-revision")).task)
     source = deepcopy(task)
     revision_kwargs = record_revision_kwargs(task)
-    revised = court_runtime.revise_charter_record(
-        task,
-        **{
-            **revision_kwargs,
-            "new_sha256": str(revision_kwargs["new_sha256"]).upper(),
-        },
-    )
+    revised = court_runtime.revise_charter_record(task, **revision_kwargs)
     assert task == source
     assert revised["charter_revision"] == 4
-    assert revised["charter_sha256"] == charter_sha256(REVISION_FOUR_CHARTER)
+    assert revised["charter"] == REVISION_FOUR_CHARTER
     assert revised["outcome_assessment"] == {
         "schema": "court.outcome_assessment.v1",
         "gate": "UNASSESSED",
@@ -1652,7 +1645,7 @@ def check_revision_invalidates_derived_state() -> None:
     assert revised["completion"] == {"status": "INVALIDATED_BY_CHARTER_REVISION"}
     assert revised["charter_revision_history"][-1] == {
         "revision": 3,
-        "sha256": charter_sha256(REVISION_THREE_CHARTER),
+        "case_ref": case_reference(task),
         "actor": "zhongshu",
         "evidence": "approved correction",
     }
@@ -1664,9 +1657,9 @@ def check_pure_revision_rejections() -> None:
     task = seed_revision(court_runtime.create_task(create_args("pure-rejections")).task)
     cases = (
         ({"expected_revision": 2}, "stale_charter_revision"),
-        ({"expected_sha256": "c" * 64}, "stale_charter_sha256"),
+        ({"case_ref": {"court_code": "ZL-20260999-1-AAAA", "charter_revision": 3}}, "stale_charter_case_reference"),
         ({"new_revision": 3}, "invalid_charter_revision_increment"),
-        ({"new_sha256": "not-a-digest"}, "invalid_charter_sha256"),
+        ({"new_charter": ""}, "charter_body_required"),
     )
     defaults = record_revision_kwargs(task)
     for overrides, expected in cases:
@@ -1725,9 +1718,8 @@ def check_cli_compare_and_swap() -> None:
             revision_args(
                 "cli-revision",
                 expected_revision=4,
-                expected_sha256=charter_sha256(REVISION_FOUR_CHARTER),
                 new_revision=5,
-                new_sha256="c" * 64,
+                new_charter=REVISION_FOUR_CHARTER,
                 correction_gate=correction_gate("another-task"),
             ),
             "task_correction_target_mismatch",
@@ -1740,9 +1732,8 @@ def check_cli_compare_and_swap() -> None:
     intruder = revision_args(
         "cli-revision",
         expected_revision=4,
-        expected_sha256=charter_sha256(REVISION_FOUR_CHARTER),
         new_revision=5,
-        new_sha256="c" * 64,
+        new_charter=REVISION_FOUR_CHARTER,
         actor="intruder",
     )
     expect_error(lambda: court_runtime.revise_charter_task(intruder), "unknown_actor_office")
@@ -1766,12 +1757,7 @@ def check_uppercase_expected_digest_and_transaction_rollback() -> None:
     court_runtime.append_event = failed_append  # type: ignore[assignment]
     try:
         try:
-            court_runtime.revise_charter_task(
-                revision_args(
-                    "rollback-revision",
-                    expected_sha256=charter_sha256(REVISION_THREE_CHARTER).upper(),
-                )
-            )
+            court_runtime.revise_charter_task(revision_args("rollback-revision"))
         except RuntimeError as exc:
             assert str(exc) == "injected append failure"
         else:
@@ -1793,9 +1779,8 @@ def check_cli_parser() -> None:
             "revise-charter",
             "--task-id", "cli",
             "--expected-revision", "3",
-            "--expected-sha256", "a" * 64,
+            "--case-ref", json.dumps({"court_code": "COURT-20260906-1-AAAA", "charter_revision": 3}),
             "--new-revision", "4",
-            "--new-sha256", "b" * 64,
             "--new-charter", REVISION_FOUR_CHARTER,
             "--new-invariant-capsule-json", capsule_json,
             "--correction-file", "correction.json",
@@ -1812,9 +1797,8 @@ def check_cli_parser() -> None:
                     "revise-charter",
                     "--task-id", "cli",
                     "--expected-revision", "3",
-                    "--expected-sha256", "a" * 64,
+                    "--case-ref", json.dumps({"court_code": "COURT-20260906-1-AAAA", "charter_revision": 3}),
                     "--new-revision", "4",
-                    "--new-sha256", "b" * 64,
                     "--new-charter", REVISION_FOUR_CHARTER,
                     "--new-invariant-capsule-json", capsule_json,
                     "--correction-file", "correction.json",
@@ -1832,7 +1816,7 @@ def check_cli_parser() -> None:
             "bind-assessment",
             "--task-id", "cli",
             "--expected-revision", "3",
-            "--expected-charter-sha256", "a" * 64,
+            "--case-ref", json.dumps({"court_code": "COURT-20260906-1-AAAA", "charter_revision": 3}),
             "--assessment-file", "assessment.json",
             "--actor", "menxia",
             "--evidence", "reviewed bundle",
@@ -1845,14 +1829,13 @@ def check_cli_parser() -> None:
         {
             "task_id": "cli",
             "charter_revision": 3,
-            "charter_sha256": "a" * 64,
             "from_role": "bingbu",
             "to_role": "shangshu",
             "purpose": "superior relay",
             "input_pointer": "fixture://input",
-            "input_sha256": "b" * 64,
+            "input_ref": "fixture://input/ref",
             "reply_pointer": "serial_inline://reply",
-            "reply_sha256": "c" * 64,
+            "reply_ref": "serial_inline://reply/ref",
             "write_authority_granted": False,
         }
     ]

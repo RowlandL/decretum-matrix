@@ -19,7 +19,7 @@ from court_agent_admission_contract import (
     _SIX_MINISTRY_ROLES,
     _WORKER_INSTANCE_KINDS,
     _first_scoped_hierarchy_denial,
-    _normalized_preload_hashes,
+    _normalized_preload_sources,
     scoped_hierarchy_denial,
     validate_admission_instance_shape,
 )
@@ -346,14 +346,14 @@ def _approved_scope_selection(
         canonical_authority = binding.get("canonical_authority")
         owner_role = str(binding.get("owner_role") or "").strip().lower()
         access_contract = _normalized_access_contract(binding)
-        preload_hashes = _normalized_preload_hashes(binding.get("preload_hashes"))
+        preload_sources = _normalized_preload_sources(binding.get("preload_sources"))
         if (
             not role
             or role != requested_role
             or not instance_id
             or not shard_id
             or access_contract is None
-            or preload_hashes is None
+            or preload_sources is None
             or instance_id in requested
             or shard_id in requested_shards
         ):
@@ -373,7 +373,7 @@ def _approved_scope_selection(
             shard_id,
             access_contract,
             (instance_kind, canonical_authority, owner_role, direct_superior),
-            preload_hashes,
+            preload_sources,
         )
         requested_shards.add(shard_id)
 
@@ -383,7 +383,7 @@ def _approved_scope_selection(
     approved_write_sets = budget_lease.get("approved_write_sets")
     approved_access_contracts = budget_lease.get("approved_access_contracts")
     approved_instance_shapes = budget_lease.get("approved_instance_shapes")
-    approved_preload_hashes_raw = budget_lease.get("approved_preload_hashes")
+    approved_preload_sources_raw = budget_lease.get("approved_preload_sources")
     parent_write_scope = _normalized_write_set(
         budget_lease.get("parent_write_scope"),
         allow_empty=True,
@@ -394,7 +394,7 @@ def _approved_scope_selection(
         or not isinstance(approved_shards_raw, (list, tuple))
         or not isinstance(approved_write_sets, Mapping)
         or not isinstance(approved_instance_shapes, Mapping)
-        or not isinstance(approved_preload_hashes_raw, Mapping)
+        or not isinstance(approved_preload_sources_raw, Mapping)
         or parent_write_scope is None
         or (
             approved_access_contracts is not None
@@ -466,14 +466,14 @@ def _approved_scope_selection(
         )
     if set(normalized_instance_shapes) != set(approved_instances):
         return None, "approved_budget_instance_shape_mismatch"
-    normalized_preload_hashes: dict[str, tuple[str, str, str]] = {}
-    for key, value in approved_preload_hashes_raw.items():
+    normalized_preload_sources: dict[str, tuple[str, str, str]] = {}
+    for key, value in approved_preload_sources_raw.items():
         instance_id = str(key or "").strip().lower()
-        preload_hashes = _normalized_preload_hashes(value)
-        if not instance_id or preload_hashes is None or instance_id in normalized_preload_hashes:
+        preload_sources = _normalized_preload_sources(value)
+        if not instance_id or preload_sources is None or instance_id in normalized_preload_sources:
             return None, "approved_budget_preload_mismatch"
-        normalized_preload_hashes[instance_id] = preload_hashes
-    if set(normalized_preload_hashes) != set(approved_instances):
+        normalized_preload_sources[instance_id] = preload_sources
+    if set(normalized_preload_sources) != set(approved_instances):
         return None, "approved_budget_preload_mismatch"
     try:
         validate_admission_instance_shape(
@@ -505,9 +505,9 @@ def _approved_scope_selection(
             requested_shard,
             requested_access_contract,
             requested_instance_shape,
-            requested_preload_hashes,
+            requested_preload_sources,
         ) = requested_binding
-        if normalized_preload_hashes[instance_id] != requested_preload_hashes:
+        if normalized_preload_sources[instance_id] != requested_preload_sources:
             return None, "approved_budget_preload_mismatch"
         if (
             role != requested_role

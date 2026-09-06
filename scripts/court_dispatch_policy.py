@@ -19,7 +19,8 @@ from court_multi_agent_protocol import (
     approved_budget_selection,
     validate_admission_instance_shape,
 )
-from court_office_bootstrap import canonical_child_office_binding_sha256
+from court_case_binding import case_reference
+from pathlib import Path
 from court_native_execution import select_native_execution
 
 
@@ -75,9 +76,7 @@ class DispatchPlanItem:
     profile_path: str
     dossier_path: str
     skill_path: str
-    profile_hash: str
-    dossier_hash: str
-    court_skill_hash: str
+    case_ref: dict[str, object]
     preload_ack: str
     evidence_pointer: str
     heartbeat_state: str
@@ -130,89 +129,30 @@ def _first_scoped_hierarchy_denial(
     )
 
 
-def _approved_binding_digest_error(
-    *,
-    budget_lease: Mapping[str, object] | None,
-    requested_bindings: Sequence[Mapping[str, object]] | None,
-    approved_indices: Sequence[int],
-) -> str | None:
-    """Bind every lease-approved child request to its immutable full binding."""
-
-    if not isinstance(budget_lease, Mapping):
+def _approved_binding_reference_error(*, budget_lease, requested_bindings, approved_indices):
+    """Compare lease-owned child binding records as structured values."""
+    if not isinstance(budget_lease, Mapping) or requested_bindings is None:
         return None
-    if (
-        requested_bindings is None
-        or isinstance(requested_bindings, (str, bytes))
-    ):
-        return None
-
-    approved_child_bindings: dict[str, Mapping[str, object]] = {}
+    approved = budget_lease.get("approved_bindings", {})
+    if not isinstance(approved, Mapping):
+        return "approved_budget_binding_invalid"
+    children = {}
     for index in approved_indices:
-        if (
-            isinstance(index, bool)
-            or not isinstance(index, int)
-            or index < 0
-            or index >= len(requested_bindings)
-        ):
-            return "approved_budget_binding_digest_invalid"
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(requested_bindings):
+            return "approved_budget_binding_invalid"
         binding = requested_bindings[index]
         if not isinstance(binding, Mapping):
-            return "approved_budget_binding_digest_invalid"
-        instance_kind = str(
-            binding.get("instance_kind")
-            or binding.get("office_instance_kind")
-            or ""
-        ).strip().lower()
-        child_shape = (
-            binding.get("canonical_authority") is False
-            or instance_kind in WORKER_INSTANCE_KINDS
-            or binding.get("owner_role") not in {None, ""}
-            or binding.get("child_profile") is not None
-        )
-        if not child_shape:
-            continue
-        instance_id = str(binding.get("instance_id") or "").strip().lower()
-        if not instance_id or instance_id in approved_child_bindings:
-            return "approved_budget_binding_digest_invalid"
-        approved_child_bindings[instance_id] = binding
-
-    raw_digests = budget_lease.get("approved_binding_sha256s")
-    if not approved_child_bindings:
-        if raw_digests is None:
-            return None
-        if isinstance(raw_digests, Mapping) and not raw_digests:
-            return None
-        return "approved_budget_binding_digest_invalid"
-    if raw_digests is None:
-        return "approved_budget_binding_digest_missing"
-    if not isinstance(raw_digests, Mapping):
-        return "approved_budget_binding_digest_invalid"
-
-    normalized_digests: dict[str, str] = {}
-    for raw_instance_id, raw_digest in raw_digests.items():
-        instance_id = str(raw_instance_id or "").strip().lower()
-        digest = str(raw_digest or "").strip()
-        if (
-            not instance_id
-            or instance_id in normalized_digests
-            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-        ):
-            return "approved_budget_binding_digest_invalid"
-        normalized_digests[instance_id] = digest
-
-    approved_ids = set(approved_child_bindings)
-    digest_ids = set(normalized_digests)
-    if approved_ids - digest_ids:
-        return "approved_budget_binding_digest_missing"
-    if digest_ids != approved_ids:
-        return "approved_budget_binding_digest_invalid"
-    for instance_id, binding in approved_child_bindings.items():
-        try:
-            actual_digest = canonical_child_office_binding_sha256(binding)
-        except ValueError:
-            return "approved_budget_binding_digest_invalid"
-        if actual_digest != normalized_digests[instance_id]:
-            return "approved_budget_binding_digest_mismatch"
+            return "approved_budget_binding_invalid"
+        if binding.get("canonical_authority") is False or binding.get("child_profile") is not None:
+            instance_id = str(binding.get("instance_id") or "")
+            if not instance_id or instance_id in children:
+                return "approved_budget_binding_invalid"
+            children[instance_id] = binding
+    if set(approved) != set(children):
+        return "approved_budget_binding_missing"
+    for instance_id, binding in children.items():
+        if approved[instance_id] != dict(binding):
+            return "approved_budget_binding_mismatch"
     return None
 
 
@@ -332,12 +272,12 @@ def select_wave(
             budget_error,
         )
     assert approved_indices is not None
-    binding_digest_error = _approved_binding_digest_error(
+    binding_reference_error = _approved_binding_reference_error(
         budget_lease=budget_lease,
         requested_bindings=requested_bindings,
         approved_indices=approved_indices,
     )
-    if binding_digest_error is not None:
+    if binding_reference_error is not None:
         return DispatchDecision(
             (),
             roles,
@@ -347,7 +287,7 @@ def select_wave(
             resolved_depth,
             configured_depth,
             None,
-            binding_digest_error,
+            binding_reference_error,
         )
     approved_count = len(approved_indices)
     limits = [
@@ -438,23 +378,10 @@ def _validate_trusted_preload_manifest(
                 raise ValueError(
                     f"exact_preload_contract_gate: {field} does not match role manifest"
                 )
-        for field in ("profile_hash", "dossier_hash", "court_skill_hash"):
-            trusted_hash = str(trusted.get(field) or "").strip().lower()
-            raw_hash = str(raw.get(field) or "").strip().lower()
-            if (
-                re.fullmatch(r"[0-9a-f]{64}", trusted_hash) is None
-                or raw_hash != trusted_hash
-            ):
-                raise ValueError(
-                    f"exact_preload_contract_gate: {field} does not match trusted manifest"
-                )
-        if (
-            str(trusted.get("preload_ack") or "").strip() != "PASSED"
-            or str(raw.get("preload_ack") or "").strip() != "PASSED"
-        ):
-            raise ValueError(
-                "exact_preload_contract_gate: preload acknowledgement is not trusted"
-            )
+        if case_reference(raw.get("case_ref")) != case_reference(trusted.get("case_ref")):
+            raise ValueError("exact_preload_contract_gate: case reference mismatch")
+        if raw.get("preload_ack") != "PASSED" or trusted.get("preload_ack") != "PASSED":
+            raise ValueError("exact_preload_contract_gate: preload acknowledgement is not trusted")
     manifest_keys = {
         str(key).strip().lower() for key in trusted_preload_manifest if str(key).strip()
     }
@@ -531,23 +458,10 @@ def validate_dispatch_plan(
         write_set = tuple(
             str(value).strip() for value in write_set_raw if str(value).strip()
         ) if isinstance(write_set_raw, (list, tuple)) else ()
-        profile_hash = str(raw.get("profile_hash") or "").strip()
-        dossier_hash = str(raw.get("dossier_hash") or "").strip()
-        court_skill_hash = str(raw.get("court_skill_hash") or "").strip()
-        preload_ack = str(raw.get("preload_ack") or "").strip()
+        reference = case_reference(raw.get("case_ref"))
+        preload_ack = str(raw.get("preload_ack") or "")
         if preload_ack != "PASSED":
-            raise ValueError(
-                "exact_preload_contract_gate: preload_ack must equal PASSED"
-            )
-        for field, digest in (
-            ("profile_hash", profile_hash),
-            ("dossier_hash", dossier_hash),
-            ("court_skill_hash", court_skill_hash),
-        ):
-            if re.fullmatch(r"[0-9a-fA-F]{64}", digest) is None:
-                raise ValueError(
-                    f"exact_preload_contract_gate: {field} must be a SHA-256 digest"
-                )
+            raise ValueError("exact_preload_contract_gate: preload_ack must equal PASSED")
         item = DispatchPlanItem(
             role=role,
             office_zh=office_zh,
@@ -590,9 +504,7 @@ def validate_dispatch_plan(
                 raw.get("dossier_path") or f"agents/office-dossiers/{role}/AGENTS.md"
             ).strip(),
             skill_path=str(raw.get("skill_path") or "SKILL.md").strip(),
-            profile_hash=profile_hash,
-            dossier_hash=dossier_hash,
-            court_skill_hash=court_skill_hash,
+            case_ref=reference,
             preload_ack=preload_ack,
             evidence_pointer=str(raw.get("evidence_pointer") or "").strip(),
             heartbeat_state=str(raw.get("heartbeat_state") or "").strip(),

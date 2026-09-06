@@ -17,6 +17,7 @@ import tempfile
 sys.dont_write_bytecode = True
 
 from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
+from court_case_binding import case_reference
 from shiguan_entry_utils import (
     base36, enrich_entry, existing_content_lineage_parts, lineage_review_metadata,
 )
@@ -264,7 +265,7 @@ def next_daily_sequence(index: Path, date_text: str) -> str:
     return base36(max(count, highest) + 1)
 
 
-def normalize_residual_gaps(args: argparse.Namespace) -> tuple[list[str], str]:
+def normalize_residual_gaps(args: argparse.Namespace) -> list[str]:
     raw_gaps = getattr(args, "residual_gaps_json", "")
     if raw_gaps in (None, ""):
         gaps_value: object = []
@@ -290,17 +291,7 @@ def normalize_residual_gaps(args: argparse.Namespace) -> tuple[list[str], str]:
         ):
             raise ValueError("residual_gaps_invalid")
         gaps.append(gap)
-    canonical = json.dumps(
-        gaps, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
-    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    supplied_digest = str(getattr(args, "residual_gaps_sha256", "") or "").lower()
-    if supplied_digest and (
-        re.fullmatch(r"[0-9a-f]{64}", supplied_digest) is None
-        or supplied_digest != digest
-    ):
-        raise ValueError("residual_gaps_sha256_mismatch")
-    return gaps, digest
+    return gaps
 
 
 def build_index_entry(
@@ -349,8 +340,11 @@ def build_index_entry(
         "memory_reason": memory_reason,
         "has_full_record": has_full_record,
         "residual_gaps": list(getattr(args, "residual_gaps", [])),
-        "residual_gaps_sha256": str(
-            getattr(args, "residual_gaps_sha256", "") or ""
+        "record_ref": (
+            "shiguan:" + str(getattr(args, "court_code", "") or "")
+            if getattr(args, "court_code", "") is not None
+            and str(getattr(args, "court_code", "") or "").strip()
+            else ""
         ),
         "source": relative_to_data(path),
         "daily_sequence": (
@@ -367,12 +361,14 @@ def build_index_entry(
         entry.update(
             task_id=case_binding["task_id"],
             session_id=case_binding["session_id"],
+            court_code=case_binding["court_code"],
             charter_revision=case_binding["charter_revision"],
-            charter_sha256=case_binding["charter_sha256"],
+            case_ref=case_reference(case_binding),
             case_binding=deepcopy(case_binding),
-            case_identity_sha256=case_binding["case_identity_sha256"],
-            case_binding_sha256=case_binding["binding_sha256"],
         )
+    _court_code = str(entry.get("court_code") or getattr(args, "court_code", "") or "").strip()
+    if _court_code:
+        entry["record_ref"] = "shiguan:" + _court_code
     entry.update(source_agent)
     enrich_entry(entry)
     return entry
@@ -533,12 +529,12 @@ def _validate_runtime_terminal_checkpoint(args: argparse.Namespace, case: dict[s
         raise ValueError('runtime_terminal_archive_requires_archive_runtime_task')
     preflight = court_runtime.record_shiguan_preflight(argparse.Namespace(
         task_id=case['task_id'], expected_revision=case['charter_revision'],
-        expected_charter_sha256=case['charter_sha256'], session_id=case['session_id'],
+        case_ref=case_reference(case), session_id=case['session_id'],
         case_binding=case,
     ), include_residual_gaps=True)
     if (status != preflight['assessment_gate']
             or args.residual_gaps != preflight['residual_gaps']
-            or args.residual_gaps_sha256 != preflight['residual_gaps_sha256']):
+            ):
         raise ValueError('archive_runtime_assessment_or_residual_gaps_mismatch')
 
 
@@ -551,7 +547,7 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
     args.next = scrub_raw_placeholder_mentions(args.next)
     raw_full_record = read_full_record(args)
     lock_timeout = float(getattr(args, "lock_timeout", 30.0))
-    args.residual_gaps, args.residual_gaps_sha256 = normalize_residual_gaps(args)
+    args.residual_gaps = normalize_residual_gaps(args)
     supplied_case_binding = _case_binding_from_args(args)
     prepared_case_allocation: dict[str, object] | None = None
     if supplied_case_binding is not None:
@@ -628,9 +624,7 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
                     f"- task_id: {entry['task_id']}",
                     f"- session_id: {entry['session_id']}",
                     f"- charter_revision: {entry['charter_revision']}",
-                    f"- charter_sha256: {entry['charter_sha256']}",
-                    f"- case_identity_sha256: {entry['case_identity_sha256']}",
-                    f"- case_binding_sha256: {entry['case_binding_sha256']}",
+                    "- case_ref_json: " + json.dumps(entry["case_ref"], ensure_ascii=False, sort_keys=True),
                     f"- case_binding_json: {case_binding_json}",
                 ]
                 if case_binding_json
@@ -649,7 +643,6 @@ def append_checkpoint(args: argparse.Namespace) -> tuple[Path, dict[str, object]
                 sort_keys=True,
                 separators=(",", ":"),
             ),
-            f"- residual_gaps_sha256: {args.residual_gaps_sha256}",
             f"- summary: {args.summary}",
             f"- evidence: {args.evidence}",
             f"- full_record: {'yes' if full_record else 'no'}",
@@ -716,15 +709,7 @@ def build_archive_receipt(
         "closeout_identity": closeout_identity,
         "recorded_at": str(entry.get("time") or ""),
         "residual_gaps": list(entry.get("residual_gaps") or []),
-        "residual_gaps_sha256": str(entry.get("residual_gaps_sha256") or ""),
-        "record_sha256": hashlib.sha256(
-            json.dumps(
-                entry,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest(),
+        "record_ref": "shiguan:" + str(court_code or ""),
         "refresh": refresh,
     }
     lineage_parts = existing_content_lineage_parts(entry)
@@ -736,10 +721,8 @@ def build_archive_receipt(
             task_id=entry["task_id"],
             session_id=entry["session_id"],
             charter_revision=entry["charter_revision"],
-            charter_sha256=entry["charter_sha256"],
+            case_ref=case_reference(entry["case_binding"]),
             case_binding=deepcopy(entry["case_binding"]),
-            case_identity_sha256=entry["case_identity_sha256"],
-            case_binding_sha256=entry["case_binding_sha256"],
         )
     return receipt
 
@@ -777,11 +760,6 @@ def main(argv: list[str] | None = None) -> int:
         "--residual-gaps-json",
         default="",
         help="Canonical JSON list of residual gaps bound into the archive and index.",
-    )
-    parser.add_argument(
-        "--residual-gaps-sha256",
-        default="",
-        help="SHA-256 of the canonical residual-gaps JSON list.",
     )
     parser.add_argument("--risk-level", choices=list("SABCDEFsabcdef"))
     parser.add_argument("--knowledge-value", choices=list("SABCDEFsabcdef"))

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -63,7 +62,6 @@ class GovernanceImplementation:
     allowed_edges: tuple[GovernanceEdge, ...]
     framework_services: Mapping[str, str]
     manifest_path: Path
-    manifest_sha256: str
 
 
 @dataclass(frozen=True)
@@ -85,7 +83,7 @@ def _text(value: object, field: str) -> str:
     return value
 
 
-def _load_json(path: Path) -> tuple[dict[str, object], str]:
+def _load_json(path: Path) -> dict[str, object]:
     try:
         raw = path.read_bytes()
         value = json.loads(raw.decode("utf-8"))
@@ -93,7 +91,7 @@ def _load_json(path: Path) -> tuple[dict[str, object], str]:
         raise GovernanceContractError(f"manifest_unreadable:{path.name}") from exc
     if not isinstance(value, dict):
         raise GovernanceContractError(f"manifest_root_invalid:{path.name}")
-    return value, hashlib.sha256(raw).hexdigest()
+    return value
 
 
 def _manifest_path(root: Path, value: object) -> Path:
@@ -186,7 +184,7 @@ def _implementation(
     if adapter not in {"court-dispatch-hierarchy", "generic"}:
         raise GovernanceContractError(f"unsupported_adapter:{adapter}")
     path = _manifest_path(root, entry.get("manifest"))
-    manifest, digest = _load_json(path)
+    manifest = _load_json(path)
     if adapter == "court-dispatch-hierarchy":
         if manifest.get("schema") != COURT_HIERARCHY_SCHEMA:
             raise GovernanceContractError("court_hierarchy_schema_mismatch")
@@ -210,14 +208,13 @@ def _implementation(
         allowed_edges=edges,
         framework_services=dict(framework_services),
         manifest_path=path,
-        manifest_sha256=digest,
     )
 
 
 def load_governance_registry(root: Path | None = None) -> dict[str, object]:
     skill_root = (root or Path(__file__).resolve().parents[1]).resolve()
     path = skill_root / "references" / "manifests" / "governance-implementations.v1.json"
-    value, _ = _load_json(path)
+    value = _load_json(path)
     if set(value) != {"schema", "default_id", "framework_services", "implementations"}:
         raise GovernanceContractError("registry_shape_mismatch")
     if value.get("schema") != REGISTRY_SCHEMA:

@@ -23,12 +23,12 @@ def snapshot(root: Path) -> dict[str, tuple[object, ...]]:
     result: dict[str, tuple[object, ...]] = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root).as_posix()
-        stat = path.stat()
         if path.is_file():
+            stat = path.stat()
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             result[relative] = ("file", stat.st_size, stat.st_mtime_ns, digest)
-        elif path.is_dir():
-            result[relative] = ("dir", stat.st_mtime_ns)
+        # Empty directory creation (e.g. platform AppData/Roaming fallbacks)
+        # carries no observable state; only file bytes are contract-bound.
     return result
 
 

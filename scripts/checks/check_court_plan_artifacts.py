@@ -4,17 +4,17 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import copy
-import hashlib
 import json
 import subprocess
 from unittest.mock import patch
 import unittest
 import court_plan_artifacts as plans
+from court_case_binding import plan_reference
 
 
 def fixture():
     task = {'task_id': 'case-fixture', 'state': 'ThreeDepartments',
-            'charter_revision': 1, 'semantic_epoch': 1, 'charter_sha256': 'a' * 64,
+            'court_code': 'CCR-20260906-1-ABCD', 'charter_revision': 1, 'semantic_epoch': 1,
             'case_execution': {'authority': 'super', 'behavior': 'parallel'}, 'agents': {}}
     events = []
     producers = {}
@@ -22,9 +22,9 @@ def fixture():
         agent_id = 'fixture-' + role
         task['agents'][agent_id] = {'task_id':task['task_id'], 'role': role, 'direct_superior': 'taizi',
             'preload_status': 'PASSED', 'office_execution_ready': True,
-            'charter_revision': 1, 'semantic_epoch':1, 'charter_sha256': 'a' * 64}
+            'court_code': task['court_code'], 'charter_revision': 1, 'semantic_epoch':1}
         events.append({'action': 'agent_report', 'agent_role': role,
-                       'task_id':task['task_id'], 'semantic_epoch':1, 'charter_sha256':'a'*64,
+                       'task_id':task['task_id'], 'court_code': task['court_code'], 'semantic_epoch':1,
                        'agent_id': agent_id, 'evidence': 'report-' + role})
         producers[role] = {'kind': 'host_report', 'agent_id': agent_id, 'evidence': 'report-' + role}
     document = {'goal': 'Count public text files', 'non_goals': ['No external writes'],
@@ -43,13 +43,14 @@ class PlanArtifactTests(unittest.TestCase):
         self.assertNotIn('charter_revision', task['agents'][p['zhongshu']['agent_id']])
 
     def test_current_identity_and_report_version_are_required(self):
-        for field,value in [('task_id','foreign'),('charter_revision',2),('semantic_epoch',2),('semantic_epoch',True),
-                            ('charter_sha256','b'*64),('direct_superior','shangshu'),('role','menxia')]:
+        for field,value in [('task_id','foreign'),('court_code','CCR-20260906-1-EEEE'),
+                            ('charter_revision',2),('semantic_epoch',2),('semantic_epoch',True),
+                            ('direct_superior','shangshu'),('role','menxia')]:
             task, doc, p, events = fixture()
             task['agents'][p['zhongshu']['agent_id']][field]=value
             with self.subTest(agent_field=field), self.assertRaises(ValueError):
                 plans.submit_plan(task,doc,p['zhongshu'],events)
-        for field,value in [('task_id','foreign'),('semantic_epoch',2),('charter_sha256','b'*64)]:
+        for field,value in [('task_id','foreign'),('court_code','CCR-20260906-1-EEEE'),('semantic_epoch',2)]:
             task, doc, p, events = fixture();events[0][field]=value
             with self.subTest(event_field=field), self.assertRaises(ValueError):
                 plans.submit_plan(task,doc,p['zhongshu'],events)
@@ -72,36 +73,36 @@ class PlanArtifactTests(unittest.TestCase):
     def test_three_departments_are_independent_and_bind_one_plan(self):
         task, doc, p, events = fixture()
         task = plans.submit_plan(task, doc, p['zhongshu'], events)
-        digest = task['zhongshu_plan']['sha256']
+        plan_ref = plan_reference(task['zhongshu_plan'])
         with self.assertRaises(ValueError):
             plans.require_reviewed_plan(task)
-        task = plans.record_review(task, 'menxia', 'approved', digest, p['menxia'], events)
+        task = plans.record_review(task, 'menxia', 'approved', plan_ref, p['menxia'], events)
         with self.assertRaises(ValueError):
             plans.require_reviewed_plan(task)
-        task = plans.record_review(task, 'shangshu', 'dispatchable', digest, p['shangshu'], events)
-        self.assertEqual(plans.require_reviewed_plan(task)['sha256'], digest)
+        task = plans.record_review(task, 'shangshu', 'dispatchable', plan_ref, p['shangshu'], events)
+        self.assertEqual(plans.require_reviewed_plan(task)['revision'], plan_ref['plan_revision'])
         for role, wrong in (('menxia', p['zhongshu']), ('shangshu', p['menxia'])):
             with self.assertRaises(ValueError):
-                plans.record_review(task, role, 'approved', digest, wrong, events)
+                plans.record_review(task, role, 'approved', plan_ref, wrong, events)
 
     def test_plan_changes_invalidate_reviews_and_replay_is_stable(self):
         task, doc, p, events = fixture()
         task = plans.submit_plan(task, doc, p['zhongshu'], events)
         self.assertEqual(plans.submit_plan(task, doc, p['zhongshu'], events), task)
-        digest = task['zhongshu_plan']['sha256']
-        task = plans.record_review(task, 'menxia', 'approved', digest, p['menxia'], events)
+        plan_ref = plan_reference(task['zhongshu_plan'])
+        task = plans.record_review(task, 'menxia', 'approved', plan_ref, p['menxia'], events)
         doc['goal'] = 'Count another public fixture'
         changed = plans.submit_plan(task, doc, p['zhongshu'], events)
         self.assertEqual(changed['zhongshu_plan']['revision'], 2)
         self.assertEqual(changed['case_reviews'], {})
         with self.assertRaises(ValueError):
-            plans.record_review(changed, 'menxia', 'approved', digest, p['menxia'], events)
+            plans.record_review(changed, 'menxia', 'approved', plan_ref, p['menxia'], events)
         self.assertEqual(len(changed['zhongshu_plan_history']), 2)
 
-    def test_tampering_and_charter_drift_are_rejected(self):
+    def test_malformed_artifact_and_charter_drift_are_rejected(self):
         task, doc, p, events = fixture()
         task = plans.submit_plan(task, doc, p['zhongshu'], events)
-        task['zhongshu_plan']['document']['goal'] = 'tampered'
+        task['zhongshu_plan']['document']['goal'] = ''
         with self.assertRaises(ValueError):
             plans.current_plan(task)
         task = plans.submit_plan(fixture()[0], doc, p['zhongshu'], events)
@@ -231,26 +232,26 @@ class RuntimePlanFlowTests(unittest.TestCase):
             agent_id = producers[role]['agent_id']
             agent = task['agents'][agent_id]
             agent.update(task_id=task['task_id'], semantic_epoch=task['semantic_epoch'],
-                charter_revision=task['charter_revision'], charter_sha256=task['charter_sha256'],
+                court_code=task['court_code'], charter_revision=task['charter_revision'],
                 native_host_identity_kind='canonical_agent_path', native_host_thread_id=None,
                 native_host_instance_id='/root/' + role, native_trace_issuer_thread_id='shared-parent',
-                native_host_action_receipt_id=role, native_host_action_receipt_sha256='a' * 64)
-            task['native_host_action_receipts'][role] = {'target_id': agent_id, 'receipt_sha256': 'a' * 64}
+                native_host_action_receipt_id=role)
+            task['native_host_action_receipts'][role] = {'target_id': agent_id}
         for event in events:
-            event.update(task_id=task['task_id'],semantic_epoch=task['semantic_epoch'],charter_sha256=task['charter_sha256'])
+            event.update(task_id=task['task_id'],court_code=task['court_code'],semantic_epoch=task['semantic_epoch'])
         task = plans.submit_plan(task, doc, producers['zhongshu'], events)
-        sha = task['zhongshu_plan']['sha256']
-        task = plans.record_review(task, 'menxia', 'approved', sha, producers['menxia'], events)
-        task = plans.record_review(task, 'shangshu', 'dispatchable', sha, producers['shangshu'], events)
+        plan_ref = plan_reference(task['zhongshu_plan'])
+        task = plans.record_review(task, 'menxia', 'approved', plan_ref, producers['menxia'], events)
+        task = plans.record_review(task, 'shangshu', 'dispatchable', plan_ref, producers['shangshu'], events)
         plans.require_reviewed_plan(task)
         bad = copy.deepcopy(task)
         bad['agents']['fixture-shangshu']['native_host_instance_id'] = '/root/menxia'
         with self.assertRaisesRegex(ValueError, 'departments_must_be_distinct'):
-            plans.record_review(bad, 'shangshu', 'dispatchable', sha, producers['shangshu'], events)
+            plans.record_review(bad, 'shangshu', 'dispatchable', plan_ref, producers['shangshu'], events)
         bad = copy.deepcopy(task)
         bad['agents']['fixture-shangshu']['native_host_thread_id'] = 'shared-parent'
         with self.assertRaisesRegex(ValueError, 'canonical_path_is_not_a_thread'):
-            plans.record_review(bad, 'shangshu', 'dispatchable', sha, producers['shangshu'], events)
+            plans.record_review(bad, 'shangshu', 'dispatchable', plan_ref, producers['shangshu'], events)
 
     def test_public_runtime_archive_reaches_preflight_without_writing(self):
         import court_runtime
@@ -270,7 +271,7 @@ class RuntimePlanFlowTests(unittest.TestCase):
         parent = {'role': 'shangshu', 'direct_superior': 'taizi',
             'native_host_identity_kind': 'canonical_agent_path',
             'native_trace_session_id': task['session_id'], 'semantic_epoch': task['semantic_epoch'],
-            'charter_sha256': task['charter_sha256'], 'preload_status': 'PASSED',
+            'court_code': task['court_code'], 'preload_status': 'PASSED',
             'office_execution_ready': True, 'status': 'running',
             'native_host_action_receipt_id': 'fixture-native-receipt',
             'native_host_instance_id': '/root/shangshu_ready'}
@@ -292,8 +293,10 @@ class RuntimePlanFlowTests(unittest.TestCase):
         self.assertEqual(task['case_binding']['court_code'], task['court_code'])
         context = self.cli('semantic-context-template', '--task-id', 'plan-flow')
         self.assertEqual(context['plan_status'], 'BOOTSTRAP_UNPLANNED')
-        self.assertEqual(context['context']['plan_revision'], 0)
-        self.assertNotEqual(context['context']['plan_sha256'], task['invariant_capsule_sha256'])
+        self.assertEqual(context['context']['case_ref'], {
+            'court_code': task['court_code'], 'charter_revision': task['charter_revision'],
+        })
+        self.assertIsNone(context['context']['plan_ref'])
         before = court_runtime.tasks_path().read_bytes()
         self.cli('transition', '--task-id', 'plan-flow', '--to-state', 'ThreeDepartmentsPetition',
                  '--actor', 'taizi', '--evidence', 'not reviewed', ok=False)
@@ -303,10 +306,10 @@ class RuntimePlanFlowTests(unittest.TestCase):
         self.cli('plan', 'submit', '--task-id', 'plan-flow', '--request-file', self.write('plan.json', request))
         shown = self.cli('plan', 'show', '--task-id', 'plan-flow')['plan']
         context = self.cli('semantic-context-template', '--task-id', 'plan-flow')
-        self.assertEqual(context['context']['plan_sha256'], shown['sha256'])
+        self.assertEqual(context['context']['plan_ref'], plan_reference(shown))
         for role, decision in (('menxia', 'approved'), ('shangshu', 'dispatchable')):
             template = self.cli('plan', 'template', '--task-id', 'plan-flow')
-            self.assertEqual(template['review']['plan_sha256'], shown['sha256'])
+            self.assertEqual(template['review']['plan_ref'], plan_reference(shown))
             self.assertIn('producer', template['review'])
             template['review'].update(role=role, decision=decision, producer=producer)
             review = template['review']
@@ -358,15 +361,16 @@ class RuntimePlanFlowTests(unittest.TestCase):
         old_plan = copy.deepcopy(task['zhongshu_plan'])
         new_charter = 'A revised isolated plan request'
         revised = court_runtime.revise_charter_record(task, expected_revision=1,
-            expected_sha256=task['charter_sha256'], new_revision=2,
-            new_sha256=hashlib.sha256(new_charter.encode()).hexdigest(), new_charter=new_charter,
+            case_ref=plan_reference(task['zhongshu_plan']), new_revision=2,
+            new_charter=new_charter,
             new_invariant_capsule=court_runtime.invariant_capsule_template(new_charter),
-            event_head_sha256=court_runtime._event_head_sha256(), event_head_bytes=court_runtime._event_head_bytes(),
+            event_head_id=court_runtime._event_head_id(task['task_id']),
             actor='taizi', evidence='isolated correction')
         self.assertIsNone(revised.get('zhongshu_plan'))
         self.assertEqual(revised['case_reviews'], {})
         self.assertEqual(revised['zhongshu_plan_history'][0], old_plan)
-        self.assertEqual(revised['case_binding']['case_identity_sha256'], task['case_binding']['case_identity_sha256'])
+        self.assertEqual(revised['case_binding']['court_code'], task['case_binding']['court_code'])
+        self.assertEqual(revised['case_binding']['charter_revision'], 2)
         renewed = plans.submit_plan(revised, fixture()[1], producer, [])
         self.assertEqual(renewed['zhongshu_plan']['revision'], 2)
 

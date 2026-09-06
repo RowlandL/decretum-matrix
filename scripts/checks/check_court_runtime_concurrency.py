@@ -53,6 +53,7 @@ def main() -> int:
                 sys.executable,
                 str(script),
                 "create",
+                "--legacy-compatibility",
                 "--task-id",
                 "concurrency",
                 "--title",

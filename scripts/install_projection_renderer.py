@@ -30,23 +30,6 @@ CLI_SURFACE_RELATIVE = PurePosixPath(
 PRELOAD_IDENTITY_RELATIVE = PurePosixPath("references/manifests/installed-preload-identity.v1.json")
 
 
-def render_installed_preload_identity(files: dict[PurePosixPath, bytes]) -> bytes:
-    """Pin final projected preload bytes once, as part of installation rendering."""
-    body = {
-        "schema": "court.installed_preload_identity.v1",
-        "authority": "installer",
-        "status": "INSTALLATION_PINNED",
-        "file_sha256": {
-            relative.as_posix(): hashlib.sha256(payload).hexdigest()
-            for relative, payload in sorted(files.items(), key=lambda item: item[0].as_posix())
-            if relative.as_posix() == "SKILL.md"
-            or relative.as_posix().startswith(("agents/standing-officials/", "agents/office-dossiers/", "agents/supercc-dossiers/"))
-        },
-    }
-    body["identity_sha256"] = hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-    return _json_bytes(body)
-
-
 RUNTIME_PROJECTION_NAMES = (
     "shared_agents",
     "portable_current_tool",
@@ -197,7 +180,9 @@ def _active_policy(source_manifest: dict[str, Any]) -> tuple[list[str], set[str]
 
 
 def _excluded(relative: str, globs: list[str]) -> bool:
-    return any(fnmatchcase(relative, pattern) for pattern in globs)
+    return relative == PRELOAD_IDENTITY_RELATIVE.as_posix() or any(
+        fnmatchcase(relative, pattern) for pattern in globs
+    )
 
 
 def active_path_is_excluded(relative: str, globs: tuple[str, ...]) -> bool:
@@ -222,9 +207,6 @@ def render_active_projection_manifest(
         for name in RUNTIME_PROJECTION_NAMES
     }
     projections["repository_only"] = []
-    for name in TARGET_PROJECTION_NAMES:
-        if PRELOAD_IDENTITY_RELATIVE.as_posix() not in projections[name]:
-            projections[name].append(PRELOAD_IDENTITY_RELATIVE.as_posix())
     required_fields = (
         "schema",
         "schema_version",
@@ -472,6 +454,9 @@ def render_active_projection(
         identity_path,
         label="identity_manifest",
     )
+    # The source installation authority retains its integrity metadata. Active
+    # copies expose product identity and version only.
+    active_identity.pop("skill_sha256", None)
     _validate_active_manifest_strings(
         label="active_projection_manifest",
         value=active_manifest,
@@ -509,8 +494,7 @@ def render_active_projection(
         raise ActiveProjectionRenderError("active_projection_manifests_not_projected")
     files[PROJECTION_MANIFEST_RELATIVE] = _json_bytes(active_manifest)
     files[CLI_SURFACE_RELATIVE] = _json_bytes(active_cli)
-    files[identity_relative] = active_identity_bytes
-    files[PRELOAD_IDENTITY_RELATIVE] = render_installed_preload_identity(files)
+    files[identity_relative] = _json_bytes(active_identity)
 
     return RenderedActiveProjection(
         target_class=target_class,

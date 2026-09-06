@@ -1,4 +1,4 @@
-"""Host-event evidence for opaque spawn messages; never decrypt or hash files."""
+"""Host-event evidence for opaque spawn messages without decrypting them."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -185,13 +185,49 @@ def _static_powershell_reads(command: str) -> list[str]:
 
 def _command_text(item: Mapping[str, object]) -> str:
     command = item.get('command', [])
-    return command if isinstance(command, str) else ' '.join(str(p) for p in command)
+    if isinstance(command, str):
+        return command
+    executable = str(command[0] if command else '').replace('\\', '/').rsplit('/', 1)[-1].lower()
+    if executable.removesuffix('.exe') in {'pwsh', 'powershell', 'cmd', 'sh', 'bash', 'dash', 'zsh', 'fish'}:
+        for index, value in enumerate(command):
+            if str(value).lower() in {'-command', '-c', '-lc', '-ic', '-ilc', '/c'} and index + 1 < len(command):
+                return ' '.join(str(p) for p in command[index + 1:])
+    return ' '.join(str(p) for p in command)
+
+
+def _invokes_court_cli(command: str) -> bool:
+    """Recognize executable positions, never search words or file arguments."""
+    tokens = re.findall(r"'(?:[^']|'')*'|\"(?:[^\"`]|`.)*\"|[;&|\n{}()=]|[^\s;&|{}()=]+", command)
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token in {';', '&', '|', '\n', '{', '}', '(', ')'}:
+            segments.append([])
+        else:
+            segments[-1].append(token.strip("'\""))
+    for parts in segments:
+        if not parts:
+            continue
+        if len(parts) > 2 and re.fullmatch(r'\$[\w:]+', parts[0]) and parts[1] == '=':
+            parts = parts[2:]
+        if len(parts) > 1 and parts[0] == 'exec':
+            parts = parts[1:]
+        executable = parts[0].replace('\\', '/').rsplit('/', 1)[-1].lower()
+        if re.fullmatch(r'decretum-matrix(?:\.(?:cmd|ps1|exe|py|js|cjs|mjs))?', executable):
+            return True
+        if re.fullmatch(r'(?:python[\d.]*|py|node)(?:\.exe)?', executable):
+            script = next((part for part in parts[1:] if not part.startswith('-')), '')
+            filename = script.replace('\\', '/').rsplit('/', 1)[-1].lower()
+            if filename in {'court_cli', 'court_runtime', 'court_cli.py', 'court_runtime.py',
+                            'decretum-matrix.py', 'decretum-matrix.js',
+                            'decretum-matrix.cjs', 'decretum-matrix.mjs'}:
+                return True
+    return False
 
 
 def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[str]],
                      *, child_ack: Mapping[str, object] | None = None,
                      child_thread_id: str | None = None) -> dict[str, object]:
-    """Use host-parsed completed reads; this is not a file-content hash proof."""
+    """Use host-parsed completed reads to establish the preload order."""
     reads: dict[str, tuple[int, int, str]] = {}
     business: list[int] = []
     acknowledgements: list[tuple[int, str]] = []
@@ -261,8 +297,7 @@ def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[
         if item_type != 'commandexecution':
             continue
         command = _command_text(item)
-        if (re.search(r'(?:decretum-matrix(?:\.cmd|\.ps1|\.exe|\.js)?|court_(?:cli|runtime)\.py)[\"\x27]?\s+\S', command, re.I)
-                and not re.fullmatch(r'\s*Get-Command\s+decretum-matrix\s*', command, re.I)):
+        if _invokes_court_cli(command):
             business.append(number)
         if payload.get('type') != 'item_completed' or item.get('exit_code') != 0 or item.get('status') != 'completed':
             continue
@@ -305,4 +340,4 @@ def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[
     return {'schema': 'court.child_skill_read_order.v1', 'status': 'HOST_READ_EVENTS_OBSERVED',
             'read_events': {kind: data[2] for kind, data in reads.items()},
             'child_acceptance_event': acknowledgement,
-            'file_hash_recomputed': False, 'content_attestation': 'child_preload_ack'}
+            'content_attestation': 'child_preload_ack'}

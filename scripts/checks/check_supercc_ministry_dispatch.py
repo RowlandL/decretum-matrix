@@ -80,8 +80,8 @@ def check_source_rules() -> None:
     require_terms(
         "SKILL.md",
         [
-            "健康官署各司其职",
-            "turn-start",
+            "superCC",
+            "watchdog",
             "closeout-silence",
             "court-supercc-runtime-selection.md",
             "court-state-runtime-agents.md",
@@ -289,7 +289,7 @@ def check_supercc_launcher_shape() -> None:
     if provider_queue[5]["provider_queue_offset_seconds"] != 60.0:
         raise AssertionError("sixth four-unit Codex start must enter the next provider window")
 
-    launcher_text = (SCRIPTS / "ensure_supercc_court.py").read_text(encoding="utf-8")
+    launcher_text = (SCRIPTS / "commands" / "ensure_supercc_court.py").read_text(encoding="utf-8")
     for term in (
         "--launch-offices",
         "--launch-visible-core",
@@ -1258,11 +1258,8 @@ def dispatch_context_fixture(
 
     task_id = "supercc-dispatch-fixture"
     charter = "bounded superCC dispatch fixture charter"
-    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
-    capsule = court_semantic_continuity.build_invariant_capsule(
-        charter,
-        charter_sha256,
-    )
+    case_ref = {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 1}
+    capsule = dict(court_semantic_continuity.build_invariant_capsule(charter))
     for field in (
         "non_goals",
         "boundaries",
@@ -1274,35 +1271,31 @@ def dispatch_context_fixture(
         "write_set",
     ):
         capsule[field] = [f"fixture-{field}"]
-    capsule["governing_hashes"] = {"fixture": hashlib.sha256(b"fixture").hexdigest()}
+    capsule = court_semantic_continuity.normalize_invariant_capsule(
+        charter,
+        {**capsule, "case_ref": case_ref},
+        case_ref=case_ref,
+    )
     task: dict[str, object] = {
         "task_id": task_id,
         "charter": charter,
         "charter_revision": 1,
         "semantic_epoch": 1,
-        "charter_sha256": charter_sha256,
+        "court_code": case_ref["court_code"],
         "invariant_capsule": capsule,
-        "invariant_capsule_sha256": court_semantic_continuity.canonical_json_sha256(
-            capsule
-        ),
     }
-    authority_sha256 = hashlib.sha256(b"fixture-authority").hexdigest()
-    plan_sha256 = hashlib.sha256(b"fixture-plan").hexdigest()
+    context = {
+        "authority_revision": 1,
+        "case_ref": case_ref,
+        "plan_ref": None,
+        "plan_cursor": "ENTER_DISPATCH",
+        "recovery_checkpoint_id": "fixture-recovery",
+        "shiguan_revision": 0,
+    }
     receipt = court_semantic_continuity.build_semantic_receipt(
         task,
-        {
-            "authority_revision": 1,
-            "authority_sha256": authority_sha256,
-            "plan_revision": 1,
-            "plan_sha256": plan_sha256,
-            "plan_cursor": "ENTER_DISPATCH",
-            "git_fingerprint": "fixture-git",
-            "recovery_checkpoint_id": "fixture-recovery",
-            "shiguan_revision": 0,
-            "shiguan_fingerprint": hashlib.sha256(b"fixture-shiguan").hexdigest(),
-        },
-        event_head_sha256=hashlib.sha256(b"fixture-event-head").hexdigest(),
-        event_head_bytes=0,
+        context,
+        event_head_id="EVT-SUPERCC-FIXTURE",
         trigger="checkpoint",
         created_at="2026-07-17T00:00:00+00:00",
     )
@@ -1313,18 +1306,20 @@ def dispatch_context_fixture(
         "task_id": task_id,
         "sub_id": dispatch_uid,
         "semantic_epoch": 1,
-        "invariant_capsule_sha256": task["invariant_capsule_sha256"],
+        "case_ref": case_ref,
+        "plan_ref": None,
         "semantic_receipt_id": receipt["receipt_id"],
-        "semantic_receipt_sha256": receipt["receipt_sha256"],
-        "authority_sha256": authority_sha256,
-        "plan_sha256": plan_sha256,
         "plan_cursor": receipt["plan_cursor"],
         "fork_context": "none",
         "context_mode": "bounded",
         "pointers": [
-            {"path": "authority/current.json", "sha256": authority_sha256},
-            {"path": "plans/current.json", "sha256": plan_sha256},
+            {"path": f"court-runtime:tasks/{task_id}/charter", "case_ref": case_ref},
+            {"path": f"court-runtime:tasks/{task_id}/case_bootstrap", "case_ref": case_ref},
         ],
+        "summary": {
+            "text": "bounded superCC dispatch fixture packet",
+            "semantic_receipt_id": receipt["receipt_id"],
+        },
     }
     if role in {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}:
         direct_superior = "shangshu"

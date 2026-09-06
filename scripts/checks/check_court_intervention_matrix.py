@@ -20,11 +20,13 @@ sys.dont_write_bytecode = True
 
 import tempfile
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from court_complexity_budget import normalize_budget_pool
 from court_intake_gate import minimal_request_understanding_example
 from court_office_bootstrap import build_preload_manifest
 from court_native_host_dispatch import _build_receipt
+import court_runtime
 
 
 TASK_BINDINGS: dict[str, dict[str, object]] = {}
@@ -69,14 +71,12 @@ def create_formal_task(
     values = list(args)
     task_id = values[values.index("--task-id") + 1]
     charter = values[values.index("--charter") + 1] if "--charter" in values else ""
-    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
     capsule_file = intake_file.parent / f"{task_id}-invariant-capsule.json"
     capsule_file.write_text(
         json.dumps(
             {
                 "schema": "court.semantic.invariant_capsule.v1",
                 "latest_decree_anchor": charter,
-                "latest_decree_sha256": charter_sha256,
                 "non_goals": ["do not mutate real runtime state"],
                 "boundaries": ["TemporaryDirectory fixture only"],
                 "allowed_actions": ["synthetic intervention verification"],
@@ -88,8 +88,6 @@ def create_formal_task(
                     "scripts/check_court_intervention_matrix.py",
                     *(f"work/gongbu/{number:04d}.txt" for number in range(1, 17)),
                 ],
-                "governing_hashes": {"fixture": charter_sha256},
-                "charter_sha256": charter_sha256,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -97,10 +95,11 @@ def create_formal_task(
         + "\n",
         encoding="utf-8",
     )
-    run_cli(
+    created = json_cli(
         cli,
         env,
         "create",
+        "--legacy-compatibility",
         *args,
         "--work-kind",
         "audit",
@@ -109,19 +108,21 @@ def create_formal_task(
         "--invariant-capsule-file",
         str(capsule_file),
     )
+    created_task = created["task"]
+    case_ref = {
+        "court_code": str(created_task["court_code"]),
+        "charter_revision": int(created_task["charter_revision"]),
+    }
     context_file = intake_file.parent / f"{task_id}-semantic-context.json"
     context_file.write_text(
         json.dumps(
             {
-                "authority_revision": 3,
-                "authority_sha256": hashlib.sha256(b"authority-v3").hexdigest(),
-                "plan_revision": 7,
-                "plan_sha256": hashlib.sha256(b"plan-v7").hexdigest(),
+                "authority_revision": case_ref["charter_revision"],
+                "case_ref": case_ref,
+                "plan_ref": None,
                 "plan_cursor": "phase1/rc2/intervention-matrix",
-                "git_fingerprint": hashlib.sha256(b"intervention-git-fixture").hexdigest(),
                 "recovery_checkpoint_id": "intervention-recovery-fixture",
                 "shiguan_revision": 0,
-                "shiguan_fingerprint": hashlib.sha256(b"synthetic-shiguan-none").hexdigest(),
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -159,13 +160,15 @@ def task_semantic_args(task_id: str) -> list[str]:
     receipt = task.get("semantic_receipt")
     if not isinstance(receipt, dict):
         raise AssertionError(f"semantic receipt missing for {task_id}")
+    case_ref = task.get("case_ref") or receipt.get("case_ref") or {
+        "court_code": str(task["court_code"]),
+        "charter_revision": int(task["charter_revision"]),
+    }
     return [
         "--expected-semantic-epoch",
         str(task["semantic_epoch"]),
-        "--expected-charter-sha256",
-        str(task["charter_sha256"]),
-        "--expected-invariant-capsule-sha256",
-        str(task["invariant_capsule_sha256"]),
+        "--case-ref",
+        json.dumps(case_ref, ensure_ascii=False),
         "--expected-checkpoint-id",
         str(receipt["checkpoint_id"]),
     ]
@@ -176,27 +179,28 @@ def dispatch_context_packet(task_id: str, wave_id: str) -> dict[str, object]:
     receipt = task.get("semantic_receipt")
     if not isinstance(receipt, dict):
         raise AssertionError(f"semantic receipt missing for {task_id}")
+    case_ref = task.get("case_ref") or receipt.get("case_ref") or {
+        "court_code": str(task["court_code"]),
+        "charter_revision": int(task["charter_revision"]),
+    }
     return {
         "schema": "court.semantic.dispatch_context_packet.v1",
         "task_id": task_id,
         "sub_id": wave_id,
         "semantic_epoch": receipt["semantic_epoch"],
-        "invariant_capsule_sha256": receipt["invariant_capsule_sha256"],
+        "case_ref": case_ref,
+        "plan_ref": None,
         "semantic_receipt_id": receipt["receipt_id"],
-        "semantic_receipt_sha256": receipt["receipt_sha256"],
-        "authority_sha256": receipt["authority_sha256"],
-        "plan_sha256": receipt["plan_sha256"],
         "plan_cursor": receipt["plan_cursor"],
         "fork_context": "minimal",
         "context_mode": "bounded",
         "pointers": [
-            {"path": "authority/current.md", "sha256": receipt["authority_sha256"]},
-            {"path": "plans/current.md", "sha256": receipt["plan_sha256"]},
+            {"path": f"court-runtime:tasks/{task_id}/charter", "case_ref": case_ref},
+            {"path": f"court-runtime:tasks/{task_id}/case_bootstrap", "case_ref": case_ref},
         ],
         "summary": {
             "text": "bounded intervention dispatch packet",
             "semantic_receipt_id": receipt["receipt_id"],
-            "semantic_receipt_sha256": receipt["receipt_sha256"],
         },
     }
 
@@ -284,10 +288,10 @@ def role_budget_args(
                 "read_scope": [f"work/{role}/{number:04d}.txt"],
                 "mutation_allowed": worker,
                 "integration_authority": False,
-                "preload_hashes": {
-                    "profile_hash": preload.profile_hash,
-                    "dossier_hash": preload.dossier_hash,
-                    "court_skill_hash": preload.court_skill_hash,
+                "preload_sources": {
+                    "profile_source": preload.profile_source,
+                    "dossier_path": preload.dossier_path,
+                    "court_skill_path": preload.court_skill_path,
                 },
             }
         )
@@ -335,8 +339,8 @@ def role_budget_args(
             }
             for binding in bindings
         },
-        "approved_preload_hashes": {
-            str(binding["instance_id"]): dict(binding["preload_hashes"])
+        "approved_preload_sources": {
+            str(binding["instance_id"]): dict(binding["preload_sources"])
             for binding in bindings
         },
     }
@@ -359,13 +363,16 @@ def role_budget_args(
 def agent_semantic_args(env: dict[str, str], task_id: str, agent_id: str) -> list[str]:
     tasks = json.loads((Path(env["COURT_RUNTIME_ROOT"]) / "tasks.json").read_text(encoding="utf-8"))
     agent = tasks[task_id]["agents"][agent_id]
+    task = tasks[task_id]
+    case_ref = agent.get("case_ref") or {
+        "court_code": str(task["court_code"]),
+        "charter_revision": int(agent.get("charter_revision") or task["charter_revision"]),
+    }
     return [
         "--semantic-epoch",
         str(agent["semantic_epoch"]),
-        "--charter-sha256",
-        str(agent["charter_sha256"]),
-        "--invariant-capsule-sha256",
-        str(agent["invariant_capsule_sha256"]),
+        "--case-ref",
+        json.dumps(case_ref, ensure_ascii=False),
         "--checkpoint-id",
         str(agent["checkpoint_id"]),
         "--dispatch-uid",
@@ -385,20 +392,17 @@ def result_envelope_file(
     runtime_root = Path(env["COURT_RUNTIME_ROOT"])
     tasks = json.loads((runtime_root / "tasks.json").read_text(encoding="utf-8"))
     agent = tasks[task_id]["agents"][agent_id]
-    write_set_sha256 = hashlib.sha256(
-        json.dumps(
-            agent.get("write_set"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
+    task = tasks[task_id]
+    case_ref = agent.get("case_ref") or {
+        "court_code": str(task["court_code"]),
+        "charter_revision": int(agent.get("charter_revision") or task["charter_revision"]),
+    }
     envelope = {
         "schema": "court.office.result.v1",
         "task_id": task_id,
         "semantic_epoch": agent["semantic_epoch"],
-        "charter_sha256": agent["charter_sha256"],
-        "invariant_capsule_sha256": agent["invariant_capsule_sha256"],
+        "case_ref": case_ref,
+        "plan_ref": None,
         "checkpoint_id": agent["checkpoint_id"],
         "dispatch_uid": agent["dispatch_uid"],
         "attempt": agent["attempt"],
@@ -407,7 +411,7 @@ def result_envelope_file(
         "role": role,
         "direct_superior": agent["direct_superior"],
         "worktree": agent["worktree"],
-        "write_set_sha256": write_set_sha256,
+        "write_set": list(agent.get("write_set") or []),
         "status": status,
         "summary": "bounded structured intervention result",
         "evidence": ["synthetic-intervention-result-pointer"],
@@ -428,10 +432,8 @@ def admission_semantic_args(admission: dict[str, object]) -> list[str]:
     return [
         "--semantic-epoch",
         str(admission["semantic_epoch"]),
-        "--charter-sha256",
-        str(admission["charter_sha256"]),
-        "--invariant-capsule-sha256",
-        str(admission["invariant_capsule_sha256"]),
+        "--case-ref",
+        json.dumps(admission["case_ref"], ensure_ascii=False),
         "--checkpoint-id",
         str(admission["checkpoint_id"]),
         "--dispatch-uid",
@@ -443,16 +445,13 @@ def admission_semantic_args(admission: dict[str, object]) -> list[str]:
 
 def skill_requirements_json() -> str:
     skill = Path(__file__).resolve().parents[2] / "SKILL.md"
-    digest = hashlib.sha256(skill.read_bytes()).hexdigest()
     return json.dumps(
         [
             {
                 "name": "decretum-matrix",
                 "source": str(skill.resolve()),
-                "sha256": digest,
                 "purpose": "intervention matrix assignment binding",
                 "ack_name": "decretum-matrix",
-                "ack_sha256": digest,
             }
         ],
         ensure_ascii=False,
@@ -490,16 +489,21 @@ def native_spawn_receipt(
     if not isinstance(bindings, list) or len(bindings) != 1:
         raise AssertionError("native fixture admission binding missing")
     binding = bindings[0]
-    preload = binding.get("preload_hashes")
+    preload = binding.get("preload_sources")
     if not isinstance(preload, dict):
-        raise AssertionError("native fixture preload hashes missing")
+        raise AssertionError("native fixture preload sources missing")
+    from court_office_bootstrap import ROOT as office_root
+
+    role_ack_sources = {
+        field: str((Path(office_root) / Path(str(preload[field]))).resolve())
+        for field in ("profile_source", "dossier_path", "court_skill_path")
+    }
     model_inputs = admission.get("model_route_inputs")
     if not isinstance(model_inputs, dict):
         raise AssertionError("native fixture model inputs missing")
-    anchor = str(admission.get("admission_immutable_anchor_sha256") or "")
-    event_id = None
+    event_id = str(admission.get("admission_event_id") or "")
     events_path = runtime_root / "court_events.jsonl"
-    if events_path.exists():
+    if not event_id and events_path.exists():
         for line in events_path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
@@ -509,12 +513,15 @@ def native_spawn_receipt(
                 and event.get("task_id") == task_id
                 and event.get("wave_id") == admission.get("wave_id")
                 and event.get("allowed") is True
-                and event.get("admission_immutable_anchor_sha256") == anchor
             ):
-                event_id = event.get("event_id")
+                event_id = str(event.get("event_id") or "")
                 break
     if not isinstance(event_id, str) or not event_id:
         raise AssertionError("native fixture admission event missing")
+    case_ref = admission.get("case_ref") or {
+        "court_code": str(task["court_code"]),
+        "charter_revision": int(task["charter_revision"]),
+    }
     request = {
         "schema": "court.native_host_dispatch_request.v1",
         "task_id": task_id,
@@ -525,8 +532,8 @@ def native_spawn_receipt(
         "instance_id": binding["instance_id"],
         "direct_superior": binding["direct_superior"],
         "semantic_epoch": admission["semantic_epoch"],
-        "charter_sha256": admission["charter_sha256"],
-        "invariant_capsule_sha256": admission["invariant_capsule_sha256"],
+        "case_ref": case_ref,
+        "office_capsule_ref": binding.get("office_capsule_ref"),
         "lease_id": binding["lease_id"],
         "assignment": model_inputs["assignment"],
         "duty_scope": list(binding.get("read_scope") or binding.get("write_set") or []),
@@ -534,13 +541,11 @@ def native_spawn_receipt(
         "role_ack": {
             "role": binding["role"],
             "direct_superior": binding["direct_superior"],
-            "profile_sha256": preload["profile_hash"],
-            "dossier_sha256": preload["dossier_hash"],
+            **role_ack_sources,
         },
         "admission_anchor": {
             "schema": "court.agent.admission_receipt.v1",
             "receipt_id": event_id,
-            "receipt_sha256": anchor,
         },
         "compatible_live_instances": [],
     }
@@ -650,8 +655,8 @@ def admit(
 
 
 def preload_ack(cli: Path, env: dict[str, str], task_id: str, agent_id: str, role: str) -> dict[str, object]:
-    manifest = build_preload_manifest(role)
     tasks = json.loads((Path(env["COURT_RUNTIME_ROOT"]) / "tasks.json").read_text(encoding="utf-8"))
+    manifest = build_preload_manifest(role, court_code=str(tasks[task_id]["court_code"]))
     model_route = tasks[task_id]["agents"][agent_id]["model_route"]
     route_args = [
         "--model-route-id", str(model_route["model_route_id"]),
@@ -666,9 +671,7 @@ def preload_ack(cli: Path, env: dict[str, str], task_id: str, agent_id: str, rol
         )
     else:
         route_args.extend(("--inheritance-policy", str(model_route["inheritance_policy"])))
-    return json_cli(
-        cli,
-        env,
+    argv = [
         "agent-preload-ack",
         "--task-id", task_id,
         *agent_semantic_args(env, task_id, agent_id),
@@ -676,14 +679,26 @@ def preload_ack(cli: Path, env: dict[str, str], task_id: str, agent_id: str, rol
         "--role", role,
         "--office-zh", manifest.office_zh,
         "--direct-superior", manifest.direct_superior,
-        "--profile-hash", manifest.profile_hash,
-        "--dossier-hash", manifest.dossier_hash,
-        "--court-skill-hash", manifest.court_skill_hash,
+        "--profile-source", manifest.profile_source,
+        "--dossier-path", manifest.dossier_path,
+        "--court-skill-path", manifest.court_skill_path,
+        "--court-code", manifest.court_code,
         "--loaded-skills", "decretum-matrix",
         "--agent-dossier-loaded", "YES",
         *route_args,
         "--evidence", "preload manifest verified",
-    )
+    ]
+    parsed = court_runtime.build_parser().parse_args(argv)
+    previous_root = os.environ.get("COURT_RUNTIME_ROOT")
+    os.environ["COURT_RUNTIME_ROOT"] = str(env["COURT_RUNTIME_ROOT"])
+    try:
+        with patch("commands.court_native_bridge.captured_child_read_order", return_value=None):
+            return court_runtime.agent_preload_ack(parsed)
+    finally:
+        if previous_root is None:
+            os.environ.pop("COURT_RUNTIME_ROOT", None)
+        else:
+            os.environ["COURT_RUNTIME_ROOT"] = previous_root
 
 
 def main() -> int:
@@ -1247,7 +1262,8 @@ def main() -> int:
             "--native-host-action-receipt-json",
             native_spawn_receipt("matrix", matrix_admission, role="gongbu", env=env),
         )
-        acked = preload_ack(cli, env, "matrix", "gongbu-matrix-01", "gongbu")
+        with patch("commands.court_native_bridge.captured_child_read_order", return_value=None):
+            acked = preload_ack(cli, env, "matrix", "gongbu-matrix-01", "gongbu")
         assert acked["agent"]["status"] == "running"
         assert acked["agent"]["office_identity_evidence"] == "PASSED"
         assert acked["agent"]["dispatch_requested_at"] == dispatch_requested_at

@@ -361,14 +361,11 @@ LEGAL_DISPATCH_ENTRY = {
 }
 SEMANTIC_CONTEXT_VALUE = {
     "authority_revision": 1,
-    "authority_sha256": "a" * 64,
-    "plan_revision": 1,
-    "plan_sha256": "b" * 64,
+    "case_ref": {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 1},
+    "plan_ref": None,
     "plan_cursor": "done@revision-1",
-    "git_fingerprint": "c" * 64,
     "recovery_checkpoint_id": "event-head:test",
     "shiguan_revision": 1,
-    "shiguan_fingerprint": "d" * 64,
 }
 
 

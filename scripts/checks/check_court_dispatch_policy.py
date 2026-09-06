@@ -24,7 +24,7 @@ import court_multi_agent_protocol as _protocol
 from court_dispatch_policy import select_wave as _select_wave, validate_dispatch_plan
 from court_native_execution import AUTHORITIES, BEHAVIORS, select_native_execution
 from court_multi_agent_protocol import admit_roles as _admit_roles
-from court_office_bootstrap import canonical_child_office_binding_sha256
+from court_office_bootstrap import build_child_office_profile
 
 
 TARGET_SUPERIORS = {
@@ -45,10 +45,14 @@ TARGET_SUPERIORS = {
 }
 MINISTRY_ROLES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")
 DISPATCH_PRELOAD_BY_ROLE: dict[str, dict[str, str]] = {}
-BOUND_PRELOAD_HASHES = {
-    "profile_hash": "1" * 64,
-    "dossier_hash": "2" * 64,
-    "court_skill_hash": "3" * 64,
+BOUND_PRELOAD_SOURCES = {
+    "profile_source": "agents/standing-officials/gongbu.toml",
+    "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
+    "court_skill_path": "SKILL.md",
+}
+DISPATCH_CASE_REF = {
+    "court_code": "COURT-20260906-1-AAAA",
+    "charter_revision": 1,
 }
 
 
@@ -139,7 +143,7 @@ def _bindings(
             "read_scope": [f"work/{role}/{number:04d}.txt"],
             "mutation_allowed": True,
             "integration_authority": False,
-            "preload_hashes": dict(BOUND_PRELOAD_HASHES),
+            "preload_sources": dict(BOUND_PRELOAD_SOURCES),
             "direct_superior": role if worker else TARGET_SUPERIORS.get(role, "shangshu"),
             "instance_kind": "office_worker_instance" if worker else "office",
             "canonical_authority": number == 1,
@@ -158,6 +162,8 @@ def _bindings(
                 "attempt": "attempt",
                 "expires_at_utc": "expires_at_utc",
                 "terminal_condition": "terminal_condition",
+                "case_ref": "case_ref",
+                "semantic_receipt_id": "semantic_receipt_id",
             }.items():
                 binding.setdefault(outer_field, profile.get(profile_field))
         result.append(binding)
@@ -187,6 +193,7 @@ def _bounded_child_profile(
         "dispatch_uid": f"DSP-DISPATCH-POLICY-CHILD-{ordinal:04d}",
         "shard_id": f"{owner_role}-shard-{ordinal:04d}",
         "attempt": 1,
+        "case_ref": dict(DISPATCH_CASE_REF),
         "profile_sha256": "1" * 64,
         "dossier_sha256": "2" * 64,
         "skill_sha256": "3" * 64,
@@ -194,6 +201,7 @@ def _bounded_child_profile(
         "expires_at_utc": "2099-01-01T00:00:00Z",
         "dispatch_context_packet_schema": "court.semantic.dispatch_context_packet.v1",
         "dispatch_context_packet_sha256": "4" * 64,
+        "semantic_receipt_id": "SC-DISPATCH-POLICY",
         "semantic_receipt_sha256": "5" * 64,
         "invariant_capsule_schema": "court.semantic.invariant_capsule.v1",
         "invariant_capsule_sha256": "6" * 64,
@@ -273,11 +281,9 @@ def _approved_scope_kwargs(
         },
     )
     lease.setdefault(
-        "approved_binding_sha256s",
+        "approved_bindings",
         {
-            str(binding["instance_id"]): canonical_child_office_binding_sha256(
-                binding
-            )
+            str(binding["instance_id"]): dict(binding)
             for binding in approved_bindings
             if isinstance(binding.get("child_profile"), Mapping)
         },
@@ -285,9 +291,9 @@ def _approved_scope_kwargs(
     lease.setdefault("lease_depth", max(0, int(next_depth) - 1))
     lease.setdefault("approved_next_depth", int(next_depth))
     lease.setdefault(
-        "approved_preload_hashes",
+        "approved_preload_sources",
         {
-            str(binding["instance_id"]): dict(binding["preload_hashes"])
+            str(binding["instance_id"]): dict(binding["preload_sources"])
             for binding in approved_bindings
         },
     )
@@ -898,6 +904,7 @@ def dispatch_item(role: str, office_zh: str, duty: str, direct_superior: str = "
         "stop_conditions": ["scope_change"],
         "visibility": "non_visible",
         "instance_key": f"{role}#0001",
+        "case_ref": dict(DISPATCH_CASE_REF),
         "profile_path": preload["profile_path"],
         "dossier_path": preload["dossier_path"],
         "skill_path": preload["skill_path"],
@@ -923,6 +930,7 @@ def _initialize_dispatch_preload(root: Path) -> None:
         profile.write_text(f"role = {role!r}\n", encoding="utf-8")
         dossier.write_text(f"# {role} fixture dossier\n", encoding="utf-8")
         DISPATCH_PRELOAD_BY_ROLE[role] = {
+            "case_ref": dict(DISPATCH_CASE_REF),
             "profile_path": profile_rel,
             "dossier_path": dossier_rel,
             "skill_path": "SKILL.md",
@@ -960,12 +968,6 @@ def check_dispatch_plan() -> dict[str, object]:
         [{**dispatch_item("xingbu", "刑部", "risk"), "evidence_contract": ""}],
         [{**dispatch_item("gongbu", "工部", "build"), "visibility": "visible_core"}],
         [{**dispatch_item("gongbu", "工部", "build"), "preload_ack": ""}],
-        [{**dispatch_item("gongbu", "工部", "build"), "profile_hash": "not-a-sha256"}],
-        [{**dispatch_item("gongbu", "工部", "build"), "dossier_hash": ""}],
-        [{**dispatch_item("gongbu", "工部", "build"), "court_skill_hash": ""}],
-        [{**dispatch_item("gongbu", "工部", "build"), "profile_hash": "0" * 64}],
-        [{**dispatch_item("gongbu", "工部", "build"), "dossier_hash": "f" * 64}],
-        [{**dispatch_item("gongbu", "工部", "build"), "court_skill_hash": "a" * 64}],
         [{**dispatch_item("gongbu", "工部", "build"), "profile_path": "agents/standing-officials/menxia.toml"}],
         [{**dispatch_item("gongbu", "工部", "build"), "dossier_path": "../outside/AGENTS.md"}],
         [{**dispatch_item("gongbu", "工部", "build"), "skill_path": "references/SKILL.md"}],
@@ -1726,12 +1728,13 @@ def check_child_profile_binding_digest_is_immutable_before_capacity() -> dict[st
     assert isinstance(bindings, Sequence)
     original_binding = bindings[0]
     assert isinstance(original_binding, Mapping)
-    digest_map = lease.get("approved_binding_sha256s")
+    approved_binding = lease.get("approved_bindings")
     require(
-        isinstance(digest_map, Mapping)
-        and digest_map.get("gongbu#0001")
-        == canonical_child_office_binding_sha256(original_binding),
-        "child binding digest was not frozen into the approved lease",
+        isinstance(approved_binding, Mapping)
+        and isinstance(approved_binding.get("gongbu#0001"), Mapping)
+        and approved_binding["gongbu#0001"].get("child_profile")
+        == original_binding.get("child_profile"),
+        "child binding was not frozen into the approved lease",
     )
 
     common = {
@@ -1781,7 +1784,7 @@ def check_child_profile_binding_digest_is_immutable_before_capacity() -> dict[st
     return {
         "allowed": allowed.__dict__,
         "tampered": tampered.__dict__,
-        "approved_binding_sha256": digest_map["gongbu#0001"],
+        "approved_binding_instance": list(approved_binding)[0],
     }
 
 
@@ -1944,10 +1947,10 @@ def check_admission_lease_authority_expiry_depth_scope_and_preload() -> dict[str
         ),
         "preload": (
             decision(
-                approved_preload_hashes={
+                approved_preload_sources={
                     "gongbu#0001": {
-                        **BOUND_PRELOAD_HASHES,
-                        "profile_hash": "f" * 64,
+                        **BOUND_PRELOAD_SOURCES,
+                        "profile_source": "agents/standing-officials/menxia.toml",
                     }
                 }
             ),

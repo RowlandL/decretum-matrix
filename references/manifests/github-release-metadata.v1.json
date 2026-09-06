@@ -1,29 +1,37 @@
 {
-  "schema": "decretum.github_release_metadata.v1",
-  "latest_tag": "beta1.1.0",
   "brief_policy": {
-    "required": true,
-    "max_body_chars": 1200,
-    "highlight_count_min": 2,
     "highlight_count_max": 6,
-    "latest_must_match_version": true
+    "highlight_count_min": 2,
+    "latest_must_match_version": true,
+    "max_body_chars": 1200,
+    "required": true
   },
+  "latest_tag": "beta1.1.1",
   "releases": [
     {
-      "tag": "beta1.1.0",
-      "title": "Decretum Matrix beta1.1.0",
-      "summary": "本地 1.1.0 开发候选：按已审批架构修复安装、编号、账册与分类边界，并核对三省六部协作的结果证据；验收状态以本版本实际验证回执为准。",
+      "asset_note": "本条目对应 release/beta1.1.1 本地验证与安装收口；远端 tag/发布资产按当前授权执行。",
+      "highlights": [
+        "运行期身份从内容哈希改为 court_code/case_ref/record_ref 引用。",
+        "预载绑定改用 profile_source/dossier_path/court_skill_path 源引用。",
+        "T08 四门、语义连续性、安装与发布门全部通过。"
+      ],
+      "summary": "本版本完成 reference/court_code 契约收口：删除运行期哈希身份，改用诏令编号引用；修复合规与账册边界，全部 source/install/release 门复跑为绿。",
+      "tag": "beta1.1.1",
+      "title": "Decretum Matrix beta1.1.1"
+    },
+    {
+      "asset_note": "此条目是本地候选说明，不代表已创建 tag、推送、发布 npm 或更新活动安装。",
       "highlights": [
         "对齐真实安装投影、公开入口依赖与官署预载预算。",
         "修复会话编号复用、账册事务和冲突裁定的边界行为。",
         "核验三省往返、六部会办和最终结果之间的证据合同。"
       ],
-      "asset_note": "此条目是本地候选说明，不代表已创建 tag、推送、发布 npm 或更新活动安装。"
+      "summary": "本地 1.1.0 开发候选：按已审批架构修复安装、编号、账册与分类边界，并核对三省六部协作的结果证据；验收状态以本版本实际验证回执为准。",
+      "tag": "beta1.1.0",
+      "title": "Decretum Matrix beta1.1.0"
     },
     {
-      "tag": "beta1.0.8",
-      "title": "Decretum Matrix beta1.0.8",
-      "summary": "本版本收敛现代 MCP、CLI/MCP 同源只读注册表、canonical skill 安装路径与原生官署预载哈希，并补齐网络 git mirror 上的本地验证兼容；当前条目只描述源码候选，不代表远端发布完成。",
+      "asset_note": "当前为本地 beta1.0.8 源码与安装验证收口；远端 release、tag 更新、push 和发布资产仍需单独授权。",
       "highlights": [
         "MCP 以 2026-07-28 为主协议，2025-11-25 仅保留兼容路径，并严格校验 JSON-RPC、cursor 与请求元数据。",
         "CLI 与 MCP 共享 manifest-derived registry 和只读 public API，不建立第二套命令表或账本。",
@@ -31,128 +39,128 @@
         "发布与 CLI 检查在网络 git mirror 上使用逐命令 safe.directory，不写全局 Git 配置。",
         "canonical skill 名为 decretum-matrix；旧 court-capability-router 仅保留为显式 legacy locator，hooks 不随包交付。"
       ],
-      "asset_note": "当前为本地 beta1.0.8 源码与安装验证收口；远端 release、tag 更新、push 和发布资产仍需单独授权。"
+      "summary": "本版本收敛现代 MCP、CLI/MCP 同源只读注册表、canonical skill 安装路径与原生官署预载哈希，并补齐网络 git mirror 上的本地验证兼容；当前条目只描述源码候选，不代表远端发布完成。",
+      "tag": "beta1.0.8",
+      "title": "Decretum Matrix beta1.0.8"
     },
     {
-      "tag": "beta1.0.6",
-      "title": "Decretum Matrix beta1.0.6",
-      "summary": "本版本收口原生宿主运行身份与入口证据、尚书省到六部的真实派遣/复用，以及史馆谱系分类待审路径；安装后的运行面继续排除独立哈希校验器。",
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向 1.0.6-beta.0，远端状态以发布后回读为准。",
       "highlights": [
         "原生宿主回执绑定运行身份、统一入口、请求路径和宿主生命周期。",
         "尚书省到六部的 dispatch/reuse 以真实宿主证据验证，不以脚本存在或 ok 回显代替。",
         "谱系分类补齐置信度、并列、否定和未知待审分支。",
         "五根与明示授权的 Qoder 投影由源码侧独立哈希门禁核验，校验器不进入安装面。"
       ],
-      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向 1.0.6-beta.0，远端状态以发布后回读为准。"
+      "summary": "本版本收口原生宿主运行身份与入口证据、尚书省到六部的真实派遣/复用，以及史馆谱系分类待审路径；安装后的运行面继续排除独立哈希校验器。",
+      "tag": "beta1.0.6",
+      "title": "Decretum Matrix beta1.0.6"
     },
     {
-      "tag": "beta1.0.5",
-      "title": "Decretum Matrix beta1.0.5",
-      "summary": "本版本将 GitHub Packages npm 载体提升到 1.0.5-beta.0，并同步 macOS / Linux 安装路径与依赖资产选择，同时保留首次安装依赖致谢和无安装后哈希校验的运行面。",
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向本版本的独立不可变包。",
       "highlights": [
         "npm beta 新增 1.0.5-beta.0，不覆盖既有 1.0.4-beta.0.hotfix.1。",
         "首次安装继续安装或复用 zellij 与 squad，并在回执中写入开源项目致谢和链接。",
         "macOS / Linux 安装路径和依赖资产选择随 npm 载体更新，不引入安装后的哈希校验脚本。"
       ],
-      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向本版本的独立不可变包。"
+      "summary": "本版本将 GitHub Packages npm 载体提升到 1.0.5-beta.0，并同步 macOS / Linux 安装路径与依赖资产选择，同时保留首次安装依赖致谢和无安装后哈希校验的运行面。",
+      "tag": "beta1.0.5",
+      "title": "Decretum Matrix beta1.0.5"
     },
     {
-      "tag": "beta1.0.4-hotfix-v1",
-      "title": "Decretum Matrix beta1.0.4-hotfix-v1",
-      "summary": "本 hotfix 恢复 cft0808/edict 工程参考的发行与安装可见性，同时保持它冻结、非运行依赖且不引入安装后哈希校验。",
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向本 hotfix 的独立不可变版本。",
       "highlights": [
         "CFT 参考重新进入 ZIP、npm 载体和五根安装投影。",
         "每次安装同步后将该文件设为只读；后续发行更新会覆盖后重新冻结。",
         "npm 使用 1.0.4-beta.0.hotfix.1，保留既有 1.0.4-beta.0 不可覆盖证据。"
       ],
-      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；npm beta 指向本 hotfix 的独立不可变版本。"
+      "summary": "本 hotfix 恢复 cft0808/edict 工程参考的发行与安装可见性，同时保持它冻结、非运行依赖且不引入安装后哈希校验。",
+      "tag": "beta1.0.4-hotfix-v1",
+      "title": "Decretum Matrix beta1.0.4-hotfix-v1"
     },
     {
-      "tag": "beta1.0.4",
-      "title": "Decretum Matrix beta1.0.4",
-      "summary": "本版本把短回奏重新收回到客观结诏与史馆实录，并将三权选择恢复为权力加解释、串并行独立选择，同时继续收敛安装后的运行面。",
+      "asset_note": "当前仅为源码候选；是否创建远端 release 与资产由后续明确授权决定。",
       "highlights": [
         "短回奏不再绕开结诏、史馆实录和记忆裁定；轻量终态也保留客观记录。",
         "开朝三权以“权力 + 解释”呈现，行为 `serial/parallel` 独立选择。",
         "安装投影继续保持窄面，旧 active-copy 校验门不再进入安装后路径。"
       ],
-      "asset_note": "当前仅为源码候选；是否创建远端 release 与资产由后续明确授权决定。"
+      "summary": "本版本把短回奏重新收回到客观结诏与史馆实录，并将三权选择恢复为权力加解释、串并行独立选择，同时继续收敛安装后的运行面。",
+      "tag": "beta1.0.4",
+      "title": "Decretum Matrix beta1.0.4"
     },
     {
-      "tag": "beta1.0.3",
-      "title": "Decretum Matrix beta1.0.3",
-      "summary": "本版本保留既有渐进式三省六部流程，收回普通开朝中过度前置的脚本检查，并修正动态六部与真实派遣证据边界。",
+      "asset_note": "当前仅为源码候选；是否创建远端 release 与资产由后续明确授权决定。",
       "highlights": [
         "普通开朝只加载 SKILL 与当前行为卷；Git、史馆服务、pending、YOLO、registry、安装和发布工具按场景触发。",
         "court open --fast 降为可选差遣前预检，不负责三权提问、语义规划或真实宿主派遣。",
         "六部由尚书从最终结果倒推必要子集，packet/admission 数不再冒充 physical spawn。"
       ],
-      "asset_note": "当前仅为源码候选；是否创建远端 release 与资产由后续明确授权决定。"
+      "summary": "本版本保留既有渐进式三省六部流程，收回普通开朝中过度前置的脚本检查，并修正动态六部与真实派遣证据边界。",
+      "tag": "beta1.0.3",
+      "title": "Decretum Matrix beta1.0.3"
     },
     {
-      "tag": "beta1.0.2",
-      "title": "Decretum Matrix beta1.0.2",
-      "summary": "本版本围绕诏令式多-agent 协作、场景分流、史馆/GBrain/Git 联邦边界，以及项目级发布/安装门禁分层进行整理，并保留 beta0.5.9 与后续明确新增能力。",
+      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。",
       "highlights": [
         "技能定义收敛为围绕“诏令”的多-agent 协作体系；默认正式路径仍是三省六部，并按场景分流闲聊、轻量任务、正式任务、纠正、延续和主动结诏。",
         "beta0.5.9 已有能力和用户明确新增功能不因提速被删除；项目级 release/install/legal/package/manifest 门禁保留在项目层，不混入普通 Skill 启动链。",
         "史馆基础记录/查询、GBrain 整理沉淀、Git 联邦管理保持分层；GBrain 不替代基础召回，Git 联邦只作为显式管理面。",
         "外部 CWD 下 CLI 以调用者目录解析相对路径，项目级检查/发布命令仍从代码根执行。"
       ],
-      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。"
+      "summary": "本版本围绕诏令式多-agent 协作、场景分流、史馆/GBrain/Git 联邦边界，以及项目级发布/安装门禁分层进行整理，并保留 beta0.5.9 与后续明确新增能力。",
+      "tag": "beta1.0.2",
+      "title": "Decretum Matrix beta1.0.2"
     },
     {
-      "tag": "beta0.5.10",
-      "title": "Decretum Matrix beta0.5.10",
-      "summary": "Decretum Matrix 新名称下的首个 beta 版本，完成产品、skill、调用入口和发布资产的统一命名。",
+      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。",
       "highlights": [
         "引入 decretum-matrix / $decretum-matrix 规范身份，同时保留必要的历史兼容 locator。",
         "加入 P00 语义连续性、官署身份与有界 preload/receipt 合同。",
         "社区许可切换为 AGPL-3.0-only，并补齐商业许可、贡献和上游来源边界。",
         "修复 Windows 8.3 路径、确定性打包、portable 字节码和发布隐私回归。"
       ],
-      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。"
+      "summary": "Decretum Matrix 新名称下的首个 beta 版本，完成产品、skill、调用入口和发布资产的统一命名。",
+      "tag": "beta0.5.10",
+      "title": "Decretum Matrix beta0.5.10"
     },
     {
-      "tag": "beta0.5.11",
-      "title": "Decretum Matrix beta0.5.11",
-      "summary": "本版本强化任务准入、Super CC 传输链、史馆自动同步和正式结诏的可验证性。",
+      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。",
       "highlights": [
         "增加原子 admission、canonical preload 绑定和 append-only 事件锚点。",
         "完善 superCC delivery preflight、identity ACK 与状态提交链。",
         "史馆 Web/autosync 改为 preserve-only 主通道与原子状态转换。",
         "发布策略扩展到 42 个门禁步骤，并修复多项 TOCTOU 与 UI 状态问题。"
       ],
-      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。"
+      "summary": "本版本强化任务准入、Super CC 传输链、史馆自动同步和正式结诏的可验证性。",
+      "tag": "beta0.5.11",
+      "title": "Decretum Matrix beta0.5.11"
     },
     {
-      "tag": "beta0.5.12",
-      "title": "Decretum Matrix beta0.5.12",
-      "summary": "本版本收敛史馆物理路径、离线/在线文档与安装后的本机发现行为。",
+      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。",
       "highlights": [
         "共享史馆与 Obsidian 默认根统一到 .agents/court-shiguan/decretum-matrix/references。",
         "新增安装、使用、治理、架构、排错和发布说明的版本化 Wiki 源。",
         "恢复受保护史馆锚点与 legacy semantic bootstrap。",
         "修复 host-memory、child-trace、旧 skill locator 和原生调用发现问题。"
       ],
-      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。"
+      "summary": "本版本收敛史馆物理路径、离线/在线文档与安装后的本机发现行为。",
+      "tag": "beta0.5.12",
+      "title": "Decretum Matrix beta0.5.12"
     },
     {
-      "tag": "beta0.5.13",
-      "title": "Decretum Matrix beta0.5.13",
-      "summary": "本版本集中改进统一 CLI、快速启动、可回滚安装和五根投影一致性。",
+      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。",
       "highlights": [
         "新增 decretum-matrix 可执行入口、lazy CLI registry 与兼容适配器。",
         "加入单进程 court open --fast 和冷/热启动性能门禁。",
         "安装采用 managed-file 备份、原子覆盖与显式 rollback receipt。",
         "postinstall 校验内嵌 ZIP，并在不读取 pending/private 正文的前提下安装 canonical runtime。"
       ],
-      "asset_note": "下载本页 ZIP 后请使用同页 .zip.sha256 校验；完整细节见附带的 release-notes.md。"
+      "summary": "本版本集中改进统一 CLI、快速启动、可回滚安装和五根投影一致性。",
+      "tag": "beta0.5.13",
+      "title": "Decretum Matrix beta0.5.13"
     },
     {
-      "tag": "beta1.0.0",
-      "title": "Decretum Matrix beta1.0.0",
-      "summary": "beta1 将 Decretum Matrix 提升为治理中立的任务框架，并以三省六部作为默认官方实现。",
+      "asset_note": "完整细节见附带的 decretum-matrix-beta1.0.0.release-notes.md；npm beta 同版本不可覆盖，本页 ZIP 为 coverage revision。",
       "highlights": [
         "增加治理中立框架合同和可替换治理适配器边界。",
         "引入共享史馆 GBrain，提供 metadata-first、仅顾问型召回，不拥有执行权。",
@@ -160,12 +168,12 @@
         "加入无 remote 的史馆 Git 联邦；Codex、Claude Code、Hermes 原生记忆独立受管，空白机显式授权后创建 canonical roots。",
         "完成 beta1 身份、候选包、五根安装、Wiki 与 GitHub 覆盖发布收敛；npm 1.0.0-beta.0 保留首次发布基线。"
       ],
-      "asset_note": "完整细节见附带的 decretum-matrix-beta1.0.0.release-notes.md；npm beta 同版本不可覆盖，本页 ZIP 为 coverage revision。"
+      "summary": "beta1 将 Decretum Matrix 提升为治理中立的任务框架，并以三省六部作为默认官方实现。",
+      "tag": "beta1.0.0",
+      "title": "Decretum Matrix beta1.0.0"
     },
     {
-      "tag": "beta1.0.0-hotfix-v1",
-      "title": "Decretum Matrix beta1.0.0-hotfix-v1",
-      "summary": "本 hotfix 从载体与回执层修复普通并行和 superCC 的语义串线，以及结诏编号/谱系可能被模型自行分配的问题。",
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix release-notes.md。",
       "highlights": [
         "共享官署 profile 保持单一来源，ordinary 与 superCC 由显式 carrier pointer 分别加载不同 dossier。",
         "普通 Codex role 和 runtime probe 不再加载、探测或回显 superCC/squad/zellij 运行面。",
@@ -173,23 +181,23 @@
         "完整官署预载保持在 20 KiB 内，单解释器冷/热 p50 提升 88.60%/99.33%。",
         "npm 使用 1.0.0-beta.0.hotfix.1，保留既有 1.0.0-beta.0 不可覆盖证据。"
       ],
-      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix release-notes.md。"
+      "summary": "本 hotfix 从载体与回执层修复普通并行和 superCC 的语义串线，以及结诏编号/谱系可能被模型自行分配的问题。",
+      "tag": "beta1.0.0-hotfix-v1",
+      "title": "Decretum Matrix beta1.0.0-hotfix-v1"
     },
     {
-      "tag": "beta1.0.0-hotfix-v2",
-      "title": "Decretum Matrix beta1.0.0-hotfix-v2",
-      "summary": "本 hotfix 修复 Windows GBK 环境中 npm postinstall 最终结构化回执无法输出的问题。",
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix-v2 release notes。",
       "highlights": [
         "npm Python launcher 在进程入口统一使用 UTF-8 stdout/stderr。",
         "新增严格 GBK stream 行为回归，验证 U+FFFD 可稳定输出。",
         "v1 保留不可变发布证据，v2 使用 1.0.0-beta.0.hotfix.2 取代。"
       ],
-      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 hotfix-v2 release notes。"
+      "summary": "本 hotfix 修复 Windows GBK 环境中 npm postinstall 最终结构化回执无法输出的问题。",
+      "tag": "beta1.0.0-hotfix-v2",
+      "title": "Decretum Matrix beta1.0.0-hotfix-v2"
     },
     {
-      "tag": "beta1.0.1",
-      "title": "Decretum Matrix beta1.0.1",
-      "summary": "本版本修复开朝启动、三权/行为正交语义、native 与 superCC 隔离，以及 semantic revision 的零差遣失败边界。",
+      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 beta1.0.1 release notes。",
       "highlights": [
         "authority 固定为 approval/autonomous/super，behavior 固定为 serial/parallel，六种组合均由结构化 receipt 验证。",
         "普通 super parallel 不探测 superCC；两种 runtime 仅共享中性层级和 standing-profile pointer/hash。",
@@ -197,7 +205,10 @@
         "真实 capability snapshot 在三省审议前解析并缓存，覆盖 skill、MCP、plugin、CLI 和 script 分配。",
         "npm 使用 1.0.1-beta.0，并继续通过 beta dist-tag 分发。"
       ],
-      "asset_note": "下载 ZIP 后使用同页 .zip.sha256 校验；完整细节见附带的 beta1.0.1 release notes。"
+      "summary": "本版本修复开朝启动、三权/行为正交语义、native 与 superCC 隔离，以及 semantic revision 的零差遣失败边界。",
+      "tag": "beta1.0.1",
+      "title": "Decretum Matrix beta1.0.1"
     }
-  ]
+  ],
+  "schema": "decretum.github_release_metadata.v1"
 }

@@ -17,7 +17,8 @@ import stat
 from typing import Mapping
 
 from court_native_host_dispatch import (
-    canonical_json_sha256,
+    native_request_reference,
+    native_task_suffix,
     dispatch_native_host_action,
     normalize_native_host_dispatch_request,
     select_native_host_action,
@@ -32,8 +33,7 @@ NATIVE_REQUEST_RESULT_SCHEMA = "court.office.native_request.result.v1"
 NATIVE_CAPTURE_INPUT_SCHEMA = "court.office.native_capture.v1"
 NATIVE_CAPTURE_RESULT_SCHEMA = "court.office.native_capture.result.v1"
 HOST_MESSAGE_SCHEMA = "court.native_host_message.v1"
-HOST_MARKER_PREFIX = "COURT_NATIVE_REQUEST_SHA256="
-HOST_BINDING_MARKER_PREFIX = "COURT_NATIVE_BINDING_SHA256="
+HOST_MARKER_PREFIX = "COURT_NATIVE_REQUEST="
 TRACE_MAX_BYTES = 64 * 1024 * 1024
 TRACE_MAX_LINES = 20_000
 _UUID_RE = re.compile(
@@ -94,23 +94,11 @@ def normalize_native_capture_input(value: object) -> dict[str, str]:
     return _input(value, schema=NATIVE_CAPTURE_INPUT_SCHEMA, label="native_capture")
 
 
-def _binding_sha256(request: Mapping[str, object]) -> str:
-    return canonical_json_sha256(
-        {
-            "task_id": request["task_id"],
-            "role": request["role"],
-            "direct_superior": request["direct_superior"],
-            "admission_anchor": request["admission_anchor"],
-        }
-    )
-
-
 def host_message_marker(request: object) -> str:
     normalized = normalize_native_host_dispatch_request(request)
-    request_sha256 = canonical_json_sha256(normalized)
-    return (
-        f"{HOST_MARKER_PREFIX}{request_sha256};"
-        f"{HOST_BINDING_MARKER_PREFIX}{_binding_sha256(normalized)}"
+    return HOST_MARKER_PREFIX + json.dumps(
+        native_request_reference(normalized), ensure_ascii=False,
+        sort_keys=True, separators=(",", ":"),
     )
 
 
@@ -123,9 +111,8 @@ def _message_context(
     fields = (
         "schema",
         "semantic_epoch",
-        "invariant_capsule_sha256",
+        "case_ref",
         "semantic_receipt_id",
-        "semantic_receipt_sha256",
         "fork_context",
         "context_mode",
         "pointers",
@@ -135,8 +122,7 @@ def _message_context(
     if (
         value.get("schema") != "court.semantic.dispatch_context_packet.v1"
         or value.get("semantic_epoch") != request.get("semantic_epoch")
-        or value.get("invariant_capsule_sha256")
-        != request.get("invariant_capsule_sha256")
+        or value.get("case_ref") != request.get("case_ref")
         or value.get("fork_context") != "none"
         or value.get("context_mode") != "bounded"
     ):
@@ -144,26 +130,30 @@ def _message_context(
     pointers = value.get("pointers")
     if not isinstance(pointers, (list, tuple)) or not pointers:
         raise ValueError("native_bridge:p00_paths_invalid")
-    normalized_pointers: list[dict[str, str]] = []
+    normalized_pointers: list[dict[str, object]] = []
     for pointer in pointers:
-        if not isinstance(pointer, Mapping) or set(pointer) != {"path", "sha256"}:
+        if not isinstance(pointer, Mapping) or set(pointer) not in (
+            {"path", "case_ref"}, {"path", "plan_ref"}
+        ):
             raise ValueError("native_bridge:p00_paths_invalid")
+        field = "plan_ref" if "plan_ref" in pointer else "case_ref"
+        reference = pointer[field]
+        if (not isinstance(reference, Mapping)
+                or any(reference.get(key) != val for key, val in request["case_ref"].items())):
+            raise ValueError("native_bridge:p00_path_case_mismatch")
         normalized_pointers.append(
             {
                 "path": _text(pointer.get("path"), "p00.path", maximum=512),
-                "sha256": _text(pointer.get("sha256"), "p00.path_sha256", maximum=64).lower(),
+                field: deepcopy(dict(reference)),
             }
         )
     return {
         "schema": "court.semantic.dispatch_context_packet.v1",
         "semantic_epoch": request["semantic_epoch"],
-        "invariant_capsule_sha256": request["invariant_capsule_sha256"],
+        "case_ref": deepcopy(request["case_ref"]),
         "semantic_receipt_id": _text(
             value.get("semantic_receipt_id"), "p00.semantic_receipt_id", maximum=256
         ),
-        "semantic_receipt_sha256": _text(
-            value.get("semantic_receipt_sha256"), "p00.semantic_receipt_sha256", maximum=64
-        ).lower(),
         "fork_context": "none",
         "context_mode": "bounded",
         "pointers": normalized_pointers,
@@ -194,7 +184,7 @@ def canonical_host_message(
 
     normalized = normalize_native_host_dispatch_request(request)
     decision, action, _ = select_native_host_action(normalized)
-    request_sha256 = canonical_json_sha256(normalized)
+    request_ref = native_request_reference(normalized)
     normalized_agent_type = None
     if agent_type is not None:
         normalized_agent_type = _text(agent_type, "agent_type", maximum=64).lower()
@@ -203,23 +193,21 @@ def canonical_host_message(
     message = {
         "schema": HOST_MESSAGE_SCHEMA,
         "marker": host_message_marker(normalized),
-        "request_sha256": request_sha256,
-        "binding_sha256": _binding_sha256(normalized),
+        "request_ref": request_ref,
         "bootstrap": {
             "first_action": "Fully read SKILL.md before any business CLI or MCP call.",
             "skill_base": "Use the installed skill location declared by your role card; all paths below are relative to it.",
             "skill": "SKILL.md",
             "then_read": [f"agents/standing-officials/{normalized['role']}.toml",
                           f"agents/office-dossiers/{normalized['role']}/AGENTS.md"],
-            "then": "Emit child_acceptance as one JSON-only assistant commentary after all reads; send preload acknowledgement to the direct superior, echo supplied request_sha256 as native_request_sha256, and wait for acceptance before business CLI/MCP.",
+            "then": "Read and acknowledge only; reuse supplied case/capsule references without standalone preflight scripts or root intake. Emit child_acceptance as one JSON-only assistant commentary after all reads; send the preload acknowledgement with the supplied request_ref to the direct superior, and wait for acceptance before business CLI/MCP.",
             "child_acceptance": {
                 "schema": "court.child_preload_acceptance.v1",
                 "task_id": normalized['task_id'], "role_key": normalized['role'],
                 "office_instance_id": normalized['instance_id'],
-                "request_sha256": request_sha256,
+                "request_ref": request_ref,
                 "skill_loaded": True, "profile_loaded": True, "dossier_loaded": True,
             },
-            "file_hash_checks": "FORBIDDEN_AFTER_INSTALL; use supplied installation identity only",
         },
         "task": {
             "task_id": normalized["task_id"],
@@ -231,8 +219,8 @@ def canonical_host_message(
         "execution": _execution(execution),
         "p00": {
             "semantic_epoch": normalized["semantic_epoch"],
-            "charter_sha256": normalized["charter_sha256"],
-            "invariant_capsule_sha256": normalized["invariant_capsule_sha256"],
+            "case_ref": deepcopy(normalized["case_ref"]),
+            "office_capsule_ref": deepcopy(normalized["office_capsule_ref"]),
             "lease_id": normalized["lease_id"],
             "admission_anchor": deepcopy(normalized["admission_anchor"]),
             "dispatch_context": _message_context(normalized, p00_context),
@@ -259,7 +247,7 @@ def _host_invocation(
         task_name = (
             str(request["role"]).replace("-", "_")
             + "_native_"
-            + canonical_json_sha256(request)[:16]
+            + native_task_suffix(request)
         )
         arguments: dict[str, object] = {
             "task_name": task_name,
@@ -299,7 +287,7 @@ def native_request_result(
 
     normalized = normalize_native_host_dispatch_request(request)
     decision, action, _ = select_native_host_action(normalized)
-    request_sha256 = canonical_json_sha256(normalized)
+    request_ref = native_request_reference(normalized)
     message = canonical_host_message(
         normalized,
         execution=execution,
@@ -309,7 +297,7 @@ def native_request_result(
     return {
         "schema": NATIVE_REQUEST_RESULT_SCHEMA,
         "request": deepcopy(normalized),
-        "request_sha256": request_sha256,
+        "request_ref": request_ref,
         "host_message_marker": host_message_marker(normalized),
         "host_message": message,
         "host_invocation": _host_invocation(
@@ -442,14 +430,20 @@ def _call_id(payload: Mapping[str, object]) -> str:
 
 
 def _marker_present(payload: Mapping[str, object], marker: str) -> bool:
-    raw_arguments = next(
-        (payload[key] for key in ("arguments", "input", "args") if key in payload),
-        None,
-    )
-    if isinstance(raw_arguments, str):
-        return marker in raw_arguments
-    if isinstance(raw_arguments, Mapping):
-        return marker in json.dumps(raw_arguments, ensure_ascii=False, sort_keys=True)
+    try:
+        arguments = _call_arguments(payload)
+    except ValueError:
+        return False
+    for field in ("message", "prompt"):
+        raw_message = arguments.get(field)
+        if not isinstance(raw_message, str):
+            continue
+        try:
+            message = json.loads(raw_message)
+        except ValueError:
+            continue
+        if isinstance(message, Mapping) and message.get("marker") == marker:
+            return True
     return False
 
 
@@ -750,16 +744,16 @@ def captured_child_read_order(record: Mapping[str, object], manifest: object,
             if isinstance(value, dict):
                 rows.append(value)
     # Supported installed aliases; paths are resolved only at the host boundary.
-    from court_office_bootstrap import installed_file_sha256
     roots = set()
-    # Only active native skill projections with the supplied installation pins.
+    # Only active native skill projections with the required office materials.
     # Source trees and npm caches do not qualify by containing this module.
     for root in {Path.home() / '.agents/skills/decretum-matrix', home / 'skills/decretum-matrix'}:
         try:
-            for attr, pin in (('court_skill_path', 'court_skill_hash'), ('profile_source', 'profile_hash'),
-                              ('dossier_path', 'dossier_hash')):
-                if installed_file_sha256(root / str(getattr(manifest, attr)), skill_root=root) != getattr(manifest, pin):
-                    raise ValueError('native_bridge:installed_pin_mismatch')
+            for attr in ('court_skill_path', 'profile_source', 'dossier_path'):
+                material = (root / str(getattr(manifest, attr))).resolve()
+                material.relative_to(root.resolve())
+                if not material.is_file():
+                    raise ValueError('native_bridge:installed_material_missing')
         except (OSError, ValueError):
             continue
         roots.add(root)
@@ -769,7 +763,7 @@ def captured_child_read_order(record: Mapping[str, object], manifest: object,
                 for name, attr in (('skill', 'court_skill_path'), ('profile', 'profile_source'), ('dossier', 'dossier_path'))}
     ack = {'schema': 'court.child_preload_acceptance.v1', 'task_id': task_id,
            'role_key': record.get('role'), 'office_instance_id': record.get('office_instance_id'),
-           'request_sha256': record.get('native_host_request_sha256'),
+           'request_ref': record.get('native_host_request_ref'),
            'skill_loaded': True, 'profile_loaded': True, 'dossier_loaded': True}
     return skill_read_order(rows, required, child_ack=ack, child_thread_id=str(evidence['child_thread_id']))
 
@@ -964,7 +958,7 @@ def capture_current_native_delivery(
         raise ValueError("native_bridge:canonical_dispatch_mismatch")
     result = {
         "schema": NATIVE_CAPTURE_RESULT_SCHEMA,
-        "request_sha256": canonical_json_sha256(normalized),
+        "request_ref": native_request_reference(normalized),
         "decision": decision,
         "office_command": "start" if expected_action == "spawn" else "followup",
         "native_host_action_receipt": deepcopy(dict(receipt)),

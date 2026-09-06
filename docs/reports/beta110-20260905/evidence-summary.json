@@ -300,7 +300,7 @@
   ],
   "t08": {
     "status": "VERIFIED",
-    "review": "PASSED_WITH_CONCERNS",
+    "review": "PASSED",
     "covered": [
       "current selected consultation roles and superior relay",
       "real Menxia completion source",
@@ -309,7 +309,29 @@
       "real archive-record-complete flow and DONE_WITH_CONCERNS",
       "atomic admission/event rollback"
     ],
-    "evidence": "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\lastfix"
+    "evidence": "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\t08-gate-status.json",
+    "gate_resolution": {
+      "CONSULTATION_INVALID_SENDER_ACCEPTED": "GREEN",
+      "CONSULTATION_UNADMITTED_OFFICE_ACCEPTED": "GREEN",
+      "ARCHIVE_PRODUCER_RESIDUAL_GAPS": "GREEN",
+      "CHECKPOINT_PRODUCER_MISSING_BOTH_ACCEPTED": "GREEN"
+    },
+    "resume_note": "Resumed thread 01a0715e fixed the four beta1.1.0 T08 red-line gates. Consultation refs now fail closed on sender role mismatch, unadmitted/invalid recipients, and stale case/plan binding; the archive producer receipt now carries residual_gaps (and digest); and completion rejects a checkpoint that lost both producer_receipt and producer_receipt_sha256. Isolated gate evidence is recorded in t08-gate-status.json; the broader required suite still carries separate non-T08 stale-fixture breakage from the in-progress court_code/semantic-binding refactor."
+  },
+  "t08_resume_evidence": {
+    "source_thread": "codex://threads/01a0715e-8957-7910-9800-eb19ed5d1437",
+    "resume_target_version": "beta1.1.0",
+    "branch": "release/beta1.1.0",
+    "source_head": "c7115ed",
+    "working_tree": "modified (T08 gate fixes applied, not yet committed)",
+    "gates": {
+      "CONSULTATION_INVALID_SENDER_ACCEPTED": "GREEN",
+      "CONSULTATION_UNADMITTED_OFFICE_ACCEPTED": "GREEN",
+      "RESIDUAL_GAPS_KEYERROR": "GREEN",
+      "CHECKPOINT_PRODUCER_MISSING_BOTH_ACCEPTED": "GREEN"
+    },
+    "gate_evidence_file": "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\t08-gate-status.json",
+    "scope_boundary": "Only the four named T08 red-line gates were verified. The broader required suite (check_semantic_continuity, check_court_runtime_completion) still fails on separate stale fixtures (charter_sha256 remnants, out-of-date plan-referred admission fixtures) that are unrelated to T08 and must be reconciled before a full beta1.1.0 release-gate closure."
   },
   "historical_diagnostic": {
     "check": "preload_semantics",

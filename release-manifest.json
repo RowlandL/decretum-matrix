@@ -1,7 +1,7 @@
 {
   "archive_root": "decretum-matrix/",
-  "artifact_name": "decretum-matrix-beta1.1.0.zip",
-  "attestation_name": "decretum-matrix-beta1.1.0.release-attestation.json",
+  "artifact_name": "decretum-matrix-beta1.1.1.zip",
+  "attestation_name": "decretum-matrix-beta1.1.1.release-attestation.json",
   "authors": "AUTHORS.md",
   "build": {
     "atomic_publish": "same_directory_hard_link_no_replace",
@@ -16,13 +16,13 @@
   "contributing": "CONTRIBUTING.md",
   "contributor_license_agreement": "CLA.md",
   "display_name": "Decretum Matrix（诏令矩阵）",
-  "expected_final_tag": "refs/tags/beta1.1.0",
+  "expected_final_tag": "refs/tags/beta1.1.1",
   "files": [
     {
       "mode": "100644",
       "path": ".codex-plugin/plugin.json",
-      "sha256": "d38507ef2ea9db1bc64bcd419652b21301d6e4af22b3977f0a0e9a43b642dc43",
-      "size": 720
+      "sha256": "75770c29b58941dec68a7ea6df1f74e28d2d34884d190c90c60f139152579c34",
+      "size": 738
     },
     {
       "mode": "100644",
@@ -93,7 +93,7 @@
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "4567f28fc8f3130a59affc2695b6007558bbc0f94860e1e0e1210a8121bbf6ba",
+      "sha256": "6bc6261c9e2f25ab2d071b113a96169546b61718e50dad8eaf31cac51f5499b0",
       "size": 875
     },
     {
@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "e94de581dc08e405fd2af0a3431132629ee697fe437fc1939af02b383884543c",
-      "size": 9496
+      "sha256": "53127aa47d1841d9fa501840e6257ef63271eaea559549799acb5870ff7008fb",
+      "size": 9522
     },
     {
       "mode": "100644",
@@ -123,92 +123,92 @@
     {
       "mode": "100644",
       "path": "VERSION",
-      "sha256": "66c3b16aa5e87b30145427fadabb53e5a392217810f3965bdfb3fa396c2bde04",
+      "sha256": "5382fd8027f02034c67a06b9f3cc0c86e49bcc3f706577c0df9657e74b5b9a97",
       "size": 10
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/bingbu/AGENTS.md",
-      "sha256": "4f444afdddde19e93bdc9f17c1ec49fe2ffb9d571908922d724c5044776d8ccc",
-      "size": 1599
+      "sha256": "f1b368cb188fcda99bbc227a80afc3552f4c829fbaa17b89e73366115911b319",
+      "size": 2502
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/gongbu/AGENTS.md",
-      "sha256": "6b889d6d2e4f0429793424c2075a51cbeb1b499d7773a71a1aa1c4fb95161920",
-      "size": 1638
+      "sha256": "590b5401f22b91369607b85df97ff5667ebcc4b97d6a20a4849495139509e5b1",
+      "size": 2541
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/hubu/AGENTS.md",
-      "sha256": "78cb8b8ed65a007c09f75640e8983b2d03939dbdf8c39c298b7f7747f8326ff5",
-      "size": 1597
+      "sha256": "c81aa3adc8954e1f02f7774e2956c40896dd1992d4de35a957026465b9f65d15",
+      "size": 2500
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/libu-hr/AGENTS.md",
-      "sha256": "de694ee72df9979cd137f6617d73a9ca0831a6c0fc7fc75d265610263d57ee96",
-      "size": 1589
+      "sha256": "972a39f09f0bc69b5c5f4200c6fc2f67e2d7d3194ff0d4e14cc6ba9dba3ee424",
+      "size": 2492
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/libu/AGENTS.md",
-      "sha256": "94a43fc62614205e2ad99f74680c4cec412ce9e753ef70365dc96c3e6406def9",
-      "size": 1585
+      "sha256": "6dcf1079352e6d614c6f89b6de1f38f99a49cac58ecf19fff5d150cf7cea710d",
+      "size": 2488
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/menxia/AGENTS.md",
-      "sha256": "944144251c49807a9a54e807091e0bcde3c54c9a5baed914f2f37db615d2115f",
-      "size": 1504
+      "sha256": "2fd492ed284c5fdbab764cf020e11628f90f50db72032cd1eab18fd7f93182c5",
+      "size": 2407
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/patrol-inspector/AGENTS.md",
-      "sha256": "bf252655db6d6c9e2191b8b1ec2ac92aee4d6c2eff423441fc79334d5c4b05f8",
-      "size": 1060
+      "sha256": "424a08f7c14f24a6ead29aa53ec38a7d20f5fc45d5bf756219eff3e50f58adcc",
+      "size": 1963
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/shangshu/AGENTS.md",
-      "sha256": "087fdf840674921140df118fd8ae8903bb1d1f1cc4fe16d97f1c34167ca384b2",
-      "size": 1559
+      "sha256": "d427f805818642685bb47055c96f6da0b52dbd902d0a87b30c4f1a3f2c756f47",
+      "size": 2462
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/shiguan-hermes/AGENTS.md",
-      "sha256": "2982509cb488f9e6a03f177e079cd2f6602fb06cf216fa3f06735f7f085313ab",
-      "size": 1372
+      "sha256": "359927141ace2d1a47cc097e84597cb2c1111f012d540cf56cd2340a045f89a3",
+      "size": 2275
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/shiguan/AGENTS.md",
-      "sha256": "e9225e21aa4045938c7d110bc516345276db6e4839562d3908690e038b91cb9d",
-      "size": 1339
+      "sha256": "b4ebc0891df6ca0969dadda07ea0f805b4f5665ab87abf8be88d6334e59db101",
+      "size": 2242
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/taizi/AGENTS.md",
-      "sha256": "be3360c1d5e320f3a05666c416af7f2d338586d3af01cd8c4a6644568e9b28ac",
-      "size": 1546
+      "sha256": "0e81722b604429330ccebfbae04253a8174126fb5fb37d018c36eae65d9fca95",
+      "size": 1545
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/xingbu/AGENTS.md",
-      "sha256": "efd04d62dc634aa39e86b89cd757502a69e1f8f1dcef87bee826877e273bafdc",
-      "size": 1598
+      "sha256": "4e68ccba8ed3e0d16971a9a23688d39539e6e038112d6e80e5929829ca72e7e3",
+      "size": 2501
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/zaochao/AGENTS.md",
-      "sha256": "12be8cd680ab4edb227b854013d8536db84e66ea2bf549812d01b6ea1791f93d",
-      "size": 1253
+      "sha256": "9531762afbf70cf2fd7f53f42ced86a4f007663d1fc1a8612953e855512ac0d0",
+      "size": 2156
     },
     {
       "mode": "100644",
       "path": "agents/office-dossiers/zhongshu/AGENTS.md",
-      "sha256": "c77970b569fa44b7734b9d8a5519e90f36bcf66b8bd739490b13b2ec8b763903",
-      "size": 1488
+      "sha256": "9cdc409c943322dfa75b008624ba7cdc79710eba8f2f62ff92bba5862b67524b",
+      "size": 2391
     },
     {
       "mode": "100644",
@@ -303,86 +303,86 @@
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/bingbu/AGENTS.md",
-      "sha256": "75a6ea77f47f2575e80eb5f44547c4468f9279a69819c6b2a8ab7874361a7d23",
-      "size": 10491
+      "sha256": "e01a15686ed21f0eeb6e0e5c357a6b9f1e125f05ab1ab2f3d821419180f2687a",
+      "size": 11393
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/gongbu/AGENTS.md",
-      "sha256": "d1129a7fba3fb49b74ab596f95596a6b273d2c4fc8eb8b753e128b274af4afaa",
-      "size": 10533
+      "sha256": "99f7d06feab1118f8dab30625ab17aa613f6f6562c49e5b022b76eb804e12e47",
+      "size": 11435
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/hubu/AGENTS.md",
-      "sha256": "46dbf586ce95e2920b5ae3cb101f960d6e5a288c0f5717b374e2acd7f40e0d5b",
-      "size": 10482
+      "sha256": "c05739397aa2a46c34e88fa13430b4b803d3c8541229411f8612a09bae5bcc9b",
+      "size": 11384
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/libu-hr/AGENTS.md",
-      "sha256": "c552f1dd4c35cbc6cdd37c9f2c23520c533a802085bec6f576caf7d093e8d1a9",
-      "size": 10509
+      "sha256": "b3bd11060332cfed76fbaa75549c6aeaa682e3b5a05f57c81d33fa4a9cfa6773",
+      "size": 11411
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/libu/AGENTS.md",
-      "sha256": "4614c9c6ec518fd59aeec9bde1bb3a6228a9d68569c9a09cc83c1bdfb9b1dfc5",
-      "size": 10467
+      "sha256": "0342f76078413eb4edf88fecd244d4d4bfabf8638c92b92cd236047c29c64dc5",
+      "size": 11369
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/menxia/AGENTS.md",
-      "sha256": "28a197950a0b20df3c9ee1dee4f8438c1b9ce9c24efbe5ee89a76b5ad74332ef",
-      "size": 9797
+      "sha256": "e23833029245f9ad31499e37df11e12f930fe82f84891e91128afc8fae338690",
+      "size": 10699
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/patrol-inspector/AGENTS.md",
-      "sha256": "e61927f1d23d24f424f6b232c044402c688004538f746f7c1d30c32d3f73ce6b",
-      "size": 10728
+      "sha256": "08fa98fe94597f272ce344fc905a2a37d241024658f2a81b34ef0936adb930e6",
+      "size": 11630
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/shangshu/AGENTS.md",
-      "sha256": "e4ce4d75024d7d22ff29533e7ea82e449f7b36f1741a74bf248d5e60910ca2f2",
-      "size": 10415
+      "sha256": "d664e4986903899dbb1387b31baa74b9efa4f0e43b7781bd36da8270b8fd6987",
+      "size": 11317
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/shiguan-hermes/AGENTS.md",
-      "sha256": "156a302bfb793f05ad0b976b72abc3a01ec1fc946422165f2cdc4f8f1f8308fe",
-      "size": 9923
+      "sha256": "68a83e1b06aa225711add9e46d0017924f400c6cc0dfd4ed1f7306311252213f",
+      "size": 10825
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/shiguan/AGENTS.md",
-      "sha256": "5f012720bcaa94fe5d019d6c5b5e462ed9a419ca054ceef62afbdd79e4e5e81d",
-      "size": 9815
+      "sha256": "e9cb88c96107f26afc90626d5b47beff08ef758f03c61d9fb818dde3e66ca0dc",
+      "size": 10717
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/taizi/AGENTS.md",
-      "sha256": "c0a074937c301021ced2d89ce5eed0dafee63008ecc344e71141c1cd09eef5d5",
-      "size": 10240
+      "sha256": "4c2e2937d7b00109c27b11b008f96f99dd6d9391a38b87d0ee8a81a4588dd77c",
+      "size": 11142
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/xingbu/AGENTS.md",
-      "sha256": "74baf22db93218d3c8d5f77c38fe79b8dfa57cb905d44ee195a0d45bc14c2dae",
-      "size": 10517
+      "sha256": "1e3863ea35981541c07315355e9ba43a25e8d9a9082f308e4870c1f74984613a",
+      "size": 11419
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/zaochao/AGENTS.md",
-      "sha256": "b6b5822cabbfe2edb9c352d6acb11337ad6958214c7985101dd729a2c8a395df",
-      "size": 9669
+      "sha256": "b63b43ed6e0887eb52beccd91d84e23a62cb2250e20babf76b1963b8a1b0591d",
+      "size": 10571
     },
     {
       "mode": "100644",
       "path": "agents/supercc-dossiers/zhongshu/AGENTS.md",
-      "sha256": "a2d61984f602acf182dada766acaa2d29f3309c8d975a00cc118915cd9716e45",
-      "size": 9830
+      "sha256": "59ee03b516062b7b12a28995e8b677d12862c8848bef429b57e6b8890b629971",
+      "size": 10732
     },
     {
       "mode": "100644",
@@ -543,14 +543,14 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "020349e7f294fc7870d09baea2bc9216aa5241edaf06dc1a9239c7daeddab85d",
-      "size": 102727
+      "sha256": "d6e82e1bedf8f65cb11690c89e19d117f7cc92c008a0ad2e6c088f678b2d785d",
+      "size": 104061
     },
     {
       "mode": "100644",
       "path": "references/manifests/court-dispatch-hierarchy.v1.json",
-      "sha256": "2cd590ccbd6ff1a386b32beb9aa4d354e017cae9c76c191550eac70d30bae5c6",
-      "size": 5366
+      "sha256": "80a02485db286754195c61d686bb7f59a720c9c0e3afb3af1bebae98be332c12",
+      "size": 5236
     },
     {
       "mode": "100644",
@@ -561,8 +561,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/github-release-metadata.v1.json",
-      "sha256": "105c829c939b83fa9864935e61d68a833772f703c4b3e6584c1ed6a44fcaf0b6",
-      "size": 13691
+      "sha256": "4a55f3aa5244eb5e9fdcf78951b986ccc28e2e1720785a23cd1610d752071a14",
+      "size": 14399
     },
     {
       "mode": "100644",
@@ -573,8 +573,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "3950373152f8ffc1cbfb110c54d1a609c6a1b06721e394a3f09c96cde474e0f7",
-      "size": 52037
+      "sha256": "d741f0e7b7174fd998694555c530ab8354ebd535ac5f3002e163a27754c6e4f4",
+      "size": 52148
     },
     {
       "mode": "100644",
@@ -585,13 +585,13 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "0ca573f0cb98c6b59d8b9943e406d1438479830b5915f496604836468a41c1ea",
+      "sha256": "247201523bd914f89bf9b85b33fb9e39f7681fb6b35182ed61af4631ac3ccfae",
       "size": 1435
     },
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "6b5c68980fe061b79ae4724cd3003a504566ef9876cd1cb0d7fd91402e76a22a",
+      "sha256": "a356c926d4413acebeacb54cc22b7e4a18356f2ee84124ef2b1a51bf01583ed3",
       "size": 4689
     },
     {
@@ -741,8 +741,8 @@
     {
       "mode": "100644",
       "path": "scripts/archive_checkpoint.py",
-      "sha256": "6ea1fb4a1816af31e364c315da81e7b648c6eeda22e100adedad3fc33ed2999a",
-      "size": 32518
+      "sha256": "73a13414fab5de2e1b5b189b8bb240c6c4dd0b2499856969165c29fceb60a260",
+      "size": 31483
     },
     {
       "mode": "100644",
@@ -1292,9 +1292,15 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/checks/check_case_reference_helpers.py",
+      "sha256": "8a568131d8bdfee9ac6f7d739202ba1773e85c458d62365f7a75a61b4b9a6f04",
+      "size": 10426
+    },
+    {
+      "mode": "100644",
       "path": "scripts/checks/check_catalog.py",
-      "sha256": "a534492c739d48cb922c4a8c9300a9f176720e740c60be538bf39a3b9fe44c90",
-      "size": 24229
+      "sha256": "63c5895345cde9e60e9bba01574a9de9b691a7ece788694bd2e38cc9a155a949",
+      "size": 24584
     },
     {
       "mode": "100644",
@@ -1305,8 +1311,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_cli_performance.py",
-      "sha256": "26acd3aa3c1b3943b7dc0ec9d5ed77ac9cbe0a9e6be88c9a1c198d02949b0332",
-      "size": 14063
+      "sha256": "50722c18607219deae56698f4197cc4b2d01977612776a903f988f344033d1f0",
+      "size": 14898
     },
     {
       "mode": "100644",
@@ -1317,8 +1323,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_codex_agent_roles.py",
-      "sha256": "852714e3aade1efa3724596a9387a6570687597d9ad0e3705fef0b049a28c1e9",
-      "size": 14366
+      "sha256": "211c52c554191ee760b1154d59288a8fa3ea8a61adb183cccaf788a9a6161bf1",
+      "size": 13989
     },
     {
       "mode": "100644",
@@ -1335,8 +1341,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_agent_lifecycle.py",
-      "sha256": "ac991f02edbe55ad0629915e979da9dbe119f97661fb09f7f421230c9563d65a",
-      "size": 152373
+      "sha256": "0c01afcaea40059cc292073c79584e8bbbd51ef3ad314b325085775db2ba6b23",
+      "size": 153043
     },
     {
       "mode": "100644",
@@ -1347,8 +1353,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_case_binding.py",
-      "sha256": "aec5c80dc7501279536ad4514e1be96e880b6be425395ce83d1c76faab67b50c",
-      "size": 25304
+      "sha256": "e481347bd903487ea6c08d85f45de68a929c7ee938b9aa9e07139d34ee411e87",
+      "size": 24340
     },
     {
       "mode": "100644",
@@ -1365,8 +1371,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_codex_office_worker.py",
-      "sha256": "1eae07f3c76c50b95e58c0c85a2970225e512fb87fb3b25eeca865da52756e72",
-      "size": 13124
+      "sha256": "7505c8632d6d2cc7448e9635c945f2fcdb9bfccdd718bc64ba2b935b46bab2f7",
+      "size": 12787
     },
     {
       "mode": "100644",
@@ -1377,14 +1383,14 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_dispatch_hierarchy.py",
-      "sha256": "2b7ec2c26f201d7568255bbc18c42a68f3edd4b33904c716eed44d6d13e89dc2",
-      "size": 19677
+      "sha256": "e13011e32c4e108ec30c248607c354b0056bf20cecc052d0910275f42a1dbd13",
+      "size": 19816
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_dispatch_policy.py",
-      "sha256": "12001cb8c08e513151b844226acea05e6049f7cc495ad02302420aa4d3a478a2",
-      "size": 76911
+      "sha256": "77b437d12e9b1659ff6cab4372b596e13520c13d185ebf9193519b68dbeb7a2d",
+      "size": 76894
     },
     {
       "mode": "100644",
@@ -1395,20 +1401,20 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_intervention_matrix.py",
-      "sha256": "4726d014ca6c9f2929af218ec9096c008cb4ca945a116efc2f21eb9acb7097e4",
-      "size": 51751
+      "sha256": "5906137708bcc82c536ccfb10ecb8add55b829fe26fe02b22bb585d55d9100c5",
+      "size": 52262
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_mcp_server.py",
-      "sha256": "33c5c4f73bfe0b395a9957d4929871d657bab02832cc9f6c6bc6e69e74266bdf",
-      "size": 57449
+      "sha256": "8c7476154ae97e62b827b61cc0b619cbc4120e48c81ba28c457d71fca3f32fae",
+      "size": 57394
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_model_router.py",
-      "sha256": "28b8fcf70a506e0314d73fa3454bbce2f67c1856dfdb0ded0050b517f356a32c",
-      "size": 13212
+      "sha256": "de2e37bc1d1b213acc385821d0a1a04f2fd9631afa63a447e6a3a576471b707d",
+      "size": 13331
     },
     {
       "mode": "100644",
@@ -1419,32 +1425,32 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_native_bridge.py",
-      "sha256": "a289c69d9b4ef999e7a4d9b034037e6e55b026ae742e73bf38486bef7043be21",
-      "size": 34989
+      "sha256": "30b244e11e9d47e6aa4a6d64b825282dcbaccb97307f1181b9a744191418df17",
+      "size": 35048
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_native_host_dispatch.py",
-      "sha256": "eeead1051bd40d050a28c45042ab9d0a581be703e79df158bfde151ef742ae03",
-      "size": 35960
+      "sha256": "1f09a209d9cdd25faacb4a7d506d9cbd28ffada215ed1ecd8968a07635b46af7",
+      "size": 35875
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_office_assignment_binding.py",
-      "sha256": "58e88815330f61a1e89c619955cd7d15fee33173b9fd4bb08a5ee46654733ae8",
-      "size": 23930
+      "sha256": "bf65d6719643964be21546735510c5ed4de190ee2c76c316e3cc271ce60aa127",
+      "size": 16544
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_office_bootstrap.py",
-      "sha256": "6e7bd0a16c08d588f845e59fa8944d2a2766a76f662ce9561aacf45c1b4422fa",
-      "size": 5467
+      "sha256": "3e81221485e1e9d49af5eb3e3344202eab6b56baa8f85b9634807c9fd3dc56f9",
+      "size": 5916
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_open_fastpath.py",
-      "sha256": "b8614223c7d7541bab1c07296146d728dfc0511802e6623af3c1485c4a5b78ab",
-      "size": 42466
+      "sha256": "55a8b5b81b164c41ff8ef8b9d06353d83e7089aaaa0e5e3de5de45b2485a462f",
+      "size": 42382
     },
     {
       "mode": "100644",
@@ -1455,14 +1461,14 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_plan_artifacts.py",
-      "sha256": "6353320080ad6b090e93f6042cf5f0a6079e9d32e1ff52572c37419b2d31517d",
-      "size": 24706
+      "sha256": "2acfc0feb264cd4ad18be0caf080a299f415b32ae4e92a662e26081752ed6a91",
+      "size": 24814
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_preload_semantics.py",
-      "sha256": "492c7e74112d5a95660e3a8252f018716719faa21f2b6b6150d6ba948f0df81f",
-      "size": 75898
+      "sha256": "57c9c557ebeb45715396126a51e6d5e68a0fff186492f8128bfed946e3eccad6",
+      "size": 75358
     },
     {
       "mode": "100644",
@@ -1473,26 +1479,26 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_runtime.py",
-      "sha256": "9cfa8288475eeea24dffa91f3f5cb176ffbc267130be450781e82e922b002367",
-      "size": 108343
+      "sha256": "434d3b840aeb6bb21897504318c48b89c5f6fdb996a20cae3b2596711e3f478e",
+      "size": 109611
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_runtime_completion.py",
-      "sha256": "4209a087344e91667f54afead730f899f3dec4f2095cb791eb7073582c4065e2",
-      "size": 79116
+      "sha256": "9558b7ea211af3bae3f8c33eb921dbef0135a821f1fb6d97a166ca6b9826815f",
+      "size": 78479
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_runtime_concurrency.py",
-      "sha256": "083b14d47625f7cfff3fc7ec30dd4fc786021dd26e9e697e19c0a43c3cc5caab",
-      "size": 4109
+      "sha256": "95c70b2a4d707fd51bd1fd54ca19e97cfe1f947af658ca172b4947371fffd656",
+      "size": 4151
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_session_closeout.py",
-      "sha256": "6bc5ac1b038da0c864242ebec2422f4048886626e5c6f0b6569dad459cb52a85",
-      "size": 23426
+      "sha256": "fe0e6af38898c28066906a94d3ba65bf9a718abbd7ed594fa2d30e8896708cd8",
+      "size": 23210
     },
     {
       "mode": "100644",
@@ -1539,7 +1545,7 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_current_agent_copy.py",
-      "sha256": "a8b5aae8d8f70e03d8eb2c31d5d2e645b4d8097d3edea8683e080b7eb5578ce9",
+      "sha256": "738b061bfe96527963341025d954502186e0ba17a9b9ae8d0d9e12c6b2cc075a",
       "size": 154311
     },
     {
@@ -1569,14 +1575,20 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_native_opaque_capture.py",
-      "sha256": "4b87f3a429bea32db93d4ebfd36e4bdf6b74a6c2f80180c4a985afbcbbf5233c",
-      "size": 16909
+      "sha256": "af7cfdbfb6607b9117b41fd078dced6cc6a8a6e8977d61e80a351abea30ae7ab",
+      "size": 18971
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_obsidian_sync_transaction.py",
       "sha256": "798c0f820aed8675472bbed4bb127fded191b9c5b5a4c6330060c82239a557ad",
       "size": 20356
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_office_decree_startup.py",
+      "sha256": "f65910e98c7d4e7c6df682714fdba2a5f6bb2c01b446c630a3d8d9a36f0d70f6",
+      "size": 13820
     },
     {
       "mode": "100644",
@@ -1599,8 +1611,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_read_only_contract.py",
-      "sha256": "f977adf2dcdbed527b0c844f3b4266b565548183eaaebd898e2e489db84bb0e0",
-      "size": 11378
+      "sha256": "b5d4400db0b6bea1a92c1fcf4097e0b93b2b41eabac01783ab9838735253cf72",
+      "size": 11449
     },
     {
       "mode": "100644",
@@ -1611,7 +1623,7 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_legal.py",
-      "sha256": "fadb6c34bbbbbed8cd6ceb4cc783a0729b61d3eb52839fc3bf95625d313e2f6b",
+      "sha256": "e863c0ac59efe98098571564be7750784b4f6cc6c16042155da5da68cd42834f",
       "size": 24140
     },
     {
@@ -1647,8 +1659,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_runtime_no_file_rehash.py",
-      "sha256": "09d9d8c4b8dca01d68e713dcf8446b17c66d944a850ac385fc91498b32b800f7",
-      "size": 9340
+      "sha256": "4845fb6ea3bc45da2cd07af9ce52fb822843b9f224d4b6a4c0ab48869e0783b9",
+      "size": 4048
     },
     {
       "mode": "100644",
@@ -1659,14 +1671,14 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_semantic_continuity.py",
-      "sha256": "029a14349b337ac0cda7ff2565e78291ab933497436c2320f71ed3f9660c5d57",
-      "size": 183084
+      "sha256": "ebef2358162e9d306bbb383904349d5930ef5c45b787586ccd70c533d274e9d7",
+      "size": 187787
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_shiguan_concurrency.py",
-      "sha256": "aa5a3691bd8b20e2236047c95ca27bd35137a1e405434dd1da63718079b4a87d",
-      "size": 9508
+      "sha256": "37bca672ca5ccba2a20d22afddece19351037c8ea5b691666a8e63b571fecbcd",
+      "size": 9314
     },
     {
       "mode": "100644",
@@ -1725,8 +1737,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_shiguan_pending_quarantine_plan.py",
-      "sha256": "f428a507b0dbd8981e616ae6afe9b1a6e3415dbd37fff8057e51b94161d3bf11",
-      "size": 31444
+      "sha256": "9c5c9b87374e941153cf383e20ac8759d4090a69e0b15b4fc815efca3cb01e83",
+      "size": 31552
     },
     {
       "mode": "100644",
@@ -1767,14 +1779,14 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_startup_fastpath_contract.py",
-      "sha256": "2ae7d483cb9413968c49c2498cd8b554e156529c0640fa7610ea4db342254e1c",
-      "size": 28466
+      "sha256": "bbce3a2ce8bd57ee8786ecb80c841e4148270593c8d38a837bba7144a7ec080c",
+      "size": 28430
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_supercc_claude_hard_gates.py",
-      "sha256": "9ea4297882ca63536e0730b3bce6d57b5686e95c9108946487fae1c152e916bb",
-      "size": 8690
+      "sha256": "0f8b163f0f52c4ecb8f8e6c5b4d66857c61966e32d9020e04a564012512704cd",
+      "size": 8701
     },
     {
       "mode": "100644",
@@ -1785,20 +1797,20 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_supercc_functional.py",
-      "sha256": "cdfc76e415030a18020ec7b4d6e2bf552106131c8ac484294c6dc6d784bbce10",
-      "size": 27129
+      "sha256": "6fc5b58750267f7240e1cf42e99aaba0b66210d7318434f34ee0f77192409485",
+      "size": 27608
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_supercc_ministry_dispatch.py",
-      "sha256": "c9e0e35ea4c33cdd441753e1584591c455d4f4e894902ab6b4b209221c71aa33",
-      "size": 103887
+      "sha256": "3448dabd243139017a7de95f091089e056a8c402abe5c780663bbc7027e1404d",
+      "size": 103461
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_supercc_no_silence_429_patrol.py",
-      "sha256": "663afd504b39dfcf0370259231070fed1e9b54b5b56e23f19ff87981657fbcf8",
-      "size": 8318
+      "sha256": "8b8e9d623d7b123d132a5a6e672d91984eac7c6451c42681eb99e57d21cd8d90",
+      "size": 8212
     },
     {
       "mode": "100644",
@@ -1809,8 +1821,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_supercc_squad_wrapper.py",
-      "sha256": "4675b02fce52beedc9309914cecd6d12b39c02af9d1deca36a26e5bea9803aab",
-      "size": 6058
+      "sha256": "74aaa53f324a0226f37039e26eee5b815518cef9909b82119b65aaaa6d9eaff6",
+      "size": 6081
     },
     {
       "mode": "100644",
@@ -1851,7 +1863,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/agent_runtime_probe.py",
-      "sha256": "b662db460f6bd6aa4e7a03817571740cf9acbef59676d677b35d0d39890b0cf9",
+      "sha256": "82ab665c65acadd0b4cc68e896f7673eb52c0ca1d5f93abc063557a25e77453d",
       "size": 59820
     },
     {
@@ -1863,7 +1875,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/build_release_artifacts.py",
-      "sha256": "0da3d7dd4962a55631b91203ca994c0551f801994209c6354d11c850593ad19e",
+      "sha256": "6c9b697d8fc76d92265de30ae74f86205d38acf01f7df04887ac9486d288217d",
       "size": 36311
     },
     {
@@ -1887,8 +1899,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/court_codex_office_worker.py",
-      "sha256": "68215b6bc4c03f81a072bc17d72cf72471950dd394327a642f5267b09187deff",
-      "size": 18700
+      "sha256": "52e5202070b4daeefb315659413a573229227814f63623f7dd99782944248274",
+      "size": 17785
     },
     {
       "mode": "100644",
@@ -1899,14 +1911,14 @@
     {
       "mode": "100644",
       "path": "scripts/commands/court_native_bridge.py",
-      "sha256": "8e1d6e6bfdf1219c684873f0e7f8817fcde7440f7123727080df6195f3cf2165",
-      "size": 42423
+      "sha256": "e883e28f23d3bfaa276f1dc4f3d4e1819e91627cd95ad95e24ac768ec6e2013a",
+      "size": 42014
     },
     {
       "mode": "100644",
       "path": "scripts/commands/court_open_fastpath.py",
-      "sha256": "740bc3722c7790700dc77d0cff28cc8ab4bd26c69cc9db11bd693f0ed4c18119",
-      "size": 69960
+      "sha256": "bb0d813e142b8e2b93c326728b12f21125a67413b6ba3dec1712c84e8bc83a18",
+      "size": 67315
     },
     {
       "mode": "100644",
@@ -1977,8 +1989,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/iku_candidates.py",
-      "sha256": "2d997aa1b502477e8cf62d13634d66b633b09cdeda83cced91ebf75728e08b3a",
-      "size": 9882
+      "sha256": "f1bdce93ca49862dccd9a5b31e8adccc86bc8b25a9650b18a845b333305b3728",
+      "size": 9871
     },
     {
       "mode": "100644",
@@ -2025,7 +2037,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/package_skill.py",
-      "sha256": "f842a147459c720f48772178432a360a399c673f0ae1a4b6c6725e3641aea877",
+      "sha256": "52baee5f895a9856364c03df58f1e9a133d8a63150d69403c49f45b1f2795434",
       "size": 55244
     },
     {
@@ -2079,7 +2091,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/release_payload_manifest.py",
-      "sha256": "d925caf0a20e803e950f335cb5fc9a5b85faf4ae7c29154e375d180023e0f3c6",
+      "sha256": "601010925f8812a5a385380f6d13836ed9ecc63e633613d996a329e336f83a65",
       "size": 30105
     },
     {
@@ -2127,8 +2139,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/sync_codex_agents_from_profiles.py",
-      "sha256": "0a2c4dd540c1244eec8f41ea864c84ab8c3e63049ac68fb4ed9b3c8afc53271b",
-      "size": 15586
+      "sha256": "a99626a2a3bf8d70f5da0b5e7800937c198ec8b64bf6d2d9879626c927547bb9",
+      "size": 14356
     },
     {
       "mode": "100644",
@@ -2139,14 +2151,14 @@
     {
       "mode": "100644",
       "path": "scripts/court_agent_admission.py",
-      "sha256": "fc964f72ea89b99be1db69cd3f369033eae249a2ce58a4ee9f23f966b9cde28e",
-      "size": 31276
+      "sha256": "8cac6e500b4ee7013f4ef53c4f8c60793a65e95b8b52003a1ae03a77383f8bc5",
+      "size": 31297
     },
     {
       "mode": "100644",
       "path": "scripts/court_agent_admission_contract.py",
-      "sha256": "c6f33cd28f2dcda7e86f042e878d0e6cb23f251c9e883e860a8422c6687e0b3b",
-      "size": 9707
+      "sha256": "8cda51dc2b949fb72c2e0dab8412027da6434bb7dbb00ab01d62434367260a45",
+      "size": 9693
     },
     {
       "mode": "100644",
@@ -2157,8 +2169,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_case_binding.py",
-      "sha256": "e5714bc1c4c5b1f6cb97a7082511b7f59d5b86d3ffd2b6250943074774602b5b",
-      "size": 20086
+      "sha256": "7c59a7a241b9c9a715b014b6bfc1c24acecd94b22f64492edd773d53ee31d5ce",
+      "size": 19910
     },
     {
       "mode": "100644",
@@ -2193,8 +2205,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_complexity_budget.py",
-      "sha256": "5a23f874db7d9956556f9a18ef52744d741e6d80fbc2768aac2eccabd51a81a6",
-      "size": 78937
+      "sha256": "edf885bb9c3acbde9f0c5d48eb169dbda9282c44900e23fe0535d8df4050f7df",
+      "size": 78804
     },
     {
       "mode": "100644",
@@ -2205,14 +2217,14 @@
     {
       "mode": "100644",
       "path": "scripts/court_dispatch_hierarchy.py",
-      "sha256": "1c1e986c690275378b5435e1f1fc3083c1e7eb2678928bc07eaa4d69ee53929a",
-      "size": 22896
+      "sha256": "524c742f6aebbf011b07c2326ff3bf8d7a01b4e682d6802f049f34304bac5a07",
+      "size": 23303
     },
     {
       "mode": "100644",
       "path": "scripts/court_dispatch_policy.py",
-      "sha256": "6cc8d734d65d2e287426e080db1b4b093b9a271f0eb04a47ea17c557a32e8413",
-      "size": 28084
+      "sha256": "f651d13848d897b64f77d048cee69cbd0554ff3e5a63e643f1cec6eb434d9775",
+      "size": 24990
     },
     {
       "mode": "100644",
@@ -2241,8 +2253,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_model_router.py",
-      "sha256": "f578ad455bf2a793384cd775ba60485595abcd404cc9611e94ec924e0f134cc6",
-      "size": 13431
+      "sha256": "939c89a6fe22b3e4da9c43df86993fa8b95f2d5c189ffef460385fd971f5c687",
+      "size": 12810
     },
     {
       "mode": "100644",
@@ -2259,8 +2271,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_native_host_dispatch.py",
-      "sha256": "6f21a07ab11d1f7a9e079f687be62037c26f1fad83e09c68b1d047b901074297",
-      "size": 22870
+      "sha256": "ea2e95256017fc7d751692b4e1b48f6ed547aeabddb15c6f4e195f9a38fc0ac8",
+      "size": 23184
     },
     {
       "mode": "100644",
@@ -2271,14 +2283,14 @@
     {
       "mode": "100644",
       "path": "scripts/court_native_trace.py",
-      "sha256": "1a00affa699519d7531b6fab186aa6d7e0d83f6fed1083bc2de0f700c3b50ec4",
-      "size": 16471
+      "sha256": "28d7360bd2c028a5c27dd5d7d14516794296a6665adfa2661ebf5974f2b2a915",
+      "size": 18135
     },
     {
       "mode": "100644",
       "path": "scripts/court_office_bootstrap.py",
-      "sha256": "408dc2e57c67b28d2a69f274ae7171abfcf0f0d0b7fe5d58dd90e30cd5b0d62a",
-      "size": 26616
+      "sha256": "f4a08ed8c80bd49aa9edcbcce4f5c914e1726a4feab5f0a2210663684e48c61e",
+      "size": 21570
     },
     {
       "mode": "100644",
@@ -2307,8 +2319,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_plan_artifacts.py",
-      "sha256": "4b919e6acf70cac1f55f0d9bf222390c2c49b775efac1d0f90d098d2c4fb98d7",
-      "size": 12527
+      "sha256": "a57857fbac57a537a0620a493e23ab715fda449c0f8c133b93cc4fa807b2c7d7",
+      "size": 11736
     },
     {
       "mode": "100644",
@@ -2337,8 +2349,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "1270fa0e5423cb243430c662bb0d8a37d7c05e88b8901c6f7d3e10d50f064f44",
-      "size": 545964
+      "sha256": "442211edebb40d01b68d0d8eb06a355753576b3161a0a394642d5eaa9677d78c",
+      "size": 530195
     },
     {
       "mode": "100644",
@@ -2355,8 +2367,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_semantic_continuity.py",
-      "sha256": "3f66c062e07977c77b8ed98902ebde780f6c82f474e0e5f850a6dea261d06c1d",
-      "size": 75965
+      "sha256": "d858f0cc4c19da99816f1ddc718b97fcc24aa721cec91b3e2cbde6d6a77909c3",
+      "size": 89204
     },
     {
       "mode": "100644",
@@ -2457,8 +2469,8 @@
     {
       "mode": "100644",
       "path": "scripts/governance_framework.py",
-      "sha256": "fbca71b9ee7fe2a96c8663ba3327972006b482ef2de7f9470c42fe9b91d1f72d",
-      "size": 15778
+      "sha256": "f4c5a6c22b596d80d5f7f05081bf85d8e518ce7edf40b05f50d2ad23f45b4de7",
+      "size": 15650
     },
     {
       "mode": "100644",
@@ -2475,14 +2487,14 @@
     {
       "mode": "100644",
       "path": "scripts/install_current_agent_copy.py",
-      "sha256": "f97e6682a0402512f05f5e21b374d1ead1e09f917b8874ee8cc885a2b4a71e9d",
-      "size": 85594
+      "sha256": "6ef3e51ad1036eb5f4e407b64041a8de0b573c3ac649c80110150ea5c754ce8a",
+      "size": 85491
     },
     {
       "mode": "100644",
       "path": "scripts/install_projection_renderer.py",
-      "sha256": "c4a23ceb993f79cec3e2e8cdfee0d2faa94e1d8b4f4bb7514b6bd9d524dd77f0",
-      "size": 19349
+      "sha256": "5a7a7d17377e6eb41857f1e16d1b651466ed5fcaaa0c24749e8e70bedeb55e8b",
+      "size": 18449
     },
     {
       "mode": "100644",
@@ -2613,8 +2625,8 @@
     {
       "mode": "100644",
       "path": "scripts/services/archive_runtime_task.py",
-      "sha256": "ce070a7f4587f0a16fe452c2df125bf578b69b23ad4b8e9a133230b08be3cf3a",
-      "size": 15787
+      "sha256": "10fedbcddbf191f68104c006e18452c2cfc6aa85fe9afd2176bb172bf5a69ef2",
+      "size": 15119
     },
     {
       "mode": "100644",
@@ -2908,12 +2920,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8122425,
-    "payload_file_count": 479,
+    "payload_bytes": 8150321,
+    "payload_file_count": 481,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "394b5a78f8276d26a308a39a559ce8aafc3d0a68bad852b67e314398846af761",
-    "source_packaged_tracked_file_count": 471,
-    "source_tracked_file_count": 600
+    "payload_index_sha256": "c1288ddd1f54f053e2c164bd3c748cbec8bf42e450e86ff6abed79aaaf8642a2",
+    "source_packaged_tracked_file_count": 473,
+    "source_tracked_file_count": 619
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -2923,13 +2935,14 @@
   "package_name": "decretum-matrix",
   "privacy_policy": "PRIVACY.md",
   "provenance": "PROVENANCE.md",
-  "release_label": "beta1.1.0",
+  "release_label": "beta1.1.1",
   "repository_only_files": [
     ".github/CODEOWNERS",
     ".gitignore",
     ".repo-control/evidence/decretum-matrix/objective-remediation/post-059-script-review.json",
     ".repo-control/evidence/decretum-matrix/objective-remediation/runtime-baseline.json",
     ".repo-control/evidence/decretum-matrix/objective-remediation/skill-level-acceptance.json",
+    "AGENTS.md",
     "CHANGELOG.md",
     "HANDOFF-decretum-matrix-2026-08-10.md",
     "RELEASE-LOG.md",
@@ -2942,8 +2955,22 @@
     "docs/architecture/sources/2026-07-12/三省六部Skill_现行整改前工作流程图_2026-07-12.md",
     "docs/architecture/sources/2026-07-12/三省六部Skill_结果导向与会话分流整体整改方案_2026-07-12.md",
     "docs/architecture/sources/2026-07-12/三省六部Skill_结果导向与会话分流详细实施方案_2026-07-12.md",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/evidence/current-working-tree-diff.patch",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/evidence/full-suite-summary.json",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/evidence/green-archive-producer.txt",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/evidence/green-checkpoint-producer-missing-both.txt",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/evidence/green-consultation-unadmitted-office.txt",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/evidence/green-consultation.txt",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/evidence/t08-gate-status.json",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/handoff-review.md",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/handoff.MD.authority",
+    "docs/handoff_packages/beta1.1.0-source-review-2026-09-06/t08-resume-closure.md",
+    "docs/handoff_packages/handoff.MD",
     "docs/handoffs/2026-09-05-beta1.1.0-framework-review-handoff.md",
     "docs/handoffs/2026-09-05-beta1.1.0-handoff-receipt.json",
+    "docs/handoffs/2026-09-06-beta1.1.0-t08-resume-closure.md",
+    "docs/handoffs/2026-09-06-chatgpt-return-merge-receipt.md",
+    "docs/handoffs/2026-09-06-office-startup-realhost-prompts.md",
     "docs/issues/2026-08-01-local-issue-source-agent-label-fourteen-line-closeout.md",
     "docs/legal/2026-07-16-cft0808-edict-bounded-similarity-and-rights-review.md",
     "docs/legal/2026-07-16-license-preimage-inventory.md",
@@ -3005,6 +3032,7 @@
     "docs/plans/beta1.0.8/review/mcp-recall-review.md",
     "docs/plans/beta1.0.8/review/review-findings.md",
     "docs/plans/beta1.0.8/review/shiguan-hierarchical-index-design.md",
+    "docs/plans/beta1.1.0/case-reference-contract.md",
     "docs/receipts/2026-08-27-beta1.0.7-p0-install-host-closeout.json",
     "docs/receipts/2026-08-27-beta1.0.7-source-final-receipt.json",
     "docs/receipts/2026-08-31-beta1.0.8-install-host-closeout.json",
@@ -3020,6 +3048,7 @@
     "docs/reports/beta109-review-20260905/evidence-summary.json",
     "docs/reports/beta110-20260905/evidence-summary.json",
     "docs/research/2026-08-25-next-version-cli-mcp-hooks-shiguan-memory-research.md",
+    "docs/superpowers/plans/2026-09-06-beta1.1.1-release.md",
     "docs/wiki/Architecture.md",
     "docs/wiki/Governance.md",
     "docs/wiki/Home.md",
@@ -3058,8 +3087,8 @@
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
   "security_policy": "SECURITY.md",
-  "sidecar_name": "decretum-matrix-beta1.1.0.zip.sha256",
+  "sidecar_name": "decretum-matrix-beta1.1.1.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
-  "version_core": "1.1.0"
+  "version_core": "1.1.1"
 }

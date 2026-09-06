@@ -1,0 +1,30 @@
+{
+  "schema": "decretum.beta110.t08_gate_evidence.v1",
+  "task_id": "01a0715e-8957-7910-9800-eb19ed5d1437",
+  "target_version": "beta1.1.0",
+  "gates": {
+    "CONSULTATION_INVALID_SENDER_ACCEPTED": {
+      "status": "GREEN",
+      "check": "check_consultation_refs_stay_on_existing_report_and_result_evidence"
+    },
+    "CONSULTATION_UNADMITTED_OFFICE_ACCEPTED": {
+      "status": "GREEN",
+      "check": "check_consultation_refs_stay_on_existing_report_and_result_evidence"
+    },
+    "ARCHIVE_PRODUCER_RESIDUAL_GAPS": {
+      "status": "GREEN",
+      "check": "check_archive_receipt_records_runtime_replays_and_completes_with_concerns"
+    },
+    "CHECKPOINT_PRODUCER_MISSING_BOTH_ACCEPTED": {
+      "status": "GREEN",
+      "check": "check_archive_receipt_records_runtime_replays_and_completes_with_concerns"
+    }
+  },
+  "evidence_paths": [
+    "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\green-consultation.txt",
+    "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\lastfix\\green-consultation-unadmitted-office.txt",
+    "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\green-archive-producer.txt",
+    "D:\\project\\.staging\\dm110-20260905\\t08-bingbu\\lastfix\\green-checkpoint-producer-missing-both.txt"
+  ],
+  "pending_body_access": "NO"
+}

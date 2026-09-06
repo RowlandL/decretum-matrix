@@ -12,7 +12,6 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 from datetime import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None  # type: ignore[assignment]
 
 from shiguan_paths import reference_path
-from court_office_bootstrap import installed_file_sha256, resolve_office_dossier_locator
+from court_office_bootstrap import resolve_office_dossier_locator
 
 
 REQUIRED_PROFILE_FILES = (
@@ -62,7 +61,6 @@ PROFILE_FIELDS = (
     "dispatch_channel_policy",
     "release_policy",
     "profile_version",
-    "profile_hash",
     "preload_contract_version",
     "dispatch_selection_policy",
     "capacity_admission_policy",
@@ -87,10 +85,10 @@ ORDINARY_PRELOAD_ANCHOR = "\n".join((
     "ORDINARY_PRELOAD_ANCHOR",
     "1. installed_skill_full_read: read the exact installed court_skill_path in full.",
     "2. own_profile_dossier_full_read: read this office's bound profile_source and agent_dossier_path in full.",
-    "3. child_preload_acceptance_returned: return court.office.preload_ack.v1 to the direct superior using only the existing declared digest strings; child preload acceptance must be returned.",
+    "3. child_preload_acceptance_returned: return court.office.preload_ack.v1 to the direct superior with the dispatched court_code, actual source paths, agent_dossier_loaded and loaded_skills after completing the required reads.",
     "4. parent_preload_ack_accepted: the parent preload ack must be accepted. Remain PENDING until both child preload acceptance has returned and parent preload ack has been accepted.",
     "5. business_cli_mcp: only then enter running and invoke business CLI/MCP within the assigned scope.",
-    "Post-install asset rehash is forbidden: do not run Get-FileHash, hashlib, or equivalent checks on installed files, including pin JSON serialization/self-hash. Keep business P00, case, plan and receipt digests.",
+    "Use the dispatched court_code to bind this office's identity materials and the existing case. Keep the issued role, instance, host identity and scope.",
 ))
 AGENT_DOSSIER_POLICY = (
     "Installed .codex/agents TOML files are native auto-discovered role files and must remain "
@@ -136,12 +134,8 @@ def backup_root() -> Path:
     return reference_path("host-capability-backups", "codex-agent-roles")
 
 
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
-def sha256_file(path: Path) -> str:
-    return installed_file_sha256(path, skill_root=agent_template_skill_root())
 
 
 def read_toml(path: Path) -> dict[str, object]:
@@ -168,12 +162,10 @@ def render_agent_dossier_block(role: str) -> list[str]:
         f"- preload_contract_version: {PRELOAD_CONTRACT_VERSION}",
         "- carrier_kind: child_agent",
         f"- agent_dossier_path: {path}",
-        f"- agent_dossier_hash: {installed_file_sha256(path, skill_root=agent_template_skill_root()) if exists else 'missing'}",
         f"- court_skill_path: {skill}",
-        f"- court_skill_hash: {installed_file_sha256(skill, skill_root=agent_template_skill_root()) if skill.exists() else 'missing'}",
         "- preload_ack: child preload acceptance and accepted parent preload ack are both required before leaving PENDING or invoking business CLI/MCP.",
-        "- agent_dossier_loaded: report exactly YES or NO; YES and matching installation-declared identity fields are required.",
-        "- Copy profile/dossier/skill hashes from this installation manifest into the acknowledgement; do not run Get-FileHash, hashlib, or another file rehash during startup/preload/dispatch.",
+        "- agent_dossier_loaded: report exactly YES or NO; YES requires the full bound dossier read, with the actual role and source paths confirmed.",
+        "- court_code: supplied by the parent dispatch; include it in the preload acknowledgement after reading the bound materials.",
         "- loaded_skills: must include decretum-matrix in the preload ack.",
         f"- ordinary_carrier_dossier_policy: {AGENT_DOSSIER_POLICY}",
         f"- office_voice_policy: {OFFICE_VOICE_POLICY}",
@@ -185,12 +177,10 @@ def render_agent_dossier_block(role: str) -> list[str]:
 
 
 def render_profile_block(template_path: Path, profile: dict[str, object]) -> str:
-    declared_hash = installed_file_sha256(template_path, skill_root=template_path.resolve().parents[2])
     role = str(profile.get("role_key", template_path.stem)).strip() or template_path.stem
     lines = [
         "Standing profile/soul compact manifest:",
         f"- profile_source: {template_path}",
-        f"- profile_hash: {declared_hash}",
     ]
     for field in ORDINARY_IDENTITY_FIELDS:
         value = str(profile.get(field, "")).strip()
@@ -255,9 +245,6 @@ def render_agent_toml(template_path: Path) -> str:
     return "".join(f"{key} = {toml_string(data[key])}\n" for key in ("name", "description", "developer_instructions"))
 
 
-def expected_rendered_hash(template_path: Path) -> str | None:
-    """Generated role files have no installer pin; do not rehash their text."""
-    return None
 
 
 def unique_backup_dir(root: Path) -> Path:
@@ -325,14 +312,11 @@ def sync_agents(write: bool, only: set[str] | None = None) -> dict[str, object]:
             rows.append({"agent": name, "status": "missing_template", "template": str(template)})
             continue
         rendered = render_agent_toml(template)
-        rendered_hash = expected_rendered_hash(template)
         matches = installed.is_file() and installed.read_text(encoding="utf-8") == rendered
-        installed_hash = rendered_hash if matches else None
         needs_write = not matches
         if write and needs_write:
             installed.write_text(rendered, encoding="utf-8", newline="\n")
             written += 1
-            installed_hash = rendered_hash
         else:
             unchanged += 0 if needs_write else 1
         rows.append(
@@ -340,9 +324,6 @@ def sync_agents(write: bool, only: set[str] | None = None) -> dict[str, object]:
                 "agent": name,
                 "template": str(template),
                 "installed": str(installed),
-                "expected_rendered_hash": rendered_hash,
-                "installed_hash": installed_hash,
-                "installed_hash_basis": "UNAVAILABLE_NOT_INSTALLER_PINNED",
                 "status": "synced" if matches or (write and needs_write) else "would_update",
             }
         )

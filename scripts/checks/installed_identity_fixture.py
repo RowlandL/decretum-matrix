@@ -37,5 +37,6 @@ def write_skill(root: Path) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"# Fixture\n- role: {role}\n", encoding="utf-8")
             paths.append(relative)
+    # Some consumers require the installed-preload-identity pin manifest; emit it
+    # so every isolated skill fixture carries a complete installed identity.
     write_identity(root, paths)
-

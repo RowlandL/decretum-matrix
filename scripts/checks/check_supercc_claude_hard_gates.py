@@ -38,7 +38,7 @@ def load_module(name: str, path: Path) -> Any:
         raise RuntimeError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module
+    return sys.modules.get(name, module)
 
 
 def check(condition: bool, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -199,7 +199,7 @@ def run_checks() -> dict[str, Any]:
             and "controller-side `zellij write-chars`" in runtime_ref
             and "current role dossier and generated shell contract supersede" in runtime_ref
             and "transcript as stale drift evidence" in platform_ref
-            and "Old Claude/Codex logs" in skill_text,
+            and "旧会话" in skill_text,
             "governing references and SKILL.md preserve Claude drift guard semantics",
         )
     )

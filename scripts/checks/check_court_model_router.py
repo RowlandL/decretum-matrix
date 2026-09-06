@@ -100,7 +100,8 @@ def main() -> int:
         risk="low",
         ambiguity="low",
     )
-    require(repeat["model_route_id"] == lightweight["model_route_id"], "model route id must be deterministic")
+    require(re.fullmatch(r"cmr-[0-9a-f]{8}", repeat["model_route_id"]), "model route naming style changed")
+    require(repeat["model_route_id"] != lightweight["model_route_id"], "distinct route records need distinct handles")
 
     claude = route_office_model(
         transport="claude-code",
@@ -215,8 +216,8 @@ def main() -> int:
     require(applied["model_route_status"] == "APPLIED", "proven host proof route status mismatch")
     require(applied["runtime_degraded"] is False, "proven host proof must not degrade")
     require(
-        re.fullmatch(r"[0-9a-f]{64}", str(applied.get("host_proof_sha256") or "")),
-        "host_proof_sha256 must be a SHA256 digest",
+        applied.get("host_proof_reference") == host_probe_ok,
+        "host proof must preserve actual observed evidence",
     )
     require(
         applied["host_proof_codex_version"] == "0.149.0-alpha.4.1",
@@ -224,8 +225,8 @@ def main() -> int:
     )
     repeated = route_office_model_with_host_proof(security, host_probe_ok)
     require(
-        repeated["host_proof_sha256"] == applied["host_proof_sha256"],
-        "host proof digest must be deterministic",
+        repeated["host_proof_reference"] == applied["host_proof_reference"],
+        "the same host evidence must remain structurally equal",
     )
 
     worker_style_probe = {
@@ -259,7 +260,7 @@ def main() -> int:
             result["fallback"] == "inherit_parent_model_and_effort",
             f"{reason}: fallback must be inherit_parent_model_and_effort",
         )
-        require(result["host_proof_sha256"] is None, f"{reason}: failed proof must not carry a digest")
+        require("host_proof_reference" not in result, f"{reason}: failed proof must not be accepted")
         return result
 
     expect_fallback(None, "missing host proof")
@@ -337,6 +338,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

@@ -105,6 +105,19 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/checks/check_case_reference_helpers.py",
+      "command": "check-case-reference-helpers",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_case_reference_helpers.py",
+      "id": "check.check-case-reference-helpers",
+      "legacy_path": "scripts/checks/check_case_reference_helpers.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/checks/check_catalog.py",
       "command": "check-catalog",
       "compatibility_state": "unified_compatibility_adapter",
@@ -724,6 +737,19 @@
       "handler": "isolated_subprocess:scripts/checks/check_obsidian_sync_transaction.py",
       "id": "check.check-obsidian-sync-transaction",
       "legacy_path": "scripts/checks/check_obsidian_sync_transaction.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_office_decree_startup.py",
+      "command": "check-office-decree-startup",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_office_decree_startup.py",
+      "id": "check.check-office-decree-startup",
+      "legacy_path": "scripts/checks/check_office_decree_startup.py",
       "public": true,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
@@ -2170,56 +2196,72 @@
           "side_effect": "read_only"
         },
         {
-          "description": "Validate a P00 semantic context payload against the closed nine-field schema.",
+          "description": "Validate a P00 semantic context bound to the issued court number.",
           "dry_run": false,
           "input_schema": {
             "additionalProperties": false,
             "properties": {
               "value": {
                 "additionalProperties": false,
-                "description": "\u8bed\u4e49\u4e0a\u4e0b\u6587\uff08closed\uff0c9 \u5b57\u6bb5\uff0c\u4e0e semantic_context_json_schema \u4e00\u81f4\uff09",
+                "description": "Current case, plan, progress and recovery references.",
                 "properties": {
                   "authority_revision": {
                     "description": "charter revision",
-                    "minimum": 0,
+                    "minimum": 1,
                     "type": "integer"
                   },
-                  "authority_sha256": {
-                    "description": "authority \u6b63\u6587 sha256",
-                    "minLength": 1,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
-                  },
-                  "git_fingerprint": {
-                    "description": "\u4e8b\u4ef6\u5934 sha256",
-                    "minLength": 1,
-                    "type": "string"
+                  "case_ref": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "charter_revision": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "court_code": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "court_code",
+                      "charter_revision"
+                    ],
+                    "type": "object"
                   },
                   "plan_cursor": {
                     "description": "plan cursor\uff08state@revision-N\uff09",
                     "minLength": 1,
                     "type": "string"
                   },
-                  "plan_revision": {
-                    "description": "plan revision",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "plan_sha256": {
-                    "description": "plan \u6b63\u6587 sha256",
-                    "minLength": 1,
-                    "pattern": "^[0-9a-f]{64}$",
-                    "type": "string"
+                  "plan_ref": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "charter_revision": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "court_code": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "plan_revision": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "court_code",
+                      "charter_revision",
+                      "plan_revision"
+                    ],
+                    "type": [
+                      "object",
+                      "null"
+                    ]
                   },
                   "recovery_checkpoint_id": {
                     "description": "\u6062\u590d\u68c0\u67e5\u70b9 id",
                     "minLength": 1,
-                    "type": "string"
-                  },
-                  "shiguan_fingerprint": {
-                    "description": "\u53f2\u9986\u6307\u7eb9",
-                    "minLength": 1,
-                    "pattern": "^[0-9a-f]{64}$",
                     "type": "string"
                   },
                   "shiguan_revision": {
@@ -2230,14 +2272,11 @@
                 },
                 "required": [
                   "authority_revision",
-                  "authority_sha256",
-                  "plan_revision",
-                  "plan_sha256",
+                  "case_ref",
+                  "plan_ref",
                   "plan_cursor",
-                  "git_fingerprint",
                   "recovery_checkpoint_id",
-                  "shiguan_revision",
-                  "shiguan_fingerprint"
+                  "shiguan_revision"
                 ],
                 "type": "object"
               }
@@ -2282,6 +2321,10 @@
                     "canonical_authority": {
                       "description": "\u662f\u5426 canonical authority",
                       "type": "boolean"
+                    },
+                    "court_code": {
+                      "description": "Issued court number for office identity",
+                      "type": "string"
                     },
                     "dependency_roles": {
                       "description": "\u4f9d\u8d56 role \u5217\u8868",
@@ -2329,10 +2372,6 @@
                     "parallel_group": {
                       "description": "\u5e76\u884c\u7ec4\u6807\u8bc6",
                       "minLength": 1,
-                      "type": "string"
-                    },
-                    "profile_hash": {
-                      "description": "profile \u54c8\u5e0c",
                       "type": "string"
                     },
                     "role": {

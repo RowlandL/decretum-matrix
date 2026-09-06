@@ -357,16 +357,7 @@ def check_default_writer_stays_lightweight() -> None:
         try:
             import archive_checkpoint
 
-            original_receipt_builder = archive_checkpoint.build_archive_receipt
-
-            def forbidden_receipt_builder(*args: object, **kwargs: object) -> dict[str, object]:
-                raise AssertionError("ordinary closeout constructed an archive receipt")
-
-            archive_checkpoint.build_archive_receipt = forbidden_receipt_builder
-            try:
-                result = court_session_closeout._default_archive_writer(draft)
-            finally:
-                archive_checkpoint.build_archive_receipt = original_receipt_builder
+            result = court_session_closeout._default_archive_writer(draft)
 
             require(
                 set(result) <= {"archive_path", "court_code"},
@@ -375,6 +366,11 @@ def check_default_writer_stays_lightweight() -> None:
             require(
                 not archive_checkpoint.refresh_request_path().exists(),
                 "ordinary closeout requested derived-tree refresh",
+            )
+            archive_text = Path(str(result["archive_path"])).read_text(encoding="utf-8")
+            require(
+                "- archive_receipt_json:" in archive_text,
+                "ordinary closeout archive is missing the receipt binding",
             )
         finally:
             if previous is None:

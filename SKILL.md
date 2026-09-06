@@ -33,7 +33,7 @@ metadata:
 
 - 入口、当前官署 profile/dossier、启动指引及紧凑 metadata 合计 `<=20 KiB`。具体官署派遣前才读自己的材料，父级不预读全部子署。
 - 已指定能力时直接用 CLI/MCP；不全读能力索引、core/dispatch/state/closeout 大卷，不翻源码猜参数。操作或语义争议确需时才读对应卷。
-- 安装首次校验并固定文件身份；活动副本不保留安装专用检查及失效注册。普通启动/角色卡/plan/preload/ack/dispatch 禁止 Get-FileHash、hashlib 等文件重算，只核对安装声明；缺 pin 要求安装更新。canonical JSON/P00/receipt/语义 digest 保留。
+- 安装验收在安装阶段一次完成，随后移除安装专用检查。身份预载保留：先完整读取技能，再读本署 profile/dossier，以诏令编号关联实际读取、职责、直接上级与宿主证据；正常启动不重复安装验收。
 
 ## Common Hard Gates
 
@@ -94,3 +94,8 @@ pending/private 仅允许 metadata governance；没有不可伪造主机授权�
 仅门下接受者可标 MenxiaReview。标准任务用 `shiguan archive-runtime-task`，编号/谱系/作业 AI 复制 `payload.producer_receipt.closeout_identity`；独立记录才用 `archive-checkpoint` 的 `payload.closeout_identity`。MCP 不另编号，无有效回执标 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause`。
 
 记忆裁定为 WRITE | PROPOSE | SKIP | DEFERRED；WRITE 需当前授权与门下接受。安装、备份、回滚和源码包装规则见 [validation-packaging.md](references/validation-packaging.md)。
+
+## Local Validation
+
+`python -B scripts/quick_validate.py .`
+

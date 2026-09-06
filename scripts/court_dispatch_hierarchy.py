@@ -387,7 +387,13 @@ def _validate_child_profile(
             reasons=("dispatch_hierarchy_child_profile_required",),
         )
     forbidden = frozenset(child["forbidden_semantic_authority_fields"])
-    if _has_forbidden_semantic_authority(child_profile, forbidden):
+    # The top-level receipt points to the parent's existing authority.
+    # Nested/new authority declarations remain forbidden.
+    authority_fields = {key: value for key, value in child_profile.items()
+                        if key != "semantic_receipt_id"}
+    if (not isinstance(child_profile.get("semantic_receipt_id"), str)
+            or not child_profile["semantic_receipt_id"].strip()
+            or _has_forbidden_semantic_authority(authority_fields, forbidden)):
         return _decision(
             allowed=False,
             edge_class=None,

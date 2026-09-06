@@ -40,4 +40,3 @@ state mutation. Runtime degradation does not authorize 太子 -> 六部/child.
 
 Stop and ask the user on missing authority, unsafe mutation, unresolved semantic conflict,
 or insufficient acceptance evidence.
-

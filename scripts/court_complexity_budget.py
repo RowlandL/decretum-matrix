@@ -8,6 +8,10 @@ from datetime import datetime
 import math
 import ntpath
 
+import sys
+
+sys.dont_write_bytecode = True
+
 
 COMPLEXITY_RESULTS = (
     "MINIMAL_PASS",
@@ -935,8 +939,8 @@ def resolve_parallel_limit(
 def evaluate_context_economy(
     *,
     pool: Mapping[str, object],
-    semantic_receipt_hash: str,
-    invariant_capsule_hash: str,
+    semantic_receipt_id: str,
+    case_ref: Mapping[str, object],
     capsule_bytes: int,
     fork_context: str,
     result_mode: str,
@@ -947,12 +951,10 @@ def evaluate_context_economy(
     """Apply Taizi's bounded context discretion without creating budget state."""
 
     _validate_budget_pool(pool)
-    for value, reason in (
-        (semantic_receipt_hash, "semantic_receipt_hash_required"),
-        (invariant_capsule_hash, "invariant_capsule_hash_required"),
-    ):
-        if not isinstance(value, str) or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value.lower()):
-            _reject(reason)
+    from court_case_binding import case_reference
+    reference = case_reference(case_ref)
+    if not _nonempty_text(semantic_receipt_id):
+        _reject("semantic_receipt_id_required")
     if not _valid_count(capsule_bytes):
         _reject("context_capsule_size_invalid")
     if not _finite_number(system_memory_percent) or not 0.0 <= float(system_memory_percent) <= 100.0:
@@ -981,8 +983,8 @@ def evaluate_context_economy(
         "decision": decision,
         "reason": reason,
         "budget_id": pool["budget_id"],
-        "semantic_receipt_hash": semantic_receipt_hash.lower(),
-        "invariant_capsule_hash": invariant_capsule_hash.lower(),
+        "semantic_receipt_id": semantic_receipt_id,
+        "case_ref": reference,
         "capsule_bytes": capsule_bytes,
         "fork_context": fork_context,
         "result_mode": result_mode,

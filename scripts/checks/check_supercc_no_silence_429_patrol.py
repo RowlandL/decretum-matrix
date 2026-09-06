@@ -52,7 +52,7 @@ def load_module(name: str, path: Path):
         raise RuntimeError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module
+    return sys.modules.get(name, module)
 
 
 def check_source_terms() -> None:
@@ -72,17 +72,14 @@ def check_source_terms() -> None:
     require_terms(
         "SKILL.md",
         [
-            "Core Metadata Index",
-            "Reference Index",
-            "Token Three-Level Optimization",
-            "Request pressure is rate-bounded",
             "court-startup-authority.md",
             "court-state-runtime-agents.md",
             "court-offices-dispatch.md",
             "court-closeout-validation.md",
-            "supercc_watchdog.py",
-            "watchdog_daemon_stop",
-            "cli_probe",
+            "court-supercc-runtime-selection.md",
+            "superCC",
+            "watchdog",
+            "closeout-silence",
         ],
     )
     for path in (
@@ -93,7 +90,7 @@ def check_source_terms() -> None:
     ):
         require_terms(path, default_terms)
     require_terms(
-        "scripts/ensure_supercc_court.py",
+        "scripts/commands/ensure_supercc_court.py",
         [term for term in default_terms if term != "taizi_stale_explanation"],
     )
 
@@ -110,13 +107,12 @@ def check_source_terms() -> None:
         "cli_probe",
     ]
     for path in (
-        "SKILL.md",
         "references/court-closeout-validation.md",
         "references/court-supercc-runtime-selection.md",
     ):
         require_terms(path, memorial_terms)
     require_terms(
-        "scripts/supercc_watchdog.py",
+        "scripts/services/supercc_watchdog.py",
         [
             "silent_supervisor",
             "supercc_watchdog",

@@ -10,17 +10,20 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-import hashlib
-import json
 import re
 from typing import Mapping, MutableSet
+
+import sys
+
+sys.dont_write_bytecode = True
+
+from court_case_binding import case_reference
 
 
 HOST_DISPATCH_REQUEST_SCHEMA = "court.native_host_dispatch_request.v1"
 HOST_ACTION_RECEIPT_SCHEMA = "court.native_host_action_receipt.v1"
 ADMISSION_RECEIPT_SCHEMA = "court.agent.admission_receipt.v1"
 REUSE_CONTEXT_LIMIT = 0.80
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 THREE_DEPARTMENTS = frozenset({"zhongshu", "menxia", "shangshu"})
 SIX_MINISTRIES = frozenset(
     {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
@@ -34,8 +37,8 @@ REQUEST_BINDING_FIELDS = (
     "instance_id",
     "direct_superior",
     "semantic_epoch",
-    "charter_sha256",
-    "invariant_capsule_sha256",
+    "case_ref",
+    "office_capsule_ref",
     "lease_id",
     "assignment",
     "duty_scope",
@@ -65,15 +68,23 @@ SESSION_ID_RE = re.compile(
 )
 
 
-def canonical_json_sha256(value: object) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+def native_request_reference(request: Mapping[str, object]) -> dict[str, object]:
+    """Identify a dispatch by its issued case and existing office/attempt."""
+    return {
+        "court_code": case_reference(request["case_ref"])["court_code"],
+        "office_instance_id": request["instance_id"],
+        "dispatch_uid": request["dispatch_uid"],
+        "attempt": request["attempt"],
+    }
+
+
+def native_task_suffix(request: Mapping[str, object]) -> str:
+    """Keep the existing 16-character host naming suffix using the dispatch ID."""
+    dispatch_uid = str(request["dispatch_uid"]).removeprefix("DSP-").replace("-", "")
+    attempt = _positive_int(request["attempt"], "attempt")
+    if not re.fullmatch(r"[0-9a-f]{32}", dispatch_uid) or attempt > 65535:
+        raise ValueError("native_host_action_receipt:dispatch_identity_invalid")
+    return f"{dispatch_uid[-12:]}{attempt:04x}"
 
 
 def _text(value: object, field: str, *, maximum: int = 4096) -> str:
@@ -81,13 +92,6 @@ def _text(value: object, field: str, *, maximum: int = 4096) -> str:
         raise ValueError(f"native_host_action_receipt:{field}_invalid")
     text = value.strip()
     if not text or len(text) > maximum or "\x00" in text:
-        raise ValueError(f"native_host_action_receipt:{field}_invalid")
-    return text
-
-
-def _sha256(value: object, field: str) -> str:
-    text = _text(value, field, maximum=64).lower()
-    if not SHA256_RE.fullmatch(text):
         raise ValueError(f"native_host_action_receipt:{field}_invalid")
     return text
 
@@ -122,12 +126,8 @@ def _normalize_role_ack(
             "role_ack.direct_superior",
             maximum=64,
         ).lower(),
-        "profile_sha256": _sha256(
-            value.get("profile_sha256"), "role_ack.profile_sha256"
-        ),
-        "dossier_sha256": _sha256(
-            value.get("dossier_sha256"), "role_ack.dossier_sha256"
-        ),
+        **{field: _text(value.get(field), f"role_ack.{field}")
+           for field in ("profile_source", "dossier_path", "court_skill_path")},
     }
     if normalized["role"] != role or normalized["direct_superior"] != direct_superior:
         raise ValueError("native_host_action_receipt:role_ack_binding_mismatch")
@@ -140,9 +140,6 @@ def _normalize_admission_anchor(value: object) -> dict[str, object]:
     return {
         "schema": ADMISSION_RECEIPT_SCHEMA,
         "receipt_id": _text(value.get("receipt_id"), "admission_anchor.receipt_id"),
-        "receipt_sha256": _sha256(
-            value.get("receipt_sha256"), "admission_anchor.receipt_sha256"
-        ),
     }
 
 
@@ -177,12 +174,8 @@ def _normalize_candidate(value: object) -> dict[str, object]:
             "reuse.role_ack.direct_superior",
             maximum=64,
         ).lower(),
-        "profile_sha256": _sha256(
-            role_ack.get("profile_sha256"), "reuse.role_ack.profile_sha256"
-        ),
-        "dossier_sha256": _sha256(
-            role_ack.get("dossier_sha256"), "reuse.role_ack.dossier_sha256"
-        ),
+        **{field: _text(role_ack.get(field), f"reuse.role_ack.{field}")
+           for field in ("profile_source", "dossier_path", "court_skill_path")},
     }
     return {
         "host_task_id": _text(value.get("host_task_id"), "reuse.host_task_id"),
@@ -199,13 +192,7 @@ def _normalize_candidate(value: object) -> dict[str, object]:
             "semantic_epoch": _positive_int(
                 semantic.get("semantic_epoch"), "reuse.semantic_epoch"
             ),
-            "charter_sha256": _sha256(
-                semantic.get("charter_sha256"), "reuse.charter_sha256"
-            ),
-            "invariant_capsule_sha256": _sha256(
-                semantic.get("invariant_capsule_sha256"),
-                "reuse.invariant_capsule_sha256",
-            ),
+            "case_ref": case_reference(semantic.get("case_ref", {})),
         },
         "lease_id": _text(value.get("lease_id"), "reuse.lease_id"),
         "write_set": _string_list(value.get("write_set"), "reuse.write_set"),
@@ -238,10 +225,8 @@ def normalize_native_host_dispatch_request(value: object) -> dict[str, object]:
         "instance_id": _text(value.get("instance_id"), "instance_id").lower(),
         "direct_superior": direct_superior,
         "semantic_epoch": _positive_int(value.get("semantic_epoch"), "semantic_epoch"),
-        "charter_sha256": _sha256(value.get("charter_sha256"), "charter_sha256"),
-        "invariant_capsule_sha256": _sha256(
-            value.get("invariant_capsule_sha256"), "invariant_capsule_sha256"
-        ),
+        "case_ref": case_reference(value.get("case_ref", {})),
+        "office_capsule_ref": deepcopy(value.get("office_capsule_ref")),
         "lease_id": _text(value.get("lease_id"), "lease_id"),
         "assignment": _text(value.get("assignment"), "assignment"),
         "duty_scope": _string_list(value.get("duty_scope"), "duty_scope"),
@@ -254,6 +239,20 @@ def normalize_native_host_dispatch_request(value: object) -> dict[str, object]:
             _normalize_candidate(candidate) for candidate in raw_candidates
         ],
     }
+    capsule = normalized["office_capsule_ref"]
+    if normalized["case_ref"]["charter_revision"] != normalized["semantic_epoch"]:
+        raise ValueError("native_host_action_receipt:case_revision_mismatch")
+    if (not isinstance(capsule, Mapping)
+            or capsule.get("case_ref") != normalized["case_ref"]
+            or capsule.get("office_instance_id") != normalized["instance_id"]
+            or capsule.get("role_key") != role):
+        raise ValueError("native_host_action_receipt:office_capsule_binding_mismatch")
+    from court_case_binding import office_capsule_reference
+    expected_capsule = office_capsule_reference(
+        normalized["case_ref"], role, normalized["instance_id"], capsule.get("issued_at")
+    )
+    if dict(capsule) != expected_capsule:
+        raise ValueError("native_host_action_receipt:office_capsule_binding_mismatch")
     return normalized
 
 
@@ -284,8 +283,7 @@ def _candidate_is_compatible(
         semantic.get(field) == request.get(field)
         for field in (
             "semantic_epoch",
-            "charter_sha256",
-            "invariant_capsule_sha256",
+            "case_ref",
         )
     )
 
@@ -386,8 +384,8 @@ def _build_receipt(
         "decision": decision,
         "host_action": host_action,
         "outcome": outcome,
-        "request_sha256": canonical_json_sha256(request),
-        "result_sha256": canonical_json_sha256(host_result),
+        "request_ref": native_request_reference(request),
+        "host_result": deepcopy(dict(host_result)),
         "acted_at": datetime.now(timezone.utc).isoformat(),
         "request": deepcopy(dict(request)),
         **{field: deepcopy(request[field]) for field in REQUEST_BINDING_FIELDS},
@@ -404,15 +402,8 @@ def _build_receipt(
         if host_action != 'spawn' or outcome != 'succeeded':
             raise ValueError('native_host_action_receipt:spawn_evidence_action_mismatch')
         receipt['host_spawn_evidence'] = deepcopy(host_result['host_spawn_evidence'])
-    receipt["receipt_id"] = "native-host-" + canonical_json_sha256(receipt)[:24]
-    receipt["receipt_sha256"] = canonical_json_sha256(receipt)
+    receipt["receipt_id"] = "native-host-" + str(host_result["host_action_id"])
     return receipt
-
-
-def _receipt_without_digest(value: Mapping[str, object]) -> dict[str, object]:
-    result = deepcopy(dict(value))
-    result.pop("receipt_sha256", None)
-    return result
 
 
 def validate_native_host_action_receipt(
@@ -435,6 +426,12 @@ def validate_native_host_action_receipt(
         raise ValueError("native_host_action_receipt:outcome_invalid")
     if value.get("decision") != decision or value.get("host_action") != host_action:
         raise ValueError("native_host_action_receipt:action_binding_mismatch")
+    host_result = _normalize_host_result(value.get("host_result"))
+    if (any(value.get(field) != host_result.get(field) for field in HOST_BINDING_FIELDS)
+            or any(value.get(field) != host_result.get(field)
+                   for field in (*CANONICAL_IDENTITY_RECEIPT_FIELDS, "host_spawn_evidence"))
+            or (outcome == "succeeded") != host_result["ok"]):
+        raise ValueError("native_host_action_receipt:host_result_binding_mismatch")
     for field in REQUEST_BINDING_FIELDS:
         if value.get(field) != request.get(field):
             raise ValueError(f"native_host_action_receipt:{field}_mismatch")
@@ -445,14 +442,13 @@ def validate_native_host_action_receipt(
             _text(value.get(field), field)
     else:
         _normalize_canonical_agent_path_result(value)
-    if value.get("request_sha256") != canonical_json_sha256(request):
-        raise ValueError("native_host_action_receipt:request_sha256_mismatch")
+    if value.get("request_ref") != native_request_reference(request):
+        raise ValueError("native_host_action_receipt:request_ref_mismatch")
     if 'host_spawn_evidence' in value:
         from court_native_trace import validate_spawn_evidence
         if host_action != 'spawn' or outcome != 'succeeded':
             raise ValueError('native_host_action_receipt:spawn_evidence_action_mismatch')
         validate_spawn_evidence(value['host_spawn_evidence'], value)
-    _sha256(value.get("result_sha256"), "result_sha256")
     acted_at = _text(value.get("acted_at"), "acted_at", maximum=64)
     try:
         parsed = datetime.fromisoformat(acted_at)
@@ -460,16 +456,9 @@ def validate_native_host_action_receipt(
         raise ValueError("native_host_action_receipt:acted_at_invalid") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("native_host_action_receipt:acted_at_invalid")
-    receipt_id = _text(value.get("receipt_id"), "receipt_id", maximum=64)
-    if not receipt_id.startswith("native-host-"):
+    receipt_id = _text(value.get("receipt_id"), "receipt_id")
+    if receipt_id != "native-host-" + str(value.get("host_action_id")):
         raise ValueError("native_host_action_receipt:receipt_id_invalid")
-    receipt_sha256 = _sha256(value.get("receipt_sha256"), "receipt_sha256")
-    if receipt_sha256 != canonical_json_sha256(_receipt_without_digest(value)):
-        raise ValueError("native_host_action_receipt:receipt_sha256_mismatch")
-    if receipt_id != "native-host-" + canonical_json_sha256(
-        {k: v for k, v in _receipt_without_digest(value).items() if k != "receipt_id"}
-    )[:24]:
-        raise ValueError("native_host_action_receipt:receipt_id_mismatch")
     if receipt_id in replay_guard:
         raise ValueError("native_host_action_receipt:replay")
     replay_guard.add(receipt_id)

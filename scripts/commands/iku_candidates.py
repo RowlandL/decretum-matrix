@@ -162,7 +162,7 @@ def _record_projection(text: str, path: Path, root: Path) -> dict[str, object]:
                 and str(receipt.get("source") or "").replace("\\", "/") == expected_source
                 and str(receipt.get("path") or "") == str(path)
                 and len(times) == 1 and receipt.get("recorded_at") in times
-                and bool(re.fullmatch(r"[a-f0-9]{64}", str(receipt.get("record_sha256") or "")))
+                and str(receipt.get("record_ref") or "") == f"shiguan:{receipt_code}"
             )
             if receipt_verified:
                 receipt_hint = str(receipt["receipt_id"])

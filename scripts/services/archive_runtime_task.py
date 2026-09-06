@@ -20,6 +20,7 @@ import sys
 sys.dont_write_bytecode = True
 import court_runtime
 from court_file_lock import file_lock
+from court_case_binding import case_reference
 
 
 def validate_child_trace_summaries(records: object) -> dict[str, object]:
@@ -157,15 +158,6 @@ def build_archive_command(
     residual_gaps_json = json.dumps(
         residual_gaps, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
-    residual_gaps_sha256 = hashlib.sha256(
-        residual_gaps_json.encode("utf-8")
-    ).hexdigest()
-    if (
-        isinstance(binding, dict)
-        and binding.get("residual_gaps_sha256") is not None
-        and binding.get("residual_gaps_sha256") != residual_gaps_sha256
-    ):
-        raise ValueError("archive_runtime_residual_gaps_binding_mismatch")
     archive_status = str(
         args.status
         or (
@@ -198,7 +190,6 @@ def build_archive_command(
         "--keywords", f"{args.task_id},court runtime,Shiguan bridge,audit trail",
         "--key-actions", "archive runtime task,connect runtime ledger to Shiguan",
         "--residual-gaps-json", residual_gaps_json,
-        "--residual-gaps-sha256", residual_gaps_sha256,
         "--format", "json",
     ]
     if result_json_path is not None:
@@ -222,7 +213,7 @@ def _record_args(
     return argparse.Namespace(
         task_id=task["task_id"],
         expected_revision=task["charter_revision"],
-        expected_charter_sha256=task["charter_sha256"],
+        case_ref=case_reference(task),
         archive_receipt=producer_receipt,
         archive_receipt_file=None,
         actor="shiguan",
@@ -245,16 +236,15 @@ def _runtime_receipt(task: dict[str, object]) -> dict[str, object]:
         "receipt_id": checkpoint["receipt_id"],
         "task_id": task["task_id"],
         "charter_revision": task["charter_revision"],
-        "charter_sha256": task["charter_sha256"],
-        "assessment_sha256": binding["assessment_sha256"],
-        "record_sha256": checkpoint["record_sha256"],
+        "case_ref": case_reference(task),
+        "assessment_ref": binding["assessment_ref"],
+        "record_ref": checkpoint["record_ref"],
         "archive_path": checkpoint["archive_path"],
         "recorded_at": checkpoint["recorded_at"],
     }
     if binding.get("gate") == "PASSED_WITH_CONCERNS":
         receipt.update(
             residual_gaps=binding["residual_gaps"],
-            residual_gaps_sha256=binding["residual_gaps_sha256"],
         )
     case_binding = task.get("case_binding")
     if isinstance(case_binding, dict):
@@ -262,9 +252,6 @@ def _runtime_receipt(task: dict[str, object]) -> dict[str, object]:
             session_id=case_binding["session_id"],
             court_code=case_binding["court_code"],
             charter_revision=case_binding["charter_revision"],
-            charter_sha256=case_binding["charter_sha256"],
-            case_identity_sha256=case_binding["case_identity_sha256"],
-            case_binding_sha256=case_binding["binding_sha256"],
         )
     return receipt
 

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import uuid
 from unittest.mock import patch
 from argparse import Namespace
 from types import MappingProxyType
@@ -19,6 +20,12 @@ if str(SCRIPTS) not in sys.path:
 
 from commands import court_native_bridge as bridge
 import court_runtime
+from court_case_binding import office_capsule_reference
+from court_native_host_dispatch import native_request_reference
+
+CASE_REF = {"court_code": "CFT-20260906-001-A001", "charter_revision": 3}
+DISPATCH_UID = "DSP-" + uuid.uuid4().hex
+ISSUED_AT = "2026-09-06T12:30:00+08:00"
 
 
 def _request() -> dict[str, object]:
@@ -26,14 +33,14 @@ def _request() -> dict[str, object]:
         "schema": "court.native_host_dispatch_request.v1",
         "task_id": "native-bridge-task",
         "wave_id": "native-bridge-wave",
-        "dispatch_uid": "native-bridge-dispatch",
+        "dispatch_uid": DISPATCH_UID,
         "attempt": 1,
         "role": "gongbu",
         "instance_id": "gongbu-native-0001",
         "direct_superior": "shangshu",
         "semantic_epoch": 3,
-        "charter_sha256": "a" * 64,
-        "invariant_capsule_sha256": "b" * 64,
+        "case_ref": dict(CASE_REF),
+        "office_capsule_ref": office_capsule_reference(CASE_REF, "gongbu", "gongbu-native-0001", ISSUED_AT),
         "lease_id": "native-bridge-lease",
         "assignment": "bounded native bridge safety fixture",
         "duty_scope": ["scripts/commands/court_native_bridge.py"],
@@ -41,13 +48,11 @@ def _request() -> dict[str, object]:
         "role_ack": {
             "role": "gongbu",
             "direct_superior": "shangshu",
-            "profile_sha256": "c" * 64,
-            "dossier_sha256": "d" * 64,
+            **court_runtime._native_role_ack_sources(court_runtime._semantic_preload_sources("gongbu")),
         },
         "admission_anchor": {
             "schema": "court.agent.admission_receipt.v1",
             "receipt_id": "EVT-NATIVE-BRIDGE-01",
-            "receipt_sha256": "e" * 64,
         },
         "compatible_live_instances": [],
     }
@@ -61,12 +66,11 @@ def _p00_context(request: dict[str, object]) -> dict[str, object]:
     return {
         "schema": "court.semantic.dispatch_context_packet.v1",
         "semantic_epoch": request["semantic_epoch"],
-        "invariant_capsule_sha256": request["invariant_capsule_sha256"],
+        "case_ref": dict(CASE_REF),
         "semantic_receipt_id": "SEM-NATIVE-BRIDGE-01",
-        "semantic_receipt_sha256": "f" * 64,
         "fork_context": "none",
         "context_mode": "bounded",
-        "pointers": [{"path": "authority/current.md", "sha256": "a" * 64}],
+        "pointers": [{"path": "authority/current.md", "case_ref": dict(CASE_REF)}],
     }
 
 
@@ -165,17 +169,17 @@ def _runtime_request_builder_fixture() -> None:
         "lease_id": "native-bridge-runtime-lease",
         "read_scope": ["scripts/commands/court_native_bridge.py"],
         "write_set": ["scripts/commands/court_native_bridge.py"],
-        "preload_hashes": {"profile_hash": "c" * 64, "dossier_hash": "d" * 64},
+        "preload_sources": court_runtime._semantic_preload_sources("gongbu"),
+        "office_capsule_ref": office_capsule_reference(CASE_REF, "gongbu", instance_id, ISSUED_AT),
     }
     admission: dict[str, object] = {
         "task_id": task_id,
         "wave_id": wave_id,
         "allowed": True,
-        "dispatch_uid": "native-bridge-runtime-dispatch",
+        "dispatch_uid": DISPATCH_UID,
         "attempt": 1,
         "semantic_epoch": 3,
-        "charter_sha256": "a" * 64,
-        "invariant_capsule_sha256": "b" * 64,
+        "case_ref": dict(CASE_REF),
         "selected_bindings": [binding],
         "model_route_inputs": {
             "assignment": "bounded runtime native request fixture",
@@ -186,9 +190,10 @@ def _runtime_request_builder_fixture() -> None:
             "transport": "codex",
         },
     }
-    admission["admission_immutable_anchor_sha256"] = court_runtime._admission_immutable_anchor_sha256(admission)
+    admission["admission_event_id"] = "EVT-NATIVE-BRIDGE-RUNTIME-01"
     task: dict[str, object] = {
         "task_id": task_id,
+        **CASE_REF,
         "agent_admissions": {wave_id: admission},
         "agents": {},
     }
@@ -196,7 +201,7 @@ def _runtime_request_builder_fixture() -> None:
         "action": "agent_admit",
         "wave_id": wave_id,
         "allowed": True,
-        "admission_immutable_anchor_sha256": admission["admission_immutable_anchor_sha256"],
+        "admission_record": court_runtime._admission_bound_record(admission),
         "event_id": "EVT-NATIVE-BRIDGE-RUNTIME-01",
     }
     original_load_tasks = court_runtime.load_tasks
@@ -258,16 +263,14 @@ def _runtime_host_message_fixture() -> None:
     }
     task: dict[str, object] = {
         "task_id": request["task_id"],
+        **CASE_REF,
         "case_binding": MappingProxyType(
-            {"case_execution": {"authority": "super", "behavior": "parallel"}}
+            {**CASE_REF, "case_execution": {"authority": "super", "behavior": "parallel"}}
         ),
         "semantic_receipt": {
             "semantic_epoch": request["semantic_epoch"],
-            "invariant_capsule_sha256": request["invariant_capsule_sha256"],
+            "case_ref": dict(CASE_REF),
             "receipt_id": "SEM-NATIVE-BRIDGE-01",
-            "receipt_sha256": "f" * 64,
-            "authority_sha256": "a" * 64,
-            "plan_sha256": "b" * 64,
             "plan_cursor": "ThreeDepartments@3",
         },
     }
@@ -275,7 +278,7 @@ def _runtime_host_message_fixture() -> None:
         "role": request["role"],
         "instance_id": request["instance_id"],
         "office_instance_kind": "child_agent",
-        "preload_hashes": court_runtime._semantic_preload_hashes(str(request["role"])),
+        "preload_sources": court_runtime._semantic_preload_sources(str(request["role"])),
     }
     result = court_runtime._native_bridge_request_result(task, admission, binding, request)
     message = json.loads(result["host_message"])
@@ -297,12 +300,12 @@ def _runtime_host_message_fixture() -> None:
         court_runtime, '_revalidate_context_economy_start', return_value=None):
         generated = court_runtime._native_bridge_start_request(
             task, admission, {**binding, 'instance_id':'gongbu#0001'}, request,
-            {'request_sha256':'a'*64, 'native_host_action_receipt':{}})
+            {'request_ref':native_request_reference(request), 'native_host_action_receipt':{}})
     required = json.loads(generated['skill_requirements_json'])
     assert len(required) == 1 and required[0]['name'] == 'decretum-matrix'
     assert required[0]['source'] == str((court_runtime.skill_root() / 'SKILL.md').resolve())
-    assert required[0]['sha256'] == court_runtime.build_preload_manifest('gongbu').court_skill_hash
-    assert required[0]['ack_sha256'] == required[0]['sha256']
+    assert set(required[0]) == {'name', 'source', 'purpose', 'ack_name'}
+    assert required[0]['ack_name'] == 'decretum-matrix'
 
     v1_admission = {
         **admission,
@@ -398,9 +401,9 @@ def main() -> int:
     )
     assert result["schema"] == "court.office.native_request.result.v1"
     marker = result["host_message_marker"]
-    assert isinstance(marker, str) and "COURT_NATIVE_REQUEST_SHA256=" in marker
-    assert result["request_sha256"] in marker
-    assert marker in result["host_message"]
+    assert isinstance(marker, str) and bridge.HOST_MARKER_PREFIX in marker
+    assert result["request_ref"] == native_request_reference(request)
+    assert json.loads(result["host_message"])["marker"] == marker
     assert result["host_invocation"]["arguments"]["message"] == result["host_message"]
 
     _expect_rejected(
@@ -738,8 +741,7 @@ def main() -> int:
             "duty_scope": reuse["duty_scope"],
             "semantic_receipt": {
                 "semantic_epoch": reuse["semantic_epoch"],
-                "charter_sha256": reuse["charter_sha256"],
-                "invariant_capsule_sha256": reuse["invariant_capsule_sha256"],
+                "case_ref": dict(CASE_REF),
             },
             "lease_id": reuse["lease_id"],
             "write_set": reuse["write_set"],

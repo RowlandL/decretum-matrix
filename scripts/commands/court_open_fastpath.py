@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
+import uuid
 import json
 from pathlib import Path
 import subprocess
@@ -92,17 +92,13 @@ class RolePreload:
     direct_superior: str
     office_zh: str
     skill_path: str
-    skill_sha256: str
     skill_bytes: int
     dossier_path: str
-    dossier_sha256: str
     dossier_bytes: int
     profile_path: str
-    profile_sha256: str
     profile_bytes: int
     metadata_sources: tuple[str, ...]
     metadata_json: str
-    metadata_sha256: str
     metadata_bytes: int
 
     @property
@@ -123,9 +119,6 @@ def _canonical_bytes(value: object) -> bytes:
         separators=(",", ":"),
     ).encode("utf-8")
 
-
-def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
 
 
 def _required_text(value: object, field: str) -> str:
@@ -234,8 +227,9 @@ def build_request_template(
         "git_check_requested": False,
         "expected_branch": None,
         "expected_head": None,
-        "expected_semantic_receipt_sha256": None,
-        "expected_plan_sha256": None,
+        "case_ref": None,
+        "plan_ref": None,
+        "semantic_receipt_id": None,
         "transport": "codex",
         "task_focus": _required_text(task_focus, "task_focus"),
         "capability_check_requested": False,
@@ -481,8 +475,9 @@ def normalize_request(value: object) -> dict[str, object]:
         "git_check_requested": git_check_requested,
         "expected_branch": value.get("expected_branch"),
         "expected_head": value.get("expected_head"),
-        "expected_semantic_receipt_sha256": value.get("expected_semantic_receipt_sha256"),
-        "expected_plan_sha256": value.get("expected_plan_sha256"),
+        "case_ref": value.get("case_ref"),
+        "plan_ref": value.get("plan_ref"),
+        "semantic_receipt_id": value.get("semantic_receipt_id"),
         "transport": str(value.get("transport") or "codex"),
         "task_focus": _required_text(value.get("task_focus"), "task_focus"),
         "capability_check_requested": capability_check_requested,
@@ -492,10 +487,9 @@ def normalize_request(value: object) -> dict[str, object]:
         "capability_manifest_state": str(value.get("capability_manifest_state") or "current").strip().casefold(),
         "expires_at_utc": expires_at,
     }
-    operation_source = {key: item for key, item in normalized.items() if key != "operation_id"}
     normalized["operation_id"] = str(
         value.get("operation_id")
-        or "court-open-" + _sha256_bytes(_canonical_bytes(operation_source))[:24]
+        or "court-open-" + uuid.uuid4().hex[:24]
     )
     return normalized
 
@@ -530,14 +524,14 @@ def _capability_cache_key(
 ) -> tuple[object, ...]:
     try:
         stat = manifest.stat()
-        fingerprint: tuple[object, ...] = (stat.st_mtime_ns, stat.st_size)
+        file_state: tuple[object, ...] = (stat.st_mtime_ns, stat.st_size)
     except OSError:
-        fingerprint = ("missing",)
+        file_state = ("missing",)
     query = str(normalized.get("capability_query") or normalized["task_focus"])
     return (
         id(capability_loader),
         str(manifest),
-        *fingerprint,
+        *file_state,
         str(normalized.get("capability_manifest_state") or "current"),
         str(normalized.get("transport") or "codex"),
         query,
@@ -566,17 +560,9 @@ def _candidate_kind(candidate: Mapping[str, object]) -> str:
 
 
 def _allocation(candidate: Mapping[str, object]) -> dict[str, object]:
-    digest = str(
-        candidate.get("observed_content_hash")
-        or candidate.get("declared_content_hash")
-        or candidate.get("content_hash")
-        or ""
-    )
     risks: list[str] = []
     if candidate.get("dispatchable") is not True:
         risks.append("not_dispatchable")
-    if candidate.get("hash_status") not in {None, "MATCH", "ACTUAL_ONLY"}:
-        risks.append("hash_not_current")
     if candidate.get("version_status") == "MISMATCH":
         risks.append("version_drift")
     return {
@@ -584,7 +570,6 @@ def _allocation(candidate: Mapping[str, object]) -> dict[str, object]:
         "name": candidate.get("name"),
         "source": candidate.get("source"),
         "relative_path": candidate.get("relative_path"),
-        "content_sha256": digest,
         "freshness": "current" if not risks else "attention_required",
         "recommended_office": "libu-hr",
         "permissions": ["read", "invoke"] if candidate.get("dispatchable") is True else ["read_metadata"],
@@ -615,19 +600,12 @@ def _capability_snapshot(
             continue
         seen.add(identity)
         proposed[kind].append(_allocation(candidate))
-    # The registry owner supplies its accepted snapshot identity. A path is not
-    # permission to hash the installed registry again during ordinary opening.
-    manifest_sha256 = route.get("manifest_sha256")
-    if not isinstance(manifest_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", manifest_sha256):
-        manifest_sha256 = None
     body: dict[str, object] = {
         "schema": "court.capability.snapshot.v1",
         "owner": "libu-hr",
         "query": query,
         "registry": {
             "path": str(manifest),
-            "sha256": manifest_sha256,
-            "identity_status": "DECLARED" if manifest_sha256 else "UNAVAILABLE_NOT_REHASHED",
             "state": route.get("manifest_state"),
         },
         "selection_source": route.get("selection_source"),
@@ -642,7 +620,6 @@ def _capability_snapshot(
             "daemon": route.get("daemon") is True,
         },
     }
-    body["snapshot_sha256"] = _sha256_bytes(_canonical_bytes(body))
     return body
 
 
@@ -705,7 +682,6 @@ def capability_snapshot_not_requested() -> dict[str, object]:
             "daemon": False,
         },
     }
-    body["snapshot_sha256"] = _sha256_bytes(_canonical_bytes(body))
     return body
 
 
@@ -748,7 +724,6 @@ def _role_preload(
     skill_bytes: int,
     hierarchy: Mapping[str, object],
 ) -> RolePreload:
-    from court_office_bootstrap import installed_file_sha256
     profile_relative = Path("agents") / "standing-officials" / f"{role}.toml"
     dossier_relative = Path("agents") / "office-dossiers" / role / "AGENTS.md"
     profile_path = skill_root / profile_relative
@@ -796,31 +771,21 @@ def _role_preload(
         "registry_owner": "libu-hr",
     }
     metadata_payload = _canonical_bytes(metadata)
-    try:
-        skill_digest = installed_file_sha256(skill_root / "SKILL.md", skill_root=skill_root)
-        dossier_digest = installed_file_sha256(dossier_path, skill_root=skill_root)
-        profile_digest = installed_file_sha256(profile_path, skill_root=skill_root)
-    except ValueError as exc:
-        raise FastPathMiss("preload_install_identity_unavailable", str(exc)) from exc
     return RolePreload(
         role=role,
         direct_superior=direct_superior,
         office_zh=str(identity.get("office_zh") or role),
         skill_path="SKILL.md",
-        skill_sha256=skill_digest,
         skill_bytes=skill_bytes,
         dossier_path=dossier_relative.as_posix(),
-        dossier_sha256=dossier_digest,
         dossier_bytes=dossier_bytes,
         profile_path=profile_relative.as_posix(),
-        profile_sha256=profile_digest,
         profile_bytes=profile_bytes,
         metadata_sources=(
             "SKILL.md",
             "references/manifests/court-dispatch-hierarchy.v1.json",
         ),
         metadata_json=metadata_payload.decode("utf-8"),
-        metadata_sha256=_sha256_bytes(metadata_payload),
         metadata_bytes=len(metadata_payload),
     )
 
@@ -828,7 +793,6 @@ def _role_preload(
 def _preload_cache_key(skill_root: Path, roles: Sequence[str]) -> tuple[object, ...]:
     paths = [
         Path("SKILL.md"),
-        Path("references/manifests/installed-preload-identity.v1.json"),
         Path("references") / "manifests" / "court-dispatch-hierarchy.v1.json",
     ]
     for role in roles:
@@ -838,13 +802,13 @@ def _preload_cache_key(skill_root: Path, roles: Sequence[str]) -> tuple[object, 
                 Path("agents") / "office-dossiers" / role / "AGENTS.md",
             )
         )
-    signatures: list[tuple[str, int, int, int]] = []
+    file_versions: list[tuple[str, int, int, int]] = []
     for relative in paths:
         stat = (skill_root / relative).stat()
-        signatures.append(
+        file_versions.append(
             (relative.as_posix(), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
         )
-    return str(skill_root), tuple(roles), tuple(signatures)
+    return str(skill_root), tuple(roles), tuple(file_versions)
 
 
 def load_preloads(
@@ -895,14 +859,10 @@ def _preload_payload(value: RolePreload) -> dict[str, object]:
         "direct_superior": value.direct_superior,
         "office_zh": value.office_zh,
         "court_skill_path": value.skill_path,
-        "court_skill_hash": value.skill_sha256,
         "dossier_path": value.dossier_path,
-        "dossier_hash": value.dossier_sha256,
         "profile_path": value.profile_path,
-        "profile_hash": value.profile_sha256,
         "metadata_sources": list(value.metadata_sources),
         "metadata": json.loads(value.metadata_json),
-        "metadata_hash": value.metadata_sha256,
         "metadata_bytes": value.metadata_bytes,
         "verified_source_paths": [
             value.skill_path,
@@ -911,8 +871,7 @@ def _preload_payload(value: RolePreload) -> dict[str, object]:
             *value.metadata_sources[1:],
         ],
         "preload_evidence_kind": "dispatcher_source_validation",
-        "file_identity_basis": "INSTALLATION_DECLARED",
-        "current_file_verification": "NOT_PERFORMED",
+        "read_confirmation": "DISPATCHER_READ_ONLY_CHILD_ACK_PENDING",
         "child_preload_ack_status": "NOT_AVAILABLE_PRE_SPAWN",
         "loaded_bytes": value.loaded_bytes,
         "target_bytes": MINIMAL_PRELOAD_BYTES,
@@ -980,11 +939,7 @@ def _lease(
         "write_set": write_set,
         "mutation_allowed": bool(write_set),
         "integration_authority": False,
-        "preload_hashes": {
-            "court_skill_hash": preload.skill_sha256,
-            "dossier_hash": preload.dossier_sha256,
-            "profile_hash": preload.profile_sha256,
-        },
+        "case_ref": normalized["case_ref"],
     }
     budget_id = f"budget:{task_id}:FAST-OPEN:{wave_id}"
     lease = {
@@ -1025,8 +980,7 @@ def _lease(
                 "owner_role": None,
             }
         },
-        "approved_preload_hashes": {instance_id: binding["preload_hashes"]},
-        "approved_binding_sha256s": {},
+        "case_ref": normalized["case_ref"],
         "parent_write_scope": write_set,
     }
     return lease, binding
@@ -1050,8 +1004,9 @@ def _admission_request(
         "schema": "court.agent.admission_request.v1",
         "task_id": normalized["task_id"],
         "expected_semantic_epoch": receipt.get("semantic_epoch"),
-        "expected_charter_sha256": receipt.get("charter_sha256"),
-        "expected_invariant_capsule_sha256": receipt.get("invariant_capsule_sha256"),
+        "case_ref": normalized["case_ref"],
+        "semantic_receipt_id": receipt.get("receipt_id"),
+        "plan_ref": receipt.get("plan_ref"),
         "expected_checkpoint_id": receipt.get("checkpoint_id"),
         "wave_id": wave_id,
         "execution_topology": "parallel",
@@ -1356,12 +1311,20 @@ def prepare_fast_open(
         receipt = task.get("semantic_receipt")
         if not isinstance(receipt, Mapping) or receipt.get("verdict") != "DISPATCHABLE":
             raise FastPathMiss("semantic_not_dispatchable")
-        if (
-            normalized.get("expected_semantic_receipt_sha256")
-            and receipt.get("receipt_sha256") != normalized["expected_semantic_receipt_sha256"]
-        ):
+        current_case_ref = receipt.get("case_ref")
+        if not isinstance(current_case_ref, Mapping) or set(current_case_ref) != {"court_code", "charter_revision"}:
+            raise FastPathMiss("case_ref_missing")
+        if (not isinstance(current_case_ref.get("court_code"), str)
+            or not current_case_ref["court_code"].strip()
+            or type(current_case_ref.get("charter_revision")) is not int
+            or current_case_ref["charter_revision"] < 1):
+            raise FastPathMiss("case_ref_invalid")
+        if normalized.get("case_ref") is not None and normalized["case_ref"] != current_case_ref:
+            raise FastPathMiss("case_ref_drift")
+        normalized["case_ref"] = dict(current_case_ref)
+        if normalized.get("semantic_receipt_id") and receipt.get("receipt_id") != normalized["semantic_receipt_id"]:
             raise FastPathMiss("semantic_receipt_drift")
-        if normalized.get("expected_plan_sha256") and receipt.get("plan_sha256") != normalized["expected_plan_sha256"]:
+        if normalized.get("plan_ref") is not None and receipt.get("plan_ref") != normalized["plan_ref"]:
             raise FastPathMiss("plan_drift")
 
         roles = [*requested, *ministry_assignments]
@@ -1422,7 +1385,6 @@ def prepare_fast_open(
         ministry_packets: list[dict[str, object]] = []
         admission_decisions: list[dict[str, object]] = []
         admission_precheck = bool(normalized["admission_precheck_requested"]) and normalized["behavior"] == "parallel"
-        execution_sha256 = _sha256_bytes(_canonical_bytes(execution))
         ordinal = 0
         for role in requested:
             ordinal += 1
@@ -1430,8 +1392,7 @@ def prepare_fast_open(
             packet: dict[str, object] = {
                 "role": role,
                 "hierarchy": hierarchy,
-                "execution_sha256": execution_sha256,
-                "capability_snapshot_sha256": capability_snapshot["snapshot_sha256"],
+                "case_ref": normalized["case_ref"],
                 "preparation_only": True,
                 "physical_child_agent_spawned": False,
                 "host_spawn_status": "NOT_PERFORMED_PREPARATION_ONLY",
@@ -1462,8 +1423,7 @@ def prepare_fast_open(
             packet = {
                 "role": role,
                 "hierarchy": hierarchy,
-                "execution_sha256": execution_sha256,
-                "capability_snapshot_sha256": capability_snapshot["snapshot_sha256"],
+                "case_ref": normalized["case_ref"],
                 "preparation_only": True,
                 "physical_child_agent_spawned": False,
                 "host_spawn_status": "NOT_PERFORMED_PREPARATION_ONLY",
@@ -1497,26 +1457,16 @@ def prepare_fast_open(
         agent_hierarchy = _agent_hierarchy_tree(department_packets, ministry_packets)
         agent_reuse_policy = agent_reuse_policy_payload()
 
-        packet_digest = _sha256_bytes(_canonical_bytes({
-            "operation_id": normalized["operation_id"],
-            "departments": department_packets,
-            "ministries": ministry_packets,
-            "shangshu_ministry_coordination": shangshu_ministry_coordination,
-            "authority_selection_gate": authority_selection_gate,
-            "agent_hierarchy": agent_hierarchy,
-            "agent_reuse_policy": agent_reuse_policy,
-            "preparation_only": True,
-        }))
         planned_office_count = len(department_packets) + len(ministry_packets)
         return {
             "schema": RECEIPT_SCHEMA,
             "ok": True,
             "status": "READY_FOR_HOST_DISPATCH",
-            "receipt_id": "court-open-" + _sha256_bytes(str(normalized["operation_id"]).encode("utf-8"))[:24],
+            "receipt_id": normalized["operation_id"],
             "operation_id": normalized["operation_id"],
-            "request_sha256": _sha256_bytes(_canonical_bytes(normalized)),
             "path_basis": normalized["path_basis"],
-            "packet_sha256": packet_digest,
+            "case_ref": normalized["case_ref"],
+            "plan_ref": receipt.get("plan_ref"),
             "task_id": normalized["task_id"],
             "execution": execution,
             "preparation_only": True,
@@ -1531,7 +1481,6 @@ def prepare_fast_open(
             ),
             "authority_selection_gate": authority_selection_gate,
             "semantic_receipt_id": receipt.get("receipt_id"),
-            "semantic_receipt_sha256": receipt.get("receipt_sha256"),
             **({"case_binding": case_binding} if case_binding is not None else {}),
             "plan_cursor": receipt.get("plan_cursor"),
             "worktree": identity,

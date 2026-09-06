@@ -34,7 +34,6 @@ def proof() -> dict[str, object]:
         "schema": HOST_PROOF_SCHEMA,
         "verified": True,
         "codex_version": "0.144.1",
-        "binary_sha256": "a" * 64,
         "verified_at": "2026-07-11T09:00:00+08:00",
         "model_effort_pairs": [
             {"model": "gpt-5.6-luna", "effort": "max", "session_id": "019f4eae-7c0c-71c3-b992-e4cd83f21ae8"},
@@ -93,7 +92,7 @@ def run_checks() -> int:
     assert sol["reasoning_effort"] == "ultra"
     assert sol["office_instance_kind"] == "fresh_codex_worker"
     assert sol["model_override_applied"] is True
-    expected_dossier_dir = (repo_root / "agents" / "office-dossiers" / "hubu").resolve()
+    expected_dossier_dir = Path(build_preload_manifest("hubu").dossier_path).resolve().parent
     assert Path(str(sol["dossier_dir"])).is_absolute()
     assert Path(str(sol["dossier_dir"])).resolve() == expected_dossier_dir
     argv = list(sol["argv"])
@@ -149,7 +148,6 @@ def run_checks() -> int:
         native = Path(temp_dir) / "codex.exe"
         native.write_bytes(b"host-proof-binary")
         native_proof = proof()
-        native_proof["binary_sha256"] = "b" * 64
         native_plan = build_worker_plan(
             role="hubu",
             assignment="general implementation",
@@ -163,9 +161,8 @@ def run_checks() -> int:
             native_codex_path=native,
             host_proof=native_proof,
         )
-        assert native_plan["native_codex_sha256"] is None
-        assert native_plan["host_proof_binary_sha256"] == native_proof["binary_sha256"]
-        assert native_plan["native_binary_verification"] == "UNAVAILABLE_NOT_REHASHED"
+        assert native_plan["host_proof"] == native_proof
+        assert not any("sha256" in key or "hash" in key for key in native_plan)
         assert native_plan["argv"][0] == str(native.resolve())
         declared_plan = build_worker_plan(
                 role="hubu",
@@ -180,8 +177,6 @@ def run_checks() -> int:
                 native_codex_path=native,
                 host_proof=proof(),
             )
-        assert declared_plan["host_proof_binary_identity_basis"] == "HOST_PROOF_DECLARED"
-        assert declared_plan["native_codex_sha256"] is None
         worker_module = sys.modules[run_worker.__module__]
         session_id = "019f4eb0-38e7-7760-bbc9-77a030b7cf0e"
         session.write_text("\n".join([
@@ -195,7 +190,7 @@ def run_checks() -> int:
         with patch.object(worker_module, "_session_path", return_value=session), patch.object(worker_module.subprocess, "run", side_effect=[SimpleNamespace(returncode=0, stdout="codex-cli 0.144.1", stderr=""), SimpleNamespace(returncode=0, stdout=completed, stderr="")]) as launch:
             execution = run_worker(native_plan)
             assert execution["status"] == "completed"
-            assert execution["native_binary_verification"] == "UNAVAILABLE_NOT_REHASHED"
+            assert execution["session_evidence"]["session_id"] == session_id
             assert launch.call_count == 2
         native.write_bytes(b"replaced fixture binary")
         with patch.object(worker_module.subprocess, "run", side_effect=AssertionError("changed path/stat was launched")):

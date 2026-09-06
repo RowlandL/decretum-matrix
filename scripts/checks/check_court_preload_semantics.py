@@ -314,7 +314,6 @@ def isolated_preload_installation():
             stack.enter_context(patch.dict(function.__kwdefaults__, {keyword: value}))
         stack.enter_context(patch.object(court_office_bootstrap, "PROFILE_ROOT", profiles))
         stack.enter_context(patch.object(court_office_bootstrap, "SKILL_PATH", root / "SKILL.md"))
-        stack.enter_context(patch.object(court_office_bootstrap, "sha256_file", side_effect=AssertionError("runtime file rehash")))
         scratch = root / "tmp"
         scratch.mkdir()
         stack.enter_context(patch.object(tempfile, "tempdir", str(scratch)))
@@ -462,16 +461,13 @@ def resolve_manifest_path(value: object) -> Path:
 
 def skill_requirement_fixture() -> list[dict[str, str]]:
     fixture_skill = court_office_bootstrap.SKILL_PATH
-    digest = sha256_file(fixture_skill)
     source = str(fixture_skill.resolve())
     return [
         {
             "name": "decretum-matrix",
             "source": source,
-            "sha256": digest,
             "purpose": "governing court workflow",
             "ack_name": "decretum-matrix",
-            "ack_sha256": digest,
         }
     ]
 
@@ -1075,7 +1071,6 @@ def check_carrier_pointer_semantic_independence() -> None:
         supercc_enabled=True,
     )
     require(ordinary.profile_source == visible.profile_source, "carrier split the shared profile source")
-    require(ordinary.profile_hash == visible.profile_hash, "carrier split the shared profile identity")
     require(
         ordinary.dossier_path == "agents/office-dossiers/zhongshu/AGENTS.md",
         "ordinary carrier pointer drifted",
@@ -1084,7 +1079,7 @@ def check_carrier_pointer_semantic_independence() -> None:
         visible.dossier_path == "agents/supercc-dossiers/zhongshu/AGENTS.md",
         "explicit visible carrier pointer drifted",
     )
-    require(ordinary.dossier_hash != visible.dossier_hash, "carrier dossiers collapsed into one semantic body")
+    require(ordinary.dossier_path != visible.dossier_path, "carrier dossiers collapsed into one semantic body")
     signature = inspect.signature(court_office_bootstrap.resolve_office_dossier_locator)
     require("carrier_kind" in signature.parameters, "carrier resolver lacks an explicit enum")
     require("mode" not in signature.parameters and "prompt" not in signature.parameters, "carrier resolver accepts semantic text")
@@ -1144,12 +1139,6 @@ def _check_manifest_hashes(
         problems.append(f"{role}:manifest_dossier_path_wrong")
     if skill_path != (PRELOAD_FIXTURE_ROOT / "SKILL.md").resolve():
         problems.append(f"{role}:manifest_skill_path_wrong")
-    if manifest.profile_hash != sha256_file(profile_path):
-        problems.append(f"{role}:manifest_profile_hash_wrong")
-    if manifest.dossier_hash != sha256_file(dossier_path):
-        problems.append(f"{role}:manifest_dossier_hash_wrong")
-    if manifest.court_skill_hash != sha256_file(skill_path):
-        problems.append(f"{role}:manifest_skill_hash_wrong")
     if manifest.court_skill_name != "decretum-matrix":
         problems.append(f"{role}:manifest_skill_name_wrong")
 
@@ -1200,17 +1189,24 @@ def check_relative_persisted_preload_paths() -> None:
 
 
 def check_preload_ack_rejections() -> None:
-    manifest = court_office_bootstrap.build_preload_manifest("libu")
-    other = court_office_bootstrap.build_preload_manifest("gongbu")
+    manifest = court_office_bootstrap.build_preload_manifest(
+        "libu",
+        court_code="COURT-20260906-1-AAAA",
+    )
+    other = court_office_bootstrap.build_preload_manifest(
+        "gongbu",
+        court_code="COURT-20260906-1-AAAA",
+    )
     valid = {
         "schema": manifest.preload_ack_schema,
         "preload_status": "PASSED",
         "role_key": manifest.role_key,
         "office_zh": manifest.office_zh,
         "direct_superior": manifest.direct_superior,
-        "profile_hash": manifest.profile_hash,
-        "dossier_hash": manifest.dossier_hash,
-        "court_skill_hash": manifest.court_skill_hash,
+        "profile_source": manifest.profile_source,
+        "dossier_path": manifest.dossier_path,
+        "court_skill_path": manifest.court_skill_path,
+        "court_code": "COURT-20260906-1-AAAA",
         "agent_dossier_loaded": "YES",
         "loaded_skills": ["decretum-matrix"],
     }
@@ -1219,9 +1215,9 @@ def check_preload_ack_rejections() -> None:
 
     invalid_cases = {
         "wrong_role": {**valid, "role_key": "gongbu"},
-        "wrong_profile_hash": {**valid, "profile_hash": "0" * 64},
-        "wrong_role_dossier": {**valid, "dossier_hash": other.dossier_hash},
-        "wrong_skill_hash": {**valid, "court_skill_hash": "f" * 64},
+        "wrong_profile_source": {**valid, "profile_source": "agents/standing-officials/menxia.toml"},
+        "wrong_role_dossier": {**valid, "dossier_path": other.dossier_path},
+        "wrong_skill_path": {**valid, "court_skill_path": "references/SKILL.md"},
         "prompt_only_identity": {
             **valid,
             "agent_dossier_loaded": "NO",
@@ -1411,8 +1407,8 @@ def check_new_task_initializes_charter_binding() -> None:
     task = created.task
     require(task.get("charter_revision") == 1, "new task charter_revision is not 1")
     require(
-        task.get("charter_sha256") == sha256_text(charter),
-        "new task charter_sha256 is absent or not bound to the charter bytes",
+        bool(task.get("court_code")) and task.get("court_code"),
+        "new task court_code is absent",
     )
     require(task.get("charter_revision_history") == [], "new task revision history is not empty")
 
@@ -1426,13 +1422,13 @@ def runtime_task_fixture(
     paused_from: str | None = None,
 ) -> dict[str, object]:
     charter_sha256 = sha256_text(charter)
+    case_ref = {"court_code": "COURT-20260906-1-AAAA", "charter_revision": charter_revision}
     semantic_binding = court_runtime.semantic_binding_for_revision(
         charter,
         charter_revision,
         {
             "schema": "court.semantic.invariant_capsule.v1",
             "latest_decree_anchor": charter,
-            "latest_decree_sha256": charter_sha256,
             "non_goals": ["do not touch real runtime state"],
             "boundaries": ["TemporaryDirectory fixture only"],
             "allowed_actions": ["synthetic recovery check"],
@@ -1441,9 +1437,8 @@ def runtime_task_fixture(
             "evidence_requirements": ["machine-readable result"],
             "stop_gates": ["semantic drift"],
             "write_set": ["scripts/check_court_preload_semantics.py"],
-            "governing_hashes": {"fixture": charter_sha256},
-            "charter_sha256": charter_sha256,
         },
+        court_code=case_ref["court_code"],
     )
     task: dict[str, object] = {
         "runtime_schema_version": court_runtime.RUNTIME_SCHEMA_VERSION,
@@ -1538,6 +1533,7 @@ def check_correction_reenters_three_departments() -> None:
         charter=new_charter,
         charter_revision=2,
     )["invariant_capsule"]
+    new_capsule.pop("case_ref", None)
     with tempfile.TemporaryDirectory() as temp_dir:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
@@ -1552,15 +1548,19 @@ def check_correction_reenters_three_departments() -> None:
                     )
                 }
             )
+            base_task = court_runtime.load_tasks()[task_id]
+            case_ref = {
+                "court_code": str(base_task["court_code"]),
+                "charter_revision": int(base_task["charter_revision"]),
+            }
             result = court_runtime.revise_charter_task(
                 Namespace(
                     task_id=task_id,
                     correction_gate=correction_gate_fixture(task_id),
                     correction_file=None,
                     expected_revision=1,
-                    expected_sha256=sha256_text(old_charter),
+                    case_ref=case_ref,
                     new_revision=2,
-                    new_sha256=sha256_text(new_charter),
                     new_charter=new_charter,
                     new_charter_file=None,
                     new_invariant_capsule=new_capsule,
@@ -1579,8 +1579,8 @@ def check_correction_reenters_three_departments() -> None:
         problems.append("correction_created_second_task")
     if task.get("charter_revision") != 2:
         problems.append("correction_revision_not_incremented")
-    if task.get("charter_sha256") != sha256_text(new_charter):
-        problems.append("correction_charter_hash_not_updated")
+    if task.get("charter") != new_charter:
+        problems.append("correction_charter_body_not_updated")
     if task.get("state") != "ThreeDepartments":
         problems.append(f"correction_state={task.get('state')}")
     problems.extend(derived_state_problems(task))
@@ -1590,14 +1590,11 @@ def check_correction_reenters_three_departments() -> None:
 def semantic_context_fixture() -> dict[str, object]:
     return {
         "authority_revision": 1,
-        "authority_sha256": sha256_text("preload-authority"),
-        "plan_revision": 1,
-        "plan_sha256": sha256_text("preload-plan"),
+        "case_ref": {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 1},
+        "plan_ref": None,
         "plan_cursor": "preload-resume",
-        "git_fingerprint": "preload-fixture-head",
         "recovery_checkpoint_id": "preload-fixture-recovery",
         "shiguan_revision": 0,
-        "shiguan_fingerprint": sha256_text("preload-synthetic-shiguan"),
     }
 
 
@@ -1630,8 +1627,10 @@ def resume_args(task: dict[str, object], *, to_state: str) -> Namespace:
         continuation_gate=continuation_gate_fixture(str(task["task_id"])),
         continuation_file=None,
         expected_semantic_epoch=task["semantic_epoch"],
-        expected_charter_sha256=task["charter_sha256"],
-        expected_invariant_capsule_sha256=task["invariant_capsule_sha256"],
+        case_ref={
+            "court_code": str(task["court_code"]),
+            "charter_revision": int(task["charter_revision"]),
+        },
         expected_checkpoint_id=receipt["checkpoint_id"],
         semantic_context=semantic_context_fixture(),
         semantic_context_file=None,
@@ -1711,8 +1710,8 @@ def check_valid_resume_reenters_three_departments_and_invalidates() -> None:
         problems.append(f"resume_state={task.get('state')}")
     if task.get("charter_revision") != 1:
         problems.append("resume_lost_charter_revision")
-    if task.get("charter_sha256") != sha256_text(charter):
-        problems.append("resume_lost_charter_hash")
+    if task.get("charter") != charter:
+        problems.append("resume_lost_charter_body")
     problems.extend(derived_state_problems(task))
     require(not problems, "resume recovery drift: " + ", ".join(problems))
 

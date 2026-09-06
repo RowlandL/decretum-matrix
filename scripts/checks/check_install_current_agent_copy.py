@@ -1805,7 +1805,7 @@ def _check_tx_cases(
             if exact_backup_root is not None
             else None
         )
-        rendered_metadata_replacements = len(exact_targets) * 2
+        rendered_metadata_replacements = len(exact_targets) * 3
         if (
             not isinstance(exact_result, dict)
             or exact_result.get("projection_counts", {}).get("create") != 0

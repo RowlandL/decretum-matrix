@@ -9,9 +9,7 @@ Hermes likewise remain model-neutral and inherit their parent/main settings.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import zlib
+from uuid import uuid4
 from typing import Mapping
 
 
@@ -90,8 +88,7 @@ def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
 
 
 def _route_id(payload: Mapping[str, object]) -> str:
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return f"cmr-{zlib.crc32(canonical.encode('utf-8')):08x}"
+    return f"cmr-{uuid4().hex[:8]}"
 
 
 def route_office_model(
@@ -263,10 +260,6 @@ def validate_model_route_ack(route: Mapping[str, object], ack: Mapping[str, obje
     return dict(ack)
 
 
-def _canonical_json(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
 def route_office_model_with_host_proof(
     route: Mapping[str, object],
     host_probe: Mapping[str, object] | None,
@@ -275,7 +268,7 @@ def route_office_model_with_host_proof(
 
     A satisfied host proof (version-bound executable plus supported
     model/effort pairs plus a consistent fresh-session turn-context read-back)
-    yields ``model_override_applied=YES`` with ``host_proof_sha256``. Any
+    yields ``model_override_applied=YES`` with its actual host proof reference. Any
     missing or inconsistent proof falls back to
     ``inherit_parent_model_and_effort`` with ``model_route_status=FAILED`` and
     ``runtime_degraded=true`` — the router never fakes an applied override.
@@ -293,7 +286,6 @@ def route_office_model_with_host_proof(
         return {
             **base,
             "model_override_applied": False,
-            "host_proof_sha256": None,
             "host_proof_codex_version": None,
             "model_route_status": "INHERIT",
             "runtime_degraded": False,
@@ -326,18 +318,11 @@ def route_office_model_with_host_proof(
         errors.append("host_probe_missing_turn_context")
     elif str(turn_model or "") != recommended_text or str(turn_effort or "") != effort_text:
         errors.append("turn_context_mismatch")
-    proof_scope = {
-        "codex_version": codex_version,
-        "model_effort_pairs": sorted(pair_set),
-        "turn_context_model": turn_model,
-        "turn_context_effort": turn_effort,
-    }
-    proof_digest = hashlib.sha256(_canonical_json(proof_scope)).hexdigest()
     if not errors:
         return {
             **base,
             "model_override_applied": True,
-            "host_proof_sha256": proof_digest,
+            "host_proof_reference": dict(host_probe),
             "host_proof_codex_version": codex_version,
             "model_route_status": "APPLIED",
             "runtime_degraded": False,
@@ -347,7 +332,6 @@ def route_office_model_with_host_proof(
     return {
         **base,
         "model_override_applied": False,
-        "host_proof_sha256": None,
         "host_proof_codex_version": codex_version or None,
         "model_route_status": "FAILED",
         "runtime_degraded": True,

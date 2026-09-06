@@ -20,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from court_case_binding import (  # noqa: E402
     build_case_binding,
-    case_identity_sha256,
+    case_reference,
+    plan_reference,
     refresh_case_binding,
     validate_case_binding,
 )
@@ -28,7 +29,6 @@ import archive_runtime_task  # noqa: E402
 import archive_checkpoint  # noqa: E402
 import court_runtime  # noqa: E402
 from court_intake_gate import minimal_request_understanding_example  # noqa: E402
-from court_plan_artifacts import digest as plan_digest  # noqa: E402
 from court_session_numbering import resolve_session_allocation  # noqa: E402
 
 
@@ -38,49 +38,50 @@ def digest(value: object) -> str:
     ).hexdigest()
 
 
-def plan(task_id: str, charter_sha256: str, revision: int = 1) -> dict[str, object]:
-    value: dict[str, object] = {
+def plan(task_id: str, court_code: str, revision: int = 1) -> dict[str, object]:
+    return {
         "schema": "court.zhongshu_plan.v1",
         "task_id": task_id,
+        "court_code": court_code,
         "charter_revision": 1,
-        "charter_sha256": charter_sha256,
         "plan_id": f"PLAN-{task_id}-r{revision}",
         "revision": revision,
         "document": {"goal": "fixture"},
         "producer": {"kind": "serial_inline", "role": "zhongshu", "agent_id": ""},
     }
-    value["sha256"] = digest(value)
-    return value
 
 
 def task_fixture() -> tuple[dict[str, object], dict[str, object]]:
-    charter_sha256 = "a" * 64
     task_id = "case-binding-fixture"
-    current_plan = plan(task_id, charter_sha256)
+    court_code = "CCR-20260906-1-ABCD"
+    current_plan = plan(task_id, court_code)
     reviews = {
         "menxia": {
             "schema": "court.plan_review.v1",
             "role": "menxia",
             "task_id": task_id,
+            "court_code": court_code,
             "charter_revision": 1,
-            "plan_sha256": current_plan["sha256"],
+            "plan_revision": current_plan["revision"],
+            "review_id": "REV-MENXIA-1",
             "producer": {"kind": "serial_inline", "role": "menxia", "agent_id": ""},
         },
         "shangshu": {
             "schema": "court.plan_review.v1",
             "role": "shangshu",
             "task_id": task_id,
+            "court_code": court_code,
             "charter_revision": 1,
-            "plan_sha256": current_plan["sha256"],
+            "plan_revision": current_plan["revision"],
+            "review_id": "REV-SHANGSHU-1",
             "producer": {"kind": "serial_inline", "role": "shangshu", "agent_id": ""},
         },
     }
     task: dict[str, object] = {
         "task_id": task_id,
         "session_id": "case-binding-session",
-        "court_code": "CCR-20260906-1-ABCD",
+        "court_code": court_code,
         "charter_revision": 1,
-        "charter_sha256": charter_sha256,
         "case_execution": {"authority": "super", "behavior": "serial"},
         "zhongshu_plan": current_plan,
         "case_reviews": reviews,
@@ -104,18 +105,20 @@ class CaseBindingTests(unittest.TestCase):
         self.assertEqual(validated, binding)
         self.assertEqual(binding["session_id"], allocation["session_id"])
         self.assertEqual(binding["court_code"], allocation["court_code"])
-        self.assertEqual(binding["case_identity_sha256"], case_identity_sha256(binding))
-        self.assertEqual(binding["case_identity_sha256"], case_identity_sha256(task))
+        self.assertEqual(case_reference(binding), case_reference(task))
         self.assertEqual(binding["case_execution"], task["case_execution"])
-        self.assertEqual(binding["zhongshu_plan"]["sha256"], task["zhongshu_plan"]["sha256"])
+        self.assertEqual(binding["zhongshu_plan"], {
+            "plan_id": task["zhongshu_plan"]["plan_id"],
+            "revision": task["zhongshu_plan"]["revision"],
+        })
         self.assertEqual(set(binding["case_reviews"]), {"menxia", "shangshu"})
 
     def test_refresh_requires_a_real_plan_and_rebinds_dynamic_summaries(self) -> None:
         task, allocation = task_fixture()
         task["case_binding"] = build_case_binding(task, allocation)
-        stable_identity = task["case_binding"]["case_identity_sha256"]
+        stable_reference = case_reference(task["case_binding"])
         changed = deepcopy(task)
-        changed_plan = plan(str(changed["task_id"]), str(changed["charter_sha256"]), revision=2)
+        changed_plan = plan(str(changed["task_id"]), str(changed["court_code"]), revision=2)
         changed["zhongshu_plan"] = changed_plan
         changed["case_reviews"] = {}
         with self.assertRaisesRegex(ValueError, "case_binding"):
@@ -123,9 +126,7 @@ class CaseBindingTests(unittest.TestCase):
         rebound = refresh_case_binding(changed)
         changed["case_binding"] = rebound
         validate_case_binding(rebound, changed)
-        self.assertEqual(rebound["case_identity_sha256"], stable_identity)
-        self.assertEqual(case_identity_sha256(rebound), stable_identity)
-        self.assertNotEqual(rebound["binding_sha256"], task["case_binding"]["binding_sha256"])
+        self.assertEqual(case_reference(rebound), stable_reference)
         self.assertEqual(rebound["zhongshu_plan"]["revision"], 2)
         self.assertEqual(rebound["case_reviews"], {})
 
@@ -191,7 +192,6 @@ def standard_create_args(task_id: str, session_id: str) -> Namespace:
 
 
 def reviewed_plan(task: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
-    identity = case_identity_sha256(task)
     document = {
         "goal": "verify canonical case binding",
         "non_goals": ["no external writes"],
@@ -202,8 +202,8 @@ def reviewed_plan(task: dict[str, object]) -> tuple[dict[str, object], dict[str,
     plan: dict[str, object] = {
         "schema": "court.zhongshu_plan.v1",
         "task_id": task["task_id"],
+        "court_code": task["court_code"],
         "charter_revision": task["charter_revision"],
-        "charter_sha256": task["charter_sha256"],
         "plan_id": "PLAN-CASE-BINDING-r1",
         "revision": 1,
         "document": document,
@@ -213,9 +213,7 @@ def reviewed_plan(task: dict[str, object]) -> tuple[dict[str, object], dict[str,
             "agent_id": "",
             "evidence": "serial_inline://fixture/zhongshu",
         },
-        "case_identity_sha256": identity,
     }
-    plan["sha256"] = plan_digest(plan)
     reviews: dict[str, object] = {}
     for role, decision in (("menxia", "approved"), ("shangshu", "dispatchable")):
         review: dict[str, object] = {
@@ -223,17 +221,17 @@ def reviewed_plan(task: dict[str, object]) -> tuple[dict[str, object], dict[str,
             "role": role,
             "decision": decision,
             "task_id": task["task_id"],
+            "court_code": task["court_code"],
             "charter_revision": task["charter_revision"],
-            "plan_sha256": plan["sha256"],
+            "plan_revision": plan["revision"],
+            "review_id": f"REV-CASE-BINDING-{role}",
             "producer": {
                 "kind": "serial_inline",
                 "role": role,
                 "agent_id": "",
                 "evidence": f"serial_inline://fixture/{role}",
             },
-            "case_identity_sha256": identity,
         }
-        review["sha256"] = plan_digest(review)
         reviews[role] = review
     return plan, reviews
 
@@ -300,8 +298,8 @@ class StandardCaseRuntimeTests(unittest.TestCase):
         self.assertEqual(first.task["main_court_code"], first.task["court_code"])
         decree_receipt = next(iter(first.task["operations"].values()))["receipt"]
         self.assertEqual(
-            decree_receipt["case_identity_sha256"],
-            first.task["case_binding"]["case_identity_sha256"],
+            decree_receipt["case_ref"],
+            case_reference(first.task),
         )
         before_tasks = court_runtime.tasks_path().read_bytes()
         before_events = court_runtime.events_path().read_bytes()
@@ -435,16 +433,11 @@ class StandardCaseRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(produced.returncode, 0, produced.stderr)
         producer_receipt = json.loads(produced.stdout)
-        self.assertEqual(producer_receipt["case_binding_sha256"], task["case_binding"]["binding_sha256"])
-        self.assertEqual(producer_receipt["case_identity_sha256"], task["case_binding"]["case_identity_sha256"])
+        self.assertEqual(producer_receipt["case_ref"], case_reference(task))
         self.assertEqual(producer_receipt["case_binding"], task["case_binding"])
 
         bad_binding = deepcopy(task["case_binding"])
         bad_binding["court_code"] = str(bad_binding["court_code"])[:-4] + "ZZZZ"
-        bad_binding["case_identity_sha256"] = case_identity_sha256(bad_binding)
-        bad_binding["binding_sha256"] = digest(
-            {key: value for key, value in bad_binding.items() if key != "binding_sha256"}
-        )
         index_path = self.root / "shared" / "references" / "shiguan-index.jsonl"
         archive_path = Path(str(producer_receipt["path"]))
         before_index = index_path.read_bytes()
@@ -486,9 +479,8 @@ class StandardCaseRuntimeTests(unittest.TestCase):
             ("session_id", "foreign-session"),
             ("court_code", "CCR-20260906-1-ZZZZ"),
             ("charter_revision", 999),
-            ("charter_sha256", "0" * 64),
-            ("case_identity_sha256", "0" * 64),
-            ("case_binding_sha256", "0" * 64),
+            ("case_ref", {"court_code": "CCR-20260906-1-ZZZZ", "charter_revision": task["charter_revision"]}),
+            ("case_binding", bad_binding),
             ("missing", None),
         ):
             bad_receipt = deepcopy(producer_receipt)
@@ -505,14 +497,7 @@ class StandardCaseRuntimeTests(unittest.TestCase):
             archive_runtime_task._record_args(task, producer_receipt)
         )
         self.assertEqual(recorded.task["state"], "ShiguanRecorded")
-        self.assertEqual(
-            recorded.task["shiguan_checkpoint"]["case_binding_sha256"],
-            task["case_binding"]["binding_sha256"],
-        )
-        self.assertEqual(
-            recorded.task["shiguan_checkpoint"]["case_identity_sha256"],
-            task["case_binding"]["case_identity_sha256"],
-        )
+        self.assertEqual(recorded.task["shiguan_checkpoint"]["case_ref"], case_reference(task))
         replayed = archive_runtime_task.archive_and_record_task(args)
         self.assertEqual(replayed["status"], "REPLAYED")
 

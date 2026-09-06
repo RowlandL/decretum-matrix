@@ -42,7 +42,7 @@ def load_planner():
         raise RuntimeError("unable to load quarantine planner")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module
+    return sys.modules.get("court_pending_quarantine_planner_test", module)
 
 
 def load_governance():
@@ -52,7 +52,7 @@ def load_governance():
         raise RuntimeError("unable to load pending governance")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module
+    return sys.modules.get("court_pending_governance_test", module)
 
 
 def valid_sidecar(metadata_id: str, filename: str) -> dict[str, object]:

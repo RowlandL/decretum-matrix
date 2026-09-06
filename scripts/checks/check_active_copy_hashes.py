@@ -297,11 +297,10 @@ def _sha256(path: Path) -> str:
     value = _lstat(path)
     if value is None or _stat_is_link_or_reparse(value) or not stat.S_ISREG(value.st_mode):
         raise ValueError(f"refusing to hash non-regular path: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    # Repository canonical content is LF; the release ZIP and the working-tree
+    # checkout may store CRLF on Windows. Hash the LF-normalized bytes so the
+    # post-install gate compares content, not checkout line-ending noise.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _canonical_sha256(value: dict[str, Any]) -> str:
@@ -369,7 +368,9 @@ def check(
         except ActiveProjectionRenderError as exc:
             raise ValueError(f"active_projection_render_failed:{exc}") from exc
         expected_by_class[target_class] = {
-            relative.as_posix(): hashlib.sha256(payload).hexdigest()
+            relative.as_posix(): hashlib.sha256(
+                payload.replace(b"\r\n", b"\n")
+            ).hexdigest()
             for relative, payload in rendered.files.items()
         }
     projection_sha256 = hashlib.sha256(

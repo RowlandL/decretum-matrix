@@ -25,7 +25,6 @@ from unittest.mock import patch
 sys.dont_write_bytecode = True
 
 import court_open_fastpath
-from checks.installed_identity_fixture import write_identity
 
 
 SOURCE_PRELOAD_MARGIN_BYTES = 1024
@@ -48,8 +47,8 @@ class FakeRuntime:
             "schema": "court.semantic.dispatch_context_packet.v1",
             "task_id": task["task_id"],
             "sub_id": wave_id,
-            "semantic_epoch": receipt["semantic_epoch"],
-            "semantic_receipt_sha256": receipt["receipt_sha256"],
+            "case_ref": receipt["case_ref"],
+            "semantic_receipt_id": receipt["receipt_id"],
         }
 
     @staticmethod
@@ -82,12 +81,9 @@ def _task() -> dict[str, object]:
         "semantic_state": "DISPATCHABLE",
         "semantic_receipt": {
             "receipt_id": "SR-FAST-OPEN",
-            "receipt_sha256": "1" * 64,
-            "semantic_epoch": 3,
-            "charter_sha256": "2" * 64,
-            "invariant_capsule_sha256": "3" * 64,
+            "case_ref": {"court_code": "SREVIEW-20260906-1", "charter_revision": 3},
             "checkpoint_id": "SC-FAST-OPEN",
-            "plan_sha256": "4" * 64,
+            "plan_ref": {"court_code": "SREVIEW-20260906-1", "charter_revision": 3, "plan_revision": 1},
             "plan_cursor": "PHASE5.2 -> PHASE9 -> PHASE10",
             "verdict": "DISPATCHABLE",
         },
@@ -164,12 +160,12 @@ def _write_skill(root: Path, *, wrong_ministry: str | None = None, oversized: bo
             encoding="utf-8",
         )
         dossier.write_text(f"# Fixture\n\n- role: {role}\n", encoding="utf-8")
-    write_identity(root, ["SKILL.md", *[f"agents/{folder}/{role}{suffix}" for role in office_zh for folder, suffix in (("standing-officials", ".toml"), ("office-dossiers", "/AGENTS.md"))]])
 
 
 def _request(root: Path, worktree: Path) -> dict[str, object]:
     return {
         "schema": court_open_fastpath.REQUEST_SCHEMA,
+        "operation_id": "court-open-fixture",
         "task_id": "fast-open-fixture",
         "authority": "super",
         "authority_source": "explicit_latest_user",
@@ -185,8 +181,9 @@ def _request(root: Path, worktree: Path) -> dict[str, object]:
         "write_sets": {},
         "expected_branch": "release/beta1.0.2-hotfix-v1",
         "expected_head": "5" * 40,
-        "expected_semantic_receipt_sha256": "1" * 64,
-        "expected_plan_sha256": "4" * 64,
+        "case_ref": {"court_code": "SREVIEW-20260906-1", "charter_revision": 3},
+        "plan_ref": {"court_code": "SREVIEW-20260906-1", "charter_revision": 3, "plan_revision": 1},
+        "semantic_receipt_id": "SR-FAST-OPEN",
         "transport": "codex",
         "task_focus": "fast court open fixture",
         "expires_at_utc": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
@@ -446,7 +443,6 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             target = source_fixture / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text((court_open_fastpath.ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
-        write_identity(source_fixture, source_paths)
         with patch.object(Path, "read_bytes", side_effect=AssertionError("fastpath file rehash")):
             source_preloads = court_open_fastpath.load_preloads(source_fixture, source_roles, concurrent=False)
     source_preload_bytes = {
@@ -497,7 +493,8 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         checks["exact_retry"] = (
             first.get("operation_id") == second.get("operation_id")
             and first.get("receipt_id") == second.get("receipt_id")
-            and first.get("packet_sha256") == second.get("packet_sha256")
+            and first.get("case_ref") == second.get("case_ref")
+            and first.get("department_packets") == second.get("department_packets")
         )
         checks["three_departments"] = len(first.get("department_packets", [])) == 3
         checks["default_zero_ministries"] = (
@@ -745,7 +742,7 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         checks["overlap_miss"] = overlap_miss.get("status") == "FAST_PATH_MISS:write_set_overlap"
 
         stale = dict(request)
-        stale["expected_semantic_receipt_sha256"] = "f" * 64
+        stale["semantic_receipt_id"] = "SR-OTHER-RECEIPT"
         stale_miss = court_open_fastpath.prepare_fast_open(
             stale,
             runtime_api=FakeRuntime(_task()),

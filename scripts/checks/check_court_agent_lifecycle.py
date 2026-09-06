@@ -41,9 +41,10 @@ import court_office_bootstrap
 from checks.installed_identity_fixture import FIXTURE_DIGEST, write_skill
 from court_intake_gate import minimal_request_understanding_example
 from court_agent_admission import budget_lease_access_contract_error
+from court_case_binding import case_reference
 from court_complexity_budget import normalize_budget_pool
 from check_court_office_assignment_binding import run_office_assignment_binding_checks
-from court_office_bootstrap import canonical_child_office_binding_sha256
+from court_office_bootstrap import build_child_office_profile
 
 
 @contextmanager
@@ -214,24 +215,35 @@ def formal_gate_fixture(*, mutates_state: bool = True) -> dict[str, object]:
     }
 
 
-def semantic_context_fixture() -> dict[str, object]:
+def semantic_context_fixture(task_id: str | None = None) -> dict[str, object]:
+    task = court_runtime.load_tasks().get(task_id or "")
+    if isinstance(task, dict):
+        from court_case_binding import case_reference, plan_reference
+
+        reference = case_reference(task)
+        plan = task.get("zhongshu_plan")
+        return {
+            "authority_revision": reference["charter_revision"],
+            "case_ref": reference,
+            "plan_ref": plan_reference(plan) if isinstance(plan, dict) else None,
+            "plan_cursor": "phase1/rc4/lifecycle",
+            "recovery_checkpoint_id": "lifecycle-recovery-001",
+            "shiguan_revision": 0,
+        }
     return {
         "authority_revision": 3,
-        "authority_sha256": hashlib.sha256(b"lifecycle-authority-v3").hexdigest(),
-        "plan_revision": 7,
-        "plan_sha256": hashlib.sha256(b"lifecycle-plan-v7").hexdigest(),
+        "case_ref": {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 3},
+        "plan_ref": None,
         "plan_cursor": "phase1/rc4/lifecycle",
-        "git_fingerprint": hashlib.sha256(b"lifecycle-worktree").hexdigest(),
         "recovery_checkpoint_id": "lifecycle-recovery-001",
         "shiguan_revision": 0,
-        "shiguan_fingerprint": hashlib.sha256(b"synthetic-shiguan-none").hexdigest(),
     }
 
 
 def semantic_args(task_id: str, trigger: str) -> Namespace:
     return Namespace(
         task_id=task_id,
-        semantic_context=semantic_context_fixture(),
+        semantic_context=semantic_context_fixture(task_id),
         semantic_context_file=None,
         trigger=trigger,
         actor="taizi",
@@ -246,53 +258,16 @@ def dispatch_context_packet(
     *,
     fork_context: str = "none",
 ) -> dict[str, object]:
-    receipt = task["semantic_receipt"]
-    assert isinstance(receipt, dict)
-    return {
-        "schema": "court.semantic.dispatch_context_packet.v1",
-        "task_id": task["task_id"],
-        "sub_id": wave_id,
-        "semantic_epoch": receipt["semantic_epoch"],
-        "invariant_capsule_sha256": receipt["invariant_capsule_sha256"],
-        "semantic_receipt_id": receipt["receipt_id"],
-        "semantic_receipt_sha256": receipt["receipt_sha256"],
-        "authority_sha256": receipt["authority_sha256"],
-        "plan_sha256": receipt["plan_sha256"],
-        "plan_cursor": receipt["plan_cursor"],
-        "fork_context": fork_context,
-        "context_mode": "bounded",
-        "pointers": [
-            {
-                "path": "authority/current.md",
-                "sha256": receipt["authority_sha256"],
-            },
-            {
-                "path": "plans/current.md",
-                "sha256": receipt["plan_sha256"],
-            },
-        ],
-        "summary": {
-            "text": "bounded lifecycle dispatch packet",
-            "semantic_receipt_id": receipt["receipt_id"],
-            "semantic_receipt_sha256": receipt["receipt_sha256"],
-        },
-    }
+    # New contract: the runtime owns packet derivation; keep the local helper
+    # as a compatibility shim so callers only pass task + wave.
+    return court_runtime.public_dispatch_context_packet(task, wave_id)
 
 
 def context_budget_pool(task_id: str, wave_id: str) -> dict[str, object]:
-    return normalize_budget_pool(
-        total_share=100.0,
-        root_id="taizi",
-        reserve_share=10.0,
-        hard_limits=CONTEXT_HARD_LIMITS,
-        task_id=task_id,
-        phase="P00-RUNTIME-01",
-        wave_id=wave_id,
-        approved_by="taizi",
-        approved_at="2026-07-16T00:00:00+00:00",
-        expected_output="bounded structured dispatch receipt",
-        return_conditions=("COMPLETED", "FAILED_CLOSED", "CANCELLED"),
-    )
+    # New contract: the runtime owns pool derivation; keep the local helper as
+    # a compatibility shim so callers only pass task_id + wave.
+    task = court_runtime.load_tasks()[task_id]
+    return court_runtime.public_context_budget_pool(task, wave_id)
 
 
 def create_task(task_id: str) -> None:
@@ -300,11 +275,9 @@ def create_task(task_id: str) -> None:
         if key[0] == task_id:
             del _FIXTURE_WAVE_SLOTS[key]
     charter = "bounded ordinary parallel lifecycle fixture"
-    charter_sha256 = hashlib.sha256(charter.encode("utf-8")).hexdigest()
     invariant_capsule = {
         "schema": "court.semantic.invariant_capsule.v1",
         "latest_decree_anchor": charter,
-        "latest_decree_sha256": charter_sha256,
         "non_goals": ["do not expand the RC4 write set"],
         "boundaries": ["TemporaryDirectory fixture only"],
         "allowed_actions": ["synthetic lifecycle mutation"],
@@ -316,10 +289,6 @@ def create_task(task_id: str) -> None:
             *(f"f/{index:02d}" for index in range(1, FIXTURE_SLOT_COUNT + 1)),
             *FIXTURE_EXPLICIT_WRITE_SET,
         ],
-        "governing_hashes": {
-            "execution_plan": hashlib.sha256(b"rc4-execution-plan").hexdigest()
-        },
-        "charter_sha256": charter_sha256,
     }
     court_runtime.create_task(
         Namespace(
@@ -430,7 +399,7 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             if binding_role in {"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"}
             else "taizi"
         )
-        preload_hashes = court_runtime._semantic_preload_hashes(binding_role)
+        preload_sources = court_runtime._semantic_preload_sources(binding_role)
         binding = {
             "role": binding_role,
             "instance_id": instance_id,
@@ -449,28 +418,54 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             else [default_write_sets[index - 1]],
             "mutation_allowed": True,
             "integration_authority": False,
-            "preload_hashes": preload_hashes,
+            "preload_sources": dict(preload_sources),
         }
         if child_worker:
-            binding.update(
-                child_role=(
-                    "GongBu-GongJiang"
-                    if binding_role == "gongbu"
-                    else f"{binding_role}-worker"
-                ),
-                bounded_mandate=str(
-                    overrides.get("bounded_mandate")
-                    or "execute one bounded child-office assignment"
-                ),
-                expected_result=str(
-                    overrides.get("expected_result")
-                    or "return one bounded structured receipt"
-                ),
-                terminal_condition=str(
-                    overrides.get("terminal_condition")
-                    or "stop after the bounded receipt is accepted"
-                ),
+            case_ref = case_reference(task)
+            child_profile = dict(
+                build_child_office_profile(
+                    {
+                        **binding,
+                        "task_id": task_id,
+                        "dispatch_uid": f"DSP-{task_id}-{wave_id}-{index}",
+                        "attempt": 1,
+                        "bounded_mandate": str(
+                            overrides.get("bounded_mandate")
+                            or "execute one bounded child-office assignment"
+                        ),
+                        "expected_result": str(
+                            overrides.get("expected_result")
+                            or "return one bounded structured receipt"
+                        ),
+                        "terminal_condition": str(
+                            overrides.get("terminal_condition")
+                            or "stop after the bounded receipt is accepted"
+                        ),
+                    },
+                    child_role=(
+                        "GongBu-GongJiang"
+                        if binding_role == "gongbu"
+                        else f"{binding_role}-worker"
+                    ),
+                    case_ref=case_ref,
+                    semantic_receipt_id=str(receipt.get("receipt_id") or "SC-LIFECYCLE"),
+                    expires_at_utc="2099-01-01T00:00:00Z",
+                )
             )
+            binding["child_profile"] = child_profile
+            binding["case_ref"] = child_profile["case_ref"]
+            binding["semantic_receipt_id"] = child_profile["semantic_receipt_id"]
+            for outer_field, profile_field in {
+                "child_role": "child_role",
+                "bounded_mandate": "bounded_mandate",
+                "expected_result": "expected_result",
+                "task_id": "task_id",
+                "dispatch_uid": "dispatch_uid",
+                "attempt": "attempt",
+                "expires_at_utc": "expires_at_utc",
+                "terminal_condition": "terminal_condition",
+            }.items():
+                binding[outer_field] = child_profile[profile_field]
         bindings.append(binding)
     budget_id = f"budget:{task_id}:{wave_id}"
     lease = {
@@ -523,16 +518,23 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
             }
             for binding in bindings
         },
-        "approved_preload_hashes": {
-            str(binding["instance_id"]): dict(binding["preload_hashes"])
+        "approved_preload_sources": {
+            str(binding["instance_id"]): dict(binding["preload_sources"])
             for binding in bindings
+        },
+        "approved_bindings": {
+            str(binding["instance_id"]): dict(binding)
+            for binding in bindings
+            if (
+                binding.get("canonical_authority") is False
+                or isinstance(binding.get("child_profile"), dict)
+            )
         },
     }
     values: dict[str, object] = {
         "task_id": task_id,
         "expected_semantic_epoch": task["semantic_epoch"],
-        "expected_charter_sha256": task["charter_sha256"],
-        "expected_invariant_capsule_sha256": task["invariant_capsule_sha256"],
+        "case_ref": case_reference(task),
         "expected_checkpoint_id": receipt["checkpoint_id"],
         "wave_id": wave_id,
         "execution_topology": "parallel",
@@ -587,8 +589,7 @@ def start_args(
     values: dict[str, object] = {
         "task_id": task_id,
         "semantic_epoch": admission.get("semantic_epoch"),
-        "charter_sha256": admission.get("charter_sha256"),
-        "invariant_capsule_sha256": admission.get("invariant_capsule_sha256"),
+        "case_ref": admission.get("case_ref") or case_reference(task),
         "checkpoint_id": admission.get("checkpoint_id"),
         "dispatch_uid": admission.get("dispatch_uid"),
         "attempt": admission.get("attempt"),
@@ -632,16 +633,18 @@ def ack_args(task_id: str, agent_id: str, role: str = "gongbu", **overrides: obj
         "agent_id": agent_id,
         "role": role,
         "semantic_epoch": record.get("semantic_epoch"),
-        "charter_sha256": record.get("charter_sha256"),
-        "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
+        "case_ref": record.get("case_ref"),
         "checkpoint_id": record.get("checkpoint_id"),
         "dispatch_uid": record.get("dispatch_uid"),
         "attempt": record.get("attempt"),
         "office_zh": "",
         "direct_superior": manifest["direct_superior"],
-        "profile_hash": manifest["profile_hash"],
-        "dossier_hash": manifest["dossier_hash"],
-        "court_skill_hash": manifest["court_skill_hash"],
+        "profile_source": manifest["profile_source"],
+        "dossier_path": manifest["dossier_path"],
+        "court_skill_path": manifest["court_skill_path"],
+        "court_code": manifest["court_code"],
+        "profile_loaded": "YES",
+        "court_skill_loaded": "YES",
         "loaded_skills": "decretum-matrix,tdd",
         "agent_dossier_loaded": "YES",
         "model_route_id": record["model_route"]["model_route_id"],
@@ -662,20 +665,12 @@ def ack_args(task_id: str, agent_id: str, role: str = "gongbu", **overrides: obj
 def event_args(task_id: str, agent_id: str, role: str = "gongbu", **overrides: object) -> Namespace:
     agents = court_runtime.load_tasks()[task_id].get("agents")
     record = agents.get(agent_id, {}) if isinstance(agents, dict) else {}
-    write_set_sha256 = hashlib.sha256(
-        json.dumps(
-            record.get("write_set"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
     result_envelope = {
         "schema": "court.office.result.v1",
         "task_id": task_id,
         "semantic_epoch": record.get("semantic_epoch"),
-        "charter_sha256": record.get("charter_sha256"),
-        "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
+        "case_ref": record.get("case_ref"),
+        "plan_ref": None,
         "checkpoint_id": record.get("checkpoint_id"),
         "dispatch_uid": record.get("dispatch_uid"),
         "attempt": record.get("attempt"),
@@ -684,7 +679,7 @@ def event_args(task_id: str, agent_id: str, role: str = "gongbu", **overrides: o
         "role": role,
         "direct_superior": record.get("direct_superior"),
         "worktree": record.get("worktree"),
-        "write_set_sha256": write_set_sha256,
+        "write_set": list(record.get("write_set") or []),
         "status": "completed",
         "summary": "bounded structured lifecycle result",
         "evidence": ["synthetic-lifecycle-result-pointer"],
@@ -698,6 +693,7 @@ def event_args(task_id: str, agent_id: str, role: str = "gongbu", **overrides: o
         "agent_id": agent_id,
         "role": role,
         "semantic_epoch": record.get("semantic_epoch"),
+        "case_ref": record.get("case_ref"),
         "charter_sha256": record.get("charter_sha256"),
         "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
         "checkpoint_id": record.get("checkpoint_id"),
@@ -1016,44 +1012,56 @@ def check_runtime_generates_bounded_child_profile() -> None:
     assert profile["canonical_authority"] is False
     assert profile["read_scope"] == ["work/gongbu/worker-0001.txt"]
     assert profile["write_set"] == ["work/gongbu/worker-0001.txt"]
-    assert profile["dispatch_context_packet_sha256"] == admission["dispatch_context_packet_sha256"]
-    assert profile["semantic_receipt_sha256"] == admission["semantic_receipt_sha256"]
-    assert profile["invariant_capsule_sha256"] == admission["invariant_capsule_sha256"]
+    assert profile["dispatch_context_packet_schema"] == "court.semantic.dispatch_context_packet.v1"
+    assert profile["semantic_receipt_id"] == admission["semantic_receipt_id"]
+    assert profile["invariant_capsule_schema"] == "court.semantic.invariant_capsule.v1"
     assert binding["hierarchy_edge_class"] == "bounded_child_office"
     assert binding["hierarchy_calling_office"] == "gongbu"
     assert binding["hierarchy_owner_role"] == "gongbu"
     request_binding = admission["requested_bindings"][0]
-    approved_binding_sha256s = admission["budget_lease"][
-        "approved_binding_sha256s"
-    ]
-    assert approved_binding_sha256s == {
-        "gongbu-worker-0001": canonical_child_office_binding_sha256(
-            request_binding
-        )
-    }
-    admission_binding_sha256s = admission["admission_binding_sha256s"]
-    assert admission_binding_sha256s == {
-        "gongbu-worker-0001": canonical_child_office_binding_sha256(binding)
-    }
+    approved_bindings = admission["budget_lease"]["approved_bindings"]
+    assert set(approved_bindings) == {"gongbu-worker-0001"}
+    admission_bindings = admission["admission_bindings"]
+    assert set(admission_bindings) == {"gongbu-worker-0001"}
+    assert (
+        approved_bindings["gongbu-worker-0001"]["semantic_receipt_id"]
+        == admission_bindings["gongbu-worker-0001"]["semantic_receipt_id"]
+    )
+    assert (
+        approved_bindings["gongbu-worker-0001"]["case_ref"]
+        == admission_bindings["gongbu-worker-0001"]["case_ref"]
+    )
+    assert request_binding["case_ref"] == admission_bindings["gongbu-worker-0001"]["case_ref"]
     stored = court_runtime.load_tasks()[task_id]["agent_admissions"][wave_id]
-    assert stored["selected_bindings"][0]["child_profile"] == profile
-    assert stored["admission_binding_sha256s"] == admission_binding_sha256s
+    _canonical = lambda value: json.dumps(  # noqa: E731
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+    assert _canonical(stored["selected_bindings"][0]["child_profile"]) == _canonical(profile)
+    assert _canonical(stored["admission_bindings"]) == _canonical(admission_bindings)
 
 
 def check_caller_child_binding_digest_rejected_before_admission_write() -> None:
     cases = (
         (
             "mismatch",
-            {"gongbu-worker-caller-digest-0001": "0" * 64},
-            "approved_budget_binding_digest_mismatch",
+            {
+                "gongbu-worker-caller-digest-0001": {
+                    "bounded_mandate": "tampered approved child binding",
+                }
+            },
+            "approved_budget_binding_mismatch",
         ),
         (
             "partial",
             {},
-            "approved_budget_binding_digest_missing",
+            "approved_budget_binding_mismatch",
         ),
     )
-    for suffix, supplied_digests, expected_reason in cases:
+    for suffix, supplied_bindings, expected_reason in cases:
         task_id = f"caller-child-binding-digest-{suffix}"
         wave_id = f"caller-child-binding-digest-{suffix}-wave"
         create_task(task_id)
@@ -1069,11 +1077,11 @@ def check_caller_child_binding_digest_rejected_before_admission_write() -> None:
             return_namespace=True,
         )
         lease = json.loads(namespace.budget_lease_json)
-        lease["approved_binding_sha256s"] = supplied_digests
+        lease["approved_bindings"] = supplied_bindings
         namespace.budget_lease_json = json.dumps(lease, ensure_ascii=False)
         reject_runtime_bytes_unchanged(
             lambda: court_runtime.agent_admit(namespace),
-            f"caller {suffix} child binding digest reached admission persistence",
+            f"caller {suffix} child binding tamper reached admission persistence",
             expected_reason,
         )
 
@@ -1093,12 +1101,9 @@ def check_child_profile_tamper_rejected_before_start_write() -> None:
 
     def tamper_profile(task: dict[str, object]) -> None:
         widened_mandate = "silently widened but still non-empty mandate"
-        binding = task["agent_admissions"][wave_id]["selected_bindings"][0]
-        binding["bounded_mandate"] = widened_mandate
-        binding["child_profile"]["bounded_mandate"] = widened_mandate
-        task["agent_admissions"][wave_id]["admission_binding_sha256s"][
+        task["agent_admissions"][wave_id]["admission_bindings"][
             "gongbu-worker-tamper-0001"
-        ] = canonical_child_office_binding_sha256(binding)
+        ]["bounded_mandate"] = widened_mandate
 
     set_task_field(task_id, tamper_profile)
     reject_runtime_bytes_unchanged(
@@ -1112,7 +1117,7 @@ def check_child_profile_tamper_rejected_before_start_write() -> None:
                 requires_gongjiang=True,
             )
         ),
-        "synchronized binding and child-profile tamper reached agent start persistence",
+        "tampered admission binding reached agent start persistence",
         "agent_start_admission_immutable_anchor_mismatch",
     )
 
@@ -1210,7 +1215,7 @@ def check_dispatch_context_economy_contract() -> None:
 
     task = court_runtime.load_tasks()[missing_task]
     stale_packet = dispatch_context_packet(task, "stale-packet-wave")
-    stale_packet["semantic_receipt_sha256"] = "0" * 64
+    stale_packet["semantic_receipt_id"] = "SC-STALE"
     reject_runtime_bytes_unchanged(
         lambda: admit(
             missing_task,
@@ -1218,7 +1223,7 @@ def check_dispatch_context_economy_contract() -> None:
             dispatch_context_packet=stale_packet,
         ),
         "stale semantic receipt packet was admitted",
-        "dispatch_context_receipt_mismatch:semantic_receipt_sha256",
+        "reference_dispatch_context_scope_mismatch",
     )
 
     second_capsule = dispatch_context_packet(task, "second-capsule-wave")
@@ -1230,7 +1235,7 @@ def check_dispatch_context_economy_contract() -> None:
             dispatch_context_packet=second_capsule,
         ),
         "a second invariant capsule was admitted",
-        "dispatch_context_packet_fields_unknown:second_invariant_capsule_sha256",
+        "reference_dispatch_context_fields_invalid",
     )
 
     implicit_full = dispatch_context_packet(task, "implicit-full-wave")
@@ -1350,22 +1355,22 @@ def check_dispatch_context_economy_contract() -> None:
         "office-context-wave",
         **office_values,
     )
-    hash_fields = {
-        "dispatch_context_packet_sha256",
-        "semantic_receipt_sha256",
-        "context_economy_receipt_sha256",
-        "context_budget_pool_sha256",
+    ref_fields = {
+        "dispatch_context_packet_ref",
+        "semantic_receipt_id",
+        "context_budget_pool_ref",
+        "context_economy_receipt_ref",
     }
-    assert hash_fields.issubset(positive)
-    assert hash_fields.issubset(positive["receipt"])
+    assert ref_fields.issubset(positive)
+    assert ref_fields.issubset(positive["receipt"])
     stored = court_runtime.load_tasks()[office_task]["agent_admissions"]["office-context-wave"]
-    assert hash_fields.issubset(stored)
+    assert ref_fields.issubset(stored)
     admission_event = next(
         event
         for event in court_runtime.read_events(limit=20, task_id=office_task)
         if event["action"] == "agent_admit" and event["wave_id"] == "office-context-wave"
     )
-    assert hash_fields.issubset(admission_event)
+    assert ref_fields.issubset(admission_event)
 
     reject_runtime_bytes_unchanged(
         lambda: court_runtime.office_start(
@@ -1399,8 +1404,8 @@ def check_dispatch_context_economy_contract() -> None:
             carrier_proof={"agent_id": "gongbu-context-01"},
         )
     )
-    assert hash_fields.issubset(started["office_instance"])
-    assert hash_fields.issubset(started["event"])
+    assert ref_fields.issubset(started["office_instance"])
+    assert ref_fields.issubset(started["event"])
 
     tamper_task = "context-contract-start-recheck"
     create_task(tamper_task)
@@ -1417,7 +1422,7 @@ def check_dispatch_context_economy_contract() -> None:
 
     def tamper_packet(value: dict[str, object]) -> None:
         admission = value["agent_admissions"]["context-tamper-wave"]
-        admission["dispatch_context_packet_sha256"] = "f" * 64
+        admission["dispatch_context_packet_ref"] = "context://tampered/tampered"
 
     set_task_field(tamper_task, tamper_packet)
     reject_runtime_bytes_unchanged(
@@ -1446,7 +1451,7 @@ def check_terminal_and_identity() -> None:
     start = start_args(admission, task_id, "terminal-wave", "gongbu-terminal-1")
     court_runtime.agent_start(start)
     try:
-        court_runtime.agent_preload_ack(ack_args(task_id, "gongbu-terminal-1", profile_hash="invalid"))
+        court_runtime.agent_preload_ack(ack_args(task_id, "gongbu-terminal-1", profile_source="invalid"))
     except ValueError:
         pass
     else:
@@ -1479,12 +1484,14 @@ def check_terminal_and_identity() -> None:
             "gongbu",
             "--direct-superior",
             "shangshu",
-            "--profile-hash",
-            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["profile_hash"],
-            "--dossier-hash",
-            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["dossier_hash"],
-            "--court-skill-hash",
-            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["court_skill_hash"],
+            "--profile-source",
+            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["profile_source"],
+            "--dossier-path",
+            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["dossier_path"],
+            "--court-skill-path",
+            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["court_skill_path"],
+            "--court-code",
+            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["court_code"],
             "--loaded-skills",
             "decretum-matrix,tdd",
             "--agent-dossier-loaded",
@@ -1529,19 +1536,23 @@ def check_terminal_and_identity() -> None:
     )
     uppercase_record = court_runtime.load_tasks()[uppercase_task]["agents"]["gongbu-uppercase-1"]
     uppercase_manifest = uppercase_record["preload_manifest"]
-    uppercase_ack = court_runtime.agent_preload_ack(
-        ack_args(
-            uppercase_task,
-            "gongbu-uppercase-1",
-            profile_hash=str(uppercase_manifest["profile_hash"]).upper(),
-            dossier_hash=str(uppercase_manifest["dossier_hash"]).upper(),
-            court_skill_hash=str(uppercase_manifest["court_skill_hash"]).upper(),
+    try:
+        court_runtime.agent_preload_ack(
+            ack_args(
+                uppercase_task,
+                "gongbu-uppercase-1",
+                profile_source=str(uppercase_manifest["profile_source"]).upper(),
+                dossier_path=str(uppercase_manifest["dossier_path"]).upper(),
+                court_skill_path=str(uppercase_manifest["court_skill_path"]).upper(),
+            )
         )
-    )
-    assert uppercase_ack["agent"]["status"] == "running"
-    assert uppercase_ack["agent"]["profile_hash"] == uppercase_manifest["profile_hash"]
-    assert uppercase_ack["agent"]["dossier_hash"] == uppercase_manifest["dossier_hash"]
-    assert uppercase_ack["agent"]["court_skill_hash"] == uppercase_manifest["court_skill_hash"]
+    except ValueError as exc:
+        assert "preload ack mismatch" in str(exc)
+    else:
+        raise AssertionError("uppercase source ref bypassed exact binding")
+    uppercase_record = court_runtime.load_tasks()[uppercase_task]["agents"]["gongbu-uppercase-1"]
+    assert uppercase_record["status"] == "failed"
+    assert uppercase_record["final_status"] == "failed"
 
     v1_task = "v1-inherited-model-lifecycle"
     create_task(v1_task)
@@ -1628,7 +1639,7 @@ def check_office_name_identity_binding() -> None:
     create_task(skill_task)
     skill_admission = admit(skill_task, "office-bound-invalid-skill-wave")
     bad_requirements = json.loads(runtime_skill_requirements_json())
-    bad_requirements[1]["sha256"] = "0" * 64
+    bad_requirements[1]["ack_name"] = "tampered-ack-name"
     for attempt in range(2):
         reject_runtime_bytes_unchanged(
             lambda: court_runtime.agent_start(
@@ -1684,7 +1695,7 @@ def check_office_name_identity_binding() -> None:
             requires_gongjiang=False,
             official_name_head="FORGED",
             office_zh="伪署",
-            profile_hash="f" * 64,
+            profile_source="f" * 64,
         )
     )
     persisted = court_runtime.load_tasks()[persistence_task]["agents"]["libu-hr-worker-1"]
@@ -1694,7 +1705,7 @@ def check_office_name_identity_binding() -> None:
     assert persisted["court_agent_id"] == "libu-hr-worker-1"
     assert persisted["official_name_head"] == "LiBuHR"
     assert persisted["office_zh"] != "伪署"
-    assert persisted["profile_hash"] != "f" * 64
+    assert persisted["profile_source"] != "f" * 64
     assert persisted["profile_binding"] == "PASSED"
     assert persisted["skill_binding"] == "PASSED"
     assert persisted["assignment_binding_ready"] is True
@@ -2001,11 +2012,11 @@ def check_unified_office_instance_lifecycle() -> None:
         ("worktree_thread", "gongbu-worktree-02", worktree_proof(fixture_root, 2)),
     )
     close_receipts: list[dict[str, object]] = []
-    context_hash_fields = {
-        "dispatch_context_packet_sha256",
-        "semantic_receipt_sha256",
-        "context_economy_receipt_sha256",
-        "context_budget_pool_sha256",
+    context_ref_fields = {
+        "dispatch_context_packet_ref",
+        "semantic_receipt_id",
+        "context_budget_pool_ref",
+        "context_economy_receipt_ref",
     }
     hierarchy_fields = {
         "hierarchy_gate",
@@ -2030,7 +2041,7 @@ def check_unified_office_instance_lifecycle() -> None:
         )
         assert admission["receipt"]["action"] == "admit"
         assert admission["receipt"]["office_instance_kind"] == kind
-        assert context_hash_fields.issubset(admission["receipt"])
+        assert context_ref_fields.issubset(admission["receipt"])
         assert hierarchy_fields.issubset(admission["receipt"])
         internal_id = str(carrier_proof.get("agent_id") or instance_id)
         start = start_args(
@@ -2046,8 +2057,8 @@ def check_unified_office_instance_lifecycle() -> None:
         )
         started = court_runtime.office_start(start)
         assert started["receipt"]["action"] == "start"
-        assert context_hash_fields.issubset(started["office_instance"])
-        assert context_hash_fields.issubset(started["event"])
+        assert context_ref_fields.issubset(started["office_instance"])
+        assert context_ref_fields.issubset(started["event"])
 
         ack = ack_args(task_id, internal_id)
         ack.office_instance_kind = kind
@@ -2062,7 +2073,7 @@ def check_unified_office_instance_lifecycle() -> None:
         report.carrier_proof = carrier_proof
         reported = court_runtime.office_report(report)
         assert reported["receipt"]["action"] == "report"
-        assert context_hash_fields.issubset(reported["event"])
+        assert context_ref_fields.issubset(reported["event"])
 
         finish = finish_args(task_id, internal_id)
         finish.office_instance_kind = kind
@@ -3126,7 +3137,8 @@ def _native_host_request(
         for item in bindings
         if isinstance(item, dict) and item.get("instance_id") == instance_id
     )
-    preload = dict(binding.get("preload_hashes") or {})
+    preload = dict(binding.get("preload_sources") or {})
+    capsule = binding.get("office_capsule_ref")
     model_inputs = dict(admission.get("model_route_inputs") or ROUTE)
     return {
         "schema": "court.native_host_dispatch_request.v1",
@@ -3138,8 +3150,8 @@ def _native_host_request(
         "instance_id": instance_id,
         "direct_superior": binding["direct_superior"],
         "semantic_epoch": admission["semantic_epoch"],
-        "charter_sha256": admission["charter_sha256"],
-        "invariant_capsule_sha256": admission["invariant_capsule_sha256"],
+        "case_ref": admission.get("case_ref") or binding.get("case_ref") or case_reference(task),
+        "office_capsule_ref": deepcopy(capsule),
         "lease_id": binding["lease_id"],
         "assignment": model_inputs["assignment"],
         "duty_scope": list(binding.get("read_scope") or binding["write_set"]),
@@ -3147,13 +3159,11 @@ def _native_host_request(
         "role_ack": {
             "role": binding["role"],
             "direct_superior": binding["direct_superior"],
-            "profile_sha256": preload.get("profile_hash"),
-            "dossier_sha256": preload.get("dossier_hash"),
+            **court_runtime._native_role_ack_sources(preload),
         },
         "admission_anchor": {
             "schema": "court.agent.admission_receipt.v1",
             "receipt_id": admission["event_id"],
-            "receipt_sha256": admission["admission_immutable_anchor_sha256"],
         },
         "compatible_live_instances": compatible_live_instances or [],
     }

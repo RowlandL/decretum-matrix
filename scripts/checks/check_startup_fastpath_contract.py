@@ -260,8 +260,7 @@ def check_semantic_template_roundtrip() -> dict[str, object]:
     task = {
         "task_id": task_id,
         "charter_revision": 1,
-        "charter_sha256": "1" * 64,
-        "invariant_capsule_sha256": "2" * 64,
+        "court_code": "COURT-20260906-1-AAAA",
         "state": "ThreeDepartments",
     }
     originals = {
@@ -431,7 +430,7 @@ def check_preload_cache_invalidation() -> dict[str, object]:
         profile.write_text(profile.read_text(encoding="utf-8") + "\n", encoding="utf-8", newline="\n")
         third = load()
         require(third is not first, "changed preload reused stale cache object")
-        require(third.profile_sha256 != first.profile_sha256, "changed preload retained stale profile hash")
+        require(third.profile_bytes != first.profile_bytes, "changed preload retained stale profile bytes")
     return {"ok": True, "cache_hit_reused_object": True, "changed_profile_invalidated": True}
 
 

@@ -12,6 +12,7 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 import json
+import hashlib
 import sys
 
 sys.dont_write_bytecode = True
@@ -26,14 +27,14 @@ def require(condition: bool, message: str) -> None:
 
 
 def run_checks() -> int:
-    manifest = build_preload_manifest("xingbu")
+    manifest = build_preload_manifest("xingbu", court_code="COURT-FIXTURE-1")
     require(manifest.role_key == "xingbu", "xingbu role identity missing")
     require(manifest.office_zh == "刑部", "xingbu Chinese office mismatch")
     require(manifest.direct_superior == "shangshu", "xingbu superior mismatch")
-    require(bool(manifest.profile_hash and manifest.dossier_hash), "profile/dossier hashes missing")
+    require(bool(manifest.profile_source and manifest.dossier_path), "profile/dossier paths missing")
     require(manifest.court_skill_name == "decretum-matrix", "court skill name mismatch")
     require(manifest.court_skill_path == "SKILL.md", "technical skill locator changed")
-    require(bool(manifest.court_skill_hash), "court skill hash missing")
+    require(manifest.court_code == "COURT-FIXTURE-1", "dispatched court code missing")
     gongbu_manifest = build_preload_manifest("gongbu")
     require(
         gongbu_manifest.direct_superior == "shangshu",
@@ -89,9 +90,10 @@ def run_checks() -> int:
         "role_key": manifest.role_key,
         "office_zh": manifest.office_zh,
         "direct_superior": manifest.direct_superior,
-        "profile_hash": manifest.profile_hash,
-        "dossier_hash": manifest.dossier_hash,
-        "court_skill_hash": manifest.court_skill_hash,
+        "profile_source": manifest.profile_source,
+        "dossier_path": manifest.dossier_path,
+        "court_skill_path": manifest.court_skill_path,
+        "court_code": manifest.court_code,
         "agent_dossier_loaded": "YES",
         "loaded_skills": ["decretum-matrix"],
         "model_route_id": contract["model_route"]["model_route_id"],
@@ -100,8 +102,15 @@ def run_checks() -> int:
     }
     validated = validate_preload_ack(manifest, ack, model_route=contract["model_route"])
     require(validated["preload_status"] == "PASSED", "valid preload ack did not pass")
+    for field in ("profile_source", "dossier_path", "court_skill_path"):
+        try:
+            validate_preload_ack(manifest, {**ack, field: "wrong/source/path"}, model_route=contract["model_route"])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"wrong {field} accepted by validate_preload_ack")
     try:
-        validate_preload_ack(manifest, {**ack, "profile_hash": "b" * 64}, model_route=contract["model_route"])
+        validate_preload_ack(manifest, {**ack, "court_code": "WRONG-CASE"}, model_route=contract["model_route"])
     except ValueError:
         mismatch_rejected = True
     else:
@@ -128,11 +137,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         write_skill(root)
-        with patch.dict(build_preload_manifest.__kwdefaults__, skill_root=root), patch.object(Path, "read_bytes", side_effect=AssertionError("runtime file bytes read")), patch("court_office_bootstrap.sha256_file", side_effect=AssertionError("runtime file rehash")):
+        with patch.dict(build_preload_manifest.__kwdefaults__, skill_root=root), patch.object(Path, "read_bytes", side_effect=AssertionError("runtime file bytes read")), patch.object(hashlib, "sha256", side_effect=AssertionError("runtime identity calculation")):
             return run_checks()
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

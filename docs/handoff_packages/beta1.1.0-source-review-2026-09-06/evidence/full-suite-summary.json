@@ -1,0 +1,225 @@
+[
+  {
+    "check": "quick_validate",
+    "exit_code": 0,
+    "seconds": 0.444
+  },
+  {
+    "check": "source_budget",
+    "exit_code": 2,
+    "seconds": 0.493,
+    "stdout_tail": " \"scripts/court_intake_gate.py\",\n      \"scripts/shiguan_pending_trust.py\",\n      \"scripts/obsidian_config_state.py\",\n      \"scripts/codex_runtime_probe_support.py\",\n      \"scripts/checks/check_startup_fastpath_contract.py\",\n      \"scripts/checks/check_court_codex_office_worker.py\",\n      \"scripts/checks/check_court_codex_host_resolution.py\",\n      \"scripts/checks/check_shiguan_git_federation.py\",\n      \"scripts/checks/check_release_metadata.py\",\n      \"scripts/checks/check_court_intake_gate.py\",\n      \"scripts/checks/check_governance_framework.py\",\n      \"scripts/commands/ensure_supercc_court.py\",\n      \"scripts/services/ensure_shiguan_autosync.py\",\n      \"scripts/commands/court_codex_protocol_launcher.py\",\n      \"scripts/commands/court_codex_office_worker.py\",\n      \"scripts/commands/court_codex_host_resolution.py\",\n      \"scripts/services/shiguan_git_federation.py\",\n      \"scripts/commands/shiguan_pending_governance.py\",\n      \"scripts/commands/shiguan_pending_governance_cli.py\",\n      \"scripts/commands/plan_shiguan_pending_quarantine.py\",\n      \"scripts/commands/agent_runtime_probe.py\",\n      \"scripts/services/serve_shiguan_tree.py\"\n    ],\n    \"pending_body_reads\": 0,\n    \"tree_scan\": \"path_and_stat_only\"\n  },\n  \"ok\": false,\n  \"schema\": \"court.source_state_budget.result.v1\",\n  \"unclassified_runtime_candidates\": [],\n  \"warnings\": [\n    {\n      \"actual\": {\n        \"bytes\": 968616,\n        \"files\": 7\n      },\n      \"category\": \"generated_runtime\",\n      \"code\": \"generated_runtime_present\",\n      \"target\": {\n        \"max_bytes\": 0,\n        \"max_files\": 0\n      }\n    }\n  ]\n}\n",
+    "stderr_tail": ""
+  },
+  {
+    "check": "release_manifest",
+    "exit_code": 0,
+    "seconds": 0.589
+  },
+  {
+    "check": "governance",
+    "exit_code": 0,
+    "seconds": 0.708
+  },
+  {
+    "check": "result_semantics",
+    "exit_code": 0,
+    "seconds": 0.221
+  },
+  {
+    "check": "open_fastpath",
+    "exit_code": 0,
+    "seconds": 0.755
+  },
+  {
+    "check": "skill_identity",
+    "exit_code": 1,
+    "seconds": 0.566,
+    "stdout_tail": "{\"findings\": [{\"code\": \"SKILL_IDENTITY_DIGEST_MISMATCH\", \"message\": \"skill_sha256 must equal the LF-normalized SKILL.md digest; declared='E94DE581DC08E405FD2AF0A3431132629EE697FE437FC1939AF02B383884543C' actual='2A9127EBDDE2FC43E96C3523719A8B6652E383F5C4AA379476AD3D3CB5026CC4'\", \"path\": \"references/manifests/skill-identity.v1.json\", \"surface\": \"skill_binding\"}], \"root\": \"D:\\\\project\\\\decretum-matrix\", \"schema\": \"court.skill_identity.check.v1\", \"status\": \"FAILED\", \"surfaces\": {\"capability_registry\": \"PASSED\", \"changelog\": \"PASSED\", \"department_map\": \"PASSED\", \"dossiers\": \"PASSED\", \"host_methodology\": \"PASSED\", \"legacy_migration\": \"PASSED\", \"manifest\": \"PASSED\", \"openai\": \"PASSED\", \"profiles\": \"PASSED\", \"registry_api\": \"PASSED\", \"skill\": \"PASSED\"}}\n",
+    "stderr_tail": ""
+  },
+  {
+    "check": "startup_fastpath",
+    "exit_code": 2,
+    "seconds": 1.846,
+    "stdout_tail": "STARTUP_SEMANTIC_FASTPATH=FAIL\nproblem=semantic_template_roundtrip:ValueError:case_binding_court_code_required\nproblem=preload_cache_invalidation:AttributeError:'RolePreload' object has no attribute 'profile_sha256'\n",
+    "stderr_tail": ""
+  },
+  {
+    "check": "read_only",
+    "exit_code": 0,
+    "seconds": 6.333
+  },
+  {
+    "check": "unified_cli",
+    "exit_code": 0,
+    "seconds": 8.085
+  },
+  {
+    "check": "iku",
+    "exit_code": 0,
+    "seconds": 0.585
+  },
+  {
+    "check": "numbering",
+    "exit_code": 0,
+    "seconds": 1.339
+  },
+  {
+    "check": "full_record",
+    "exit_code": 0,
+    "seconds": 0.455
+  },
+  {
+    "check": "taxonomy",
+    "exit_code": 0,
+    "seconds": 0.417
+  },
+  {
+    "check": "lineage_compat",
+    "exit_code": 0,
+    "seconds": 0.733
+  },
+  {
+    "check": "recall",
+    "exit_code": 0,
+    "seconds": 0.675
+  },
+  {
+    "check": "conflict_scan",
+    "exit_code": 0,
+    "seconds": 5.594
+  },
+  {
+    "check": "model_router",
+    "exit_code": 0,
+    "seconds": 0.3
+  },
+  {
+    "check": "office_worker",
+    "exit_code": 0,
+    "seconds": 0.587
+  },
+  {
+    "check": "agent_config",
+    "exit_code": 0,
+    "seconds": 2.571
+  },
+  {
+    "check": "mcp",
+    "exit_code": 1,
+    "seconds": 17.197,
+    "stdout_tail": "\": true\n    },\n    {\n      \"name\": \"known_special_lifecycle_not_claimed_as_native\",\n      \"ok\": true\n    }\n  ],\n  \"legacy\": {\n    \"protocol\": \"2025-11-25\",\n    \"receipt_parts\": [\n      \"initialize\",\n      \"notifications/initialized\",\n      \"tools/list\",\n      \"tools/call\"\n    ],\n    \"standard_client_shape\": \"2025-11-25-initialize\",\n    \"tools\": [\n      \"court.capsule_validate\",\n      \"court.closeout_checklist\",\n      \"court.command_help\",\n      \"court.dispatch_plan_validate\",\n      \"court.intake_validate\",\n      \"court.semantic_context_validate\",\n      \"court.status\",\n      \"court.workflow_status\",\n      \"memory.scan\",\n      \"shiguan.archive_dry_run\",\n      \"shiguan.entries_query\",\n      \"shiguan.iku_candidates\",\n      \"shiguan.query\"\n    ]\n  },\n  \"modern\": {\n    \"protocol\": \"2026-07-28\",\n    \"receipt_parts\": [\n      \"server/discover\",\n      \"tools/list\",\n      \"tools/call\",\n      \"metadata_validation\",\n      \"cursor_contract\",\n      \"jsonrpc_error_contract\",\n      \"missing_meta_rejection\",\n      \"unsupported_version_rejection\"\n    ],\n    \"standard_client_shape\": \"2026-07-28-per-request-meta\",\n    \"tools\": [\n      \"court.capsule_validate\",\n      \"court.closeout_checklist\",\n      \"court.command_help\",\n      \"court.dispatch_plan_validate\",\n      \"court.intake_validate\",\n      \"court.semantic_context_validate\",\n      \"court.status\",\n      \"court.workflow_status\",\n      \"memory.scan\",\n      \"shiguan.archive_dry_run\",\n      \"shiguan.entries_query\",\n      \"shiguan.iku_candidates\",\n      \"shiguan.query\"\n    ]\n  },\n  \"ok\": false,\n  \"schema\": \"decretum.mcp_stdio_adapter_check.v2\"\n}\n",
+    "stderr_tail": "decretum-mcp internal error: RuntimeError: secret-detail\n"
+  },
+  {
+    "check": "runtime",
+    "exit_code": 1,
+    "seconds": 1.698,
+    "stdout_tail": "",
+    "stderr_tail": "Traceback (most recent call last):\n  File \"D:\\project\\decretum-matrix\\scripts\\check_court_runtime.py\", line 24, in <module>\n    sys.exit(_main())\n             ~~~~~^^\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_runtime.py\", line 2504, in main\n    return _main()\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_runtime.py\", line 1438, in _main\n    check_public_create_help_contract()\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_runtime.py\", line 1300, in check_public_create_help_contract\n    assert fragment in help_text, f\"PUBLIC_CREATE_HELP_MISSING:{fragment}\"\n           ^^^^^^^^^^^^^^^^^^^^^\nAssertionError: PUBLIC_CREATE_HELP_MISSING:sha256(exact UTF-8 charter)\n"
+  },
+  {
+    "check": "completion",
+    "exit_code": 1,
+    "seconds": 0.596,
+    "stdout_tail": "",
+    "stderr_tail": "Traceback (most recent call last):\n  File \"D:\\project\\decretum-matrix\\scripts\\check_court_runtime_completion.py\", line 24, in <module>\n    sys.exit(_main())\n             ~~~~~^^\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_runtime_completion.py\", line 1894, in main\n    check_assessment_validation_and_deep_copy()\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_runtime_completion.py\", line 425, in check_assessment_validation_and_deep_copy\n    assert binding[\"charter_sha256\"] == task[\"charter_sha256\"]\n           ~~~~~~~^^^^^^^^^^^^^^^^^^\nKeyError: 'charter_sha256'\n"
+  },
+  {
+    "check": "runtime_concurrency",
+    "exit_code": 1,
+    "seconds": 1.021,
+    "stdout_tail": "",
+    "stderr_tail": "COURT_RUNTIME_ERROR standard_create_requires_session_id_authority_behavior\n\n"
+  },
+  {
+    "check": "http_static",
+    "exit_code": 0,
+    "seconds": 4.338
+  },
+  {
+    "check": "shiguan_concurrency",
+    "exit_code": 0,
+    "seconds": 6.511
+  },
+  {
+    "check": "git_federation",
+    "exit_code": 0,
+    "seconds": 16.315
+  },
+  {
+    "check": "portability",
+    "exit_code": 1,
+    "seconds": 3.783,
+    "stdout_tail": "source_checker\": \"scripts/check_court_dispatch_hierarchy.py\"\n      },\n      \"name\": \"dispatch hierarchy runtime module and manifest match the install projection\",\n      \"ok\": true\n    },\n    {\n      \"details\": {\n        \"scripts\": [\n          \"scripts/migrate_legacy_skill_locator.py\",\n          \"scripts/migrate_current_tool_replica.py\"\n        ]\n      },\n      \"name\": \"locator migration entrypoints are portable and projected\",\n      \"ok\": true\n    },\n    {\n      \"details\": {\n        \"leaked\": [],\n        \"leaked_count\": 0\n      },\n      \"name\": \"portable package candidate text files do not contain host user absolute paths\",\n      \"ok\": true\n    },\n    {\n      \"name\": \"SKILL validation examples use portable script paths\",\n      \"ok\": false\n    },\n    {\n      \"details\": {\n        \"violations\": []\n      },\n      \"name\": \"packaged documentation uses portable command examples\",\n      \"ok\": true\n    },\n    {\n      \"details\": {\n        \"violation_count\": 4,\n        \"violations\": [\n          \"scripts/court_case_binding.py\",\n          \"scripts/court_complexity_budget.py\",\n          \"scripts/court_native_host_dispatch.py\",\n          \"scripts/court_semantic_continuity.py\"\n        ]\n      },\n      \"name\": \"court Python entrypoints disable bytecode before local imports\",\n      \"ok\": false\n    },\n    {\n      \"details\": {\n        \"returncode\": 0\n      },\n      \"name\": \"package entrypoint emits UTF-8 help without replacement characters\",\n      \"ok\": true\n    },\n    {\n      \"name\": \"superCC shell contract stays wrapper-relative and role-generic\",\n      \"ok\": true\n    }\n  ],\n  \"ok\": false\n}\n",
+    "stderr_tail": ""
+  },
+  {
+    "check": "release_metadata",
+    "exit_code": 0,
+    "seconds": 0.326
+  },
+  {
+    "check": "hierarchy",
+    "exit_code": 1,
+    "seconds": 0.345,
+    "stdout_tail": "('dispatch_hierarchy_child_scope_unbounded',):actual=('dispatch_hierarchy_child_profile_required',)\", \"HIERARCHY_REASON_MISMATCH:deny-non-ministry-child-owner:ordinary:expected=('dispatch_hierarchy_child_owner_mismatch',):actual=('dispatch_hierarchy_child_profile_required',)\", \"HIERARCHY_REASON_MISMATCH:deny-non-ministry-child-owner:supercc:expected=('dispatch_hierarchy_child_owner_mismatch',):actual=('dispatch_hierarchy_child_profile_required',)\"], \"evidence\": {\"fixtures\": {\"adapter_projection_calls\": [\"ordinary\", \"supercc\"], \"allowed_count\": 10, \"case_count\": 29, \"denied_count\": 19, \"public_api\": \"validate_dispatch_hierarchy(*, action, calling_office, target_role, target_direct_superior, instance_kind, canonical_authority, owner_role=None, child_profile=None)\", \"single_existing_capsule_sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}, \"shared_validator\": {\"evaluated_adapter_cases\": 58, \"hierarchy_manifest_path\": \"D:\\\\project\\\\decretum-matrix\\\\references\\\\manifests\\\\court-dispatch-hierarchy.v1.json\", \"hierarchy_schema\": \"court.dispatch_hierarchy.v1\", \"manifest_validation\": {\"cases\": [\"duplicate_edge\", \"duplicate_role\", \"edge_superior_mismatch\", \"non_ministry_child_owner\", \"overlapping_role_sets\", \"unsupported_schema\"], \"invalid_cases_rejected\": 6, \"status\": \"PASSED\"}, \"module\": \"D:\\\\project\\\\decretum-matrix\\\\scripts\\\\court_dispatch_hierarchy.py\", \"status\": \"LOADED\"}}, \"first_error\": \"HIERARCHY_DECISION_MISMATCH:allow-gongbu-bounded-gongjiang:ordinary:expected=True:actual=False\", \"schema\": \"court.dispatch.hierarchy.check.v1\", \"status\": \"FAILED\"}\n",
+    "stderr_tail": ""
+  },
+  {
+    "check": "context_survival",
+    "exit_code": 0,
+    "seconds": 0.354
+  },
+  {
+    "check": "agent_lifecycle",
+    "exit_code": 1,
+    "seconds": 1.158,
+    "stdout_tail": "",
+    "stderr_tail": "ntime.create_task(\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        Namespace(\n        ^^^^^^^^^^\n    ...<12 lines>...\n        )\n        ^\n    )\n    ^\n  File \"D:\\project\\decretum-matrix\\scripts\\court_runtime.py\", line 3197, in create_task\n    semantic_binding = initial_semantic_binding(\n        charter,\n        invariant_capsule,\n        court_code=_legacy_court_code(str(args.task_id or \"\"), args.title),\n    )\n  File \"D:\\project\\decretum-matrix\\scripts\\court_semantic_continuity.py\", line 2171, in initial_semantic_binding\n    **semantic_binding_for_revision(\n      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        charter,\n        ^^^^^^^^\n    ...<2 lines>...\n        court_code=court_code,\n        ^^^^^^^^^^^^^^^^^^^^^^\n    ),\n    ^\n  File \"D:\\project\\decretum-matrix\\scripts\\court_semantic_continuity.py\", line 2146, in semantic_binding_for_revision\n    template = normalize_invariant_capsule(charter, invariant_capsule)\n  File \"D:\\project\\decretum-matrix\\scripts\\court_semantic_continuity.py\", line 469, in normalize_invariant_capsule\n    raise ValueError(\"invariant_capsule_fields_unknown:\" + \",\".join(unknown))\nValueError: invariant_capsule_fields_unknown:charter_sha256,governing_hashes,latest_decree_sha256\n"
+  },
+  {
+    "check": "semantic_continuity",
+    "exit_code": 1,
+    "seconds": 3.891,
+    "stdout_tail": "SEMANTIC_BINDING_CORE_RED SEMANTIC_RESULT_ENVELOPE: case_plan_not_drafted\n",
+    "stderr_tail": ""
+  },
+  {
+    "check": "outcome_gate",
+    "exit_code": 0,
+    "seconds": 4.913
+  },
+  {
+    "check": "session_closeout",
+    "exit_code": 1,
+    "seconds": 0.677,
+    "stdout_tail": "",
+    "stderr_tail": ":\n  File \"D:\\project\\decretum-matrix\\scripts\\check_court_session_closeout.py\", line 24, in <module>\n    sys.exit(_main())\n             ~~~~~^^\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_session_closeout.py\", line 553, in main\n    check_default_writer_stays_lightweight()\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_session_closeout.py\", line 367, in check_default_writer_stays_lightweight\n    result = court_session_closeout._default_archive_writer(draft)\n  File \"D:\\project\\decretum-matrix\\scripts\\court_session_closeout.py\", line 299, in _default_archive_writer\n    path, entry, _refresh = append_checkpoint(args)\n                            ~~~~~~~~~~~~~~~~~^^^^^^\n  File \"D:\\project\\decretum-matrix\\scripts\\archive_checkpoint.py\", line 661, in append_checkpoint\n    build_archive_receipt(path, entry, {}),\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_session_closeout.py\", line 363, in forbidden_receipt_builder\n    raise AssertionError(\"ordinary closeout constructed an archive receipt\")\nAssertionError: ordinary closeout constructed an archive receipt\n"
+  },
+  {
+    "check": "projection_closure",
+    "exit_code": 0,
+    "seconds": 42.734
+  },
+  {
+    "check": "preload_semantics",
+    "exit_code": 1,
+    "seconds": 0.771,
+    "stdout_tail": "",
+    "stderr_tail": "t_preload_semantics.py\", line 1789, in main\n    with isolated_preload_installation():\n         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"C:\\Program Files\\Python314\\Lib\\contextlib.py\", line 141, in __enter__\n    return next(self.gen)\n  File \"D:\\project\\decretum-matrix\\scripts\\checks\\check_court_preload_semantics.py\", line 299, in isolated_preload_installation\n    identity = json.loads(pin_path.read_text(encoding=\"utf-8\"))\n                          ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^\n  File \"C:\\Program Files\\Python314\\Lib\\pathlib\\__init__.py\", line 787, in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:\n         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Program Files\\Python314\\Lib\\pathlib\\__init__.py\", line 771, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: 'D:\\\\project\\\\.staging\\\\dm110-20260905\\\\review-full-20260906-171707\\\\sandboxes\\\\preload_semantics\\\\tmp\\\\preload-semantics-ng_08w7a\\\\references\\\\manifests\\\\installed-preload-identity.v1.json'\n"
+  },
+  {
+    "check": "installer_fixture",
+    "exit_code": 1,
+    "seconds": 33.391,
+    "stdout_tail": "ceipts\\\\\\\\decretum-matrix\\\\\\\\install-c42214bed658832e.json'}:{'schema': 'court.install_projection_rollback.v1', 'ok': True, 'status': 'ROLLED_BACK', 'reason': 'managed_projection_restored', 'backup_root': 'D:\\\\\\\\project\\\\\\\\.staging\\\\\\\\dm110-20260905\\\\\\\\review-full-20260906-171707\\\\\\\\sandboxes\\\\\\\\installer_fixture\\\\\\\\tmp\\\\\\\\ctr-shgrcsz5\\\\\\\\cb2112ad8\\\\\\\\home\\\\\\\\.agents\\\\\\\\install-backups\\\\\\\\decretum-matrix\\\\\\\\projection-9c539cda16c14c4099eb86f1879dd9da', 'restored_count': 6, 'legacy_locator_restored_count': 2, 'pending_body_accessed': False, 'real_host_configuration_accessed': False}\"\n  ],\n  \"identity_manifest\": \"D:\\\\project\\\\decretum-matrix\\\\references\\\\manifests\\\\skill-identity.v1.json\",\n  \"ok\": false,\n  \"passed_cases\": 36,\n  \"passed_configuration_cases\": 31,\n  \"pending_body_accessed\": false,\n  \"preserved_locator_policy\": {\n    \"directory_basename_may_differ_from_skill_name\": false,\n    \"install_directory_name\": \"decretum-matrix\",\n    \"legacy_install_directory_name\": \"court-capability-router\",\n    \"legacy_install_locator_policy\": \"absent_or_same_physical_authority\",\n    \"rename_policy\": \"rename_install_directory_preserve_shiguan_namespace\",\n    \"shiguan_namespace\": \"court-capability-router\"\n  },\n  \"production_module\": \"D:\\\\project\\\\decretum-matrix\\\\scripts\\\\install_current_agent_copy.py\",\n  \"projection_manifest\": \"D:\\\\project\\\\decretum-matrix\\\\references\\\\manifests\\\\install-projection.v1.json\",\n  \"protected_shiguan_data_accessed\": false,\n  \"real_cc_switch_or_codex_accessed\": false,\n  \"schema\": \"court.install_current_agent_copy.check.v1\",\n  \"temporary_fixtures_only\": true\n}\n",
+    "stderr_tail": ""
+  },
+  {
+    "check": "package_privacy",
+    "exit_code": 0,
+    "seconds": 49.35
+  }
+]

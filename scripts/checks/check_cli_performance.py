@@ -49,12 +49,28 @@ class BenchmarkRuntime:
     ) -> dict[str, object]:
         receipt = task["semantic_receipt"]
         assert isinstance(receipt, dict)
+        reference = receipt["case_ref"]
         return {
             "schema": "court.semantic.dispatch_context_packet.v1",
             "task_id": task["task_id"],
             "sub_id": wave_id,
             "semantic_epoch": receipt["semantic_epoch"],
-            "semantic_receipt_sha256": receipt["receipt_sha256"],
+            "case_ref": reference,
+            "plan_ref": None,
+            "semantic_receipt_id": receipt["receipt_id"],
+            "plan_cursor": receipt["plan_cursor"],
+            "fork_context": "none",
+            "context_mode": "bounded",
+            "pointers": [
+                {
+                    "path": f"court-runtime:tasks/{task['task_id']}/charter",
+                    "case_ref": reference,
+                }
+            ],
+            "summary": {
+                "text": "cli performance fixture",
+                "semantic_receipt_id": receipt["receipt_id"],
+            },
         }
 
     @staticmethod
@@ -86,12 +102,10 @@ def _task() -> dict[str, object]:
         "semantic_state": "DISPATCHABLE",
         "semantic_receipt": {
             "receipt_id": "SR-CLI-PERFORMANCE",
-            "receipt_sha256": "1" * 64,
             "semantic_epoch": 7,
-            "charter_sha256": "2" * 64,
-            "invariant_capsule_sha256": "3" * 64,
+            "case_ref": {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 7},
             "checkpoint_id": "SC-CLI-PERFORMANCE",
-            "plan_sha256": "4" * 64,
+            "plan_ref": None,
             "plan_cursor": "PHASE5.2 -> PHASE9 -> PHASE10",
             "verdict": "DISPATCHABLE",
         },
@@ -121,8 +135,9 @@ def _request() -> dict[str, object]:
         "write_sets": {},
         "git_check_requested": False,
         "capability_check_requested": False,
-        "expected_semantic_receipt_sha256": "1" * 64,
-        "expected_plan_sha256": "4" * 64,
+        "case_ref": {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 7},
+        "plan_ref": None,
+        "semantic_receipt_id": "SR-CLI-PERFORMANCE",
         "transport": "codex",
         "task_focus": "fast court open performance fixture",
         "expires_at_utc": "2099-01-01T00:00:00+00:00",
@@ -139,7 +154,14 @@ def _fast_operation() -> dict[str, object]:
     if result.get("ok") is not True:
         raise RuntimeError(f"fast operation failed: {result}")
     return {
-        "packet_sha256": result["packet_sha256"],
+        "receipt_token": json.dumps(
+            {
+                "case_ref": result["case_ref"],
+                "semantic_receipt_id": result["semantic_receipt_id"],
+                "planned_office_count": result["planned_office_count"],
+            },
+            sort_keys=True,
+        ),
         "operation_id": result["operation_id"],
         "python_processes": 1 + int(result["python_child_processes"]),
         "capability_lookup_ms": result["capability_lookup_ms"],
@@ -164,7 +186,7 @@ def _legacy_role_operation(role: str) -> dict[str, object]:
         "role": role,
         "direct_superior": hierarchy["direct_superior"],
         "loaded_bytes": preload.loaded_bytes,
-        "metadata_sha256": preload.metadata_sha256,
+        "metadata_bytes": preload.metadata_bytes,
     }
 
 
@@ -257,7 +279,7 @@ def benchmark(samples: int) -> dict[str, object]:
             elapsed, receipt = _sample(operation)
             if label == "fast":
                 cold_fast.append(elapsed)
-                fast_receipts.append(str(receipt["packet_sha256"]))
+                fast_receipts.append(str(receipt["receipt_token"]))
             else:
                 cold_legacy.append(elapsed)
                 legacy_receipts.append(str(receipt["receipt_sha256"]))
@@ -278,7 +300,7 @@ def benchmark(samples: int) -> dict[str, object]:
             if label == "fast":
                 warm_fast.append(elapsed)
                 warm_capability_lookup.append(float(receipt["capability_lookup_ms"]))
-                fast_receipts.append(str(receipt["packet_sha256"]))
+                fast_receipts.append(str(receipt["receipt_token"]))
             else:
                 warm_legacy.append(elapsed)
                 legacy_receipts.append(str(receipt["receipt_sha256"]))

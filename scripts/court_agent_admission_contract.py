@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
+from pathlib import PurePosixPath
 from typing import Mapping, Sequence
 
 sys.dont_write_bytecode = True
@@ -69,19 +70,19 @@ _CHILD_PROFILE_OUTER_FIELDS = {
     "expires_at_utc": "expires_at_utc",
     "terminal_condition": "terminal_condition",
 }
-_PRELOAD_HASH_FIELDS = ("profile_hash", "dossier_hash", "court_skill_hash")
+_PRELOAD_SOURCE_FIELDS = ("profile_source", "dossier_path", "court_skill_path")
 
 
-def _normalized_preload_hashes(value: object) -> tuple[str, str, str] | None:
-    if not isinstance(value, Mapping) or set(value) != set(_PRELOAD_HASH_FIELDS):
+def _normalized_preload_sources(value: object) -> tuple[str, str, str] | None:
+    if not isinstance(value, Mapping) or set(value) != set(_PRELOAD_SOURCE_FIELDS):
         return None
-    hashes = tuple(
-        str(value.get(field) or "").strip().lower()
-        for field in _PRELOAD_HASH_FIELDS
+    sources = tuple(
+        str(value.get(field) or "").strip()
+        for field in _PRELOAD_SOURCE_FIELDS
     )
-    if any(re.fullmatch(r"[0-9a-f]{64}", digest) is None for digest in hashes):
+    if any(not source or "\x00" in source or ".." in PurePosixPath(source.replace("\\", "/")).parts for source in sources):
         return None
-    return hashes[0], hashes[1], hashes[2]
+    return sources[0], sources[1], sources[2]
 
 
 def _child_profile_scope_binding_error(
@@ -95,14 +96,11 @@ def _child_profile_scope_binding_error(
             profile_field
         ):
             return "dispatch_hierarchy_child_scope_binding_mismatch"
-    outer_hashes = _normalized_preload_hashes(binding.get("preload_hashes"))
-    profile_hashes = (
-        str(profile.get("profile_sha256") or "").strip().lower(),
-        str(profile.get("dossier_sha256") or "").strip().lower(),
-        str(profile.get("skill_sha256") or "").strip().lower(),
-    )
-    if outer_hashes is None or outer_hashes != profile_hashes:
-        return "approved_budget_preload_mismatch"
+    if profile.get("schema") != "court.child_office_profile.v1":
+        return "child_profile_reference_protocol_required"
+    for field in ("case_ref", "semantic_receipt_id"):
+        if not binding.get(field) or binding.get(field) != profile.get(field):
+            return "approved_budget_case_reference_mismatch"
     return None
 
 

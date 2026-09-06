@@ -22,7 +22,6 @@ sys.dont_write_bytecode = True
 
 import court_office_bootstrap
 import court_dispatch_hierarchy
-from checks.installed_identity_fixture import FIXTURE_DIGEST, write_identity
 
 
 CANONICAL_OFFICES = (
@@ -48,20 +47,8 @@ EXACT_BINDING_LINK = "[court-office-name-profile-skill-binding.md](sections/cour
 EXACT_TASK_NAME_STATEMENT = "task_name is routing metadata; name_binding does not prove profile_binding or skill_binding."
 
 
-def sha256(path: Path) -> str:
-    # A fixture declaration, never a digest of real source/installed files.
-    return FIXTURE_DIGEST
 
 
-def canonical_json_sha256(value: object) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
 
 
 def write_profile(root: Path, role: str, *, role_key: str | None = None, office_zh: str = "官署", direct_superior: str = "shangshu") -> Path:
@@ -81,10 +68,9 @@ def fixture_skill_requirements(root: Path) -> list[dict[str, str]]:
     tdd = root / "test-driven-development" / "SKILL.md"
     tdd.parent.mkdir(parents=True, exist_ok=True)
     tdd.write_text("# tdd fixture\n", encoding="utf-8")
-    write_identity(tdd.parent, ["SKILL.md"])
     return [
-        {"name": "decretum-matrix", "source": str(court.resolve()), "sha256": sha256(court), "purpose": "governing court workflow", "ack_name": "decretum-matrix", "ack_sha256": sha256(court)},
-        {"name": "test-driven-development", "source": str(tdd.resolve()), "sha256": sha256(tdd), "purpose": "RED-GREEN implementation discipline", "ack_name": "test-driven-development", "ack_sha256": sha256(tdd)},
+        {"name": "decretum-matrix", "source": str(court), "purpose": "governing court workflow", "ack_name": "decretum-matrix"},
+        {"name": "test-driven-development", "source": str(tdd.resolve()), "purpose": "bounded implementation", "ack_name": "test-driven-development"},
     ]
 
 
@@ -123,13 +109,9 @@ def check_canonical_table(build: object, profile_root: Path, skills: list[dict[s
         assert binding["office_execution_ready"] is True
         fixture_profile = (profile_root / f"{role}.toml").resolve()
         assert binding["profile_source"] == str(fixture_profile)
-        assert binding["profile_hash"] == sha256(fixture_profile)
-        assert binding["profile_hash"] == str(binding["profile_hash"]).lower()
         returned_skills = binding["required_skill_bindings"]
         assert isinstance(returned_skills, list)
-        assert [(item["ack_name"], item["ack_sha256"]) for item in returned_skills] == [
-            (item["name"], item["sha256"]) for item in skills
-        ]
+        assert [item["ack_name"] for item in returned_skills] == [item["name"] for item in skills]
 
     workshop = build(  # type: ignore[operator]
         role_key="gongbu",
@@ -207,236 +189,52 @@ def check_profile_rejects(build: object, root: Path, skills: list[dict[str, str]
 
 
 def check_skill_rejects(build: object, profile_root: Path, skills: list[dict[str, str]], root: Path) -> None:
-    def call(requirements: list[dict[str, str]]) -> object:
-        return build(  # type: ignore[operator]
-            role_key="gongbu", collaboration_task_name="gongbu_runtime", court_agent_id="gongbu-1",
-            requires_gongjiang=False, skill_requirements=requirements, profile_root=profile_root,
-        )
-
+    def call(requirements):
+        return build(role_key="gongbu", collaboration_task_name="gongbu_runtime", court_agent_id="gongbu-1", requires_gongjiang=False, skill_requirements=requirements, profile_root=profile_root)
     assert_reason(lambda: call(skills[1:]), "required_court_skill_missing")
-    attacker = root / "attacker" / "court-capability-router" / "SKILL.md"
+    attacker = root / "attacker" / "SKILL.md"
     attacker.parent.mkdir(parents=True)
-    attacker.write_text("# attacker court skill\n", encoding="utf-8")
-    alternate_court = dict(skills[0])
-    alternate_court.update(source=str(attacker.resolve()), sha256=sha256(attacker), ack_sha256=sha256(attacker))
-    assert_reason(lambda: call([alternate_court, skills[1]]), "court_skill_source_mismatch")
-    conflict = [dict(skills[0]), dict(skills[0])]
-    other = root / "other-skill.md"; other.write_text("other\n", encoding="utf-8")
-    conflict[1].update(source=str(other.resolve()), sha256=sha256(other), ack_sha256=sha256(other))
+    attacker.write_text("# attacker", encoding="utf-8")
+    assert_reason(lambda: call([{**skills[0], "source": str(attacker.resolve())}, skills[1]]), "court_skill_source_mismatch")
+    conflict = [dict(skills[0]), {**skills[0], "purpose": "different request"}]
     assert_reason(lambda: call(conflict), "skill_binding_conflict")
-    missing = dict(skills[1]); missing["source"] = str((root / "absent" / "SKILL.md").resolve())
-    assert_reason(lambda: call([skills[0], missing]), "required_skill_missing")
-    wrong = dict(skills[1]); wrong["sha256"] = "0" * 64
-    assert_reason(lambda: call([skills[0], wrong]), "skill_ack_incomplete")
-    wrong["ack_sha256"] = wrong["sha256"]
-    declared = call([skills[0], wrong])
-    assert declared["required_skill_bindings"][1]["identity_basis"] == "CALLER_DECLARED"
-    assert declared["required_skill_bindings"][1]["current_file_verification"] == "NOT_PERFORMED"
-    assert call(skills)["required_skill_bindings"][0]["identity_basis"] == "INSTALLATION_DECLARED"
-    wrong_court = {**skills[0], "sha256": "0" * 64, "ack_sha256": "0" * 64}
-    assert_reason(lambda: call([wrong_court]), "required_skill_hash_mismatch")
-    incomplete = [dict(item) for item in skills]; incomplete[1].pop("ack_sha256")
+    assert_reason(lambda: call([skills[0], {**skills[1], "source": str((root / "absent.md").resolve())}]), "required_skill_missing")
+    assert_reason(lambda: call([skills[0], {**skills[1], "ack_name": "wrong"}]), "skill_ack_incomplete")
+    incomplete = [dict(item) for item in skills]
+    incomplete[1].pop("ack_name")
     assert_reason(lambda: call(incomplete), "skill_ack_incomplete")
-    wrong_ack_hash = [dict(item) for item in skills]; wrong_ack_hash[1]["ack_sha256"] = "f" * 64
-    assert_reason(lambda: call(wrong_ack_hash), "skill_ack_incomplete")
-    wrong_ack_name = [dict(item) for item in skills]; wrong_ack_name[1]["ack_name"] = "writing-plans"
-    assert_reason(lambda: call(wrong_ack_name), "skill_ack_incomplete")
-    assert_reason(lambda: call(tuple(skills)), "skill_binding_invalid")  # type: ignore[arg-type]
+    assert_reason(lambda: call(tuple(skills)), "skill_binding_invalid")
+    assert all(set(item) == {"name", "source", "purpose", "ack_name"} for item in call(skills)["required_skill_bindings"])
 
 
 def check_public_signatures() -> None:
     load = court_office_bootstrap.load_standing_profile_binding
-    load_signature = inspect.signature(load)
-    assert list(load_signature.parameters) == ["role_key", "profile_root"]
-    assert load_signature.parameters["profile_root"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert load_signature.parameters["profile_root"].default == court_office_bootstrap.PROFILE_ROOT
+    assert list(inspect.signature(load).parameters) == ["role_key", "profile_root"]
     assert get_type_hints(load)["profile_root"] is Path
-
     validate = court_office_bootstrap.validate_skill_requirements
     assert get_type_hints(validate)["requirements"] == list[dict[str, str]]
     build = court_office_bootstrap.build_office_assignment_binding
     assert get_type_hints(build)["skill_requirements"] == list[dict[str, str]]
-    digest = court_office_bootstrap.canonical_child_office_binding_sha256
-    digest_signature = inspect.signature(digest)
-    assert list(digest_signature.parameters) == ["binding"]
-    assert get_type_hints(digest)["return"] is str
+    assert list(inspect.signature(court_office_bootstrap.build_child_office_profile).parameters) == ["binding", "child_role", "case_ref", "semantic_receipt_id", "expires_at_utc"]
 
 
 def check_child_office_profile_builder() -> None:
-    build = getattr(court_office_bootstrap, "build_child_office_profile", None)
-    assert callable(build), "build_child_office_profile is missing"
-    binding = {
-        "role": "gongbu",
-        "instance_id": "gongbu-worker-0001",
-        "instance_kind": "office_worker_instance",
-        "canonical_authority": False,
-        "owner_role": "gongbu",
-        "direct_superior": "gongbu",
-        "bounded_mandate": "implement one bounded Gongbu shard",
-        "expected_result": "return one structured implementation receipt",
-        "read_scope": ["work/gongbu/input.txt"],
-        "write_set": ["work/gongbu/worker-0001.txt"],
-        "task_id": "child-profile-builder-check",
-        "dispatch_uid": "DSP-CHILD-PROFILE-BUILDER-0001",
-        "shard_id": "gongbu-worker-0001",
-        "attempt": 1,
-        "terminal_condition": "stop after the bounded receipt is accepted",
-    }
-    build_kwargs = {
-        "child_role": "GongBu-GongJiang",
-        "profile_sha256": "A" * 64,
-        "dossier_sha256": "B" * 64,
-        "skill_sha256": "C" * 64,
-        "dispatch_context_packet_sha256": "D" * 64,
-        "semantic_receipt_sha256": "E" * 64,
-        "invariant_capsule_sha256": "F" * 64,
-        "expires_at_utc": "2099-01-01T00:00:00Z",
-    }
-    profile = build(binding, **build_kwargs)
-    required_fields = {
-        "schema",
-        "child_role",
-        "role_key",
-        "office_instance_id",
-        "owner_role",
-        "direct_superior",
-        "canonical_authority",
-        "instance_kind",
-        "bounded_mandate",
-        "expected_result",
-        "read_scope",
-        "write_set",
-        "task_id",
-        "dispatch_uid",
-        "shard_id",
-        "attempt",
-        "profile_sha256",
-        "dossier_sha256",
-        "skill_sha256",
-        "expires_at_utc",
-        "terminal_condition",
-        "dispatch_context_packet_schema",
-        "dispatch_context_packet_sha256",
-        "semantic_receipt_sha256",
-        "invariant_capsule_schema",
-        "invariant_capsule_sha256",
-    }
-    assert required_fields == set(profile)
-    assert all(
-        profile[field] == expected
-        for field, expected in (
-            ("profile_sha256", "a" * 64),
-            ("dossier_sha256", "b" * 64),
-            ("skill_sha256", "c" * 64),
-            ("dispatch_context_packet_sha256", "d" * 64),
-            ("semantic_receipt_sha256", "e" * 64),
-            ("invariant_capsule_sha256", "f" * 64),
-        )
-    )
-    canonical_digest = canonical_json_sha256(profile)
-    reordered_binding = {
-        key: binding[key]
-        for key in reversed(tuple(binding))
-    }
-    reordered_binding["read_scope"] = tuple(binding["read_scope"])
-    reordered_binding["write_set"] = tuple(binding["write_set"])
-    rebuilt = build(reordered_binding, **build_kwargs)
-    assert rebuilt == profile
-    assert canonical_json_sha256(rebuilt) == canonical_digest
-    full_binding = {
-        **reordered_binding,
-        "access_mode": "write",
-        "mutation_allowed": True,
-        "integration_authority": False,
-        "worktree": ".",
-        "child_profile": profile,
-    }
-    digest_binding = court_office_bootstrap.canonical_child_office_binding_sha256
-    full_binding_digest = digest_binding(full_binding)
-    assert full_binding_digest == canonical_json_sha256(full_binding)
-    assert digest_binding(dict(reversed(tuple(full_binding.items())))) == full_binding_digest
-    persisted_round_trip = json.loads(json.dumps(full_binding, ensure_ascii=False))
-    assert digest_binding(persisted_round_trip) == full_binding_digest
-
-    binding["bounded_mandate"] = "silently widened after profile generation"
-    binding["read_scope"][0] = "work/gongbu/widened-input.txt"
-    binding["write_set"].append("work/gongbu/widened-output.txt")
-    assert profile["bounded_mandate"] == "implement one bounded Gongbu shard"
-    assert profile["read_scope"] == ["work/gongbu/input.txt"]
-    assert profile["write_set"] == ["work/gongbu/worker-0001.txt"]
-    assert canonical_json_sha256(profile) == canonical_digest
-
-    tampered = dict(profile)
-    tampered["write_set"] = ["work/gongbu/widened-output.txt"]
-    assert canonical_json_sha256(tampered) != canonical_digest
-    synchronized_tamper = dict(full_binding)
-    synchronized_tamper["write_set"] = ["work/gongbu/widened-output.txt"]
-    synchronized_tamper["child_profile"] = tampered
-    assert digest_binding(synchronized_tamper) != full_binding_digest
-    future_field = dict(full_binding)
-    future_field["future_bound_evidence"] = {"sequence": 1}
-    assert digest_binding(future_field) != full_binding_digest
-    missing_profile = dict(full_binding)
-    missing_profile.pop("child_profile")
-    assert_reason(
-        lambda: digest_binding(missing_profile),
-        "child_office_binding_digest_child_profile_required",
-    )
-    non_canonical_value = dict(full_binding)
-    non_canonical_value["unsupported"] = object()
-    assert_reason(
-        lambda: digest_binding(non_canonical_value),
-        "child_office_binding_digest_non_canonical_value",
-    )
-
-    nul_scope = dict(reordered_binding)
-    nul_scope["read_scope"] = ["work/gongbu/input\x00.txt"]
-    assert_reason(
-        lambda: build(nul_scope, **build_kwargs),
-        "read_scope_unbounded",
-    )
-    semantic_override = dict(reordered_binding)
-    semantic_override["child_charter"] = "second authority"
-    assert_reason(
-        lambda: build(semantic_override, **build_kwargs),
-        "child_profile_semantic_authority_override",
-    )
-    cross_owner = dict(reordered_binding)
-    cross_owner["owner_role"] = "hubu"
-    assert_reason(
-        lambda: build(cross_owner, **build_kwargs),
-        "child_profile_owner_mismatch",
-    )
-
-    profile = build(
-        reordered_binding,
-        child_role="GongBu-GongJiang",
-        profile_sha256="1" * 64,
-        dossier_sha256="2" * 64,
-        skill_sha256="3" * 64,
-        dispatch_context_packet_sha256="4" * 64,
-        semantic_receipt_sha256="5" * 64,
-        invariant_capsule_sha256="6" * 64,
-        expires_at_utc="2099-01-01T00:00:00Z",
-    )
+    build = court_office_bootstrap.build_child_office_profile
+    binding = {"role": "gongbu", "instance_id": "gongbu-worker-0001", "instance_kind": "office_worker_instance", "canonical_authority": False, "owner_role": "gongbu", "direct_superior": "gongbu", "bounded_mandate": "bounded shard", "expected_result": "return report", "read_scope": ["work/input.txt"], "write_set": ["work/output.txt"], "task_id": "child-profile-builder-check", "dispatch_uid": "DSP-CHILD-PROFILE-BUILDER-0001", "shard_id": "gongbu-worker-0001", "attempt": 1, "terminal_condition": "stop after accepted report"}
+    options = {"child_role": "GongBu-GongJiang", "case_ref": {"court_code": "COURT-FIXTURE-1", "charter_revision": 1}, "semantic_receipt_id": "SEM-FIXTURE-1", "expires_at_utc": "2099-01-01T00:00:00Z"}
+    profile = build(binding, **options)
     assert profile["schema"] == "court.child_office_profile.v1"
-    assert profile["child_role"] == "GongBu-GongJiang"
-    assert profile["role_key"] == "gongbu"
-    assert profile["owner_role"] == "gongbu"
-    assert profile["direct_superior"] == "gongbu"
-    assert profile["canonical_authority"] is False
-    assert profile["dispatch_context_packet_schema"] == "court.semantic.dispatch_context_packet.v1"
-    assert profile["invariant_capsule_schema"] == "court.semantic.invariant_capsule.v1"
-    decision = court_dispatch_hierarchy.validate_dispatch_hierarchy(
-        action="dispatch",
-        calling_office="gongbu",
-        target_role="gongbu",
-        target_direct_superior="gongbu",
-        instance_kind="office_worker_instance",
-        canonical_authority=False,
-        owner_role="gongbu",
-        child_profile=profile,
-    )
+    assert profile["case_ref"] == options["case_ref"] and profile["semantic_receipt_id"] == options["semantic_receipt_id"]
+    rebuilt = build(dict(reversed(tuple(binding.items()))), **options)
+    assert rebuilt == profile
+    original_profile = json.loads(json.dumps(profile))
+    binding["read_scope"].append("work/changed.txt")
+    assert profile == original_profile
+    assert_reason(lambda: build({**binding, "read_scope": ["../outside"]}, **options), "read_scope_unbounded")
+    assert_reason(lambda: build({**binding, "owner_role": "hubu"}, **options), "child_profile_owner_mismatch")
+    assert_reason(lambda: build({**binding, "child_charter": "second authority"}, **options), "child_profile_semantic_authority_override")
+    assert_reason(lambda: build(binding, **{**options, "case_ref": {"court_code": "", "charter_revision": 1}}), "child_profile_case_ref_invalid")
+    decision = court_dispatch_hierarchy.validate_dispatch_hierarchy(action="dispatch", calling_office="gongbu", target_role="gongbu", target_direct_superior="gongbu", instance_kind="office_worker_instance", canonical_authority=False, owner_role="gongbu", child_profile=profile)
     assert decision.allowed is True, decision.reason_codes
 
 
@@ -481,8 +279,7 @@ def run_office_assignment_binding_checks() -> None:
             write_profile(profiles, role, office_zh=office_zh, direct_superior=direct_superior)
         skill = root / "SKILL.md"
         skill.write_text("# Isolated court fixture\n", encoding="utf-8")
-        write_identity(root, ["SKILL.md", *[f"agents/standing-officials/{row[0]}.toml" for row in CANONICAL_OFFICES]])
-        with patch.object(court_office_bootstrap, "SKILL_PATH", skill), patch.object(Path, "read_bytes", side_effect=AssertionError("runtime file bytes read")), patch.object(court_office_bootstrap, "sha256_file", side_effect=AssertionError("runtime file rehash")):
+        with patch.object(court_office_bootstrap, "SKILL_PATH", skill), patch.object(Path, "read_bytes", side_effect=AssertionError("runtime file bytes read")), patch.object(hashlib, "sha256", side_effect=AssertionError("runtime identity calculation")):
             skills = fixture_skill_requirements(root / "skills")
             check_canonical_table(build, profiles, skills[:1])
             check_name_rejects(build, profiles, skills[:1])

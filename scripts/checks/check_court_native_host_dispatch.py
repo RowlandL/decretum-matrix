@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
-import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -21,6 +20,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from court_native_execution import select_native_execution
+from court_case_binding import office_capsule_reference
+from court_native_host_dispatch import native_request_reference
 
 
 BRIDGE_PATH = SCRIPTS / "court_native_host_dispatch.py"
@@ -41,8 +42,8 @@ REQUEST_BINDING_FIELDS = (
     "instance_id",
     "direct_superior",
     "semantic_epoch",
-    "charter_sha256",
-    "invariant_capsule_sha256",
+    "case_ref",
+    "office_capsule_ref",
     "lease_id",
     "assignment",
     "duty_scope",
@@ -74,14 +75,14 @@ def _request(*, role: str = "gongbu", suffix: str = "01") -> dict[str, object]:
         "schema": "court.native_host_dispatch_request.v1",
         "task_id": f"task-native-host-{suffix}",
         "wave_id": f"wave-{suffix}",
-        "dispatch_uid": f"dispatch-{suffix}",
+        "dispatch_uid": "DSP-" + uuid.uuid4().hex,
         "attempt": 1,
         "role": role,
         "instance_id": f"{role}-{suffix}",
         "direct_superior": "shangshu",
         "semantic_epoch": 7,
-        "charter_sha256": "c" * 64,
-        "invariant_capsule_sha256": "e" * 64,
+        "case_ref": {"court_code": "ZL-20260906-0001-TEST", "charter_revision": 7},
+        "office_capsule_ref": office_capsule_reference({"court_code": "ZL-20260906-0001-TEST", "charter_revision": 7}, role, f"{role}-{suffix}", "2026-09-06T14:18:00+08:00"),
         "lease_id": f"lease-{suffix}",
         "assignment": "implement bounded native host dispatch",
         "duty_scope": ["scripts/court_native_host_dispatch.py"],
@@ -89,13 +90,13 @@ def _request(*, role: str = "gongbu", suffix: str = "01") -> dict[str, object]:
         "role_ack": {
             "role": role,
             "direct_superior": "shangshu",
-            "profile_sha256": "b" * 64,
-            "dossier_sha256": "d" * 64,
+            "profile_source": "agents/standing-officials/gongbu.toml",
+            "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
+            "court_skill_path": "SKILL.md",
         },
         "admission_anchor": {
             "schema": "court.agent.admission_receipt.v1",
             "receipt_id": f"admit-{suffix}",
-            "receipt_sha256": "a" * 64,
         },
         "compatible_live_instances": [],
     }
@@ -119,8 +120,7 @@ def _compatible_candidate(
         "duty_scope": deepcopy(request["duty_scope"]),
         "semantic_receipt": {
             "semantic_epoch": request["semantic_epoch"],
-            "charter_sha256": request["charter_sha256"],
-            "invariant_capsule_sha256": request["invariant_capsule_sha256"],
+            "case_ref": request["case_ref"],
         },
         "lease_id": request["lease_id"],
         "write_set": deepcopy(request["write_set"]),
@@ -244,16 +244,6 @@ def _receipt(result: object | None) -> dict[str, object] | None:
     return candidate if isinstance(candidate, dict) else None
 
 
-def _canonical_sha256(value: object) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
-
-
 def _validation_accepts(
     validate: object,
     receipt: dict[str, object],
@@ -286,12 +276,11 @@ def _check_receipt_contract(
     required_fields = {
         "schema",
         "receipt_id",
-        "receipt_sha256",
         "decision",
         "host_action",
         "outcome",
-        "request_sha256",
-        "result_sha256",
+        "request_ref",
+        "host_result",
         "acted_at",
         *REQUEST_BINDING_FIELDS,
         *HOST_BINDING_FIELDS,
@@ -310,10 +299,10 @@ def _check_receipt_contract(
             failures.append(f"native_host_action_receipt_semantics_mismatch:{field}")
     if receipt.get("action") == "refusal":
         failures.append("native_host_refusal_encoded_as_action")
-    if receipt.get("request_sha256") != _canonical_sha256(request):
-        failures.append("native_host_action_receipt_request_sha256_mismatch")
-    if receipt.get("result_sha256") != _canonical_sha256(host_response):
-        failures.append("native_host_action_receipt_result_sha256_mismatch")
+    if receipt.get("request_ref") != native_request_reference(request):
+        failures.append("native_host_action_receipt_request_ref_mismatch")
+    if receipt.get("host_result") != host_response:
+        failures.append("native_host_action_receipt_host_result_mismatch")
     if not isinstance(receipt.get("acted_at"), str) or not receipt.get("acted_at"):
         failures.append("native_host_action_receipt_acted_at_missing")
     for field in REQUEST_BINDING_FIELDS:
@@ -346,8 +335,8 @@ def _check_receipt_contract(
         ("instance_id", "other-instance"),
         ("direct_superior", "taizi"),
         ("semantic_epoch", 8),
-        ("charter_sha256", "f" * 64),
-        ("invariant_capsule_sha256", "f" * 64),
+        ("case_ref", {"court_code": "ZL-20260906-0002-TEST", "charter_revision": 7}),
+        ("office_capsule_ref", {}),
         ("lease_id", "other-lease"),
         ("assignment", "unrelated assignment"),
         ("duty_scope", ["scripts/unrelated.py"]),
@@ -357,22 +346,22 @@ def _check_receipt_contract(
             {
                 "role": "gongbu",
                 "direct_superior": "taizi",
-                "profile_sha256": "b" * 64,
-                "dossier_sha256": "d" * 64,
+                "profile_source": "agents/standing-officials/gongbu.toml",
+                "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
+            "court_skill_path": "SKILL.md",
             },
         ),
         ("decision", "reuse" if decision == "spawn" else "spawn"),
         ("host_action", "followup" if host_action == "spawn" else "spawn"),
         ("outcome", "refused" if outcome == "succeeded" else "succeeded"),
-        ("request_sha256", "1" * 64),
-        ("result_sha256", "2" * 64),
-        ("acted_at", "1900-01-01T00:00:00Z"),
+        ("request_ref", {}),
+        ("host_result", {}),
+        ("acted_at", "invalid-time"),
         ("host_task_id", "other-host-task"),
         ("host_thread_id", "other-host-thread"),
         ("host_instance_id", "other-host-instance"),
         ("host_action_id", "other-host-action"),
         ("receipt_id", "other-receipt"),
-        ("receipt_sha256", "0" * 64),
     ):
         candidate = deepcopy(receipt)
         candidate[field] = value
@@ -380,7 +369,7 @@ def _check_receipt_contract(
     anchor_tamper = deepcopy(receipt)
     anchor = deepcopy(anchor_tamper.get("admission_anchor", {}))
     if isinstance(anchor, dict):
-        anchor["receipt_sha256"] = "b" * 64
+        anchor["receipt_id"] = "unrelated-admission"
     anchor_tamper["admission_anchor"] = anchor
     tamper_cases.append(("admission_anchor", anchor_tamper))
     for field, candidate in tamper_cases:
@@ -691,8 +680,7 @@ def evaluate_bridge_contract(bridge: object) -> tuple[list[str], dict[str, objec
             "role",
             "direct_superior",
             "semantic_epoch",
-            "charter_sha256",
-            "invariant_capsule_sha256",
+            "case_ref",
             "lease_id",
             "write_set",
             "role_ack",
@@ -836,7 +824,6 @@ def evaluate_bridge_contract(bridge: object) -> tuple[list[str], dict[str, objec
         )
         if isinstance(receipt, dict) and (
             dynamic_receipt.get("receipt_id") == receipt.get("receipt_id")
-            or dynamic_receipt.get("receipt_sha256") == receipt.get("receipt_sha256")
         ):
             failures.append("native_host_constant_receipt_reused")
 

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-import hashlib
-import json
 from pathlib import Path, PurePosixPath
 import re
 import sys
@@ -26,7 +24,6 @@ PROFILE_ROOT = ROOT / "agents" / "standing-officials"
 ORDINARY_DOSSIER_ROOT = ROOT / "agents" / "office-dossiers"
 SKILL_PATH = ROOT / "SKILL.md"
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]*$")
-SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 PRELOAD_ACK_SCHEMA = "court.office.preload_ack.v1"
 COURT_SKILL_NAME = "decretum-matrix"
 LEGACY_TECHNICAL_LOCATOR_NAME = "court-capability-router"
@@ -64,62 +61,17 @@ class OfficePreloadManifest:
     office_zh: str
     direct_superior: str
     profile_source: str
-    profile_hash: str
     dossier_path: str
-    dossier_hash: str
     court_skill_name: str
     court_skill_path: str
-    court_skill_hash: str
+    court_code: str | None = None
     preload_ack_schema: str = PRELOAD_ACK_SCHEMA
 
 
-def sha256_file(path: Path) -> str:
-    """Compatibility entry: consume an installation pin, never hash file bytes."""
-    return installed_file_sha256(path)
 
 
-def installed_file_sha256(
-    path: Path,
-    *,
-    skill_root: Path = ROOT,
-    expected_identity_sha256: str | None = None,
-) -> str:
-    """Read an installer-declared digest; absence requires an install update.
-
-    Runtime checks shape, portable locator and supplied binding strings only.
-    Neither an installed file nor its identity document may be rehashed, even
-    after JSON serialization. Missing pins require an installation update.
-    """
-    root = Path(skill_root).resolve()
-    try:
-        relative = Path(path).resolve().relative_to(root).as_posix()
-    except ValueError as exc:
-        raise ValueError("installed_identity_path_outside_root") from exc
-    try:
-        document = json.loads((root / INSTALLED_PRELOAD_IDENTITY).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError("installed_preload_identity_missing_or_invalid") from exc
-    if (
-        not isinstance(document, dict)
-        or document.get("schema") != INSTALLED_PRELOAD_SCHEMA
-        or document.get("authority") != "installer"
-        or document.get("status") != "INSTALLATION_PINNED"
-        or not isinstance(document.get("file_sha256"), dict)
-    ):
-        raise ValueError("installed_preload_identity_invalid")
-    declared = _canonical_sha256(document.get("identity_sha256"), "identity_sha256")
-    if expected_identity_sha256 is not None and declared != _canonical_sha256(expected_identity_sha256, "expected_identity_sha256"):
-        raise ValueError("installed_preload_identity_binding_mismatch")
-    if relative == INSTALLED_PRELOAD_IDENTITY or relative not in document["file_sha256"]:
-        raise ValueError("installed_file_identity_missing:" + relative)
-    return _canonical_sha256(document["file_sha256"][relative], "installed_file_sha256")
 
 
-def _canonical_sha256(value: object, field: str) -> str:
-    text = str(value or "").strip()
-    if not SHA256_RE.fullmatch(text):
-        raise ValueError(f"{field} must be a SHA256 digest")
-    return text.lower()
 
 
 def load_standing_profile_binding(
@@ -161,7 +113,6 @@ def load_standing_profile_binding(
     )
     return {
         "profile_source": profile_source,
-        "profile_hash": installed_file_sha256(resolved, skill_root=root.parent.parent),
         "office_zh": office_zh.strip(),
         "direct_superior": direct_superior.strip(),
     }
@@ -172,19 +123,17 @@ def validate_skill_requirements(requirements: list[dict[str, str]]) -> list[dict
         raise ValueError("skill_binding_invalid")
     validated: list[dict[str, str]] = []
     by_name: dict[str, dict[str, str]] = {}
-    required_fields = ("name", "source", "sha256", "purpose", "ack_name", "ack_sha256")
+    required_fields = ("name", "source", "purpose", "ack_name")
     for raw in requirements:
         if not isinstance(raw, dict) or any(not isinstance(raw.get(field), str) or not raw[field].strip() for field in required_fields):
             raise ValueError("skill_ack_incomplete")
         item = {field: raw[field].strip() for field in required_fields}
-        if not re.fullmatch(r"[0-9a-f]{64}", item["sha256"]):
-            raise ValueError("skill_ack_incomplete")
         source = Path(item["source"])
         if not source.is_absolute() or str(source.resolve()) != item["source"]:
             raise ValueError("skill_source_not_resolved")
         if not source.is_file():
             raise ValueError("required_skill_missing")
-        if item["ack_name"] != item["name"] or item["ack_sha256"] != item["sha256"]:
+        if item["ack_name"] != item["name"]:
             raise ValueError("skill_ack_incomplete")
         if item["name"] == LEGACY_TECHNICAL_LOCATOR_NAME:
             item["name"] = COURT_SKILL_NAME
@@ -202,18 +151,6 @@ def validate_skill_requirements(requirements: list[dict[str, str]]) -> list[dict
     authoritative_court = SKILL_PATH.resolve()
     if Path(court["source"]).resolve() != authoritative_court:
         raise ValueError("court_skill_source_mismatch")
-    for item in validated:
-        source = Path(item["source"])
-        item["current_file_verification"] = "NOT_PERFORMED"
-        # Preserve custom skill paths without promoting a caller-owned sidecar
-        # or a matching acknowledgement into installation verification.
-        if item["name"] != COURT_SKILL_NAME:
-            item["identity_basis"] = "CALLER_DECLARED"
-            continue
-        item["identity_basis"] = "INSTALLATION_DECLARED"
-        authoritative_hash = installed_file_sha256(source, skill_root=authoritative_court.parent)
-        if item["sha256"] != authoritative_hash:
-            raise ValueError("required_skill_hash_mismatch")
     return validated
 
 
@@ -240,64 +177,32 @@ def _bounded_profile_paths(value: object, field: str) -> list[str]:
     return normalized
 
 
-def _canonical_child_binding_value(value: object) -> object:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Mapping):
-        normalized: dict[str, object] = {}
-        for key, item in value.items():
-            if not isinstance(key, str) or not key:
-                raise ValueError("child_office_binding_digest_non_canonical_value")
-            normalized[key] = _canonical_child_binding_value(item)
-        return normalized
-    if isinstance(value, (list, tuple)):
-        return [_canonical_child_binding_value(item) for item in value]
-    raise ValueError("child_office_binding_digest_non_canonical_value")
 
 
-def canonical_child_office_binding_sha256(binding: Mapping[str, object]) -> str:
-    """Hash every field of one complete child-office binding as canonical JSON."""
-
-    if not isinstance(binding, Mapping) or not binding:
-        raise ValueError("child_office_binding_digest_binding_required")
-    child_profile = binding.get("child_profile")
-    if (
-        not isinstance(child_profile, Mapping)
-        or child_profile.get("schema") != "court.child_office_profile.v1"
-    ):
-        raise ValueError("child_office_binding_digest_child_profile_required")
-    normalized = _canonical_child_binding_value(binding)
-    try:
-        payload = json.dumps(
-            normalized,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "child_office_binding_digest_non_canonical_value"
-        ) from exc
-    return hashlib.sha256(payload).hexdigest()
 
 
 def build_child_office_profile(
     binding: Mapping[str, object],
     *,
     child_role: str,
-    profile_sha256: str,
-    dossier_sha256: str,
-    skill_sha256: str,
-    dispatch_context_packet_sha256: str,
-    semantic_receipt_sha256: str,
-    invariant_capsule_sha256: str,
+    case_ref: Mapping[str, object],
+    semantic_receipt_id: str,
     expires_at_utc: str,
 ) -> dict[str, object]:
     """Generate one bounded non-canonical ministry child profile."""
 
     if not isinstance(binding, Mapping):
         raise ValueError("child_profile_binding_required")
+    if (
+        not isinstance(case_ref, Mapping) or set(case_ref) != {"court_code", "charter_revision"}
+        or not isinstance(case_ref.get("court_code"), str) or not case_ref["court_code"].strip()
+        or type(case_ref.get("charter_revision")) is not int or case_ref["charter_revision"] < 1
+    ):
+        raise ValueError("child_profile_case_ref_invalid")
+    if binding.get("case_ref") is not None and binding["case_ref"] != dict(case_ref):
+        raise ValueError("child_profile_case_ref_mismatch")
+    if not isinstance(semantic_receipt_id, str) or not semantic_receipt_id.strip():
+        raise ValueError("child_profile_semantic_receipt_id_required")
     forbidden = {
         "second_invariant_capsule",
         "second_semantic_receipt",
@@ -360,25 +265,12 @@ def build_child_office_profile(
         "dispatch_uid": normalized_text["dispatch_uid"],
         "shard_id": normalized_text["shard_id"],
         "attempt": attempt,
-        "profile_sha256": _canonical_sha256(profile_sha256, "profile_sha256"),
-        "dossier_sha256": _canonical_sha256(dossier_sha256, "dossier_sha256"),
-        "skill_sha256": _canonical_sha256(skill_sha256, "skill_sha256"),
+        "case_ref": dict(case_ref),
         "expires_at_utc": normalized_text["expires_at_utc"],
         "terminal_condition": normalized_text["terminal_condition"],
         "dispatch_context_packet_schema": "court.semantic.dispatch_context_packet.v1",
-        "dispatch_context_packet_sha256": _canonical_sha256(
-            dispatch_context_packet_sha256,
-            "dispatch_context_packet_sha256",
-        ),
-        "semantic_receipt_sha256": _canonical_sha256(
-            semantic_receipt_sha256,
-            "semantic_receipt_sha256",
-        ),
+        "semantic_receipt_id": semantic_receipt_id,
         "invariant_capsule_schema": "court.semantic.invariant_capsule.v1",
-        "invariant_capsule_sha256": _canonical_sha256(
-            invariant_capsule_sha256,
-            "invariant_capsule_sha256",
-        ),
     }
 
 
@@ -472,6 +364,7 @@ def build_preload_manifest(
     carrier_kind: str = "child_agent",
     supercc_enabled: bool = False,
     skill_root: Path = ROOT,
+    court_code: str | None = None,
 ) -> OfficePreloadManifest:
     dossier_locator = resolve_office_dossier_locator(
         role,
@@ -500,12 +393,10 @@ def build_preload_manifest(
         office_zh=office_zh,
         direct_superior=direct_superior,
         profile_source=PurePosixPath("agents", "standing-officials", f"{role}.toml").as_posix(),
-        profile_hash=installed_file_sha256(profile_path, skill_root=root),
         dossier_path=dossier_locator.as_posix(),
-        dossier_hash=installed_file_sha256(dossier, skill_root=root),
         court_skill_name=COURT_SKILL_NAME,
         court_skill_path="SKILL.md",
-        court_skill_hash=installed_file_sha256(skill_path, skill_root=root),
+        court_code=court_code,
     )
 
 
@@ -523,8 +414,9 @@ def build_spawn_contract(
     forbidden_actions: list[str] | tuple[str, ...],
     evidence_contract: str,
     stop_conditions: list[str] | tuple[str, ...],
+    court_code: str | None = None,
 ) -> dict[str, object]:
-    manifest = build_preload_manifest(role, carrier_kind=carrier_kind)
+    manifest = build_preload_manifest(role, carrier_kind=carrier_kind, court_code=court_code)
     normalized_assignment = str(assignment).strip()
     if not normalized_assignment or not str(evidence_contract).strip():
         raise ValueError("assignment and evidence_contract are required")
@@ -576,17 +468,18 @@ def validate_preload_ack(
     model_route: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_ack = dict(ack)
-    for field in ("profile_hash", "dossier_hash", "court_skill_hash"):
-        normalized_ack[field] = _canonical_sha256(normalized_ack.get(field), field)
+    if not isinstance(manifest.court_code, str) or not manifest.court_code.strip():
+        raise ValueError("preload_court_code_required")
     expected = {
         "schema": manifest.preload_ack_schema,
         "preload_status": "PASSED",
         "role_key": manifest.role_key,
         "office_zh": manifest.office_zh,
         "direct_superior": manifest.direct_superior,
-        "profile_hash": manifest.profile_hash,
-        "dossier_hash": manifest.dossier_hash,
-        "court_skill_hash": manifest.court_skill_hash,
+        "profile_source": manifest.profile_source,
+        "dossier_path": manifest.dossier_path,
+        "court_skill_path": manifest.court_skill_path,
+        "court_code": manifest.court_code,
         "agent_dossier_loaded": "YES",
     }
     mismatched = [key for key, value in expected.items() if normalized_ack.get(key) != value]

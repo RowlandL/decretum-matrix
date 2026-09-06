@@ -26,10 +26,8 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 from sync_codex_agents_from_profiles import (
     REQUIRED_PROFILE_FILES,
     backup_toml_tree,
-    expected_rendered_hash,
     installed_agents_root,
     render_agent_toml,
-    sha256_file,
     template_root,
     codex_home,
 )
@@ -65,7 +63,7 @@ def schema_errors(path: Path) -> list[str]:
     instructions = str(data.get("developer_instructions") or "")
     for term in (
         "preload_contract_version",
-        "court_skill_hash",
+        "court_skill_path",
         "preload_ack",
         "agent_dossier_loaded",
         "loaded_skills",
@@ -191,8 +189,6 @@ def validate_installed_agents(agents_dir: Path | None = None, templates_dir: Pat
     for name in REQUIRED_PROFILE_FILES:
         template = templates / name
         installed = agents / name
-        expected_hash = expected_rendered_hash(template) if template.exists() else None
-        installed_hash = None  # Generated role file has no installation digest.
         content_matches = installed.is_file() and template.is_file() and installed.read_text(encoding="utf-8") == render_agent_toml(template)
         if not installed.exists():
             status = "missing_installed_agent"
@@ -206,9 +202,6 @@ def validate_installed_agents(agents_dir: Path | None = None, templates_dir: Pat
             "agent": name,
             "template_exists": template.exists(),
             "installed_exists": installed.exists(),
-            "expected_rendered_hash": expected_hash,
-            "hash_status": "UNAVAILABLE_NOT_INSTALLER_PINNED",
-            "installed_hash": installed_hash,
             "status": status,
         }
         sync_rows.append(row)
@@ -332,4 +325,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

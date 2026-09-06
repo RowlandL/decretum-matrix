@@ -38,7 +38,6 @@ import court_runtime
 CAPSULE_REQUIRED_FIELDS = {
     "schema",
     "latest_decree_anchor",
-    "latest_decree_sha256",
     "non_goals",
     "boundaries",
     "allowed_actions",
@@ -47,9 +46,9 @@ CAPSULE_REQUIRED_FIELDS = {
     "evidence_requirements",
     "stop_gates",
     "write_set",
-    "governing_hashes",
-    "charter_sha256",
+    "case_ref",
 }
+CAPSULE_TEMPLATE_FIELDS = CAPSULE_REQUIRED_FIELDS - {"case_ref"}
 
 
 def _sha256_text(value: str) -> str:
@@ -82,18 +81,15 @@ def check_public_invariant_capsule_contract() -> None:
         raise AssertionError("PUBLIC_INVARIANT_CAPSULE_VALIDATE_MISSING")
 
     schema = schema_factory()
-    if set(schema.get("required", [])) != CAPSULE_REQUIRED_FIELDS:
-        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_FIELDS_NOT_EXACT13")
+    if set(schema.get("required", [])) != CAPSULE_TEMPLATE_FIELDS:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_TEMPLATE_FIELDS_NOT_EXACT")
     if schema.get("additionalProperties") is not False:
         raise AssertionError("PUBLIC_INVARIANT_CAPSULE_SCHEMA_NOT_CLOSED")
 
     charter = "诏" * 200 + " exact UTF-8 charter suffix"
     capsule = template_factory(charter, {"write_set": ["scripts/check_semantic_continuity.py"]})
-    expected_sha256 = _sha256_text(charter)
-    if capsule.get("latest_decree_sha256") != expected_sha256:
-        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_DECREE_HASH_RULE_DRIFTED")
-    if capsule.get("charter_sha256") != expected_sha256:
-        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_CHARTER_HASH_RULE_DRIFTED")
+    if "case_ref" in capsule:
+        raise AssertionError("PUBLIC_INVARIANT_CAPSULE_TEMPLATE_PREBINDS_CASE")
     anchor = str(capsule.get("latest_decree_anchor", ""))
     if len(anchor.encode("utf-8")) > 256 or not charter.startswith(anchor):
         raise AssertionError("PUBLIC_INVARIANT_CAPSULE_UTF8_PREFIX_RULE_DRIFTED")
@@ -105,12 +101,7 @@ def check_public_invariant_capsule_contract() -> None:
         raise AssertionError("PUBLIC_INVARIANT_CAPSULE_EXCEEDS_2KIB")
 
     exact_charter = " \r\n诏令：保留前后空白与 CRLF。\r\n "
-    exact_digest = _sha256_text(exact_charter)
     exact_capsule = template_factory(exact_charter)
-    if exact_capsule.get("latest_decree_sha256") != exact_digest:
-        raise AssertionError("EXACT_CHARTER_DECREE_HASH_REWRITTEN")
-    if exact_capsule.get("charter_sha256") != exact_digest:
-        raise AssertionError("EXACT_CHARTER_HASH_REWRITTEN")
     exact_anchor = str(exact_capsule.get("latest_decree_anchor", ""))
     if not exact_charter.startswith(exact_anchor):
         raise AssertionError("EXACT_CHARTER_ANCHOR_REWRITTEN")
@@ -136,11 +127,9 @@ def _formal_gate_fixture() -> dict[str, object]:
 
 
 def _create_args(task_id: str, charter: str) -> Namespace:
-    charter_sha256 = _sha256_text(charter)
     invariant_capsule = {
         "schema": "court.semantic.invariant_capsule.v1",
         "latest_decree_anchor": charter,
-        "latest_decree_sha256": charter_sha256,
         "non_goals": ["do not expand scope"],
         "boundaries": ["TemporaryDirectory fixture only"],
         "allowed_actions": ["synthetic runtime mutation"],
@@ -149,8 +138,6 @@ def _create_args(task_id: str, charter: str) -> Namespace:
         "evidence_requirements": ["JSON receipt"],
         "stop_gates": ["semantic drift"],
         "write_set": ["scripts/court_semantic_continuity.py"],
-        "governing_hashes": {"execution_plan": _digest("execution-plan")},
-        "charter_sha256": charter_sha256,
     }
     return Namespace(
         title=task_id,
@@ -165,6 +152,9 @@ def _create_args(task_id: str, charter: str) -> Namespace:
         intake_file=None,
         invariant_capsule=invariant_capsule,
         invariant_capsule_file=None,
+        session_id=task_id + "-session",
+        authority="super",
+        behavior="serial",
     )
 
 
@@ -212,14 +202,22 @@ def _revise_args(
     old_charter: str,
     new_charter: str | None,
 ) -> Namespace:
+    from court_case_binding import case_reference
+
+    task = court_runtime.load_tasks().get(task_id)
+    if not isinstance(task, dict):
+        raise AssertionError("REVISION_FIXTURE_TASK_MISSING")
+    try:
+        revision_case_ref = case_reference(task)
+    except ValueError:
+        revision_case_ref = None
     return Namespace(
         task_id=task_id,
         correction_gate=_correction_gate_fixture(task_id),
         correction_file=None,
         expected_revision=1,
-        expected_sha256=_sha256_text(old_charter),
+        case_ref=revision_case_ref,
         new_revision=2,
-        new_sha256=_sha256_text(new_charter or "declared hash without body"),
         new_charter=new_charter,
         new_charter_file=None,
         new_invariant_capsule=(
@@ -253,16 +251,19 @@ def check_create_initializes_atomic_semantic_binding() -> None:
         problems.append("charter_revision_missing")
     if task.get("semantic_epoch") != 1:
         problems.append("semantic_epoch_missing")
-    if task.get("charter_sha256") != _sha256_text(charter):
-        problems.append("charter_sha256_mismatch")
+    if not task.get("court_code"):
+        problems.append("court_code_missing")
     if not isinstance(capsule, dict):
         problems.append("invariant_capsule_missing")
     else:
         missing = sorted(CAPSULE_REQUIRED_FIELDS - set(capsule))
         if missing:
             problems.append("invariant_capsule_fields_missing:" + ",".join(missing))
-        if capsule.get("charter_sha256") != task.get("charter_sha256"):
-            problems.append("capsule_charter_sha256_mismatch")
+        if capsule.get("case_ref") != {
+            "court_code": task.get("court_code"),
+            "charter_revision": task.get("charter_revision"),
+        }:
+            problems.append("capsule_case_ref_mismatch")
         if len(
             json.dumps(
                 capsule,
@@ -272,8 +273,6 @@ def check_create_initializes_atomic_semantic_binding() -> None:
             ).encode("utf-8")
         ) > 2048:
             problems.append("invariant_capsule_exceeds_2kib")
-        if task.get("invariant_capsule_sha256") != _canonical_sha256(capsule):
-            problems.append("invariant_capsule_sha256_mismatch")
     if task.get("charter_revision") != task.get("semantic_epoch"):
         problems.append("semantic_epoch_not_charter_revision")
     if problems:
@@ -321,32 +320,37 @@ def check_correction_requires_and_binds_charter_body() -> None:
         problems.append("charter_revision_not_incremented")
     if revised.get("semantic_epoch") != 2:
         problems.append("semantic_epoch_not_incremented")
-    if revised.get("charter_sha256") != _sha256_text(new_charter):
-        problems.append("charter_sha256_not_body_bound")
+    if not revised.get("court_code"):
+        problems.append("court_code_missing_after_correction")
     if not isinstance(capsule, dict):
         problems.append("invariant_capsule_missing_after_correction")
     else:
-        if capsule.get("charter_sha256") != revised.get("charter_sha256"):
-            problems.append("corrected_capsule_charter_sha256_mismatch")
-        if revised.get("invariant_capsule_sha256") != _canonical_sha256(capsule):
-            problems.append("corrected_capsule_sha256_mismatch")
+        if capsule.get("case_ref") != {
+            "court_code": revised.get("court_code"),
+            "charter_revision": revised.get("charter_revision"),
+        }:
+            problems.append("corrected_capsule_case_ref_mismatch")
     if revised.get("charter_revision") != revised.get("semantic_epoch"):
         problems.append("corrected_epoch_revision_mismatch")
     if problems:
         raise AssertionError("F-RED-002_CORRECTION_BINDING_MISSING " + ";".join(problems))
 
 
-def _semantic_context() -> dict[str, object]:
+def _semantic_context(task_id: str) -> dict[str, object]:
+    task = court_runtime.load_tasks().get(task_id)
+    if not isinstance(task, dict):
+        raise AssertionError("SEMANTIC_CONTEXT_TASK_MISSING")
+    from court_case_binding import case_reference, plan_reference
+
+    reference = case_reference(task)
+    plan = task.get("zhongshu_plan")
     return {
-        "authority_revision": 3,
-        "authority_sha256": _digest("authority-v3"),
-        "plan_revision": 7,
-        "plan_sha256": _digest("plan-v7"),
-        "plan_cursor": "phase1/rc2/checkpoint",
-        "git_fingerprint": _digest("git-worktree-state"),
-        "recovery_checkpoint_id": "recovery-fixture-001",
+        "authority_revision": reference["charter_revision"],
+        "case_ref": reference,
+        "plan_ref": plan_reference(plan) if isinstance(plan, dict) else None,
+        "plan_cursor": f"fixture@revision-{reference['charter_revision']}",
+        "recovery_checkpoint_id": "fixture:" + task_id,
         "shiguan_revision": 0,
-        "shiguan_fingerprint": _digest("synthetic-shiguan-none"),
     }
 
 
@@ -358,13 +362,62 @@ def _semantic_args(
 ) -> Namespace:
     return Namespace(
         task_id=task_id,
-        semantic_context=context or _semantic_context(),
+        semantic_context=context or _semantic_context(task_id),
         semantic_context_file=None,
         trigger=trigger,
         actor="taizi",
         evidence=f"semantic {trigger} fixture",
         note=f"semantic {trigger}",
     )
+
+
+def _reviewed_dispatchable_case(task_id: str, charter: str) -> dict[str, object]:
+    """Build one standard case through the existing plan/review/state gates."""
+
+    from court_case_binding import plan_reference, refresh_case_binding
+    from court_plan_artifacts import record_review, submit_plan
+
+    court_runtime.create_task(_create_args(task_id, charter))
+    for state in ("Taizi", "ThreeDepartments"):
+        transition = court_runtime.build_parser().parse_args(
+            [
+                "transition", "--task-id", task_id, "--to-state", state,
+                "--actor", "taizi", "--evidence", "semantic plan fixture",
+            ]
+        )
+        court_runtime.transition_task(transition)
+    task = court_runtime.load_tasks()[task_id]
+    document = {
+        "goal": "exercise bounded standard-office admission",
+        "non_goals": ["no external writes"],
+        "steps": [{"id": "gongbu", "role": "gongbu", "action": "validate fixture"}],
+        "acceptance": ["reviewed plan accepted"],
+        "write_set": ["scripts/court_semantic_continuity.py"],
+    }
+    producer = {"kind": "serial_inline", "agent_id": "", "evidence": "fixture plan"}
+    task = submit_plan(task, document, producer, [])
+    plan_ref = plan_reference(task["zhongshu_plan"])
+    task = record_review(task, "menxia", "approved", plan_ref, producer, [])
+    task = record_review(task, "shangshu", "dispatchable", plan_ref, producer, [])
+    task["case_binding"] = refresh_case_binding(task)
+    tasks = court_runtime.load_tasks()
+    tasks[task_id] = task
+    court_runtime.write_tasks(tasks)
+    for state in ("ThreeDepartmentsPetition", "TaiziReply", "ShangshuDispatch"):
+        transition = court_runtime.build_parser().parse_args(
+            [
+                "transition", "--task-id", task_id, "--to-state", state,
+                "--actor", "taizi", "--evidence", "semantic plan fixture",
+            ]
+        )
+        court_runtime.transition_task(transition)
+    context = _semantic_context(task_id)
+    court_runtime.semantic_checkpoint_task(
+        _semantic_args(task_id, "checkpoint", context=context)
+    )
+    return court_runtime.semantic_verify_task(
+        _semantic_args(task_id, "verify", context=context)
+    ).task
 
 
 def check_checkpoint_verify_promotes_dispatchable() -> None:
@@ -376,11 +429,12 @@ def check_checkpoint_verify_promotes_dispatchable() -> None:
             created = court_runtime.create_task(_create_args(task_id, "checkpoint charter"))
             if created.task.get("semantic_state") != "UNVERIFIED":
                 raise AssertionError("SEMANTIC_INITIAL_STATE_NOT_UNVERIFIED")
+            context = _semantic_context(task_id)
             checkpointed = court_runtime.semantic_checkpoint_task(
-                _semantic_args(task_id, "checkpoint")
+                _semantic_args(task_id, "checkpoint", context=context)
             )
             verified = court_runtime.semantic_verify_task(
-                _semantic_args(task_id, "verify")
+                _semantic_args(task_id, "verify", context=context)
             )
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
@@ -394,22 +448,19 @@ def check_checkpoint_verify_promotes_dispatchable() -> None:
     else:
         required = {
             "schema",
+            "receipt_id",
+            "receipt_sequence",
             "checkpoint_id",
             "task_id",
             "semantic_epoch",
-            "charter_sha256",
-            "invariant_capsule_sha256",
             "authority_revision",
-            "authority_sha256",
-            "plan_revision",
-            "plan_sha256",
+            "case_ref",
+            "plan_ref",
             "plan_cursor",
-            "git_fingerprint",
             "recovery_checkpoint_id",
             "shiguan_revision",
-            "shiguan_fingerprint",
-            "write_set_sha256",
-            "event_head_sha256",
+            "write_set",
+            "event_head_id",
             "trigger",
             "gate",
             "verdict",
@@ -419,7 +470,7 @@ def check_checkpoint_verify_promotes_dispatchable() -> None:
         missing = sorted(required - set(receipt))
         if missing:
             problems.append("semantic_receipt_fields_missing:" + ",".join(missing))
-        for field, value in _semantic_context().items():
+        for field, value in context.items():
             if receipt.get(field) != value:
                 problems.append(f"semantic_context_not_separate:{field}")
     if verified.task.get("semantic_state") != "DISPATCHABLE":
@@ -439,7 +490,7 @@ def check_drift_is_quarantined_before_mutation() -> None:
             court_runtime.create_task(_create_args(task_id, "drift charter"))
             court_runtime.semantic_checkpoint_task(_semantic_args(task_id, "checkpoint"))
             court_runtime.semantic_verify_task(_semantic_args(task_id, "verify"))
-            drifted_context = _semantic_context()
+            drifted_context = _semantic_context(task_id)
             drifted_context["plan_cursor"] = "phase1/rc2/unapproved-drift"
             try:
                 court_runtime.semantic_verify_task(
@@ -470,7 +521,7 @@ def check_drift_is_quarantined_before_mutation() -> None:
 
 
 def _dispatch_binding_fixture(task_id: str) -> tuple[dict[str, object], dict[str, object]]:
-    preload_hashes = court_runtime._semantic_preload_hashes("gongbu")
+    preload_sources = court_runtime._semantic_preload_sources("gongbu")
     binding: dict[str, object] = {
         "role": "gongbu",
         "instance_id": "gongbu#0001",
@@ -485,7 +536,7 @@ def _dispatch_binding_fixture(task_id: str) -> tuple[dict[str, object], dict[str
         "read_scope": ["scripts/court_semantic_continuity.py"],
         "mutation_allowed": True,
         "integration_authority": False,
-        "preload_hashes": preload_hashes,
+        "preload_sources": preload_sources,
     }
     budget_id = f"budget:{task_id}:semantic-binding"
     lease: dict[str, object] = {
@@ -527,7 +578,7 @@ def _dispatch_binding_fixture(task_id: str) -> tuple[dict[str, object], dict[str
                 "direct_superior": "shangshu",
             }
         },
-        "approved_preload_hashes": {"gongbu#0001": preload_hashes},
+        "approved_preload_sources": {"gongbu#0001": preload_sources},
     }
     return lease, binding
 
@@ -541,9 +592,9 @@ def _admit_args(task: dict[str, object]) -> Namespace:
             "agent-admit",
             "--task-id", task_id,
             "--expected-semantic-epoch", str(task["semantic_epoch"]),
-            "--expected-charter-sha256", str(task["charter_sha256"]),
-            "--expected-invariant-capsule-sha256",
-            str(task["invariant_capsule_sha256"]),
+            "--case-ref", json.dumps(
+                court_runtime.case_reference(task), ensure_ascii=False
+            ),
             "--expected-checkpoint-id", str(receipt["checkpoint_id"]),
             "--wave-id", "semantic-binding-wave",
             "--execution-topology", "parallel",
@@ -580,15 +631,12 @@ def _admit_args(task: dict[str, object]) -> Namespace:
 
 def _start_args(task: dict[str, object], admission: dict[str, object]) -> Namespace:
     skill_path = Path(court_runtime.__file__).resolve().parents[1] / "SKILL.md"
-    skill_hash = hashlib.sha256(skill_path.read_bytes()).hexdigest()
     args = court_runtime.build_parser().parse_args(
         [
             "agent-start",
             "--task-id", str(task["task_id"]),
             "--semantic-epoch", str(admission["semantic_epoch"]),
-            "--charter-sha256", str(admission["charter_sha256"]),
-            "--invariant-capsule-sha256",
-            str(admission["invariant_capsule_sha256"]),
+            "--case-ref", json.dumps(admission["case_ref"], ensure_ascii=False),
             "--checkpoint-id", str(admission["checkpoint_id"]),
             "--dispatch-uid", str(admission["dispatch_uid"]),
             "--attempt", str(admission["attempt"]),
@@ -602,10 +650,8 @@ def _start_args(task: dict[str, object], admission: dict[str, object]) -> Namesp
                     {
                         "name": "decretum-matrix",
                         "source": str(skill_path),
-                        "sha256": skill_hash,
                         "purpose": "semantic binding tracer",
                         "ack_name": "decretum-matrix",
-                        "ack_sha256": skill_hash,
                     }
                 ]
             ),
@@ -638,7 +684,7 @@ def _office_admit_args(task: dict[str, object]) -> Namespace:
         "approved_write_sets",
         "approved_access_contracts",
         "approved_instance_shapes",
-        "approved_preload_hashes",
+        "approved_preload_sources",
     ):
         if field == "approved_instance_ids":
             lease[field] = [instance_id]
@@ -685,10 +731,11 @@ def check_office_admit_missing_note_defaults_and_rolls_back() -> None:
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
             first_id = "office-admit-missing-note"
-            court_runtime.create_task(_create_args(first_id, "office admit charter"))
-            court_runtime.semantic_checkpoint_task(_semantic_args(first_id, "checkpoint"))
-            court_runtime.semantic_verify_task(_semantic_args(first_id, "verify"))
-            args = _office_admit_args(_seed_office_admit_lineage(first_id))
+            args = _office_admit_args(
+                _seed_office_admit_lineage(
+                    _reviewed_dispatchable_case(first_id, "office admit charter")["task_id"]
+                )
+            )
             admitted = court_runtime.office_admit(args)
             admission_event = court_runtime.events_for_task(first_id)[-1]
             assert admission_event["action"] == "agent_admit"
@@ -696,10 +743,11 @@ def check_office_admit_missing_note_defaults_and_rolls_back() -> None:
             assert admitted["event_id"] == admission_event["event_id"]
 
             rollback_id = "office-admit-append-rollback"
-            court_runtime.create_task(_create_args(rollback_id, "rollback charter"))
-            court_runtime.semantic_checkpoint_task(_semantic_args(rollback_id, "checkpoint"))
-            court_runtime.semantic_verify_task(_semantic_args(rollback_id, "verify"))
-            rollback_args = _office_admit_args(_seed_office_admit_lineage(rollback_id))
+            rollback_args = _office_admit_args(
+                _seed_office_admit_lineage(
+                    _reviewed_dispatchable_case(rollback_id, "rollback charter")["task_id"]
+                )
+            )
             rollback_args.note = ""
             before_tasks = court_runtime.tasks_path().read_bytes()
             before_events = court_runtime.events_path().read_bytes()
@@ -731,11 +779,7 @@ def check_dispatch_start_report_bind_current_receipt() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(_create_args(task_id, "dispatch charter"))
-            court_runtime.semantic_checkpoint_task(_semantic_args(task_id, "checkpoint"))
-            dispatchable = court_runtime.semantic_verify_task(
-                _semantic_args(task_id, "verify")
-            ).task
+            dispatchable = _reviewed_dispatchable_case(task_id, "dispatch charter")
             admission = court_runtime.agent_admit(_admit_args(dispatchable))
             started = court_runtime.agent_start(_start_args(dispatchable, admission)).task
             _ack_semantic_agent(task_id, "gongbu-semantic-0001")
@@ -749,8 +793,7 @@ def check_dispatch_start_report_bind_current_receipt() -> None:
                 dispatch_uid=admission["dispatch_uid"],
                 attempt=admission["attempt"],
                 semantic_epoch=admission["semantic_epoch"],
-                charter_sha256=admission["charter_sha256"],
-                invariant_capsule_sha256=admission["invariant_capsule_sha256"],
+                case_ref=admission["case_ref"],
                 checkpoint_id=admission["checkpoint_id"],
             )
             reported = court_runtime.agent_report(report_args)
@@ -772,8 +815,7 @@ def check_dispatch_start_report_bind_current_receipt() -> None:
     required = {
         "task_id",
         "semantic_epoch",
-        "charter_sha256",
-        "invariant_capsule_sha256",
+        "case_ref",
         "checkpoint_id",
         "dispatch_uid",
         "attempt",
@@ -783,7 +825,7 @@ def check_dispatch_start_report_bind_current_receipt() -> None:
         "worktree",
         "write_set",
         "lease_id",
-        "preload_hashes",
+        "preload_sources",
     }
     if not isinstance(binding, dict):
         problems.append("dispatch_binding_missing")
@@ -794,7 +836,7 @@ def check_dispatch_start_report_bind_current_receipt() -> None:
     if not isinstance(agent, dict):
         problems.append("started_agent_missing")
     else:
-        for field in required - {"preload_hashes"}:
+        for field in required - {"preload_sources"}:
             if binding is not None and agent.get(field) != binding.get(field):
                 problems.append(f"start_binding_mismatch:{field}")
     if reported.event.get("dispatch_uid") != admission.get("dispatch_uid"):
@@ -813,9 +855,12 @@ def _ack_semantic_agent(task_id: str, agent_id: str) -> None:
             role="gongbu",
             office_zh="",
             direct_superior=manifest["direct_superior"],
-            profile_hash=manifest["profile_hash"],
-            dossier_hash=manifest["dossier_hash"],
-            court_skill_hash=manifest["court_skill_hash"],
+            profile_source=manifest["profile_source"],
+            dossier_path=manifest["dossier_path"],
+            court_skill_path=manifest["court_skill_path"],
+            court_code=manifest["court_code"],
+            profile_loaded="YES",
+            court_skill_loaded="YES",
             loaded_skills="decretum-matrix,tdd",
             agent_dossier_loaded="YES",
             model_route_id=record["model_route"]["model_route_id"],
@@ -842,8 +887,8 @@ def _result_envelope(
         "schema": "court.office.result.v1",
         "task_id": agent["task_id"],
         "semantic_epoch": agent["semantic_epoch"],
-        "charter_sha256": agent["charter_sha256"],
-        "invariant_capsule_sha256": agent["invariant_capsule_sha256"],
+        "case_ref": agent["case_ref"],
+        "plan_ref": agent.get("plan_ref"),
         "checkpoint_id": agent["checkpoint_id"],
         "dispatch_uid": agent["dispatch_uid"],
         "attempt": agent["attempt"] if attempt is None else attempt,
@@ -852,7 +897,7 @@ def _result_envelope(
         "role": agent["role"],
         "direct_superior": agent["direct_superior"],
         "worktree": agent["worktree"],
-        "write_set_sha256": _canonical_sha256(write_set),
+        "write_set": write_set,
         "status": "completed",
         "summary": "bounded structured result",
         "evidence": ["synthetic-result-pointer"],
@@ -865,18 +910,19 @@ def _result_envelope(
 
 
 def _consultation_refs(task: dict[str, object]) -> list[dict[str, object]]:
+    from court_case_binding import case_reference, plan_reference
+
+    plan = task.get("zhongshu_plan")
     return [
         {
-            "task_id": task["task_id"],
-            "charter_revision": task["charter_revision"],
-            "charter_sha256": task["charter_sha256"],
+            "consultation_id": "CON-SEMANTIC-1",
+            "case_ref": case_reference(task),
+            "plan_ref": plan_reference(plan) if isinstance(plan, dict) else None,
             "from_role": "gongbu",
             "to_role": "shangshu",
             "purpose": "superior relay of bounded runtime evidence",
             "input_pointer": "fixture://consultation/input",
-            "input_sha256": "1" * 64,
             "reply_pointer": "serial_inline://consultation/reply",
-            "reply_sha256": "2" * 64,
             "write_authority_granted": False,
         }
     ]
@@ -903,8 +949,7 @@ def _finish_args(
         dispatch_uid=agent["dispatch_uid"],
         attempt=agent["attempt"],
         semantic_epoch=agent["semantic_epoch"],
-        charter_sha256=agent["charter_sha256"],
-        invariant_capsule_sha256=agent["invariant_capsule_sha256"],
+        case_ref=agent["case_ref"],
         checkpoint_id=agent["checkpoint_id"],
     )
 
@@ -916,11 +961,7 @@ def check_consultation_refs_stay_on_existing_report_and_result_evidence() -> Non
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(_create_args(task_id, "consultation charter"))
-            court_runtime.semantic_checkpoint_task(_semantic_args(task_id, "checkpoint"))
-            dispatchable = court_runtime.semantic_verify_task(
-                _semantic_args(task_id, "verify")
-            ).task
+            dispatchable = _reviewed_dispatchable_case(task_id, "consultation charter")
             admission = court_runtime.agent_admit(_admit_args(dispatchable))
             start = _start_args(dispatchable, admission)
             start.agent_id = agent_id
@@ -942,8 +983,7 @@ def check_consultation_refs_stay_on_existing_report_and_result_evidence() -> Non
                 dispatch_uid=admission["dispatch_uid"],
                 attempt=admission["attempt"],
                 semantic_epoch=admission["semantic_epoch"],
-                charter_sha256=admission["charter_sha256"],
-                invariant_capsule_sha256=admission["invariant_capsule_sha256"],
+                case_ref=admission["case_ref"],
                 checkpoint_id=admission["checkpoint_id"],
             )
             before_invalid_sender_tasks = court_runtime.tasks_path().read_bytes()
@@ -1059,7 +1099,15 @@ def check_consultation_refs_stay_on_existing_report_and_result_evidence() -> Non
 
             stale_envelope = _result_envelope(reported_record)
             stale_envelope["consultation_refs"] = deepcopy(refs)
-            stale_envelope["consultation_refs"][0]["charter_revision"] = 999
+            stale_envelope["consultation_refs"][0]["case_ref"] = deepcopy(
+                stale_envelope["consultation_refs"][0]["case_ref"]
+            )
+            stale_envelope["consultation_refs"][0]["case_ref"]["charter_revision"] = 999
+            if stale_envelope["consultation_refs"][0].get("plan_ref") is not None:
+                stale_envelope["consultation_refs"][0]["plan_ref"] = deepcopy(
+                    stale_envelope["consultation_refs"][0]["plan_ref"]
+                )
+                stale_envelope["consultation_refs"][0]["plan_ref"]["charter_revision"] = 999
             before_stale_result = court_runtime.tasks_path().read_bytes()
             try:
                 court_runtime.agent_finish(
@@ -1100,11 +1148,7 @@ def check_finish_requires_structured_result_and_quarantines_stale() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(_create_args(task_id, "finish charter"))
-            court_runtime.semantic_checkpoint_task(_semantic_args(task_id, "checkpoint"))
-            dispatchable = court_runtime.semantic_verify_task(
-                _semantic_args(task_id, "verify")
-            ).task
+            dispatchable = _reviewed_dispatchable_case(task_id, "finish charter")
             admission = court_runtime.agent_admit(_admit_args(dispatchable))
             start_args = _start_args(dispatchable, admission)
             start_args.agent_id = agent_id
@@ -1179,11 +1223,7 @@ def check_correction_invalidates_all_derived_state_append_only() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            created = court_runtime.create_task(_create_args(task_id, old_charter)).task
-            court_runtime.semantic_checkpoint_task(_semantic_args(task_id, "checkpoint"))
-            dispatchable = court_runtime.semantic_verify_task(
-                _semantic_args(task_id, "verify")
-            ).task
+            dispatchable = _reviewed_dispatchable_case(task_id, old_charter)
             admission = court_runtime.agent_admit(_admit_args(dispatchable))
             start_args = _start_args(dispatchable, admission)
             start_args.agent_id = "gongbu-correction-0001"
@@ -1205,7 +1245,7 @@ def check_correction_invalidates_all_derived_state_append_only() -> None:
                     {"capsule_id": "TPC-OLD", "status": "ACTIVE", "attempt": 1}
                 ],
             )
-            old_capsule_sha256 = seeded["invariant_capsule_sha256"]
+            old_capsule = deepcopy(seeded["invariant_capsule"])
             court_runtime.write_tasks(tasks)
             revised = court_runtime.revise_charter_task(
                 _revise_args(task_id, old_charter=old_charter, new_charter=new_charter)
@@ -1243,7 +1283,7 @@ def check_correction_invalidates_all_derived_state_append_only() -> None:
         missing = sorted(required_snapshot - set(snapshot))
         if missing:
             problems.append("invalidation_snapshot_fields_missing:" + ",".join(missing))
-        if snapshot.get("invariant_capsule_sha256") != old_capsule_sha256:
+        if snapshot.get("invariant_capsule") != old_capsule:
             problems.append("old_capsule_not_preserved")
     if revised.get("outcome_assessment", {}).get("gate") != "UNASSESSED":
         problems.append("assessment_not_invalidated")
@@ -1300,8 +1340,6 @@ def _resume_args(
         continuation_gate=_continuation_gate_fixture(str(task["task_id"])),
         continuation_file=None,
         expected_semantic_epoch=expected_epoch,
-        expected_charter_sha256=task["charter_sha256"],
-        expected_invariant_capsule_sha256=task["invariant_capsule_sha256"],
         expected_checkpoint_id=receipt["checkpoint_id"],
         semantic_context=context,
         semantic_context_file=None,
@@ -1329,9 +1367,7 @@ def check_semantic_resume_preserves_epoch_and_requires_reverify() -> None:
             tasks[task_id]["paused_from"] = "SixMinistries"
             court_runtime.write_tasks(tasks)
             paused = court_runtime.load_tasks()[task_id]
-            authority_context = _semantic_context()
-            authority_context["authority_revision"] = 4
-            authority_context["authority_sha256"] = _digest("authority-v4")
+            resume_context = _semantic_context(task_id)
             before = court_runtime.tasks_path().read_bytes()
             try:
                 court_runtime.semantic_resume_task(
@@ -1339,7 +1375,7 @@ def check_semantic_resume_preserves_epoch_and_requires_reverify() -> None:
                         paused,
                         expected_epoch=int(paused["semantic_epoch"]) - 1,
                         to_state="ThreeDepartments",
-                        context=authority_context,
+                        context=resume_context,
                     )
                 )
             except ValueError as exc:
@@ -1355,7 +1391,7 @@ def check_semantic_resume_preserves_epoch_and_requires_reverify() -> None:
                         paused,
                         expected_epoch=int(paused["semantic_epoch"]),
                         to_state="SixMinistries",
-                        context=authority_context,
+                        context=resume_context,
                     )
                 )
             except ValueError as exc:
@@ -1363,12 +1399,32 @@ def check_semantic_resume_preserves_epoch_and_requires_reverify() -> None:
                     raise AssertionError("SEMANTIC_RESUME_JUMP_WRONG_ERROR " + str(exc)) from exc
             else:
                 raise AssertionError("SEMANTIC_RESUME_DIRECT_EXECUTION_ACCEPTED")
+            changed_context = dict(_semantic_context(task_id))
+            changed_context["case_ref"] = {
+                **changed_context["case_ref"],
+                "charter_revision": int(changed_context["case_ref"]["charter_revision"]) + 3,
+            }
+            changed_context["authority_revision"] = changed_context["case_ref"]["charter_revision"]
+            try:
+                court_runtime.semantic_resume_task(
+                    _resume_args(
+                        paused,
+                        expected_epoch=int(paused["semantic_epoch"]),
+                        to_state="ThreeDepartments",
+                        context=changed_context,
+                    )
+                )
+            except ValueError as exc:
+                if "semantic_resume_drift" not in str(exc):
+                    raise AssertionError("SEMANTIC_RESUME_AUTHORITY_WRONG_ERROR " + str(exc)) from exc
+            else:
+                raise AssertionError("SEMANTIC_RESUME_AUTHORITY_CHANGE_ACCEPTED")
             resumed = court_runtime.semantic_resume_task(
                 _resume_args(
                     paused,
                     expected_epoch=int(paused["semantic_epoch"]),
                     to_state="ThreeDepartments",
-                    context=authority_context,
+                    context=resume_context,
                 )
             ).task
         finally:
@@ -1386,8 +1442,8 @@ def check_semantic_resume_preserves_epoch_and_requires_reverify() -> None:
     if resumed.get("semantic_state") != "REVERIFY":
         problems.append("resume_not_marked_reverify")
     context = resumed.get("semantic_context")
-    if not isinstance(context, dict) or context.get("authority_revision") != 4:
-        problems.append("authority_revision_not_updated_separately")
+    if not isinstance(context, dict) or context.get("authority_revision") != dispatchable.get("charter_revision"):
+        problems.append("resume_authority_revision_drift")
     if resumed.get("semantic_receipt", {}).get("verdict") != "REVERIFY":
         problems.append("resume_receipt_not_reverify")
     if problems:
@@ -1410,7 +1466,7 @@ def check_compaction_reboot_idle_reuse_immutable_receipt() -> None:
             dispatchable = court_runtime.semantic_verify_task(
                 _semantic_args(task_id, "verify")
             ).task
-            capsule_sha256 = str(dispatchable["invariant_capsule_sha256"])
+            invariant_capsule = deepcopy(dispatchable["invariant_capsule"])
             current = dispatchable
             for trigger in ("compaction", "reboot", "long-idle"):
                 current = court_runtime.semantic_verify_task(
@@ -1422,7 +1478,7 @@ def check_compaction_reboot_idle_reuse_immutable_receipt() -> None:
                 )
                 if _canonical_sha256(frozen) != receipt_sha256:
                     raise AssertionError(f"SEMANTIC_CHECKPOINT_RECEIPT_REWRITTEN:{trigger}")
-                if current.get("invariant_capsule_sha256") != capsule_sha256:
+                if current.get("invariant_capsule") != invariant_capsule:
                     raise AssertionError(f"INVARIANT_CAPSULE_REWRITTEN:{trigger}")
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
@@ -1447,7 +1503,6 @@ def check_incomplete_capsule_and_multisource_drift_fail_closed() -> None:
             incomplete_capsule = dict(incomplete_args.invariant_capsule)
             for field in ("non_goals", "forbidden_actions", "acceptance", "write_set"):
                 incomplete_capsule[field] = []
-            incomplete_capsule["governing_hashes"] = {}
             incomplete_args.invariant_capsule = incomplete_capsule
             court_runtime.create_task(incomplete_args)
             before = court_runtime.tasks_path().read_bytes()
@@ -1462,7 +1517,6 @@ def check_incomplete_capsule_and_multisource_drift_fail_closed() -> None:
                     "invariant_capsule_empty:forbidden_actions",
                     "invariant_capsule_empty:acceptance",
                     "invariant_capsule_empty:write_set",
-                    "invariant_capsule_empty:governing_hashes",
                 )
                 if not error.startswith("semantic_binding_drift:") or any(
                     reason not in error for reason in required_reasons
@@ -1479,10 +1533,10 @@ def check_incomplete_capsule_and_multisource_drift_fail_closed() -> None:
                 _semantic_args(drift_task_id, "checkpoint")
             )
             court_runtime.semantic_verify_task(_semantic_args(drift_task_id, "verify"))
-            drifted_context = _semantic_context()
-            drifted_context["git_fingerprint"] = _digest("different-git")
+            drifted_context = _semantic_context(drift_task_id)
             drifted_context["recovery_checkpoint_id"] = "different-recovery"
-            drifted_context["shiguan_fingerprint"] = _digest("different-shiguan")
+            drifted_context["plan_cursor"] = "different-plan-cursor"
+            drifted_context["shiguan_revision"] = 1
             try:
                 court_runtime.semantic_verify_task(
                     _semantic_args(
@@ -1502,9 +1556,9 @@ def check_incomplete_capsule_and_multisource_drift_fail_closed() -> None:
 
     reason_codes = drifted.get("semantic_receipt", {}).get("reason_codes", [])
     for reason in (
-        "semantic_receipt_mismatch:git_fingerprint",
         "semantic_receipt_mismatch:recovery_checkpoint_id",
-        "semantic_receipt_mismatch:shiguan_fingerprint",
+        "semantic_receipt_mismatch:plan_cursor",
+        "semantic_receipt_mismatch:shiguan_revision",
     ):
         if reason not in reason_codes:
             raise AssertionError("MULTISOURCE_DRIFT_REASON_MISSING:" + reason)
@@ -1517,12 +1571,18 @@ def _operation_args(
     *,
     killpoint: str = "",
 ) -> Namespace:
+    task = court_runtime.load_tasks().get(task_id)
+    expected_task_revision = (
+        int(task.get("task_revision") or 1)
+        if isinstance(task, dict)
+        else 1
+    )
     return Namespace(
         task_id=task_id,
         operation_id=operation_id,
         payload=payload,
         payload_file=None,
-        expected_task_revision=1,
+        expected_task_revision=expected_task_revision,
         killpoint=killpoint,
         actor="taizi",
         evidence=f"F-CRASH-003 {operation_id}",
@@ -1709,6 +1769,13 @@ def check_legacy_v2_v3_are_diagnostic_only_until_semantically_bound() -> None:
                 args = _revise_args(task_id, old_charter=old, new_charter=old + " bound")
                 args.expected_revision = 0
                 args.new_revision = 1
+                args.case_ref = {
+                    "court_code": court_runtime._legacy_court_code(
+                        task_id,
+                        str(legacy_tasks[task_id]["title"]),
+                    ),
+                    "charter_revision": 1,
+                }
                 return args
 
             def ledger_bytes():
@@ -1728,9 +1795,12 @@ def check_legacy_v2_v3_are_diagnostic_only_until_semantically_bound() -> None:
                 if ledger_bytes() != preimage:
                     raise AssertionError("LEGACY_REJECT_MUTATED_LEDGER")
 
-            for field, value in (("expected_revision", 1), ("expected_sha256", "0" * 64)):
+            for mutate in (
+                lambda args: args.case_ref.__setitem__("charter_revision", 2),
+                lambda args: setattr(args, "new_revision", 0),
+            ):
                 args = bootstrap_args("legacy-v3")
-                setattr(args, field, value)
+                mutate(args)
                 rejected(args, ValueError)
 
             original_append_event = court_runtime.append_event
@@ -1772,7 +1842,7 @@ def check_semantic_checkpoint_cli_is_json_and_machine_stable() -> None:
             court_runtime.create_task(_create_args(task_id, "semantic CLI checkpoint charter"))
             context_path = Path(temp_dir) / "semantic-context.json"
             context_path.write_text(
-                json.dumps(_semantic_context(), ensure_ascii=False),
+                json.dumps(_semantic_context(task_id), ensure_ascii=False),
                 encoding="utf-8",
             )
             stdout = io.StringIO()
@@ -1852,7 +1922,7 @@ def check_semantic_verify_cli_success_and_drift_exit_codes() -> None:
         try:
             court_runtime.create_task(_create_args(task_id, "semantic CLI verify charter"))
             context_path = Path(temp_dir) / "semantic-context.json"
-            context = _semantic_context()
+            context = _semantic_context(task_id)
             context_path.write_text(
                 json.dumps(context, ensure_ascii=False),
                 encoding="utf-8",
@@ -1931,14 +2001,20 @@ def check_semantic_correct_cli_binds_body_and_reverify_state() -> None:
                     "correct",
                     "--task-id",
                     task_id,
+                    "--case-ref",
+                    json.dumps(
+                        {
+                            "court_code": str(
+                                court_runtime.load_tasks()[task_id]["court_code"]
+                            ),
+                            "charter_revision": 1,
+                        },
+                        ensure_ascii=False,
+                    ),
                     "--expected-revision",
                     "1",
-                    "--expected-sha256",
-                    _sha256_text(old_charter),
                     "--new-revision",
                     "2",
-                    "--new-sha256",
-                    _sha256_text(new_charter),
                     "--new-charter-file",
                     str(charter_path),
                     "--new-invariant-capsule-file",
@@ -1977,7 +2053,7 @@ def check_semantic_resume_cli_returns_to_review_without_epoch_change() -> None:
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
             court_runtime.create_task(_create_args(task_id, "semantic CLI resume charter"))
-            context = _semantic_context()
+            context = _semantic_context(task_id)
             court_runtime.semantic_checkpoint_task(
                 _semantic_args(task_id, "checkpoint", context=context)
             )
@@ -1995,8 +2071,6 @@ def check_semantic_resume_cli_returns_to_review_without_epoch_change() -> None:
                 json.dumps(_continuation_gate_fixture(task_id), ensure_ascii=False),
                 encoding="utf-8",
             )
-            context["authority_revision"] = 4
-            context["authority_sha256"] = _digest("semantic-cli-authority-v4")
             context_path.write_text(
                 json.dumps(context, ensure_ascii=False),
                 encoding="utf-8",
@@ -2012,10 +2086,6 @@ def check_semantic_resume_cli_returns_to_review_without_epoch_change() -> None:
                     str(continuation_path),
                     "--expected-semantic-epoch",
                     str(paused["semantic_epoch"]),
-                    "--expected-charter-sha256",
-                    str(paused["charter_sha256"]),
-                    "--expected-invariant-capsule-sha256",
-                    str(paused["invariant_capsule_sha256"]),
                     "--expected-checkpoint-id",
                     str(receipt["checkpoint_id"]),
                     "--context-file",
@@ -2037,8 +2107,8 @@ def check_semantic_resume_cli_returns_to_review_without_epoch_change() -> None:
                 raise AssertionError("SEMANTIC_CLI_RESUME_NOT_REVERIFY")
             if resumed.get("semantic_epoch") != dispatchable.get("semantic_epoch"):
                 raise AssertionError("SEMANTIC_CLI_RESUME_CHANGED_EPOCH")
-            if resumed.get("semantic_context", {}).get("authority_revision") != 4:
-                raise AssertionError("SEMANTIC_CLI_RESUME_AUTHORITY_NOT_SEPARATE")
+            if resumed.get("semantic_context", {}).get("authority_revision") != dispatchable.get("charter_revision"):
+                raise AssertionError("SEMANTIC_CLI_RESUME_AUTHORITY_DRIFT")
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
@@ -2062,10 +2132,14 @@ def check_semantic_quarantine_cli_is_bound_and_append_only() -> None:
                 task_id,
                 "--expected-semantic-epoch",
                 str(task["semantic_epoch"]),
-                "--expected-charter-sha256",
-                str(task["charter_sha256"]),
-                "--expected-invariant-capsule-sha256",
-                str(task["invariant_capsule_sha256"]),
+                "--case-ref",
+                json.dumps(
+                    {
+                        "court_code": str(task["court_code"]),
+                        "charter_revision": int(task["charter_revision"]),
+                    },
+                    ensure_ascii=False,
+                ),
                 "--expected-checkpoint-id",
                 str(receipt["checkpoint_id"]),
                 "--reason-code",
@@ -2115,7 +2189,7 @@ def check_semantic_reconcile_cli_requires_restored_sources_then_reverify() -> No
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
             court_runtime.create_task(_create_args(task_id, "semantic CLI reconcile charter"))
-            context = _semantic_context()
+            context = _semantic_context(task_id)
             court_runtime.semantic_checkpoint_task(
                 _semantic_args(task_id, "checkpoint", context=context)
             )
@@ -2127,10 +2201,10 @@ def check_semantic_reconcile_cli_requires_restored_sources_then_reverify() -> No
                 Namespace(
                     task_id=task_id,
                     expected_semantic_epoch=task["semantic_epoch"],
-                    expected_charter_sha256=task["charter_sha256"],
-                    expected_invariant_capsule_sha256=task[
-                        "invariant_capsule_sha256"
-                    ],
+                    case_ref={
+                        "court_code": str(task["court_code"]),
+                        "charter_revision": int(task["charter_revision"]),
+                    },
                     expected_checkpoint_id=receipt["checkpoint_id"],
                     reason_code=["manual_evidence_conflict"],
                     trigger="pre-apply",
@@ -2141,7 +2215,7 @@ def check_semantic_reconcile_cli_requires_restored_sources_then_reverify() -> No
             )
             context_path = Path(temp_dir) / "reconcile-context.json"
             drifted_context = dict(context)
-            drifted_context["git_fingerprint"] = "drifted-worktree"
+            drifted_context["plan_cursor"] = "drifted-plan-cursor"
             context_path.write_text(
                 json.dumps(drifted_context, ensure_ascii=False),
                 encoding="utf-8",
@@ -2153,10 +2227,14 @@ def check_semantic_reconcile_cli_requires_restored_sources_then_reverify() -> No
                 task_id,
                 "--expected-semantic-epoch",
                 str(task["semantic_epoch"]),
-                "--expected-charter-sha256",
-                str(task["charter_sha256"]),
-                "--expected-invariant-capsule-sha256",
-                str(task["invariant_capsule_sha256"]),
+                "--case-ref",
+                json.dumps(
+                    {
+                        "court_code": str(task["court_code"]),
+                        "charter_revision": int(task["charter_revision"]),
+                    },
+                    ensure_ascii=False,
+                ),
                 "--expected-checkpoint-id",
                 str(receipt["checkpoint_id"]),
                 "--context-file",
@@ -2225,7 +2303,10 @@ def check_decree_open_is_idempotent_concurrent_and_crash_recoverable() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(_create_args(task_id, "decree-open charter"))
+            legacy_create = _create_args(task_id, "decree-open charter")
+            legacy_create.session_id = None
+            legacy_create.legacy_compatibility = True
+            court_runtime.create_task(legacy_create)
 
             def replay(_: int) -> dict[str, object]:
                 return court_runtime.decree_open_task(
@@ -2429,7 +2510,10 @@ def check_synthetic_closeout_saga_recovers_all_side_effect_killpoints() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(_create_args(task_id, "synthetic closeout charter"))
+            legacy_create = _create_args(task_id, "synthetic closeout charter")
+            legacy_create.session_id = None
+            legacy_create.legacy_compatibility = True
+            court_runtime.create_task(legacy_create)
             decree = court_runtime.decree_open_task(
                 _decree_open_args(
                     task_id,
@@ -2558,7 +2642,10 @@ def check_operation_cli_exposes_decree_open_and_closeout_recovery() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
-            court_runtime.create_task(_create_args(task_id, "operation CLI charter"))
+            legacy_create = _create_args(task_id, "operation CLI charter")
+            legacy_create.session_id = None
+            legacy_create.legacy_compatibility = True
+            court_runtime.create_task(legacy_create)
             decree_payload_path = Path(temp_dir) / "decree-payload.json"
             decree_payload_path.write_text(
                 json.dumps({"title": "operation CLI decree"}, ensure_ascii=False),
@@ -2642,11 +2729,9 @@ def check_operation_cli_exposes_decree_open_and_closeout_recovery() -> None:
 
 
 def _revision_capsule(charter: str, revision_label: str) -> dict[str, object]:
-    charter_sha256 = _sha256_text(charter)
     return {
         "schema": "court.semantic.invariant_capsule.v1",
         "latest_decree_anchor": charter,
-        "latest_decree_sha256": charter_sha256,
         "non_goals": [f"{revision_label}:non-goal"],
         "boundaries": [f"{revision_label}:boundary"],
         "allowed_actions": [f"{revision_label}:allowed"],
@@ -2655,8 +2740,6 @@ def _revision_capsule(charter: str, revision_label: str) -> dict[str, object]:
         "evidence_requirements": [f"{revision_label}:evidence"],
         "stop_gates": [f"{revision_label}:stop"],
         "write_set": [f"work/{revision_label}.txt"],
-        "governing_hashes": {revision_label: _digest(revision_label)},
-        "charter_sha256": charter_sha256,
     }
 
 
@@ -2731,7 +2814,12 @@ def check_p1_a_correction_requires_new_canonical_capsule() -> None:
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
-    if revised.get("invariant_capsule") != new_capsule:
+    expected_new_capsule = dict(new_capsule)
+    expected_new_capsule["case_ref"] = {
+        "court_code": str(revised["court_code"]),
+        "charter_revision": int(revised["charter_revision"]),
+    }
+    if revised.get("invariant_capsule") != expected_new_capsule:
         raise AssertionError("P1_A_NEW_CAPSULE_NOT_EXACTLY_BOUND")
     if revised.get("invariant_capsule") == old_capsule:
         raise AssertionError("P1_A_OLD_CAPSULE_REUSED")
@@ -2763,12 +2851,12 @@ def check_p1_b_semantic_receipts_are_immutable_across_revisions() -> None:
     task_id = "p1-b-immutable-receipts"
     old_charter = "P1-B old charter"
     new_charter = "P1-B corrected charter"
-    context = _semantic_context()
     with tempfile.TemporaryDirectory() as temp_dir:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
             court_runtime.create_task(_create_args(task_id, old_charter))
+            context = _semantic_context(task_id)
             checkpointed = court_runtime.semantic_checkpoint_task(
                 _semantic_args(task_id, "checkpoint", context=context)
             ).task
@@ -2814,10 +2902,10 @@ def check_p1_b_semantic_receipts_are_immutable_across_revisions() -> None:
                 Namespace(
                     task_id=task_id,
                     expected_semantic_epoch=verified_again["semantic_epoch"],
-                    expected_charter_sha256=verified_again["charter_sha256"],
-                    expected_invariant_capsule_sha256=verified_again[
-                        "invariant_capsule_sha256"
-                    ],
+                    case_ref={
+                        "court_code": str(verified_again["court_code"]),
+                        "charter_revision": int(verified_again["charter_revision"]),
+                    },
                     expected_checkpoint_id=current["checkpoint_id"],
                     reason_code=["p1_b_manual_quarantine"],
                     trigger="pre-apply",
@@ -2833,10 +2921,10 @@ def check_p1_b_semantic_receipts_are_immutable_across_revisions() -> None:
                 Namespace(
                     task_id=task_id,
                     expected_semantic_epoch=quarantined["semantic_epoch"],
-                    expected_charter_sha256=quarantined["charter_sha256"],
-                    expected_invariant_capsule_sha256=quarantined[
-                        "invariant_capsule_sha256"
-                    ],
+                    case_ref={
+                        "court_code": str(quarantined["court_code"]),
+                        "charter_revision": int(quarantined["charter_revision"]),
+                    },
                     expected_checkpoint_id=quarantined_current["checkpoint_id"],
                     semantic_context=context,
                     semantic_context_file=None,
@@ -2926,16 +3014,18 @@ def _tamper_receipt_field(receipt: dict[str, object], field: str) -> None:
         receipt[field] = "invalid-gate"
     elif field == "checkpoint_id":
         receipt[field] = "SC-000000000000000000000000"
-    elif field in {
-        "event_head_sha256",
-        "write_set_sha256",
-        "charter_sha256",
-        "invariant_capsule_sha256",
-        "authority_sha256",
-        "plan_sha256",
-        "shiguan_fingerprint",
-    }:
-        receipt[field] = _digest("tampered:" + field)
+    elif field == "semantic_epoch":
+        receipt[field] = int(receipt[field]) + 1
+    elif field == "authority_revision":
+        receipt[field] = int(receipt[field]) + 1
+    elif field == "shiguan_revision":
+        receipt[field] = int(receipt[field]) + 1
+    elif field == "case_ref":
+        receipt[field] = {"court_code": "CCR-20260906-1-EEEE", "charter_revision": 1}
+    elif field == "plan_ref":
+        receipt[field] = {"court_code": "CCR-20260906-1-EEEE", "charter_revision": 1, "plan_revision": 1}
+    elif field == "write_set":
+        receipt[field] = ["tampered/result.json"]
     else:
         receipt[field] = "tampered:" + field
 
@@ -2943,24 +3033,19 @@ def _tamper_receipt_field(receipt: dict[str, object], field: str) -> None:
 def check_p1_c_checkpoint_receipt_tamper_table_fails_closed() -> None:
     fields = (
         "checkpoint_id",
-        "event_head_sha256",
-        "write_set_sha256",
+        "write_set",
         "trigger",
         "gate",
         "created_at",
         "task_id",
         "semantic_epoch",
-        "charter_sha256",
-        "invariant_capsule_sha256",
+        "case_ref",
         "authority_revision",
-        "authority_sha256",
-        "plan_revision",
-        "plan_sha256",
+        "plan_ref",
         "plan_cursor",
-        "git_fingerprint",
         "recovery_checkpoint_id",
         "shiguan_revision",
-        "shiguan_fingerprint",
+        "receipt_id",
     )
     for field in fields:
         task_id = "p1-c-tamper-" + field.replace("_", "-")
@@ -2982,21 +3067,37 @@ def check_p1_c_checkpoint_receipt_tamper_table_fails_closed() -> None:
                 court_runtime.write_tasks(tasks)
                 before_tasks = court_runtime.tasks_path().read_bytes()
                 before_events = court_runtime.events_path().read_bytes()
+                quarantine_on_mismatch = {
+                    "plan_cursor",
+                    "recovery_checkpoint_id",
+                    "shiguan_revision",
+                }
                 try:
                     court_runtime.semantic_verify_task(
                         _semantic_args(task_id, "verify")
                     )
                 except ValueError as exc:
-                    if not str(exc).startswith("semantic_receipt_integrity_failed:"):
+                    if field in quarantine_on_mismatch:
+                        if not str(exc).startswith("semantic_drift_quarantined:"):
+                            raise AssertionError(
+                                f"P1_C_TAMPER_WRONG_ERROR:{field}:{exc}"
+                            ) from exc
+                    elif not str(exc).startswith("semantic_receipt_integrity_failed:"):
                         raise AssertionError(
                             f"P1_C_TAMPER_WRONG_ERROR:{field}:{exc}"
                         ) from exc
                 else:
                     raise AssertionError(f"P1_C_TAMPER_ACCEPTED:{field}")
-                if court_runtime.tasks_path().read_bytes() != before_tasks:
-                    raise AssertionError(f"P1_C_TAMPER_MUTATED_TASK:{field}")
-                if court_runtime.events_path().read_bytes() != before_events:
-                    raise AssertionError(f"P1_C_TAMPER_MUTATED_EVENT:{field}")
+                if field in quarantine_on_mismatch:
+                    if court_runtime.tasks_path().read_bytes() == before_tasks:
+                        raise AssertionError(f"P1_C_TAMPER_NOT_QUARANTINED_TASK:{field}")
+                    if court_runtime.events_path().read_bytes() == before_events:
+                        raise AssertionError(f"P1_C_TAMPER_NOT_QUARANTINED_EVENT:{field}")
+                else:
+                    if court_runtime.tasks_path().read_bytes() != before_tasks:
+                        raise AssertionError(f"P1_C_TAMPER_MUTATED_TASK:{field}")
+                    if court_runtime.events_path().read_bytes() != before_events:
+                        raise AssertionError(f"P1_C_TAMPER_MUTATED_EVENT:{field}")
             finally:
                 court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
@@ -3005,33 +3106,28 @@ def _dispatch_context_packet(
     task_id: str,
     receipt: dict[str, object],
 ) -> dict[str, object]:
+    case_ref = receipt.get("case_ref") or {
+        "court_code": "CCR-20260906-1-AAAA",
+        "charter_revision": int(receipt.get("semantic_epoch") or 1),
+    }
     return {
         "schema": "court.semantic.dispatch_context_packet.v1",
         "task_id": task_id,
         "sub_id": "worker-01",
         "semantic_epoch": receipt["semantic_epoch"],
-        "invariant_capsule_sha256": receipt["invariant_capsule_sha256"],
+        "case_ref": case_ref,
+        "plan_ref": None,
         "semantic_receipt_id": receipt["receipt_id"],
-        "semantic_receipt_sha256": receipt["receipt_sha256"],
-        "authority_sha256": receipt["authority_sha256"],
-        "plan_sha256": receipt["plan_sha256"],
         "plan_cursor": receipt["plan_cursor"],
         "fork_context": "minimal",
         "context_mode": "bounded",
         "pointers": [
-            {
-                "path": "authority/current.md",
-                "sha256": receipt["authority_sha256"],
-            },
-            {
-                "path": "plans/current.md",
-                "sha256": receipt["plan_sha256"],
-            },
+            {"path": f"court-runtime:tasks/{task_id}/charter", "case_ref": case_ref},
+            {"path": f"court-runtime:tasks/{task_id}/case_bootstrap", "case_ref": case_ref},
         ],
         "summary": {
             "text": "bounded semantic dispatch packet",
             "semantic_receipt_id": receipt["receipt_id"],
-            "semantic_receipt_sha256": receipt["receipt_sha256"],
         },
     }
 
@@ -3110,25 +3206,21 @@ def check_p00_bounded_context_packet_preserves_semantic_continuity() -> None:
             )
 
             unbound_summary = json.loads(json.dumps(packet))
-            unbound_summary["summary"]["semantic_receipt_sha256"] = _digest(
-                "stale-summary-receipt"
-            )
+            unbound_summary["summary"]["semantic_receipt_id"] = "SC-STALE"
             _expect_dispatch_packet_error(
                 task,
                 receipt,
                 unbound_summary,
-                "dispatch_context_summary_receipt_mismatch",
+                "invalid_dispatch_context_summary",
             )
 
             alternate_capsule = json.loads(json.dumps(packet))
-            alternate_capsule["invariant_capsule_sha256"] = _digest(
-                "alternate-capsule-authority"
-            )
+            alternate_capsule["case_ref"] = {"court_code": "OTHER-20260101-1-AAAA", "charter_revision": receipt["semantic_epoch"]}
             _expect_dispatch_packet_error(
                 task,
                 receipt,
                 alternate_capsule,
-                "dispatch_context_capsule_authority_mismatch",
+                "reference_dispatch_context_scope_mismatch",
             )
 
             extra_context = json.loads(json.dumps(packet))
@@ -3137,7 +3229,7 @@ def check_p00_bounded_context_packet_preserves_semantic_continuity() -> None:
                 task,
                 receipt,
                 extra_context,
-                "dispatch_context_packet_fields_unknown",
+                "reference_dispatch_context_fields_invalid",
             )
 
             full_context = json.loads(json.dumps(packet))
@@ -3170,8 +3262,7 @@ def check_p00_bounded_context_packet_preserves_semantic_continuity() -> None:
                 trigger="verify",
                 reason_codes=[],
                 created_at="2026-07-16T00:00:01+00:00",
-                event_head_sha256=_digest("p00-resume-event-head"),
-                event_head_bytes=0,
+                event_head_id="EVT-P00-RESUME",
             )
             resumed_task = json.loads(json.dumps(task))
             resumed_task["semantic_receipt"] = resumed_receipt
@@ -3185,43 +3276,79 @@ def check_p00_bounded_context_packet_preserves_semantic_continuity() -> None:
             if unchanged.get("reload_required") != []:
                 raise AssertionError("P00_CONTEXT_PACKET_UNCHANGED_HASH_RELOAD_REQUIRED")
 
-            changed_authority = _digest("p00-changed-authority")
+            changed_plan_ref = {
+                "court_code": str(task["court_code"]),
+                "charter_revision": int(task["charter_revision"]),
+                "plan_revision": 1,
+            }
             changed_receipt = court_semantic_continuity.derive_semantic_receipt(
                 receipt,
                 receipt_sequence=2,
                 gate="semantic_resume",
                 verdict="REVERIFY",
                 trigger="resume",
-                reason_codes=["authority_revision_updated"],
+                reason_codes=["plan_updated"],
                 created_at="2026-07-16T00:00:02+00:00",
-                event_head_sha256=_digest("p00-changed-event-head"),
-                event_head_bytes=0,
-                updates={"authority_sha256": changed_authority},
+                event_head_id="EVT-P00-CHANGED",
+                updates={"plan_ref": changed_plan_ref},
             )
             changed_task = json.loads(json.dumps(task))
             changed_task["semantic_receipt"] = changed_receipt
             changed_packet = _dispatch_context_packet(task_id, changed_receipt)
+            changed_packet["plan_ref"] = changed_plan_ref
+            main_plan_path = f"court-runtime:tasks/{task_id}/zhongshu_plan"
+            review_plan_path = f"court-runtime:tasks/{task_id}/zhongshu_plan/review"
+            changed_packet["pointers"] = [
+                {
+                    "path": f"court-runtime:tasks/{task_id}/charter",
+                    "case_ref": changed_receipt["case_ref"],
+                },
+                {
+                    "path": main_plan_path,
+                    "plan_ref": changed_plan_ref,
+                },
+                {
+                    "path": review_plan_path,
+                    "plan_ref": changed_plan_ref,
+                },
+            ]
+            changed_packet["summary"] = {
+                "text": "bounded semantic dispatch packet",
+                "semantic_receipt_id": changed_receipt["receipt_id"],
+            }
+            previous_loaded_packet = json.loads(json.dumps(packet))
+            previous_loaded_packet["plan_ref"] = changed_plan_ref
+            previous_loaded_packet["pointers"] = [
+                {
+                    "path": f"court-runtime:tasks/{task_id}/charter",
+                    "case_ref": changed_receipt["case_ref"],
+                },
+                {
+                    "path": main_plan_path,
+                    "plan_ref": changed_plan_ref,
+                },
+            ]
             _expect_dispatch_packet_error(
                 changed_task,
                 changed_receipt,
                 changed_packet,
-                "dispatch_context_reload_required:authority/current.md",
-                previous_packet=packet,
+                f"dispatch_context_reload_required:{review_plan_path}",
+                previous_packet=previous_loaded_packet,
             )
             reloaded = court_semantic_continuity.validate_dispatch_context_packet(
                 changed_task,
                 changed_receipt,
                 changed_packet,
-                previous_packet=packet,
+                previous_packet=previous_loaded_packet,
                 reloaded_pointers=[
                     {
-                        "path": "authority/current.md",
-                        "sha256": changed_authority,
+                        "path": review_plan_path,
+                        "plan_ref": changed_plan_ref,
                     }
                 ],
             )
-            if reloaded.get("reload_required") != ["authority/current.md"]:
-                raise AssertionError("P00_CONTEXT_PACKET_CHANGED_HASH_RELOAD_MISSING")
+            if reloaded.get("reload_required") != [review_plan_path]:
+                raise AssertionError("P00_CONTEXT_PACKET_CHANGED_PLAN_RELOAD_MISSING")
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
@@ -3319,8 +3446,8 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         "schema",
         "task_id",
         "semantic_epoch",
-        "charter_sha256",
-        "invariant_capsule_sha256",
+        "case_ref",
+        "plan_ref",
         "checkpoint_id",
         "dispatch_uid",
         "attempt",
@@ -3329,7 +3456,7 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         "role",
         "direct_superior",
         "worktree",
-        "write_set_sha256",
+        "write_set",
         "status",
         "summary",
         "evidence",
@@ -3346,8 +3473,6 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         },
     )
     assert_schema_const(envelope_schema, "court.office.result.v1")
-    for field in ("charter_sha256", "invariant_capsule_sha256", "write_set_sha256"):
-        assert_sha256_property(envelope_schema, field)
     for field in ("semantic_epoch", "attempt"):
         assert_positive_integer_property(envelope_schema, field)
     if set(schema_property(envelope_schema, "status").get("enum", [])) != {
@@ -3401,19 +3526,19 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         "payload_sha256",
         "task_id",
         "semantic_epoch",
-        "charter_sha256",
-        "invariant_capsule_sha256",
+        "case_ref",
+        "plan_ref",
         "checkpoint_id",
         "dispatch_uid",
         "attempt",
         "office_instance_id",
         "office_instance_kind",
-        "carrier_proof_sha256",
+        "carrier_proof",
         "agent_id",
         "role",
         "direct_superior",
         "worktree",
-        "write_set_sha256",
+        "write_set",
         "source_status",
         "source_final_status",
         "source_release_status",
@@ -3431,10 +3556,6 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
     assert_schema_const(quarantine_schema, "court.office.result_quarantine.v2")
     for field in (
         "payload_sha256",
-        "charter_sha256",
-        "invariant_capsule_sha256",
-        "carrier_proof_sha256",
-        "write_set_sha256",
         "core_sha256",
     ):
         assert_sha256_property(quarantine_schema, field)
@@ -3514,8 +3635,8 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
                 "task_revision", "quarantine_id", "recovery_id",
                 "recovery_revision", "previous_head_sha256",
                 "review_receipt_sha256", "target_binding_sha256",
-                "native_host_request_sha256", "native_host_action_receipt_id",
-                "native_host_action_receipt_sha256", "reason_codes",
+                "native_host_request_ref", "native_host_action_receipt_id",
+                "native_host_action_receipt", "reason_codes",
                 "evidence_pointer", "evidence_sha256", "actor",
                 "handed_off_at", "event_id", "receipt_sha256",
             },
@@ -3540,6 +3661,13 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         assert_sha256_property(receipt_schema, "receipt_sha256")
         assert_sha256_property(receipt_schema, "evidence_sha256")
         assert_unique_string_array(receipt_schema, "reason_codes")
+    handoff_schema = getattr(
+        court_semantic_continuity, "result_recovery_handoff_receipt_json_schema"
+    )()
+    if schema_property(handoff_schema, "native_host_request_ref").get("type") != "object":
+        raise AssertionError("STAGE3_NATIVE_REQUEST_REF_SCHEMA_DRIFT")
+    if schema_property(handoff_schema, "native_host_action_receipt").get("type") != "object":
+        raise AssertionError("STAGE3_NATIVE_ACTION_RECEIPT_SCHEMA_DRIFT")
 
     source_hash = getattr(court_semantic_continuity, "source_result_payload_sha256")
     source_a = {"schema": "court.office.result.v1", "summary": "raw", "status": "completed"}
@@ -3556,11 +3684,11 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         getattr(court_semantic_continuity, "result_recovery_target_binding_fields")()
     )
     expected_target_fields = {
-        "task_id", "semantic_epoch", "charter_sha256",
-        "invariant_capsule_sha256", "checkpoint_id", "dispatch_uid",
+        "task_id", "semantic_epoch", "case_ref",
+        "plan_ref", "checkpoint_id", "dispatch_uid",
         "attempt", "office_instance_id", "office_instance_kind",
         "carrier_proof", "agent_id", "role", "direct_superior", "worktree",
-        "write_set_sha256", "hierarchy_schema", "hierarchy_gate",
+        "write_set", "hierarchy_schema", "hierarchy_gate",
         "hierarchy_edge_class", "preload_status", "office_execution_ready",
         "status", "final_status", "release_status", "result_state",
     }
@@ -3606,8 +3734,8 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         "schema": "court.office.result.v1",
         "task_id": "stage3-red",
         "semantic_epoch": 1,
-        "charter_sha256": _digest("stage3-charter"),
-        "invariant_capsule_sha256": _digest("stage3-capsule"),
+        "case_ref": {"court_code": "CCR-20260906-1-ABCD", "charter_revision": 1},
+        "plan_ref": None,
         "checkpoint_id": "CHK-STAGE3-RED",
         "dispatch_uid": "dispatch-stage3-red",
         "attempt": 1,
@@ -3618,7 +3746,7 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         "role": "gongbu",
         "direct_superior": "shangshu",
         "worktree": "D:/project/worktrees/decretum-matrix/beta106-local-stage-019fb7f5",
-        "write_set_sha256": _digest("stage3-write-set"),
+        "write_set": ["results/stage3-red.json"],
         "status": "completed",
         "summary": "bounded projection",
         "evidence": ["receipts/stage3-red.json"],
@@ -3963,8 +4091,7 @@ def check_stage3_xingbu_fail_gates() -> None:
     binding = {
         "task_id": "t",
         "semantic_epoch": 1,
-        "charter_sha256": _digest("c"),
-        "invariant_capsule_sha256": _digest("i"),
+        "case_ref": {"court_code": "CCR-20260906-1-ABCD", "charter_revision": 1},
         "checkpoint_id": "chk",
         "dispatch_uid": "d",
         "attempt": 1,
@@ -3980,8 +4107,7 @@ def check_stage3_xingbu_fail_gates() -> None:
     envelope = {
         "task_id": "t",
         "semantic_epoch": 1,
-        "charter_sha256": _digest("c"),
-        "invariant_capsule_sha256": _digest("i"),
+        "case_ref": {"court_code": "CCR-20260906-1-ABCD", "charter_revision": 1},
         "checkpoint_id": "chk",
         "dispatch_uid": "d",
         "attempt": 1,
@@ -3990,7 +4116,7 @@ def check_stage3_xingbu_fail_gates() -> None:
         "role": "gongbu",
         "direct_superior": "shangshu",
         "worktree": "wt",
-        "write_set_sha256": _canonical_sha256([]),
+        "write_set": [],
     }
     problems = court_semantic_continuity.result_binding_problems(
         dict(envelope), binding

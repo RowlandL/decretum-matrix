@@ -9,21 +9,39 @@ runtime transaction.
 from __future__ import annotations
 
 from copy import deepcopy
-import hashlib
+from datetime import datetime
 import json
 import re
 from typing import Any, Mapping
 
+import sys
+
+sys.dont_write_bytecode = True
+
 
 CASE_BINDING_SCHEMA = "court.case_binding.v1"
-CASE_IDENTITY_SCHEMA = "court.case_identity.v1"
 ALLOCATION_SCHEMA = "court.session_court_code_allocation.v1"
 PLAN_SCHEMA = "court.zhongshu_plan.v1"
 PLAN_REVIEW_SCHEMA = "court.plan_review.v1"
 AUTHORITIES = frozenset({"approval", "autonomous", "super"})
 BEHAVIORS = frozenset({"serial", "parallel"})
 REVIEW_ROLES = ("menxia", "shangshu")
-_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+OFFICE_CAPSULE_INITIALS = {
+    "taizi": "TZ",
+    "zhongshu": "ZSS",
+    "menxia": "MXS",
+    "shangshu": "SSS",
+    "hubu": "HB",
+    "libu": "LB",
+    "libu-hr": "LBH",
+    "bingbu": "BB",
+    "xingbu": "XB",
+    "gongbu": "GB",
+    "shiguan": "SG",
+    "shiguan-hermes": "SG",
+    "zaochao": "ZC",
+    "patrol-inspector": "JCS",
+}
 _DATE_RE = re.compile(r"\d{8}")
 _SEQUENCE_RE = re.compile(r"[0-9A-Z]+")
 _COURT_CODE_RE = re.compile(r"^[A-Z0-9]+-\d{8}-[0-9A-Z]+-[A-Z0-9]{4}$")
@@ -36,22 +54,15 @@ _BINDING_FIELDS = frozenset(
         "allocation_date",
         "daily_sequence",
         "charter_revision",
-        "charter_sha256",
         "case_execution",
         "zhongshu_plan",
         "case_reviews",
-        "case_identity_sha256",
-        "binding_sha256",
     }
 )
 
 
 def _canonical_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _digest(value: object) -> str:
-    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _text(value: object, field: str, limit: int = 512) -> str:
@@ -61,13 +72,6 @@ def _text(value: object, field: str, limit: int = 512) -> str:
     if len(text.encode("utf-8")) > limit or any(char in text for char in "\x00\r\n"):
         raise ValueError(f"case_binding_{field}_invalid")
     return text
-
-
-def _sha256(value: object, field: str) -> str:
-    digest = _text(value, field, 64).lower()
-    if _SHA256_RE.fullmatch(digest) is None:
-        raise ValueError(f"case_binding_{field}_invalid")
-    return digest
 
 
 def _positive_int(value: object, field: str) -> int:
@@ -132,41 +136,6 @@ def _allocation_from_binding(binding: Mapping[str, object]) -> dict[str, str]:
     )
 
 
-def _case_identity_payload(binding_or_task: Mapping[str, object]) -> dict[str, str]:
-    raw = binding_or_task.get("case_binding")
-    binding = raw if isinstance(raw, Mapping) else binding_or_task
-    if not isinstance(binding, Mapping):
-        raise ValueError("case_identity_binding_required")
-    allocation = _allocation(
-        {
-            "schema": ALLOCATION_SCHEMA,
-            "session_id": binding.get("session_id"),
-            "court_code": binding.get("court_code"),
-            "date": binding.get("allocation_date"),
-            "daily_sequence": binding.get("daily_sequence"),
-        }
-    )
-    return {
-        "schema": CASE_IDENTITY_SCHEMA,
-        "task_id": _text(binding.get("task_id"), "task_id"),
-        "session_id": allocation["session_id"],
-        "court_code": allocation["court_code"],
-        "allocation_date": allocation["date"],
-        "daily_sequence": allocation["daily_sequence"],
-    }
-
-
-def case_identity_sha256(binding_or_task: Mapping[str, object]) -> str:
-    """Hash only the stable, officially allocated case identity.
-
-    Plans, reviews, charter revisions, and decree projections are deliberately
-    excluded so their later lifecycle updates cannot change the official case
-    identity or create an identity/decree cycle.
-    """
-
-    return _digest(_case_identity_payload(binding_or_task))
-
-
 def _plan_summary(task: Mapping[str, object]) -> dict[str, object] | None:
     raw = task.get("zhongshu_plan")
     if raw is None:
@@ -176,27 +145,22 @@ def _plan_summary(task: Mapping[str, object]) -> dict[str, object] | None:
     required = {
         "schema",
         "task_id",
+        "court_code",
         "charter_revision",
-        "charter_sha256",
         "plan_id",
         "revision",
         "document",
         "producer",
-        "sha256",
     }
     if not required.issubset(raw) or raw.get("schema") != PLAN_SCHEMA:
         raise ValueError("case_binding_plan_invalid")
-    plan_body = {key: deepcopy(value) for key, value in raw.items() if key != "sha256"}
-    plan_sha256 = _sha256(raw.get("sha256"), "plan_sha256")
-    if plan_sha256 != _digest(plan_body):
-        raise ValueError("case_binding_plan_integrity")
     task_id = _text(task.get("task_id"), "task_id")
     charter_revision = _positive_int(task.get("charter_revision"), "charter_revision")
-    charter_sha256 = _sha256(task.get("charter_sha256"), "charter_sha256")
+    court_code = _text(task.get("court_code"), "court_code", 128).upper()
     if (
         raw.get("task_id") != task_id
         or raw.get("charter_revision") != charter_revision
-        or _sha256(raw.get("charter_sha256"), "plan_charter_sha256") != charter_sha256
+        or _text(raw.get("court_code"), "plan_court_code", 128).upper() != court_code
         or not isinstance(raw.get("document"), Mapping)
         or not isinstance(raw.get("producer"), Mapping)
     ):
@@ -204,7 +168,6 @@ def _plan_summary(task: Mapping[str, object]) -> dict[str, object] | None:
     return {
         "plan_id": _text(raw.get("plan_id"), "plan_id", 256),
         "revision": _positive_int(raw.get("revision"), "plan_revision"),
-        "sha256": plan_sha256,
     }
 
 
@@ -238,7 +201,6 @@ def _review_summaries(
         return {}
     task_id = _text(task.get("task_id"), "task_id")
     charter_revision = _positive_int(task.get("charter_revision"), "charter_revision")
-    plan_sha256 = _sha256(plan.get("sha256"), "plan_sha256")
     summaries: dict[str, dict[str, object]] = {}
     for role in REVIEW_ROLES:
         review = raw.get(role)
@@ -251,12 +213,15 @@ def _review_summaries(
             or review.get("role") != role
             or review.get("task_id") != task_id
             or review.get("charter_revision") != charter_revision
-            or _sha256(review.get("plan_sha256"), "review_plan_sha256") != plan_sha256
+            or _text(review.get("court_code"), "review_court_code", 128).upper()
+            != _text(task.get("court_code"), "court_code", 128).upper()
+            or review.get("plan_revision") != plan.get("revision")
         ):
             raise ValueError("case_binding_review_foreign_or_stale")
         summaries[role] = {
             "producer": _producer_summary(review.get("producer"), role),
-            "plan_sha256": plan_sha256,
+            "plan_revision": plan["revision"],
+            "review_id": _text(review.get("review_id"), "review_id", 256),
         }
     return summaries
 
@@ -274,7 +239,6 @@ def _binding_body(
     ):
         raise ValueError("case_binding_task_allocation_mismatch")
     charter_revision = _positive_int(task.get("charter_revision"), "charter_revision")
-    charter_sha256 = _sha256(task.get("charter_sha256"), "charter_sha256")
     case_execution = _case_execution(task.get("case_execution"))
     plan = _plan_summary(task)
     reviews = _review_summaries(task, plan)
@@ -286,7 +250,6 @@ def _binding_body(
         "allocation_date": normalized_allocation["date"],
         "daily_sequence": normalized_allocation["daily_sequence"],
         "charter_revision": charter_revision,
-        "charter_sha256": charter_sha256,
         "case_execution": case_execution,
         "zhongshu_plan": plan,
         "case_reviews": reviews,
@@ -298,10 +261,7 @@ def build_case_binding(
 ) -> dict[str, object]:
     """Build the canonical persisted binding from one task and allocation."""
 
-    body = _binding_body(task, allocation)
-    identity_sha256 = case_identity_sha256(body)
-    bound = {**body, "case_identity_sha256": identity_sha256}
-    return {**bound, "binding_sha256": _digest(bound)}
+    return _binding_body(task, allocation)
 
 
 def _normalize_binding(value: object) -> dict[str, object]:
@@ -322,42 +282,28 @@ def _normalize_binding(value: object) -> dict[str, object]:
     ):
         raise ValueError("case_binding_allocation_invalid")
     _positive_int(binding.get("charter_revision"), "charter_revision")
-    _sha256(binding.get("charter_sha256"), "charter_sha256")
     _case_execution(binding.get("case_execution"))
     plan = binding.get("zhongshu_plan")
     if plan is not None:
-        if not isinstance(plan, Mapping) or set(plan) != {"plan_id", "revision", "sha256"}:
+        if not isinstance(plan, Mapping) or set(plan) != {"plan_id", "revision"}:
             raise ValueError("case_binding_plan_summary_invalid")
         _text(plan.get("plan_id"), "plan_id", 256)
         _positive_int(plan.get("revision"), "plan_revision")
-        _sha256(plan.get("sha256"), "plan_sha256")
     reviews = binding.get("case_reviews")
     if not isinstance(reviews, Mapping) or any(role not in REVIEW_ROLES for role in reviews):
         raise ValueError("case_binding_reviews_invalid")
     if plan is None and reviews:
         raise ValueError("case_binding_reviews_without_plan")
-    expected_plan_sha = plan.get("sha256") if isinstance(plan, Mapping) else None
+    expected_plan_revision = plan.get("revision") if isinstance(plan, Mapping) else None
     for role, summary in reviews.items():
-        if not isinstance(summary, Mapping) or set(summary) != {"producer", "plan_sha256"}:
+        if not isinstance(summary, Mapping) or set(summary) != {"producer", "plan_revision", "review_id"}:
             raise ValueError("case_binding_review_summary_invalid")
-        if _sha256(summary.get("plan_sha256"), "review_plan_sha256") != expected_plan_sha:
+        if summary.get("plan_revision") != expected_plan_revision:
             raise ValueError("case_binding_review_foreign_or_stale")
         _producer_summary(summary.get("producer"), str(role))
-    supplied_identity = _sha256(
-        binding.get("case_identity_sha256"), "identity_sha256"
-    )
-    if supplied_identity != case_identity_sha256(binding):
-        raise ValueError("case_identity_sha256_mismatch")
-    supplied = _sha256(binding.get("binding_sha256"), "sha256")
-    body = {key: binding[key] for key in binding if key != "binding_sha256"}
-    if supplied != _digest(body):
-        raise ValueError("case_binding_sha256_mismatch")
     binding["court_code"] = court_code
     binding["allocation_date"] = allocation_date
     binding["daily_sequence"] = daily_sequence
-    binding["charter_sha256"] = str(binding["charter_sha256"]).lower()
-    binding["case_identity_sha256"] = supplied_identity
-    binding["binding_sha256"] = supplied
     binding["case_execution"] = _case_execution(binding["case_execution"])
     return binding
 
@@ -420,12 +366,7 @@ def _require_bound_decree(task: Mapping[str, object], binding: Mapping[str, obje
             receipt.get("task_id") == binding["task_id"]
             and receipt.get("court_code") == binding["court_code"]
             and receipt.get("session_id") == binding["session_id"]
-            and receipt.get("case_identity_sha256")
-            == binding["case_identity_sha256"]
-            and _SHA256_RE.fullmatch(
-                str(receipt.get("case_binding_sha256") or "").lower()
-            )
-            is not None
+            and receipt.get("charter_revision") == binding["charter_revision"]
         ):
             matching.append(receipt)
     if len(matching) != 1:
@@ -487,15 +428,86 @@ def refresh_case_binding(
     return build_case_binding(task, source_allocation)
 
 
+def case_reference(task_or_binding: Mapping[str, object]) -> dict[str, object]:
+    """Return the business reference without a content digest."""
+
+    source = task_or_binding.get("case_binding")
+    value = source if isinstance(source, Mapping) else task_or_binding
+    court_code = _text(value.get("court_code"), "court_code", 128).upper()
+    if _COURT_CODE_RE.fullmatch(court_code) is None:
+        raise ValueError("case_reference_court_code_invalid")
+    return {
+        "court_code": court_code,
+        "charter_revision": _positive_int(
+            value.get("charter_revision"), "charter_revision"
+        ),
+    }
+
+
+def plan_reference(task_or_plan: Mapping[str, object]) -> dict[str, object]:
+    """Return the plan version under its existing case reference."""
+
+    if "plan_revision" in task_or_plan:
+        reference = case_reference(task_or_plan)
+        return {
+            **reference,
+            "plan_revision": _positive_int(
+                task_or_plan.get("plan_revision"), "plan_revision"
+            ),
+        }
+    raw_plan = task_or_plan.get("zhongshu_plan")
+    if isinstance(raw_plan, Mapping):
+        reference = case_reference(task_or_plan)
+        revision = raw_plan.get("revision")
+    else:
+        reference = case_reference(task_or_plan)
+        revision = task_or_plan.get("revision")
+    return {
+        **reference,
+        "plan_revision": _positive_int(revision, "plan_revision"),
+    }
+
+
+def office_capsule_reference(
+    case_ref: Mapping[str, object],
+    role_key: str,
+    office_instance_id: str,
+    issued_at: str,
+) -> dict[str, object]:
+    """Build an office capsule id from one recorded creation/admission time."""
+
+    normalized_role = _text(role_key, "role_key", 64).lower()
+    initials = OFFICE_CAPSULE_INITIALS.get(normalized_role)
+    if initials is None:
+        raise ValueError("office_capsule_role_unknown")
+    normalized_instance = _text(office_instance_id, "office_instance_id", 256)
+    normalized_time = _text(issued_at, "issued_at", 64)
+    try:
+        moment = datetime.fromisoformat(normalized_time.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("office_capsule_issued_at_invalid") from exc
+    if moment.tzinfo is None:
+        raise ValueError("office_capsule_issued_at_invalid")
+    reference = case_reference(case_ref)
+    return {
+        "capsule_id": f"{reference['court_code']}-{moment.strftime('%H%M')}{initials}",
+        "case_ref": reference,
+        "office_instance_id": normalized_instance,
+        "role_key": normalized_role,
+        "issued_at": normalized_time,
+    }
+
+
 __all__ = [
     "ALLOCATION_SCHEMA",
     "AUTHORITIES",
     "BEHAVIORS",
     "CASE_BINDING_SCHEMA",
-    "CASE_IDENTITY_SCHEMA",
     "build_case_binding",
-    "case_identity_sha256",
+    "case_reference",
     "canonical_case_binding_json",
+    "office_capsule_reference",
+    "plan_reference",
     "refresh_case_binding",
     "validate_case_binding",
     "validate_task_case_binding",

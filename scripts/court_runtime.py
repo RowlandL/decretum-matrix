@@ -51,7 +51,6 @@ from court_office_bootstrap import (
     build_child_office_profile,
     build_office_assignment_binding,
     build_preload_manifest,
-    canonical_child_office_binding_sha256,
     validate_preload_ack,
 )
 from court_model_router import (
@@ -63,8 +62,11 @@ from court_model_router import (
 )
 from court_native_host_dispatch import (
     normalize_native_host_dispatch_request,
+    native_request_reference,
+    native_task_suffix,
     validate_native_host_action_receipt,
 )
+from court_case_binding import case_reference, plan_reference, office_capsule_reference
 from court_file_lock import atomic_write_text, file_lock
 from court_multi_agent_protocol import (
     ProtocolRequirements,
@@ -190,15 +192,14 @@ RUNTIME_ASSESSMENT_BINDING_FIELDS = {
     "schema",
     "task_id",
     "charter_revision",
-    "charter_sha256",
-    "assessment_sha256",
-    "evidence_sha256",
+    "case_ref",
+    "assessment_ref",
+    "evidence_ref",
     "gate",
     "reasons",
     "completion_source",
-    "completion_source_sha256",
+    "completion_source_ref",
     "residual_gaps",
-    "residual_gaps_sha256",
     "assessed_at",
 }
 CHECKPOINT_RECEIPT_FIELDS = {
@@ -206,13 +207,13 @@ CHECKPOINT_RECEIPT_FIELDS = {
     "receipt_id",
     "task_id",
     "charter_revision",
-    "charter_sha256",
-    "assessment_sha256",
-    "record_sha256",
+    "case_ref",
+    "assessment_ref",
+    "record_ref",
     "archive_path",
     "recorded_at",
 }
-CHECKPOINT_RECEIPT_CONCERN_FIELDS = {"residual_gaps", "residual_gaps_sha256"}
+CHECKPOINT_RECEIPT_CONCERN_FIELDS = {"residual_gaps"}
 CONTROL_STATES = {"Paused", "Cancelled"}
 SERIAL_OVERRIDE_RE = re.compile(
     r"(parallel_dispatch\s*=\s*NOT_APPLICABLE/user_serial_override|"
@@ -252,8 +253,7 @@ RESULT_RECOVERY_REASON_CODES = frozenset(
 RESULT_BINDING_REASON_CODES = {
     "task_id": "RESULT_BINDING_TASK_ID_MISMATCH",
     "semantic_epoch": "RESULT_BINDING_SEMANTIC_EPOCH_MISMATCH",
-    "charter_sha256": "RESULT_BINDING_CHARTER_SHA256_MISMATCH",
-    "invariant_capsule_sha256": "RESULT_BINDING_INVARIANT_CAPSULE_SHA256_MISMATCH",
+    "case_ref": "RESULT_BINDING_CASE_REF_MISMATCH",
     "checkpoint_id": "RESULT_BINDING_CHECKPOINT_ID_MISMATCH",
     "dispatch_uid": "RESULT_BINDING_DISPATCH_UID_MISMATCH",
     "attempt": "RESULT_BINDING_ATTEMPT_MISMATCH",
@@ -298,13 +298,12 @@ CONTEXT_ECONOMY_EXPLICIT_OVERRIDE_SOURCES = {
     "taizi_explicit_budget",
 }
 CONTEXT_ECONOMY_BINDING_FIELDS = (
-    "dispatch_context_packet_sha256",
+    "dispatch_context_packet_ref",
     "dispatch_context_packet_bytes",
     "semantic_receipt_id",
-    "semantic_receipt_sha256",
-    "context_budget_pool_sha256",
+    "context_budget_pool_ref",
     "context_budget_id",
-    "context_economy_receipt_sha256",
+    "context_economy_receipt_ref",
     "context_economy_decision",
     "context_fork_mode",
     "context_mode",
@@ -1040,8 +1039,8 @@ def _validate_context_economy_request(
     )
     economy_receipt = evaluate_context_economy(
         pool=evaluation_pool,
-        semantic_receipt_hash=str(receipt.get("receipt_sha256") or ""),
-        invariant_capsule_hash=str(task.get("invariant_capsule_sha256") or ""),
+        semantic_receipt_id=str(receipt.get("receipt_id") or ""),
+        case_ref=case_reference(task),
         capsule_bytes=int(validated["packet_bytes"]),
         fork_context=str(packet.get("fork_context") or ""),
         result_mode=result_mode,
@@ -1050,13 +1049,12 @@ def _validate_context_economy_request(
         system_memory_percent=system_memory_percent,
     )
     binding = {
-        "dispatch_context_packet_sha256": validated["packet_sha256"],
+        "dispatch_context_packet_ref": f"context://{task.get('task_id')}/{wave_id}",
         "dispatch_context_packet_bytes": validated["packet_bytes"],
         "semantic_receipt_id": receipt.get("receipt_id"),
-        "semantic_receipt_sha256": receipt.get("receipt_sha256"),
-        "context_budget_pool_sha256": canonical_json_sha256(pool),
+        "context_budget_pool_ref": deepcopy(pool),
         "context_budget_id": economy_receipt["budget_id"],
-        "context_economy_receipt_sha256": canonical_json_sha256(economy_receipt),
+        "context_economy_receipt_ref": deepcopy(economy_receipt),
         "context_economy_decision": economy_receipt["decision"],
         "context_fork_mode": packet.get("fork_context"),
         "context_mode": packet.get("context_mode"),
@@ -1087,14 +1085,24 @@ def _revalidate_context_economy_start(
             raise ValueError("context_economy_admission_binding_missing")
         return None
     revalidated = _validate_context_economy_request(task, args, wave_id=wave_id)
+    _canonical_json = lambda value: json.dumps(  # noqa: E731
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
     for field in CONTEXT_ECONOMY_BINDING_FIELDS:
         expected = revalidated.get(field)
-        if admission.get(field) != expected or binding.get(field) != expected:
+        if (
+            _canonical_json(admission.get(field)) != _canonical_json(expected)
+            or _canonical_json(binding.get(field)) != _canonical_json(expected)
+        ):
             mismatch_codes = {
-                "dispatch_context_packet_sha256": "dispatch_context_packet_hash_mismatch",
-                "semantic_receipt_sha256": "semantic_receipt_hash_mismatch",
-                "context_budget_pool_sha256": "context_budget_pool_hash_mismatch",
-                "context_economy_receipt_sha256": "context_economy_receipt_hash_mismatch",
+                "dispatch_context_packet_ref": "dispatch_context_packet_ref_mismatch",
+                "semantic_receipt_id": "semantic_receipt_id_mismatch",
+                "context_budget_pool_ref": "context_budget_pool_ref_mismatch",
+                "context_economy_receipt_ref": "context_economy_receipt_ref_mismatch",
             }
             raise ValueError(
                 mismatch_codes.get(
@@ -1409,8 +1417,7 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
 
 AGENT_SEMANTIC_ARG_FIELDS = (
     "semantic_epoch",
-    "charter_sha256",
-    "invariant_capsule_sha256",
+    "case_ref",
     "checkpoint_id",
     "dispatch_uid",
     "attempt",
@@ -1839,8 +1846,6 @@ def _office_lifecycle_receipt(
         "task_id": task.get("task_id"),
         "task_revision": task.get("task_revision"),
         "semantic_epoch": record.get("semantic_epoch"),
-        "charter_sha256": record.get("charter_sha256"),
-        "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
         "checkpoint_id": record.get("checkpoint_id"),
         "dispatch_uid": record.get("dispatch_uid"),
         "attempt": record.get("attempt"),
@@ -1909,85 +1914,66 @@ def _reject_native_host_receipt_replay(
         raise ValueError("native_host_action_receipt:replay")
 
 
-def _native_host_request_binding_problems(
-    request: Mapping[str, object],
-    *,
-    task: Mapping[str, object],
-    admission: Mapping[str, object],
-    binding: Mapping[str, object],
-    args: argparse.Namespace,
-    record: Mapping[str, object] | None,
-    decision: str,
-) -> list[str]:
-    route_inputs = admission.get("model_route_inputs")
-    expected_assignment = (
-        route_inputs.get("assignment") if isinstance(route_inputs, Mapping) else None
-    )
-    requested_assignment = getattr(args, "assignment", None)
+def _native_role_ack_sources(preload: Mapping[str, object]) -> dict[str, str]:
+    from court_office_bootstrap import ROOT as office_root
+    return {
+        field: str((Path(office_root) / Path(str(preload[field]))).resolve())
+        for field in ("profile_source", "dossier_path", "court_skill_path")
+    }
+
+
+def _native_host_request_binding_problems(request: Mapping[str, object], *, task: Mapping[str, object], admission: Mapping[str, object], binding: Mapping[str, object], args: argparse.Namespace, record: Mapping[str, object] | None, decision: str) -> list[str]:
+    route_inputs = admission.get('model_route_inputs')
+    expected_assignment = route_inputs.get('assignment') if isinstance(route_inputs, Mapping) else None
+    requested_assignment = getattr(args, 'assignment', None)
     if isinstance(requested_assignment, str) and requested_assignment.strip():
         expected_assignment = requested_assignment
-    requested_scope = getattr(args, "duty_scope", None)
-    expected_scope = (
-        list(requested_scope)
-        if isinstance(requested_scope, (list, tuple)) and requested_scope
-        else list(binding.get("read_scope") or binding.get("write_set") or [])
-    )
-    preload = binding.get("preload_hashes")
+    requested_scope = getattr(args, 'duty_scope', None)
+    expected_scope = list(requested_scope) if isinstance(requested_scope, (list, tuple)) and requested_scope else list(binding.get('read_scope') or binding.get('write_set') or [])
+    preload = binding.get('preload_sources')
     expected_role_ack = None
     if isinstance(preload, Mapping):
         expected_role_ack = {
-            "role": binding.get("role"),
-            "direct_superior": binding.get("direct_superior"),
-            "profile_sha256": preload.get("profile_hash"),
-            "dossier_sha256": preload.get("dossier_hash"),
+            'role': binding.get('role'),
+            'direct_superior': binding.get('direct_superior'),
+            **_native_role_ack_sources(preload),
         }
     expected = {
-        "task_id": task.get("task_id"),
-        "wave_id": admission.get("wave_id"),
-        "dispatch_uid": admission.get("dispatch_uid"),
-        "attempt": admission.get("attempt"),
-        "role": binding.get("role"),
-        "instance_id": binding.get("instance_id"),
-        "direct_superior": binding.get("direct_superior"),
-        "semantic_epoch": admission.get("semantic_epoch"),
-        "charter_sha256": admission.get("charter_sha256"),
-        "invariant_capsule_sha256": admission.get("invariant_capsule_sha256"),
-        "lease_id": binding.get("lease_id"),
-        "assignment": expected_assignment,
-        "duty_scope": expected_scope,
-        "write_set": list(binding.get("write_set") or binding.get("read_scope") or []),
-        "role_ack": expected_role_ack,
-        "admission_anchor": {
-            "schema": "court.agent.admission_receipt.v1",
-            "receipt_id": _admission_event_id(task, admission),
-            "receipt_sha256": admission.get("admission_immutable_anchor_sha256"),
+        'task_id': task.get('task_id'),
+        'wave_id': admission.get('wave_id'),
+        'dispatch_uid': admission.get('dispatch_uid'),
+        'attempt': admission.get('attempt'),
+        'role': binding.get('role'),
+        'instance_id': binding.get('instance_id'),
+        'direct_superior': binding.get('direct_superior'),
+        'semantic_epoch': admission.get('semantic_epoch'),
+        'case_ref': admission.get('case_ref'),
+        'office_capsule_ref': deepcopy(binding.get('office_capsule_ref')),
+        'lease_id': binding.get('lease_id'),
+        'assignment': expected_assignment,
+        'duty_scope': expected_scope,
+        'write_set': list(binding.get('write_set') or binding.get('read_scope') or []),
+        'role_ack': expected_role_ack,
+        'admission_anchor': {
+            'schema': 'court.agent.admission_receipt.v1',
+            'receipt_id': _admission_event_id(task, admission),
         },
     }
-    problems = [
-        f"native_host_action_receipt:{field}_mismatch"
-        for field, expected_value in expected.items()
-        if request.get(field) != expected_value
-    ]
-    candidates = request.get("compatible_live_instances")
-    if decision == "spawn":
+    problems = [f'native_host_action_receipt:{field}_mismatch' for field, expected_value in expected.items() if request.get(field) != expected_value]
+    candidates = request.get('compatible_live_instances')
+    if decision == 'spawn':
         if candidates not in ([], ()):
-            problems.append("native_host_action_receipt:spawn_candidate_mismatch")
+            problems.append('native_host_action_receipt:spawn_candidate_mismatch')
     elif record is None or not isinstance(candidates, (list, tuple)) or len(candidates) != 1:
-        problems.append("native_host_action_receipt:reuse_candidate_missing")
+        problems.append('native_host_action_receipt:reuse_candidate_missing')
     else:
         candidate = candidates[0]
         if not isinstance(candidate, Mapping):
-            problems.append("native_host_action_receipt:reuse_candidate_invalid")
+            problems.append('native_host_action_receipt:reuse_candidate_invalid')
         else:
-            for request_field, record_field in (
-                ("host_task_id", "native_host_task_id"),
-                ("host_thread_id", "native_host_thread_id"),
-                ("host_instance_id", "native_host_instance_id"),
-            ):
+            for request_field, record_field in (('host_task_id', 'native_host_task_id'), ('host_thread_id', 'native_host_thread_id'), ('host_instance_id', 'native_host_instance_id')):
                 if candidate.get(request_field) != record.get(record_field):
-                    problems.append(
-                        f"native_host_action_receipt:reuse_{request_field}_mismatch"
-                    )
+                    problems.append(f'native_host_action_receipt:reuse_{request_field}_mismatch')
     return problems
 
 
@@ -2036,51 +2022,39 @@ def _validate_native_host_receipt_for_runtime(
     return receipt
 
 
-def _record_native_host_receipt(
-    task: dict[str, Any],
-    receipt: Mapping[str, object],
-    *,
-    lifecycle_action: str,
-    target_id: str,
-) -> None:
+def _record_native_host_receipt(task: dict[str, Any], receipt: Mapping[str, object], *, lifecycle_action: str, target_id: str) -> None:
     ledger = _native_host_receipt_ledger(task)
-    receipt_id = str(receipt.get("receipt_id") or "")
+    receipt_id = str(receipt.get('receipt_id') or '')
     if receipt_id in ledger:
-        raise ValueError("native_host_action_receipt:replay")
+        raise ValueError('native_host_action_receipt:replay')
     ledger[receipt_id] = {
-        "receipt_id": receipt_id,
-        "receipt_sha256": receipt.get("receipt_sha256"),
-        "request_sha256": receipt.get("request_sha256"),
-        "result_sha256": receipt.get("result_sha256"),
-        "decision": receipt.get("decision"),
-        "host_action": receipt.get("host_action"),
-        "outcome": receipt.get("outcome"),
-        "lifecycle_action": lifecycle_action,
-        "target_id": target_id,
-        "acted_at": receipt.get("acted_at"),
-        "recorded_at": now_text(),
+        'receipt_id': receipt_id,
+        'request_ref': receipt.get('request_ref'),
+        'decision': receipt.get('decision'),
+        'host_action': receipt.get('host_action'),
+        'outcome': receipt.get('outcome'),
+        'lifecycle_action': lifecycle_action,
+        'target_id': target_id,
+        'acted_at': receipt.get('acted_at'),
+        'recorded_at': now_text(),
     }
 
 
-def _native_host_receipt_record_fields(
-    receipt: Mapping[str, object],
-) -> dict[str, object]:
+def _native_host_receipt_record_fields(receipt: Mapping[str, object]) -> dict[str, object]:
     return {
-        "native_host_action_receipt": deepcopy(dict(receipt)),
-        "native_host_action_receipt_id": receipt.get("receipt_id"),
-        "native_host_action_receipt_sha256": receipt.get("receipt_sha256"),
-        "native_host_request_sha256": receipt.get("request_sha256"),
-        "native_host_result_sha256": receipt.get("result_sha256"),
-        "native_host_task_id": receipt.get("host_task_id"),
-        "native_host_thread_id": receipt.get("host_thread_id"),
-        "native_host_instance_id": receipt.get("host_instance_id"),
-        "native_host_identity_kind": receipt.get("host_identity_kind"),
-        "native_trace_issuer_thread_id": receipt.get("trace_issuer_thread_id"),
-        "native_trace_reader_thread_id": receipt.get("trace_reader_thread_id"),
-        "native_trace_session_id": receipt.get("trace_session_id"),
-        "native_host_action_id": receipt.get("host_action_id"),
-        "native_host_spawn_evidence": deepcopy(receipt.get('host_spawn_evidence')),
-        "native_child_thread_id": (receipt.get('host_spawn_evidence') or {}).get('child_thread_id'),
+        'native_host_action_receipt': deepcopy(dict(receipt)),
+        'native_host_action_receipt_id': receipt.get('receipt_id'),
+        'native_host_request_ref': receipt.get('request_ref'),
+        'native_host_task_id': receipt.get('host_task_id'),
+        'native_host_thread_id': receipt.get('host_thread_id'),
+        'native_host_instance_id': receipt.get('host_instance_id'),
+        'native_host_identity_kind': receipt.get('host_identity_kind'),
+        'native_trace_issuer_thread_id': receipt.get('trace_issuer_thread_id'),
+        'native_trace_reader_thread_id': receipt.get('trace_reader_thread_id'),
+        'native_trace_session_id': receipt.get('trace_session_id'),
+        'native_host_action_id': receipt.get('host_action_id'),
+        'native_host_spawn_evidence': deepcopy(receipt.get('host_spawn_evidence')),
+        'native_child_thread_id': (receipt.get('host_spawn_evidence') or {}).get('child_thread_id'),
     }
 
 
@@ -2125,54 +2099,34 @@ def _validate_admission_capsule_write_scope(
             raise ValueError("agent_admission_write_scope_exceeds_capsule")
 
 
-def _expected_semantic_binding(
-    task: dict[str, Any],
-    args: argparse.Namespace,
-    *,
-    require_dispatchable: bool,
-) -> dict[str, object]:
-    raw = {
-        "semantic_epoch": getattr(args, "expected_semantic_epoch", None),
-        "charter_sha256": getattr(args, "expected_charter_sha256", None),
-        "invariant_capsule_sha256": getattr(
-            args,
-            "expected_invariant_capsule_sha256",
-            None,
-        ),
-        "checkpoint_id": getattr(args, "expected_checkpoint_id", None),
-    }
-    if any(value is None for value in raw.values()):
-        missing = next(field for field, value in raw.items() if value is None)
-        raise ValueError(f"agent_semantic_binding_missing:{missing}")
+def _expected_semantic_binding(task, args, *, require_dispatchable):
+    supplied = getattr(args, "case_ref", None)
+    if isinstance(supplied, str):
+        supplied = _optional_json_object(supplied, "case-ref")
+    if not isinstance(supplied, Mapping) or case_reference(supplied) != case_reference(task):
+        raise ValueError("agent_semantic_binding_mismatch:case_ref")
     if require_dispatchable and task.get("semantic_state") != "DISPATCHABLE":
         raise ValueError("semantic_mutation_not_dispatchable")
     receipt = task.get("semantic_receipt")
     if not isinstance(receipt, dict):
         raise ValueError("semantic_receipt_missing")
-    integrity_problems = _semantic_receipt_runtime_integrity_problems(task, receipt)
-    if integrity_problems:
-        raise ValueError(
-            "semantic_receipt_integrity_failed:" + ",".join(integrity_problems)
-        )
+    problems = _semantic_receipt_runtime_integrity_problems(task, receipt)
+    if problems:
+        raise ValueError("semantic_receipt_integrity_failed:" + ",".join(problems))
     expected = {
-        "semantic_epoch": task.get("semantic_epoch"),
-        "charter_sha256": task.get("charter_sha256"),
-        "invariant_capsule_sha256": task.get("invariant_capsule_sha256"),
-        "checkpoint_id": receipt.get("checkpoint_id"),
+        'semantic_epoch': task.get('semantic_epoch'),
+        'case_ref': case_reference(task),
+        'checkpoint_id': receipt.get('checkpoint_id'),
     }
-    for field, value in expected.items():
-        if raw[field] != value:
-            raise ValueError(f"agent_semantic_binding_mismatch:{field}")
+    for field, argument in (("semantic_epoch", "expected_semantic_epoch"), ("checkpoint_id", "expected_checkpoint_id")):
+        if getattr(args, argument, None) != expected[field]:
+            raise ValueError("agent_semantic_binding_mismatch:" + field)
     return expected
 
 
-def _semantic_preload_hashes(role: str) -> dict[str, str]:
+def _semantic_preload_sources(role: str) -> dict[str, str]:
     manifest = build_preload_manifest(role)
-    return {
-        "profile_hash": manifest.profile_hash,
-        "dossier_hash": manifest.dossier_hash,
-        "court_skill_hash": manifest.court_skill_hash,
-    }
+    return {"profile_source": manifest.profile_source, "dossier_path": manifest.dossier_path, "court_skill_path": manifest.court_skill_path}
 
 
 def _validate_canonical_admission_preloads(args: argparse.Namespace) -> None:
@@ -2187,7 +2141,7 @@ def _validate_canonical_admission_preloads(args: argparse.Namespace) -> None:
     if bindings is None or budget_lease is None:
         raise ValueError("agent_admission_canonical_preload_mismatch")
     approved_ids_raw = budget_lease.get("approved_instance_ids")
-    approved_preloads = budget_lease.get("approved_preload_hashes")
+    approved_preloads = budget_lease.get("approved_preload_sources")
     if not isinstance(approved_ids_raw, (list, tuple)) or not isinstance(
         approved_preloads, Mapping
     ):
@@ -2212,8 +2166,8 @@ def _validate_canonical_admission_preloads(args: argparse.Namespace) -> None:
     for instance_id in approved_ids:
         binding = bindings_by_id[instance_id]
         role = str(binding.get("role") or "").strip().lower()
-        expected = _semantic_preload_hashes(role)
-        if binding.get("preload_hashes") != expected:
+        expected = _semantic_preload_sources(role)
+        if binding.get("preload_sources") != expected:
             raise ValueError("agent_admission_canonical_preload_mismatch")
         lease_hashes = approved_preloads.get(instance_id)
         if lease_hashes is None:
@@ -2226,13 +2180,6 @@ def _validate_canonical_admission_preloads(args: argparse.Namespace) -> None:
                 None,
             )
         if lease_hashes != expected:
-            raise ValueError("agent_admission_canonical_preload_mismatch")
-        child_profile = binding.get("child_profile")
-        if isinstance(child_profile, Mapping) and (
-            child_profile.get("profile_sha256") != expected["profile_hash"]
-            or child_profile.get("dossier_sha256") != expected["dossier_hash"]
-            or child_profile.get("skill_sha256") != expected["court_skill_hash"]
-        ):
             raise ValueError("agent_admission_canonical_preload_mismatch")
 
 
@@ -2301,7 +2248,7 @@ def _generate_missing_child_office_profiles(
                 or "stop after the bounded result is accepted"
             ),
         )
-        preload_hashes = _semantic_preload_hashes(role)
+        preload_sources = _semantic_preload_sources(role)
         child_role = str(
             binding.get("child_role")
             or ("GongBu-GongJiang" if role == "gongbu" else f"{role}-worker")
@@ -2321,22 +2268,11 @@ def _generate_missing_child_office_profiles(
             child_role=child_role,
             expires_at_utc=expires_at_utc,
         )
+        binding["case_ref"] = deepcopy(semantic_expectations["case_ref"])
+        binding["semantic_receipt_id"] = context_economy["semantic_receipt_id"]
         binding["child_profile"] = build_child_office_profile(
-            profile_input,
-            child_role=child_role,
-            profile_sha256=preload_hashes["profile_hash"],
-            dossier_sha256=preload_hashes["dossier_hash"],
-            skill_sha256=preload_hashes["court_skill_hash"],
-            dispatch_context_packet_sha256=str(
-                context_economy.get("dispatch_context_packet_sha256") or ""
-            ),
-            semantic_receipt_sha256=str(
-                context_economy.get("semantic_receipt_sha256") or ""
-            ),
-            invariant_capsule_sha256=str(
-                semantic_expectations.get("invariant_capsule_sha256") or ""
-            ),
-            expires_at_utc=expires_at_utc,
+            profile_input, child_role=child_role, case_ref=binding["case_ref"],
+            semantic_receipt_id=binding["semantic_receipt_id"], expires_at_utc=expires_at_utc,
         )
         generated_instance_ids.append(
             str(binding.get("instance_id") or "").strip().lower()
@@ -2347,178 +2283,34 @@ def _generate_missing_child_office_profiles(
     return tuple(generated_instance_ids)
 
 
-def _synchronize_approved_child_binding_digests(
-    args: argparse.Namespace,
-    generated_instance_ids: Sequence[str],
-) -> None:
-    bindings = _optional_json_array(
-        getattr(args, "requested_bindings_json", ""),
-        "requested-bindings-json",
-    )
-    budget_lease = _optional_json_object(
-        getattr(args, "budget_lease_json", ""),
-        "budget-lease-json",
-    )
-    if bindings is None or budget_lease is None:
+def _synchronize_approved_child_bindings(args, generated_instance_ids):
+    bindings = _optional_json_array(getattr(args, "requested_bindings_json", ""), "requested-bindings-json")
+    lease = _optional_json_object(getattr(args, "budget_lease_json", ""), "budget-lease-json")
+    if bindings is None or lease is None:
         return
-    approved_ids_raw = budget_lease.get("approved_instance_ids")
-    if not isinstance(approved_ids_raw, (list, tuple)):
+    approved_ids = lease.get("approved_instance_ids")
+    if not isinstance(approved_ids, (list, tuple)):
         return
-    approved_ids = tuple(
-        str(value or "").strip().lower() for value in approved_ids_raw
-    )
-    if (
-        not approved_ids
-        or any(not value for value in approved_ids)
-        or len(set(approved_ids)) != len(approved_ids)
-    ):
-        return
-    bindings_by_id: dict[str, Mapping[str, object]] = {}
-    for binding in bindings:
-        if not isinstance(binding, Mapping):
-            return
-        instance_id = str(binding.get("instance_id") or "").strip().lower()
-        if not instance_id or instance_id in bindings_by_id:
-            return
-        bindings_by_id[instance_id] = binding
-    if any(instance_id not in bindings_by_id for instance_id in approved_ids):
-        return
-
-    worker_kinds = {"worker", "craftsman", "office_worker_instance"}
-    approved_child_bindings: dict[str, Mapping[str, object]] = {}
-    for instance_id in approved_ids:
-        binding = bindings_by_id[instance_id]
-        instance_kind = str(
-            binding.get("instance_kind")
-            or binding.get("office_instance_kind")
-            or ""
-        ).strip().lower()
-        child_shape = (
-            binding.get("canonical_authority") is False
-            or instance_kind in worker_kinds
-            or binding.get("owner_role") not in {None, ""}
-            or binding.get("child_profile") is not None
-        )
-        if child_shape:
-            approved_child_bindings[instance_id] = binding
-
-    raw_digests = budget_lease.get("approved_binding_sha256s")
-    if not approved_child_bindings:
-        if raw_digests is None or (
-            isinstance(raw_digests, Mapping) and not raw_digests
-        ):
-            return
-        raise ValueError("approved_budget_binding_digest_invalid")
-
-    computed: dict[str, str] = {}
-    for instance_id, binding in approved_child_bindings.items():
-        try:
-            computed[instance_id] = canonical_child_office_binding_sha256(binding)
-        except ValueError as exc:
-            raise ValueError("approved_budget_binding_digest_invalid") from exc
-
-    if raw_digests is None:
-        generated_ids = {
-            str(value or "").strip().lower() for value in generated_instance_ids
-        }
-        if not set(computed).issubset(generated_ids):
-            raise ValueError("approved_budget_binding_digest_missing")
-        budget_lease["approved_binding_sha256s"] = computed
-        args.budget_lease_json = json.dumps(budget_lease, ensure_ascii=False)
-        return
-    if not isinstance(raw_digests, Mapping):
-        raise ValueError("approved_budget_binding_digest_invalid")
-
-    supplied: dict[str, str] = {}
-    for raw_instance_id, raw_digest in raw_digests.items():
-        instance_id = str(raw_instance_id or "").strip().lower()
-        digest = str(raw_digest or "").strip()
-        if (
-            not instance_id
-            or instance_id in supplied
-            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-        ):
-            raise ValueError("approved_budget_binding_digest_invalid")
-        supplied[instance_id] = digest
-    if set(computed) - set(supplied):
-        raise ValueError("approved_budget_binding_digest_missing")
-    if set(supplied) != set(computed):
-        raise ValueError("approved_budget_binding_digest_invalid")
-    if any(supplied[key] != digest for key, digest in computed.items()):
-        raise ValueError("approved_budget_binding_digest_mismatch")
+    expected = {str(binding.get("instance_id") or ""): deepcopy(binding) for binding in bindings if binding.get("instance_id") in approved_ids and isinstance(binding.get("child_profile"), Mapping)}
+    declared = lease.get("approved_bindings")
+    if declared is None and set(expected).issubset(set(generated_instance_ids)):
+        lease["approved_bindings"] = expected
+        args.budget_lease_json = json.dumps(lease, ensure_ascii=False)
+    elif declared != expected:
+        raise ValueError("approved_budget_binding_mismatch")
 
 
-def _expected_child_office_profile(
-    binding: Mapping[str, object],
-) -> dict[str, object] | None:
-    child_profile = binding.get("child_profile")
-    if not isinstance(child_profile, Mapping):
+def _expected_child_office_profile(binding: Mapping[str, object]) -> dict[str, object] | None:
+    if not isinstance(binding.get("child_profile"), Mapping):
         return None
-    role = str(binding.get("role") or "").strip().lower()
-    preload_hashes = _semantic_preload_hashes(role)
-    try:
-        return build_child_office_profile(
-            binding,
-            child_role=str(binding.get("child_role") or ""),
-            profile_sha256=preload_hashes["profile_hash"],
-            dossier_sha256=preload_hashes["dossier_hash"],
-            skill_sha256=preload_hashes["court_skill_hash"],
-            dispatch_context_packet_sha256=str(
-                binding.get("dispatch_context_packet_sha256") or ""
-            ),
-            semantic_receipt_sha256=str(
-                binding.get("semantic_receipt_sha256") or ""
-            ),
-            invariant_capsule_sha256=str(
-                binding.get("invariant_capsule_sha256") or ""
-            ),
-            expires_at_utc=str(binding.get("expires_at_utc") or ""),
-        )
-    except (OSError, ValueError) as exc:
-        raise ValueError(
-            "dispatch_hierarchy_child_semantic_authority_mismatch"
-        ) from exc
+    return build_child_office_profile(binding, child_role=str(binding.get("child_role") or ""), case_ref=case_reference(binding["case_ref"]), semantic_receipt_id=str(binding.get("semantic_receipt_id") or ""), expires_at_utc=str(binding.get("expires_at_utc") or ""))
 
 
-def _validate_admission_binding_integrity(
-    admission: Mapping[str, object],
-    bindings: Sequence[Mapping[str, object]],
-) -> None:
-    child_bindings = [
-        binding
-        for binding in bindings
-        if isinstance(binding.get("child_profile"), Mapping)
-    ]
-    if not child_bindings:
-        return
-    raw_digests = admission.get("admission_binding_sha256s")
-    if not isinstance(raw_digests, Mapping):
+def _validate_admission_binding_integrity(admission, bindings):
+    expected = admission.get("admission_bindings", {})
+    actual = {str(binding.get("instance_id") or ""): dict(binding) for binding in bindings if isinstance(binding.get("child_profile"), Mapping)}
+    if not isinstance(expected, Mapping) or expected != actual:
         raise ValueError("agent_start_admission_binding_integrity_mismatch")
-    digests: dict[str, object] = {}
-    for key, value in raw_digests.items():
-        instance_id = str(key or "").strip().lower()
-        if not instance_id or instance_id in digests:
-            raise ValueError("agent_start_admission_binding_integrity_mismatch")
-        digests[instance_id] = value
-    child_instance_ids = {
-        str(binding.get("instance_id") or "").strip().lower()
-        for binding in child_bindings
-    }
-    if "" in child_instance_ids or set(digests) != child_instance_ids:
-        raise ValueError("agent_start_admission_binding_integrity_mismatch")
-    for binding in child_bindings:
-        instance_id = str(binding.get("instance_id") or "").strip().lower()
-        expected = digests[instance_id]
-        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
-            raise ValueError("agent_start_admission_binding_integrity_mismatch")
-        try:
-            actual = canonical_child_office_binding_sha256(binding)
-        except ValueError as exc:
-            raise ValueError(
-                "agent_start_admission_binding_integrity_mismatch"
-            ) from exc
-        if actual != expected:
-            raise ValueError("agent_start_admission_binding_integrity_mismatch")
 
 
 def _validated_lease_child_request_bindings(
@@ -2570,37 +2362,8 @@ def _validated_lease_child_request_bindings(
         ):
             child_bindings[instance_id] = binding
 
-    raw_digests = budget_lease.get("approved_binding_sha256s")
-    if not child_bindings:
-        if raw_digests is None or (
-            isinstance(raw_digests, Mapping) and not raw_digests
-        ):
-            return {}
+    if budget_lease.get("approved_bindings", {}) != child_bindings:
         raise ValueError("agent_start_admission_binding_integrity_mismatch")
-    if not isinstance(raw_digests, Mapping):
-        raise ValueError("agent_start_admission_binding_integrity_mismatch")
-    digests: dict[str, str] = {}
-    for raw_instance_id, raw_digest in raw_digests.items():
-        instance_id = str(raw_instance_id or "").strip().lower()
-        digest = str(raw_digest or "").strip()
-        if (
-            not instance_id
-            or instance_id in digests
-            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-        ):
-            raise ValueError("agent_start_admission_binding_integrity_mismatch")
-        digests[instance_id] = digest
-    if set(digests) != set(child_bindings):
-        raise ValueError("agent_start_admission_binding_integrity_mismatch")
-    for instance_id, binding in child_bindings.items():
-        try:
-            actual = canonical_child_office_binding_sha256(binding)
-        except ValueError as exc:
-            raise ValueError(
-                "agent_start_admission_binding_integrity_mismatch"
-            ) from exc
-        if digests[instance_id] != actual:
-            raise ValueError("agent_start_admission_binding_integrity_mismatch")
     return child_bindings
 
 
@@ -2623,41 +2386,30 @@ def _validate_admission_request_binding_anchors(
                 raise ValueError("agent_start_admission_binding_integrity_mismatch")
 
 
-def _validate_admission_semantic_receipt_anchors(
-    task: Mapping[str, object],
-    admission: Mapping[str, object],
-    bindings: Sequence[Mapping[str, object]],
-) -> None:
-    receipt = task.get("semantic_receipt")
+def _validate_admission_semantic_receipt_anchors(task: Mapping[str, object], admission: Mapping[str, object], bindings: Sequence[Mapping[str, object]]) -> None:
+    receipt = task.get('semantic_receipt')
     if not isinstance(receipt, Mapping):
-        raise ValueError("agent_start_admission_binding_integrity_mismatch")
+        raise ValueError('agent_start_admission_binding_integrity_mismatch')
     expected = {
-        "task_id": task.get("task_id"),
-        "semantic_epoch": task.get("semantic_epoch"),
-        "charter_sha256": task.get("charter_sha256"),
-        "invariant_capsule_sha256": task.get("invariant_capsule_sha256"),
-        "checkpoint_id": receipt.get("checkpoint_id"),
+        'task_id': task.get('task_id'),
+        'semantic_epoch': task.get('semantic_epoch'),
+        'case_ref': case_reference(task),
+        'checkpoint_id': receipt.get('checkpoint_id'),
     }
     preimages = (admission, *bindings)
-    if any(preimage.get("semantic_receipt_sha256") is not None for preimage in preimages):
-        expected["semantic_receipt_sha256"] = receipt.get("receipt_sha256")
+    if any((preimage.get('semantic_receipt_sha256') is not None for preimage in preimages)):
+        expected['semantic_receipt_sha256'] = receipt.get('receipt_sha256')
     for preimage in preimages:
         for field, value in expected.items():
             if preimage.get(field) != value:
-                raise ValueError("agent_start_admission_binding_integrity_mismatch")
-        if (
-            preimage is not admission
-            and (
-                preimage.get("dispatch_uid") != admission.get("dispatch_uid")
-                or preimage.get("attempt") != admission.get("attempt")
-            )
-        ):
-            raise ValueError("agent_start_admission_binding_integrity_mismatch")
+                raise ValueError('agent_start_admission_binding_integrity_mismatch')
+        if preimage is not admission and (preimage.get('dispatch_uid') != admission.get('dispatch_uid') or preimage.get('attempt') != admission.get('attempt')):
+            raise ValueError('agent_start_admission_binding_integrity_mismatch')
 
 
 _ADMISSION_LIFECYCLE_MUTABLE_FIELDS = frozenset(
     {
-        "admission_immutable_anchor_sha256",
+        "admission_event_id",
         "consumed_roles",
         "consumed_instances",
         "failed_roles",
@@ -2671,19 +2423,12 @@ _ADMISSION_LIFECYCLE_MUTABLE_FIELDS = frozenset(
 )
 
 
-def _admission_immutable_anchor_sha256(admission: Mapping[str, object]) -> str:
-    payload = {
-        str(field): deepcopy(value)
+def _admission_bound_record(admission: Mapping[str, object]) -> dict[str, object]:
+    return {
+        field: deepcopy(value)
         for field, value in admission.items()
         if field not in _ADMISSION_LIFECYCLE_MUTABLE_FIELDS
     }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _validate_admission_immutable_event_anchor(
@@ -2702,43 +2447,29 @@ def _validate_admission_immutable_event_anchor(
             expected_task["case_reviews"] = {}
         if previous != refresh_case_binding(expected_task):
             raise ValueError("case_admission_binding_stale_or_foreign")
-    stored = str(admission.get("admission_immutable_anchor_sha256") or "")
-    if (
-        re.fullmatch(r"[0-9a-f]{64}", stored) is None
-        or stored != _admission_immutable_anchor_sha256(admission)
-    ):
-        raise ValueError("agent_start_admission_immutable_anchor_mismatch")
-    matching_events = [
-        event
-        for event in events_for_task(task.get("task_id"), limit=None)
+    event_id = admission.get("admission_event_id")
+    matches = [
+        event for event in events_for_task(task.get("task_id"), limit=None)
         if event.get("action") == "agent_admit"
+        and event.get("event_id") == event_id
         and event.get("wave_id") == admission.get("wave_id")
         and event.get("allowed") is True
     ]
-    if (
-        len(matching_events) != 1
-        or matching_events[0].get("admission_immutable_anchor_sha256") != stored
-    ):
+    if (not event_id or len(matches) != 1
+            or matches[0].get("admission_record") != _admission_bound_record(admission)):
         raise ValueError("agent_start_admission_immutable_anchor_mismatch")
 
 
-def _admission_event_id(
-    task: Mapping[str, object],
-    admission: Mapping[str, object],
-) -> str | None:
-    stored = str(admission.get("admission_immutable_anchor_sha256") or "")
-    matching_events = [
-        event
-        for event in events_for_task(task.get("task_id"), limit=None)
-        if event.get("action") == "agent_admit"
+def _admission_event_id(task, admission):
+    event_id = admission.get("admission_event_id")
+    matches = [
+        event for event in events_for_task(task.get("task_id"), limit=None)
+        if event.get("event_id") == event_id
+        and event.get("action") == "agent_admit"
         and event.get("wave_id") == admission.get("wave_id")
         and event.get("allowed") is True
-        and event.get("admission_immutable_anchor_sha256") == stored
     ]
-    if len(matching_events) != 1:
-        return None
-    event_id = str(matching_events[0].get("event_id") or "").strip()
-    return event_id or None
+    return str(event_id) if event_id and len(matches) == 1 else None
 
 
 def _validate_agent_semantic_args(
@@ -2873,12 +2604,12 @@ def _validated_consultation_refs_for_task(
         return False
 
     for reference in references:
-        if reference.get("task_id") != task.get("task_id"):
+        ref_case_ref = case_reference(reference["case_ref"])
+        task_case_ref = case_reference(task)
+        if ref_case_ref.get("court_code") != task_case_ref.get("court_code"):
             raise ValueError("consultation_ref_task_mismatch")
-        if reference.get("charter_revision") != task.get("charter_revision"):
+        if ref_case_ref.get("charter_revision") != task_case_ref.get("charter_revision"):
             raise ValueError("consultation_ref_charter_revision_mismatch")
-        if reference.get("charter_sha256") != str(task.get("charter_sha256") or "").lower():
-            raise ValueError("consultation_ref_charter_sha256_mismatch")
         if reference.get("from_role") != reporter_role:
             raise ValueError("consultation_ref_sender_role_mismatch")
         recipient_role = str(reference.get("to_role") or "").strip().lower()
@@ -2892,18 +2623,16 @@ def _validated_consultation_refs_for_task(
 
 COMPLETION_PROOF_SCHEMA = "court.completion_proof.v1"
 COMPLETION_PROOF_FIELDS = {
-    "schema", "task_id", "receipt_id", "assessment_sha256",
-    "record_sha256", "completion_source_sha256", "residual_gaps",
-    "residual_gaps_sha256", "outcome_status", "events", "proof_sha256",
+    "schema", "task_id", "receipt_id", "assessment_ref",
+    "record_ref", "completion_source_ref", "residual_gaps",
+    "outcome_status", "events", "proof_ref",
 }
 
 
-def _completion_proof_sha256(proof: dict[str, object]) -> str:
-    core = {key: value for key, value in proof.items() if key != "proof_sha256"}
-    payload = json.dumps(
-        core, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+def _completion_proof_ref(proof: dict[str, object]) -> str:
+    # Non-hash proof reference bound to the court code / record reference.
+    receipt_id = str(proof.get("receipt_id") or "")
+    return "proof:" + receipt_id if receipt_id else "proof:UNBOUND"
 
 
 def _completion_proof(
@@ -2919,11 +2648,11 @@ def _completion_proof(
         "schema": COMPLETION_PROOF_SCHEMA,
         "task_id": task.get("task_id"),
         "receipt_id": receipt.get("receipt_id"),
-        "assessment_sha256": receipt.get("assessment_sha256"),
-        "record_sha256": receipt.get("record_sha256"),
-        "completion_source_sha256": binding.get("completion_source_sha256"),
+        "assessment_ref": receipt.get("assessment_ref"),
+        "record_ref": receipt.get("record_ref"),
+        "completion_source_ref": binding.get("completion_source_ref"),
         "residual_gaps": deepcopy(binding.get("residual_gaps")),
-        "residual_gaps_sha256": binding.get("residual_gaps_sha256"),
+        "residual_gaps": binding.get("residual_gaps"),
         "outcome_status": completion.get("outcome_status"),
         "events": [
             {
@@ -2933,14 +2662,14 @@ def _completion_proof(
                     "action": "record_shiguan",
                     "task_id": task.get("task_id"),
                     "receipt_id": receipt.get("receipt_id"),
-                    "record_sha256": receipt.get("record_sha256"),
+                    "record_ref": receipt.get("record_ref"),
                     "recorded_at": receipt.get("recorded_at"),
                 },
             },
             {"kind": "completion", "sequence": 2, "event": deepcopy(completion_event)},
         ],
     }
-    proof["proof_sha256"] = _completion_proof_sha256(proof)
+    proof["proof_ref"] = _completion_proof_ref(proof)
     return proof
 
 
@@ -2967,38 +2696,35 @@ def completion_projection(
     assessment = task.get("assessment_binding")
     checkpoint = task.get("shiguan_checkpoint")
     assessment_valid = False
-    assessment_digest_valid = False
+    assessment_ref_valid = False
     assessment_gate: str | None = None
-    completion_source_sha256 = ""
+    completion_source_ref = ""
     residual_gaps: list[str] = []
-    residual_gaps_sha256 = ""
     if isinstance(assessment, dict):
         try:
             stored_assessment = assessment
             revalidated_assessment = _revalidate_stored_assessment_binding(task)
-            assessment_digest = _canonical_sha256(
-                stored_assessment.get("assessment_sha256"),
-                "invalid_projection_assessment_sha256",
-            )
+            assessment_ref = str(stored_assessment.get("assessment_ref") or "").strip()
             assessment_valid = (
                 stored_assessment.get("status") == "VERIFIED"
                 and revalidated_assessment.get("gate")
                 in COMPLETABLE_OUTCOME_ASSESSMENT_GATES
             )
-            assessment_digest_valid = assessment_digest == revalidated_assessment.get("assessment_sha256")
+            assessment_ref_valid = bool(assessment_ref) and (
+                assessment_ref == revalidated_assessment.get("assessment_ref")
+            )
             assessment_gate = str(revalidated_assessment.get("gate") or "")
-            completion_source_sha256 = str(
-                revalidated_assessment.get("completion_source_sha256") or ""
+            completion_source_ref = str(
+                revalidated_assessment.get("completion_source_ref") or ""
             )
             residual_gaps = list(revalidated_assessment.get("residual_gaps") or [])
-            residual_gaps_sha256 = str(
-                revalidated_assessment.get("residual_gaps_sha256") or ""
-            )
         except ValueError:
             assessment_valid = False
     if not isinstance(checkpoint, dict):
         checkpoint = {}
-    assessment_sha256 = assessment.get("assessment_sha256") if isinstance(assessment, dict) else None
+    assessment_ref = (
+        assessment.get("assessment_ref") if isinstance(assessment, dict) else None
+    )
 
     receipt_id = completion.get("receipt_id")
     checkpoint_receipt_id = checkpoint.get("receipt_id")
@@ -3010,24 +2736,17 @@ def completion_projection(
         and isinstance(consumed_receipts, list)
         and receipt_id in consumed_receipts
     )
-    try:
-        record_digest = _canonical_sha256(
-            checkpoint.get("record_sha256"), "invalid_projection_record_sha256"
-        )
-        checkpoint_digest_valid = True
-    except ValueError:
-        record_digest = ""
-        checkpoint_digest_valid = False
+    record_ref = str(checkpoint.get("record_ref") or "").strip()
+    checkpoint_ref_valid = bool(record_ref)
     checkpoint_verified = (
         checkpoint.get("status") == "VERIFIED"
-        and checkpoint_digest_valid
+        and checkpoint_ref_valid
         and receipt_current
     )
     checkpoint_concerns_valid = assessment_gate != "PASSED_WITH_CONCERNS"
     if assessment_gate == "PASSED_WITH_CONCERNS":
         checkpoint_concerns_valid = (
             checkpoint.get("residual_gaps") == residual_gaps
-            and checkpoint.get("residual_gaps_sha256") == residual_gaps_sha256
         )
     expected_outcome_status = (
         "DONE_WITH_CONCERNS"
@@ -3036,9 +2755,8 @@ def completion_projection(
     )
     completion_concerns_valid = (
         completion.get("outcome_status") == expected_outcome_status
-        and completion.get("completion_source_sha256") == completion_source_sha256
+        and completion.get("completion_source_ref") == completion_source_ref
         and completion.get("residual_gaps") == residual_gaps
-        and completion.get("residual_gaps_sha256") == residual_gaps_sha256
     )
 
     proof = completion.get("proof")
@@ -3069,13 +2787,12 @@ def completion_projection(
                     proof.get("schema") == COMPLETION_PROOF_SCHEMA
                     and proof.get("task_id") == task.get("task_id")
                     and proof.get("receipt_id") == receipt_id
-                    and proof.get("assessment_sha256") == assessment_sha256
-                    and proof.get("record_sha256") == record_digest
-                    and proof.get("completion_source_sha256") == completion_source_sha256
+                    and proof.get("assessment_ref") == assessment_ref
+                    and proof.get("record_ref") == record_ref
+                    and proof.get("completion_source_ref") == completion_source_ref
                     and proof.get("residual_gaps") == residual_gaps
-                    and proof.get("residual_gaps_sha256") == residual_gaps_sha256
                     and proof.get("outcome_status") == expected_outcome_status
-                    and proof.get("proof_sha256") == _completion_proof_sha256(proof)
+                    and proof.get("proof_ref") == _completion_proof_ref(proof)
                     and checkpoint_event.get("kind") == "checkpoint"
                     and completion_event.get("kind") == "completion"
                     and checkpoint_event.get("sequence") == 1
@@ -3084,7 +2801,7 @@ def completion_projection(
                     and checkpoint_payload.get("action") == "record_shiguan"
                     and checkpoint_payload.get("task_id") == task.get("task_id")
                     and checkpoint_payload.get("receipt_id") == receipt_id
-                    and checkpoint_payload.get("record_sha256") == record_digest
+                    and checkpoint_payload.get("record_ref") == record_ref
                     and proof_checkpoint_recorded_at == checkpoint_recorded_at
                     and isinstance(completion_payload, dict)
                     and completion_payload.get("action") == "complete"
@@ -3119,7 +2836,7 @@ def completion_projection(
         not legacy
         and task.get("state") == "Done"
         and assessment_valid
-        and assessment_digest_valid
+        and assessment_ref_valid
         and checkpoint_verified
         and checkpoint_concerns_valid
         and completion_concerns_valid
@@ -3137,7 +2854,7 @@ def completion_projection(
         )
     elif completion.get("status") == "COMPLETED":
         status = "INVALID_UNVERIFIED" if (
-            not assessment_valid or not assessment_digest_valid or not checkpoint_digest_valid
+            not assessment_valid or not assessment_ref_valid or not checkpoint_ref_valid
             or (isinstance(proof, dict) and not proof_valid)
         ) else "UNVERIFIED"
     elif str(completion.get("status") or "").endswith("COMPLETE"):
@@ -3150,11 +2867,10 @@ def completion_projection(
         "status": status,
         "verified": verified,
         "charter_revision": task.get("charter_revision"),
-        "assessment_sha256": assessment_sha256,
-        "record_sha256": record_digest or checkpoint.get("record_sha256"),
-        "completion_source_sha256": completion_source_sha256 or None,
+        "assessment_ref": assessment_ref,
+        "record_ref": record_ref or checkpoint.get("record_ref"),
+        "completion_source_ref": completion_source_ref or None,
         "residual_gaps": residual_gaps,
-        "residual_gaps_sha256": residual_gaps_sha256 or None,
     }
 
 
@@ -3251,9 +2967,7 @@ def require_semantic_mutation_binding(task: dict[str, Any]) -> None:
 LEGACY_SEMANTIC_BINDING_FIELDS = (
     "charter_revision",
     "semantic_epoch",
-    "charter_sha256",
     "invariant_capsule",
-    "invariant_capsule_sha256",
     "semantic_state",
     "semantic_receipt",
     "semantic_receipt_id",
@@ -3309,6 +3023,24 @@ def _text_from_args(
     if not value.strip():
         raise ValueError(f"{label}_required")
     return value
+
+
+def _legacy_court_code(task_id: str, title: str) -> str:
+    """Official court code for a create without a caller-supplied session.
+
+    Uses the standard session numbering (domain_court_code_issue) with a
+    deterministic session identifier derived from the task, so every legacy
+    create still receives the official ``<domain>-<date>-<seq>-<suffix>`` court
+    code and the same suffix format used by standard session creates.
+    """
+
+    from court_session_numbering import domain_court_code_issue
+
+    session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "dsh:legacy:" + task_id))
+    issued = domain_court_code_issue(session_id, title)
+    if issued.get("ok") is not True:
+        raise ValueError("case_create_allocation_failed")
+    return str(issued["court_code"])
 
 
 def _case_create_selection(args: argparse.Namespace) -> dict[str, str] | None:
@@ -3451,12 +3183,15 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
             "invariant_capsule_file",
             "invariant capsule",
         )
-    semantic_binding = initial_semantic_binding(charter, invariant_capsule)
     case_selection = _case_create_selection(args)
-    if case_selection is not None and canonical_repo_relative_paths(
-        semantic_binding['invariant_capsule']['write_set'], allow_empty=True
-    ) is None:
-        raise ValueError('standard_create_capsule_write_set_requires_relative_paths')
+    if case_selection is None:
+        semantic_binding = initial_semantic_binding(
+            charter,
+            invariant_capsule,
+            court_code=_legacy_court_code(str(args.task_id or ""), args.title),
+        )
+    else:
+        semantic_binding = None
     result: TransitionResult | None = None
     with runtime_lock():
         tasks = load_tasks()
@@ -3483,6 +3218,9 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
                 if issued.get("ok") is not True:
                     raise ValueError("case_create_allocation_failed")
                 session_allocation = dict(issued)
+                semantic_binding = initial_semantic_binding(charter, invariant_capsule, court_code=str(session_allocation["court_code"]))
+                if canonical_repo_relative_paths(semantic_binding["invariant_capsule"].get("write_set", []), allow_empty=True) is None:
+                    raise ValueError("standard_create_capsule_write_set_requires_relative_paths")
             task = normalize_task({
                 "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
                 "task_id": task_id,
@@ -3531,8 +3269,7 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
                 event.update(
                 session_id=task["session_id"],
                 court_code=task["court_code"],
-                case_identity_sha256=task["case_binding"]["case_identity_sha256"],
-                case_binding_sha256=task["case_binding"]["binding_sha256"],
+                case_ref=case_reference(task),
                 )
             append_event(event)
             result = TransitionResult(task, event)
@@ -3574,7 +3311,7 @@ def _aware_timestamp(value: object, error: str) -> str:
     return parsed.isoformat()
 
 
-def _source_envelope_sha256(value: dict[str, object]) -> str:
+def _source_envelope_ref(value: dict[str, object]) -> str:
     payload = json.dumps(
         value,
         ensure_ascii=False,
@@ -3606,7 +3343,7 @@ def _validated_completion_source(
         raise ValueError("completion_source_required")
     source = dict(value)
     expected_fields = {
-        "schema", "task_id", "charter_revision", "charter_sha256", "sources"
+        "schema", "task_id", "charter_revision", "case_ref", "sources"
     }
     if set(source) != expected_fields:
         raise ValueError("completion_source_fields_invalid")
@@ -3616,11 +3353,9 @@ def _validated_completion_source(
         raise ValueError("completion_source_task_mismatch")
     if source.get("charter_revision") != task.get("charter_revision"):
         raise ValueError("completion_source_charter_revision_mismatch")
-    charter_sha256 = _canonical_sha256(
-        source.get("charter_sha256"), "completion_source_charter_sha256_invalid"
-    )
-    if charter_sha256 != str(task.get("charter_sha256") or "").lower():
-        raise ValueError("completion_source_charter_sha256_mismatch")
+    reference = case_reference(task)
+    if not isinstance(source.get("case_ref"), Mapping) or case_reference(source["case_ref"]) != reference:
+        raise ValueError("completion_source_case_reference_mismatch")
     raw_sources = source.get("sources")
     if not isinstance(raw_sources, list) or not raw_sources:
         raise ValueError("completion_source_sources_required")
@@ -3703,17 +3438,16 @@ def _validated_completion_source(
         "schema": COMPLETION_SOURCE_SCHEMA,
         "task_id": task.get("task_id"),
         "charter_revision": task.get("charter_revision"),
-        "charter_sha256": charter_sha256,
+        "case_ref": reference,
         "sources": normalized_sources,
     }
 
 
 def _validated_residual_gaps(
     value: object,
-    digest: object,
     *,
     gate: str,
-) -> tuple[list[str], str]:
+) -> list[str]:
     if not isinstance(value, list):
         raise ValueError("residual_gaps_required")
     if len(value) > RESIDUAL_GAPS_MAX_ITEMS:
@@ -3734,12 +3468,18 @@ def _validated_residual_gaps(
         raise ValueError("concerns_assessment_requires_residual_gaps")
     if gate == "PASSED" and gaps:
         raise ValueError("passed_assessment_must_not_have_residual_gaps")
-    residual_digest = _canonical_sha256(
-        digest, "invalid_residual_gaps_sha256"
-    )
-    if residual_digest != canonical_json_sha256(gaps):
-        raise ValueError("residual_gaps_sha256_mismatch")
-    return gaps, residual_digest
+    return gaps
+
+
+def _source_envelope_ref(value: dict[str, object]) -> str:
+    reference = value.get("case_ref")
+    try:
+        from court_case_binding import case_reference
+
+        court_code = case_reference(reference)["court_code"]
+    except (TypeError, ValueError):
+        court_code = "UNBOUND"
+    return f"source_envelope:{court_code}:{str(value.get('charter_revision') or '')}"
 
 
 def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
@@ -3752,9 +3492,8 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
         "path",
         "court_code",
         "recorded_at",
-        "record_sha256",
+        "record_ref",
         "residual_gaps",
-        "residual_gaps_sha256",
     }
     if not required.issubset(receipt):
         raise ValueError("archive_producer_receipt_fields_missing")
@@ -3768,6 +3507,9 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
         or receipt_id != f"shiguan:{court_code}"
     ):
         raise ValueError("archive_producer_receipt_id_invalid")
+    record_ref = str(receipt.get("record_ref") or "").strip()
+    if record_ref != receipt_id:
+        raise ValueError("archive_producer_record_ref_mismatch")
     archive_path = Path(str(receipt.get("path") or "")).resolve()
     shared_references = reference_path().resolve()
     try:
@@ -3779,20 +3521,13 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
     recorded_at = _aware_timestamp(
         receipt.get("recorded_at"), "archive_producer_receipt_time_invalid"
     )
-    record_sha256 = _canonical_sha256(
-        receipt.get("record_sha256"), "archive_producer_receipt_sha256_invalid"
-    )
     raw_residual_gaps = receipt.get("residual_gaps")
     producer_gate = (
         "PASSED_WITH_CONCERNS"
         if isinstance(raw_residual_gaps, list) and raw_residual_gaps
         else "PASSED"
     )
-    residual_gaps, residual_gaps_sha256 = _validated_residual_gaps(
-        raw_residual_gaps,
-        receipt.get("residual_gaps_sha256"),
-        gate=producer_gate,
-    )
+    residual_gaps = _validated_residual_gaps(raw_residual_gaps, gate=producer_gate)
     index = reference_path("shiguan-index.jsonl")
     if not index.is_file():
         raise ValueError("archive_producer_index_missing")
@@ -3809,12 +3544,10 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
     if len(entries) != 1:
         raise ValueError("archive_producer_record_missing")
     entry = entries[0]
-    if canonical_json_sha256(entry) != record_sha256:
-        raise ValueError("archive_producer_record_sha256_mismatch")
-    if (
-        entry.get("residual_gaps") != residual_gaps
-        or entry.get("residual_gaps_sha256") != residual_gaps_sha256
-    ):
+    entry_ref = str(entry.get("record_ref") or "").strip()
+    if entry_ref and entry_ref != record_ref:
+        raise ValueError("archive_producer_record_ref_mismatch")
+    if entry.get("residual_gaps") != residual_gaps:
         raise ValueError("archive_producer_residual_gaps_mismatch")
     if _aware_timestamp(
         entry.get("time"), "archive_producer_record_time_invalid"
@@ -3826,18 +3559,14 @@ def _validated_archive_producer_receipt(value: object) -> dict[str, object]:
     residual_gaps_json = json.dumps(
         residual_gaps, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
-    if (
-        f"- residual_gaps_json: {residual_gaps_json}" not in archive_text
-        or f"- residual_gaps_sha256: {residual_gaps_sha256}" not in archive_text
-    ):
+    if f"- residual_gaps_json: {residual_gaps_json}" not in archive_text:
         raise ValueError("archive_producer_archive_evidence_missing")
     receipt["receipt_id"] = receipt_id
     receipt["path"] = str(archive_path)
     receipt["court_code"] = court_code
     receipt["recorded_at"] = recorded_at
-    receipt["record_sha256"] = record_sha256
+    receipt["record_ref"] = record_ref
     receipt["residual_gaps"] = residual_gaps
-    receipt["residual_gaps_sha256"] = residual_gaps_sha256
     return receipt
 
 
@@ -3847,8 +3576,8 @@ def _validate_archive_producer_residual_gaps(
 ) -> None:
     if (
         producer_receipt.get("residual_gaps") != binding.get("residual_gaps")
-        or producer_receipt.get("residual_gaps_sha256")
-        != binding.get("residual_gaps_sha256")
+        or producer_receipt.get("residual_gaps")
+        != binding.get("residual_gaps")
     ):
         raise ValueError("archive_producer_residual_gaps_mismatch")
 
@@ -3879,16 +3608,15 @@ def _runtime_checkpoint_receipt(
         "receipt_id": producer_receipt["receipt_id"],
         "task_id": task["task_id"],
         "charter_revision": task["charter_revision"],
-        "charter_sha256": task["charter_sha256"],
-        "assessment_sha256": binding["assessment_sha256"],
-        "record_sha256": producer_receipt["record_sha256"],
+        "case_ref": case_reference(task),
+        "assessment_ref": binding["assessment_ref"],
+        "record_ref": producer_receipt["record_ref"],
         "archive_path": producer_receipt["path"],
         "recorded_at": producer_receipt["recorded_at"],
     }
     if binding.get("gate") == "PASSED_WITH_CONCERNS":
         receipt.update(
             residual_gaps=deepcopy(binding["residual_gaps"]),
-            residual_gaps_sha256=binding["residual_gaps_sha256"],
         )
     return receipt
 
@@ -3901,41 +3629,32 @@ def record_shiguan_preflight(args: argparse.Namespace, *, include_residual_gaps:
             raise ValueError(f"task not found: {args.task_id}")
         if task.get("charter_revision") != args.expected_revision:
             raise ValueError("stale_charter_revision")
-        expected_sha256 = _canonical_sha256(
-            args.expected_charter_sha256, "invalid_expected_charter_sha256"
-        )
-        if str(task.get("charter_sha256") or "").lower() != expected_sha256:
-            raise ValueError("stale_charter_sha256")
+        supplied_case_ref = getattr(args, "case_ref", None)
+        if not isinstance(supplied_case_ref, Mapping) or case_reference(supplied_case_ref) != case_reference(task):
+            raise ValueError("record_shiguan_case_reference_mismatch")
         binding = _record_shiguan_preconditions(task)
         result: dict[str, object] = {
             "task_id": task["task_id"],
             "charter_revision": task["charter_revision"],
-            "charter_sha256": task["charter_sha256"],
-            "assessment_sha256": binding["assessment_sha256"],
+            "case_ref": case_reference(task),
+            "assessment_ref": binding["assessment_ref"],
             "assessment_gate": binding["gate"],
         }
         if include_residual_gaps:
-            result.update(residual_gaps=deepcopy(binding.get("residual_gaps", [])),
-                          residual_gaps_sha256=canonical_json_sha256(binding.get("residual_gaps", [])))
+            result.update(residual_gaps=deepcopy(binding.get("residual_gaps", [])))
         from court_case_binding import validate_case_binding, validate_task_case_binding
 
         case_binding = validate_task_case_binding(task, require_decree=True)
         if case_binding is not None:
-            supplied = getattr(args, "case_binding", None)
-            if supplied is None:
-                raise ValueError("record_shiguan_case_binding_missing")
-            supplied_binding = validate_case_binding(
-                supplied, task, require_decree=True
-            )
-            if supplied_binding != case_binding:
+            supplied_full_binding = getattr(args, "case_binding", None)
+            if supplied_full_binding is not None and supplied_full_binding != case_binding:
                 raise ValueError("record_shiguan_case_binding_foreign")
             if str(getattr(args, "session_id", "") or "").strip() != case_binding["session_id"]:
                 raise ValueError("record_shiguan_session_mismatch")
             result.update(
                 session_id=case_binding["session_id"],
                 court_code=case_binding["court_code"],
-                case_identity_sha256=case_binding["case_identity_sha256"],
-                case_binding_sha256=case_binding["binding_sha256"],
+                case_ref=case_reference(case_binding),
             )
         return result
 
@@ -3951,7 +3670,7 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
             "archive producer receipt",
         )
     )
-    producer_receipt_sha256 = canonical_json_sha256(producer_receipt)
+    producer_receipt_ref = producer_receipt["record_ref"]
     with runtime_lock():
         task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
         event_preimage = events_path().read_bytes() if events_path().exists() else None
@@ -3961,23 +3680,18 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
             raise ValueError(f"task not found: {args.task_id}")
         if task.get("charter_revision") != args.expected_revision:
             raise ValueError("stale_charter_revision")
-        expected_sha256 = _canonical_sha256(
-            args.expected_charter_sha256, "invalid_expected_charter_sha256"
-        )
-        if str(task.get("charter_sha256") or "").lower() != expected_sha256:
-            raise ValueError("stale_charter_sha256")
+        supplied_case_ref = getattr(args, "case_ref", None)
+        if not isinstance(supplied_case_ref, Mapping) or case_reference(supplied_case_ref) != case_reference(task):
+            raise ValueError("record_shiguan_case_reference_mismatch")
         from court_case_binding import validate_case_binding, validate_task_case_binding
 
         case_binding = validate_task_case_binding(task, require_decree=True)
         if case_binding is not None:
-            supplied = getattr(args, "case_binding", None)
-            if supplied is None:
-                raise ValueError("record_shiguan_case_binding_missing")
-            supplied_binding = validate_case_binding(
-                supplied, task, require_decree=True
-            )
-            if supplied_binding != case_binding:
+            supplied_full_binding = getattr(args, "case_binding", None)
+            if supplied_full_binding is not None and supplied_full_binding != case_binding:
                 raise ValueError("record_shiguan_case_binding_foreign")
+            if "case_binding" in producer_receipt and producer_receipt["case_binding"] != case_binding:
+                raise ValueError("record_shiguan_producer_case_binding_mismatch")
             if str(getattr(args, "session_id", "") or "").strip() != case_binding["session_id"]:
                 raise ValueError("record_shiguan_session_mismatch")
             required_case_receipt = {
@@ -3985,10 +3699,7 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
                 "session_id": case_binding["session_id"],
                 "court_code": case_binding["court_code"],
                 "charter_revision": case_binding["charter_revision"],
-                "charter_sha256": case_binding["charter_sha256"],
-                "case_binding": case_binding,
-                "case_identity_sha256": case_binding["case_identity_sha256"],
-                "case_binding_sha256": case_binding["binding_sha256"],
+                "case_ref": case_reference(case_binding),
             }
             if any(
                 producer_receipt.get(field) != expected
@@ -4000,7 +3711,7 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
             if not isinstance(checkpoint, dict):
                 raise ValueError("record_shiguan_replay_conflict")
             if (
-                checkpoint.get("producer_receipt_sha256") != producer_receipt_sha256
+                checkpoint.get("producer_receipt_ref") != producer_receipt_ref
                 or checkpoint.get("producer_receipt") != producer_receipt
             ):
                 raise ValueError("record_shiguan_replay_conflict")
@@ -4022,8 +3733,7 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
             runtime_receipt.update(
                 session_id=case_binding["session_id"],
                 court_code=case_binding["court_code"],
-                case_identity_sha256=case_binding["case_identity_sha256"],
-                case_binding_sha256=case_binding["binding_sha256"],
+                case_ref=case_reference(case_binding),
             )
         recorded = deepcopy(task)
         recorded["state"] = "ShiguanRecorded"
@@ -4033,25 +3743,22 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
         recorded["shiguan_checkpoint"] = {
             "status": "VERIFIED",
             "receipt_id": runtime_receipt["receipt_id"],
-            "record_sha256": runtime_receipt["record_sha256"],
+            "record_ref": runtime_receipt["record_ref"],
             "archive_path": runtime_receipt["archive_path"],
             "recorded_at": runtime_receipt["recorded_at"],
             "producer_receipt": deepcopy(producer_receipt),
-            "producer_receipt_sha256": producer_receipt_sha256,
+            "producer_receipt_ref": producer_receipt_ref,
         }
         if "residual_gaps" in runtime_receipt:
             recorded["shiguan_checkpoint"].update(
                 residual_gaps=deepcopy(runtime_receipt["residual_gaps"]),
-                residual_gaps_sha256=runtime_receipt["residual_gaps_sha256"],
             )
         if case_binding is not None:
             recorded["shiguan_checkpoint"].update(
                 session_id=case_binding["session_id"],
                 court_code=case_binding["court_code"],
                 charter_revision=case_binding["charter_revision"],
-                charter_sha256=case_binding["charter_sha256"],
-                case_identity_sha256=case_binding["case_identity_sha256"],
-                case_binding_sha256=case_binding["binding_sha256"],
+                case_ref=case_reference(case_binding),
             )
         recorded["completion"] = {
             "status": "READY",
@@ -4060,9 +3767,8 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
                 if binding.get("gate") == "PASSED_WITH_CONCERNS"
                 else "DONE"
             ),
-            "completion_source_sha256": binding["completion_source_sha256"],
+            "completion_source_ref": binding["completion_source_ref"],
             "residual_gaps": deepcopy(binding["residual_gaps"]),
-            "residual_gaps_sha256": binding["residual_gaps_sha256"],
         }
         event = make_event(
             recorded,
@@ -4075,21 +3781,19 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
         )
         event.update(
             receipt_id=runtime_receipt["receipt_id"],
-            assessment_sha256=runtime_receipt["assessment_sha256"],
-            record_sha256=runtime_receipt["record_sha256"],
+            assessment_ref=runtime_receipt["assessment_ref"],
+            record_ref=runtime_receipt["record_ref"],
             recorded_at=runtime_receipt["recorded_at"],
-            producer_receipt_sha256=producer_receipt_sha256,
+            producer_receipt_ref=producer_receipt_ref,
             outcome_status=recorded["completion"]["outcome_status"],
-            residual_gaps_sha256=recorded["completion"]["residual_gaps_sha256"],
+            residual_gaps=deepcopy(recorded["completion"]["residual_gaps"]),
         )
         if case_binding is not None:
             event.update(
                 session_id=case_binding["session_id"],
                 court_code=case_binding["court_code"],
                 charter_revision=case_binding["charter_revision"],
-                charter_sha256=case_binding["charter_sha256"],
-                case_identity_sha256=case_binding["case_identity_sha256"],
-                case_binding_sha256=case_binding["binding_sha256"],
+                case_ref=case_reference(case_binding),
             )
         tasks[args.task_id] = recorded
         try:
@@ -4109,10 +3813,10 @@ def _revalidate_stored_assessment_binding(
     if not isinstance(binding, dict) or not binding:
         raise ValueError("assessment_binding_integrity")
     source = binding.get("source_envelope")
-    source_sha256 = binding.get("source_envelope_sha256")
+    source_sha256 = binding.get("source_envelope_ref")
     if not isinstance(source, dict) or not isinstance(source_sha256, str):
         raise ValueError("assessment_binding_integrity")
-    if _source_envelope_sha256(source) != source_sha256:
+    if _source_envelope_ref(source) != source_sha256:
         raise ValueError("assessment_binding_integrity")
     try:
         revalidated = validate_runtime_assessment_binding(task, source)
@@ -4158,54 +3862,32 @@ def validate_runtime_assessment_binding(
         raise ValueError("assessment_task_mismatch")
     if validated.get("charter_revision") != task.get("charter_revision"):
         raise ValueError("assessment_charter_revision_mismatch")
-    charter_sha256 = _canonical_sha256(
-        validated.get("charter_sha256"),
-        "invalid_assessment_charter_sha256",
-    )
-    if charter_sha256 != str(task.get("charter_sha256") or "").lower():
-        raise ValueError("assessment_charter_sha256_mismatch")
-    evidence_sha256 = _canonical_sha256(
-        validated.get("evidence_sha256"),
-        "invalid_assessment_evidence_sha256",
-    )
-    assessment_sha256 = _canonical_sha256(
-        validated.get("assessment_sha256"),
-        "invalid_assessment_sha256",
-    )
-    task_evidence_sha256 = task.get("evidence_sha256")
-    if not task_evidence_sha256:
-        raise ValueError("task_evidence_sha256_missing")
-    canonical_task_evidence_sha256 = _canonical_sha256(
-        task_evidence_sha256,
-        "invalid_task_evidence_sha256",
-    )
-    if evidence_sha256 != canonical_task_evidence_sha256:
-        raise ValueError("assessment_evidence_sha256_mismatch")
+    reference = case_reference(task)
+    if not isinstance(validated.get("case_ref"), Mapping) or case_reference(validated["case_ref"]) != reference:
+        raise ValueError("assessment_case_reference_mismatch")
+    evidence_ref = str(validated.get("evidence_ref") or "").strip()
+    if not evidence_ref:
+        raise ValueError("invalid_assessment_evidence_ref")
+    assessment_ref = str(validated.get("assessment_ref") or "").strip()
+    if not assessment_ref:
+        raise ValueError("invalid_assessment_ref")
     completion_source = _validated_completion_source(
         task, validated.get("completion_source")
     )
-    completion_source_sha256 = _canonical_sha256(
-        validated.get("completion_source_sha256"),
-        "invalid_completion_source_sha256",
-    )
-    if completion_source_sha256 != canonical_json_sha256(completion_source):
-        raise ValueError("completion_source_sha256_mismatch")
-    residual_gaps, residual_gaps_sha256 = _validated_residual_gaps(
-        validated.get("residual_gaps"),
-        validated.get("residual_gaps_sha256"),
-        gate=gate,
-    )
+    completion_source_ref = str(validated.get("completion_source_ref") or "").strip()
+    if not completion_source_ref:
+        raise ValueError("invalid_completion_source_ref")
+    residual_gaps = _validated_residual_gaps(validated.get("residual_gaps"), gate=gate)
     assessed_at = _aware_timestamp(
         validated.get("assessed_at"),
         "invalid_assessment_timestamp",
     )
-    validated["charter_sha256"] = charter_sha256
-    validated["evidence_sha256"] = evidence_sha256
-    validated["assessment_sha256"] = assessment_sha256
+    validated["case_ref"] = reference
+    validated["evidence_ref"] = evidence_ref
+    validated["assessment_ref"] = assessment_ref
     validated["completion_source"] = completion_source
-    validated["completion_source_sha256"] = completion_source_sha256
+    validated["completion_source_ref"] = completion_source_ref
     validated["residual_gaps"] = residual_gaps
-    validated["residual_gaps_sha256"] = residual_gaps_sha256
     validated["assessed_at"] = assessed_at
     return validated
 
@@ -4220,13 +3902,13 @@ def bind_assessment_record(
         raise ValueError("assessment_binding_requires_menxia_review")
     bound = deepcopy(task)
     source_envelope = deepcopy(assessment)
-    source_envelope_sha256 = _source_envelope_sha256(source_envelope)
+    source_envelope_ref = _source_envelope_ref(source_envelope)
     validated = validate_runtime_assessment_binding(bound, source_envelope)
     existing = bound.get("assessment_binding")
     if isinstance(existing, dict) and existing:
         _revalidate_stored_assessment_binding(bound)
         if (
-            existing.get("source_envelope_sha256") == source_envelope_sha256
+            existing.get("source_envelope_ref") == source_envelope_ref
             and existing.get("source_envelope") == source_envelope
         ):
             return bound
@@ -4237,7 +3919,7 @@ def bind_assessment_record(
         "gate": validated["gate"],
         "reasons": deepcopy(validated["reasons"]),
         "residual_gaps": deepcopy(validated["residual_gaps"]),
-        "residual_gaps_sha256": validated["residual_gaps_sha256"],
+        "residual_gaps": validated["residual_gaps"],
         "outcome": None,
     }
     bound["assessment_binding"] = deepcopy(validated)
@@ -4245,7 +3927,7 @@ def bind_assessment_record(
         "VERIFIED" if completable else "NONCOMPLETABLE"
     )
     bound["assessment_binding"]["source_envelope"] = source_envelope
-    bound["assessment_binding"]["source_envelope_sha256"] = source_envelope_sha256
+    bound["assessment_binding"]["source_envelope_ref"] = source_envelope_ref
     bound["completion"] = (
         {
             "status": "ASSESSMENT_BOUND",
@@ -4255,7 +3937,7 @@ def bind_assessment_record(
                 else "DONE"
             ),
             "residual_gaps": deepcopy(validated["residual_gaps"]),
-            "residual_gaps_sha256": validated["residual_gaps_sha256"],
+            "residual_gaps": validated["residual_gaps"],
         }
         if completable
         else {"status": "NONCOMPLETABLE_ASSESSMENT"}
@@ -4293,26 +3975,23 @@ def validate_checkpoint_receipt(
         raise ValueError("checkpoint_receipt_task_mismatch")
     if validated.get("charter_revision") != task.get("charter_revision"):
         raise ValueError("checkpoint_receipt_revision_mismatch")
-    charter_sha256 = _canonical_sha256(
-        validated.get("charter_sha256"), "invalid_checkpoint_charter_sha256"
-    )
-    if charter_sha256 != str(task.get("charter_sha256") or "").lower():
-        raise ValueError("checkpoint_receipt_charter_mismatch")
+    if not isinstance(validated.get("case_ref"), Mapping) or case_reference(validated["case_ref"]) != case_reference(task):
+        raise ValueError("checkpoint_receipt_case_reference_mismatch")
     binding = _revalidate_stored_assessment_binding(task)
-    assessment_sha256 = _canonical_sha256(
-        validated.get("assessment_sha256"), "invalid_checkpoint_assessment_sha256"
-    )
-    if assessment_sha256 != binding.get("assessment_sha256"):
+    assessment_ref = str(validated.get("assessment_ref") or "").strip()
+    if not assessment_ref:
+        raise ValueError("invalid_checkpoint_assessment_ref")
+    if assessment_ref != binding.get("assessment_ref"):
         raise ValueError("checkpoint_receipt_assessment_mismatch")
     checkpoint = task.get("shiguan_checkpoint")
     if not isinstance(checkpoint, dict) or checkpoint.get("status") != "VERIFIED":
         raise ValueError("shiguan_checkpoint_not_verified")
     if checkpoint.get("receipt_id") != receipt_id:
         raise ValueError("checkpoint_receipt_id_mismatch")
-    record_sha256 = _canonical_sha256(
-        validated.get("record_sha256"), "invalid_checkpoint_record_sha256"
-    )
-    if record_sha256 != str(checkpoint.get("record_sha256") or "").lower():
+    record_ref = str(validated.get("record_ref") or "").strip()
+    if not record_ref:
+        raise ValueError("invalid_checkpoint_record_ref")
+    if record_ref != str(checkpoint.get("record_ref") or ""):
         raise ValueError("checkpoint_receipt_record_mismatch")
     archive_path = str(validated.get("archive_path") or "")
     if not archive_path:
@@ -4331,40 +4010,31 @@ def validate_checkpoint_receipt(
     if binding.get("gate") == "PASSED_WITH_CONCERNS":
         if concern_fields != CHECKPOINT_RECEIPT_CONCERN_FIELDS:
             raise ValueError("checkpoint_receipt_concerns_missing")
-        residual_gaps, residual_gaps_sha256 = _validated_residual_gaps(
-            validated.get("residual_gaps"),
-            validated.get("residual_gaps_sha256"),
-            gate="PASSED_WITH_CONCERNS",
+        residual_gaps = _validated_residual_gaps(
+            validated.get("residual_gaps"), gate="PASSED_WITH_CONCERNS"
         )
-        if (
-            residual_gaps != binding.get("residual_gaps")
-            or residual_gaps_sha256 != binding.get("residual_gaps_sha256")
-        ):
+        if residual_gaps != binding.get("residual_gaps"):
             raise ValueError("checkpoint_receipt_residual_gaps_mismatch")
-        if (
-            checkpoint.get("residual_gaps") != residual_gaps
-            or checkpoint.get("residual_gaps_sha256") != residual_gaps_sha256
-        ):
+        if checkpoint.get("residual_gaps") != residual_gaps:
             raise ValueError("shiguan_checkpoint_residual_gaps_mismatch")
         validated["residual_gaps"] = residual_gaps
-        validated["residual_gaps_sha256"] = residual_gaps_sha256
     elif concern_fields:
         raise ValueError("checkpoint_receipt_unexpected_concerns")
     producer_receipt = checkpoint.get("producer_receipt")
-    producer_receipt_sha256 = checkpoint.get("producer_receipt_sha256")
+    producer_receipt_ref = checkpoint.get("producer_receipt_ref")
     if not isinstance(producer_receipt, dict) or not isinstance(
-        producer_receipt_sha256, str
-    ):
+        producer_receipt_ref, str
+    ) or not producer_receipt_ref.strip():
         raise ValueError("archive_producer_evidence_missing")
     validated_producer_receipt = _validated_archive_producer_receipt(
         producer_receipt
     )
-    if canonical_json_sha256(validated_producer_receipt) != producer_receipt_sha256:
-        raise ValueError("archive_producer_receipt_sha256_mismatch")
+    if validated_producer_receipt.get("record_ref") != producer_receipt_ref:
+        raise ValueError("archive_producer_receipt_ref_mismatch")
     if (
         validated_producer_receipt.get("receipt_id") != checkpoint.get("receipt_id")
-        or validated_producer_receipt.get("record_sha256")
-        != checkpoint.get("record_sha256")
+        or validated_producer_receipt.get("record_ref")
+        != checkpoint.get("record_ref")
         or validated_producer_receipt.get("path") != checkpoint.get("archive_path")
         or validated_producer_receipt.get("recorded_at")
         != checkpoint.get("recorded_at")
@@ -4373,9 +4043,9 @@ def validate_checkpoint_receipt(
     _validate_archive_producer_residual_gaps(
         validated_producer_receipt, binding
     )
-    validated["charter_sha256"] = charter_sha256
-    validated["assessment_sha256"] = assessment_sha256
-    validated["record_sha256"] = record_sha256
+    validated["case_ref"] = case_reference(task)
+    validated["assessment_ref"] = assessment_ref
+    validated["record_ref"] = record_ref
     validated["recorded_at"] = recorded_at
     return validated
 
@@ -4496,11 +4166,9 @@ def complete_task_atomically(args: argparse.Namespace) -> TransitionResult:
         require_semantic_mutation_binding(task)
         if task.get("charter_revision") != args.expected_revision:
             raise ValueError("stale_charter_revision")
-        expected_sha256 = _canonical_sha256(
-            args.expected_charter_sha256, "invalid_expected_charter_sha256"
-        )
-        if str(task.get("charter_sha256") or "").lower() != expected_sha256:
-            raise ValueError("stale_charter_sha256")
+        supplied_case_ref = _required_context_object(getattr(args, "case_ref", None), "case_ref_required")
+        if case_reference(supplied_case_ref) != case_reference(task):
+            raise ValueError("stale_charter_case_reference")
         _revalidate_stored_assessment_binding(task)
         binding = task["assessment_binding"]
         if (
@@ -4529,9 +4197,9 @@ def complete_task_atomically(args: argparse.Namespace) -> TransitionResult:
                 if binding.get("gate") == "PASSED_WITH_CONCERNS"
                 else "DONE"
             ),
-            "completion_source_sha256": binding.get("completion_source_sha256"),
+            "completion_source_ref": binding.get("completion_source_ref"),
             "residual_gaps": deepcopy(binding.get("residual_gaps")),
-            "residual_gaps_sha256": binding.get("residual_gaps_sha256"),
+            "residual_gaps": binding.get("residual_gaps"),
         }
         consumed = list(completed.get("consumed_checkpoint_receipt_ids") or [])
         consumed.append(validated_receipt["receipt_id"])
@@ -4546,12 +4214,12 @@ def complete_task_atomically(args: argparse.Namespace) -> TransitionResult:
             args.note,
         )
         event["receipt_id"] = validated_receipt["receipt_id"]
-        event["assessment_sha256"] = validated_receipt["assessment_sha256"]
-        event["record_sha256"] = validated_receipt["record_sha256"]
+        event["assessment_ref"] = validated_receipt["assessment_ref"]
+        event["record_ref"] = validated_receipt["record_ref"]
         event["completion_sequence"] = 2
         event["outcome_status"] = completed["completion"]["outcome_status"]
-        event["completion_source_sha256"] = completed["completion"]["completion_source_sha256"]
-        event["residual_gaps_sha256"] = completed["completion"]["residual_gaps_sha256"]
+        event["completion_source_ref"] = completed["completion"]["completion_source_ref"]
+        event["residual_gaps"] = completed["completion"]["residual_gaps"]
         completed["completion"]["proof"] = _completion_proof(
             completed, validated_receipt, event
         )
@@ -5195,13 +4863,7 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
                 receipt.get("task_id") != replay_binding["task_id"]
                 or receipt.get("court_code") != replay_binding["court_code"]
                 or receipt.get("session_id") != replay_binding["session_id"]
-                or receipt.get("case_identity_sha256")
-                != replay_binding["case_identity_sha256"]
-                or re.fullmatch(
-                    r"[0-9a-fA-F]{64}",
-                    str(receipt.get("case_binding_sha256") or ""),
-                )
-                is None
+                or receipt.get("case_ref") != case_reference(replay_binding)
             ):
                 raise ValueError("case_binding_decree_receipt_mismatch")
             _ensure_decree_open_event(task, operation)
@@ -5302,9 +4964,7 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
             receipt.update(
                 session_id=case_binding["session_id"],
                 charter_revision=case_binding["charter_revision"],
-                charter_sha256=case_binding["charter_sha256"],
-                case_identity_sha256=case_binding["case_identity_sha256"],
-                case_binding_sha256=case_binding["binding_sha256"],
+                case_ref=case_reference(case_binding),
             )
         operations = task.setdefault("operations", {})
         if not isinstance(operations, dict):
@@ -5492,7 +5152,7 @@ def _closeout_archive_material(operation: dict[str, Any]) -> tuple[dict[str, obj
         "recorded_at": prepared_at,
         "status": "ARCHIVE_COMMITTED",
     }
-    archive_record["record_sha256"] = operation_payload_sha256(archive_record)
+    archive_record["record_ref"] = operation_payload_sha256(archive_record)
     index_record: dict[str, object] = {
         "schema": "court.synthetic_archive.index.v1",
         "operation_id": operation_id,
@@ -5503,7 +5163,7 @@ def _closeout_archive_material(operation: dict[str, Any]) -> tuple[dict[str, obj
         "parent_court_code": main_court_code,
         "court_code": court_code,
         "record_uid": record_uid,
-        "record_sha256": archive_record["record_sha256"],
+        "record_ref": archive_record["record_ref"],
         "indexed_at": prepared_at,
         "status": "INDEX_COMMITTED",
     }
@@ -5546,7 +5206,7 @@ def _ensure_synthetic_archive_side_effects(
         "parent_court_code": archive_record["parent_court_code"],
         "court_code": archive_record["court_code"],
         "archive_record_uid": archive_record["record_uid"],
-        "record_sha256": archive_record["record_sha256"],
+        "record_ref": archive_record["record_ref"],
         "status": "ARCHIVE_COMMITTED",
     }
 
@@ -5741,7 +5401,7 @@ def _commit_synthetic_closeout_task_event(
             "parent_court_code": archive_receipt["parent_court_code"],
             "court_code": archive_receipt["court_code"],
             "archive_record_uid": archive_receipt["archive_record_uid"],
-            "record_sha256": archive_receipt["record_sha256"],
+            "record_ref": archive_receipt["record_ref"],
             "status": "TASK_EVENT_COMMITTED",
             "committed_at": committed_at,
         }
@@ -5850,15 +5510,14 @@ def revise_charter_record(
     task: dict[str, object],
     *,
     expected_revision: int,
-    expected_sha256: str,
+    case_ref: Mapping[str, object],
     new_revision: int,
-    new_sha256: str,
     new_charter: str,
     new_invariant_capsule: dict[str, object],
-    event_head_sha256: str,
-    event_head_bytes: int,
+    event_head_id: str,
     actor: str,
     evidence: str,
+    legacy_prior: bool = False,
 ) -> dict[str, object]:
     """Return a revised task without mutating the caller-owned record."""
 
@@ -5867,32 +5526,30 @@ def revise_charter_record(
         raise ValueError("unknown_actor_office")
     if str(revised.get("state") or "Pending") not in RECHARTERABLE_STATES:
         raise ValueError("task_state_cannot_be_rechartered")
-    canonical_expected_sha256 = _canonical_sha256(
-        expected_sha256,
-        "invalid_expected_charter_sha256",
-    )
-    if _legacy_semantic_bootstrap(revised):
-        current_charter = revised.get("charter")
-        if expected_revision != 0:
+    supplied_case_ref = case_reference(case_ref)
+    if legacy_prior:
+        prior_case_ref = {
+            "court_code": supplied_case_ref["court_code"],
+            "charter_revision": 1,
+        }
+        if supplied_case_ref != prior_case_ref:
+            raise ValueError("stale_charter_case_reference")
+    else:
+        prior_case_ref = case_reference(revised)
+        if supplied_case_ref != prior_case_ref:
+            raise ValueError("stale_charter_case_reference")
+        if revised.get("charter_revision") != expected_revision:
             raise ValueError("stale_charter_revision")
-        if not isinstance(current_charter, str) or hashlib.sha256(
-            current_charter.encode("utf-8")
-        ).hexdigest() != canonical_expected_sha256:
-            raise ValueError("stale_charter_sha256")
-    elif revised.get("charter_revision") != expected_revision:
-        raise ValueError("stale_charter_revision")
-    elif str(revised.get("charter_sha256") or "").lower() != canonical_expected_sha256:
-        raise ValueError("stale_charter_sha256")
-    if new_revision != expected_revision + 1:
+        if new_revision != expected_revision + 1:
+            raise ValueError("invalid_charter_revision_increment")
+    if legacy_prior and new_revision != 1:
         raise ValueError("invalid_charter_revision_increment")
-    declared_new_sha256 = _canonical_sha256(new_sha256, "invalid_charter_sha256")
     semantic_binding = semantic_binding_for_revision(
         new_charter,
         new_revision,
         new_invariant_capsule,
+        court_code=prior_case_ref["court_code"],
     )
-    if semantic_binding["charter_sha256"] != declared_new_sha256:
-        raise ValueError("charter_body_sha256_mismatch")
     binding_problems = semantic_binding_problems(
         {"charter": new_charter, **semantic_binding},
         require_complete=True,
@@ -5922,7 +5579,7 @@ def revise_charter_record(
         "agent_admissions": deepcopy(revised.get("agent_admissions")),
         "agents": deepcopy(revised.get("agents")),
         "invariant_capsule": deepcopy(revised.get("invariant_capsule")),
-        "invariant_capsule_sha256": revised.get("invariant_capsule_sha256"),
+        "case_ref": prior_case_ref,
         "semantic_receipt": deepcopy(revised.get("semantic_receipt")),
         "semantic_receipt_id": revised.get("semantic_receipt_id"),
         "semantic_receipts": deepcopy(prior_receipts),
@@ -5939,7 +5596,7 @@ def revise_charter_record(
     history.append(
         {
             "revision": expected_revision,
-            "sha256": canonical_expected_sha256,
+            "case_ref": prior_case_ref,
             "actor": actor,
             "evidence": evidence,
         }
@@ -5948,27 +5605,21 @@ def revise_charter_record(
     revised["charter"] = new_charter
     revised.update(semantic_binding)
     revised["semantic_receipts"] = deepcopy(prior_receipts)
-    pending_checkpoint_id = "SC-PENDING-" + hashlib.sha256(
-        (
-            f"{revised.get('task_id')}|{new_revision}|"
-            f"{semantic_binding['charter_sha256']}|"
-            f"{semantic_binding['invariant_capsule_sha256']}"
-        ).encode("utf-8")
-    ).hexdigest()[:24].upper()
+    pending_checkpoint_id = "SC-PENDING-" + uuid.uuid4().hex.upper()
     correction_base = dict(prior_current)
     correction_base.update(
         schema="court.semantic.receipt.v1",
         checkpoint_id=pending_checkpoint_id,
         task_id=revised.get("task_id"),
         semantic_epoch=new_revision,
-        charter_sha256=semantic_binding["charter_sha256"],
-        invariant_capsule_sha256=semantic_binding["invariant_capsule_sha256"],
+        case_ref=case_reference(semantic_binding),
+        plan_ref=None,
+        authority_revision=new_revision,
+        plan_cursor=f"ThreeDepartments@revision-{new_revision}",
         dispatch_uid=None,
         attempt=None,
         agent_id=None,
-        write_set_sha256=canonical_json_sha256(
-            new_invariant_capsule.get("write_set", [])
-        ),
+        write_set=deepcopy(new_invariant_capsule.get("write_set", [])),
     )
     correction_receipt = derive_semantic_receipt(
         correction_base,
@@ -5978,8 +5629,7 @@ def revise_charter_record(
         trigger="correction",
         reason_codes=["charter_revision_corrected"],
         created_at=invalidated_at,
-        event_head_sha256=event_head_sha256,
-        event_head_bytes=event_head_bytes,
+        event_head_id=event_head_id,
         updates={"corrected_at": invalidated_at},
     )
     _append_semantic_receipt(revised, correction_receipt)
@@ -6125,20 +5775,20 @@ def revise_charter_task(args: argparse.Namespace) -> TransitionResult:
         task = tasks.get(args.task_id)
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
-        if not _legacy_semantic_bootstrap(task):
+        legacy_bootstrap = _legacy_semantic_bootstrap(task)
+        if not legacy_bootstrap:
             require_semantic_mutation_binding(task)
         revised = revise_charter_record(
             task,
             expected_revision=args.expected_revision,
-            expected_sha256=args.expected_sha256,
+            case_ref=_required_context_object(args.case_ref, "case_ref_required"),
             new_revision=args.new_revision,
-            new_sha256=args.new_sha256,
             new_charter=new_charter,
             new_invariant_capsule=new_invariant_capsule,
-            event_head_sha256=_event_head_sha256(),
-            event_head_bytes=_event_head_bytes(),
+            event_head_id=_event_head_id(str(task["task_id"])),
             actor=args.actor,
             evidence=args.evidence,
+            legacy_prior=legacy_bootstrap,
         )
         revised["conversation_gate"] = deepcopy(gate)
         revised["updated_at"] = now_text()
@@ -6158,9 +5808,8 @@ def revise_charter_task(args: argparse.Namespace) -> TransitionResult:
             event.update(
                 checkpoint_id=correction_receipt.get("checkpoint_id"),
                 receipt_id=correction_receipt.get("receipt_id"),
-                receipt_sha256=correction_receipt.get("receipt_sha256"),
-                event_head_sha256=correction_receipt.get("event_head_sha256"),
-                event_head_bytes=correction_receipt.get("event_head_bytes"),
+                case_ref=case_reference(revised),
+                event_head_id=correction_receipt.get("event_head_id"),
                 semantic_epoch=correction_receipt.get("semantic_epoch"),
                 semantic_verdict=correction_receipt.get("verdict"),
             )
@@ -6194,6 +5843,11 @@ def _semantic_context_from_args(args: argparse.Namespace) -> dict[str, object]:
     return normalize_semantic_context(_semantic_context_payload(value))
 
 
+def _event_head_id(task_id: str) -> str:
+    history = events_for_task(task_id)
+    return next((str(event["event_id"]) for event in reversed(history) if event.get("event_id")), f"court-runtime:tasks/{task_id}")
+
+
 def _event_head_sha256() -> str:
     current = events_path().read_bytes() if events_path().exists() else b""
     return hashlib.sha256(current).hexdigest()
@@ -6225,7 +5879,7 @@ def _append_semantic_receipt(
 ) -> dict[str, object]:
     history = _semantic_receipt_history(task)
     canonical = finalize_semantic_receipt(receipt)
-    for field in ("receipt_id", "receipt_sha256"):
+    for field in ("receipt_id",):
         if receipt.get(field) is not None and receipt.get(field) != canonical[field]:
             raise ValueError(f"semantic_receipt_integrity:{field}")
     expected_sequence = len(history) + 1
@@ -6290,6 +5944,27 @@ def _semantic_receipt_event_problems(
     task: dict[str, Any],
     receipt: dict[str, object],
 ) -> list[str]:
+    if isinstance(receipt.get("case_ref"), Mapping):
+        matching = [
+            event for event in events_for_task(task.get("task_id"), limit=None)
+            if event.get("receipt_id") == receipt.get("receipt_id")
+        ]
+        if len(matching) != 1:
+            return ["semantic_receipt_event:missing_or_not_unique"]
+        event = matching[0]
+        expected_action = {
+            "semantic_checkpoint": {"semantic_checkpoint"},
+            "semantic_verify": {"semantic_verify", "semantic_quarantine"},
+            "semantic_resume": {"semantic_resume"},
+            "semantic_quarantine": {"semantic_quarantine"},
+            "semantic_reconcile": {"semantic_reconcile"},
+            "semantic_correct": {"revise_charter"},
+        }.get(str(receipt.get("gate") or ""), set())
+        problems = ["semantic_receipt_event:action"] if event.get("action") not in expected_action else []
+        for field in ("task_id", "checkpoint_id", "receipt_id", "semantic_epoch", "case_ref"):
+            if event.get(field) != receipt.get(field):
+                problems.append("semantic_receipt_event:" + field)
+        return problems
     problems: list[str] = []
     byte_count = receipt.get("event_head_bytes")
     if not isinstance(byte_count, int) or isinstance(byte_count, bool) or byte_count < 0:
@@ -6360,8 +6035,7 @@ def semantic_checkpoint_task(args: argparse.Namespace) -> TransitionResult:
         receipt = build_semantic_receipt(
             task,
             context,
-            event_head_sha256=_event_head_sha256(),
-            event_head_bytes=_event_head_bytes(),
+            event_head_id=_event_head_id(str(task["task_id"])),
             trigger=args.trigger,
             created_at=now_text(),
             receipt_sequence=receipt_sequence,
@@ -6385,9 +6059,8 @@ def semantic_checkpoint_task(args: argparse.Namespace) -> TransitionResult:
         event.update(
             checkpoint_id=receipt["checkpoint_id"],
             receipt_id=receipt["receipt_id"],
-            receipt_sha256=receipt["receipt_sha256"],
-            event_head_sha256=receipt["event_head_sha256"],
-            event_head_bytes=receipt["event_head_bytes"],
+            case_ref=case_reference(task),
+            event_head_id=receipt["event_head_id"],
             semantic_epoch=receipt["semantic_epoch"],
             semantic_verdict="VERIFIED",
         )
@@ -6439,8 +6112,7 @@ def semantic_verify_task(args: argparse.Namespace) -> TransitionResult:
                 trigger=args.trigger,
                 reason_codes=problems,
                 created_at=receipt_time,
-                event_head_sha256=_event_head_sha256(),
-                event_head_bytes=_event_head_bytes(),
+                event_head_id=_event_head_id(str(task["task_id"])),
                 updates={"quarantined_at": receipt_time},
             )
             task["semantic_state"] = "QUARANTINED"
@@ -6458,8 +6130,7 @@ def semantic_verify_task(args: argparse.Namespace) -> TransitionResult:
                 trigger=args.trigger,
                 reason_codes=[],
                 created_at=verified_at,
-                event_head_sha256=_event_head_sha256(),
-                event_head_bytes=_event_head_bytes(),
+                event_head_id=_event_head_id(str(task["task_id"])),
                 updates={"verified_at": verified_at},
             )
             task["semantic_context"] = context
@@ -6476,14 +6147,7 @@ def semantic_verify_task(args: argparse.Namespace) -> TransitionResult:
                     "trigger": args.trigger,
                     "verdict": "DISPATCHABLE",
                     "receipt_id": receipt["receipt_id"],
-                    "context_sha256": hashlib.sha256(
-                        json.dumps(
-                            context,
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        ).encode("utf-8")
-                    ).hexdigest(),
+                    "context": deepcopy(context),
                     "verified_at": verified_at,
                 }
             )
@@ -6505,9 +6169,8 @@ def semantic_verify_task(args: argparse.Namespace) -> TransitionResult:
         event.update(
             checkpoint_id=receipt["checkpoint_id"],
             receipt_id=receipt["receipt_id"],
-            receipt_sha256=receipt["receipt_sha256"],
-            event_head_sha256=receipt["event_head_sha256"],
-            event_head_bytes=receipt["event_head_bytes"],
+            case_ref=case_reference(task),
+            event_head_id=receipt["event_head_id"],
             semantic_epoch=receipt["semantic_epoch"],
             semantic_verdict=verdict,
             reason_codes=list(receipt.get("reason_codes") or []),
@@ -6559,13 +6222,9 @@ def semantic_resume_task(args: argparse.Namespace) -> TransitionResult:
             raise ValueError("semantic_resume_requires_paused_task")
         if task.get("semantic_epoch") != args.expected_semantic_epoch:
             raise ValueError("stale_semantic_epoch")
-        if task.get("charter_sha256") != args.expected_charter_sha256:
-            raise ValueError("stale_charter_sha256")
-        if (
-            task.get("invariant_capsule_sha256")
-            != args.expected_invariant_capsule_sha256
-        ):
-            raise ValueError("stale_invariant_capsule_sha256")
+        supplied_case_ref = getattr(args, "case_ref", None)
+        if supplied_case_ref is not None and case_reference(supplied_case_ref) != case_reference(task):
+            raise ValueError("stale_charter_case_ref")
         receipt = task.get("semantic_receipt")
         if not isinstance(receipt, dict):
             raise ValueError("semantic_receipt_missing")
@@ -6598,8 +6257,7 @@ def semantic_resume_task(args: argparse.Namespace) -> TransitionResult:
             trigger=args.trigger,
             reason_codes=["authority_revision_updated"] if authority_changed else [],
             created_at=now,
-            event_head_sha256=_event_head_sha256(),
-            event_head_bytes=_event_head_bytes(),
+            event_head_id=_event_head_id(str(task["task_id"])),
             updates={**normalized_context, "resumed_at": now},
         )
         invalidations = task.setdefault("semantic_invalidations", [])
@@ -6716,9 +6374,6 @@ def semantic_resume_task(args: argparse.Namespace) -> TransitionResult:
         event.update(
             checkpoint_id=resumed_receipt["checkpoint_id"],
             receipt_id=resumed_receipt["receipt_id"],
-            receipt_sha256=resumed_receipt["receipt_sha256"],
-            event_head_sha256=resumed_receipt["event_head_sha256"],
-            event_head_bytes=resumed_receipt["event_head_bytes"],
             semantic_epoch=resumed_receipt["semantic_epoch"],
             semantic_verdict="REVERIFY",
             authority_revision=normalized_context["authority_revision"],
@@ -6769,8 +6424,7 @@ def semantic_quarantine_task(args: argparse.Namespace) -> TransitionResult:
             trigger=trigger,
             reason_codes=reason_codes,
             created_at=quarantined_at,
-            event_head_sha256=_event_head_sha256(),
-            event_head_bytes=_event_head_bytes(),
+            event_head_id=_event_head_id(str(task["task_id"])),
             updates={"quarantined_at": quarantined_at},
         )
         quarantine_receipt = _append_semantic_receipt(task, quarantine_receipt)
@@ -6805,9 +6459,6 @@ def semantic_quarantine_task(args: argparse.Namespace) -> TransitionResult:
         event.update(
             checkpoint_id=expectations["checkpoint_id"],
             receipt_id=quarantine_receipt["receipt_id"],
-            receipt_sha256=quarantine_receipt["receipt_sha256"],
-            event_head_sha256=quarantine_receipt["event_head_sha256"],
-            event_head_bytes=quarantine_receipt["event_head_bytes"],
             semantic_epoch=expectations["semantic_epoch"],
             semantic_verdict="QUARANTINED",
             trigger=trigger,
@@ -6883,8 +6534,7 @@ def semantic_reconcile_task(args: argparse.Namespace) -> TransitionResult:
             trigger="reconcile",
             reason_codes=[],
             created_at=reconciled_at,
-            event_head_sha256=_event_head_sha256(),
-            event_head_bytes=_event_head_bytes(),
+            event_head_id=_event_head_id(str(task["task_id"])),
             updates={
                 **context,
                 "reconciled_at": reconciled_at,
@@ -6912,9 +6562,6 @@ def semantic_reconcile_task(args: argparse.Namespace) -> TransitionResult:
         event.update(
             checkpoint_id=expectations["checkpoint_id"],
             receipt_id=reconciled_receipt["receipt_id"],
-            receipt_sha256=reconciled_receipt["receipt_sha256"],
-            event_head_sha256=reconciled_receipt["event_head_sha256"],
-            event_head_bytes=reconciled_receipt["event_head_bytes"],
             semantic_epoch=expectations["semantic_epoch"],
             semantic_verdict="REVERIFY",
             resolution_code=resolution_code,
@@ -6949,21 +6596,18 @@ def bind_assessment_task(args: argparse.Namespace) -> TransitionResult:
         require_semantic_mutation_binding(task)
         if task.get("charter_revision") != args.expected_revision:
             raise ValueError("stale_charter_revision")
-        expected_sha256 = _canonical_sha256(
-            args.expected_charter_sha256,
-            "invalid_expected_charter_sha256",
-        )
-        if str(task.get("charter_sha256") or "").lower() != expected_sha256:
-            raise ValueError("stale_charter_sha256")
+        supplied_case_ref = _required_context_object(getattr(args, "case_ref", None), "case_ref_required")
+        if case_reference(supplied_case_ref) != case_reference(task):
+            raise ValueError("stale_charter_case_reference")
         existing_binding = task.get("assessment_binding")
         source_envelope = deepcopy(assessment)
-        source_envelope_sha256 = _source_envelope_sha256(source_envelope)
+        source_envelope_ref = _source_envelope_ref(source_envelope)
         validated = validate_runtime_assessment_binding(task, source_envelope)
-        incoming_sha256 = validated["assessment_sha256"]
+        incoming_sha256 = validated["assessment_ref"]
         if isinstance(existing_binding, dict) and existing_binding:
             _revalidate_stored_assessment_binding(task)
             if (
-                existing_binding.get("source_envelope_sha256") != source_envelope_sha256
+                existing_binding.get("source_envelope_ref") != source_envelope_ref
                 or existing_binding.get("source_envelope") != source_envelope
             ):
                 raise ValueError("assessment_binding_conflict")
@@ -6971,7 +6615,7 @@ def bind_assessment_task(args: argparse.Namespace) -> TransitionResult:
                 event
                 for event in read_events(limit=1000, task_id=args.task_id)
                 if event.get("action") == "bind_assessment"
-                and event.get("assessment_sha256") == incoming_sha256
+                and event.get("assessment_ref") == incoming_sha256
             ]
             if not matching_events:
                 raise ValueError("assessment_binding_event_missing")
@@ -6989,7 +6633,7 @@ def bind_assessment_task(args: argparse.Namespace) -> TransitionResult:
             args.evidence,
             args.note,
         )
-        event["assessment_sha256"] = bound["assessment_binding"]["assessment_sha256"]
+        event["assessment_ref"] = bound["assessment_binding"]["assessment_ref"]
         event["assessment_gate"] = bound["assessment_binding"]["gate"]
         try:
             write_tasks(tasks)
@@ -7011,6 +6655,8 @@ def make_event(
     note: str,
 ) -> dict[str, Any]:
     return {
+        "event_id": str(uuid.uuid4()),
+        **({"case_ref": case_reference(task)} if task.get("court_code") else {}),
         "time": now_text(),
         "task_id": task.get("task_id"),
         "action": action,
@@ -7224,12 +6870,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 for item in prior_dispatches or ()
             ):
                 raise ValueError("semantic_dispatch_attempt_conflict")
-            dispatch_uid = "DSP-" + hashlib.sha256(
-                (
-                    f"{args.task_id}|{semantic_expectations['semantic_epoch']}|"
-                    f"{wave_id}|{attempt}|{now}"
-                ).encode("utf-8")
-            ).hexdigest()[:24].upper()
+            dispatch_uid = "DSP-" + uuid.uuid4().hex
             generated_child_instance_ids = _generate_missing_child_office_profiles(
                 args,
                 task_id=str(args.task_id),
@@ -7239,7 +6880,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 semantic_expectations=semantic_expectations,
                 context_economy=context_economy,
             )
-            _synchronize_approved_child_binding_digests(
+            _synchronize_approved_child_bindings(
                 args,
                 generated_child_instance_ids,
             )
@@ -7271,7 +6912,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         }
         result["model_routes"] = model_routes
         result["generated_at"] = now
-        result["admission_binding_sha256s"] = {}
+        result["admission_bindings"] = {}
         if result.get("allowed") is not True:
             return result
         if isinstance(task.get("case_binding"), dict):
@@ -7314,7 +6955,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                     office_instance_id=str(binding.get("instance_id") or ""),
                     worktree=str(binding.get("worktree") or "."),
                     lease_id=str(result.get("budget_lease_id") or ""),
-                    preload_hashes=_semantic_preload_hashes(role_key),
+                    preload_sources=_semantic_preload_sources(role_key),
                 )
                 if context_economy is not None:
                     binding.update(
@@ -7323,16 +6964,17 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                             for field in CONTEXT_ECONOMY_BINDING_FIELDS
                         }
                     )
+                binding["office_capsule_ref"] = office_capsule_reference(case_reference(task), role_key, str(binding["office_instance_id"]), now)
                 enriched_bindings.append(binding)
-            admission_binding_sha256s = {
+            admission_bindings = {
                 str(binding.get("instance_id") or "").strip().lower():
-                canonical_child_office_binding_sha256(binding)
+                deepcopy(binding)
                 for binding in enriched_bindings
                 if isinstance(binding.get("child_profile"), Mapping)
             }
             result.update(
                 selected_bindings=tuple(enriched_bindings),
-                admission_binding_sha256s=admission_binding_sha256s,
+                admission_bindings=admission_bindings,
                 dispatch_uid=dispatch_uid,
                 attempt=attempt,
                 **semantic_expectations,
@@ -7370,7 +7012,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                 "useful_roles",
                 "selected_roles",
                 "selected_bindings",
-                "admission_binding_sha256s",
+                "admission_bindings",
                 "selected_instance_ids",
                 "deferred_roles",
                 "host_capacity",
@@ -7406,8 +7048,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                         "dispatch_uid",
                         "attempt",
                         "semantic_epoch",
-                        "charter_sha256",
-                        "invariant_capsule_sha256",
+                        "case_ref",
                         "checkpoint_id",
                     )
                     if semantic_expectations is not None
@@ -7422,9 +7063,8 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         }
         if "case_binding" in result:
             admission_record["case_binding"] = deepcopy(result["case_binding"])
-        anchor_sha256 = _admission_immutable_anchor_sha256(admission_record)
-        admission_record["admission_immutable_anchor_sha256"] = anchor_sha256
-        result["admission_immutable_anchor_sha256"] = anchor_sha256
+        admission_record["admission_event_id"] = str(uuid.uuid4())
+        result["admission_event_id"] = admission_record["admission_event_id"]
         task["last_agent_admission"] = admission_record
         admissions = task.setdefault("agent_admissions", {})
         if not isinstance(admissions, dict):
@@ -7450,17 +7090,14 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             requested_fork_turns=result["requested_fork_turns"],
             model_route_ids={role: route["model_route_id"] for role, route in model_routes.items()},
             selected_protocol=result.get("selected_protocol"),
-            admission_immutable_anchor_sha256=admission_record[
-                "admission_immutable_anchor_sha256"
-            ],
+            admission_record=_admission_bound_record(admission_record),
         )
         if semantic_expectations is not None:
             event.update(
                 dispatch_uid=result["dispatch_uid"],
                 attempt=result["attempt"],
                 semantic_epoch=result["semantic_epoch"],
-                charter_sha256=result["charter_sha256"],
-                invariant_capsule_sha256=result["invariant_capsule_sha256"],
+                case_ref=deepcopy(result["case_ref"]),
                 checkpoint_id=result["checkpoint_id"],
             )
         if context_economy is not None:
@@ -7475,7 +7112,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             if result.get("selected_instance_ids")
             else ""
         )
-        event["event_id"] = _office_event_id(event, primary_instance_id)
+        event["event_id"] = admission_record["admission_event_id"]
         result["event_id"] = event["event_id"]
         event.update({key: result[key] for key in AGENT_MESSAGE_BUDGET_FIELDS})
         try:
@@ -7938,7 +7575,7 @@ def _build_recovery_receipt(
         "previous_head_sha256": previous_head_sha256,
         "reason_codes": list(reason_codes),
         "evidence_pointer": evidence_pointer,
-        "evidence_sha256": evidence_sha256,
+        "evidence_ref": evidence_sha256,
         "actor": actor,
         timestamp_field: timestamp,
         "event_id": event_id,
@@ -8057,7 +7694,7 @@ def _validate_recovery_receipt(
         raise ValueError("result_recovery_receipt_schema_mismatch")
     if expected_actor is not None and str(value.get("actor") or "").strip().lower() != expected_actor:
         raise ValueError("result_recovery_receipt_actor_mismatch")
-    for field in ("evidence_sha256", "receipt_sha256"):
+    for field in ("evidence_ref", "receipt_sha256"):
         digest = value.get(field)
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError("result_recovery_receipt_digest_invalid")
@@ -8075,8 +7712,6 @@ def _target_binding_from_record(task: Mapping[str, object], record: Mapping[str,
     binding: dict[str, object] = {
         "task_id": task.get("task_id"),
         "semantic_epoch": record.get("semantic_epoch"),
-        "charter_sha256": record.get("charter_sha256"),
-        "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
         "checkpoint_id": record.get("checkpoint_id"),
         "dispatch_uid": record.get("dispatch_uid"),
         "attempt": record.get("attempt"),
@@ -8162,7 +7797,7 @@ def review_quarantined_result(args: argparse.Namespace) -> dict[str, object]:
             "decision": decision,
             "reason_codes": reason_codes,
             "evidence_pointer": evidence_pointer,
-            "evidence_sha256": evidence_sha256,
+            "evidence_ref": evidence_sha256,
             "projection_sha256": projection_sha256,
             "recovery_id": recovery_id,
             "quarantine_id": core["quarantine_id"],
@@ -8266,7 +7901,7 @@ def _validate_recovery_native_followup(
     target: Mapping[str, object],
     args: argparse.Namespace,
     recovery_binding: Mapping[str, object],
-) -> tuple[dict[str, object], str]:
+) -> tuple[dict[str, object], dict[str, object]]:
     value = getattr(args, "native_host_action_receipt", None)
     if not isinstance(value, Mapping):
         raise ValueError("result_recovery_delivery_receipt_required")
@@ -8297,10 +7932,9 @@ def _validate_recovery_native_followup(
         or normalized_request.get("direct_superior") != target.get("direct_superior")
     ):
         raise ValueError("result_recovery_delivery_binding_mismatch")
-    # The existing native bridge intentionally normalizes its legacy request
-    # fields.  Hash the raw request here as well so the typed recovery binding
-    # is included in this recovery transaction's canonical request identity.
-    request_sha256 = canonical_json_sha256(dict(raw_request))
+    request_ref = native_request_reference(normalized_request)
+    if not isinstance(receipt_request, Mapping) or receipt_request.get("recovery_binding") != raw_binding:
+        raise ValueError("result_recovery_delivery_binding_mismatch")
     try:
         validate_native_host_action_receipt(
             value,
@@ -8309,7 +7943,7 @@ def _validate_recovery_native_followup(
         )
     except (TypeError, ValueError) as exc:
         raise ValueError("result_recovery_delivery_binding_mismatch") from exc
-    return deepcopy(dict(value)), request_sha256
+    return deepcopy(dict(value)), request_ref
 
 
 def handoff_recovered_result(args: argparse.Namespace) -> dict[str, object]:
@@ -8373,7 +8007,7 @@ def handoff_recovered_result(args: argparse.Namespace) -> dict[str, object]:
             review_receipt_sha256=str(current_head["review_receipt_sha256"]),
             target_binding_sha256=target_binding_sha256,
         )
-        native_receipt, native_request_sha256 = _validate_recovery_native_followup(
+        native_receipt, native_request_ref = _validate_recovery_native_followup(
             task, target, args, recovery_binding
         )
         payload = {
@@ -8381,11 +8015,11 @@ def handoff_recovered_result(args: argparse.Namespace) -> dict[str, object]:
             "quarantine_id": core["quarantine_id"],
             "projection_sha256": projection["projection_sha256"],
             "target_binding_sha256": target_binding_sha256,
-            "native_host_request_sha256": native_request_sha256,
+            "native_host_request_ref": native_request_ref,
             "native_host_action_receipt_id": native_receipt.get("receipt_id"),
-            "native_host_action_receipt_sha256": native_receipt.get("receipt_sha256"),
+            "native_host_action_receipt": deepcopy(native_receipt),
             "evidence_pointer": evidence_pointer,
-            "evidence_sha256": evidence_sha256,
+            "evidence_ref": evidence_sha256,
         }
         operation_id, payload_digest, replay = _recovery_operation_identity(task, getattr(args, "operation_id", None), payload)
         if replay is not None:
@@ -8411,9 +8045,9 @@ def handoff_recovered_result(args: argparse.Namespace) -> dict[str, object]:
             event_id=event_id,
             review_receipt_sha256=str(current_head["review_receipt_sha256"]),
             target_binding_sha256=target_binding_sha256,
-            native_host_request_sha256=native_request_sha256,
+            native_host_request_ref=native_request_ref,
             native_host_action_receipt_id=native_receipt.get("receipt_id"),
-            native_host_action_receipt_sha256=native_receipt.get("receipt_sha256"),
+            native_host_action_receipt=deepcopy(native_receipt),
         )
         _validate_recovery_receipt(
             receipt,
@@ -8825,11 +8459,11 @@ def agent_event(
                         decision="spawn", host_action="spawn", outcome="succeeded")
                     if not start_native_host_receipt or not start_native_host_receipt.get("host_spawn_evidence"):
                         raise ValueError("native_carrier_capture_required")
-                    request_digest = start_native_host_receipt["request_sha256"]
-                    admitted_task_name = f"{role.replace('-', '_')}_native_{request_digest[:16]}"
+                    request_suffix = native_task_suffix(start_native_host_receipt["request"])
+                    admitted_task_name = f"{role.replace('-', '_')}_native_{request_suffix}"
                     if str(start_native_host_receipt.get("host_instance_id", "")).rsplit("/", 1)[-1] != admitted_task_name:
                         raise ValueError("native_carrier_capture_name_mismatch")
-                    admitted_proof = {"agent_id": f"{role}-native-{request_digest[:16]}"}
+                    admitted_proof = {"agent_id": f"{role}-native-{request_suffix}"}
                     captured_carrier = {"carrier_proof": admitted_proof, "collaboration_task_name": admitted_task_name}
                 requested_proof = _normalize_carrier_proof(
                     requested_kind,
@@ -9145,7 +8779,7 @@ def agent_event(
             }
         )
         if lifecycle_action == "agent_start":
-            manifest = build_preload_manifest(role, carrier_kind=start_office_kind)
+            manifest = build_preload_manifest(role, carrier_kind=start_office_kind, court_code=case_reference(task)["court_code"])
             wave_id = str(getattr(args, "wave_id", "") or "wave-default")
             if start_admission is None or start_model_route is None:
                 raise ValueError("agent start admission binding was not validated")
@@ -9442,6 +9076,8 @@ def agent_start(args: argparse.Namespace) -> TransitionResult:
 def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
     from commands.court_native_bridge import captured_child_read_order, NativeEvidencePending
     evidence = require_text(args.evidence, "evidence")
+    if isinstance(getattr(args, "native_request_ref", None), str) and args.native_request_ref:
+        args.native_request_ref = _required_context_object(args.native_request_ref, "native_request_ref_required")
     agent_id = require_text(args.agent_id, "agent-id")
     role = require_text(args.role, "role")
     loaded_skills = [item.strip() for item in re.split(r"[,;]", args.loaded_skills) if item.strip()]
@@ -9452,9 +9088,12 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
         "role_key": role,
         "office_zh": None,
         "direct_superior": args.direct_superior,
-        "profile_hash": args.profile_hash,
-        "dossier_hash": args.dossier_hash,
-        "court_skill_hash": args.court_skill_hash,
+        "profile_source": getattr(args, "profile_source", None),
+        "dossier_path": getattr(args, "dossier_path", None),
+        "court_skill_path": getattr(args, "court_skill_path", None),
+        "profile_loaded": getattr(args, "profile_loaded", None),
+        "court_skill_loaded": getattr(args, "court_skill_loaded", None),
+        "court_code": getattr(args, "court_code", None),
         "agent_dossier_loaded": args.agent_dossier_loaded,
         "loaded_skills": loaded_skills,
         "model_route_id": args.model_route_id,
@@ -9492,6 +9131,7 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
                 carrier_kind=_canonical_office_instance_kind(
                     current.get("office_instance_kind")
                 ),
+                court_code=case_reference(task)["court_code"],
             )
             ack["office_zh"] = manifest.office_zh
             if explicit_office_zh and explicit_office_zh != manifest.office_zh:
@@ -9501,10 +9141,10 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
                 raise ValueError("started agent is missing model route")
             validated = validate_preload_ack(manifest, ack, model_route=model_route)
             if isinstance(current.get('native_host_spawn_evidence'), dict):
-                if not getattr(args, 'native_request_sha256', None):
+                if not getattr(args, 'native_request_ref', None):
                     raise NativeEvidencePending('native_spawn_child_request_acknowledgement_missing')
-                if (getattr(args, 'native_request_sha256', None)
-                        != current.get('native_host_request_sha256')):
+                if (getattr(args, 'native_request_ref', None)
+                        != current.get('native_host_request_ref')):
                     raise ValueError('native_spawn_requires_child_request_acknowledgement')
             read_order = captured_child_read_order(current, manifest, task_id=args.task_id)
         except NativeEvidencePending as exc:
@@ -9529,7 +9169,7 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
             if read_order is not None:
                 current['child_skill_read_order'] = read_order
                 current['native_request_delivery'] = 'PRELOAD_ACKNOWLEDGED'
-                current['preload_ack_request_sha256'] = args.native_request_sha256
+                current['preload_ack_request_ref'] = args.native_request_ref
             current.update(
                 status="running",
                 preload_status="PASSED",
@@ -9538,9 +9178,12 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
                 office_identity_evidence="PASSED",
                 office_execution_ready=True,
                 loaded_skills=validated["loaded_skills"],
-                profile_hash=validated["profile_hash"],
-                dossier_hash=validated["dossier_hash"],
-                court_skill_hash=validated["court_skill_hash"],
+                profile_source=validated["profile_source"],
+                dossier_path=validated["dossier_path"],
+                court_skill_path=validated["court_skill_path"],
+                profile_loaded=validated["profile_loaded"],
+                court_skill_loaded=validated["court_skill_loaded"],
+                court_code=validated["court_code"],
                 agent_dossier_loaded=validated["agent_dossier_loaded"],
                 model_route_id=validated["model_route_id"],
                 active_model=validated.get("active_model"),
@@ -9713,7 +9356,7 @@ def _native_bridge_identity_context(
                     and record.get("native_host_identity_kind") == "canonical_agent_path"
                     and record.get("native_trace_session_id") == identity["session_id"]
                     and record.get("semantic_epoch") == task.get("semantic_epoch")
-                    and record.get("charter_sha256") == task.get("charter_sha256")
+                    and record.get("case_ref") == case_reference(task)
                     and record.get("preload_status") == "PASSED"
                     and record.get("office_execution_ready") is True
                     and record.get("status") not in TERMINAL_AGENT_STATUSES
@@ -9810,96 +9453,78 @@ def _native_bridge_target_record(
     return matches[0] if matches else None
 
 
-def _native_bridge_request(
-    task: Mapping[str, object],
-    admission: Mapping[str, object],
-    binding: Mapping[str, object],
-) -> dict[str, object]:
+def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, object], binding: Mapping[str, object]) -> dict[str, object]:
     from court_native_host_dispatch import normalize_native_host_dispatch_request
-
-    preload = binding.get("preload_hashes")
-    model_inputs = admission.get("model_route_inputs")
+    preload = binding.get('preload_sources')
+    model_inputs = admission.get('model_route_inputs')
     admission_event_id = _admission_event_id(task, admission)
-    if (
-        not isinstance(preload, Mapping)
-        or not isinstance(model_inputs, Mapping)
-        or not admission_event_id
-    ):
-        raise ValueError("native_bridge:admission_facts_incomplete")
-    assignment = require_text(model_inputs.get("assignment"), "assignment")
-    read_scope = binding.get("read_scope") or binding.get("write_set")
-    write_set = binding.get("write_set") or binding.get("read_scope")
-    if not isinstance(read_scope, (list, tuple)) or not isinstance(
-        write_set, (list, tuple)
-    ):
-        raise ValueError("native_bridge:binding_scope_invalid")
+    if not isinstance(preload, Mapping) or not isinstance(model_inputs, Mapping) or (not admission_event_id):
+        raise ValueError('native_bridge:admission_facts_incomplete')
+    assignment = require_text(model_inputs.get('assignment'), 'assignment')
+    read_scope = binding.get('read_scope') or binding.get('write_set')
+    write_set = binding.get('write_set') or binding.get('read_scope')
+    if not isinstance(read_scope, (list, tuple)) or not isinstance(write_set, (list, tuple)):
+        raise ValueError('native_bridge:binding_scope_invalid')
     request: dict[str, object] = {
-        "schema": "court.native_host_dispatch_request.v1",
-        "task_id": task.get("task_id"),
-        "wave_id": admission.get("wave_id"),
-        "dispatch_uid": admission.get("dispatch_uid"),
-        "attempt": admission.get("attempt"),
-        "role": binding.get("role"),
-        "instance_id": binding.get("instance_id"),
-        "direct_superior": binding.get("direct_superior"),
-        "semantic_epoch": admission.get("semantic_epoch"),
-        "charter_sha256": admission.get("charter_sha256"),
-        "invariant_capsule_sha256": admission.get("invariant_capsule_sha256"),
-        "lease_id": binding.get("lease_id"),
-        "assignment": assignment,
-        "duty_scope": list(read_scope),
-        "write_set": list(write_set),
-        "role_ack": {
-            "role": binding.get("role"),
-            "direct_superior": binding.get("direct_superior"),
-            "profile_sha256": preload.get("profile_hash"),
-            "dossier_sha256": preload.get("dossier_hash"),
+        'schema': 'court.native_host_dispatch_request.v1',
+        'task_id': task.get('task_id'),
+        'wave_id': admission.get('wave_id'),
+        'dispatch_uid': admission.get('dispatch_uid'),
+        'attempt': admission.get('attempt'),
+        'role': binding.get('role'),
+        'instance_id': binding.get('instance_id'),
+        'direct_superior': binding.get('direct_superior'),
+        'semantic_epoch': admission.get('semantic_epoch'),
+        'case_ref': admission.get('case_ref'),
+        'office_capsule_ref': deepcopy(binding.get('office_capsule_ref')),
+        'lease_id': binding.get('lease_id'),
+        'assignment': assignment,
+        'duty_scope': list(read_scope),
+        'write_set': list(write_set),
+        'role_ack': {
+            'role': binding.get('role'),
+            'direct_superior': binding.get('direct_superior'),
+            **_native_role_ack_sources(preload),
         },
-        "admission_anchor": {
-            "schema": "court.agent.admission_receipt.v1",
-            "receipt_id": admission_event_id,
-            "receipt_sha256": admission.get("admission_immutable_anchor_sha256"),
+        'admission_anchor': {
+            'schema': 'court.agent.admission_receipt.v1',
+            'receipt_id': admission_event_id,
         },
-        "compatible_live_instances": [],
+        'compatible_live_instances': [],
     }
     target = _native_bridge_target_record(task, binding)
     if target is not None:
-        if target.get("native_host_identity_kind") == "canonical_agent_path":
-            raise ValueError("native_bridge:canonical_followup_issuer_unavailable")
-        if str(target.get("status") or "").strip().lower() in TERMINAL_AGENT_STATUSES:
-            raise ValueError("native_bridge:target_native_actor_terminal")
-        raw_ratio = target.get("native_host_context_utilization")
+        if target.get('native_host_identity_kind') == 'canonical_agent_path':
+            raise ValueError('native_bridge:canonical_followup_issuer_unavailable')
+        if str(target.get('status') or '').strip().lower() in TERMINAL_AGENT_STATUSES:
+            raise ValueError('native_bridge:target_native_actor_terminal')
+        raw_ratio = target.get('native_host_context_utilization')
         if isinstance(raw_ratio, bool) or not isinstance(raw_ratio, (int, float)):
-            raise ValueError("native_bridge:reuse_context_unavailable")
+            raise ValueError('native_bridge:reuse_context_unavailable')
         host_fields = {
-            "host_task_id": target.get("native_host_task_id"),
-            "host_thread_id": target.get("native_host_thread_id"),
-            "host_instance_id": target.get("native_host_instance_id"),
+            'host_task_id': target.get('native_host_task_id'),
+            'host_thread_id': target.get('native_host_thread_id'),
+            'host_instance_id': target.get('native_host_instance_id'),
         }
-        if not all(isinstance(value, str) and value.strip() for value in host_fields.values()):
-            raise ValueError("native_bridge:target_host_identity_missing")
-        request["compatible_live_instances"] = [
-            {
-                **host_fields,
-                "task_id": request["task_id"],
-                "role": request["role"],
-                "direct_superior": request["direct_superior"],
-                "assignment": request["assignment"],
-                "duty_scope": deepcopy(request["duty_scope"]),
-                "semantic_receipt": {
-                    "semantic_epoch": request["semantic_epoch"],
-                    "charter_sha256": request["charter_sha256"],
-                    "invariant_capsule_sha256": request[
-                        "invariant_capsule_sha256"
-                    ],
-                },
-                "lease_id": request["lease_id"],
-                "write_set": deepcopy(request["write_set"]),
-                "role_ack": deepcopy(request["role_ack"]),
-                "context_utilization": float(raw_ratio),
-                "status": str(target.get("status") or "").strip().lower(),
-            }
-        ]
+        if not all((isinstance(value, str) and value.strip() for value in host_fields.values())):
+            raise ValueError('native_bridge:target_host_identity_missing')
+        request['compatible_live_instances'] = [{
+            **host_fields,
+            'task_id': request['task_id'],
+            'role': request['role'],
+            'direct_superior': request['direct_superior'],
+            'assignment': request['assignment'],
+            'duty_scope': deepcopy(request['duty_scope']),
+            'semantic_receipt': {
+                'semantic_epoch': request['semantic_epoch'],
+                'case_ref': request['case_ref'],
+            },
+            'lease_id': request['lease_id'],
+            'write_set': deepcopy(request['write_set']),
+            'role_ack': deepcopy(request['role_ack']),
+            'context_utilization': float(raw_ratio),
+            'status': str(target.get('status') or '').strip().lower(),
+        }]
     return normalize_native_host_dispatch_request(request)
 
 
@@ -9978,20 +9603,9 @@ def _native_bridge_preload_input_budget(
     if carrier_kind != "child_agent":
         raise ValueError("native_bridge:ordinary_child_carrier_required")
     manifest = build_preload_manifest(role, carrier_kind=carrier_kind)
-    expected_hashes = {
-        "profile_hash": manifest.profile_hash,
-        "dossier_hash": manifest.dossier_hash,
-        "court_skill_hash": manifest.court_skill_hash,
-    }
-    if binding.get("preload_hashes") != expected_hashes:
-        raise ValueError("native_bridge:preload_hash_binding_mismatch")
-    child_profile = binding.get("child_profile")
-    if isinstance(child_profile, Mapping) and (
-        child_profile.get("profile_sha256") != manifest.profile_hash
-        or child_profile.get("dossier_sha256") != manifest.dossier_hash
-        or child_profile.get("skill_sha256") != manifest.court_skill_hash
-    ):
-        raise ValueError("native_bridge:child_profile_preload_mismatch")
+    expected_sources = _semantic_preload_sources(role)
+    if binding.get("preload_sources") != expected_sources:
+        raise ValueError("native_bridge:preload_source_binding_mismatch")
     root = Path(office_root).resolve()
     relative_paths = {
         "profile_bytes": manifest.profile_source,
@@ -10065,113 +9679,93 @@ def _native_bridge_model_inputs(admission: Mapping[str, object]) -> dict[str, ob
     return result
 
 
-def _native_bridge_start_request(
-    task: Mapping[str, object],
-    admission: Mapping[str, object],
-    binding: Mapping[str, object],
-    request: Mapping[str, object],
-    capture: Mapping[str, object],
-) -> dict[str, object]:
-    request_sha256 = require_text(capture.get("request_sha256"), "request-sha256")
-    role = require_text(binding.get("role"), "role").strip().lower()
-    instance_id = require_text(binding.get("instance_id"), "instance-id").strip().lower()
+def _native_bridge_start_request(task: Mapping[str, object], admission: Mapping[str, object], binding: Mapping[str, object], request: Mapping[str, object], capture: Mapping[str, object]) -> dict[str, object]:
+    request_ref = capture.get('request_ref')
+    if request_ref != native_request_reference(request):
+        raise ValueError('native_bridge:request_reference_mismatch')
+    suffix = native_task_suffix(request)
+    role = require_text(binding.get('role'), 'role').strip().lower()
+    instance_id = require_text(binding.get('instance_id'), 'instance-id').strip().lower()
     inputs = _native_bridge_model_inputs(admission)
-    agent_id = f"{role}-native-{request_sha256[:16]}"
-    collaboration_task_name = f"{role.replace('-', '_')}_native_{request_sha256[:16]}"
+    agent_id = f'{role}-native-{suffix}'
+    collaboration_task_name = f"{role.replace('-', '_')}_native_{suffix}"
     preload = build_preload_manifest(role)
     required_skill = {
-        "name": "decretum-matrix", "source": str((skill_root() / "SKILL.md").resolve()),
-        "sha256": preload.court_skill_hash, "purpose": "native office lifecycle",
-        "ack_name": "decretum-matrix", "ack_sha256": preload.court_skill_hash,
+        'name': 'decretum-matrix',
+        'source': str((skill_root() / 'SKILL.md').resolve()),
+        'purpose': 'native office lifecycle',
+        'ack_name': 'decretum-matrix',
     }
     office_request = {
-        "task_id": task.get("task_id"),
-        "semantic_epoch": admission.get("semantic_epoch"),
-        "charter_sha256": admission.get("charter_sha256"),
-        "invariant_capsule_sha256": admission.get("invariant_capsule_sha256"),
-        "checkpoint_id": admission.get("checkpoint_id"),
-        "dispatch_uid": admission.get("dispatch_uid"),
-        "attempt": admission.get("attempt"),
-        "role": role,
-        "collaboration_task_name": collaboration_task_name,
-        "requires_gongjiang": False,
-        "skill_requirements_json": json.dumps([required_skill]),
-        "scope": inputs["assignment"],
-        "task_focus": inputs["task_focus"],
-        "complexity": inputs["complexity"],
-        "risk": inputs["risk"],
-        "ambiguity": inputs["ambiguity"],
-        "transport": inputs["transport"],
-        "wave_id": admission.get("wave_id"),
-        "dispatch_requested_at": admission.get("dispatch_requested_at"),
-        "fork_turns": "none",
-        "context_tokens": admission.get("context_tokens", 0),
-        "dispatch_context_packet": public_dispatch_context_packet(
-            task, str(admission.get("wave_id") or "")
-        ),
-        "context_budget_pool": public_context_budget_pool(
-            task, str(admission.get("wave_id") or "")
-        ),
-        "context_result_mode": admission.get(
-            "context_result_mode", "bounded_structured_receipt"
-        ),
-        "context_tool_output_mode": admission.get("context_tool_output_mode", "pointer"),
-        "context_override_source": admission.get("context_override_source"),
-        "system_memory_percent": admission.get("context_system_memory_percent", 0.0),
-        "deadline_seconds": admission.get("deadline_seconds", AGENT_DEFAULT_DEADLINE_SECONDS),
-        "tool_call_budget": admission.get("tool_call_budget", AGENT_DEFAULT_TOOL_CALL_BUDGET),
-        "office_instance_kind": "child_agent",
-        "office_instance_id": instance_id,
-        "carrier_proof": {"agent_id": agent_id},
-        "native_host_action_receipt": deepcopy(capture["native_host_action_receipt"]),
-        "actor": binding.get("direct_superior"),
-        "evidence": f"native_host_capture request_sha256={request_sha256}",
-        "note": "current-session native host capture",
+        'task_id': task.get('task_id'),
+        'semantic_epoch': admission.get('semantic_epoch'),
+        'case_ref': admission.get('case_ref'),
+        'checkpoint_id': admission.get('checkpoint_id'),
+        'dispatch_uid': admission.get('dispatch_uid'),
+        'attempt': admission.get('attempt'),
+        'role': role,
+        'collaboration_task_name': collaboration_task_name,
+        'requires_gongjiang': False,
+        'skill_requirements_json': json.dumps([required_skill]),
+        'scope': inputs['assignment'],
+        'task_focus': inputs['task_focus'],
+        'complexity': inputs['complexity'],
+        'risk': inputs['risk'],
+        'ambiguity': inputs['ambiguity'],
+        'transport': inputs['transport'],
+        'wave_id': admission.get('wave_id'),
+        'dispatch_requested_at': admission.get('dispatch_requested_at'),
+        'fork_turns': 'none',
+        'context_tokens': admission.get('context_tokens', 0),
+        'dispatch_context_packet': public_dispatch_context_packet(task, str(admission.get('wave_id') or '')),
+        'context_budget_pool': public_context_budget_pool(task, str(admission.get('wave_id') or '')),
+        'context_result_mode': admission.get('context_result_mode', 'bounded_structured_receipt'),
+        'context_tool_output_mode': admission.get('context_tool_output_mode', 'pointer'),
+        'context_override_source': admission.get('context_override_source'),
+        'system_memory_percent': admission.get('context_system_memory_percent', 0.0),
+        'deadline_seconds': admission.get('deadline_seconds', AGENT_DEFAULT_DEADLINE_SECONDS),
+        'tool_call_budget': admission.get('tool_call_budget', AGENT_DEFAULT_TOOL_CALL_BUDGET),
+        'office_instance_kind': 'child_agent',
+        'office_instance_id': instance_id,
+        'carrier_proof': {
+            'agent_id': agent_id,
+        },
+        'native_host_action_receipt': deepcopy(capture['native_host_action_receipt']),
+        'actor': binding.get('direct_superior'),
+        'evidence': 'native_host_capture request_ref=' + json.dumps(request_ref, sort_keys=True),
+        'note': 'current-session native host capture',
     }
     try:
-        _revalidate_context_economy_start(
-            dict(task),
-            dict(admission),
-            dict(binding),
-            argparse.Namespace(**office_request),
-            wave_id=str(admission.get("wave_id") or ""),
-        )
+        _revalidate_context_economy_start(dict(task), dict(admission), dict(binding), argparse.Namespace(**office_request), wave_id=str(admission.get('wave_id') or ''))
     except ValueError as exc:
-        raise ValueError("native_bridge:office_start_context_reconstruction_failed") from exc
+        raise ValueError('native_bridge:office_start_context_reconstruction_failed') from exc
     return office_request
 
 
-def _native_bridge_followup_request(
-    task: Mapping[str, object],
-    binding: Mapping[str, object],
-    request: Mapping[str, object],
-    capture: Mapping[str, object],
-) -> dict[str, object]:
+def _native_bridge_followup_request(task: Mapping[str, object], binding: Mapping[str, object], request: Mapping[str, object], capture: Mapping[str, object]) -> dict[str, object]:
     record = _native_bridge_target_record(task, binding)
     if not isinstance(record, Mapping):
-        raise ValueError("native_bridge:followup_target_missing")
-    carrier_proof = record.get("carrier_proof")
+        raise ValueError('native_bridge:followup_target_missing')
+    carrier_proof = record.get('carrier_proof')
     if not isinstance(carrier_proof, Mapping):
-        raise ValueError("native_bridge:followup_carrier_proof_missing")
+        raise ValueError('native_bridge:followup_carrier_proof_missing')
     return {
-        "task_id": task.get("task_id"),
-        "semantic_epoch": record.get("semantic_epoch"),
-        "charter_sha256": record.get("charter_sha256"),
-        "invariant_capsule_sha256": record.get("invariant_capsule_sha256"),
-        "checkpoint_id": record.get("checkpoint_id"),
-        "dispatch_uid": record.get("dispatch_uid"),
-        "attempt": record.get("attempt"),
-        "role": binding.get("role"),
-        "office_instance_kind": record.get("office_instance_kind"),
-        "office_instance_id": record.get("office_instance_id"),
-        "carrier_proof": deepcopy(dict(carrier_proof)),
-        "assignment": request.get("assignment"),
-        "duty_scope": deepcopy(request.get("duty_scope")),
-        "native_host_action_receipt": deepcopy(capture["native_host_action_receipt"]),
-        "actor": binding.get("direct_superior"),
-        "evidence": "native_host_capture request_sha256="
-        + require_text(capture.get("request_sha256"), "request-sha256"),
-        "note": "current-session native host capture",
+        'task_id': task.get('task_id'),
+        'semantic_epoch': record.get('semantic_epoch'),
+        'case_ref': record.get('case_ref'),
+        'checkpoint_id': record.get('checkpoint_id'),
+        'dispatch_uid': record.get('dispatch_uid'),
+        'attempt': record.get('attempt'),
+        'role': binding.get('role'),
+        'office_instance_kind': record.get('office_instance_kind'),
+        'office_instance_id': record.get('office_instance_id'),
+        'carrier_proof': deepcopy(dict(carrier_proof)),
+        'assignment': request.get('assignment'),
+        'duty_scope': deepcopy(request.get('duty_scope')),
+        'native_host_action_receipt': deepcopy(capture['native_host_action_receipt']),
+        'actor': binding.get('direct_superior'),
+        'evidence': 'native_host_capture request_ref=' + json.dumps(capture.get('request_ref'), sort_keys=True),
+        'note': 'current-session native host capture',
     }
 
 
@@ -10573,7 +10167,7 @@ def probe_payload() -> dict[str, Any]:
         "codex-fresh-worker-model-routing-v1.json",
     )
     fresh_worker_status = "host_proof_missing"
-    fresh_worker_proof_sha256 = None
+    fresh_worker_host_proof = None
     if fresh_worker_proof_path.is_file():
         try:
             proof = validate_host_proof(json.loads(fresh_worker_proof_path.read_text(encoding="utf-8")))
@@ -10581,7 +10175,7 @@ def probe_payload() -> dict[str, Any]:
             fresh_worker_status = "host_proof_invalid"
         else:
             fresh_worker_status = "verified"
-            fresh_worker_proof_sha256 = proof["proof_sha256"]
+            fresh_worker_host_proof = deepcopy(proof)
     return {
         "kind": "court_runtime_probe",
         "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
@@ -10675,7 +10269,7 @@ def probe_payload() -> dict[str, Any]:
             "fresh_worker_override_status": fresh_worker_status,
             "fresh_worker_script": "scripts/court_codex_office_worker.py",
             "fresh_worker_host_proof_path": str(fresh_worker_proof_path),
-            "fresh_worker_host_proof_sha256": fresh_worker_proof_sha256,
+            "fresh_worker_host_proof": fresh_worker_host_proof,
             "fresh_worker_binary_pin_required": True,
             "fresh_worker_same_session": False,
             "fork_turns": "none",
@@ -10713,7 +10307,7 @@ def _case_plan_view(task: Mapping[str, Any]) -> dict[str, object]:
     return {"schema": "court.workflow_status.v1", "ok": True, "task_id": task.get("task_id"),
             "state": task.get("state"), "case_status": "BOUND" if binding else "NEEDS_REVIEW", "case_binding": binding,
             "plan_status": "REVIEWED" if reviewed else "DRAFTED" if plan else "BOOTSTRAP_UNPLANNED",
-            "plan": {k: plan[k] for k in ("schema", "plan_id", "revision", "sha256", "producer")} if plan else None,
+            "plan": {k: plan[k] for k in ("schema", "plan_id", "revision", "plan_ref", "producer")} if plan else None,
             "case_reviews": deepcopy(task.get("case_reviews", {})), "problems": problems,
             "next_operations": ["court plan --help", "court semantic-context-template --task-id " + str(task.get("task_id"))],
             "standard_workflow_ready": reviewed and binding is not None}
@@ -10723,18 +10317,18 @@ def _case_semantic_plan(task: Mapping[str, Any]) -> dict[str, object]:
     from court_plan_artifacts import bootstrap_artifact, current_plan
     plan = current_plan(task)
     if plan:
-        return {"status": "DRAFTED", "revision": plan["revision"], "sha256": plan["sha256"], "field": "zhongshu_plan"}
+        return {"status": "DRAFTED", "revision": plan["revision"], "plan_ref": plan_reference(plan), "field": "zhongshu_plan"}
     bootstrap = task.get("case_bootstrap")
     if bootstrap != bootstrap_artifact(task):
         raise ValueError("case_bootstrap_missing_or_stale")
-    return {"status": "BOOTSTRAP_UNPLANNED", "revision": 0, "sha256": bootstrap["sha256"], "field": "case_bootstrap"}
+    return {"status": "BOOTSTRAP_UNPLANNED", "revision": 0, "plan_ref": None, "field": "case_bootstrap"}
 
 
 def _require_case_semantic_context(task: Mapping[str, Any], context: Mapping[str, Any]) -> None:
     if not isinstance(task.get("case_binding"), dict):
         return
     expected = _case_semantic_plan(task)
-    if context.get("plan_sha256") != expected["sha256"] or context.get("plan_revision") != expected["revision"]:
+    if context.get("case_ref") != case_reference(task) or context.get("plan_ref") != expected["plan_ref"]:
         raise ValueError("case_semantic_plan_binding_mismatch")
 
 
@@ -10778,10 +10372,10 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
                 "expected_plan_revision": plan.get("revision", 0),
                 "document": {"goal": "<goal>", "non_goals": [], "steps": [{"id": "step-1", "role": "gongbu", "action": "<action>"}], "acceptance": ["<acceptance>"], "write_set": []},
                 "producer": producer,
-                "review": {"role": "menxia", "decision": "approved", "plan_sha256": plan.get('sha256', '<current plan sha256>'), "producer":dict(producer)},
+                "review": {"role": "menxia", "decision": "approved", "plan_ref": plan_reference(plan), "producer":dict(producer)},
                 "notes": ["Template is not a plan or an office reply.", "Shangshu uses decision dispatchable|blocked; Menxia uses approved|rejected.", "serial_inline is allowed only for explicitly selected serial execution."]}
     request = _json_object_from_args(args, "request", "request_file", "plan request")
-    expected = {"document", "producer", "expected_plan_revision"} if args.action == "submit" else {"role", "decision", "plan_sha256", "producer"}
+    expected = {"document", "producer", "expected_plan_revision"} if args.action == "submit" else {"role", "decision", "plan_ref", "producer"}
     if request.get('schema') == 'court.plan_request_template.v1':
         if set(request) != {'document','producer','expected_plan_revision','schema','task_id','review','notes'}:
             raise ValueError('case_plan_template_fields_invalid')
@@ -10811,15 +10405,15 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
             if isinstance(revision, bool) or not isinstance(revision, int) or revision != task.get("zhongshu_plan", {}).get("revision", 0):
                 raise ValueError("case_plan_revision_conflict")
         updated = (submit_plan(task, request["document"], request["producer"], history)
-                   if args.action == "submit" else record_review(task, request["role"], request["decision"], request["plan_sha256"], request["producer"], history))
+                   if args.action == "submit" else record_review(task, request["role"], request["decision"], request["plan_ref"], request["producer"], history))
         updated["case_binding"] = refresh_case_binding(updated)
         if updated == task:
             return {"ok": True, "status": "REPLAYED", **_case_plan_view(task)}
         actor = "zhongshu" if args.action == "submit" else request["role"]
         evidence = request["producer"]["evidence"]
         event = make_event(updated, "case_plan_" + args.action, task["state"], task["state"], actor, evidence, "bounded plan artifact")
-        event["plan_sha256"] = updated["zhongshu_plan"]["sha256"]
-        event["case_identity_sha256"] = updated["zhongshu_plan"].get("case_identity_sha256")
+        event["plan_ref"] = plan_reference(updated["zhongshu_plan"])
+        event["case_ref"] = case_reference(updated)
         updated["last_evidence"] = evidence
         updated["updated_at"] = now_text()
         originals = {path: path.read_bytes() if path.exists() else None for path in (tasks_path(), events_path())}
@@ -10899,7 +10493,6 @@ def public_capsule_validation_payload(charter: str, value: object) -> dict[str, 
         "ok": True,
         "errors": [],
         "value": normalized,
-        "invariant_capsule_sha256": canonical_json_sha256(normalized),
     }
 
 
@@ -10929,32 +10522,21 @@ def public_intake_validation_payload(
 
 
 def semantic_context_json_schema() -> dict[str, object]:
-    integer_fields = {"authority_revision", "plan_revision", "shiguan_revision"}
     properties = {
-        field: {"type": "integer", "minimum": 0}
-        if field in integer_fields
-        else {"type": "string", "minLength": 1}
-        for field in (
-            "authority_revision",
-            "authority_sha256",
-            "plan_revision",
-            "plan_sha256",
-            "plan_cursor",
-            "git_fingerprint",
-            "recovery_checkpoint_id",
-            "shiguan_revision",
-            "shiguan_fingerprint",
-        )
+        "authority_revision": {"type": "integer", "minimum": 1},
+        "case_ref": {"type": "object"},
+        "plan_ref": {"type": ["object", "null"]},
+        "plan_cursor": {"type": "string", "minLength": 1},
+        "recovery_checkpoint_id": {"type": "string", "minLength": 1},
+        "shiguan_revision": {"type": "integer", "minimum": 0},
     }
-    for field in ("authority_sha256", "plan_sha256", "shiguan_fingerprint"):
-        properties[field]["pattern"] = "^[0-9a-f]{64}$"
     return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "court.semantic.context.v1",
-        "type": "object",
-        "required": sorted(properties),
-        "properties": properties,
-        "additionalProperties": False,
+        '$schema': 'https://json-schema.org/draft/2020-12/schema',
+        '$id': 'court.semantic.context.v1',
+        'type': 'object',
+        'required': sorted(properties),
+        'properties': properties,
+        'additionalProperties': False,
     }
 
 
@@ -10963,30 +10545,26 @@ def public_semantic_context_template_payload(task_id: str) -> dict[str, object]:
     task = load_tasks().get(task_id)
     if not isinstance(task, dict):
         raise ValueError(f"task not found: {task_id}")
-    event_head_sha256 = _event_head_sha256()
-    event_head_bytes = _event_head_bytes()
-    revision = task.get("charter_revision")
-    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
-        raise ValueError("charter_revision_invalid")
+    reference = case_reference(task)
+    history = events_for_task(task_id)
+    last_event = next((event for event in reversed(history) if event.get("event_id")), None)
+    checkpoint = str(last_event["event_id"]) if last_event else f"court-runtime:tasks/{task_id}"
+    plan = task.get("zhongshu_plan")
+    plan_ref = plan_reference(plan) if isinstance(plan, Mapping) else None
     result = {
         "schema": "court.semantic.context_template.v1",
         "context": {
-            "authority_revision": revision,
-            "authority_sha256": task.get("charter_sha256"),
-            "plan_revision": revision,
-            "plan_sha256": task.get("invariant_capsule_sha256"),
-            "plan_cursor": f"{task.get('state')}@revision-{revision}",
-            "git_fingerprint": event_head_sha256,
-            "recovery_checkpoint_id": f"event-head:{event_head_bytes}:{event_head_sha256[:16]}",
-            "shiguan_revision": len(events_for_task(task_id)),
-            "shiguan_fingerprint": event_head_sha256,
+            "authority_revision": reference["charter_revision"],
+            "case_ref": reference,
+            "plan_ref": plan_ref,
+            "plan_cursor": f"{task.get('state')}@revision-{reference['charter_revision']}",
+            "recovery_checkpoint_id": checkpoint,
+            "shiguan_revision": len(history),
         },
     }
     if isinstance(task.get("case_binding"), dict):
-        plan = _case_semantic_plan(task)
-        result["context"].update(plan_revision=plan["revision"], plan_sha256=plan["sha256"])
-        result["plan_status"] = plan["status"]
-        result["plan_storage"] = {"path": str(tasks_path()), "json_pointer": "/" + task_id.replace("~", "~0").replace("/", "~1") + "/" + str(plan["field"])}
+        status = _case_semantic_plan(task)
+        result["plan_status"] = status["status"]
         result["case_binding"] = deepcopy(task["case_binding"])
     return result
 
@@ -11008,47 +10586,36 @@ def public_semantic_context_validation_payload(value: object) -> dict[str, objec
     }
 
 
-def public_dispatch_context_packet(
-    task: Mapping[str, object],
-    wave_id: str,
-) -> dict[str, object]:
+def public_dispatch_context_packet(task: Mapping[str, object], wave_id: str) -> dict[str, object]:
     receipt = task.get("semantic_receipt")
     if not isinstance(receipt, Mapping):
         raise ValueError("semantic_receipt_missing")
-    wave_id = require_text(wave_id, "wave-id")
-    result = {
+    reference = case_reference(task)
+    current_plan = task.get("zhongshu_plan")
+    plan_ref = plan_reference(current_plan) if isinstance(current_plan, Mapping) else None
+    from urllib.parse import quote
+    escaped = quote(str(task["task_id"]), safe="")
+    plan_pointer = {"path": f"court-runtime:tasks/{escaped}/zhongshu_plan", "plan_ref": plan_ref} if plan_ref else {"path": f"court-runtime:tasks/{escaped}/case_bootstrap", "case_ref": reference}
+    return {
         "schema": "court.semantic.dispatch_context_packet.v1",
         "task_id": task.get("task_id"),
-        "sub_id": wave_id,
+        "sub_id": require_text(wave_id, "wave-id"),
         "semantic_epoch": receipt.get("semantic_epoch"),
-        "invariant_capsule_sha256": receipt.get("invariant_capsule_sha256"),
+        "case_ref": reference,
+        "plan_ref": plan_ref,
         "semantic_receipt_id": receipt.get("receipt_id"),
-        "semantic_receipt_sha256": receipt.get("receipt_sha256"),
-        "authority_sha256": receipt.get("authority_sha256"),
-        "plan_sha256": receipt.get("plan_sha256"),
         "plan_cursor": receipt.get("plan_cursor"),
         "fork_context": "none",
         "context_mode": "bounded",
         "pointers": [
-            {"path": "authority/current.md", "sha256": receipt.get("authority_sha256")},
-            {"path": "plans/current.md", "sha256": receipt.get("plan_sha256")},
+            {"path": f"court-runtime:tasks/{escaped}/charter", "case_ref": reference},
+            plan_pointer,
         ],
         "summary": {
-            "text": "bounded public CLI dispatch packet",
+            "text": "Official court_code=" + reference["court_code"] + "; resolve existing task and plan records.",
             "semantic_receipt_id": receipt.get("receipt_id"),
-            "semantic_receipt_sha256": receipt.get("receipt_sha256"),
         },
     }
-    if isinstance(task.get("case_binding"), dict):
-        from urllib.parse import quote
-        plan = _case_semantic_plan(task)
-        escaped = quote(str(task["task_id"]), safe="")
-        result["pointers"] = [
-            {"path": f"court-runtime:tasks/{escaped}/charter", "sha256": receipt.get("authority_sha256")},
-            {"path": f"court-runtime:tasks/{escaped}/{plan['field']}", "sha256": plan["sha256"]},
-        ]
-        result["summary"]["text"] = "Official court_code=" + str(task["case_binding"]["court_code"]) + "; resolve task JSON objects through court plan show/workflow-status."
-    return result
 
 
 def public_context_budget_pool(
@@ -11075,8 +10642,7 @@ def public_context_budget_pool(
 
 PUBLIC_ADMISSION_REQUEST_FIELDS = frozenset(
     {
-        "schema", "task_id", "expected_semantic_epoch", "expected_charter_sha256",
-        "expected_invariant_capsule_sha256", "expected_checkpoint_id", "wave_id",
+        "schema", "task_id", "case_ref", "expected_semantic_epoch", "expected_checkpoint_id", "wave_id",
         "execution_topology", "protocol_mode", "active_session_protocol",
         "needs_parallel_tree", "requested_fork_turns", "context_tokens",
         "message_chars", "message_required_chars", "message_optional_chars",
@@ -11094,7 +10660,7 @@ PUBLIC_ADMISSION_REQUEST_FIELDS = frozenset(
 
 def public_admission_request_json_schema() -> dict[str, object]:
     object_fields = {
-        "budget_lease", "dispatch_context_packet", "context_budget_pool"
+        "budget_lease", "dispatch_context_packet", "context_budget_pool", "case_ref"
     }
     array_fields = {"requested_roles", "requested_bindings"}
     boolean_fields = {"needs_parallel_tree"}
@@ -11152,8 +10718,7 @@ def public_admission_request_argv(value: object) -> list[str]:
     if type(value.get("needs_parallel_tree")) is not bool:
         raise ValueError("admission_request_parallel_flag_invalid")
     scalar_fields = (
-        "task_id", "expected_semantic_epoch", "expected_charter_sha256",
-        "expected_invariant_capsule_sha256", "expected_checkpoint_id", "wave_id",
+        "task_id", "expected_semantic_epoch", "expected_checkpoint_id", "wave_id",
         "execution_topology", "protocol_mode", "active_session_protocol",
         "requested_fork_turns", "context_tokens", "message_chars",
         "message_required_chars", "message_optional_chars", "requested_agents",
@@ -11164,7 +10729,7 @@ def public_admission_request_argv(value: object) -> list[str]:
         "complexity", "risk", "ambiguity", "transport", "actor", "evidence",
         "context_result_mode", "context_tool_output_mode", "system_memory_percent",
     )
-    argv = ["agent-admit"]
+    argv = ["agent-admit", "--case-ref", json.dumps(value["case_ref"], ensure_ascii=False)]
     for field in scalar_fields:
         argv.extend((f"--{field.replace('_', '-')}", str(value[field])))
     argv.extend(("--requested-roles", ",".join(roles)))
@@ -11230,7 +10795,7 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
     write_path = normalized_write_set[0]
     instance_id = f"{role}#0001"
     shard_id = f"{role}-shard-0001"
-    preload_hashes = _semantic_preload_hashes(role)
+    preload_sources = _semantic_preload_sources(role)
     binding = {
         "role": role,
         "instance_id": instance_id,
@@ -11244,7 +10809,7 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
         "read_scope": [write_path],
         "mutation_allowed": True,
         "integration_authority": False,
-        "preload_hashes": preload_hashes,
+        "preload_sources": preload_sources,
     }
     _validate_admission_capsule_write_scope(task, [binding])
     next_depth = int(args.next_depth)
@@ -11288,8 +10853,8 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
                 "owner_role": None, "direct_superior": calling_office,
             }
         },
-        "approved_binding_sha256s": {},
-        "approved_preload_hashes": {instance_id: preload_hashes},
+        "approved_bindings": {},
+        "approved_preload_sources": {instance_id: preload_sources},
     }
     receipt = task.get("semantic_receipt")
     if not isinstance(receipt, Mapping):
@@ -11298,8 +10863,7 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
         "schema": "court.agent.admission_request.v1",
         "task_id": str(args.task_id),
         "expected_semantic_epoch": task.get("semantic_epoch"),
-        "expected_charter_sha256": task.get("charter_sha256"),
-        "expected_invariant_capsule_sha256": task.get("invariant_capsule_sha256"),
+        "case_ref": case_reference(task),
         "expected_checkpoint_id": receipt.get("checkpoint_id"),
         "wave_id": require_text(args.wave_id, "wave-id"),
         "execution_topology": "parallel",
@@ -11514,14 +11078,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_expected_semantic_binding(command: argparse.ArgumentParser) -> None:
         command.add_argument("--expected-semantic-epoch", type=int)
-        command.add_argument("--expected-charter-sha256")
-        command.add_argument("--expected-invariant-capsule-sha256")
+        command.add_argument("--case-ref")
         command.add_argument("--expected-checkpoint-id")
 
     def add_agent_semantic_binding(command: argparse.ArgumentParser) -> None:
         command.add_argument("--semantic-epoch", type=int)
-        command.add_argument("--charter-sha256")
-        command.add_argument("--invariant-capsule-sha256")
+        command.add_argument("--case-ref", type=json_object_argument)
         command.add_argument("--checkpoint-id")
         command.add_argument("--dispatch-uid")
         command.add_argument("--attempt", type=int)
@@ -11679,9 +11241,9 @@ def build_parser() -> argparse.ArgumentParser:
             "intake-template. New formal work includes court.request_understanding.v1 with goal, "
             "usage scenario, key requirements, acceptance criteria, and a minimum score of 95. "
             "--charter is a required nonempty exact UTF-8 charter. An omitted "
-            "capsule is safely generated; a custom court.semantic.invariant_capsule.v1 has exactly "
-            "13 fields, latest_decree_sha256 == charter_sha256 == sha256(exact UTF-8 charter), "
-            "a 256-byte UTF-8 prefix anchor, and a 2048-byte canonical limit. Use intake-schema, "
+            "capsule is safely generated; a custom court.semantic.invariant_capsule.v1 preserves "
+            "the complete body lists, exact decree anchor, write scope and 2048-byte limit. "
+            "The issued court_code and charter_revision bind its case reference. Use intake-schema, "
             "intake-validate, capsule-template, and capsule-validate for machine-readable contracts."
         ),
     )
@@ -11737,9 +11299,8 @@ def build_parser() -> argparse.ArgumentParser:
     accept_format_after_command(revise)
     revise.add_argument("--task-id", required=True)
     revise.add_argument("--expected-revision", type=int, required=True)
-    revise.add_argument("--expected-sha256", required=True)
+    revise.add_argument("--case-ref", required=True)
     revise.add_argument("--new-revision", type=int, required=True)
-    revise.add_argument("--new-sha256", required=True)
     new_charter_group = revise.add_mutually_exclusive_group(required=True)
     new_charter_group.add_argument("--new-charter")
     new_charter_group.add_argument("--new-charter-file", type=Path)
@@ -11765,7 +11326,7 @@ def build_parser() -> argparse.ArgumentParser:
     accept_format_after_command(bind_assessment)
     bind_assessment.add_argument("--task-id", required=True)
     bind_assessment.add_argument("--expected-revision", type=int, required=True)
-    bind_assessment.add_argument("--expected-charter-sha256", required=True)
+    bind_assessment.add_argument("--case-ref", required=True)
     bind_assessment.add_argument("--assessment-file", type=Path, required=True)
     bind_assessment.add_argument("--actor", required=True, choices=sorted(OFFICES))
     bind_assessment.add_argument("--evidence", required=True)
@@ -11778,7 +11339,7 @@ def build_parser() -> argparse.ArgumentParser:
     accept_format_after_command(complete)
     complete.add_argument("--task-id", required=True)
     complete.add_argument("--expected-revision", type=int, required=True)
-    complete.add_argument("--expected-charter-sha256", required=True)
+    complete.add_argument("--case-ref", required=True)
     complete.add_argument("--receipt-file", type=Path, required=True)
     complete.add_argument("--actor", default="taizi", choices=sorted(OFFICES))
     complete.add_argument("--evidence", required=True)
@@ -11877,9 +11438,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     semantic_correct.add_argument("--task-id", required=True)
     semantic_correct.add_argument("--expected-revision", type=int, required=True)
-    semantic_correct.add_argument("--expected-sha256", required=True)
+    semantic_correct.add_argument("--case-ref", required=True)
     semantic_correct.add_argument("--new-revision", type=int, required=True)
-    semantic_correct.add_argument("--new-sha256", required=True)
     semantic_correct_body = semantic_correct.add_mutually_exclusive_group(required=True)
     semantic_correct_body.add_argument("--new-charter")
     semantic_correct_body.add_argument("--new-charter-file", type=Path)
@@ -11905,11 +11465,7 @@ def build_parser() -> argparse.ArgumentParser:
     semantic_resume.add_argument("--task-id", required=True)
     semantic_resume.add_argument("--continuation-file", type=Path, required=True)
     semantic_resume.add_argument("--expected-semantic-epoch", type=int, required=True)
-    semantic_resume.add_argument("--expected-charter-sha256", required=True)
-    semantic_resume.add_argument(
-        "--expected-invariant-capsule-sha256",
-        required=True,
-    )
+    semantic_resume.add_argument("--case-ref", type=json_object_argument)
     semantic_resume.add_argument("--expected-checkpoint-id", required=True)
     semantic_resume.add_argument(
         "--context-file",
@@ -11928,11 +11484,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     semantic_quarantine.add_argument("--task-id", required=True)
     semantic_quarantine.add_argument("--expected-semantic-epoch", type=int, required=True)
-    semantic_quarantine.add_argument("--expected-charter-sha256", required=True)
-    semantic_quarantine.add_argument(
-        "--expected-invariant-capsule-sha256",
-        required=True,
-    )
+    semantic_quarantine.add_argument("--case-ref", type=json_object_argument)
     semantic_quarantine.add_argument("--expected-checkpoint-id", required=True)
     semantic_quarantine.add_argument("--reason-code", action="append", required=True)
     semantic_quarantine.add_argument("--trigger", required=True)
@@ -11946,11 +11498,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     semantic_reconcile.add_argument("--task-id", required=True)
     semantic_reconcile.add_argument("--expected-semantic-epoch", type=int, required=True)
-    semantic_reconcile.add_argument("--expected-charter-sha256", required=True)
-    semantic_reconcile.add_argument(
-        "--expected-invariant-capsule-sha256",
-        required=True,
-    )
+    semantic_reconcile.add_argument("--case-ref", type=json_object_argument)
     semantic_reconcile.add_argument("--expected-checkpoint-id", required=True)
     semantic_reconcile.add_argument(
         "--context-file",
@@ -12128,10 +11676,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional consistency check; the canonical value is derived from the role preload manifest.",
     )
     preload_parser.add_argument("--direct-superior", required=True)
-    preload_parser.add_argument("--profile-hash", required=True)
-    preload_parser.add_argument("--dossier-hash", required=True)
-    preload_parser.add_argument("--court-skill-hash", required=True)
-    preload_parser.add_argument('--native-request-sha256', default='',
+    preload_parser.add_argument("--profile-source", required=True)
+    preload_parser.add_argument("--dossier-path", required=True)
+    preload_parser.add_argument("--court-skill-path", required=True)
+    preload_parser.add_argument("--court-code", required=True)
+    preload_parser.add_argument("--profile-loaded", default="")
+    preload_parser.add_argument("--court-skill-loaded", default="")
+    preload_parser.add_argument('--native-request-ref', default='',
                                 help='Echo the received request id for opaque host capture; never hash a file.')
     preload_parser.add_argument("--loaded-skills", required=True)
     preload_parser.add_argument("--agent-dossier-loaded", choices=["YES", "NO"], required=True)
