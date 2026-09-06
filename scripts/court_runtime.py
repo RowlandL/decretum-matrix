@@ -1426,6 +1426,12 @@ def _canonical_office_instance_kind(value: object) -> str:
 
 def _require_role_prefixed(value: object, role: str, field: str) -> str:
     text = str(value or "").strip().lower()
+    # Admission templates issue stable office slots (role#NNNN). These are
+    # distinct from native carrier agent IDs, which retain the role-... form.
+    if (field == "office_instance_id"
+            and re.fullmatch(re.escape(role.lower()) + r"#[0-9]{4}", text)
+            and text.rsplit("#", 1)[1] != "0000"):
+        return text
     if not text.startswith(f"{role.lower()}-") or not re.fullmatch(
         r"[a-z][a-z0-9-]*(?:-[a-z0-9]+)+",
         text,

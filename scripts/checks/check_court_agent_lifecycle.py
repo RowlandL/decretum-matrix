@@ -2907,12 +2907,32 @@ def check_office_cli_error_contract() -> None:
 def check_office_lifecycle_json_cli() -> None:
     from check_court_native_host_dispatch import load_bridge
 
+    for role in ("zhongshu", "menxia", "shangshu", "libu-hr"):
+        numbered = f"{role}#0001"
+        assert court_runtime._require_role_prefixed(numbered, role, "office_instance_id") == numbered
+        for invalid in (f"{role}#0000", f"{role}#text", f"{role}#0001/child", "other#0001"):
+            try:
+                court_runtime._require_role_prefixed(invalid, role, "office_instance_id")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"invalid office slot accepted: {invalid}")
+        try:
+            court_runtime._require_role_prefixed(numbered, role, "agent_id")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("office slot used as a native agent ID")
+
     task_id = "office-json-cli"
     create_task(task_id)
     open_decree(task_id)
-    instance_id = "gongbu-cli-01"
+    # The public admission template issues role#NNNN office slots, while the
+    # native carrier has its own role-prefixed agent ID. Preserve both IDs.
+    instance_id = "gongbu#0001"
+    agent_id = "gongbu-cli-01"
     task_name = "gongbu_cli_01"
-    proof = {"agent_id": instance_id}
+    proof = {"agent_id": agent_id}
     admission_request = admit(
         task_id,
         "office-cli-wave",
@@ -2961,7 +2981,7 @@ def check_office_lifecycle_json_cli() -> None:
     start.native_host_action_receipt = deepcopy(native_receipt)
     assert office_cli("start", start)["receipt"]["action"] == "start"
 
-    ack = ack_args(task_id, instance_id)
+    ack = ack_args(task_id, agent_id)
     ack.office_instance_kind = "child_agent"
     ack.office_instance_id = instance_id
     ack.carrier_proof = proof
@@ -2975,13 +2995,13 @@ def check_office_lifecycle_json_cli() -> None:
     with patch('commands.court_native_bridge.captured_child_read_order', return_value=None):
         assert office_cli("preload-ack", ack)["receipt"]["action"] == "preload_ack"
 
-    report = event_args(task_id, instance_id)
+    report = event_args(task_id, agent_id)
     report.office_instance_kind = "child_agent"
     report.office_instance_id = instance_id
     report.carrier_proof = proof
     assert office_cli("report", report)["receipt"]["action"] == "report"
 
-    finish = finish_args(task_id, instance_id)
+    finish = finish_args(task_id, agent_id)
     finish.office_instance_kind = "child_agent"
     finish.office_instance_id = instance_id
     finish.carrier_proof = proof
@@ -2989,7 +3009,7 @@ def check_office_lifecycle_json_cli() -> None:
     finish.result_envelope["carrier_proof"] = proof
     assert office_cli("finish", finish)["receipt"]["action"] == "finish"
 
-    close = event_args(task_id, instance_id)
+    close = event_args(task_id, agent_id)
     close.office_instance_kind = "child_agent"
     close.office_instance_id = instance_id
     close.carrier_proof = proof

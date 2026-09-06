@@ -1335,8 +1335,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_agent_lifecycle.py",
-      "sha256": "6176b4150c8a1bbd319ce918ea8e54198fb3121195c35306efaec1d5be3bfe58",
-      "size": 151296
+      "sha256": "933ab66a4fa5cf242e27182d3035ee38b5c28adcb58e59c08f32fcd8105af0f5",
+      "size": 152236
     },
     {
       "mode": "100644",
@@ -2337,8 +2337,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "d0353f59c682e9c3dff1dc0c26f0582ca4825295bdbb2e81d5dd249871f6ef22",
-      "size": 541735
+      "sha256": "200d1947d1b5b2bb20fd97b53802d2f50e1a9605d1125f18c2e763d6d34596f4",
+      "size": 542072
     },
     {
       "mode": "100644",
@@ -2908,10 +2908,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8106462,
+    "payload_bytes": 8107739,
     "payload_file_count": 479,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "5a43aae8a33e36bbc1691d06eadd56ed7b1c5844fd8801752fee08529a414409",
+    "payload_index_sha256": "9cce43baf9956c29b2f2c74693afa812e6297c39fe7367c26084de5fd0713713",
     "source_packaged_tracked_file_count": 471,
     "source_tracked_file_count": 599
   },
