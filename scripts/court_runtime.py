@@ -140,18 +140,18 @@ STATES = {
 }
 
 TRANSITIONS = {
-    "Pending": {"Taizi", "Cancelled"},
-    "Taizi": {"ThreeDepartments", "Done", "Cancelled"},
-    "ThreeDepartments": {"ThreeDepartmentsPetition", "Taizi", "Cancelled"},
-    "ThreeDepartmentsPetition": {"TaiziReply", "ThreeDepartments", "Rejected", "Cancelled"},
-    "TaiziReply": {"ShangshuDispatch", "ThreeDepartments", "Done", "Cancelled"},
+    "Pending": {"Taizi", "Paused", "Cancelled"},
+    "Taizi": {"ThreeDepartments", "Done", "Paused", "Cancelled"},
+    "ThreeDepartments": {"ThreeDepartmentsPetition", "Taizi", "Paused", "Cancelled"},
+    "ThreeDepartmentsPetition": {"TaiziReply", "ThreeDepartments", "Rejected", "Paused", "Cancelled"},
+    "TaiziReply": {"ShangshuDispatch", "ThreeDepartments", "Done", "Paused", "Cancelled"},
     "ShangshuDispatch": {"SixMinistries", "MenxiaReview", "Paused", "Cancelled"},
     "SixMinistries": {"Workshops", "MenxiaReview", "Paused", "Cancelled"},
     "Workshops": {"MenxiaReview", "Paused", "Cancelled"},
     "MenxiaReview": {"ShiguanRecorded", "ThreeDepartments", "ShangshuDispatch", "Paused", "Rejected", "Cancelled"},
     "ShiguanRecorded": {"Done", "MenxiaReview"},
     "Done": set(),
-    "Paused": {"TaiziReply", "ShangshuDispatch", "SixMinistries", "Workshops", "MenxiaReview", "Cancelled"},
+    "Paused": {"Pending", "Taizi", "ThreeDepartments", "ThreeDepartmentsPetition", "TaiziReply", "ShangshuDispatch", "SixMinistries", "Workshops", "MenxiaReview", "Cancelled"},
     "Cancelled": set(),
     "Rejected": {"ThreeDepartments", "Cancelled"},
 }
@@ -9206,6 +9206,7 @@ def agent_event(
                 current.update(deepcopy(matching_bindings[0]))
             if captured_carrier is not None:
                 current.update(deepcopy(captured_carrier))
+            current['charter_revision'] = task['charter_revision']
             if start_hierarchy_evidence is not None:
                 current.update(start_hierarchy_evidence)
             current["assignment_binding_ready"] = bool(
@@ -9274,6 +9275,7 @@ def agent_event(
         event = make_event(task, lifecycle_action, status, str(task.get("state")), actor, evidence, args.note)
         event["agent_id"] = agent_id
         event["agent_role"] = role
+        event['charter_revision'] = current.get('charter_revision', current.get('semantic_epoch'))
         for field in AGENT_SEMANTIC_ARG_FIELDS:
             if current.get(field) is not None:
                 event[field] = current[field]
@@ -10489,7 +10491,16 @@ def render_cli(tasks: list[dict[str, Any]], events: list[dict[str, Any]]) -> str
 
 
 def status_payload(args: argparse.Namespace) -> dict[str, Any]:
+    view = getattr(args, 'view', 'full')
+    if view not in {'compact', 'full'}:
+        raise ValueError('status_view_invalid: expected compact or full')
     tasks = list_tasks(args)
+    if view == 'compact':
+        return {'kind':'court_runtime_status', 'view':'compact',
+                'runtime_schema_version':RUNTIME_SCHEMA_VERSION, 'generated_at':now_text(),
+                'task_count':len(tasks), 'history_included':False,
+                'tasks':[{key:task.get(key) for key in ('task_id','state','owner','updated_at','charter_revision','semantic_state')} for task in tasks],
+                'details':'court workflow-status --task-id <task-id>; status --view full for history'}
     events = read_events(limit=None)
     events_by_task: dict[str, list[dict[str, object]]] = {}
     for event in events:
@@ -10759,6 +10770,8 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
                 "storage": {"path": str(tasks_path()), "json_pointer": "/" + args.task_id.replace("~", "~0").replace("/", "~1")}}
     if args.action == "template":
         task = load_tasks().get(args.task_id, {})
+        if not task:
+            raise ValueError("task not found: " + args.task_id)
         return {"schema": "court.plan_request_template.v1", "task_id": args.task_id,
                 "expected_plan_revision": task.get("zhongshu_plan", {}).get("revision", 0),
                 "document": {"goal": "<goal>", "non_goals": [], "steps": [{"id": "step-1", "role": "gongbu", "action": "<action>"}], "acceptance": ["<acceptance>"], "write_set": []},
@@ -10767,8 +10780,15 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
                 "notes": ["Template is not a plan or an office reply.", "Shangshu uses decision dispatchable|blocked; Menxia uses approved|rejected.", "serial_inline is allowed only for explicitly selected serial execution."]}
     request = _json_object_from_args(args, "request", "request_file", "plan request")
     expected = {"document", "producer", "expected_plan_revision"} if args.action == "submit" else {"role", "decision", "plan_sha256", "producer"}
+    if args.action == 'submit' and request.get('schema') == 'court.plan_request_template.v1':
+        if set(request) != expected | {'schema', 'task_id', 'review', 'notes'}:
+            raise ValueError('case_plan_template_fields_invalid')
+        if request['task_id'] != args.task_id:
+            raise ValueError('case_plan_template_task_mismatch')
+        request = {key: request[key] for key in expected}
     if set(request) != expected:
-        raise ValueError("case_plan_request_fields_invalid")
+        raise ValueError("case_plan_request_fields_invalid: expected " + ','.join(sorted(expected))
+                         + "; submit also accepts the complete plan template payload")
     with runtime_lock():
         tasks = load_tasks()
         task = tasks.get(args.task_id)
@@ -12222,6 +12242,7 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="render a command-line court dashboard")
     accept_format_after_command(status)
     status.add_argument("--limit", type=int, default=12)
+    status.add_argument('--view', choices=('compact','full'), default='full')
 
     probe = sub.add_parser("probe", help="machine-readable runtime capabilities")
     accept_format_after_command(probe)

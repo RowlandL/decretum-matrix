@@ -11,16 +11,18 @@
 
 SKILL + guide + own materials + metadata must fit 20 KiB. Reuse unchanged reads.
 
-Read `references/manifests/installed-preload-identity.v1.json` declarations for
-preload/ack; never rehash files. Missing pins require installation update.
+Read installation declarations only when preparing preload/ack; never rehash.
+Fresh acceptance reads no prior tasks or memory. Do not scan source or run
+installation checks at startup. Read help only for the next operation.
 
 ## Required tool routes
 
 Validate intake/capsule/context/plan via MCP `court.intake_validate`,
 `court.capsule_validate`, `court.semantic_context_validate`,
-`court.dispatch_plan_validate`. Query state/case/history through `court.status`,
-`court.workflow_status`, `shiguan.query` / `shiguan.entries_query`. At closeout
-use `court.closeout_checklist`. Use CLI fallback if MCP is unavailable.
+`court.dispatch_plan_validate`. If status is needed, use
+`court.status(view="compact",limit=1)` or `court status --view compact --limit 1`.
+For a known task use `court.workflow_status`; query history only when requested.
+Closeout uses `court.closeout_checklist`. Use CLI when MCP is unavailable.
 Mutation uses CLI; delivery uses the host. Check domain success, not just help.
 
 ## Operational sequence

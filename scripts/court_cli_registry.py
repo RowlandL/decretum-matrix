@@ -119,7 +119,7 @@ def normal_startup_guidance() -> dict[str, object]:
             "validate_plan": "court.dispatch_plan_validate",
             "query_history": {"name": "shiguan.query", "arguments": {"terms": [], "limit": 1}},
             "query_history_metadata": "shiguan.entries_query",
-            "runtime_status": "court.status",
+            "runtime_status": {"name":"court.status", "arguments":{"view":"compact", "limit":1}},
             "case_binding_status": "court.workflow_status",
             "closeout_only": "court.closeout_checklist",
         },
@@ -501,13 +501,18 @@ def _capture_public_api(command: str, arguments: Sequence[str]) -> InvocationRes
     from court_public_api import court_status
 
     limit = 12
+    view = 'full'
     values = list(arguments)
     for index, value in enumerate(values):
         if value == "--limit" and index + 1 < len(values):
             limit = int(values[index + 1])
         elif value.startswith("--limit="):
             limit = int(value.split("=", 1)[1])
-    payload = court_status(limit)
+        elif value == '--view' and index + 1 < len(values):
+            view = values[index + 1]
+        elif value.startswith('--view='):
+            view = value.split('=',1)[1]
+    payload = court_status(limit, view=view)
     return InvocationResult(
         returncode=int(payload.get("exit_status", 1)),
         stdout=json.dumps(payload.get("stdout"), ensure_ascii=False) + "\n",

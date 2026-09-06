@@ -2058,6 +2058,15 @@
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
+              },
+              "view": {
+                "default": "full",
+                "description": "Use compact for startup; full includes historical details.",
+                "enum": [
+                  "compact",
+                  "full"
+                ],
+                "type": "string"
               }
             },
             "required": [],

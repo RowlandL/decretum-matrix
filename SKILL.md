@@ -29,7 +29,7 @@ metadata:
 
 ## Normal Startup Entry / Loading Procedure
 
-普通启动必读 exact installed 本文件及 [court-normal-startup.md](references/court-normal-startup.md) 的阶段表和 CLI/MCP 操作表。必读材料须完整加载一次，不能用 preview 代替；已有有效加载可复用，文件变化或终态语义复核时再载入。
+各载体首次完整读取 installed 本文件及 [court-normal-startup.md](references/court-normal-startup.md)，不用 preview 代替。版本及材料未变即复用，结诏不重复读入口；恢复时核对最新旨意与 P00。
 
 - 入口、当前官署 profile/dossier、启动指引及紧凑 metadata 合计 `<=20 KiB`。具体官署派遣前才读自己的材料，父级不预读全部子署。
 - 已指定能力时直接用 CLI/MCP；不全读能力索引、core/dispatch/state/closeout 大卷，不翻源码猜参数。操作或语义争议确需时才读对应卷。
@@ -89,7 +89,7 @@ pending/private 仅允许 metadata governance；没有不可伪造主机授权�
 
 ## Closeout Skeleton
 
-仅在完成、暂停、阻塞、取消或 handoff 时重载本入口/相关卷并经门下复核。独立轻量记录保留请求、实际派遣、回奏、写入和 checkpoint；已有标准 task 必须走 plan/review/lifecycle/assessment 归档链，不能用独立记录代替完成。十四行及门禁见 [court-closeout-validation.md](references/court-closeout-validation.md)。
+完成、暂停、阻塞、取消或 handoff 时按需读结诏卷并经门下复核。独立记录保留请求、派遣、回奏、写入和 checkpoint；标准 task 必须走 plan/review/lifecycle/assessment 归档链。十四行门禁见 [court-closeout-validation.md](references/court-closeout-validation.md)。
 
 仅门下接受者可标 MenxiaReview。标准任务用 `shiguan archive-runtime-task`，编号/谱系/作业 AI 复制 `payload.producer_receipt.closeout_identity`；独立记录才用 `archive-checkpoint` 的 `payload.closeout_identity`。MCP 不另编号，无有效回执标 `partial_or_not_run`、`authority_blocked` 或 `handoff_or_pause`。
 

@@ -2980,6 +2980,8 @@ def check_office_lifecycle_json_cli() -> None:
     assert native_receipt is not None, mint_evidence
     start.native_host_action_receipt = deepcopy(native_receipt)
     assert office_cli("start", start)["receipt"]["action"] == "start"
+    stored = court_runtime.load_tasks()[task_id]
+    assert stored['agents'][agent_id]['charter_revision'] == stored['charter_revision']
 
     ack = ack_args(task_id, agent_id)
     ack.office_instance_kind = "child_agent"

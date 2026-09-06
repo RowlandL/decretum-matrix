@@ -31,11 +31,11 @@ def _api_result(payload: object, *, stderr: str = "", exit_status: int = 0) -> d
     }
 
 
-def court_status(limit: int = 12) -> dict[str, object]:
+def court_status(limit: int = 12, view: str = 'full') -> dict[str, object]:
     """Return the canonical court status projection without a subprocess."""
 
     bounded_limit = max(1, min(int(limit), 100))
-    return _api_result(status_payload(Namespace(limit=bounded_limit)))
+    return _api_result(status_payload(Namespace(limit=bounded_limit, view=view)))
 
 
 def court_command_help() -> dict[str, object]:
@@ -187,6 +187,17 @@ def public_dispatch_plan_validation(
             "ok": False,
             "errors": [{"field": "behavior", "kind": "contract", "code": "invalid_behavior"}],
         }
+    from court_dispatch_hierarchy import _manifest_bundle
+    hierarchy = _manifest_bundle()
+    special = set(hierarchy['role_sets']['special_lifecycle'])
+    unsupported = sorted({str(entry.get('role', '')).strip().lower()
+                          for entry in entries if isinstance(entry, dict)} & special) if isinstance(entries, (list, tuple)) else []
+    if unsupported:
+        return {'schema':'court.dispatch_plan_validation.result.v1', 'ok':False,
+                'errors':[{'field':'entries','kind':'contract','code':'ordinary_native_dispatch_not_supported',
+                           'roles':unsupported}],
+                'role_recognition':'known_special_lifecycle',
+                'guidance':'These roles have no ordinary native dispatch edge; record unsupported coverage, never an OK reply.'}
     if trusted_preload_manifest is not None:
         try:
             from court_dispatch_policy import validate_dispatch_plan

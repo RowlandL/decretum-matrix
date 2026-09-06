@@ -1018,6 +1018,27 @@ def _robustness_probes() -> list[tuple[str, bool]]:
     return probes
 
 
+def _compact_startup_checks() -> list[tuple[str, bool]]:
+    from unittest.mock import patch
+    import court_runtime
+    from court_public_api import public_dispatch_plan_validation
+    task={'task_id':'compact-fixture','state':'ThreeDepartments','owner':'taizi',
+          'agent_admissions':{'private_bulk':'x'*100000},'agents':{'bulk':'x'*100000}}
+    with patch.object(court_runtime,'list_tasks',return_value=[task]), patch.object(
+            court_runtime,'read_events',side_effect=AssertionError('compact status read history')):
+        compact=court_status(1,view='compact')['stdout']
+        result=court_mcp_server.call_tool('court.status',{'limit':1,'view':'compact'},modern=True)
+    assert compact['view']=='compact' and len(json.dumps(compact))<1500
+    assert 'agent_admissions' not in json.dumps(compact) and 'recent_events' not in compact
+    assert result.get('isError') is not True and result['structuredContent']['api']['stdout']['view']=='compact'
+    invalid=court_mcp_server.call_tool('court.status',{'view':'unknown'},modern=True)
+    assert invalid.get('isError') is True
+    for role in ('shiguan','shiguan-hermes','zaochao','patrol-inspector'):
+        result=public_dispatch_plan_validation([{'role':role}],authority='super',behavior='parallel')
+        assert result['ok'] is False and result['errors'][0]['code']=='ordinary_native_dispatch_not_supported'
+    return [('compact_status_without_history_or_bulk',True),('known_special_lifecycle_not_claimed_as_native',True)]
+
+
 def run() -> dict[str, object]:
     modern = _modern_session()
     legacy = _legacy_session()
@@ -1304,6 +1325,7 @@ def run() -> dict[str, object]:
     checks.extend(_domain_ledger_checks())
     checks.extend(_domain_ledger_transaction_checks())
     checks.extend(_robustness_probes())
+    checks.extend(_compact_startup_checks())
     return {
         "schema": "decretum.mcp_stdio_adapter_check.v2",
         "ok": all(ok for _, ok in checks),

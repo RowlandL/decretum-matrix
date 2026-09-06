@@ -135,18 +135,19 @@ def _static_powershell_reads(command: str) -> list[str]:
     Unknown syntax is unobserved, never inferred from a read-looking substring.
     """
     tokens = []
-    token = re.compile(r"\s*(?:('(?:[^']|'')*')|(\"[^\"`$]*\")|([^\s;'\"|&<>`$(){}]+)|(;))")
+    token = re.compile(r"[ \t\r]*(?:('(?:[^']|'')*')|(\"[^\"`$]*\")|([^\s;'\"|&<>`$(){}]+)|(;|\n))")
     position = 0
     while position < len(command.rstrip()):
         match = token.match(command, position)
         if not match:
             return []
         raw = next(value for value in match.groups() if value is not None)
-        tokens.append(raw[1:-1].replace("''", "'") if raw[:1] in {"'", '"'} else raw)
+        quoted = raw[:1] in {"'", '"'}
+        tokens.append((raw[1:-1].replace("''", "'") if quoted else raw, quoted))
         position = match.end()
     segments = [[]]
-    for value in tokens:
-        if value == ';':
+    for value, quoted in tokens:
+        if not quoted and value in {';', '\n'}:
             segments.append([])
         else:
             segments[-1].append(value)
@@ -158,15 +159,22 @@ def _static_powershell_reads(command: str) -> list[str]:
             return []
         path = None
         while parts:
-            option = parts.pop(0).lower()
+            value = parts.pop(0)
+            option = value.lower()
             if option == '-raw':
                 continue
             if option in {'-literalpath', '-path'} and parts and path is None:
                 path = parts.pop(0)
                 if any(char in path for char in '*?[],') or path.startswith('-'):
                     return []
-            elif option == '-encoding' and parts and parts.pop(0).lower() in {'utf8', 'utf-8', 'utf8bom', 'unicode'}:
+            elif option == '-encoding' and parts and parts.pop(0).lower() in {'utf8', 'utf-8', 'utf8bom', 'utf8nobom', 'unicode'}:
                 continue
+            elif option == '-erroraction' and parts and parts.pop(0).lower() == 'stop':
+                continue
+            elif path is None and not option.startswith('-'):
+                path = value
+                if any(char in path for char in '*?[],'):
+                    return []
             else:
                 return []
         if path is None:

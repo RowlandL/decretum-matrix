@@ -35,5 +35,5 @@
     "directory_basename_may_differ_from_skill_name": false,
     "rename_policy": "rename_install_directory_preserve_shiguan_namespace"
   },
-  "skill_sha256": "5051A1700A7A17F91CC0E9663E30F76C0F4E269BC4BD038E9C1FA32AF8E99BDD"
+  "skill_sha256": "E94DE581DC08E405FD2AF0A3431132629EE697FE437FC1939AF02B383884543C"
 }

@@ -190,6 +190,12 @@ class SkillOrderTests(unittest.TestCase):
             self.assertEqual(verify(rows)['child_acceptance_event'],'child-acceptance')
             mixed = command('Get-Content full batch', [*skill['payload']['item']['parsed_cmd'], *batch['payload']['item']['parsed_cmd']])
             self.assertEqual(verify([mixed,event,output])['child_acceptance_event'],'child-acceptance')
+            for option in ('', '-Path ', '-LiteralPath '):
+                for separator in ('; ', '\n', '\r\n'):
+                    text=separator.join("Get-Content -Raw -Encoding UTF8 "+option+"'"+paths[k][0]+"'" for k in ('profile','dossier'))
+                    observed=command(text,[{'type':'unknown','cmd':text}])
+                    with self.subTest(option=option,separator=separator):
+                        self.assertEqual(verify([skill,observed,event,output])['child_acceptance_event'],'child-acceptance')
             with self.assertRaises(NativeEvidencePending):verify([skill,batch,event,{'type':'unrelated'},output])
             with self.assertRaises(NativeEvidencePending): verify(rows[:2])
             wrong = copy.deepcopy(event); wrong['payload']['thread_id']=SESSION

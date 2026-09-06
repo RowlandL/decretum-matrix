@@ -64,6 +64,16 @@ def validate_document(value: object) -> dict[str, Any]:
     return document
 
 
+def _current_charter(record: Mapping[str, Any], task: Mapping[str, Any]) -> bool:
+    """Read legacy epoch-only records without rewriting history or losing freshness."""
+    revision = record.get('charter_revision', record.get('semantic_epoch'))
+    epoch = record.get('semantic_epoch', revision)
+    task_epoch = task.get('semantic_epoch', task.get('charter_revision'))
+    return (type(revision) is int and revision == task.get('charter_revision')
+            and type(epoch) is int and type(task_epoch) is int and epoch == task_epoch == revision
+            and record.get('charter_sha256') == task.get('charter_sha256'))
+
+
 def _producer(task: Mapping[str, Any], role: str, value: object, events: list[dict[str, Any]]) -> dict[str, str]:
     if not isinstance(value, dict) or set(value) != {'kind', 'agent_id', 'evidence'}:
         raise ValueError('case_plan_producer_fields_invalid')
@@ -77,12 +87,13 @@ def _producer(task: Mapping[str, Any], role: str, value: object, events: list[di
         raise ValueError('case_plan_real_office_report_required')
     agent_id = _text(value['agent_id'], 'agent_id', 256)
     agent = task.get('agents', {}).get(agent_id, {})
-    if (agent.get('role') != role or agent.get('direct_superior') != 'taizi'
+    if (agent.get('task_id', task.get('task_id')) != task.get('task_id')
+            or agent.get('role') != role or agent.get('direct_superior') != 'taizi'
             or agent.get('preload_status') != 'PASSED' or agent.get('office_execution_ready') is not True
-            or agent.get('charter_revision') != task.get('charter_revision')
-            or agent.get('charter_sha256') != task.get('charter_sha256')):
+            or not _current_charter(agent, task)):
         raise ValueError('case_plan_current_office_report_required')
     matching = [event for event in events if event.get('action') == 'agent_report'
+                and event.get('task_id') == task.get('task_id') and _current_charter(event, task)
                 and event.get('agent_role') == role and event.get('agent_id') == agent_id
                 and event.get('evidence') == evidence]
     if len(matching) != 1:

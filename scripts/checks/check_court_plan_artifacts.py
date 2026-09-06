@@ -14,16 +14,17 @@ import court_plan_artifacts as plans
 
 def fixture():
     task = {'task_id': 'case-fixture', 'state': 'ThreeDepartments',
-            'charter_revision': 1, 'charter_sha256': 'a' * 64,
+            'charter_revision': 1, 'semantic_epoch': 1, 'charter_sha256': 'a' * 64,
             'case_execution': {'authority': 'super', 'behavior': 'parallel'}, 'agents': {}}
     events = []
     producers = {}
     for role in ('zhongshu', 'menxia', 'shangshu'):
         agent_id = 'fixture-' + role
-        task['agents'][agent_id] = {'role': role, 'direct_superior': 'taizi',
+        task['agents'][agent_id] = {'task_id':task['task_id'], 'role': role, 'direct_superior': 'taizi',
             'preload_status': 'PASSED', 'office_execution_ready': True,
-            'charter_revision': 1, 'charter_sha256': 'a' * 64}
+            'charter_revision': 1, 'semantic_epoch':1, 'charter_sha256': 'a' * 64}
         events.append({'action': 'agent_report', 'agent_role': role,
+                       'task_id':task['task_id'], 'semantic_epoch':1, 'charter_sha256':'a'*64,
                        'agent_id': agent_id, 'evidence': 'report-' + role})
         producers[role] = {'kind': 'host_report', 'agent_id': agent_id, 'evidence': 'report-' + role}
     document = {'goal': 'Count public text files', 'non_goals': ['No external writes'],
@@ -33,6 +34,28 @@ def fixture():
 
 
 class PlanArtifactTests(unittest.TestCase):
+    def test_runtime_epoch_is_compatible_when_old_revision_field_is_absent(self):
+        task, doc, p, events = fixture()
+        del task['agents'][p['zhongshu']['agent_id']]['charter_revision']
+        del task['agents'][p['zhongshu']['agent_id']]['task_id']  # task-scoped container + exact report still bind it
+        result = plans.submit_plan(task, doc, p['zhongshu'], events)
+        self.assertEqual(result['zhongshu_plan']['charter_revision'], 1)
+        self.assertNotIn('charter_revision', task['agents'][p['zhongshu']['agent_id']])
+
+    def test_current_identity_and_report_version_are_required(self):
+        for field,value in [('task_id','foreign'),('charter_revision',2),('semantic_epoch',2),('semantic_epoch',True),
+                            ('charter_sha256','b'*64),('direct_superior','shangshu'),('role','menxia')]:
+            task, doc, p, events = fixture()
+            task['agents'][p['zhongshu']['agent_id']][field]=value
+            with self.subTest(agent_field=field), self.assertRaises(ValueError):
+                plans.submit_plan(task,doc,p['zhongshu'],events)
+        for field,value in [('task_id','foreign'),('semantic_epoch',2),('charter_sha256','b'*64)]:
+            task, doc, p, events = fixture();events[0][field]=value
+            with self.subTest(event_field=field), self.assertRaises(ValueError):
+                plans.submit_plan(task,doc,p['zhongshu'],events)
+        task,doc,p,events=fixture();task['charter_revision']=task['semantic_epoch']=2
+        with self.assertRaises(ValueError):plans.submit_plan(task,doc,p['zhongshu'],events)
+
     def test_capsule_cannot_stand_in_for_a_plan(self):
         task, _, p, events = fixture()
         before = copy.deepcopy(task)
@@ -129,6 +152,27 @@ class RuntimePlanFlowTests(unittest.TestCase):
                      '--actor', 'taizi', '--evidence', 'isolated interface fixture')
         return court_runtime.load_tasks()['plan-flow']
 
+    def test_generated_template_is_directly_submittable_and_task_bound(self):
+        self.start_case()
+        template=self.cli('plan','template','--task-id','plan-flow')
+        template['document']=fixture()[1]
+        template['producer']={'kind':'serial_inline','agent_id':'','evidence':'isolated explicit serial fixture'}
+        wrong=copy.deepcopy(template);wrong['task_id']='foreign'
+        self.cli('plan','submit','--task-id','plan-flow','--request-file',self.write('wrong-template.json',wrong),ok=False)
+        self.cli('plan','submit','--task-id','plan-flow','--request-file',self.write('template.json',template))
+        self.assertEqual(self.cli('plan','show','--task-id','plan-flow')['plan']['document'],template['document'])
+
+    def test_unplanned_case_can_pause_and_resume_without_skipping_review(self):
+        self.start_case()
+        self.cli('pause','--task-id','plan-flow','--actor','taizi','--reason','test failure',
+            '--affected-scope','current task','--evidence-preserved','fixture evidence','--unsafe-remaining','plan pending')
+        self.assertEqual(self.cli('workflow-status','--task-id','plan-flow')['state'],'Paused')
+        resume=['resume','--task-id','plan-flow','--actor','taizi','--from-paused-state','ThreeDepartments',
+                '--resume-evidence','same task repaired','--affected-scope','current task']
+        self.cli(*resume,'--to-state','SixMinistries',ok=False)
+        self.cli(*resume,'--to-state','ThreeDepartments')
+        self.assertEqual(self.cli('workflow-status','--task-id','plan-flow')['state'],'ThreeDepartments')
+
     def test_public_create_cannot_silently_choose_legacy(self):
         import court_runtime
         charter = 'Explicit standard case boundary fixture'
@@ -186,11 +230,14 @@ class RuntimePlanFlowTests(unittest.TestCase):
         for role in producers:
             agent_id = producers[role]['agent_id']
             agent = task['agents'][agent_id]
-            agent.update(charter_revision=task['charter_revision'], charter_sha256=task['charter_sha256'],
+            agent.update(task_id=task['task_id'], semantic_epoch=task['semantic_epoch'],
+                charter_revision=task['charter_revision'], charter_sha256=task['charter_sha256'],
                 native_host_identity_kind='canonical_agent_path', native_host_thread_id=None,
                 native_host_instance_id='/root/' + role, native_trace_issuer_thread_id='shared-parent',
                 native_host_action_receipt_id=role, native_host_action_receipt_sha256='a' * 64)
             task['native_host_action_receipts'][role] = {'target_id': agent_id, 'receipt_sha256': 'a' * 64}
+        for event in events:
+            event.update(task_id=task['task_id'],semantic_epoch=task['semantic_epoch'],charter_sha256=task['charter_sha256'])
         task = plans.submit_plan(task, doc, producers['zhongshu'], events)
         sha = task['zhongshu_plan']['sha256']
         task = plans.record_review(task, 'menxia', 'approved', sha, producers['menxia'], events)
