@@ -17,6 +17,14 @@ import check_supercc_functional  # type: ignore  # noqa: E402
 import ensure_supercc_court  # type: ignore  # noqa: E402
 
 
+T04_ORIGINAL_DEGRADED_COUNTEREXAMPLE: dict[str, object] = {
+    "check_passed": False,
+    "supercc_env_gate": "runtime_degraded",
+    "dispatch": {"ok": False},
+    "supervisor": {"silent_supervisor": True, "abnormal_count": 3},
+}
+
+
 def check_fixture(title: str | None, *, actual_client: str = "codex", duplicate: bool = False) -> dict[str, object]:
     panes: list[dict[str, str]] = []
     if title is not None:
@@ -36,6 +44,82 @@ def check_fixture(title: str | None, *, actual_client: str = "codex", duplicate:
             ]
         },
     }
+
+
+def assert_strict_gate_matrix() -> None:
+    """Keep the T04 counterexample and exact strict gate type checks explicit."""
+
+    valid = {
+        "check_passed": True,
+        "supercc_env_gate": "PASSED",
+        "dispatch": {"ok": True},
+        "supervisor": {"silent_supervisor": True, "abnormal_count": 0},
+    }
+    cases: tuple[tuple[str, object, bool], ...] = (
+        ("positive_exact", valid, True),
+        ("T04_original_runtime_degraded", T04_ORIGINAL_DEGRADED_COUNTEREXAMPLE, False),
+        ("summary_non_dict", None, False),
+        ("top_level_list", [], False),
+        ("check_failed", {**valid, "check_passed": False}, False),
+        ("check_passed_string", {**valid, "check_passed": "true"}, False),
+        ("missing_check_passed", {k: v for k, v in valid.items() if k != "check_passed"}, False),
+        ("missing_env_gate", {k: v for k, v in valid.items() if k != "supercc_env_gate"}, False),
+        ("missing_dispatch", {k: v for k, v in valid.items() if k != "dispatch"}, False),
+        ("missing_supervisor", {k: v for k, v in valid.items() if k != "supervisor"}, False),
+        ("env_gate_none", {**valid, "supercc_env_gate": None}, False),
+        ("runtime_degraded_otherwise_success", {**valid, "supercc_env_gate": "runtime_degraded"}, False),
+        ("dispatch_none", {**valid, "dispatch": None}, False),
+        ("dispatch_non_dict", {**valid, "dispatch": "ok"}, False),
+        ("dispatch_ok_false", {**valid, "dispatch": {"ok": False}}, False),
+        ("dispatch_ok_missing", {**valid, "dispatch": {}}, False),
+        ("dispatch_ok_string", {**valid, "dispatch": {"ok": "true"}}, False),
+        ("supervisor_none", {**valid, "supervisor": None}, False),
+        ("supervisor_non_dict", {**valid, "supervisor": []}, False),
+        (
+            "silent_supervisor_false",
+            {**valid, "supervisor": {"silent_supervisor": False, "abnormal_count": 0}},
+            False,
+        ),
+        (
+            "silent_supervisor_missing",
+            {**valid, "supervisor": {"abnormal_count": 0}},
+            False,
+        ),
+        (
+            "silent_supervisor_string",
+            {**valid, "supervisor": {"silent_supervisor": "true", "abnormal_count": 0}},
+            False,
+        ),
+        ("abnormal_count_missing", {**valid, "supervisor": {"silent_supervisor": True}}, False),
+        (
+            "abnormal_count_none",
+            {**valid, "supervisor": {"silent_supervisor": True, "abnormal_count": None}},
+            False,
+        ),
+        (
+            "abnormal_count_one",
+            {**valid, "supervisor": {"silent_supervisor": True, "abnormal_count": 1}},
+            False,
+        ),
+        (
+            "abnormal_count_string",
+            {**valid, "supervisor": {"silent_supervisor": True, "abnormal_count": "0"}},
+            False,
+        ),
+        (
+            "abnormal_count_bool",
+            {**valid, "supervisor": {"silent_supervisor": True, "abnormal_count": False}},
+            False,
+        ),
+        (
+            "abnormal_count_negative",
+            {**valid, "supervisor": {"silent_supervisor": True, "abnormal_count": -1}},
+            False,
+        ),
+    )
+    for name, summary, expected in cases:
+        actual = check_supercc_functional.strict_passes(summary)  # type: ignore[arg-type]
+        assert actual is expected, f"strict gate matrix case {name}: expected {expected}, got {actual}"
 
 
 def main() -> int:
@@ -120,15 +204,7 @@ def main() -> int:
     for signal in ensure_supercc_court.current_process_chain_signals():
         assert ";cmd=" not in signal.lower()
 
-    strict_base = {
-        "check_passed": True,
-        "supercc_env_gate": "PASSED",
-        "dispatch": {"ok": True},
-        "supervisor": {"silent_supervisor": True, "abnormal_count": 0},
-    }
-    assert check_supercc_functional.strict_passes(strict_base) is True
-    strict_base["supervisor"] = {"silent_supervisor": True, "abnormal_count": 1}
-    assert check_supercc_functional.strict_passes(strict_base) is False
+    assert_strict_gate_matrix()
 
     parser = ensure_supercc_court.build_parser()
     args = parser.parse_args(["--workspace", str(ROOT), "--rename-taizi"])

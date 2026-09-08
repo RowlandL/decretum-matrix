@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import court_office_bootstrap as bootstrap
 import sync_codex_agents_from_profiles as roles
-from checks.installed_identity_fixture import write_skill
+from checks.installed_identity_fixture import write_identity, write_skill
 from checks import check_codex_agent_roles as role_check
 
 
@@ -30,10 +30,32 @@ def rejected(action, text):
 def main() -> int:
     with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
         root = Path(directory)
+        # Fixture construction pins the installed identity before the normal
+        # runtime no-rehash monitor is active. The existing fixture hash call
+        # is exercised below as a sensitivity negative control.
+        write_skill(root)
         for name in ("new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "blake2b", "blake2s"):
             stack.enter_context(patch.object(hashlib, name, side_effect=AssertionError("normal identity calculation")))
         stack.enter_context(patch.object(zlib, "crc32", side_effect=AssertionError("normal identity calculation")))
-        write_skill(root)
+        normal_manifest_builder = bootstrap.build_preload_manifest
+
+        def injected_preload(*args, **kwargs):
+            manifest = normal_manifest_builder(*args, **kwargs)
+            # Inject the existing identity writer only for this one normal
+            # preload call. Its existing hashlib.sha256 path must be caught by
+            # the active monitor, then the patch is removed before 14-role run.
+            write_identity(root, ["sensitivity-negative-control"])
+            return manifest
+
+        try:
+            with patch.object(bootstrap, "build_preload_manifest", side_effect=injected_preload):
+                bootstrap.build_preload_manifest(
+                    "taizi", skill_root=root, court_code="COURT-FIXTURE-1"
+                )
+        except AssertionError as exc:
+            assert str(exc) == "normal identity calculation"
+        else:
+            raise AssertionError("hash monitor failed to catch existing preload identity call")
         stack.enter_context(patch.object(roles, "agent_template_skill_root", return_value=root))
         stack.enter_context(patch.object(role_check, "validate_codex_multi_agent_config", return_value={"ok": True}))
         cards = root / "native-roles"

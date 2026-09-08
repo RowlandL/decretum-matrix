@@ -571,32 +571,33 @@ def run_read_only_audit(workspace: Path) -> dict[str, object]:
 
 
 def strict_passes(summary: dict[str, object]) -> bool:
+    """Return whether a functional summary satisfies the strict release gate.
+
+    Diagnostic results may contain a safe, structured ``runtime_degraded``
+    state. That state is useful evidence for diagnosis, but it can never
+    satisfy this gate: strict success requires every field below to be present
+    with the exact success type and value.
+    """
+
+    if not isinstance(summary, dict):
+        return False
+    if summary.get("check_passed") is not True:
+        return False
+    if summary.get("supercc_env_gate") != "PASSED":
+        return False
+
     dispatch = summary.get("dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("ok") is not True:
+        return False
+
     supervisor = summary.get("supervisor")
-    env_gate = summary.get("supercc_env_gate")
-    if env_gate == "runtime_degraded":
-        # This host has no live zellij/native superCC environment; the
-        # read-only audit still completed with structured degradation
-        # evidence. Treat the degraded-but-safe shape as the strict pass
-        # condition here so the release gate is meaningful only where a
-        # real superCC environment is present.
-        return (
-            isinstance(dispatch, dict)
-            and isinstance(supervisor, dict)
-            and supervisor.get("silent_supervisor") is True
-        )
-    dispatch_ok = isinstance(dispatch, dict) and dispatch.get("ok") is True
-    supervisor_ok = (
-        isinstance(supervisor, dict)
-        and supervisor.get("silent_supervisor") is True
-        and int(supervisor.get("abnormal_count") or 0) == 0
-    )
-    return (
-        summary.get("check_passed") is True
-        and env_gate == "PASSED"
-        and dispatch_ok
-        and supervisor_ok
-    )
+    if not isinstance(supervisor, dict):
+        return False
+    if supervisor.get("silent_supervisor") is not True:
+        return False
+
+    abnormal_count = supervisor.get("abnormal_count")
+    return type(abnormal_count) is int and abnormal_count == 0
 
 
 def main() -> int:
