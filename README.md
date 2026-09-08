@@ -11,17 +11,17 @@ Hermes 的本地 skill 环境中运行。内置的分层治理实现是完整默
 
 ## 安装
 
+当前 beta1.1.2 是本地未发行开发版本。下列公开安装命令只适用于已有独立远端发行回执的版本，不表示 beta1.1.2 可安装。
+
 ```sh
 npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 decretum-matrix --format json --help
 ```
 
-当前源码基线为 `beta1.0.8`，发布阶段（M5）已完成全量门禁与收据绑定；安装命令解析到 registry 的 `beta`；
-实际 dist-tag 与发布时间只由发布回执证明。需要认证时只授予最小
-`read:packages`，且不得持久化 token。
+当前源码活动版本为 `beta1.1.2`，本次仅保留本地版本说明；未创建或验证对应 tag、GitHub Release、npm 发布或活动安装。
+需要认证时只授予最小 `read:packages`，且不得持久化 token。
 
-首次 npm 安装会安装或复用高级执行（super-execution）依赖 `zellij` 与 `squad`，并在安装回执中写明
-对 Zellij 与 squad 开源项目的感谢和链接。
+安装行为、额外依赖与安装回执以具体已发行版本的独立证据为准；本地未发行版本不承诺自动安装或复用额外依赖。
 
 ## 开始使用
 
@@ -72,11 +72,13 @@ runtime 不在同一 task/process 中切换或回退。
 
 ## 当前版本
 
-当前源码发布身份以 [`VERSION`](VERSION) 和
-[`release-manifest.json`](release-manifest.json) 为准；分支名只是当前工作载体。
-tag、GitHub Release、npm 以及线上 Wiki 的成功状态只由对应发布回执证明。
+当前源码活动版本以 [`VERSION`](VERSION)、技能元数据和本地版本说明为准；
+[`release-manifest.json`](release-manifest.json) 在代码冻结前保持冻结，最终清单由串行生成步骤写入。
+分支名只是当前工作载体；tag、GitHub Release、npm 以及线上 Wiki 的成功状态只由对应发布回执证明。
 
-`beta1.0.8` 完成发布阶段全量门禁与收据/锚点同步（领域化账册、统一编号、谱系防过拟合、IKU 受控修复、GBrain 治理、Codex host proof 路由与 MCP 12 工具矩阵）；
+`beta1.1.2` 当前是本地未发行开发版本；历史版本和历史发布说明继续保留，
+根 `package.json` 继续保持 version-neutral 的 `0.0.0-private`。
+`beta1.0.8` 曾完成发布阶段全量门禁与收据/锚点同步（领域化账册、统一编号、谱系防过拟合、IKU 受控修复、GBrain 治理、Codex host proof 路由与 MCP 12 工具矩阵）；
 外部 tag、GitHub Release、npm 远端状态和宿主实际加载仍由对应回执证明。
 `beta1.0.7` 完成源码收尾，收敛安装收据、宿主/运行验证和只读 MCP 入口；
 `beta1.0.6` 收口原生宿主运行身份与入口证据、分层 dispatch/reuse 的真实证据，

@@ -4,6 +4,11 @@ This reference governs local installation of `decretum-matrix` into the active
 agent skill roots. It is runtime-focused; release packaging and publication
 checks stay in the source tree and are not startup prerequisites.
 
+The current beta1.1.2 source is an unreleased local development version.
+The commands and target details below do not authorize installing beta1.1.2;
+its installation requires a later explicit external installation transaction
+and a matching receipt.
+
 ## Targets
 
 The five governed synchronization targets are fixed:
@@ -28,13 +33,12 @@ physical authority; otherwise report the conflict and stop before writing.
 
 ## Runtime Surface
 
-The installed surface is defined by
-`references/manifests/install-projection.v1.json`. It includes the entry
-`SKILL.md`, the current governing references, office dossiers/profiles,
-Shiguan/GBrain and superCC runtime helpers, `sync_active_copies.py`, and the
-manifest-derived `cli_public` handler/support layer. CLI handlers are installed
-for explicit invocation but remain lazy: help, startup, preload, and ordinary
-sync must not import checker, release, or package implementations.
+For the unreleased beta1.1.2 development version, no installed runtime surface
+is being claimed. A later explicitly authorized installation transaction may
+project the bounded skill, governing references, office materials, and runtime
+helpers described by the manifest; projection, synchronization, release, and
+package tools remain outside that runtime. Startup, preload, and ordinary
+runtime are metadata-only and must not import or invoke those external tools.
 
 ## Diagnostics And Fixes
 
@@ -60,8 +64,8 @@ The intended post-publication default is a pinned GitHub release of
 `RowlandL/decretum-matrix`; network fetching is deliberately disabled in the
 beta implementation until a release tag, commit, and artifact SHA are bound.
 If a UNC checkout is not usable by a host subprocess, pass both roots. The
-mapped root is accepted only when `VERSION`, CLI/projection manifest hashes,
-and (when available) Git `HEAD` match:
+mapped root is accepted only when `VERSION`, the declared source/install
+revision, and (when available) Git `HEAD` match:
 
 ```powershell
 python -B scripts/court_cli.py doctor `
@@ -109,58 +113,27 @@ handler may be installed for the seven-group CLI without becoming a startup
 dependency. Commands that require Git/tag authority return a typed
 `SOURCE_CHECKOUT_REQUIRED` or other blocked receipt outside a source checkout.
 
-First install may install or reuse the superCC runtime dependencies `zellij` and
-`squad`. This is a dependency bootstrap, not a startup checker. The receipt must
-thank and link the upstream open source projects:
+The unreleased beta1.1.2 development version does not promise automatic
+installation or reuse of `zellij`, `squad`, or any other extra dependency.
+Any such dependency must be handled by a later explicitly authorized external
+installation transaction with its own receipt; the exact command is not
+defined in this development reference.
 
-- Zellij: https://github.com/zellij-org/zellij
-- squad: https://github.com/mco-org/squad
+## External Installation Transaction
 
-Default dependency tool roots are `C:/Tools/bin` on Windows and `~/.local/bin`
-on macOS/Linux; `COURT_TOOL_INSTALL_DIR` may override them.
+Beta1.1.2 is not released, so this reference does not prescribe an installed-root
+command. When T09 supplies a later explicitly authorized external installation
+transaction, that transaction must bind the source, artifact, installation
+revision, selected roots, and rollback information; project each approved target;
+run one existing verifier outside the active runtime after all projections finish;
+and persist the resulting receipt. A missing, interrupted, or failed transaction
+remains `NOT_RUN` or `FAILED` and cannot be inferred from metadata.
 
-## Procedure
-
-From the source skill root:
-
-```sh
-python -B scripts/sync_active_copies.py --json
-python -B scripts/sync_active_copies.py --write --prune-obsolete --json
-python -B scripts/quick_validate.py .
-```
-
-After synchronization, run the source-only hash checker from the release or
-repository checkout:
-
-```powershell
-python -B scripts/check_active_copy_hashes.py --json
-```
-
-Qoder is outside the default five-root contract. Only when the latest written
-authorization explicitly names Qoder, repeat synchronization and verification
-with `--include-qoder`:
-
-```powershell
-python -B scripts/sync_active_copies.py --write --prune-obsolete --include-qoder --json
-python -B scripts/check_active_copy_hashes.py --include-qoder --json
-```
-
-`check_active_copy_hashes.py` is a standalone post-install/release gate. It is
-declared `repository_only`, must not appear in any installed projection, and
-must never be imported or invoked by skill loading, startup, preload, runtime,
-or `sync_active_copies.py`. Runtime identity SHA-256 use remains valid and is
-independent of this installation checker.
-
-The first command shows what would change. The second command copies the
-projection to the governed roots, prunes obsolete files, and renders the
-Codex native role files from the newly installed standing profiles. Its JSON
-must report `codex_agent_roles.status` as `CURRENT` or `APPLIED`. The final
-hash command also validates those role files whenever the selected roots include
-the Codex skill root, so a current skill paired with stale preload hashes fails
-the post-install gate. The optional Qoder commands extend that same operation
-only after explicit authorization.
-
-If a target root is missing, the sync command creates it when `--write` is used.
+Normal startup, preload, and runtime read only bounded version, revision,
+transaction, and receipt metadata. They do not scan or summarize installed
+files, invoke external projection tools, or perform content-hash checks. Optional
+roots and extra dependencies require the same explicit transaction and receipt;
+the exact command is intentionally left to T09.
 
 ## Blank Host And Restart Receipt Fields
 
@@ -211,9 +184,9 @@ python -B scripts/migrate_legacy_skill_locator.py rollback --receipt <receipt_pa
 The migration either renames a legacy-only physical root to the canonical name,
 or backs up a duplicate legacy physical root before replacing it with a
 compatibility alias to the canonical directory. It never treats the old locator
-as a second current skill authority. After a successful migration, run the
-normal `sync_active_copies.py --write --prune-obsolete --json` flow from the
-current release source to refresh managed files.
+as a second current skill authority. After a successful migration, wait for the
+next explicitly authorized external installation transaction to refresh managed
+files.
 
 If the receipt-bound installer rejects a current-tool root with
 `protected_anchor_wrong_target`, that root is an old full replica carrying
@@ -246,7 +219,7 @@ File differences are normal work to copy, not a task blocker. Report copied,
 unchanged, and removed counts; continue unless the source projection is missing
 or a target path is unsafe.
 
-Archive or dependency digest gates run before activation. The standalone
-post-install checker may inspect activated roots from the source checkout, but
-the installed skill roots must not retain that checker or make file summaries
-part of loading, startup, preload, or ordinary runtime.
+The single post-projection verifier, when authorized, runs outside the active
+runtime after an installation transaction has completed. The installed skill
+roots must not retain that verifier or make file summaries part of loading,
+startup, preload, or ordinary runtime.

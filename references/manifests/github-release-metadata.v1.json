@@ -6,8 +6,19 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.1",
+  "latest_tag": "beta1.1.2",
   "releases": [
+    {
+      "asset_note": "本条目只描述 beta1.1.2 本地未发行开发版本；未创建 tag、推送、GitHub Release、发布 npm 或更新活动安装。",
+      "highlights": [
+        "统一 VERSION、SKILL 元数据、README、CHANGELOG、RELEASE-LOG、SBOM 与插件版本字段。",
+        "保留 beta1.1.1 及更早历史记录，根 package.json 继续保持 0.0.0-private。",
+        "活动版本矩阵与现有 release identity、metadata/legal 检查器合同保持一致。"
+      ],
+      "summary": "beta1.1.2 目前仅为本地未发行开发版本；版本字段已对齐，候选构建、安装与远端发行仍须后续独立授权和回执。",
+      "tag": "beta1.1.2",
+      "title": "Decretum Matrix beta1.1.2"
+    },
     {
       "asset_note": "本条目对应 release/beta1.1.1 本地验证与安装收口；远端 tag/发布资产按当前授权执行。",
       "highlights": [

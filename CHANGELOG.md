@@ -1,5 +1,13 @@
 # Changelog
 
+## beta1.1.2 - 2026-09-08
+
+### Changed
+
+- 将本地版本标记统一至 `beta1.1.2`，同步 VERSION、SKILL 元数据、README 当前说明、发布记录、SBOM、插件与 GitHub release metadata。
+- 保留 beta1.1.1 及更早历史条目；根 `package.json` 继续保持 version-neutral 的 `0.0.0-private`。
+- 本条目只描述本地未发行开发版本；tag、GitHub Release、npm 发布和活动安装仍未执行，须以后续独立回执证明。
+
 ## beta1.0.9 - 2026-09-02
 
 ### Changed

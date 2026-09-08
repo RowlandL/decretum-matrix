@@ -2,6 +2,8 @@
 
 ## npm
 
+当前 beta1.1.2 是本地未发行开发版本。下面的 npm 命令只适用于已有独立远端发行回执的版本，不表示 beta1.1.2 可安装；目标版本需等待后续明确的外置安装事务与回执，确切命令尚未确定。
+
 ```sh
 npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 ```
@@ -9,33 +11,11 @@ npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
 GitHub Packages 如要求认证，只授予 `read:packages`。使用进程级
 `NODE_AUTH_TOKEN` 与临时 npmrc，不要把 token 写入仓库、命令历史或长期配置。
 
-安装包运行受限且可回滚的 `postinstall`：先做内嵌 ZIP/sidecar 的结构性完整性
-检查，再备份并覆盖 manifest 管理的公开文件，随后创建真实物理共享史馆根。该
-检查只属于安装前基础校验；安装后的 skill 根不保留 release manifest、release
-gate、hash checker 或其他发布校验 helper。
+beta1.1.2 尚未发行，本页不声明其 `postinstall` 已运行或安装已成功。已发行版本的安装、回滚与安装前检查须由对应的外置安装事务和独立回执确认；安装后的 skill 根不保留 release manifest、release gate、hash checker 或其他发布校验 helper。
 
-首次安装会安装或复用 superCC 所需的两个开源依赖：
-
-| 依赖 | 用途 | 项目 |
-| --- | --- | --- |
-| `zellij` | 可见 superCC pane 的终端工作区 | https://github.com/zellij-org/zellij |
-| `squad` | superCC 结构化任务与消息证据通道 | https://github.com/mco-org/squad |
-
-安装回执会写入对 Zellij 与 squad 项目的感谢和链接。若二者已在 PATH 或
-`COURT_TOOL_INSTALL_DIR` 中可用，安装器只记录复用，不重复下载；否则按当前平台
-选择 GitHub Release 资产并在解包前做发布资产摘要校验。
-
-默认工具目录：
-
-| 平台 | 默认目录 |
-| --- | --- |
-| Windows | `C:\Tools\bin` |
-| macOS | `~/.local/bin` |
-| Linux | `~/.local/bin` |
-
-可用 `COURT_TOOL_INSTALL_DIR` 覆盖工具目录。macOS 使用
-`*-apple-darwin.tar.gz` 资产；Linux 使用 `*-unknown-linux-musl.tar.gz` 资产；
-Windows 使用 `*-pc-windows-msvc.zip` 资产。
+本地 beta1.1.2 不承诺自动安装或复用 `zellij`、`squad` 或其他额外依赖。
+任何额外依赖都必须由后续明确授权的外置安装事务处理，并以独立回执确认；确切命令
+待工部 T09 冻结后补入。
 
 ## 安装根
 
@@ -88,13 +68,4 @@ locator，直接使用 canonical 物理目录。
 
 ## 验证
 
-在安装后的 skill 根运行：
-
-```sh
-python -B scripts/quick_validate.py .
-python -B scripts/sync_active_copies.py --json
-decretum-matrix --format json --help
-```
-
-正式发布还必须让 candidate、pre-install、install receipt 与 post-install 绑定同一
-ZIP/npm 载体；安装后不再运行文件哈希校验。
+beta1.1.2 尚未发行，当前不存在可供本页宣称的安装后验证。后续已授权的外置安装事务须在所有投影完成后，由活动运行目录之外的既有工具执行一次验收并持久化回执；普通 runtime 仅读取版本、修订、事务与回执元数据，不扫描或复算文件内容。确切命令待工部 T09 的真实事务和回执稳定后补入。
