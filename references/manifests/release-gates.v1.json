@@ -5,6 +5,117 @@
     "require_flag": "--require-package",
     "validator": "package_skill.validate_zip"
   },
+  "required_checks": [
+    {
+      "id": "supercc_truth_gates",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/check_supercc_truth_gates.py",
+      "command": ["$PYTHON", "scripts/check_supercc_truth_gates.py"],
+      "timeout": 120,
+      "domain_contract": {"kind": "sentinel", "success": "SUPERCC_TRUTH_GATES_OK"}
+    },
+    {
+      "id": "runtime_no_file_rehash",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/checks/check_runtime_no_file_rehash.py",
+      "command": ["$PYTHON", "scripts/checks/check_runtime_no_file_rehash.py"],
+      "timeout": 120,
+      "domain_contract": {"kind": "sentinel", "success": "RUNTIME_NO_FILE_REHASH_OK ordinary_anchors=14 schema_preserved=true wrong_case_rejected=true reads_required=true"}
+    },
+    {
+      "id": "court_preload_semantics",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/check_court_preload_semantics.py",
+      "command": ["$PYTHON", "scripts/check_court_preload_semantics.py"],
+      "timeout": 180,
+      "domain_contract": {"kind": "sentinel", "success": "COURT_PRELOAD_SEMANTICS_OK"}
+    },
+    {
+      "id": "office_decree_startup",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/checks/check_office_decree_startup.py",
+      "command": ["$PYTHON", "scripts/checks/check_office_decree_startup.py"],
+      "timeout": 180,
+      "domain_contract": {"kind": "sentinel", "success": "OK"}
+    },
+    {
+      "id": "runtime_identity_contract",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/check_runtime_identity_contract.py",
+      "command": ["$PYTHON", "scripts/check_runtime_identity_contract.py", "--json"],
+      "timeout": 180,
+      "domain_contract": {"kind": "json", "required_fields": ["ok", "status", "contract"]}
+    },
+    {
+      "id": "unified_cli",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/check_unified_cli.py",
+      "command": ["$PYTHON", "scripts/check_unified_cli.py", "--all", "--json"],
+      "timeout": 300,
+      "domain_contract": {"kind": "json", "required_fields": ["ok", "status", "reports"]}
+    },
+    {
+      "id": "install_projection_closure",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/check_install_projection_closure.py",
+      "command": ["$PYTHON", "scripts/check_install_projection_closure.py", "--self-test", "--json"],
+      "timeout": 180,
+      "domain_contract": {"kind": "json", "required_fields": ["ok", "status"]}
+    },
+    {
+      "id": "install_current_agent_copy",
+      "scope": "installation",
+      "phases": ["candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/check_install_current_agent_copy.py",
+      "command": ["$PYTHON", "scripts/check_install_current_agent_copy.py"],
+      "timeout": 180,
+      "domain_contract": {"kind": "json", "required_fields": ["ok", "schema"]}
+    },
+    {
+      "id": "release_gate_policy_selftest",
+      "scope": "source",
+      "phases": ["source", "candidate", "pre-install", "full"],
+      "ci_job": "source-contracts",
+      "entrypoint": "scripts/check_release_gate.py",
+      "command": ["$PYTHON", "scripts/check_release_gate.py", "--self-test", "--json"],
+      "timeout": 180,
+      "execution": "self_test",
+      "domain_contract": {"kind": "json", "required_fields": ["ok", "schema", "manifest_self_test"]}
+    },
+    {
+      "id": "package_entrypoint_isolated",
+      "scope": "candidate/install",
+      "phases": ["candidate", "pre-install", "full"],
+      "ci_job": "package-entrypoint",
+      "entrypoint": "same-source-candidate-isolated-public-entrypoint",
+      "timeout": 300,
+      "domain_contract": {"kind": "json", "required_fields": ["ok", "status"]}
+    },
+    {
+      "id": "required_summary",
+      "scope": "CI",
+      "phases": ["source", "candidate", "pre-install", "post-install", "full", "native"],
+      "ci_job": "required-summary",
+      "entrypoint": "github-actions:required-summary",
+      "timeout": 120,
+      "domain_contract": {"kind": "json", "required_fields": ["status", "consumed_ids", "blocking"]}
+    }
+  ],
   "steps": [
     {
       "name": "quick_validate",

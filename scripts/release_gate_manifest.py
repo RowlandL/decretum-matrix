@@ -15,6 +15,14 @@ DEFAULT_MANIFEST_PATH = ROOT / "references" / "manifests" / "release-gates.v1.js
 MANIFEST_SCHEMA = "court.release_gates.v1"
 ALLOWED_GATE_CLASSES = {"source", "installation", "runtime"}
 ALLOWED_CONDITIONS = {"always", "active_copies_enabled", "runtime_enabled"}
+ALLOWED_REQUIRED_PHASES = {
+    "source",
+    "candidate",
+    "pre-install",
+    "post-install",
+    "full",
+    "native",
+}
 STEP_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
     ("quick_validate", "source", ("$PYTHON", "scripts/quick_validate.py", "."), "always"),
@@ -269,6 +277,123 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
     ),
 )
 
+# Stable evidence IDs are deliberately kept separate from the historical
+# 49-step execution list.  This lets the gate add the required candidate/CI
+# evidence contract without invalidating the existing candidate (44) and
+# post-install (4) step projections consumed by adjacent source checks.
+REQUIRED_CHECK_CONTRACTS: tuple[dict[str, object], ...] = (
+    {
+        "id": "supercc_truth_gates",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_supercc_truth_gates.py",
+        "command": ["$PYTHON", "scripts/check_supercc_truth_gates.py"],
+        "timeout": 120,
+        "domain_contract": {"kind": "sentinel", "success": "SUPERCC_TRUTH_GATES_OK"},
+    },
+    {
+        "id": "runtime_no_file_rehash",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/checks/check_runtime_no_file_rehash.py",
+        "command": ["$PYTHON", "scripts/checks/check_runtime_no_file_rehash.py"],
+        "timeout": 120,
+        "domain_contract": {"kind": "sentinel", "success": "RUNTIME_NO_FILE_REHASH_OK ordinary_anchors=14 schema_preserved=true wrong_case_rejected=true reads_required=true"},
+    },
+    {
+        "id": "court_preload_semantics",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_court_preload_semantics.py",
+        "command": ["$PYTHON", "scripts/check_court_preload_semantics.py"],
+        "timeout": 180,
+        "domain_contract": {"kind": "sentinel", "success": "COURT_PRELOAD_SEMANTICS_OK"},
+    },
+    {
+        "id": "office_decree_startup",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/checks/check_office_decree_startup.py",
+        "command": ["$PYTHON", "scripts/checks/check_office_decree_startup.py"],
+        "timeout": 180,
+        "domain_contract": {"kind": "sentinel", "success": "OK"},
+    },
+    {
+        "id": "runtime_identity_contract",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_runtime_identity_contract.py",
+        "command": ["$PYTHON", "scripts/check_runtime_identity_contract.py", "--json"],
+        "timeout": 180,
+        "domain_contract": {"kind": "json", "required_fields": ["ok", "status", "contract"]},
+    },
+    {
+        "id": "unified_cli",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_unified_cli.py",
+        "command": ["$PYTHON", "scripts/check_unified_cli.py", "--all", "--json"],
+        "timeout": 300,
+        "domain_contract": {"kind": "json", "required_fields": ["ok", "status", "reports"]},
+    },
+    {
+        "id": "install_projection_closure",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_install_projection_closure.py",
+        "command": ["$PYTHON", "scripts/check_install_projection_closure.py", "--self-test", "--json"],
+        "timeout": 180,
+        "domain_contract": {"kind": "json", "required_fields": ["ok", "status"]},
+    },
+    {
+        "id": "install_current_agent_copy",
+        "scope": "installation",
+        "phases": ["candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_install_current_agent_copy.py",
+        "command": ["$PYTHON", "scripts/check_install_current_agent_copy.py"],
+        "timeout": 180,
+        "domain_contract": {"kind": "json", "required_fields": ["ok", "schema"]},
+    },
+    {
+        "id": "release_gate_policy_selftest",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_release_gate.py",
+        "command": ["$PYTHON", "scripts/check_release_gate.py", "--self-test", "--json"],
+        "timeout": 180,
+        "execution": "self_test",
+        "domain_contract": {"kind": "json", "required_fields": ["ok", "schema", "manifest_self_test"]},
+    },
+    {
+        "id": "package_entrypoint_isolated",
+        "scope": "candidate/install",
+        "phases": ["candidate", "pre-install", "full"],
+        "ci_job": "package-entrypoint",
+        "entrypoint": "same-source-candidate-isolated-public-entrypoint",
+        "timeout": 300,
+        "domain_contract": {"kind": "json", "required_fields": ["ok", "status"]},
+    },
+    {
+        "id": "required_summary",
+        "scope": "CI",
+        "phases": ["source", "candidate", "pre-install", "post-install", "full", "native"],
+        "ci_job": "required-summary",
+        "entrypoint": "github-actions:required-summary",
+        "timeout": 120,
+        "domain_contract": {"kind": "json", "required_fields": ["status", "consumed_ids", "blocking"]},
+    },
+)
+REQUIRED_CHECK_IDS = tuple(str(item["id"]) for item in REQUIRED_CHECK_CONTRACTS)
+
 
 class ReleaseGateManifestError(ValueError):
     """Raised when the release-gate manifest violates its safety contract."""
@@ -341,17 +466,42 @@ def _validate_package_gate(value: object) -> dict[str, object]:
     return dict(expected)
 
 
+def _validate_required_checks(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        _fail("required_checks must be a list")
+    if len(value) != len(REQUIRED_CHECK_CONTRACTS):
+        _fail(
+            "required_checks must contain each stable ID exactly once "
+            f"(expected {len(REQUIRED_CHECK_CONTRACTS)}, got {len(value)})"
+        )
+    normalized: list[dict[str, object]] = []
+    for index, (raw, expected) in enumerate(zip(value, REQUIRED_CHECK_CONTRACTS)):
+        if not isinstance(raw, dict):
+            _fail(f"required_checks[{index}] must be an object")
+        if raw != expected:
+            _fail(
+                f"required check {raw.get('id', index)!r} drifted from the "
+                "stable evidence contract"
+            )
+        normalized.append(dict(raw))
+    actual_ids = [str(item["id"]) for item in normalized]
+    if len(set(actual_ids)) != len(actual_ids):
+        _fail("required_checks IDs must be unique")
+    return normalized
+
+
 def validate_release_manifest(value: object) -> dict[str, object]:
     """Validate and normalize an already parsed release-gate manifest."""
 
     if not isinstance(value, dict):
         _fail("release manifest must be a JSON object")
-    unknown_top = set(value) - {"schema", "package_gate", "steps"}
+    unknown_top = set(value) - {"schema", "package_gate", "required_checks", "steps"}
     if unknown_top:
         _fail(f"unknown top-level manifest fields: {sorted(unknown_top)}")
     if value.get("schema") != MANIFEST_SCHEMA:
         _fail(f"manifest schema must be {MANIFEST_SCHEMA}")
     package_gate = _validate_package_gate(value.get("package_gate"))
+    required_checks = _validate_required_checks(value.get("required_checks"))
     raw_steps = value.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         _fail("manifest steps must be a non-empty list")
@@ -418,6 +568,7 @@ def validate_release_manifest(value: object) -> dict[str, object]:
     return {
         "schema": MANIFEST_SCHEMA,
         "package_gate": package_gate,
+        "required_checks": required_checks,
         "steps": normalized_steps,
     }
 

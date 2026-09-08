@@ -1,0 +1,445 @@
+name: Source contracts and candidate evidence
+
+on:
+  push:
+    branches: ["release/**", "fix/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-contracts-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUTF8: "1"
+
+jobs:
+  source-contracts-ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      results: ${{ steps.contracts.outputs.results }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Run source contracts on ubuntu
+        id: contracts
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import tempfile
+          import uuid
+
+          sys.path.insert(0, "scripts")
+          from checks.check_release_gate import validate_domain_contract
+          from release_gate_manifest import load_release_manifest
+
+          manifest = load_release_manifest()
+          source_checks = [check for check in manifest["required_checks"] if check["ci_job"] == "source-contracts"]
+          commands = [(check["id"], check["command"][1:]) for check in source_checks]
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          if [stable_id for stable_id, _ in commands] != expected_ids:
+              raise SystemExit("source-contracts command IDs drifted from manifest")
+          contracts = {check["id"]: check["domain_contract"] for check in source_checks}
+          log_root = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "decretum-source-contract-logs"
+
+          def capture_stream(stable_id, stream, payload):
+              path = log_root / stable_id / (stream + ".log")
+              try:
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_bytes(payload)
+                  saved = path.read_bytes()
+              except OSError as exc:
+                  return {"path": str(path), "bytes": 0, "complete": False, "error": str(exc)}
+              marker = "decretum_log_" + uuid.uuid4().hex
+              print("::stop-commands::" + marker)
+              sys.stdout.write(saved.decode("utf-8", "replace"))
+              if saved and not saved.endswith(b"\n"):
+                  sys.stdout.write("\n")
+              print("::" + marker + "::")
+              return {"path": str(path), "bytes": len(saved), "complete": saved == payload}
+
+          marker_regression = capture_stream(
+              "marker-regression",
+              "stdout",
+              b"::decretum_log_marker-regression_stdout::\n",
+          )
+          if marker_regression["complete"] is not True:
+              raise SystemExit("CI log marker regression capture was incomplete")
+
+          results = []
+          with tempfile.TemporaryDirectory(prefix="decretum-ci-home-") as directory:
+              environment = dict(os.environ, HOME=directory, USERPROFILE=directory)
+              environment["XDG_DATA_HOME"] = str(Path(directory) / ".local" / "share")
+              environment["npm_config_cache"] = str(Path(directory) / ".npm-cache")
+              environment["npm_config_prefix"] = str(Path(directory) / ".npm-prefix")
+              for stable_id, argv in commands:
+                  execution_error = None
+                  try:
+                      completed = subprocess.run([sys.executable, "-B", *argv], capture_output=True, timeout=300, env=environment)
+                      exit_code = completed.returncode
+                      stdout_bytes = completed.stdout or b""
+                      stderr_bytes = completed.stderr or b""
+                  except subprocess.TimeoutExpired as exc:
+                      execution_error = "timeout"
+                      exit_code = None
+                      stdout_bytes = exc.stdout or b""
+                      stderr_bytes = exc.stderr or b""
+                  except OSError as exc:
+                      execution_error = "process_start_error:" + str(exc)
+                      exit_code = None
+                      stdout_bytes = b""
+                      stderr_bytes = str(exc).encode("utf-8", "replace")
+                  stdout_capture = capture_stream(stable_id, "stdout", stdout_bytes)
+                  stderr_capture = capture_stream(stable_id, "stderr", stderr_bytes)
+                  stdout_text = stdout_bytes.decode("utf-8", "replace")
+                  stderr_text = stderr_bytes.decode("utf-8", "replace")
+                  validation = validate_domain_contract(stdout_text, stderr_text, contracts[stable_id])
+                  log_complete = stdout_capture["complete"] is True and stderr_capture["complete"] is True
+                  result = {"id": stable_id, "scope": "source", "argv": argv, "exit_code": exit_code, "domain_status": validation["status"], "domain_ok": validation["status"] == "PASSED", "log_capture": {"complete": log_complete, "stdout_path": stdout_capture["path"], "stderr_path": stderr_capture["path"], "stdout_bytes": stdout_capture["bytes"], "stderr_bytes": stderr_capture["bytes"]}, "log_complete": log_complete, "status": "PASSED" if exit_code == 0 and validation["status"] == "PASSED" and log_complete else "FAILED"}
+                  if execution_error:
+                      result["execution_error"] = execution_error
+                  results.append(result)
+                  print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          all_ok = [item["id"] for item in results] == expected_ids and len({item["id"] for item in results}) == len(expected_ids) and all(item["status"] == "PASSED" and item["domain_ok"] is True and item["log_complete"] is True and item["log_capture"]["complete"] is True for item in results)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("results=" + json.dumps(results, separators=(",", ":")) + "\n")
+          if not all_ok:
+              raise SystemExit(1)
+
+  source-contracts-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      results: ${{ steps.contracts.outputs.results }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Run source contracts on windows
+        id: contracts
+        shell: python
+        run: |
+          import json, os, sys, tempfile, uuid
+          from pathlib import Path
+          import subprocess
+          sys.path.insert(0, "scripts")
+          from checks.check_release_gate import validate_domain_contract
+          from release_gate_manifest import load_release_manifest
+          manifest = load_release_manifest()
+          source_checks = [check for check in manifest["required_checks"] if check["ci_job"] == "source-contracts"]
+          commands = [(check["id"], check["command"][1:]) for check in source_checks]
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          if [stable_id for stable_id, _ in commands] != expected_ids:
+              raise SystemExit("source-contracts command IDs drifted from manifest")
+          contracts = {check["id"]: check["domain_contract"] for check in source_checks}
+          log_root = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "decretum-source-contract-logs"
+
+          def capture_stream(stable_id, stream, payload):
+              path = log_root / stable_id / (stream + ".log")
+              try:
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_bytes(payload)
+                  saved = path.read_bytes()
+              except OSError as exc:
+                  return {"path": str(path), "bytes": 0, "complete": False, "error": str(exc)}
+              marker = "decretum_log_" + uuid.uuid4().hex
+              print("::stop-commands::" + marker)
+              sys.stdout.write(saved.decode("utf-8", "replace"))
+              if saved and not saved.endswith(b"\n"):
+                  sys.stdout.write("\n")
+              print("::" + marker + "::")
+              return {"path": str(path), "bytes": len(saved), "complete": saved == payload}
+
+          marker_regression = capture_stream(
+              "marker-regression",
+              "stdout",
+              b"::decretum_log_marker-regression_stdout::\n",
+          )
+          if marker_regression["complete"] is not True:
+              raise SystemExit("CI log marker regression capture was incomplete")
+
+          results = []
+          with tempfile.TemporaryDirectory(prefix="decretum-ci-home-") as directory:
+              environment = dict(os.environ, HOME=directory, USERPROFILE=directory)
+              environment["XDG_DATA_HOME"] = str(Path(directory) / ".local" / "share")
+              environment["npm_config_cache"] = str(Path(directory) / ".npm-cache")
+              environment["npm_config_prefix"] = str(Path(directory) / ".npm-prefix")
+              for stable_id, argv in commands:
+                  execution_error = None
+                  try:
+                      completed = subprocess.run([sys.executable, "-B", *argv], capture_output=True, timeout=300, env=environment)
+                      exit_code = completed.returncode
+                      stdout_bytes = completed.stdout or b""
+                      stderr_bytes = completed.stderr or b""
+                  except subprocess.TimeoutExpired as exc:
+                      execution_error = "timeout"
+                      exit_code = None
+                      stdout_bytes = exc.stdout or b""
+                      stderr_bytes = exc.stderr or b""
+                  except OSError as exc:
+                      execution_error = "process_start_error:" + str(exc)
+                      exit_code = None
+                      stdout_bytes = b""
+                      stderr_bytes = str(exc).encode("utf-8", "replace")
+                  stdout_capture = capture_stream(stable_id, "stdout", stdout_bytes)
+                  stderr_capture = capture_stream(stable_id, "stderr", stderr_bytes)
+                  stdout_text = stdout_bytes.decode("utf-8", "replace")
+                  stderr_text = stderr_bytes.decode("utf-8", "replace")
+                  validation = validate_domain_contract(stdout_text, stderr_text, contracts[stable_id])
+                  log_complete = stdout_capture["complete"] is True and stderr_capture["complete"] is True
+                  result = {"id": stable_id, "scope": "source", "argv": argv, "exit_code": exit_code, "domain_status": validation["status"], "domain_ok": validation["status"] == "PASSED", "log_capture": {"complete": log_complete, "stdout_path": stdout_capture["path"], "stderr_path": stderr_capture["path"], "stdout_bytes": stdout_capture["bytes"], "stderr_bytes": stderr_capture["bytes"]}, "log_complete": log_complete, "status": "PASSED" if exit_code == 0 and validation["status"] == "PASSED" and log_complete else "FAILED"}
+                  if execution_error:
+                      result["execution_error"] = execution_error
+                  results.append(result)
+                  print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          all_ok = [item["id"] for item in results] == expected_ids and len({item["id"] for item in results}) == len(expected_ids) and all(item["status"] == "PASSED" and item["domain_ok"] is True and item["log_complete"] is True and item["log_capture"]["complete"] is True for item in results)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("results=" + json.dumps(results, separators=(",", ":")) + "\n")
+          if not all_ok:
+              raise SystemExit(1)
+
+  source-contracts-macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    outputs:
+      results: ${{ steps.contracts.outputs.results }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Run source contracts on macos
+        id: contracts
+        shell: python
+        run: |
+          import json, os, sys, tempfile, uuid
+          from pathlib import Path
+          import subprocess
+          sys.path.insert(0, "scripts")
+          from checks.check_release_gate import validate_domain_contract
+          from release_gate_manifest import load_release_manifest
+          manifest = load_release_manifest()
+          source_checks = [check for check in manifest["required_checks"] if check["ci_job"] == "source-contracts"]
+          commands = [(check["id"], check["command"][1:]) for check in source_checks]
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          if [stable_id for stable_id, _ in commands] != expected_ids:
+              raise SystemExit("source-contracts command IDs drifted from manifest")
+          contracts = {check["id"]: check["domain_contract"] for check in source_checks}
+          log_root = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "decretum-source-contract-logs"
+
+          def capture_stream(stable_id, stream, payload):
+              path = log_root / stable_id / (stream + ".log")
+              try:
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_bytes(payload)
+                  saved = path.read_bytes()
+              except OSError as exc:
+                  return {"path": str(path), "bytes": 0, "complete": False, "error": str(exc)}
+              marker = "decretum_log_" + uuid.uuid4().hex
+              print("::stop-commands::" + marker)
+              sys.stdout.write(saved.decode("utf-8", "replace"))
+              if saved and not saved.endswith(b"\n"):
+                  sys.stdout.write("\n")
+              print("::" + marker + "::")
+              return {"path": str(path), "bytes": len(saved), "complete": saved == payload}
+
+          marker_regression = capture_stream(
+              "marker-regression",
+              "stdout",
+              b"::decretum_log_marker-regression_stdout::\n",
+          )
+          if marker_regression["complete"] is not True:
+              raise SystemExit("CI log marker regression capture was incomplete")
+
+          results = []
+          with tempfile.TemporaryDirectory(prefix="decretum-ci-home-") as directory:
+              environment = dict(os.environ, HOME=directory, USERPROFILE=directory)
+              environment["XDG_DATA_HOME"] = str(Path(directory) / ".local" / "share")
+              environment["npm_config_cache"] = str(Path(directory) / ".npm-cache")
+              environment["npm_config_prefix"] = str(Path(directory) / ".npm-prefix")
+              for stable_id, argv in commands:
+                  execution_error = None
+                  try:
+                      completed = subprocess.run([sys.executable, "-B", *argv], capture_output=True, timeout=300, env=environment)
+                      exit_code = completed.returncode
+                      stdout_bytes = completed.stdout or b""
+                      stderr_bytes = completed.stderr or b""
+                  except subprocess.TimeoutExpired as exc:
+                      execution_error = "timeout"
+                      exit_code = None
+                      stdout_bytes = exc.stdout or b""
+                      stderr_bytes = exc.stderr or b""
+                  except OSError as exc:
+                      execution_error = "process_start_error:" + str(exc)
+                      exit_code = None
+                      stdout_bytes = b""
+                      stderr_bytes = str(exc).encode("utf-8", "replace")
+                  stdout_capture = capture_stream(stable_id, "stdout", stdout_bytes)
+                  stderr_capture = capture_stream(stable_id, "stderr", stderr_bytes)
+                  stdout_text = stdout_bytes.decode("utf-8", "replace")
+                  stderr_text = stderr_bytes.decode("utf-8", "replace")
+                  validation = validate_domain_contract(stdout_text, stderr_text, contracts[stable_id])
+                  log_complete = stdout_capture["complete"] is True and stderr_capture["complete"] is True
+                  result = {"id": stable_id, "scope": "source", "argv": argv, "exit_code": exit_code, "domain_status": validation["status"], "domain_ok": validation["status"] == "PASSED", "log_capture": {"complete": log_complete, "stdout_path": stdout_capture["path"], "stderr_path": stderr_capture["path"], "stdout_bytes": stdout_capture["bytes"], "stderr_bytes": stderr_capture["bytes"]}, "log_complete": log_complete, "status": "PASSED" if exit_code == 0 and validation["status"] == "PASSED" and log_complete else "FAILED"}
+                  if execution_error:
+                      result["execution_error"] = execution_error
+                  results.append(result)
+                  print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          all_ok = [item["id"] for item in results] == expected_ids and len({item["id"] for item in results}) == len(expected_ids) and all(item["status"] == "PASSED" and item["domain_ok"] is True and item["log_complete"] is True and item["log_capture"]["complete"] is True for item in results)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("results=" + json.dumps(results, separators=(",", ":")) + "\n")
+          if not all_ok:
+              raise SystemExit(1)
+
+  source-contracts:
+    if: ${{ always() }}
+    needs: [source-contracts-ubuntu, source-contracts-windows, source-contracts-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      status: ${{ steps.aggregate.outputs.status }}
+    steps:
+      - name: Validate every source OS result
+        id: aggregate
+        shell: python
+        env:
+          UBUNTU_JOB_RESULT: ${{ needs['source-contracts-ubuntu'].result }}
+          UBUNTU_RESULTS: ${{ needs['source-contracts-ubuntu'].outputs.results }}
+          WINDOWS_JOB_RESULT: ${{ needs['source-contracts-windows'].result }}
+          WINDOWS_RESULTS: ${{ needs['source-contracts-windows'].outputs.results }}
+          MACOS_JOB_RESULT: ${{ needs['source-contracts-macos'].result }}
+          MACOS_RESULTS: ${{ needs['source-contracts-macos'].outputs.results }}
+        run: |
+          import json, os
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          failures = []
+          for label in ("UBUNTU", "WINDOWS", "MACOS"):
+              if os.environ.get(label + "_JOB_RESULT") != "success":
+                  failures.append(label.lower() + ":job_not_success")
+              try:
+                  rows = json.loads(os.environ.get(label + "_RESULTS", ""))
+              except json.JSONDecodeError:
+                  rows = None
+              ids = [row.get("id") for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+              if ids != expected_ids or len(set(ids)) != len(expected_ids):
+                  failures.append(label.lower() + ":missing_or_duplicate_id")
+                  continue
+              for row in rows:
+                  capture = row.get("log_capture") if isinstance(row, dict) else None
+                  capture_ok = isinstance(capture, dict) and capture.get("complete") is True and all(isinstance(capture.get(field), str) and capture.get(field) for field in ("stdout_path", "stderr_path")) and all(type(capture.get(field)) is int and capture.get(field) >= 0 for field in ("stdout_bytes", "stderr_bytes"))
+                  if row.get("status") != "PASSED" or row.get("domain_ok") is not True or row.get("log_complete") is not True or not capture_ok:
+                      failures.append(label.lower() + ":" + str(row.get("id")) + ":not_passed")
+          status = "PASSED" if not failures else "FAILED"
+          print(json.dumps({"scope": "source", "status": status, "blocking": failures}, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("status=" + status + "\n")
+          if failures:
+              raise SystemExit(1)
+
+  package-entrypoint:
+    if: ${{ always() }}
+    needs: [source-contracts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      status: ${{ steps.candidate.outputs.status }}
+      domain_ok: ${{ steps.candidate.outputs.domain_ok }}
+    steps:
+      - name: Record candidate entrypoint as not configured
+        id: candidate
+        shell: python
+        run: |
+          import json, os
+          result = {"id": "package_entrypoint_isolated", "scope": "candidate/install", "status": "NOT_CONFIGURED", "domain_result": {"ok": False}, "reason": "工部尚未确认同来源候选与隔离安装入口"}
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("status=NOT_CONFIGURED\n")
+              output.write("domain_ok=false\n")
+
+  required-summary:
+    if: ${{ always() }}
+    needs: [source-contracts-ubuntu, source-contracts-windows, source-contracts-macos, source-contracts, package-entrypoint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - name: Consume every OS and candidate result
+        shell: python
+        env:
+          UBUNTU_JOB_RESULT: ${{ needs['source-contracts-ubuntu'].result }}
+          UBUNTU_RESULTS: ${{ needs['source-contracts-ubuntu'].outputs.results }}
+          WINDOWS_JOB_RESULT: ${{ needs['source-contracts-windows'].result }}
+          WINDOWS_RESULTS: ${{ needs['source-contracts-windows'].outputs.results }}
+          MACOS_JOB_RESULT: ${{ needs['source-contracts-macos'].result }}
+          MACOS_RESULTS: ${{ needs['source-contracts-macos'].outputs.results }}
+          SOURCE_AGGREGATE_RESULT: ${{ needs['source-contracts'].result }}
+          SOURCE_AGGREGATE_STATUS: ${{ needs['source-contracts'].outputs.status }}
+          PACKAGE_JOB_RESULT: ${{ needs['package-entrypoint'].result }}
+          PACKAGE_STATUS: ${{ needs['package-entrypoint'].outputs.status }}
+          PACKAGE_DOMAIN_OK: ${{ needs['package-entrypoint'].outputs.domain_ok }}
+        run: |
+          import json
+          import os
+          import sys
+          sys.path.insert(0, "scripts")
+          from checks.check_release_gate import evaluate_ci_required_summary
+
+          def rows(label):
+              raw = os.environ.get(label + "_RESULTS", "")
+              try:
+                  return json.loads(raw)
+              except json.JSONDecodeError:
+                  return None
+
+          result = evaluate_ci_required_summary(
+              os_results={
+                  "ubuntu": rows("UBUNTU"),
+                  "windows": rows("WINDOWS"),
+                  "macos": rows("MACOS"),
+              },
+              os_job_results={
+                  "ubuntu": os.environ.get("UBUNTU_JOB_RESULT"),
+                  "windows": os.environ.get("WINDOWS_JOB_RESULT"),
+                  "macos": os.environ.get("MACOS_JOB_RESULT"),
+              },
+              source_aggregate_result=os.environ.get("SOURCE_AGGREGATE_RESULT"),
+              source_aggregate_status=os.environ.get("SOURCE_AGGREGATE_STATUS"),
+              package_job_result=os.environ.get("PACKAGE_JOB_RESULT"),
+              package_status=os.environ.get("PACKAGE_STATUS"),
+              package_domain_ok=os.environ.get("PACKAGE_DOMAIN_OK"),
+          )
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          if result["status"] == "FAILED":
+              raise SystemExit(1)
