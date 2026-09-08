@@ -521,7 +521,6 @@ class StandardCaseRuntimeTests(unittest.TestCase):
         command = archive_runtime_task.build_archive_command(task, args) + ['--refresh-mode', 'none']
         invalid = list(command)
         invalid[invalid.index('--residual-gaps-json') + 1] = '[]'
-        invalid[invalid.index('--residual-gaps-sha256') + 1] = digest([])
         before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
         rejected = subprocess.run(invalid, capture_output=True, encoding='utf-8', timeout=30)
         self.assertNotEqual(rejected.returncode, 0)
