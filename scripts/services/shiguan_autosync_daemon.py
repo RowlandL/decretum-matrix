@@ -576,6 +576,48 @@ def source_signature() -> dict[str, object]:
     }
 
 
+def known_export_snapshot(value: object) -> bool:
+    if not isinstance(value, dict) or value.get("export_snapshot_state") != "KNOWN_EXPORT_SNAPSHOT":
+        return False
+    snapshot = value.get("export_snapshot")
+    if not isinstance(snapshot, dict):
+        return False
+    required = {
+        "snapshot_generation",
+        "snapshot_ref",
+        "producer_transaction_id",
+        "export_transaction_id",
+        "scope",
+        "source_ref",
+        "raw_provenance",
+    }
+    if set(snapshot) != required or snapshot.get("scope") != "controlled_export_snapshot":
+        return False
+    if not all(str(snapshot.get(field) or "").strip() for field in ("snapshot_generation", "snapshot_ref", "producer_transaction_id", "export_transaction_id", "source_ref")):
+        return False
+    generation = str(snapshot["snapshot_generation"]).strip()
+    source_ref = str(snapshot["source_ref"]).strip()
+    producer_transaction = str(snapshot["producer_transaction_id"]).strip()
+    if (
+        str(snapshot["export_transaction_id"]).strip() != generation
+        or producer_transaction != generation
+        or str(snapshot["snapshot_ref"]).strip() != f"{source_ref}#generation={generation}"
+        or not source_ref.startswith("export://")
+    ):
+        return False
+    raw = snapshot.get("raw_provenance")
+    return bool(
+        isinstance(raw, dict)
+        and str(raw.get("source_revision") or "").strip()
+        and str(raw.get("source_ref") or "").strip()
+        and str(raw.get("producer_transaction_id") or "").strip()
+        # Raw corpus provenance is outside this controlled export scope.  A
+        # caller may carry claims for audit, but they never make the snapshot
+        # KNOWN here.
+        and str(raw.get("state") or "").strip() == "UNKNOWN"
+    )
+
+
 def run_filesystem_sync(config: dict[str, object], timeout: int = 600) -> dict[str, object]:
     script = Path(__file__).with_name("sync_shiguan_obsidian_vault.py")
     vault = configured_cache_vault(config)
@@ -607,6 +649,10 @@ def run_filesystem_sync(config: dict[str, object], timeout: int = 600) -> dict[s
             result.setdefault("source_revision", source["source_revision"])
             result.setdefault("source_ref", source["source_ref"])
             result.setdefault("producer_transaction_id", source["transaction_id"])
+            if not known_export_snapshot(result):
+                result["export_snapshot_state"] = "UNKNOWN"
+                result["ok"] = False
+                result.setdefault("transaction_state", "export_snapshot_unverified")
         return result
     finally:
         try:
@@ -634,6 +680,10 @@ def _run_once_unlocked(
     first_run = not bool(previous_snapshot)
     current_source_signature = source_signature()
     source_changed = current_source_signature != previous_source_signature
+    previous_sync_failed = bool(
+        isinstance(previous_state, dict)
+        and previous_state.get("last_sync_ok") is False
+    )
     cache_vault = configured_cache_vault(config)
     generated_refs = managed_sync_refs(cache_vault)
     before = snapshot_roots(watch_roots)
@@ -655,15 +705,25 @@ def _run_once_unlocked(
         generated_refs=generated_refs,
     )
     source_revision_unknown = current_source_signature.get("source_revision_state") != "KNOWN"
-    should_sync = bool(force_sync or first_run or source_changed or source_revision_unknown)
+    # Unknown raw provenance is reported, but it is not a change signal.  A
+    # failed prior transaction remains an explicit retry trigger.
+    should_sync = bool(force_sync or first_run or source_changed or previous_sync_failed)
     sync_result: dict[str, object] = {
         "skipped": True,
         "reason": "snapshot_only" if snapshot_only else "source_unchanged",
         "source_changed": source_changed,
         "force_sync": bool(force_sync),
     }
-    if not snapshot_only and should_sync:
-        sync_result = run_filesystem_sync(config)
+    sync_attempted = bool(not snapshot_only and should_sync)
+    if sync_attempted:
+        try:
+            sync_result = run_filesystem_sync(config)
+        except Exception as exc:
+            sync_result = {
+                "ok": False,
+                "transaction_state": "failed",
+                "error": str(exc)[-1200:],
+            }
         sync_result["source_changed"] = source_changed
         sync_result["force_sync"] = bool(force_sync)
     after = snapshot_roots(watch_roots)
@@ -725,6 +785,17 @@ def _run_once_unlocked(
             queued.append(event)
             conflict_queue_count += 1
     generated_refs = managed_sync_refs(cache_vault)
+    cycle_ok = bool(sync_result.get("ok", True)) and not any(
+        isinstance(item, dict) and item.get("conflict") is True
+        for item in queued
+    )
+    last_sync_ok = (
+        cycle_ok
+        if sync_attempted
+        else previous_state.get("last_sync_ok")
+        if isinstance(previous_state, dict)
+        else None
+    )
     state = {
         "updated_at": now_text(),
         "shared_shiguan_root": str(references_root()),
@@ -736,13 +807,11 @@ def _run_once_unlocked(
         "source_ref": current_source_signature.get("source_ref"),
         "source_revision_state": current_source_signature.get("source_revision_state"),
         "source_transaction_id": current_source_signature.get("source_transaction_id"),
+        "last_sync_ok": last_sync_ok,
     }
     write_json(state_path(), state)
     report = {
-        "ok": bool(sync_result.get("ok", True)) and not any(
-            isinstance(item, dict) and item.get("conflict") is True
-            for item in queued
-        ),
+        "ok": cycle_ok,
         "first_run": first_run,
         "queued": queued,
         "queued_count": sum(1 for item in queued if item.get("queued")),
@@ -757,6 +826,7 @@ def _run_once_unlocked(
         "filesystem_sync": sync_result,
         "source_changed": source_changed,
         "source_revision_unknown": source_revision_unknown,
+        "previous_sync_failed": previous_sync_failed,
         "force_sync": bool(force_sync),
         "source_signature": current_source_signature,
         "state_path": str(state_path()),

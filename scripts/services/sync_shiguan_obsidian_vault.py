@@ -651,7 +651,12 @@ def emit_result(result: dict[str, object], result_json: str = "", allow_write: b
 def run_write_sync(args: argparse.Namespace, vault: Path) -> int:
     from rebuild_shiguan_index import rebuild_index
     from grow_shiguan_tree import grow_tree
-    from export_shiguan_obsidian import check_export, copy_tree, zip_dir
+    from export_shiguan_obsidian import (
+        EXPORT_SNAPSHOT_FIELDS,
+        check_export,
+        copy_tree,
+        zip_dir,
+    )
 
     count, _ = rebuild_index()
     grow_tree()
@@ -660,7 +665,35 @@ def run_write_sync(args: argparse.Namespace, vault: Path) -> int:
     producer_transaction_id = str(getattr(args, "producer_transaction_id", "") or "").strip()
     with tempfile.TemporaryDirectory(prefix="shiguan-obsidian-sync-") as tmp:
         export_dir = Path(tmp) / "Court Shiguan"
-        copy_tree(export_dir)
+        export_result = copy_tree(
+            export_dir,
+            source_revision=source_revision,
+            source_ref=source_ref,
+            producer_transaction_id=producer_transaction_id,
+        )
+        expected_export_wrapper = set(EXPORT_SNAPSHOT_FIELDS) | {"ok", "status", "path"}
+        if (
+            not isinstance(export_result, dict)
+            or set(export_result) != expected_export_wrapper
+            or export_result.get("ok") is not True
+            or export_result.get("status") != "COMMITTED"
+        ):
+            emit_result(
+                {
+                    "ok": False,
+                    "stage": "export_snapshot",
+                    "transaction_state": "export_snapshot_unverified",
+                },
+                args.result_json,
+            )
+            return 2
+        # copy_tree returns an operation wrapper.  Pass only its exact
+        # seven-field snapshot projection to the filesystem sync/daemon
+        # consumers; wrapper status/path are not snapshot proof fields.
+        export_snapshot = {
+            field: export_result[field]
+            for field in EXPORT_SNAPSHOT_FIELDS
+        }
         errors = check_export(export_dir)
         if errors:
             emit_result({"ok": False, "stage": "check_export", "errors": errors[:50]}, args.result_json)
@@ -669,9 +702,9 @@ def run_write_sync(args: argparse.Namespace, vault: Path) -> int:
             export_dir,
             vault,
             False,
-            source_revision=source_revision,
-            source_ref=source_ref,
-            producer_transaction_id=producer_transaction_id,
+            source_revision=str(export_snapshot["snapshot_generation"]),
+            source_ref=str(export_snapshot["snapshot_ref"]),
+            producer_transaction_id=str(export_snapshot["producer_transaction_id"]),
         )
     result.update({
         "ok": True,
@@ -680,16 +713,35 @@ def run_write_sync(args: argparse.Namespace, vault: Path) -> int:
         "entries": count,
         "dry_run": False,
         "synced_at": datetime.now().isoformat(timespec="seconds"),
-        "source_revision": source_revision,
-        "source_ref": source_ref,
-        "producer_transaction_id": producer_transaction_id,
-        "source_revision_state": "KNOWN"
-        if (
-            source_revision != "UNKNOWN"
-            and source_ref != "shiguan://export/UNKNOWN"
-            and producer_transaction_id
-        )
-        else "UNKNOWN",
+        "source_revision": str(export_snapshot["snapshot_generation"]),
+        "source_ref": str(export_snapshot["snapshot_ref"]),
+        "producer_transaction_id": str(export_snapshot["producer_transaction_id"]),
+        "export_snapshot": export_snapshot,
+        "export_snapshot_state": "KNOWN_EXPORT_SNAPSHOT",
+        "raw_source_revision": str(
+            (export_snapshot.get("raw_provenance") or {}).get("source_revision")
+            if isinstance(export_snapshot.get("raw_provenance"), dict)
+            else "UNKNOWN"
+        ),
+        "raw_source_ref": str(
+            (export_snapshot.get("raw_provenance") or {}).get("source_ref")
+            if isinstance(export_snapshot.get("raw_provenance"), dict)
+            else "UNKNOWN"
+        ),
+        "raw_producer_transaction_id": str(
+            (export_snapshot.get("raw_provenance") or {}).get("producer_transaction_id")
+            if isinstance(export_snapshot.get("raw_provenance"), dict)
+            else "UNKNOWN"
+        ),
+        "raw_provenance_state": str(
+            (export_snapshot.get("raw_provenance") or {}).get("state")
+            if isinstance(export_snapshot.get("raw_provenance"), dict)
+            else "UNKNOWN"
+        ),
+        # The controlled export snapshot is the sync source scope.  Its
+        # strict seven-field reference is KNOWN after a completed export;
+        # raw corpus provenance remains independently UNKNOWN.
+        "source_revision_state": "KNOWN",
         "md_count": sum(1 for _ in vault.rglob("*.md")) if vault.exists() else 0,
         "index_exists": (vault / "_index.md").exists(),
         "obsidian_config_preserved": (vault / ".obsidian" / "community-plugins.json").exists(),
@@ -708,9 +760,6 @@ def run_write_sync(args: argparse.Namespace, vault: Path) -> int:
     if result.get("user_modified_conflict_count"):
         result["ok"] = False
         result["transaction_state"] = "conflict"
-    elif result.get("source_revision_state") != "KNOWN":
-        result["ok"] = False
-        result["transaction_state"] = "committed_unverified_source"
     if args.zip:
         result["zip"] = str(zip_dir(vault))
     emit_result(result, args.result_json)

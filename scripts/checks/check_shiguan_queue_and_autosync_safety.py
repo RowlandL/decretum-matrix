@@ -570,9 +570,24 @@ def check_daemon_revision_contract() -> dict[str, object]:
                 json.dumps(
                     {
                         "ok": True,
-                        "source_revision": trusted["source_revision"],
-                        "source_ref": trusted["source_ref"],
-                        "producer_transaction_id": trusted["transaction_id"],
+                        "source_revision": "export-generation-1",
+                        "source_ref": "export://Court-Shiguan#generation=export-generation-1",
+                        "producer_transaction_id": "export-generation-1",
+                        "export_snapshot_state": "KNOWN_EXPORT_SNAPSHOT",
+                        "export_snapshot": {
+                            "snapshot_generation": "export-generation-1",
+                            "snapshot_ref": "export://Court-Shiguan#generation=export-generation-1",
+                            "producer_transaction_id": "export-generation-1",
+                            "export_transaction_id": "export-generation-1",
+                            "scope": "controlled_export_snapshot",
+                            "source_ref": "export://Court-Shiguan",
+                            "raw_provenance": {
+                                "source_revision": trusted["source_revision"],
+                                "source_ref": trusted["source_ref"],
+                                "producer_transaction_id": trusted["transaction_id"],
+                                "state": "UNKNOWN",
+                            },
+                        },
                         "sync_transaction_id": "sync-tx-1",
                         "transaction_state": "committed",
                     }
@@ -597,9 +612,12 @@ def check_daemon_revision_contract() -> dict[str, object]:
             "daemon did not pass trusted source references and producer transaction to the sync worker",
         )
         require(
-            delegated.get("source_revision") == trusted["source_revision"]
-            and delegated.get("source_ref") == trusted["source_ref"]
-            and delegated.get("producer_transaction_id") == trusted["transaction_id"],
+            delegated.get("source_revision") == "export-generation-1"
+            and delegated.get("source_ref") == "export://Court-Shiguan#generation=export-generation-1"
+            and delegated.get("producer_transaction_id") == "export-generation-1"
+            and delegated.get("export_snapshot_state") == "KNOWN_EXPORT_SNAPSHOT"
+            and delegated["export_snapshot"]["producer_transaction_id"] == "export-generation-1"
+            and autosync_daemon.known_export_snapshot(delegated),
             "daemon lost trusted source references or producer transaction in the sync result",
         )
 
@@ -673,6 +691,96 @@ def check_daemon_revision_contract() -> dict[str, object]:
         }
 
 
+def check_daemon_trigger_contract() -> dict[str, object]:
+    """Raw UNKNOWN alone does not rebuild; a recorded failure still retries."""
+
+    with tempfile.TemporaryDirectory(prefix="court-autosync-trigger-") as raw_temp:
+        root = Path(raw_temp)
+        state_file = root / "autosync-state.json"
+        cache = root / "cache"
+        watch = root / "watch"
+        references = root / "references"
+        cache.mkdir()
+        watch.mkdir()
+        references.mkdir()
+        source = {
+            "index": {"size": 1, "mtime_ns": 1},
+            "memory_index": {"size": 1, "mtime_ns": 1},
+            "refresh_request": {"size": 1, "mtime_ns": 1},
+            "manual_tree": {},
+            "config": {"size": 1, "mtime_ns": 1},
+            "source_revision": "UNKNOWN",
+            "source_ref": "shiguan://unbound",
+            "source_revision_state": "UNKNOWN",
+            "source_transaction_id": "",
+        }
+        prior_snapshot = {"cache|generated.md": {"rel": "generated.md"}}
+        stable_state = {
+            "snapshot": prior_snapshot,
+            "source_signature": source,
+            "last_sync_ok": True,
+        }
+        failed_state = {
+            "snapshot": prior_snapshot,
+            "source_signature": source,
+            "last_sync_ok": False,
+        }
+        state_writes: list[dict[str, object]] = []
+        sync_calls: list[dict[str, object]] = []
+
+        def fake_sync(config: dict[str, object]) -> dict[str, object]:
+            sync_calls.append(dict(config))
+            return {"ok": False, "transaction_state": "conflict"}
+
+        with (
+            mock.patch.object(autosync_daemon, "ensure_shared_seed"),
+            mock.patch.object(autosync_daemon, "configured_watch_roots", return_value=[watch]),
+            mock.patch.object(autosync_daemon, "state_path", return_value=state_file),
+            mock.patch.object(autosync_daemon, "read_json", side_effect=[stable_state, failed_state]),
+            mock.patch.object(autosync_daemon, "source_signature", return_value=source),
+            mock.patch.object(autosync_daemon, "configured_cache_vault", return_value=cache),
+            mock.patch.object(autosync_daemon, "managed_sync_refs", return_value={}),
+            mock.patch.object(autosync_daemon, "snapshot_roots", return_value={}),
+            mock.patch.object(autosync_daemon, "queue_vault_changes", return_value=[]),
+            mock.patch.object(autosync_daemon, "run_filesystem_sync", side_effect=fake_sync),
+            mock.patch.object(autosync_daemon, "references_root", return_value=references),
+            mock.patch.object(
+                autosync_daemon,
+                "write_json",
+                side_effect=lambda _path, value: state_writes.append(dict(value)),
+            ),
+        ):
+            skipped = autosync_daemon._run_once_unlocked(
+                config_snapshot={},
+                publish_status=False,
+            )
+            calls_after_skip = len(sync_calls)
+            retried = autosync_daemon._run_once_unlocked(
+                config_snapshot={},
+                publish_status=False,
+            )
+
+        require(
+            skipped["source_revision_unknown"] is True
+            and skipped["filesystem_sync"].get("skipped") is True
+            and calls_after_skip == 0,
+            "raw UNKNOWN alone triggered an unnecessary filesystem rebuild",
+        )
+        require(
+            retried["previous_sync_failed"] is True
+            and len(sync_calls) == 1
+            and retried["ok"] is False
+            and state_writes[-1].get("last_sync_ok") is False,
+            "a recorded failed sync was not retried and retained",
+        )
+        return {
+            "raw_unknown_skipped": True,
+            "failed_sync_retried": True,
+            "sync_calls": len(sync_calls),
+            "last_sync_ok": state_writes[-1].get("last_sync_ok"),
+        }
+
+
 def main() -> int:
     result = {
         "seen_ledger": check_seen_ledger_concurrency(),
@@ -681,6 +789,7 @@ def main() -> int:
         "install_path_convergence": check_install_path_convergence(),
         "autosync_sidecar_contract": check_autosync_sidecar_contract(),
         "daemon_revision_contract": check_daemon_revision_contract(),
+        "daemon_trigger_contract": check_daemon_trigger_contract(),
     }
     print(json.dumps({"ok": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

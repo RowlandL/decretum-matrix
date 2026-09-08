@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 from pathlib import Path
@@ -484,8 +485,317 @@ def check_staged_copy_durability(temp: Path) -> dict[str, Any]:
     }
 
 
+def check_export_snapshot_transaction(temp: Path) -> dict[str, Any]:
+    """Exercise real export staging, marker publication, and rollback boundaries."""
+
+    import export_shiguan_obsidian as export_module  # noqa: PLC0415
+    import grow_shiguan_tree as grow_module  # noqa: PLC0415
+    import rebuild_shiguan_index as rebuild_module  # noqa: PLC0415
+    import shiguan_autosync_daemon as autosync_daemon  # noqa: PLC0415
+
+    shared = temp / "export-shared"
+    references = shared / "references"
+    tree = references / "shiguan-tree"
+    skill = temp / "export-skill"
+    lock_path = temp / "export-shiguan.lock"
+    tree.mkdir(parents=True)
+    _write(tree / "_index.md", "# Source index\n")
+    _write(tree / "note.md", "# Source note\n")
+
+    patches = (
+        mock.patch.object(export_module, "shared_root", return_value=shared),
+        mock.patch.object(export_module, "references_root", return_value=references),
+        mock.patch.object(export_module, "tree_root", return_value=tree),
+        mock.patch.object(export_module, "skill_root", return_value=skill),
+        mock.patch.object(export_module, "ensure_shared_seed", return_value=references),
+        mock.patch.object(export_module, "ensure_tree", return_value=tree),
+        mock.patch.object(export_module, "shiguan_write_lock_path", return_value=lock_path),
+    )
+    with ExitStack() as stack:
+        for context in patches:
+            stack.enter_context(context)
+
+        marker_observations: list[bool] = []
+        original_marker = export_module.write_managed_marker
+
+        def observe_marker(
+            path: Path,
+            snapshot: dict[str, object] | None = None,
+        ) -> None:
+            if snapshot is None:
+                # Legacy ownership callers remain compatible but do not count
+                # as a published strict snapshot observation.
+                original_marker(path)
+                return
+            marker_observations.append((path / "Import Readme.md").is_file())
+            original_marker(path, snapshot)
+
+        stack.enter_context(mock.patch.object(export_module, "write_managed_marker", side_effect=observe_marker))
+        output = temp / "export-output"
+        snapshot = export_module.copy_tree(output)
+        marker = export_module.managed_marker_value(output)
+        if not export_module.valid_managed_marker(output):
+            raise AssertionError(f"published export marker was not valid: {marker}")
+        if not marker_observations or marker_observations != [True]:
+            raise AssertionError("managed marker was not written after complete stage population")
+        for field in (
+            "snapshot_generation",
+            "snapshot_ref",
+            "producer_transaction_id",
+            "export_transaction_id",
+            "scope",
+            "source_ref",
+            "raw_provenance",
+        ):
+            if not snapshot.get(field):
+                raise AssertionError(f"export snapshot omitted {field}")
+        if snapshot["scope"] != "controlled_export_snapshot":
+            raise AssertionError("export snapshot scope was not explicit")
+        if snapshot["raw_provenance"].get("state") != "UNKNOWN":
+            raise AssertionError("missing raw provenance was promoted to known")
+        if export_module.check_export(output):
+            raise AssertionError(f"published export did not pass export checks: {export_module.check_export(output)}")
+
+        trusted_output = temp / "trusted-export"
+        trusted_snapshot = export_module.copy_tree(
+            trusted_output,
+            source_revision="source-r1",
+            source_ref="shiguan://source/r1",
+            producer_transaction_id="producer-tx-1",
+        )
+        if (
+            trusted_snapshot["raw_provenance"].get("state") != "UNKNOWN"
+            or trusted_snapshot["producer_transaction_id"]
+            != trusted_snapshot["export_transaction_id"]
+            or trusted_snapshot["snapshot_generation"]
+            != trusted_snapshot["export_transaction_id"]
+            or trusted_snapshot["producer_transaction_id"] == "producer-tx-1"
+        ):
+            raise AssertionError(f"caller raw provenance was promoted into the export transaction: {trusted_snapshot}")
+
+        cache = temp / "export-cache"
+        mirror = sync.mirror_tree(
+            output,
+            cache,
+            source_revision=str(snapshot["snapshot_generation"]),
+            source_ref=str(snapshot["snapshot_ref"]),
+            producer_transaction_id=str(snapshot["producer_transaction_id"]),
+        )
+        manifest = _manifest(cache)
+        if (
+            mirror.get("copied", 0) <= 0
+            or manifest.get("source_revision") != snapshot["snapshot_generation"]
+            or manifest.get("source_ref") != snapshot["snapshot_ref"]
+            or manifest.get("producer_transaction_id") != snapshot["producer_transaction_id"]
+        ):
+            raise AssertionError(f"real export-to-mirror snapshot reference was not retained: {mirror}, {manifest}")
+
+        legacy_output = temp / "legacy-export"
+        legacy_output.mkdir()
+        legacy_file = legacy_output / "old.md"
+        _write(legacy_file, "old export\n")
+        # Keep the historical one-argument ownership helper usable for
+        # adjacent callers; it must remain legacy until copy_tree upgrades it.
+        export_module.write_managed_marker(legacy_output)
+        if (
+            export_module.valid_managed_marker(legacy_output)
+            or export_module.export_destination_mode(legacy_output) != "managed"
+        ):
+            raise AssertionError("legacy ownership marker was treated as a known snapshot")
+        legacy_before = (legacy_output / export_module.MANAGED_EXPORT_MARKER).read_bytes()
+        legacy_snapshot = export_module.copy_tree(legacy_output)
+        if (
+            not export_module.valid_managed_marker(legacy_output)
+            or legacy_snapshot["scope"] != "controlled_export_snapshot"
+            or legacy_file.exists()
+            or (legacy_output / export_module.MANAGED_EXPORT_MARKER).read_bytes() == legacy_before
+        ):
+            raise AssertionError("owned legacy marker was not atomically re-exported and upgraded")
+
+        pseudo_output = temp / "pseudo-export"
+        pseudo_output.mkdir()
+        _write(pseudo_output / "old.md", "pseudo export\n")
+        _write(
+            pseudo_output / export_module.MANAGED_EXPORT_MARKER,
+            json.dumps(
+                {
+                    "schema": export_module.MANAGED_EXPORT_SCHEMA,
+                    "managed_by": "decretum-matrix",
+                    "updated_at": "pseudo",
+                    "snapshot_generation": "fake-generation",
+                    "snapshot_ref": "export://fake#generation=fake-generation",
+                    "producer_transaction_id": "fake-producer",
+                    "export_transaction_id": "different-export-transaction",
+                    "scope": "controlled_export_snapshot",
+                    "source_ref": "export://fake",
+                    "raw_provenance": {"state": "KNOWN"},
+                }
+            )
+            + "\n",
+        )
+        try:
+            export_module.copy_tree(pseudo_output)
+        except ValueError as exc:
+            pseudo_rejected = "legacy or unverified" in str(exc)
+        else:
+            pseudo_rejected = False
+        if not pseudo_rejected:
+            raise AssertionError("pseudo export snapshot marker was accepted")
+
+        failure_output = temp / "failure-export"
+        export_module.copy_tree(failure_output)
+        failure_before = {
+            path.relative_to(failure_output).as_posix(): path.read_bytes()
+            for path in failure_output.rglob("*")
+            if path.is_file()
+        }
+        with mock.patch.object(export_module, "ensure_export_frontmatter", side_effect=RuntimeError("fixture export failure")):
+            try:
+                export_module.copy_tree(failure_output)
+            except RuntimeError:
+                export_failed = True
+            else:
+                export_failed = False
+        failure_after = {
+            path.relative_to(failure_output).as_posix(): path.read_bytes()
+            for path in failure_output.rglob("*")
+            if path.is_file()
+        }
+        if not export_failed or failure_after != failure_before:
+            raise AssertionError("export failure changed the published target")
+
+        rollback_output = temp / "rollback-export"
+        export_module.copy_tree(rollback_output)
+        rollback_before = {
+            path.relative_to(rollback_output).as_posix(): path.read_bytes()
+            for path in rollback_output.rglob("*")
+            if path.is_file()
+        }
+        original_replace = Path.replace
+
+        def fail_stage_replace(path: Path, target: Path) -> Path:
+            if target.resolve() == rollback_output.resolve() and path.parent.resolve() != rollback_output.parent.resolve():
+                raise OSError("fixture stage publish failure")
+            return original_replace(path, target)
+
+        with mock.patch.object(Path, "replace", new=fail_stage_replace):
+            try:
+                export_module.copy_tree(rollback_output)
+            except OSError:
+                rollback_failed = True
+            else:
+                rollback_failed = False
+        rollback_after = {
+            path.relative_to(rollback_output).as_posix(): path.read_bytes()
+            for path in rollback_output.rglob("*")
+            if path.is_file()
+        }
+        backups = list(rollback_output.parent.glob(f".{rollback_output.name}.backup-*"))
+        if not rollback_failed or rollback_after != rollback_before or backups:
+            raise AssertionError("failed atomic export did not restore the old target")
+
+        concurrent_index = references / "shiguan-index.jsonl"
+        concurrent_index.parent.mkdir(parents=True, exist_ok=True)
+        _write(
+            concurrent_index,
+            json.dumps(
+                {
+                    "record_uid": "CONCURRENT-1",
+                    "court_code": "SDMLTIUW7-20260908-1-ABAA",
+                    "record_type": "checkpoint",
+                    "topic": "concurrent export fixture",
+                    "phase": "review",
+                    "status": "DONE",
+                    "summary": "concurrent fixture",
+                    "time": "2026-09-08T00:00:00+00:00",
+                    "source": "",
+                }
+            )
+            + "\n",
+        )
+        concurrent_output = temp / "concurrent-export"
+        grow_patches = (
+            mock.patch.object(grow_module, "tree_root", return_value=tree),
+            mock.patch.object(grow_module, "index_path", return_value=concurrent_index),
+            mock.patch.object(grow_module, "ensure_shared_seed", return_value=references),
+            mock.patch.object(grow_module, "shiguan_write_lock_path", return_value=lock_path),
+        )
+        with ExitStack() as concurrent_stack:
+            concurrent_stack.enter_context(mock.patch.object(export_module, "ensure_tree", return_value=tree))
+            for context in grow_patches:
+                concurrent_stack.enter_context(context)
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                grow_future = executor.submit(grow_module.grow_tree)
+                export_future = executor.submit(export_module.copy_tree, concurrent_output)
+                grow_result = grow_future.result(timeout=30)
+                concurrent_snapshot = export_future.result(timeout=30)
+        if not isinstance(grow_result, tuple) or not export_module.valid_managed_marker(concurrent_output):
+            raise AssertionError("concurrent grow/export did not complete under the shared Shiguan lock")
+        if export_module.check_export(concurrent_output):
+            raise AssertionError("concurrent export left an invalid published tree")
+
+        integration_result_path = temp / "run-write-sync-result.json"
+        integration_vault = temp / "run-write-sync-vault"
+        integration_args = argparse.Namespace(
+            source_revision="caller-r1",
+            source_ref="caller://source",
+            producer_transaction_id="caller-tx-1",
+            result_json=str(integration_result_path),
+            zip=False,
+        )
+        with (
+            mock.patch.object(rebuild_module, "rebuild_index", return_value=(0, concurrent_index)),
+            mock.patch.object(grow_module, "grow_tree", return_value=(0, tree)),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            integration_exit = sync.run_write_sync(integration_args, integration_vault)
+        integration_result = json.loads(integration_result_path.read_text(encoding="utf-8"))
+        integration_snapshot = integration_result.get("export_snapshot")
+        if (
+            integration_exit != 0
+            or integration_result.get("ok") is not True
+            or integration_result.get("source_revision_state") != "KNOWN"
+            or integration_result.get("raw_provenance_state") != "UNKNOWN"
+            or integration_result.get("raw_source_revision") != "caller-r1"
+            or integration_result.get("raw_source_ref") != "caller://source"
+            or integration_result.get("raw_producer_transaction_id") != "caller-tx-1"
+            or integration_result.get("producer_transaction_id") == "caller-tx-1"
+            or integration_result.get("transaction_state") != "committed"
+            or not isinstance(integration_snapshot, dict)
+            or set(integration_snapshot) != set(export_module.EXPORT_SNAPSHOT_FIELDS)
+            or not autosync_daemon.known_export_snapshot(integration_result)
+        ):
+            raise AssertionError(
+                f"real copy_tree -> run_write_sync -> daemon projection failed: {integration_result}"
+            )
+
+    return {
+        "published_snapshot": True,
+        "snapshot_generation": snapshot["snapshot_generation"],
+        "snapshot_ref": snapshot["snapshot_ref"],
+        "producer_transaction_id": snapshot["producer_transaction_id"],
+        "scope": snapshot["scope"],
+        "raw_provenance": snapshot["raw_provenance"]["state"],
+        "trusted_raw_provenance": trusted_snapshot["raw_provenance"]["state"],
+        "mirror_copied": mirror.get("copied"),
+        "legacy_marker_upgraded": True,
+        "pseudo_snapshot_rejected": pseudo_rejected,
+        "export_failure_preserved": export_failed,
+        "rollback_preserved": rollback_failed,
+        "concurrent_grow_export": True,
+        "run_write_sync_daemon_bridge": {
+            "exit_code": integration_exit,
+            "controlled_snapshot_known": True,
+            "caller_raw_not_export_producer": integration_result.get("producer_transaction_id")
+            != "caller-tx-1",
+            "raw_provenance": integration_result.get("raw_provenance_state"),
+            "transaction_state": integration_result.get("transaction_state"),
+        },
+    }
+
+
 def check_unknown_source_business_status(temp: Path) -> dict[str, Any]:
-    """Unknown producer input may create a new target but cannot report success."""
+    """Unknown raw provenance stays isolated from a committed export snapshot."""
 
     import export_shiguan_obsidian as export_module  # noqa: PLC0415
     import grow_shiguan_tree as grow_module  # noqa: PLC0415
@@ -494,9 +804,16 @@ def check_unknown_source_business_status(temp: Path) -> dict[str, Any]:
     cache = temp / "unknown-source-cache"
     result_path = temp / "unknown-source-result.json"
 
-    def fake_copy_tree(out: Path) -> None:
+    def fake_copy_tree(out: Path, **kwargs: object) -> dict[str, object]:
         out.mkdir(parents=True, exist_ok=True)
         _write(out / "generated.md", "unknown-source-generated\n")
+        snapshot = export_module._export_snapshot(out, **kwargs)
+        return {
+            "ok": True,
+            "status": "COMMITTED",
+            "path": str(out),
+            **snapshot,
+        }
 
     args = argparse.Namespace(
         source_revision="",
@@ -516,18 +833,27 @@ def check_unknown_source_business_status(temp: Path) -> dict[str, Any]:
     result = json.loads(result_path.read_text(encoding="utf-8"))
     if exit_code != 0:
         raise AssertionError(f"unknown producer source unexpectedly failed before status projection: {exit_code}")
-    if result.get("ok") is not False:
-        raise AssertionError(f"unknown producer source was reported as successful: {result}")
-    if result.get("source_revision_state") != "UNKNOWN":
-        raise AssertionError("unknown producer source did not remain UNKNOWN")
-    if result.get("transaction_state") != "committed_unverified_source":
-        raise AssertionError("unknown producer source did not expose committed_unverified_source")
+    if result.get("ok") is not True:
+        raise AssertionError(f"controlled export snapshot was not reported as committed: {result}")
+    if result.get("source_revision_state") != "KNOWN":
+        raise AssertionError("controlled export snapshot did not become the sync source scope")
+    if result.get("export_snapshot_state") != "KNOWN_EXPORT_SNAPSHOT":
+        raise AssertionError("real export snapshot was not distinguished from raw provenance")
+    if result.get("raw_provenance_state") != "UNKNOWN":
+        raise AssertionError("unknown raw provenance was promoted to known")
+    if result.get("transaction_state") != "committed":
+        raise AssertionError("controlled export snapshot did not expose committed transaction state")
+    snapshot = result.get("export_snapshot")
+    if not isinstance(snapshot, dict) or set(snapshot) != set(export_module.EXPORT_SNAPSHOT_FIELDS):
+        raise AssertionError("sync result retained the operation wrapper instead of the seven-field snapshot")
     if not (cache / "generated.md").is_file():
         raise AssertionError("unknown producer source did not preserve the newly created target")
     return {
         "exit_code": exit_code,
         "ok": result.get("ok"),
+        "export_snapshot_state": result.get("export_snapshot_state"),
         "source_revision_state": result.get("source_revision_state"),
+        "raw_provenance_state": result.get("raw_provenance_state"),
         "transaction_state": result.get("transaction_state"),
         "new_target_created": True,
     }
@@ -546,6 +872,7 @@ def run_checks() -> dict[str, Any]:
             config_cas = check_obsidian_config_cas(temp)
             sync_config_cas = check_sync_config_cas(temp)
             staged_copy_durability = check_staged_copy_durability(temp)
+            export_snapshot_transaction = check_export_snapshot_transaction(temp)
             unknown_source_business_status = check_unknown_source_business_status(temp)
     return {
         "ok": True,
@@ -564,6 +891,7 @@ def run_checks() -> dict[str, Any]:
         "obsidian_config_cas": config_cas,
         "sync_config_cas": sync_config_cas,
         "staged_copy_durability": staged_copy_durability,
+        "export_snapshot_transaction": export_snapshot_transaction,
         "unknown_source_business_status": unknown_source_business_status,
     }
 

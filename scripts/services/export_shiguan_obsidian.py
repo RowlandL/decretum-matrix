@@ -15,12 +15,14 @@ from datetime import datetime
 import json
 import re
 import shutil
+import uuid
 from pathlib import Path
 import sys
 
 sys.dont_write_bytecode = True
 import tempfile
 import zipfile
+from court_file_lock import file_lock, shiguan_write_lock_path
 from court_platform import user_data_base
 from shiguan_paths import code_root, ensure_shared_seed, reference_path, references_root as shared_references_root, shared_root
 
@@ -29,6 +31,18 @@ WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 MANAGED_EXPORT_MARKER = ".court-shiguan-managed.json"
 MANAGED_EXPORT_SCHEMA = "court.shiguan.managed-export.v1"
 PRESERVE_CACHE_MANIFEST = ".court-shiguan-sync-manifest.json"
+EXPORT_SNAPSHOT_SCOPE = "controlled_export_snapshot"
+EXPORT_SNAPSHOT_FIELDS = frozenset(
+    {
+        "snapshot_generation",
+        "snapshot_ref",
+        "producer_transaction_id",
+        "export_transaction_id",
+        "scope",
+        "source_ref",
+        "raw_provenance",
+    }
+)
 
 
 def skill_root() -> Path:
@@ -60,15 +74,109 @@ def managed_marker_path(path: Path) -> Path:
     return path / MANAGED_EXPORT_MARKER
 
 
-def valid_managed_marker(path: Path) -> bool:
+def _nonblank(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _export_snapshot(
+    out: Path,
+    *,
+    source_revision: object = None,
+    source_ref: object = None,
+    producer_transaction_id: object = None,
+    export_transaction_id: str | None = None,
+) -> dict[str, object]:
+    """Describe one real export transaction and its raw provenance."""
+
+    export_transaction = _nonblank(export_transaction_id) or uuid.uuid4().hex
+    raw_revision = _nonblank(source_revision) or "UNKNOWN"
+    raw_source_ref = _nonblank(source_ref) or "UNKNOWN"
+    supplied_producer_transaction = _nonblank(producer_transaction_id)
+    if supplied_producer_transaction in {"UNKNOWN", "UNBOUND"}:
+        supplied_producer_transaction = None
+    raw_producer_transaction = supplied_producer_transaction or "UNKNOWN"
+    # Caller supplied values describe an unverified raw corpus observation.
+    # The only KNOWN identity in this module is the transaction that is being
+    # materialized below; raw provenance must not be promoted by CLI strings.
+    raw_state = "UNKNOWN"
+    export_name = (out.name or "court-shiguan").strip().replace(" ", "-")
+    source_ref = f"export://{export_name}"
+    snapshot_ref = f"{source_ref}#generation={export_transaction}"
+    return {
+        "snapshot_generation": export_transaction,
+        "snapshot_ref": snapshot_ref,
+        # The outer producer is this actual export transaction.  A caller's
+        # raw transaction is retained only inside the explicitly UNKNOWN
+        # provenance object.
+        "producer_transaction_id": export_transaction,
+        "export_transaction_id": export_transaction,
+        "scope": EXPORT_SNAPSHOT_SCOPE,
+        "source_ref": source_ref,
+        "raw_provenance": {
+            "source_revision": raw_revision,
+            "source_ref": raw_source_ref,
+            "producer_transaction_id": raw_producer_transaction,
+            "state": raw_state,
+        },
+    }
+
+
+def managed_marker_value(path: Path) -> dict[str, object] | None:
     marker = managed_marker_path(path)
     if not marker.is_file():
-        return False
+        return None
     try:
         value = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def owned_managed_marker(path: Path) -> bool:
+    """Return whether the existing marker establishes export ownership."""
+
+    value = managed_marker_value(path)
+    return bool(
+        isinstance(value, dict)
+        and value.get("schema") == MANAGED_EXPORT_SCHEMA
+        and value.get("managed_by") == "decretum-matrix"
+        and _nonblank(value.get("updated_at"))
+    )
+
+
+def valid_managed_marker(path: Path) -> bool:
+    value = managed_marker_value(path)
+    if value is None:
         return False
-    return isinstance(value, dict) and value.get("schema") == MANAGED_EXPORT_SCHEMA
+    if not owned_managed_marker(path):
+        return False
+    if not EXPORT_SNAPSHOT_FIELDS.issubset(value):
+        return False
+    if value.get("scope") != EXPORT_SNAPSHOT_SCOPE:
+        return False
+    generation = _nonblank(value.get("snapshot_generation"))
+    export_transaction = _nonblank(value.get("export_transaction_id"))
+    snapshot_ref = _nonblank(value.get("snapshot_ref"))
+    source_ref = _nonblank(value.get("source_ref"))
+    producer_transaction = _nonblank(value.get("producer_transaction_id"))
+    raw_provenance = value.get("raw_provenance")
+    return bool(
+        generation
+        and export_transaction == generation
+        and producer_transaction == generation
+        and snapshot_ref
+        and snapshot_ref.startswith("export://")
+        and snapshot_ref == f"{source_ref}#generation={generation}"
+        and source_ref
+        and source_ref.startswith("export://")
+        and producer_transaction
+        and isinstance(raw_provenance, dict)
+        and _nonblank(raw_provenance.get("state")) in {"KNOWN", "UNKNOWN"}
+        and _nonblank(raw_provenance.get("source_revision"))
+        and _nonblank(raw_provenance.get("source_ref"))
+        and _nonblank(raw_provenance.get("producer_transaction_id"))
+    )
 
 
 def export_destination_mode(path: Path) -> str:
@@ -84,6 +192,21 @@ def export_destination_mode(path: Path) -> str:
         )
     if valid_managed_marker(path):
         return "managed"
+    marker = managed_marker_value(path)
+    if owned_managed_marker(path) and marker is not None:
+        # Ownership is sufficient to permit a backup + atomic re-export.  A
+        # marker that already claims snapshot fields must pass the strict
+        # snapshot validator above; partial/inconsistent claims stay blocked.
+        if not set(marker).intersection(EXPORT_SNAPSHOT_FIELDS):
+            # Keep the historical destination mode for callers that only
+            # establish ownership; this does not make the marker a known
+            # snapshot because valid_managed_marker() remains strict.
+            return "managed"
+    if marker is not None:
+        raise ValueError(
+            f"Refusing to replace legacy or unverified {MANAGED_EXPORT_MARKER}; "
+            "a committed export snapshot reference is required."
+        )
     if not any(path.iterdir()):
         return "empty"
     raise ValueError(
@@ -91,14 +214,22 @@ def export_destination_mode(path: Path) -> str:
     )
 
 
-def write_managed_marker(path: Path) -> None:
+def write_managed_marker(
+    path: Path,
+    snapshot: dict[str, object] | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "schema": MANAGED_EXPORT_SCHEMA,
+        "managed_by": "decretum-matrix",
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    if snapshot is not None:
+        if set(snapshot) != EXPORT_SNAPSHOT_FIELDS:
+            raise ValueError("export snapshot reference fields are incomplete")
+        payload.update(snapshot)
     managed_marker_path(path).write_text(
         json.dumps(
-            {
-                "schema": MANAGED_EXPORT_SCHEMA,
-                "managed_by": "decretum-matrix",
-                "updated_at": datetime.now().isoformat(timespec="seconds"),
-            },
+            payload,
             ensure_ascii=False,
             indent=2,
             sort_keys=True,
@@ -116,13 +247,18 @@ def ensure_tree() -> Path:
     return tree_root()
 
 
-def populate_export_tree(out: Path, src: Path) -> None:
+def populate_export_tree(
+    out: Path,
+    src: Path,
+    *,
+    snapshot: dict[str, object] | None = None,
+) -> dict[str, object]:
+    export_snapshot = snapshot or _export_snapshot(out)
     shutil.copytree(src, out)
     copy_sources(out)
     rewrite_source_links(out)
     redact_export_texts(out)
     ensure_export_frontmatter(out)
-    write_managed_marker(out)
     (out / "Import Readme.md").write_text(
         "\n".join(
             [
@@ -146,18 +282,34 @@ def populate_export_tree(out: Path, src: Path) -> None:
         encoding="utf-8",
         newline="\n",
     )
+    # The marker is the last stage-local write.  copy_tree publishes it only
+    # with the complete stage through atomic replacement.
+    write_managed_marker(out, export_snapshot)
+    return export_snapshot
 
 
-def copy_tree(out: Path) -> None:
+def _copy_tree_locked(
+    out: Path,
+    *,
+    source_revision: object = None,
+    source_ref: object = None,
+    producer_transaction_id: object = None,
+) -> dict[str, object]:
     out = safe_out(str(out))
     mode = export_destination_mode(out)
     src = ensure_tree()
     out.parent.mkdir(parents=True, exist_ok=True)
     backup: Path | None = None
     removed_empty = False
+    snapshot = _export_snapshot(
+        out,
+        source_revision=source_revision,
+        source_ref=source_ref,
+        producer_transaction_id=producer_transaction_id,
+    )
     with tempfile.TemporaryDirectory(prefix=f".{out.name}.stage-", dir=str(out.parent)) as temp_text:
         stage = Path(temp_text) / out.name
-        populate_export_tree(stage, src)
+        populate_export_tree(stage, src, snapshot=snapshot)
         try:
             if out.exists():
                 if mode == "empty":
@@ -175,6 +327,28 @@ def copy_tree(out: Path) -> None:
             raise
     if backup is not None and backup.exists():
         shutil.rmtree(backup)
+    return {
+        "ok": True,
+        "status": "COMMITTED",
+        "path": str(out),
+        **snapshot,
+    }
+
+
+def copy_tree(
+    out: Path,
+    *,
+    source_revision: object = None,
+    source_ref: object = None,
+    producer_transaction_id: object = None,
+) -> dict[str, object]:
+    with file_lock(shiguan_write_lock_path()):
+        return _copy_tree_locked(
+            out,
+            source_revision=source_revision,
+            source_ref=source_ref,
+            producer_transaction_id=producer_transaction_id,
+        )
 
 
 def redact_text(text: str) -> str:
@@ -369,6 +543,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-

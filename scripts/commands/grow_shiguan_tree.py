@@ -22,6 +22,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
+from court_file_lock import file_lock, shiguan_write_lock_path
 from shiguan_entry_utils import enrich_entry
 from shiguan_paths import code_root, ensure_shared_seed, reference_path, references_root, resolve_source
 
@@ -374,7 +375,7 @@ def prune_generated_tree(branch_paths: list[Path], leaf_paths: list[Path]) -> No
                 pass
 
 
-def grow_tree() -> tuple[int, Path]:
+def _grow_tree_locked() -> tuple[int, Path]:
     entries = load_entries()
     root = tree_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -394,6 +395,11 @@ def grow_tree() -> tuple[int, Path]:
     return len(entries), root
 
 
+def grow_tree() -> tuple[int, Path]:
+    with file_lock(shiguan_write_lock_path()):
+        return _grow_tree_locked()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quiet", action="store_true")
@@ -406,6 +412,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 
