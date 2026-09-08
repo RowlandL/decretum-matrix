@@ -457,6 +457,18 @@ def realtime_obsidian_sync_best_effort(timeout: int = 600) -> dict[str, object]:
                 print(f"SHIGUAN_OBSIDIAN_SYNC_WARNING {detail}", file=sys.stderr)
                 return {"status": "warning", "error": detail}
             result = json.loads(result_path.read_text(encoding="utf-8"))
+            if not isinstance(result, dict):
+                detail = "sync result invalid"
+                print(f"SHIGUAN_OBSIDIAN_SYNC_WARNING {detail}", file=sys.stderr)
+                return {"status": "warning", "error": detail}
+            if result.get("ok") is not True:
+                detail = str(
+                    result.get("transaction_state")
+                    or result.get("error")
+                    or "sync result ok=false"
+                )
+                print(f"SHIGUAN_OBSIDIAN_SYNC_WARNING {detail}", file=sys.stderr)
+                return {"status": "warning", "error": detail, "result": result}
             print("SHIGUAN_AUTOSYNC_OK " + json.dumps(result, ensure_ascii=False, sort_keys=True))
             return {"status": "synced", "result": result}
         finally:

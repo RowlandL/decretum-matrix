@@ -115,7 +115,6 @@ from shiguan_web_pending import (
     PENDING_IMPORT_METADATA_FIELDS,
     PENDING_IMPORT_METADATA_MAX_BYTES,
     PENDING_IMPORT_METADATA_SUFFIX,
-    PENDING_IMPORT_SHA256_RE,
     aggregate_import_metric,
     import_pending_root,
     import_processed_root,
@@ -2795,4 +2794,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

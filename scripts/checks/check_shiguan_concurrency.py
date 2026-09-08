@@ -10,8 +10,10 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 import argparse
+from contextlib import redirect_stderr, redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import io
 import json
 import multiprocessing
 import os
@@ -21,6 +23,8 @@ sys.dont_write_bytecode = True
 import tempfile
 import time
 from typing import Any
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from court_file_lock import atomic_write_text, file_lock
 
@@ -30,6 +34,51 @@ WEB_UPSERT_THREADS = 32
 ATOMIC_WRITERS = 32
 CHECKPOINT_LOCK_TIMEOUT_SECONDS = 120.0
 CHECKPOINT_JOIN_TIMEOUT_SECONDS = 180.0
+
+
+def _sync_result_probe(worker_result: object) -> tuple[dict[str, object], str, str]:
+    import archive_checkpoint
+
+    def fake_worker(argv: list[str], **_: object) -> SimpleNamespace:
+        result_path = Path(argv[argv.index("--result-json") + 1])
+        result_path.write_text(json.dumps(worker_result), encoding="utf-8")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with patch.object(archive_checkpoint.subprocess, "run", fake_worker):
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            returned = archive_checkpoint.realtime_obsidian_sync_best_effort(timeout=5)
+    return returned, stdout.getvalue(), stderr.getvalue()
+
+
+def check_sync_worker_result_ok_contract() -> None:
+    invalid_results: dict[str, object] = {
+        "missing": {},
+        "wrong_type": {"ok": "true"},
+        "false": {
+            "ok": False,
+            "transaction_state": "committed_unverified_source",
+        },
+        "wrong_top_level": [],
+    }
+    for label, worker_result in invalid_results.items():
+        returned, stdout, stderr = _sync_result_probe(worker_result)
+        assert returned.get("status") == "warning", (label, returned)
+        assert "SHIGUAN_AUTOSYNC_OK" not in stdout, (label, stdout)
+        assert "SHIGUAN_OBSIDIAN_SYNC_WARNING" in stderr, (label, stderr)
+    successful_result = {
+        "ok": True,
+        "source_ref": "record://checkpoint-1",
+        "source_revision": "r1",
+        "producer_transaction_id": "producer-tx-1",
+        "sync_transaction_id": "sync-tx-1",
+        "transaction_state": "committed",
+    }
+    returned, stdout, stderr = _sync_result_probe(successful_result)
+    assert returned == {"status": "synced", "result": successful_result}
+    assert "SHIGUAN_AUTOSYNC_OK" in stdout
+    assert stderr == ""
 
 
 def checkpoint_worker(
@@ -94,6 +143,7 @@ def join_processes(processes: list[multiprocessing.Process], timeout: float) -> 
 
 
 def main() -> int:
+    check_sync_worker_result_ok_contract()
     context = multiprocessing.get_context("spawn")
     with tempfile.TemporaryDirectory(prefix="court-shiguan-concurrency-") as temp_dir:
         temp_root = Path(temp_dir)
@@ -232,5 +282,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
