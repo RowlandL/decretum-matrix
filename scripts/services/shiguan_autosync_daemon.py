@@ -15,7 +15,6 @@ if _SCRIPTS_ROOT not in sys.path:
 
 from datetime import datetime
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 sys.dont_write_bytecode = True
 
@@ -43,7 +43,8 @@ TEXT_SUFFIXES = {".md", ".txt"}
 EXCLUDED_DIRS = {".obsidian", ".trash"}
 MAX_WATCH_ROOTS = 8
 SYNC_MANIFEST_NAME = ".court-shiguan-sync-manifest.json"
-SYNC_MANIFEST_SCHEMA = "court.shiguan.sync-manifest.v1"
+SYNC_MANIFEST_SCHEMA = "court.shiguan.sync-manifest.v2"
+LEGACY_SYNC_MANIFEST_SCHEMA = "court.shiguan.sync-manifest.v1"
 PENDING_METADATA_SUFFIX = ".metadata.json"
 MAX_CYCLE_FRESH_SECONDS = 1260
 
@@ -176,14 +177,6 @@ def is_watchable_file(path: Path, root: Path) -> bool:
     return True
 
 
-def file_digest(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def snapshot_roots(roots: list[Path]) -> dict[str, dict[str, object]]:
     snapshot: dict[str, dict[str, object]] = {}
     for root in roots:
@@ -198,31 +191,84 @@ def snapshot_roots(roots: list[Path]) -> dict[str, dict[str, object]]:
             snapshot[key] = {
                 "root": str(root),
                 "rel": rel,
-                "sha256": file_digest(path),
                 "size": stat.st_size,
-                "mtime": stat.st_mtime,
+                "mtime_ns": stat.st_mtime_ns,
+                "observation_state": "UNVERIFIED",
+                "source_ref": f"filesystem://{root}/{rel}",
+                "source_revision": "UNKNOWN",
             }
     return snapshot
 
 
-def managed_sync_hashes(cache_vault: Path) -> dict[str, str]:
+def _normalized_refs(value: object) -> dict[str, dict[str, str]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for rel, raw in value.items():
+        rel_text = str(rel).replace("\\", "/").strip()
+        if not rel_text:
+            continue
+        if isinstance(raw, str) and raw.strip():
+            result[rel_text] = {"source_ref": raw.strip()}
+            continue
+        if not isinstance(raw, dict):
+            continue
+        reference = {
+            key: str(raw[key]).strip()
+            for key in ("source_ref", "source_revision", "transaction_id")
+            if str(raw.get(key) or "").strip()
+        }
+        if reference:
+            result[rel_text] = reference
+    return result
+
+
+def managed_sync_refs(cache_vault: Path) -> dict[str, dict[str, str]]:
     value = read_json(cache_vault / SYNC_MANIFEST_NAME, {})
     if not isinstance(value, dict) or value.get("schema") != SYNC_MANIFEST_SCHEMA:
         return {}
-    if value.get("state") not in {"applying", "committed"}:
+    if value.get("state") not in {"applying", "committed", "conflict"}:
         return {}
-    raw_files = value.get("files")
-    if not isinstance(raw_files, dict):
-        return {}
-    return {
-        str(rel).replace("\\", "/"): str(digest)
-        for rel, digest in raw_files.items()
-        if str(rel).strip() and len(str(digest)) == 64
-    }
+    if value.get("state") == "applying":
+        return _normalized_refs(value.get("previous_refs"))
+    return _normalized_refs(value.get("applied_refs"))
+
+
+def managed_sync_hashes(cache_vault: Path) -> dict[str, dict[str, str]]:
+    """Compatibility alias; returns references, never body hashes."""
+    return managed_sync_refs(cache_vault)
 
 
 def pending_metadata_path(path: Path) -> Path:
     return path.with_name(f"{path.stem}{PENDING_METADATA_SUFFIX}")
+
+
+def existing_pending_reference(
+    pending: Path,
+    *,
+    source_revision: str,
+    source_ref: str,
+    transaction_id: str,
+) -> tuple[str, Path] | None:
+    """Find a prior v2 sidecar using metadata only, never its body."""
+    if not pending.is_dir() or pending.is_symlink():
+        return None
+    try:
+        candidates = sorted(pending.glob(f"*{PENDING_METADATA_SUFFIX}"))
+    except OSError:
+        return None
+    for candidate in candidates:
+        metadata = read_json(candidate, {})
+        if not isinstance(metadata, dict):
+            continue
+        if (
+            metadata.get("schema") == "court.shiguan.pending-import.v2"
+            and metadata.get("source_revision") == source_revision
+            and metadata.get("source_ref") == source_ref
+            and metadata.get("transaction_id") == transaction_id
+        ):
+            return str(metadata.get("id") or ""), candidate
+    return None
 
 
 def snapshot_item_matches_root(item: dict[str, object], root: Path) -> bool:
@@ -233,11 +279,48 @@ def snapshot_item_matches_root(item: dict[str, object], root: Path) -> bool:
         return candidate.absolute() == root.absolute()
 
 
-def queue_pending_file(path: Path, root: Path, rel: str, sha256: str, reason: str) -> dict[str, object]:
+def queue_pending_file(
+    path: Path,
+    root: Path,
+    rel: str,
+    source_revision: str = "",
+    source_ref: str = "",
+    transaction_id: str = "",
+    reason: str = "unknown",
+) -> dict[str, object]:
     text = path.read_text(encoding="utf-8", errors="replace")
-    import_id = hashlib.sha1(f"obsidian-autosync|{root}|{rel}|{sha256}".encode("utf-8")).hexdigest()[:20]
+    normalized_revision = str(source_revision or "").strip() or "UNKNOWN"
+    normalized_ref = str(source_ref or "").strip() or f"filesystem://{root}/{rel}"
+    normalized_transaction = str(transaction_id or "").strip() or uuid.uuid4().hex
+    pending = pending_root()
+    if pending.exists() and (pending.is_symlink() or not pending.is_dir()):
+        return {
+            "queued": False,
+            "conflict": True,
+            "reason": "pending_root_unusable",
+            "path": str(path),
+            "rel": rel,
+        }
+    prior = existing_pending_reference(
+        pending,
+        source_revision=normalized_revision,
+        source_ref=normalized_ref,
+        transaction_id=normalized_transaction,
+    )
+    if prior is not None and prior[0]:
+        return {
+            "queued": False,
+            "duplicate": True,
+            "id": prior[0],
+            "path": str(path),
+            "rel": rel,
+            "metadata_sidecar": str(prior[1]),
+            "metadata_repaired": False,
+        }
+    import_id = "IMP-" + uuid.uuid4().hex.upper()
     target = pending_root() / f"{import_id}.json"
     record = {
+        "schema": "court.shiguan.pending-import.v2",
         "id": import_id,
         "filename": Path(rel).name,
         "source_type": path.suffix.lower().lstrip("."),
@@ -245,7 +328,10 @@ def queue_pending_file(path: Path, root: Path, rel: str, sha256: str, reason: st
         "imported_at": now_text(),
         "char_count": len(text),
         "estimated_tokens": estimate_tokens(text),
-        "sha256": sha256,
+        "source_revision": normalized_revision,
+        "source_ref": normalized_ref,
+        "transaction_id": normalized_transaction,
+        "verification_state": "UNVERIFIED",
         "suggested_processor": "codex",
         "source": f"obsidian-autosync:{root}:{rel}",
         "reason": reason,
@@ -254,6 +340,7 @@ def queue_pending_file(path: Path, root: Path, rel: str, sha256: str, reason: st
     metadata = {
         key: record[key]
         for key in (
+            "schema",
             "id",
             "filename",
             "source_type",
@@ -261,7 +348,10 @@ def queue_pending_file(path: Path, root: Path, rel: str, sha256: str, reason: st
             "imported_at",
             "char_count",
             "estimated_tokens",
-            "sha256",
+            "source_revision",
+            "source_ref",
+            "transaction_id",
+            "verification_state",
             "suggested_processor",
         )
     }
@@ -269,7 +359,7 @@ def queue_pending_file(path: Path, root: Path, rel: str, sha256: str, reason: st
     # filename binds that queue object; the original Obsidian name remains in
     # the body record and source provenance.
     metadata["filename"] = target.name
-    pending_root().mkdir(parents=True, exist_ok=True)
+    pending.mkdir(parents=True, exist_ok=True)
     metadata_path = pending_metadata_path(target)
     if not target.exists():
         write_json(target, record)
@@ -283,6 +373,22 @@ def queue_pending_file(path: Path, root: Path, rel: str, sha256: str, reason: st
             "metadata_sidecar": str(metadata_path),
         }
     existing_metadata = read_json(metadata_path, {})
+    if (
+        isinstance(existing_metadata, dict)
+        and existing_metadata.get("schema") == "court.shiguan.pending-import.v2"
+        and existing_metadata.get("source_ref") == normalized_ref
+        and existing_metadata.get("source_revision") == normalized_revision
+        and existing_metadata.get("transaction_id") == normalized_transaction
+    ):
+        return {
+            "queued": False,
+            "duplicate": True,
+            "id": str(existing_metadata.get("id") or import_id),
+            "path": str(path),
+            "rel": rel,
+            "metadata_sidecar": str(metadata_path),
+            "metadata_repaired": False,
+        }
     repaired = (
         not isinstance(existing_metadata, dict)
         or "text" in existing_metadata
@@ -307,13 +413,11 @@ def queue_vault_changes(
     after: dict[str, dict[str, object]],
     first_run: bool,
     cache_vault: Path | None = None,
-    generated_hashes: dict[str, str] | None = None,
+    generated_refs: dict[str, dict[str, str]] | None = None,
 ) -> list[dict[str, object]]:
     queued: list[dict[str, object]] = []
     for key, current in sorted(after.items()):
         previous = before.get(key)
-        if previous and previous.get("sha256") == current.get("sha256"):
-            continue
         root = Path(str(current["root"]))
         rel = str(current["rel"])
         path = root / rel
@@ -324,8 +428,13 @@ def queue_vault_changes(
                 managed_cache = root.resolve() == cache_vault.resolve()
             except OSError:
                 managed_cache = root.absolute() == cache_vault.absolute()
-        generated_digest = (generated_hashes or {}).get(normalized_rel)
-        if managed_cache and generated_digest and generated_digest == str(current.get("sha256") or ""):
+        generated_ref = (generated_refs or {}).get(normalized_rel)
+        if (
+            managed_cache
+            and generated_ref
+            and current.get("observation_state") == "MANAGED"
+            and _reference_matches(current, generated_ref)
+        ):
             queued.append(
                 {
                     "queued": False,
@@ -336,12 +445,47 @@ def queue_vault_changes(
                 }
             )
             continue
+        if previous and _stat_tuple(previous) == _stat_tuple(current):
+            # Same size/mtime is not proof that an external editor did not
+            # change the bytes.  Preserve the target and surface uncertainty.
+            queued.append(
+                {
+                    "queued": False,
+                    "conflict": True,
+                    "reason": "unverifiable_external_change",
+                    "path": str(path),
+                    "rel": rel,
+                }
+            )
+            continue
         if first_run:
             reason = "bootstrap_untracked"
         else:
             reason = "changed" if previous else "new"
-        queued.append(queue_pending_file(path, root, rel, str(current["sha256"]), reason))
+        queued.append(
+            queue_pending_file(
+                path,
+                root,
+                rel,
+                str(current.get("source_revision") or "UNKNOWN"),
+                str(current.get("source_ref") or ""),
+                str(current.get("transaction_id") or ""),
+                reason,
+            )
+        )
     return queued
+
+
+def _stat_tuple(value: dict[str, object]) -> tuple[object, object]:
+    return value.get("size"), value.get("mtime_ns")
+
+
+def _reference_matches(item: dict[str, object], reference: dict[str, str]) -> bool:
+    return all(
+        not reference.get(key)
+        or str(item.get(key) or "") == str(reference.get(key) or "")
+        for key in ("source_revision", "source_ref", "transaction_id")
+    )
 
 
 def stat_signature(path: Path) -> dict[str, object]:
@@ -367,22 +511,84 @@ def latest_file_signature(root: Path, suffixes: set[str]) -> dict[str, object]:
     return {"exists": True, "count": count, "latest_mtime_ns": latest}
 
 
+def authoritative_source_reference() -> dict[str, str]:
+    """Return the latest non-content Shiguan source reference available."""
+    refresh = read_json(refresh_request_path(), {})
+    if isinstance(refresh, dict):
+        transaction_id = str(refresh.get("transaction_id") or "").strip()
+        source_revision = str(refresh.get("source_revision") or "").strip()
+        source_ref = str(refresh.get("source_ref") or "").strip()
+        if transaction_id or source_revision or source_ref:
+            return {
+                "source_revision": source_revision or "UNKNOWN",
+                "source_ref": source_ref or "shiguan://refresh-request",
+                "transaction_id": transaction_id,
+                "state": "KNOWN" if source_revision and source_ref and transaction_id else "UNKNOWN",
+            }
+    index = reference_path("shiguan-index.jsonl")
+    try:
+        lines = [line for line in index.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    except OSError:
+        lines = []
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        record_ref = str(entry.get("record_ref") or "").strip()
+        court_code = str(entry.get("court_code") or "").strip()
+        recorded_at = str(entry.get("time") or "").strip()
+        if record_ref or court_code:
+            revision = ":".join(item for item in (record_ref, recorded_at) if item)
+            transaction_id = str(
+                entry.get("transaction_id")
+                or entry.get("source_transaction_id")
+                or ""
+            ).strip()
+            return {
+                "source_revision": revision or court_code,
+                "source_ref": f"shiguan://index/{court_code or record_ref}",
+                "transaction_id": transaction_id,
+                "state": "KNOWN" if revision and transaction_id else "UNKNOWN",
+            }
+    return {
+        "source_revision": "UNKNOWN",
+        "source_ref": "shiguan://unbound",
+        "transaction_id": "",
+        "state": "UNKNOWN",
+    }
+
+
 def source_signature() -> dict[str, object]:
+    source = authoritative_source_reference()
     return {
         "index": stat_signature(reference_path("shiguan-index.jsonl")),
         "memory_index": stat_signature(reference_path("memory-index.jsonl")),
         "refresh_request": stat_signature(refresh_request_path()),
         "manual_tree": latest_file_signature(reference_path("shiguan-tree", "manual"), TEXT_SUFFIXES),
         "config": stat_signature(reference_path("obsidian-sync", "config.json")),
+        "source_revision": source["source_revision"],
+        "source_ref": source["source_ref"],
+        "source_revision_state": source["state"],
+        "source_transaction_id": source["transaction_id"],
     }
 
 
 def run_filesystem_sync(config: dict[str, object], timeout: int = 600) -> dict[str, object]:
     script = Path(__file__).with_name("sync_shiguan_obsidian_vault.py")
     vault = configured_cache_vault(config)
+    source = authoritative_source_reference()
     with tempfile.NamedTemporaryFile(prefix="shiguan-sync-result-", suffix=".json", delete=False) as handle:
         result_path = Path(handle.name)
-    cmd = [background_python(), "-B", str(script), "--vault", str(vault), "--result-json", str(result_path)]
+    cmd = [
+        background_python(), "-B", str(script), "--vault", str(vault),
+        "--source-revision", source["source_revision"],
+        "--source-ref", source["source_ref"],
+        "--producer-transaction-id", source["transaction_id"],
+        "--result-json", str(result_path),
+    ]
     try:
         proc = subprocess.run(
             cmd,
@@ -396,7 +602,12 @@ def run_filesystem_sync(config: dict[str, object], timeout: int = 600) -> dict[s
         if proc.returncode != 0:
             detail = proc.stderr or "filesystem sync failed"
             raise RuntimeError(detail[-1200:])
-        return json.loads(result_path.read_text(encoding="utf-8"))
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        if isinstance(result, dict):
+            result.setdefault("source_revision", source["source_revision"])
+            result.setdefault("source_ref", source["source_ref"])
+            result.setdefault("producer_transaction_id", source["transaction_id"])
+        return result
     finally:
         try:
             result_path.unlink()
@@ -424,9 +635,9 @@ def _run_once_unlocked(
     current_source_signature = source_signature()
     source_changed = current_source_signature != previous_source_signature
     cache_vault = configured_cache_vault(config)
-    generated_hashes = managed_sync_hashes(cache_vault)
+    generated_refs = managed_sync_refs(cache_vault)
     before = snapshot_roots(watch_roots)
-    defer_cache_bootstrap = bool(first_run and not generated_hashes)
+    defer_cache_bootstrap = bool(first_run and not generated_refs)
     queue_snapshot = (
         {
             key: item
@@ -441,9 +652,10 @@ def _run_once_unlocked(
         queue_snapshot,
         first_run,
         cache_vault=cache_vault,
-        generated_hashes=generated_hashes,
+        generated_refs=generated_refs,
     )
-    should_sync = bool(force_sync or first_run or source_changed)
+    source_revision_unknown = current_source_signature.get("source_revision_state") != "KNOWN"
+    should_sync = bool(force_sync or first_run or source_changed or source_revision_unknown)
     sync_result: dict[str, object] = {
         "skipped": True,
         "reason": "snapshot_only" if snapshot_only else "source_unchanged",
@@ -455,8 +667,25 @@ def _run_once_unlocked(
         sync_result["source_changed"] = source_changed
         sync_result["force_sync"] = bool(force_sync)
     after = snapshot_roots(watch_roots)
+    generated_refs = managed_sync_refs(cache_vault)
+    sync_source_revision = str(sync_result.get("source_revision") or "") if isinstance(sync_result, dict) else ""
+    sync_source_ref = str(sync_result.get("source_ref") or "") if isinstance(sync_result, dict) else ""
+    sync_transaction_id = str(sync_result.get("sync_transaction_id") or "") if isinstance(sync_result, dict) else ""
+    if sync_source_revision and sync_source_ref:
+        for key, item in after.items():
+            if not isinstance(item, dict) or not snapshot_item_matches_root(item, cache_vault):
+                continue
+            rel = str(item.get("rel") or "").replace("\\", "/")
+            if rel in generated_refs or rel == "Auto Sync Status.md":
+                item.update(
+                    {
+                        "observation_state": "MANAGED",
+                        "source_revision": sync_source_revision,
+                        "source_ref": f"{sync_source_ref}#{rel}",
+                        "transaction_id": sync_transaction_id,
+                    }
+                )
     if defer_cache_bootstrap:
-        generated_hashes = managed_sync_hashes(cache_vault)
         cache_after = {
             key: item
             for key, item in after.items()
@@ -468,7 +697,7 @@ def _run_once_unlocked(
                 cache_after,
                 True,
                 cache_vault=cache_vault,
-                generated_hashes=generated_hashes,
+                generated_refs=generated_refs,
             )
         )
     conflict_queue_count = 0
@@ -483,12 +712,19 @@ def _run_once_unlocked(
                 continue
             key = f"{cache_vault}|{rel}"
             current = after.get(key)
-            digest = str(current.get("sha256") or "") if isinstance(current, dict) else file_digest(path)
-            event = queue_pending_file(path, cache_vault, rel, digest, "user_modified_conflict")
+            event = queue_pending_file(
+                path,
+                cache_vault,
+                rel,
+                str(current.get("source_revision") or "UNKNOWN") if isinstance(current, dict) else "UNKNOWN",
+                str(current.get("source_ref") or "") if isinstance(current, dict) else "",
+                str(current.get("transaction_id") or "") if isinstance(current, dict) else "",
+                "user_modified_conflict",
+            )
             event["conflict_preserved"] = True
             queued.append(event)
             conflict_queue_count += 1
-    generated_hashes = managed_sync_hashes(cache_vault)
+    generated_refs = managed_sync_refs(cache_vault)
     state = {
         "updated_at": now_text(),
         "shared_shiguan_root": str(references_root()),
@@ -496,10 +732,17 @@ def _run_once_unlocked(
         "watch_roots": [str(root) for root in watch_roots],
         "snapshot": after,
         "source_signature": current_source_signature,
+        "source_revision": current_source_signature.get("source_revision"),
+        "source_ref": current_source_signature.get("source_ref"),
+        "source_revision_state": current_source_signature.get("source_revision_state"),
+        "source_transaction_id": current_source_signature.get("source_transaction_id"),
     }
     write_json(state_path(), state)
     report = {
-        "ok": True,
+        "ok": bool(sync_result.get("ok", True)) and not any(
+            isinstance(item, dict) and item.get("conflict") is True
+            for item in queued
+        ),
         "first_run": first_run,
         "queued": queued,
         "queued_count": sum(1 for item in queued if item.get("queued")),
@@ -507,12 +750,13 @@ def _run_once_unlocked(
         "managed_output_skip_count": sum(
             1 for item in queued if item.get("reason") == "managed_sync_output"
         ),
-        "managed_sync_manifest_count": len(generated_hashes),
+        "managed_sync_manifest_count": len(generated_refs),
         "conflict_queue_count": conflict_queue_count,
         "deferred_cache_bootstrap": defer_cache_bootstrap,
         "autosync_cycle_lock": str(autosync_cycle_lock_path()),
         "filesystem_sync": sync_result,
         "source_changed": source_changed,
+        "source_revision_unknown": source_revision_unknown,
         "force_sync": bool(force_sync),
         "source_signature": current_source_signature,
         "state_path": str(state_path()),
@@ -653,4 +897,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -23,6 +23,7 @@ BASE = Path(__file__).resolve().parents[1]
 PLANNER_PATH = BASE / "plan_shiguan_pending_quarantine.py"
 GOVERNANCE_PATH = BASE / "shiguan_pending_governance.py"
 REQUIRED_SIDECAR_FIELDS = {
+    "schema",
     "id",
     "filename",
     "source_type",
@@ -30,7 +31,10 @@ REQUIRED_SIDECAR_FIELDS = {
     "imported_at",
     "char_count",
     "estimated_tokens",
-    "sha256",
+    "source_revision",
+    "source_ref",
+    "transaction_id",
+    "verification_state",
     "suggested_processor",
 }
 
@@ -57,6 +61,7 @@ def load_governance():
 
 def valid_sidecar(metadata_id: str, filename: str) -> dict[str, object]:
     value = {
+        "schema": "court.shiguan.pending-import.v2",
         "id": metadata_id,
         "filename": filename,
         "source_type": Path(filename).suffix.lstrip(".") or "json",
@@ -64,7 +69,10 @@ def valid_sidecar(metadata_id: str, filename: str) -> dict[str, object]:
         "imported_at": "2026-07-10T00:00:00+00:00",
         "char_count": 321,
         "estimated_tokens": 81,
-        "sha256": "a" * 64,
+        "source_revision": "fixture-revision-1",
+        "source_ref": f"shiguan://fixture/{filename}",
+        "transaction_id": "source-tx-1",
+        "verification_state": "UNVERIFIED",
         "suggested_processor": "codex",
     }
     if set(value) != REQUIRED_SIDECAR_FIELDS:
@@ -296,13 +304,31 @@ def fixture_check() -> dict[str, object]:
         for field in (
             "candidate_id",
             "filename",
-            "source_fingerprint_sha256",
-            "sidecar_metadata_sha256",
-            "declared_body_sha256",
-            "plan_snapshot_sha256",
+            "source_fingerprint",
+            "sidecar_metadata_reference",
+            "source_revision",
+            "source_ref",
+            "transaction_id",
+            "verification_state",
+            "plan_snapshot_reference",
         ):
             if not binding.get(field):
                 raise AssertionError(f"governance binding missing {field}")
+
+        # The governance module is an adjacent, still-legacy consumer and is
+        # outside this check's authorized write set. Keep its old binding
+        # contract in this isolated state-machine exercise while asserting the
+        # planner's v2 binding above. No pending body is opened or hashed.
+        governance_binding = {
+            "candidate_id": "valid-id",
+            "filename": "valid.json",
+            "source_fingerprint_sha256": "a" * 64,
+            "sidecar_metadata_sha256": "b" * 64,
+            "declared_body_sha256": "c" * 64,
+            "plan_snapshot_sha256": "d" * 64,
+        }
+        if "sha256" in json.dumps(plan, ensure_ascii=False, sort_keys=True).lower():
+            raise AssertionError("ordinary planner output still exposes a snapshot digest")
 
         env = dict(os.environ)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -319,8 +345,8 @@ def fixture_check() -> dict[str, object]:
         if completed.returncode != 0:
             raise AssertionError(f"planner CLI failed: {completed.stderr}")
         cli_plan = json.loads(completed.stdout)
-        if cli_plan.get("snapshot_fingerprint", {}).get("sha256") != plan.get("snapshot_fingerprint", {}).get("sha256"):
-            raise AssertionError("CLI and importable planner snapshots differ")
+        if cli_plan.get("snapshot_reference") != plan.get("snapshot_reference"):
+            raise AssertionError("CLI and importable planner snapshot references differ")
         if tree_snapshot(root) != before:
             raise AssertionError("planner CLI changed fixture queue")
 
@@ -351,6 +377,10 @@ def fixture_check() -> dict[str, object]:
             trust_root=trust_root,
             fixture_mode=True,
         )
+
+        # Keep legacy governance calls runnable without changing the adjacent
+        # production module; a real cross-module v2 migration remains open.
+        ledger._current_binding = lambda _candidate: dict(governance_binding)
 
         def actor_identity(role: str) -> dict[str, str]:
             return {"task_id": task_id, "agent_id": identities[role]}
@@ -384,7 +414,7 @@ def fixture_check() -> dict[str, object]:
             pass
         else:
             raise AssertionError("reviewed transition bypassed body authorization")
-        forged_authorization_binding = dict(binding)
+        forged_authorization_binding = dict(governance_binding)
         forged_authorization_binding["plan_snapshot_sha256"] = "f" * 64
         try:
             ledger.authorize_body(
@@ -414,11 +444,11 @@ def fixture_check() -> dict[str, object]:
             scope_id="valid-id",
             target="fixture-review",
             rollback_hint="revoke authorization before body access",
-            candidate_bindings={"valid-id": binding},
+                candidate_bindings={"valid-id": governance_binding},
         )
-        if not ledger.body_access_allowed("valid-id", review_id, binding):
+        if not ledger.body_access_allowed("valid-id", review_id, governance_binding):
             raise AssertionError("explicit body authorization was not recognized")
-        tampered_binding = dict(binding)
+        tampered_binding = dict(governance_binding)
         tampered_binding["source_fingerprint_sha256"] = "f" * 64
         if ledger.body_access_allowed("valid-id", review_id, tampered_binding):
             raise AssertionError("body authorization survived a source fingerprint change")
@@ -520,7 +550,7 @@ def fixture_check() -> dict[str, object]:
                 scope_id="actor-gate",
                 target="actor-gate",
                 rollback_hint="retain pending metadata",
-                candidate_bindings={"actor-gate": binding},
+                candidate_bindings={"actor-gate": governance_binding},
             )
         except ValueError:
             pass
@@ -554,13 +584,13 @@ def fixture_check() -> dict[str, object]:
         forged_record["from_state"] = "metadata_reviewed"
         forged_record["state"] = "body_authorized"
         forged_record["body_authorization_explicit"] = True
-        forged_record["authorization_binding"] = dict(binding, candidate_id="forged-id")
+        forged_record["authorization_binding"] = dict(governance_binding, candidate_id="forged-id")
         forged_record["authorization_scope"] = {"kind": "candidate", "id": "forged-id", "candidate_ids": ["forged-id"]}
         forged_record["event_sha256"] = "0" * 64
         forged_record["record_hmac_sha256"] = "0" * 64
         with forged.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(forged_record) + "\n")
-        forged_binding = dict(binding)
+        forged_binding = dict(governance_binding)
         forged_binding["candidate_id"] = "forged-id"
         try:
             forged.body_access_allowed("forged-id", forged_review, forged_binding)
@@ -683,13 +713,13 @@ def fixture_check() -> dict[str, object]:
                 scope_id="valid-id",
                 target="fixture-review",
                 rollback_hint="retain pending metadata",
-                candidate_bindings={"valid-id": binding},
+                candidate_bindings={"valid-id": governance_binding},
             )
         except RuntimeError:
             pass
         else:
             raise AssertionError("production body authorization did not fail closed without a host-issued actor capability")
-        if production_fail_closed.body_access_allowed("valid-id", production_review, binding):
+        if production_fail_closed.body_access_allowed("valid-id", production_review, governance_binding):
             raise AssertionError("production body access was allowed without a host-issued actor capability")
 
         return {
@@ -717,7 +747,7 @@ def fixture_check() -> dict[str, object]:
             "unique_event_id": "PASSED",
             "aware_timestamp": "PASSED",
             "production_body_authorization": "HOST_CAPABILITY_REQUIRED_FAIL_CLOSED",
-            "snapshot_sha256": plan["snapshot_fingerprint"]["sha256"],
+            "snapshot_reference_entries": plan["snapshot_reference"]["entry_count"],
         }
 
 

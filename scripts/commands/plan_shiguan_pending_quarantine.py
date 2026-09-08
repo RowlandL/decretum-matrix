@@ -19,7 +19,6 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 from datetime import datetime, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,10 +32,27 @@ from shiguan_paths import reference_path
 
 
 SCHEMA = "court.shiguan_pending_quarantine_plan.v1"
+SIDECAR_SCHEMA = "court.shiguan.pending-import.v2"
+LEGACY_SIDECAR_SCHEMA = "legacy.court.shiguan.pending-import.v1"
 PENDING_SUFFIXES = {".json", ".md", ".markdown", ".txt"}
 SIDECAR_SUFFIXES = (".metadata.json", ".meta.json")
 MAX_SIDECAR_BYTES = 256 * 1024
 REQUIRED_SIDECAR_FIELDS = {
+    "schema",
+    "id",
+    "filename",
+    "source_type",
+    "status",
+    "imported_at",
+    "char_count",
+    "estimated_tokens",
+    "source_revision",
+    "source_ref",
+    "transaction_id",
+    "verification_state",
+    "suggested_processor",
+}
+LEGACY_SIDECAR_FIELDS = {
     "id",
     "filename",
     "source_type",
@@ -49,7 +65,6 @@ REQUIRED_SIDECAR_FIELDS = {
 }
 ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
 TOKEN_RE = re.compile(r"^[A-Za-z0-9._:+-]{1,64}$")
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 
 
@@ -113,13 +128,18 @@ def stat_fingerprint(path: Path) -> dict[str, object]:
     }
 
 
-def fingerprint_sha256(value: dict[str, object]) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def nonnegative_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def sidecar_metadata_reference(path: Path, fingerprint: dict[str, object]) -> str:
+    return (
+        f"sidecar://{absolute_text(path)}"
+        f"?device={int(fingerprint.get('device') or 0)}"
+        f"&inode={int(fingerprint.get('inode') or 0)}"
+        f"&size={int(fingerprint.get('size_bytes') or 0)}"
+        f"&mtime_ns={int(fingerprint.get('mtime_ns') or 0)}"
+    )
 
 
 def validate_sidecar(value: object, expected_filename: str | None = None) -> list[str]:
@@ -128,6 +148,8 @@ def validate_sidecar(value: object, expected_filename: str | None = None) -> lis
 
     errors: list[str] = []
     keys = {str(key) for key in value}
+    if keys == LEGACY_SIDECAR_FIELDS:
+        return ["legacy_sidecar_schema"]
     missing = sorted(REQUIRED_SIDECAR_FIELDS - keys)
     unexpected = sorted(keys - REQUIRED_SIDECAR_FIELDS)
     if missing:
@@ -168,8 +190,16 @@ def validate_sidecar(value: object, expected_filename: str | None = None) -> lis
         errors.append("invalid_char_count")
     if not nonnegative_int(value.get("estimated_tokens")):
         errors.append("invalid_estimated_tokens")
-    if not isinstance(value.get("sha256"), str) or not SHA256_RE.fullmatch(str(value.get("sha256") or "")):
-        errors.append("invalid_sha256")
+    if value.get("schema") != SIDECAR_SCHEMA:
+        errors.append("invalid_sidecar_schema")
+    if not isinstance(value.get("source_revision"), str) or not str(value.get("source_revision") or "").strip():
+        errors.append("invalid_source_revision")
+    if not isinstance(value.get("source_ref"), str) or not str(value.get("source_ref") or "").strip():
+        errors.append("invalid_source_ref")
+    if not isinstance(value.get("transaction_id"), str) or not str(value.get("transaction_id") or "").strip():
+        errors.append("invalid_transaction_id")
+    if value.get("verification_state") not in {"UNVERIFIED", "CONFLICT", "QUEUED"}:
+        errors.append("invalid_verification_state")
     if not isinstance(value.get("suggested_processor"), str) or not ID_RE.fullmatch(str(value.get("suggested_processor") or "")):
         errors.append("invalid_suggested_processor")
     return errors
@@ -219,9 +249,10 @@ def load_sidecar(
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None, ["sidecar_invalid_utf8_or_json"], fingerprint, ""
     errors = validate_sidecar(value, expected_filename)
+    metadata_reference = sidecar_metadata_reference(path, fingerprint)
     if errors:
-        return None, errors, fingerprint, hashlib.sha256(raw).hexdigest()
-    return dict(value), [], fingerprint, hashlib.sha256(raw).hexdigest()
+        return None, errors, fingerprint, metadata_reference
+    return dict(value), [], fingerprint, metadata_reference
 
 
 def quarantine_target(root: Path, category: str, source: Path) -> Path:
@@ -307,15 +338,19 @@ def body_item(path: Path) -> dict[str, object]:
         reason_codes = ["multiple_sidecars"]
     elif existing:
         candidate = existing[0]
-        value, errors, sidecar_fp, sidecar_content_sha256 = load_sidecar(candidate, path.name)
+        value, errors, sidecar_fp, sidecar_metadata_reference_value = load_sidecar(candidate, path.name)
+        legacy = "legacy_sidecar_schema" in errors
         metadata.update(
             {
-                "status": "valid" if value is not None else "invalid",
+                "status": "valid" if value is not None else ("legacy" if legacy else "invalid"),
                 "id": str((value or {}).get("id") or ""),
                 "sidecar_paths": [absolute_text(candidate)],
                 "sidecar_fingerprints": [sidecar_fp],
-                "sidecar_metadata_sha256": sidecar_content_sha256,
-                "declared_body_sha256": str((value or {}).get("sha256") or ""),
+                "sidecar_metadata_reference": sidecar_metadata_reference_value,
+                "source_revision": str((value or {}).get("source_revision") or ""),
+                "source_ref": str((value or {}).get("source_ref") or ""),
+                "transaction_id": str((value or {}).get("transaction_id") or ""),
+                "verification_state": str((value or {}).get("verification_state") or "UNKNOWN"),
                 "validation_errors": errors,
             }
         )
@@ -323,7 +358,7 @@ def body_item(path: Path) -> dict[str, object]:
             classification = "valid_sidecar"
             reason_codes = ["sidecar_contract_valid"]
         else:
-            classification = "invalid_sidecar"
+            classification = "legacy_sidecar" if legacy else "invalid_sidecar"
             reason_codes = errors or ["sidecar_invalid"]
 
     return {
@@ -434,31 +469,36 @@ def mark_duplicate_ids(items: list[dict[str, object]]) -> list[dict[str, object]
     return duplicate_groups
 
 
-def plan_snapshot_fingerprint(items: list[dict[str, object]]) -> dict[str, object]:
-    basis = []
+def plan_snapshot_reference(items: list[dict[str, object]]) -> dict[str, object]:
+    """Describe the metadata observation without creating a digest identity."""
+
+    observations = []
     for item in items:
         source = item.get("source")
         metadata = item.get("metadata")
         if not isinstance(source, dict) or not isinstance(metadata, dict):
             continue
-        basis.append(
+        observations.append(
             {
                 "filename": source.get("filename"),
-                "fingerprint": source.get("source_fingerprint"),
+                "source_fingerprint": source.get("source_fingerprint"),
                 "classification": item.get("classification"),
                 "metadata_status": metadata.get("status"),
                 "metadata_id": metadata.get("id"),
                 "sidecar_fingerprints": metadata.get("sidecar_fingerprints"),
-                "sidecar_metadata_sha256": metadata.get("sidecar_metadata_sha256"),
-                "declared_body_sha256": metadata.get("declared_body_sha256"),
+                "sidecar_metadata_reference": metadata.get("sidecar_metadata_reference"),
+                "source_revision": metadata.get("source_revision"),
+                "source_ref": metadata.get("source_ref"),
+                "transaction_id": metadata.get("transaction_id"),
+                "verification_state": metadata.get("verification_state"),
             }
         )
-    encoded = json.dumps(basis, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return {
-        "schema": "court.pending_queue_snapshot_fingerprint.v1",
-        "algorithm": "sha256",
+        "schema": "court.pending_queue_snapshot_reference.v1",
         "basis": "filenames_plus_stat_and_sidecar_metadata_only",
-        "sha256": hashlib.sha256(encoded).hexdigest(),
+        "verification_state": "UNVERIFIED_METADATA_ONLY",
+        "entry_count": len(observations),
+        "observations": observations,
     }
 
 
@@ -536,8 +576,7 @@ def build_plan(pending_root: Path) -> dict[str, object]:
     else:
         status = "empty"
 
-    snapshot_fingerprint = plan_snapshot_fingerprint(items)
-    snapshot_sha256 = str(snapshot_fingerprint["sha256"])
+    snapshot_reference = plan_snapshot_reference(items)
     for item in items:
         metadata = item.get("metadata")
         source = item.get("source")
@@ -551,10 +590,13 @@ def build_plan(pending_root: Path) -> dict[str, object]:
         item["governance_binding"] = {
             "candidate_id": str(metadata.get("id") or ""),
             "filename": str(source.get("filename") or ""),
-            "source_fingerprint_sha256": fingerprint_sha256(source_fingerprint),
-            "sidecar_metadata_sha256": str(metadata.get("sidecar_metadata_sha256") or ""),
-            "declared_body_sha256": str(metadata.get("declared_body_sha256") or ""),
-            "plan_snapshot_sha256": snapshot_sha256,
+            "source_fingerprint": source_fingerprint,
+            "sidecar_metadata_reference": str(metadata.get("sidecar_metadata_reference") or ""),
+            "source_revision": str(metadata.get("source_revision") or ""),
+            "source_ref": str(metadata.get("source_ref") or ""),
+            "transaction_id": str(metadata.get("transaction_id") or ""),
+            "verification_state": str(metadata.get("verification_state") or "UNKNOWN"),
+            "plan_snapshot_reference": snapshot_reference,
         }
 
     return {
@@ -581,7 +623,7 @@ def build_plan(pending_root: Path) -> dict[str, object]:
             "quarantine_recommended": quarantine_count,
             "classifications": dict(sorted(classifications.items())),
         },
-        "snapshot_fingerprint": snapshot_fingerprint,
+        "snapshot_reference": snapshot_reference,
         "duplicate_id_groups": duplicate_groups,
         "errors": errors,
         "items": items,
@@ -621,4 +663,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

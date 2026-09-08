@@ -13,7 +13,6 @@ import argparse
 from datetime import datetime
 import json
 from pathlib import Path
-import re
 import sys
 
 sys.dont_write_bytecode = True
@@ -25,7 +24,24 @@ from shiguan_paths import code_root, reference_path
 PENDING_SUFFIXES = {".json", ".md", ".markdown", ".txt"}
 SIDECAR_SUFFIXES = (".metadata.json", ".meta.json")
 MAX_SIDECAR_BYTES = 256 * 1024
+SIDECAR_SCHEMA = "court.shiguan.pending-import.v2"
+LEGACY_SIDECAR_SCHEMA = "legacy.court.shiguan.pending-import.v1"
 SIDECAR_FIELDS = {
+    "schema",
+    "id",
+    "filename",
+    "source_type",
+    "status",
+    "imported_at",
+    "char_count",
+    "estimated_tokens",
+    "source_revision",
+    "source_ref",
+    "transaction_id",
+    "verification_state",
+    "suggested_processor",
+}
+LEGACY_SIDECAR_FIELDS = {
     "id",
     "filename",
     "source_type",
@@ -36,7 +52,6 @@ SIDECAR_FIELDS = {
     "sha256",
     "suggested_processor",
 }
-SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 def valid_sidecar_record(value: object, expected_filename: str | None = None) -> bool:
@@ -49,7 +64,8 @@ def valid_sidecar_record(value: object, expected_filename: str | None = None) ->
     except ValueError:
         imported_time = None
     return bool(
-        isinstance(value.get("id"), str)
+        value.get("schema") == SIDECAR_SCHEMA
+        and isinstance(value.get("id"), str)
         and str(value.get("id")).strip()
         and isinstance(filename, str)
         and filename.strip()
@@ -65,8 +81,13 @@ def valid_sidecar_record(value: object, expected_filename: str | None = None) ->
         and int(value.get("char_count")) >= 0
         and type(value.get("estimated_tokens")) is int
         and int(value.get("estimated_tokens")) >= 0
-        and isinstance(value.get("sha256"), str)
-        and SHA256_RE.fullmatch(str(value.get("sha256")))
+        and isinstance(value.get("source_revision"), str)
+        and str(value.get("source_revision")).strip()
+        and isinstance(value.get("source_ref"), str)
+        and str(value.get("source_ref")).strip()
+        and isinstance(value.get("transaction_id"), str)
+        and str(value.get("transaction_id")).strip()
+        and value.get("verification_state") in {"UNVERIFIED", "CONFLICT", "QUEUED"}
         and isinstance(value.get("suggested_processor"), str)
         and str(value.get("suggested_processor")).strip()
     )
@@ -111,6 +132,12 @@ def load_sidecar(path: Path) -> tuple[dict[str, object] | None, Path | None, str
             value = json.loads(candidate.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None, candidate, "invalid_sidecar"
+        if set(value) == LEGACY_SIDECAR_FIELDS:
+            legacy = dict(value)
+            # Legacy metadata remains readable for bounded metrics only.  Its
+            # body digest is not surfaced or used as an integrity decision.
+            legacy.pop("sha256", None)
+            return legacy, candidate, "legacy"
         if not valid_sidecar_record(value, path.name):
             return None, candidate, "invalid_sidecar"
         return value, candidate, "sidecar"
@@ -196,7 +223,10 @@ def public_record(
         "imported_at": metadata.get("imported_at") or "",
         "char_count": char_count,
         "estimated_tokens": estimated_tokens,
-        "sha256": metadata.get("sha256") or "",
+        "source_revision": metadata.get("source_revision") or "",
+        "source_ref": metadata.get("source_ref") or "",
+        "transaction_id": metadata.get("transaction_id") or "",
+        "verification_state": metadata.get("verification_state") or "UNKNOWN",
         "suggested_processor": metadata.get("suggested_processor") or "codex",
         "record_path": str(path),
         "metadata_status": metadata_status,
@@ -335,6 +365,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-

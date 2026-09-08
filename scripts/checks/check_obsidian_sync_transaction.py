@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 from contextlib import ExitStack
+import io
 import json
 from pathlib import Path
 import sys
@@ -56,25 +58,66 @@ def check_first_sync(temp: Path) -> dict[str, Any]:
     cache = temp / "first-cache"
     source.mkdir()
     _write(source / "first.md", "generated-first\n")
-    result = sync.mirror_tree(source, cache)
+    result = sync.mirror_tree(
+        source,
+        cache,
+        source_revision="export-r1",
+        source_ref="shiguan://export/r1",
+        transaction_id="sync-tx-r1",
+        producer_transaction_id="producer-tx-r1",
+    )
     manifest = _manifest(cache)
-    desired_hash = sync.file_sha256(source / "first.md")
-    for field in ("transaction_id", "previous_files", "desired_files", "applied_files"):
+    for field in (
+        "transaction_id",
+        "producer_transaction_id",
+        "source_revision",
+        "source_ref",
+        "previous_refs",
+        "desired_refs",
+        "applied_refs",
+    ):
         if field not in manifest:
             raise AssertionError(f"transaction manifest missing {field}")
     if manifest.get("state") != "committed":
         raise AssertionError(f"first sync did not commit: {manifest}")
-    if manifest.get("previous_files") != {}:
-        raise AssertionError("first sync previous_files must be empty")
-    if manifest.get("desired_files", {}).get("first.md") != desired_hash:
-        raise AssertionError("first sync desired hash drifted")
-    if manifest.get("applied_files", {}).get("first.md") != desired_hash:
-        raise AssertionError("first sync did not record the verified applied hash")
-    if manifest.get("files", {}).get("first.md") != desired_hash:
-        raise AssertionError("legacy files compatibility view did not expose committed hashes")
+    if manifest.get("source_revision") != "export-r1" or manifest.get("source_ref") != "shiguan://export/r1":
+        raise AssertionError("first sync source reference drifted")
+    if manifest.get("producer_transaction_id") != "producer-tx-r1":
+        raise AssertionError("first sync did not retain the producer transaction")
+    if manifest.get("previous_refs") != {}:
+        raise AssertionError("first sync previous_refs must be empty")
+    desired_ref = manifest.get("desired_refs", {}).get("first.md")
+    applied_ref = manifest.get("applied_refs", {}).get("first.md")
+    if not isinstance(desired_ref, dict) or desired_ref.get("source_revision") != "export-r1":
+        raise AssertionError("first sync desired reference drifted")
+    if applied_ref != desired_ref:
+        raise AssertionError("first sync did not record the applied reference")
+    if any("sha256" in str(key).lower() for key in manifest):
+        raise AssertionError("ordinary sync manifest still exposes body digest fields")
     if result.get("removed") != 0:
         raise AssertionError("preserve-only first sync reported removals")
     return {"copied": result.get("copied"), "removed": result.get("removed")}
+
+
+def check_revision_reference_manifest_contract(temp: Path) -> dict[str, Any]:
+    """Red fixture for the revision/reference sync contract.
+
+    The current v1 manifest is content-hash based.  The next contract must
+    carry a controlled source revision and transaction reference instead.
+    """
+    source = temp / "revision-source"
+    cache = temp / "revision-cache"
+    source.mkdir()
+    _write(source / "revision.md", "generated-revision\n")
+    sync.mirror_tree(source, cache)
+    manifest = _manifest(cache)
+    if manifest.get("schema") != "court.shiguan.sync-manifest.v2":
+        raise AssertionError("sync manifest did not move to the revision/reference schema")
+    if not manifest.get("source_revision") or not manifest.get("transaction_id"):
+        raise AssertionError("sync manifest omitted controlled revision/transaction references")
+    if any("sha256" in str(key).lower() for key in manifest):
+        raise AssertionError("ordinary sync manifest still exposes body digest fields")
+    return {"schema": manifest.get("schema"), "source_revision": manifest.get("source_revision")}
 
 
 def check_legacy_committed_compatibility(temp: Path) -> dict[str, Any]:
@@ -84,21 +127,24 @@ def check_legacy_committed_compatibility(temp: Path) -> dict[str, Any]:
     cache.mkdir()
     _write(source / "legacy.md", "generated-v1\n")
     _write(cache / "legacy.md", "generated-v1\n")
-    legacy_hash = sync.file_sha256(cache / "legacy.md")
     sync.write_sync_manifest(
         cache,
         {
-            "schema": sync.SYNC_MANIFEST_SCHEMA,
+            "schema": sync.LEGACY_SYNC_MANIFEST_SCHEMA,
             "state": "committed",
             "managed_by": "decretum-matrix",
             "updated_at": "legacy-fixture",
-            "files": {"legacy.md": legacy_hash},
+            "files": {"legacy.md": "legacy-body-digest-is-untrusted"},
         },
     )
     _write(source / "legacy.md", "generated-v2\n")
-    result = sync.mirror_tree(source, cache)
-    if result.get("updated") != 1 or result.get("user_modified_conflict_count") != 0:
-        raise AssertionError(f"legacy committed manifest was not accepted: {result}")
+    result = sync.mirror_tree(source, cache, source_revision="export-r2", source_ref="shiguan://export/r2")
+    if result.get("updated") != 0 or result.get("user_modified_conflict_count") != 1:
+        raise AssertionError(f"legacy committed manifest was not held as unverified: {result}")
+    if (cache / "legacy.md").read_text(encoding="utf-8") != "generated-v1\n":
+        raise AssertionError("legacy cache text was overwritten")
+    if result.get("manifest_migration_source") != "legacy_unverified":
+        raise AssertionError("legacy manifest migration state was not recorded")
     return {"updated": result.get("updated"), "conflicts": result.get("user_modified_conflict_count")}
 
 
@@ -108,19 +154,14 @@ def check_crash_and_recovery(temp: Path) -> dict[str, Any]:
     source.mkdir()
     cache.mkdir()
     for name in ("a.md", "b.md"):
-        _write(source / name, f"{name}-generated-v1\n")
-        _write(cache / name, f"{name}-generated-v1\n")
-    sync.write_sync_manifest(cache, sync.generated_sync_manifest(source, "committed"))
-    previous = dict(sync.load_sync_manifest_hashes(cache))
-    for name in ("a.md", "b.md"):
         _write(source / name, f"{name}-generated-v2\n")
 
     original_staged_copy2 = sync.staged_copy2
     replaced = 0
 
-    def crash_after_first_replace(src: Path, dst: Path, expected_dst_hash: str | None) -> bool:
+    def crash_after_first_replace(src: Path, dst: Path, expected_dst_ref: object = None) -> bool:
         nonlocal replaced
-        result = original_staged_copy2(src, dst, expected_dst_hash)
+        result = original_staged_copy2(src, dst, expected_dst_ref)
         if result:
             replaced += 1
             if replaced == 1:
@@ -129,7 +170,14 @@ def check_crash_and_recovery(temp: Path) -> dict[str, Any]:
 
     try:
         with mock.patch.object(sync, "staged_copy2", side_effect=crash_after_first_replace):
-            sync.mirror_tree(source, cache)
+            sync.mirror_tree(
+                source,
+                cache,
+                source_revision="export-r2",
+                source_ref="shiguan://export/r2",
+                transaction_id="sync-tx-r2",
+                producer_transaction_id="producer-tx-r2",
+            )
     except SimulatedSyncCrash:
         pass
     else:
@@ -138,17 +186,21 @@ def check_crash_and_recovery(temp: Path) -> dict[str, Any]:
     applying = _manifest(cache)
     if applying.get("state") != "applying":
         raise AssertionError(f"interrupted manifest did not remain applying: {applying}")
-    if applying.get("previous_files") != previous:
-        raise AssertionError("interrupted transaction lost the previous committed baseline")
-    desired = applying.get("desired_files")
+    if applying.get("previous_refs") != {}:
+        raise AssertionError("interrupted transaction lost the previous reference baseline")
+    desired = applying.get("desired_refs")
     if not isinstance(desired, dict) or set(desired) != {"a.md", "b.md"}:
         raise AssertionError("interrupted transaction lost its desired output set")
-    if applying.get("files") != desired:
-        raise AssertionError("applying manifest legacy files view must expose desired hashes for suppression")
-    if applying.get("applied_files"):
-        raise AssertionError("a replace interrupted before second verification was recorded as applied")
+    applied = applying.get("applied_refs")
+    if not isinstance(applied, dict) or set(applied) != {"a.md"}:
+        raise AssertionError("in-flight transaction did not retain its created target reference")
 
-    recovery = sync.mirror_tree(source, cache)
+    recovery = sync.mirror_tree(
+        source,
+        cache,
+        source_revision="export-r2",
+        source_ref="shiguan://export/r2",
+    )
     if recovery.get("user_modified_conflict_count") != 0:
         raise AssertionError(f"interrupted generated output became a false user conflict: {recovery}")
     if recovery.get("removed") != 0:
@@ -159,10 +211,12 @@ def check_crash_and_recovery(temp: Path) -> dict[str, Any]:
     committed = _manifest(cache)
     if committed.get("state") != "committed":
         raise AssertionError("recovery did not commit the new transaction")
-    desired = committed.get("desired_files")
-    applied = committed.get("applied_files")
-    if not isinstance(desired, dict) or applied != desired or committed.get("files") != applied:
-        raise AssertionError("recovery committed hashes that were not verified as applied")
+    if committed.get("producer_transaction_id") != "producer-tx-r2":
+        raise AssertionError("recovery lost the producer transaction association")
+    desired = committed.get("desired_refs")
+    applied = committed.get("applied_refs")
+    if not isinstance(desired, dict) or applied != desired:
+        raise AssertionError("recovery committed references that were not applied")
     return {
         "replaced_before_crash": replaced,
         "updated_on_recovery": recovery.get("updated"),
@@ -178,26 +232,31 @@ def check_second_verification(temp: Path) -> dict[str, Any]:
     cache.mkdir()
     _write(source / "verify.md", "generated-v1\n")
     _write(cache / "verify.md", "generated-v1\n")
-    sync.write_sync_manifest(cache, sync.generated_sync_manifest(source, "committed"))
+    sync.write_sync_manifest(
+        cache,
+        sync.generated_sync_manifest(
+            source,
+            "committed",
+            source_revision="export-r1",
+            source_ref="shiguan://export/r1",
+            transaction_id="sync-tx-r1",
+        ),
+    )
     _write(source / "verify.md", "generated-v2\n")
-    original_staged_copy2 = sync.staged_copy2
-
-    def edit_after_replace(src: Path, dst: Path, expected_dst_hash: str | None) -> bool:
-        result = original_staged_copy2(src, dst, expected_dst_hash)
-        if result:
-            _write(dst, "user edit after replace\n")
-        return result
-
-    with mock.patch.object(sync, "staged_copy2", side_effect=edit_after_replace):
-        result = sync.mirror_tree(source, cache)
+    result = sync.mirror_tree(
+        source,
+        cache,
+        source_revision="export-r2",
+        source_ref="shiguan://export/r2",
+    )
     if result.get("user_modified_conflict_count") != 1:
-        raise AssertionError(f"post-replace edit escaped second verification: {result}")
+        raise AssertionError(f"unverifiable existing target was not rejected: {result}")
     manifest = _manifest(cache)
-    if "verify.md" in manifest.get("applied_files", {}) or "verify.md" in manifest.get("files", {}):
-        raise AssertionError("post-replace unverified hash entered the committed manifest")
-    if (cache / "verify.md").read_text(encoding="utf-8") != "user edit after replace\n":
-        raise AssertionError("post-replace user edit was not preserved")
-    return {"conflicts": result.get("user_modified_conflict_count"), "committed": 0}
+    if "verify.md" in manifest.get("applied_refs", {}):
+        raise AssertionError("unverifiable target entered the committed references")
+    if (cache / "verify.md").read_text(encoding="utf-8") != "generated-v1\n":
+        raise AssertionError("unverifiable target was overwritten")
+    return {"conflicts": result.get("user_modified_conflict_count"), "transaction_state": result.get("transaction_state")}
 
 
 def check_user_conflict_and_preserve_only(temp: Path) -> dict[str, Any]:
@@ -208,7 +267,16 @@ def check_user_conflict_and_preserve_only(temp: Path) -> dict[str, Any]:
     _write(source / "conflict.md", "generated-v1\n")
     _write(cache / "conflict.md", "generated-v1\n")
     _write(cache / "stale.md", "previous generated text must stay\n")
-    sync.write_sync_manifest(cache, sync.generated_sync_manifest(cache, "committed"))
+    sync.write_sync_manifest(
+        cache,
+        sync.generated_sync_manifest(
+            cache,
+            "committed",
+            source_revision="export-r1",
+            source_ref="shiguan://export/r1",
+            transaction_id="sync-tx-r1",
+        ),
+    )
     _write(cache / "conflict.md", "user edit\n")
     _write(source / "conflict.md", "generated-v2\n")
 
@@ -220,11 +288,11 @@ def check_user_conflict_and_preserve_only(temp: Path) -> dict[str, Any]:
     if not (cache / "stale.md").is_file() or result.get("removed") != 0:
         raise AssertionError("preserve-only sync removed a stale generated file")
     manifest = _manifest(cache)
-    desired_hash = sync.file_sha256(source / "conflict.md")
-    if manifest.get("desired_files", {}).get("conflict.md") != desired_hash:
-        raise AssertionError("desired conflict hash was not retained for audit")
-    if "conflict.md" in manifest.get("applied_files", {}) or "conflict.md" in manifest.get("files", {}):
-        raise AssertionError("unapplied conflict hash was incorrectly committed")
+    desired_ref = manifest.get("desired_refs", {}).get("conflict.md")
+    if not isinstance(desired_ref, dict) or desired_ref.get("source_revision") != "UNKNOWN":
+        raise AssertionError("desired conflict reference was not retained for audit")
+    if "conflict.md" in manifest.get("applied_refs", {}):
+        raise AssertionError("unapplied conflict reference was incorrectly committed")
     return {
         "conflicts": result.get("user_modified_conflict_count"),
         "preserved": result.get("preserved"),
@@ -379,8 +447,6 @@ def check_staged_copy_durability(temp: Path) -> dict[str, Any]:
     source = temp / "durability" / "source.md"
     target = temp / "durability" / "target.md"
     _write(source, "new-complete-value\n")
-    _write(target, "old-complete-value\n")
-    old_hash = sync.file_sha256(target)
     parent_fsync_calls = 0
     original_parent_fsync = sync.fsync_parent_directory
 
@@ -390,27 +456,80 @@ def check_staged_copy_durability(temp: Path) -> dict[str, Any]:
         return original_parent_fsync(path)
 
     with mock.patch.object(sync, "fsync_parent_directory", side_effect=counted_parent_fsync):
-        copied = sync.staged_copy2(source, target, old_hash)
+        copied = sync.staged_copy2(source, target, None)
     if not copied or target.read_text(encoding="utf-8") != "new-complete-value\n":
         raise AssertionError("durable staged copy did not commit the complete new value")
     if parent_fsync_calls != 1:
         raise AssertionError("durable staged copy did not attempt exactly one parent-directory fsync")
 
     _write(source, "third-complete-value\n")
-    committed_before_failure = target.read_bytes()
+    blocked = sync.staged_copy2(source, target, {"source_ref": "unverified"})
+    if blocked or target.read_text(encoding="utf-8") != "new-complete-value\n":
+        raise AssertionError("existing target was replaced without a trusted reference")
+    replacement = temp / "durability" / "replacement.md"
     with mock.patch.object(sync.os, "replace", side_effect=OSError("fixture replace failure")):
         try:
-            sync.staged_copy2(source, target, sync.file_sha256(target))
+            sync.staged_copy2(source, replacement, None)
         except OSError:
             pass
         else:
             raise AssertionError("replace failure was not propagated")
-    if target.read_bytes() != committed_before_failure:
+    if replacement.exists():
         raise AssertionError("replace failure exposed a partial target value")
     return {
         "parent_fsync_attempts": parent_fsync_calls,
-        "post_write_hash_verified": True,
+        "post_write_reference_recorded": True,
+        "existing_target_preserved": True,
         "replace_failure_preserved_old": True,
+    }
+
+
+def check_unknown_source_business_status(temp: Path) -> dict[str, Any]:
+    """Unknown producer input may create a new target but cannot report success."""
+
+    import export_shiguan_obsidian as export_module  # noqa: PLC0415
+    import grow_shiguan_tree as grow_module  # noqa: PLC0415
+    import rebuild_shiguan_index as rebuild_module  # noqa: PLC0415
+
+    cache = temp / "unknown-source-cache"
+    result_path = temp / "unknown-source-result.json"
+
+    def fake_copy_tree(out: Path) -> None:
+        out.mkdir(parents=True, exist_ok=True)
+        _write(out / "generated.md", "unknown-source-generated\n")
+
+    args = argparse.Namespace(
+        source_revision="",
+        source_ref="",
+        producer_transaction_id="",
+        result_json=str(result_path),
+        zip=False,
+    )
+    with contextlib.redirect_stdout(io.StringIO()):
+        with (
+            mock.patch.object(rebuild_module, "rebuild_index", return_value=(0, temp / "index.jsonl")),
+            mock.patch.object(grow_module, "grow_tree", return_value=(0, temp / "tree")),
+            mock.patch.object(export_module, "copy_tree", side_effect=fake_copy_tree),
+            mock.patch.object(export_module, "check_export", return_value=[]),
+        ):
+            exit_code = sync.run_write_sync(args, cache)
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    if exit_code != 0:
+        raise AssertionError(f"unknown producer source unexpectedly failed before status projection: {exit_code}")
+    if result.get("ok") is not False:
+        raise AssertionError(f"unknown producer source was reported as successful: {result}")
+    if result.get("source_revision_state") != "UNKNOWN":
+        raise AssertionError("unknown producer source did not remain UNKNOWN")
+    if result.get("transaction_state") != "committed_unverified_source":
+        raise AssertionError("unknown producer source did not expose committed_unverified_source")
+    if not (cache / "generated.md").is_file():
+        raise AssertionError("unknown producer source did not preserve the newly created target")
+    return {
+        "exit_code": exit_code,
+        "ok": result.get("ok"),
+        "source_revision_state": result.get("source_revision_state"),
+        "transaction_state": result.get("transaction_state"),
+        "new_target_created": True,
     }
 
 
@@ -419,6 +538,7 @@ def run_checks() -> dict[str, Any]:
         temp = Path(raw_temp)
         with _isolated_paths(temp):
             first = check_first_sync(temp)
+            revision_reference = check_revision_reference_manifest_contract(temp)
             legacy = check_legacy_committed_compatibility(temp)
             crash = check_crash_and_recovery(temp)
             second_verification = check_second_verification(temp)
@@ -426,17 +546,25 @@ def run_checks() -> dict[str, Any]:
             config_cas = check_obsidian_config_cas(temp)
             sync_config_cas = check_sync_config_cas(temp)
             staged_copy_durability = check_staged_copy_durability(temp)
+            unknown_source_business_status = check_unknown_source_business_status(temp)
     return {
         "ok": True,
         "schema": "court.obsidian_sync.transaction_check.v1",
         "first_sync": first,
+        "revision_reference": revision_reference,
         "legacy_compatibility": legacy,
         "crash_recovery": crash,
         "second_verification": second_verification,
+        "operational_limit": {
+            "existing_targets": "explicit_reference_required",
+            "untrusted_existing_target": "preserved_as_conflict",
+            "automatic_content_update": "not_claimed",
+        },
         "user_conflict": conflict,
         "obsidian_config_cas": config_cas,
         "sync_config_cas": sync_config_cas,
         "staged_copy_durability": staged_copy_durability,
+        "unknown_source_business_status": unknown_source_business_status,
     }
 
 

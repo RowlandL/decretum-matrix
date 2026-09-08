@@ -13,16 +13,21 @@ sys.dont_write_bytecode = True
 import json
 import os
 from pathlib import Path
-import re
 import stat
 from shiguan_paths import references_root as shared_references_root
 PENDING_IMPORT_METADATA_SUFFIX = ".metadata.json"
 PENDING_IMPORT_METADATA_MAX_BYTES = 256 * 1024
+PENDING_IMPORT_METADATA_SCHEMA = "court.shiguan.pending-import.v2"
+LEGACY_PENDING_IMPORT_METADATA_SCHEMA = "legacy.court.shiguan.pending-import.v1"
 PENDING_IMPORT_METADATA_FIELDS = {
+    "schema", "id", "filename", "source_type", "status", "imported_at", "char_count",
+    "estimated_tokens", "source_revision", "source_ref", "transaction_id",
+    "verification_state", "suggested_processor",
+}
+LEGACY_PENDING_IMPORT_METADATA_FIELDS = {
     "id", "filename", "source_type", "status", "imported_at", "char_count",
     "estimated_tokens", "sha256", "suggested_processor",
 }
-PENDING_IMPORT_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 def import_queue_root() -> Path:
@@ -106,10 +111,17 @@ def pending_import_metadata_path(path: Path) -> Path:
 
 def read_pending_import(path: Path) -> dict[str, object] | None:
     value = _read_strict_sidecar(pending_import_metadata_path(path))
+    if isinstance(value, dict) and set(value) == LEGACY_PENDING_IMPORT_METADATA_FIELDS:
+        # Legacy sidecars remain readable for bounded metrics only.  The old
+        # body digest is deliberately dropped and never used as a verifier.
+        legacy = dict(value)
+        legacy.pop("sha256", None)
+        return legacy
     filename = value.get("filename") if isinstance(value, dict) else None
     if not (
         isinstance(value, dict)
         and set(value) == PENDING_IMPORT_METADATA_FIELDS
+        and value.get("schema") == PENDING_IMPORT_METADATA_SCHEMA
         and isinstance(value.get("id"), str)
         and str(value.get("id")).strip()
         and isinstance(filename, str)
@@ -124,13 +136,28 @@ def read_pending_import(path: Path) -> dict[str, object] | None:
         and int(value.get("char_count")) >= 0
         and type(value.get("estimated_tokens")) is int
         and int(value.get("estimated_tokens")) >= 0
-        and isinstance(value.get("sha256"), str)
-        and PENDING_IMPORT_SHA256_RE.fullmatch(str(value.get("sha256")))
+        and isinstance(value.get("source_revision"), str)
+        and str(value.get("source_revision")).strip()
+        and isinstance(value.get("source_ref"), str)
+        and str(value.get("source_ref")).strip()
+        and isinstance(value.get("transaction_id"), str)
+        and str(value.get("transaction_id")).strip()
+        and value.get("verification_state") in {"UNVERIFIED", "CONFLICT", "QUEUED"}
         and isinstance(value.get("suggested_processor"), str)
         and str(value.get("suggested_processor")).strip()
     ):
         return None
     return value
+
+
+def pending_import_metadata_status(path: Path) -> str:
+    """Classify a sidecar without opening its pending body."""
+    value = _read_strict_sidecar(pending_import_metadata_path(path))
+    if isinstance(value, dict) and set(value) == LEGACY_PENDING_IMPORT_METADATA_FIELDS:
+        return "legacy"
+    if isinstance(value, dict) and value.get("schema") == PENDING_IMPORT_METADATA_SCHEMA:
+        return "invalid_sidecar" if read_pending_import(path) is None else "sidecar"
+    return "unknown"
 
 
 def import_seen_ids() -> set[str]:
@@ -175,10 +202,14 @@ def import_queue_summary(limit: int = 8) -> dict[str, object]:
     seen_ids = import_seen_ids()
     records: list[dict[str, object]] = []
     unknown_metadata_count = 0
+    legacy_metadata_count = 0
     for path in pending_import_files():
+        metadata_status = pending_import_metadata_status(path)
         record = read_pending_import(path)
         if record is None:
             unknown_metadata_count += 1
+            if metadata_status == "legacy":
+                legacy_metadata_count += 1
             record = {
                 "id": path.stem,
                 "filename": path.name,
@@ -187,13 +218,31 @@ def import_queue_summary(limit: int = 8) -> dict[str, object]:
                 "imported_at": "",
                 "char_count": None,
                 "estimated_tokens": None,
-                "sha256": "",
+                "source_revision": "",
+                "source_ref": "",
+                "transaction_id": "",
+                "verification_state": "UNKNOWN",
                 "suggested_processor": "codex",
-                "metadata_status": "unknown",
             }
         else:
             record = dict(record)
-            record["metadata_status"] = "sidecar"
+            if metadata_status == "legacy":
+                legacy_metadata_count += 1
+                record = {
+                    "id": record.get("id") or path.stem,
+                    "filename": record.get("filename") or path.name,
+                    "source_type": record.get("source_type") or path.suffix.lower().lstrip("."),
+                    "status": record.get("status") or "pending",
+                    "imported_at": record.get("imported_at") or "",
+                    "char_count": record.get("char_count"),
+                    "estimated_tokens": record.get("estimated_tokens"),
+                    "source_revision": "",
+                    "source_ref": "",
+                    "transaction_id": "",
+                    "verification_state": "LEGACY_UNVERIFIED",
+                    "suggested_processor": record.get("suggested_processor") or "codex",
+                }
+        record["metadata_status"] = metadata_status
         records.append(record)
     public_records = [public_pending_import(record) for record in records]
     for record in public_records:
@@ -227,6 +276,7 @@ def import_queue_summary(limit: int = 8) -> dict[str, object]:
         "new_known_char_count": new_known_chars,
         "new_char_count_status": new_char_status,
         "unknown_metadata_count": unknown_metadata_count,
+        "legacy_metadata_count": legacy_metadata_count,
         "unknown_estimated_tokens_count": unknown_estimated_tokens_count,
         "unknown_char_count_count": unknown_char_count_count,
         "queue_root": str(import_pending_root()),

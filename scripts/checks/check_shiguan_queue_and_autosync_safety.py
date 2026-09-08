@@ -7,7 +7,6 @@ do not inspect the host pending queue and do not start or stop real daemons.
 from __future__ import annotations
 
 from datetime import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -107,6 +106,7 @@ def check_invalid_sidecar_truth() -> dict[str, object]:
         (pending / "contract-drift.metadata.json").write_text(
             json.dumps(
                 {
+                    "schema": "court.shiguan.pending-import.v2",
                     "id": "contract-drift",
                     "filename": "README.md",
                     "source_type": "md",
@@ -114,7 +114,10 @@ def check_invalid_sidecar_truth() -> dict[str, object]:
                     "imported_at": "2026-07-19T12:00:00",
                     "char_count": 10,
                     "estimated_tokens": 4,
-                    "sha256": "0" * 64,
+                    "source_revision": "",
+                    "source_ref": "",
+                    "transaction_id": "",
+                    "verification_state": "UNKNOWN",
                     "suggested_processor": "codex",
                 }
             ),
@@ -475,21 +478,38 @@ def check_autosync_sidecar_contract() -> dict[str, object]:
         body = "fixture pending body\n"
         source.write_text(body, encoding="utf-8")
         pending = root / "pending"
-        digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
         with mock.patch.object(autosync_daemon, "pending_root", return_value=pending):
             queued = autosync_daemon.queue_pending_file(
                 source,
                 source_root,
                 source.name,
-                digest,
+                "source-r1",
+                "filesystem://fixture/README.md",
+                "cycle-r1",
                 "fixture",
             )
+            replay = autosync_daemon.queue_pending_file(
+                source,
+                source_root,
+                source.name,
+                "source-r1",
+                "filesystem://fixture/README.md",
+                "cycle-r1",
+                "fixture",
+            )
+        require(replay.get("duplicate") is True, "same source reference was not replay-safe")
+        require(replay.get("id") == queued.get("id"), "replay allocated a second pending identity")
         sidecar_path = Path(str(queued["metadata_sidecar"]))
         target_path = pending / f"{queued['id']}.json"
         metadata = json.loads(sidecar_path.read_text(encoding="utf-8"))
         errors = quarantine_plan.validate_sidecar(metadata, target_path.name)
         require(not errors, f"autosync sidecar is not governance-valid: {errors}")
         require(metadata.get("filename") == target_path.name, "sidecar filename is not the pending body filename")
+        require(metadata.get("schema") == "court.shiguan.pending-import.v2", "sidecar schema is not revision/reference based")
+        require(metadata.get("source_revision") == "source-r1", "sidecar source revision drifted")
+        require(metadata.get("source_ref") == "filesystem://fixture/README.md", "sidecar source reference drifted")
+        require(metadata.get("verification_state") == "UNVERIFIED", "sidecar verification state was not explicit")
+        require("sha256" not in metadata, "ordinary pending sidecar still exposes body digest")
         imported_at = datetime.fromisoformat(str(metadata.get("imported_at") or ""))
         require(imported_at.tzinfo is not None, "sidecar imported_at is timezone-naive")
         return {
@@ -500,6 +520,159 @@ def check_autosync_sidecar_contract() -> dict[str, object]:
         }
 
 
+def check_daemon_revision_contract() -> dict[str, object]:
+    """Exercise trusted daemon references and retain the unknown-source red case."""
+    with tempfile.TemporaryDirectory(prefix="court-autosync-revision-") as raw_temp:
+        root = Path(raw_temp)
+        references = root / "references"
+        index = references / "shiguan-index.jsonl"
+        index.parent.mkdir(parents=True)
+        index.write_text(
+            json.dumps(
+                {
+                    "record_ref": "shiguan:record-1",
+                    "court_code": "COURT-20260908-1-ABCD",
+                    "time": "2026-09-08T06:00:00+00:00",
+                    "transaction_id": "source-tx-7",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        cache = root / "cache"
+        source = root / "source"
+        source.mkdir()
+        (source / "generated.md").write_text("generated-v1\n", encoding="utf-8")
+        with mock.patch.object(
+            autosync_daemon,
+            "reference_path",
+            side_effect=lambda *parts: references.joinpath(*parts),
+        ):
+            reference = autosync_daemon.authoritative_source_reference()
+        require(
+            reference
+            == {
+                "source_revision": "shiguan:record-1:2026-09-08T06:00:00+00:00",
+                "source_ref": "shiguan://index/COURT-20260908-1-ABCD",
+                "transaction_id": "source-tx-7",
+                "state": "KNOWN",
+            },
+            f"daemon did not retain the trusted source revision/reference: {reference}",
+        )
+        trusted = reference
+
+        captured: dict[str, object] = {}
+
+        def fake_run(command: list[str], **_: object) -> object:
+            captured["argv"] = list(command)
+            result_path = Path(command[command.index("--result-json") + 1])
+            result_path.write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "source_revision": trusted["source_revision"],
+                        "source_ref": trusted["source_ref"],
+                        "producer_transaction_id": trusted["transaction_id"],
+                        "sync_transaction_id": "sync-tx-1",
+                        "transaction_state": "committed",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return type("Completed", (), {"returncode": 0, "stderr": ""})()
+
+        with (
+            mock.patch.object(autosync_daemon, "configured_cache_vault", return_value=cache),
+            mock.patch.object(autosync_daemon, "authoritative_source_reference", return_value=trusted),
+            mock.patch.object(autosync_daemon, "background_python", return_value="python"),
+            mock.patch.object(autosync_daemon.subprocess, "run", side_effect=fake_run),
+        ):
+            delegated = autosync_daemon.run_filesystem_sync({"cache_vault_path": str(cache)})
+        argv = captured.get("argv")
+        require(isinstance(argv, list), "daemon did not create a filesystem sync argv")
+        require(
+            argv[argv.index("--source-revision") + 1] == trusted["source_revision"]
+            and argv[argv.index("--source-ref") + 1] == trusted["source_ref"]
+            and argv[argv.index("--producer-transaction-id") + 1] == trusted["transaction_id"],
+            "daemon did not pass trusted source references and producer transaction to the sync worker",
+        )
+        require(
+            delegated.get("source_revision") == trusted["source_revision"]
+            and delegated.get("source_ref") == trusted["source_ref"]
+            and delegated.get("producer_transaction_id") == trusted["transaction_id"],
+            "daemon lost trusted source references or producer transaction in the sync result",
+        )
+
+        import sync_shiguan_obsidian_vault as sync_module  # noqa: PLC0415
+
+        sync_module.mirror_tree(
+            source,
+            cache,
+            source_revision=trusted["source_revision"],
+            source_ref=trusted["source_ref"],
+            transaction_id="sync-tx-1",
+            producer_transaction_id=trusted["transaction_id"],
+        )
+        refs = autosync_daemon.managed_sync_refs(cache)
+        target = cache / "generated.md"
+        manifest = json.loads((cache / autosync_daemon.SYNC_MANIFEST_NAME).read_text(encoding="utf-8"))
+        require(
+            manifest.get("producer_transaction_id") == trusted["transaction_id"]
+            and manifest.get("transaction_id") == "sync-tx-1",
+            "sync manifest did not retain separate producer and sync transactions",
+        )
+        stat = target.stat()
+        managed_item = {
+            "root": str(cache),
+            "rel": "generated.md",
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "observation_state": "MANAGED",
+            "source_revision": trusted["source_revision"],
+            "source_ref": f"{trusted['source_ref']}#generated.md",
+            "transaction_id": "sync-tx-1",
+        }
+        reused = autosync_daemon.queue_vault_changes(
+            {"cache|generated.md": dict(managed_item)},
+            {"cache|generated.md": dict(managed_item)},
+            False,
+            cache_vault=cache,
+            generated_refs=refs,
+        )
+        require(
+            len(reused) == 1 and reused[0].get("reason") == "managed_sync_output" and reused[0].get("skipped") is True,
+            f"trusted generated output was not safely reused: {reused}",
+        )
+
+        unknown_item = dict(managed_item)
+        unknown_item.update(
+            {
+                "observation_state": "UNVERIFIED",
+                "source_revision": "UNKNOWN",
+                "source_ref": "filesystem://unknown/generated.md",
+                "transaction_id": "",
+            }
+        )
+        unknown = autosync_daemon.queue_vault_changes(
+            {"cache|generated.md": dict(unknown_item)},
+            {"cache|generated.md": dict(unknown_item)},
+            False,
+            cache_vault=cache,
+            generated_refs=refs,
+        )
+        require(
+            len(unknown) == 1 and unknown[0].get("reason") == "unverifiable_external_change" and unknown[0].get("conflict") is True,
+            f"unknown source was not held as a conflict: {unknown}",
+        )
+        return {
+            "trusted_revision": trusted["source_revision"],
+            "producer_transaction": trusted["transaction_id"],
+            "sync_transaction": "sync-tx-1",
+            "managed_output_reused": True,
+            "unknown_source_conflict": True,
+        }
+
+
 def main() -> int:
     result = {
         "seen_ledger": check_seen_ledger_concurrency(),
@@ -507,6 +680,7 @@ def main() -> int:
         "autosync_health": check_autosync_health_truth(),
         "install_path_convergence": check_install_path_convergence(),
         "autosync_sidecar_contract": check_autosync_sidecar_contract(),
+        "daemon_revision_contract": check_daemon_revision_contract(),
     }
     print(json.dumps({"ok": True, **result}, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
