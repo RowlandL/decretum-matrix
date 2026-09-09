@@ -3872,9 +3872,7 @@ function candidateExecutionEvidence(execution, capture) {
     stderr_ref: capture.stderr_path,
     stderr_bytes: capture.stderr_bytes,
     timed_out: execution.timed_out,
-    signal: execution.signal,
     failure_reason: execution.failure_reason || null,
-    failure_details: execution.failure_details || null,
   };
 }
 
@@ -4701,14 +4699,7 @@ function commandExecution({ entrypoint, command, argv, cwd, result, runner }) {
     stdout,
     stderr,
     timed_out: timedOut,
-    signal: typeof result.signal === "string" ? result.signal : null,
     failure_reason: errorCode || (nonzeroExit ? `EXIT_${result.status}` : null),
-    failure_details:
-      typeof result.error?.message === "string"
-        ? result.error.message
-        : nonzeroExit
-          ? `process exited with ${result.status}`
-          : null,
   };
 }
 

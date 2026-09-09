@@ -565,12 +565,7 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
                     "state": "CANDIDATE_NOT_RELEASED",
                     "release_label": release_label,
                     "source": {"head_commit": source_commit, "tree": source_tree},
-                    "artifacts": [
-                        {
-                            "name": f"decretum-matrix-{release_label}.zip",
-                            "sha256": zip_sha256,
-                        }
-                    ],
+                    "artifacts": [{"name": f"decretum-matrix-{release_label}.zip", "sha256": zip_sha256}],
                 }
             ),
             encoding="utf-8",
@@ -639,20 +634,14 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
         attempt = {
             "schema": "decretum.npm_local_install_candidate_execution.v1",
             "status": "PASSED",
-            "source_commit": source_commit,
-            "artifact_ref": artifact_ref,
-            "build_id": build_id,
-            "receipt_ref": str(receipt_path),
-            "candidate_receipt_ref": str(candidate_receipt_path),
+            **{field: evidence[field] for field in ("source_commit", "artifact_ref", "build_id", "receipt_ref", "candidate_receipt_ref")},
             "public_operation": evidence["execution"],
             "installer": evidence["installer_execution"],
         }
 
         execution_path.write_text(json.dumps(attempt), encoding="utf-8")
 
-        def candidate_result(
-            value: dict[str, object], *, package_sha256: str = zip_sha256
-        ) -> dict[str, object]:
+        def candidate_result(value: dict[str, object], *, package_sha256: str = zip_sha256) -> dict[str, object]:
             return _required_check_result(
                 check,
                 phase="pre-install",
@@ -660,11 +649,7 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
                 manifest_self_test={"status": "PASSED"},
                 package_gate={"status": "PASSED", "sha256": package_sha256},
                 candidate_evidence=value,
-                expected_provenance={
-                    "source_commit": source_commit,
-                    "artifact_ref": artifact_ref,
-                    "build_id": build_id,
-                },
+                expected_provenance={"source_commit": source_commit, "artifact_ref": artifact_ref, "build_id": build_id},
             )
 
         valid = candidate_result(evidence)
@@ -1391,18 +1376,7 @@ def _candidate_receipt_problems(
             problems.append("candidate_source_receipt_tree_mismatch")
     artifacts = candidate_receipt.get("artifacts")
     expected_zip_name = f"decretum-matrix-{release_label}.zip"
-    package_artifact = (
-        next(
-            (
-                item
-                for item in artifacts
-                if isinstance(item, dict) and item.get("name") == expected_zip_name
-            ),
-            None,
-        )
-        if isinstance(artifacts, list)
-        else None
-    )
+    package_artifact = next((item for item in artifacts if isinstance(item, dict) and item.get("name") == expected_zip_name), None) if isinstance(artifacts, list) else None
     if not isinstance(package_artifact, dict):
         problems.append("candidate_source_receipt_zip_missing")
     else:
@@ -1510,17 +1484,10 @@ def _candidate_execution_problems(
                         or attempt.get("installer") != installer_execution
                     ):
                         problems.append("candidate_execution_record_mismatch")
-                    problems.extend(
-                        validate_evidence_provenance(
-                            attempt,
-                            required=("source_commit", "artifact_ref", "build_id"),
-                            expected={
-                                field: record[field]
-                                for field in ("source_commit", "artifact_ref", "build_id")
-                                if isinstance(record.get(field), str)
-                            },
-                        )
-                    )
+                    problems.extend(validate_evidence_provenance(
+                        attempt, required=("source_commit", "artifact_ref", "build_id"),
+                        expected={field: record[field] for field in ("source_commit", "artifact_ref", "build_id") if isinstance(record.get(field), str)},
+                    ))
                     for field in ("receipt_ref", "candidate_receipt_ref"):
                         if attempt.get(field) != record.get(field):
                             problems.append(f"candidate_execution_record_{field}_mismatch")

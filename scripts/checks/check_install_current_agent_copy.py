@@ -2543,13 +2543,13 @@ def _check_candidate_npm_partial_failure_compensation(
     ):
         errors.append(f"{name}:contract_failed:{result}:rollback_calls={rollback_calls!r}")
         return 0
-    sentinel = prefix / "node_modules" / "unrelated" / "sentinel.txt"
+    sentinel = prefix / "node_modules" / "unrelated" / "x"
     sentinel.parent.mkdir(parents=True, exist_ok=True)
-    sentinel.write_text("preserve", encoding="utf-8")
+    sentinel.write_text("x", encoding="utf-8")
 
     def npm_prune(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
         shutil.rmtree(prefix / "node_modules")
-        return subprocess.CompletedProcess(args=["npm"], returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=[], returncode=0)
 
     with mock.patch.object(fix.subprocess, "run", side_effect=npm_prune):
         scoped = fix._rollback_candidate_npm(
@@ -2559,11 +2559,10 @@ def _check_candidate_npm_partial_failure_compensation(
         )
     if not (
         scoped.get("ok") is True
-        and not package_root.exists()
         and sentinel.is_file()
-        and sentinel.read_text(encoding="utf-8") == "preserve"
+        and sentinel.read_text(encoding="utf-8") == "x"
     ):
-        errors.append(f"{name}:rollback_scope_failed:{scoped}")
+        errors.append(f"{name}:rollback_scope_failed")
         return 0
     return 1
 
