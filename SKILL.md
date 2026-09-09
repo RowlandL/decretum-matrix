@@ -30,7 +30,7 @@ Scope: this note applies only to Codex/Claude-style recursive subagent environme
 2. 默认 whole-tree 上限 16（含 root），`max_depth=4`；只有最新用户明确给出更大数量或 `unlimited/解限` 才可提高 ceiling。预算、宿主容量/拒绝、资源压力、层级、写集、preload 与实例追溯仍须有效。
 3. `execution_authority=approval|autonomous|super` 与 `behavior=serial|parallel` 独立。缺哪项分别询问；不得从记忆、旧会话、sandbox、安装意图或运行权限推定。
 4. `super并行` = super + parallel + native。superCC 是独立 runtime/入口，不是第四权；native/superCC 互斥，不探测候选、不切换、不回退。
-5. 普通生产路由为 V2 或 serial。V2 隐藏 model-reserved override fields；子 agente 继承主线程 model/effort，除非 fresh-session worker 有精确 host proof。
+5. 普通生产路由优先使用宿主已证实兼容的层级子官署协议；Codex Multi-Agent V2 只是一个兼容目标，不是跨宿主强制字样。若宿主未暴露相应子 agent 工具或证据链，则使用 serial 或中枢转发并标注 `runtime_degraded`。兼容协议不得外露或强行设置 model-reserved override fields；子 agente 默认继承主线程/主 profile model/effort，除非 fresh-session worker 有精确 host proof。
 6. serial 禁止物理 child 并发，保留 `serial_inline` 官署责任与证据；parallel 使用真实宿主派遣。共享/外部写串行；拒绝、限流或语义漂移即停当前 wave。
 
 ## Normal Startup Entry / Loading Procedure

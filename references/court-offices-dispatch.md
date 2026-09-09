@@ -545,12 +545,13 @@ clarification request and the user's answers as 实录 checkpoints.
   If admission passes but no host-native delivery is attempted, or the host
   rejects delivery, the affected roles are `runtime_degraded`/deferred rather
   than satisfied by additional CLI/script probes.
-- For Codex Multi-Agent V2, `/root/*` is only the collaboration address and the
-  model-reserved spawn schema must keep `agent_type/model/reasoning_effort`
-  hidden. Admission and start record assignment, task focus, complexity, risk,
-  and ambiguity, then calculate `court.office.model_route.v2`. Sol/Terra remain
-  the `ultra` recommendations and Luna remains the `max` recommendation, but
-  the compatible model-visible child inherits the main thread model/effort.
+- For Codex hosts that expose the Multi-Agent V2 compatible spawn schema,
+  `/root/*` is only the collaboration address and the model-reserved spawn
+  schema must keep `agent_type/model/reasoning_effort` hidden. Admission and
+  start record assignment, task focus, complexity, risk, and ambiguity, then
+  calculate `court.office.model_route.v2`. Sol/Terra remain the `ultra`
+  recommendations and Luna remains the `max` recommendation, but the compatible
+  model-visible child inherits the main thread model/effort.
   The bounded spawn message must carry the explicit `role_key`, matching office
   `AGENTS.md` dossier path when useful, governing skill name, and role
   acknowledgement contract. The child is running when its route-id, inheritance
@@ -560,12 +561,15 @@ clarification request and the user's answers as 实录 checkpoints.
   model/effort route with an exact native binary and post-run session evidence;
   it is not a V2 child, `/root/*` identity, or same-session protocol switch. See
   [court-office-model-routing.md](court-office-model-routing.md).
-- Production protocol choice is V2 or `serial`; `auto` binds to the active V2
-  namespace. Ordinary parallel and branch communication use V2; serial creates
-  no child. The former bidirectional V1/V2 switch is deprecated. Keep its code,
-  fixtures, and immutable backups as recovery evidence, but do not select V1,
-  stop the backend, or claim a warm switch unless a newer explicit user decree
-  reopens the capability and fresh host proof passes.
+- Production protocol choice is the active host-compatible hierarchical
+  child-agent protocol or `serial`; `auto` binds to the currently proved
+  compatible namespace. Codex Multi-Agent V2 is one supported compatibility
+  target, not a requirement for non-Codex hosts. Ordinary parallel and branch
+  communication use the proved host protocol; serial creates no child. The
+  former bidirectional V1/V2 switch is deprecated. Keep its code, fixtures, and
+  immutable backups as recovery evidence, but do not select V1, stop the
+  backend, or claim a warm switch unless a newer explicit user decree reopens
+  the capability and fresh host proof passes.
 - Before admission, 尚书省 records a machine-checkable dispatch plan. Every
   selected office entry carries `role`, `office_instance_id`, `office_zh`,
   `duty`, `shard`, `write_set`, `integration_owner`, `direct_superior`,

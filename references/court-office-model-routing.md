@@ -113,12 +113,13 @@ current boundary:
   preserved the initial `collaboration` namespace in all three phases. The
   current host cannot perform the proposed same-session protocol switch.
 
-Consequently, V2 is the production startup protocol. The former command-
-selectable or bidirectional V1/V2 switch is deprecated; V1 code, fixtures,
-historical configuration, and immutable backups remain only as dormant recovery
-evidence and do not authorize production selection. The protocol launcher stays
-fail closed and must not stop the production backend unless a newer explicit
-user decree reopens the capability with fresh proof. Editing startup config
+Consequently, this Codex host treats V2 as the preferred compatible startup
+protocol. The former command-selectable or bidirectional V1/V2 switch is
+deprecated; V1 code, fixtures, historical configuration, and immutable backups
+remain only as dormant recovery evidence and do not authorize production
+selection. The protocol launcher stays fail closed and must not stop the
+production backend unless a newer explicit user decree reopens the capability
+with fresh proof. Editing startup config
 never relabels an already-open session.
 
 ## Verified Fresh-Session Worker Boundary

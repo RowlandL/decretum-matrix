@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "60a02d54d247363c39c0fc316f4197a00896a6e8e7d23be4b197407772cfb2cc",
-      "size": 10776
+      "sha256": "87188418b3ff6c62aad076384b8f622d9b51cc7ad1d04f535399d49e333b504f",
+      "size": 11060
     },
     {
       "mode": "100644",
@@ -465,14 +465,14 @@
     {
       "mode": "100644",
       "path": "references/court-office-model-routing.md",
-      "sha256": "46aab8bba597f72ea4fe991c6d48a66b9aebc77447511ee087f0ee9493af05ff",
-      "size": 8151
+      "sha256": "73227a7041bcdd3893d7efec2811bfc8a6937840531e744873b5344baa839e87",
+      "size": 8183
     },
     {
       "mode": "100644",
       "path": "references/court-offices-dispatch.md",
-      "sha256": "1ecf6d356f6c8c50b07cf262fd8838f6f0261d029879816f84fbab299f632e5a",
-      "size": 70071
+      "sha256": "5aede254e5eadadee2ac994d739e0eac9edaca5700722766e7cacc4fd57b462d",
+      "size": 70322
     },
     {
       "mode": "100644",
@@ -501,8 +501,8 @@
     {
       "mode": "100644",
       "path": "references/court-state-runtime-agents.md",
-      "sha256": "5b07acaba07386ee501843bd21ce967d44178c30ca97fc716245e3f2225e0376",
-      "size": 80190
+      "sha256": "1cd2eeff90efe3472877b307c97ee20792a6ad5ffe25cc9c74c44c26bbe3f031",
+      "size": 80407
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8593410,
+    "payload_bytes": 8594194,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "167d3e636f855bbaf32ef10a7939e1547a8f7d5e349ef826c797f2e7091c0fff",
+    "payload_index_sha256": "6b66ad313e62c34dda828b3dd3ccc2ba8d3996b8426d4bc8461b4314900507a7",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 622
   },

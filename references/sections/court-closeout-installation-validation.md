@@ -52,10 +52,12 @@ the missing prerequisite before full court routing is considered healthy. If
 `find-skills` is missing, report
 `https://www.skills.sh/vercel-labs/skills/find-skills` and
 `npx skills add https://github.com/vercel-labs/skills --skill find-skills`. If
-`agents.max_depth < 4`, V2 cannot be resolved, or the V2 mapping is invalid, run
+`agents.max_depth < 4`, a required Codex V2 compatibility profile cannot be
+resolved, or the V2 mapping is invalid, run
 `python -B scripts/ensure_court_agent_config.py --write --protocol v2` and
-restart Codex to reach the intended startup target. Valid production V2 requires
-total threads 16, hidden spawn metadata, and no legacy `agents.max_threads`.
+restart Codex to reach the intended Codex compatibility target. When that V2
+compatibility target is selected, it requires total threads 16, hidden spawn
+metadata, and no legacy `agents.max_threads`.
 The former bidirectional V1/V2 switch is deprecated; V1 validation fixtures and
 backups are recovery evidence, not a routine production target. Any production
 protocol write requires a byte-for-byte exclusive immutable backup first, with

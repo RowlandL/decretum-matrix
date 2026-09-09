@@ -816,20 +816,21 @@ Portable installs should set the bounded recursion defaults
 `agents.max_depth = 4` and
 `features.multi_agent_v2.max_concurrent_threads_per_session = 16`, with
 explicit budget, risk, and audit constraints; never allow unbounded agent
-trees. Legacy `agents.max_threads` must be absent when Multi-Agent V2 is
-enabled. On a blank or unresolved portable install, run
+trees. Legacy `agents.max_threads` must be absent when the Codex Multi-Agent
+V2 compatibility profile is enabled. On a blank or unresolved portable install, run
 `python -B scripts/ensure_court_agent_config.py --write --protocol v2` from this
-skill directory to establish the preferred portable V2 target in
+skill directory to establish the preferred portable Codex V2 compatibility target in
 `%CODEX_HOME%\config.toml` (`%USERPROFILE%\.codex\config.toml` when
 `CODEX_HOME` is unset), then restart Codex because running sessions may not
 hot-reload agent recursion settings or the reserved spawn schema. The V2 shape
 sets `features.multi_agent_v2.enabled=true` and
 `features.multi_agent_v2.hide_spawn_agent_metadata=true`.
 
-V2 is the production startup protocol. Each production write creates a
-byte-for-byte, exclusive, immutable backup and must preserve the normal
-16-thread default or the current explicit user count, plus the hidden-metadata
-V2 shape without legacy `agents.max_threads`. Record backup
+The Codex V2 compatibility profile is the preferred Codex startup target, not a
+cross-host production requirement. Each production write creates a byte-for-byte,
+exclusive, immutable backup and must preserve the normal 16-thread default or
+the current explicit user count, plus the hidden-metadata compatible shape
+without legacy `agents.max_threads`. Record backup
 path, attributes, and the exact changed keys in shared Shiguan without
 copying the secret-bearing config body. The former bidirectional V1/V2 switch
 is deprecated: retain V1 code, fixtures, prior config, and backups as dormant
@@ -905,12 +906,14 @@ session `turn_context` evidence. It is not a V1/V2 child or same-session switch.
 Full details and the pre-launched superCC boundary are in
 [court-office-model-routing.md](court-office-model-routing.md).
 
-Production routing is V2 or `serial`; `auto` binds to the active V2 namespace.
-Codex 0.144.1 evidence showed that exact UUID resume retains the original tool
-namespace, so the host cannot perform a same-session protocol switch. The old
-V1 probe remains only a compatibility fixture and does not authorize production
-selection. `court_codex_protocol_launcher.py` is retained for audit/recovery but
-the bidirectional-switch path is deprecated and must remain fail closed unless
+Production routing uses the active host-compatible hierarchical child-agent
+protocol or `serial`; on Codex, `auto` binds to the active V2-compatible
+namespace. Codex 0.144.1 evidence showed that exact UUID resume retains the
+original tool namespace, so the host cannot perform a same-session protocol
+switch. The old V1 probe remains only a compatibility fixture and does not
+authorize production selection. `court_codex_protocol_launcher.py` is retained
+for audit/recovery but the bidirectional-switch path is deprecated and must
+remain fail closed unless
 a newer explicit user decree and fresh capability proof reopen it. Its quiet-
 point gate still rejects active/unfinished agents, unmerged messages, followups,
 waits or tool calls, unpersisted goal/task state, unknown capacity or depth, and
