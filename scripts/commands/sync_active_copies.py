@@ -1040,14 +1040,20 @@ def _receipt_selected_installer_request(
             user_data_base() / "hermes" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
         ),
     }
-    if primary not in selected_roots or current_tool not in known_tools:
+    keys = {_path_key(path) for path in selected_roots}
+    pkey = _path_key(primary)
+    if pkey not in keys or current_tool not in known_tools:
         raise ValueError("receipt_installer_primary_or_tool_invalid")
     current = _absolute_no_follow(Path(current_root))
-    if current != known_tools[current_tool] or current not in selected_roots:
+    ckey = _path_key(current)
+    if ckey != _path_key(known_tools[current_tool]) or ckey not in keys:
         raise ValueError("receipt_installer_current_root_invalid")
     explicit_roots = [_absolute_no_follow(Path(value)) for value in explicit]
+    reserved = {pkey, ckey}
     expected_explicit = [
-        path for path in selected_roots if path not in {primary, current}
+        path
+        for path in selected_roots
+        if _path_key(path) not in reserved
     ]
     if {_path_key(path) for path in explicit_roots} != {
         _path_key(path) for path in expected_explicit
@@ -1057,7 +1063,7 @@ def _receipt_selected_installer_request(
         name
         for path in expected_explicit
         for name, known_root in known_tools.items()
-        if path == known_root and name != current_tool
+        if _path_key(path) == _path_key(known_root) and name != current_tool
     ]
     if len(explicit_tools) != len(expected_explicit):
         raise ValueError("receipt_installer_explicit_tool_unknown")

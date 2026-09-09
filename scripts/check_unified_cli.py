@@ -148,6 +148,14 @@ RETIRED_COMPATIBILITY_ENTRYPOINTS = frozenset(
     }
 )
 
+def _pk(path):
+    return os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(path))))
+
+
+def _sp(left, right):
+    return left is not None and _pk(left) == _pk(right)
+
+
 # A+B layering: root-level compatibility shells (and retired real modules that
 # moved into scripts/{checks,commands,services}) must not be discovered as
 # second entrypoints; the canonical module under scripts/<layer>/ is the
@@ -1489,7 +1497,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                 encoding="utf-8",
             )
             selected = launcher._canonical_runtime_root(package_root, home)
-            if selected != canonical:
+            if not _sp(selected, canonical):
                 problems.append("canonical_runtime_not_selected")
             probe_identity = launcher.runtime_identity_probe(
                 package_root,
@@ -1498,7 +1506,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             )
             if (
                 probe_identity.get("schema") != "court.runtime_identity.v1"
-                or probe_identity.get("root") != str(canonical.resolve())
+                or not _sp(probe_identity.get("root"), canonical)
                 or probe_identity.get("source_kind") != "installed"
                 or not probe_identity.get("content_digest")
             ):
@@ -1526,7 +1534,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                 archive.writestr("decretum-matrix/scripts/court_cli.py", cli_payload)
             embedded_expected = launcher._expected_runtime_identity(embedded_package_root)
             if (
-                launcher._canonical_runtime_root(embedded_package_root, home) != canonical
+                not _sp(launcher._canonical_runtime_root(embedded_package_root, home), canonical)
                 or not isinstance(embedded_expected, dict)
                 or embedded_expected.get("source_kind") != "embedded_package"
                 or embedded_expected.get("version") != embedded_version
@@ -1575,7 +1583,9 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             def fake_run_path(path: str, run_name: str | None = None) -> dict[str, object]:
                 nonlocal fallback_cli, normal_cli
                 calls.append("run_path")
-                if "runtime" in path and str(canonical) not in path:
+                if _sp(path, canonical / "scripts" / "court_cli.py"):
+                    normal_cli = path
+                elif "runtime" in path:
                     fallback_cli = path
                 else:
                     normal_cli = path
@@ -1630,7 +1640,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                         f"expected_identity_installed_read_count:{installed_expected_reads}"
                     )
                 if (
-                    selected_root != canonical
+                    not _sp(selected_root, canonical)
                     or selected_identity.get("source_kind") != "installed"
                     or calls
                 ):
@@ -1663,7 +1673,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                         f"expected_identity_fallback_read_count:{fallback_expected_reads}"
                     )
                 if (
-                    selected_root == canonical
+                    _sp(selected_root, canonical)
                     or selected_identity.get("source_kind") != "embedded_cache"
                     or calls != ["release_archive", "extract_runtime"]
                 ):
@@ -1685,7 +1695,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                     source_kind: str,
                 ) -> dict[str, object] | None:
                     nonlocal installed_candidate_reads
-                    if root.resolve() == canonical.resolve() and source_kind == "installed":
+                    if _sp(root, canonical) and source_kind == "installed":
                         installed_candidate_reads += 1
                         return (
                             installed_a
@@ -1709,7 +1719,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                         f"installed_candidate_read_count:{installed_candidate_reads}"
                     )
                 if (
-                    selected_root != canonical
+                    not _sp(selected_root, canonical)
                     or selected_identity != installed_a
                     or calls
                 ):
@@ -1725,7 +1735,7 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
                     problems.append("normal_launcher_polluted_stdout")
                 if calls != ["run_path"]:
                     problems.append("normal_launcher_used_archive_or_cache:" + ",".join(calls))
-                if normal_cli != str(canonical / "scripts" / "court_cli.py"):
+                if not _sp(normal_cli, canonical / "scripts" / "court_cli.py"):
                     problems.append("normal_launcher_not_canonical_cli")
 
                 calls.clear()
@@ -1870,13 +1880,13 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
             os.environ["HOME"] = str(home)
             os.environ["USERPROFILE"] = str(home)
             try:
-                if launcher._canonical_runtime_root(package_root, home=home) != canonical:
+                if not _sp(launcher._canonical_runtime_root(package_root, home=home), canonical):
                     problems.append("committed_binding_not_selected")
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
                     rc = launcher.main(["--help"])
                 normal_cli = calls[-1] if calls else None
-                if rc != 0 or normal_cli != str(canonical / "scripts" / "court_cli.py"):
+                if rc != 0 or not _sp(normal_cli, canonical / "scripts" / "court_cli.py"):
                     problems.append("ordinary_binding_launcher_failed")
                 if output.getvalue():
                     problems.append("ordinary_binding_launcher_polluted_stdout")
