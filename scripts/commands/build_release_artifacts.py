@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Mapping
+import zipfile
 
 sys.dont_write_bytecode = True
 
@@ -221,7 +222,10 @@ def expected_candidate_names(
 
 
 def build_candidate_zip(path: Path) -> bytes:
-    entry_count, zip_count, problems = package_skill.build(path)
+    entry_count, zip_count, problems = package_skill.build(
+        path,
+        payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+    )
     if problems:
         raise ArtifactBuildError("candidate package failed: " + ",".join(problems[:20]))
     if entry_count != zip_count:
@@ -415,7 +419,10 @@ def validate_tagless_candidate_artifacts(
     with tempfile.TemporaryDirectory(prefix="decretum-candidate-validate-") as tmp_text:
         archive_path = Path(tmp_text) / zip_name
         archive_path.write_bytes(zip_bytes)
-        _, package_problems = package_skill.validate_zip(archive_path)
+        _, package_problems = package_skill.validate_zip(
+            archive_path,
+            payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+        )
         payload_problems = release_payload_manifest.validate_zip_payload(archive_path)
     if package_problems or payload_problems:
         raise ArtifactBuildError(
@@ -463,7 +470,10 @@ def validate_candidate_artifacts(
     with tempfile.TemporaryDirectory(prefix="decretum-release-validate-") as tmp_text:
         archive_path = Path(tmp_text) / zip_name
         archive_path.write_bytes(zip_bytes)
-        _, package_problems = package_skill.validate_zip(archive_path)
+        _, package_problems = package_skill.validate_zip(
+            archive_path,
+            payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+        )
         payload_problems = release_payload_manifest.validate_zip_payload(archive_path)
     if package_problems or payload_problems:
         raise ArtifactBuildError(
@@ -535,9 +545,9 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         "canonical_display_name_required": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
         "canonical_current_artifact_required": (
-            release_payload_manifest.RELEASE_LABEL == "beta1.1.1"
+            release_payload_manifest.RELEASE_LABEL == "beta1.1.2"
             and release_payload_manifest.ARTIFACT_NAME
-            == "decretum-matrix-beta1.1.1.zip"
+            == "decretum-matrix-beta1.1.2.zip"
         ),
         "major_release_label_supported": RELEASE_RE.fullmatch("beta1.0.6") is not None,
         "hotfix_release_label_supported": RELEASE_RE.fullmatch("beta1.0.0-hotfix-v2") is not None,
@@ -572,6 +582,27 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         first_bytes = build_candidate_zip(first)
         second_bytes = build_candidate_zip(second)
         tests["two_candidate_builds_have_identical_zip_sha256"] = sha256_bytes(first_bytes) == sha256_bytes(second_bytes)
+        with zipfile.ZipFile(first) as runtime_archive:
+            runtime_members = [
+                info.filename[len(f"{package_skill.ROOT_NAME}/") :]
+                for info in runtime_archive.infolist()
+                if info.filename.startswith(f"{package_skill.ROOT_NAME}/")
+                and not info.is_dir()
+            ]
+            runtime_manifest = json.loads(
+                runtime_archive.read(
+                    f"{package_skill.ROOT_NAME}/release-manifest.json"
+                ).decode("utf-8")
+            )
+        tests["runtime_payload_checker_free"] = not any(
+            package_skill.is_source_only_checker_path(relative)
+            for relative in runtime_members
+        )
+        tests["runtime_manifest_marks_runtime_payload"] = (
+            isinstance(runtime_manifest, dict)
+            and runtime_manifest.get("payload_kind") == package_skill.PAYLOAD_KIND_RUNTIME
+            and runtime_manifest.get("repository_only_files") == []
+        )
 
         zip_name = str(manifest["artifact_name"])
         artifacts = build_candidate_artifacts(
@@ -794,6 +825,7 @@ def build_candidate(out_root: Path, root: Path = ROOT) -> dict[str, object]:
         return {
             "ok": True,
             "kind": "candidate",
+            "payload_kind": package_skill.PAYLOAD_KIND_RUNTIME,
             "state": "CANDIDATE_NOT_RELEASED",
             "reused": True,
             "release_label": release_label,
@@ -825,6 +857,7 @@ def build_candidate(out_root: Path, root: Path = ROOT) -> dict[str, object]:
     return {
         "ok": True,
         "kind": "candidate",
+        "payload_kind": package_skill.PAYLOAD_KIND_RUNTIME,
         "state": "CANDIDATE_NOT_RELEASED",
         "reused": False,
         "release_label": release_label,
@@ -873,6 +906,7 @@ def build_release(
     return {
         "ok": True,
         "kind": "release",
+        "payload_kind": package_skill.PAYLOAD_KIND_RUNTIME,
         "release_label": release_label,
         "final_directory": str(final),
         "artifacts": [

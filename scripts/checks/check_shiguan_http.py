@@ -445,7 +445,7 @@ def run_static_regressions() -> dict[str, object]:
                 ),
                 mock.patch.object(autosync, "source_signature", side_effect=[before_refresh, during_refresh]) as signature,
                 mock.patch.object(autosync, "configured_cache_vault", return_value=temp / "cache"),
-                mock.patch.object(autosync, "managed_sync_hashes", return_value={}),
+                mock.patch.object(autosync, "managed_sync_refs", return_value={}),
                 mock.patch.object(autosync, "snapshot_roots", side_effect=[{}, {}]),
                 mock.patch.object(autosync, "queue_vault_changes", return_value=[]),
                 mock.patch.object(autosync, "run_filesystem_sync", return_value={"ok": True, "removed": 0}),
@@ -480,7 +480,7 @@ def run_static_regressions() -> dict[str, object]:
                 ),
                 mock.patch.object(autosync, "source_signature", return_value=before_refresh),
                 mock.patch.object(autosync, "configured_cache_vault", return_value=temp / "cache"),
-                mock.patch.object(autosync, "managed_sync_hashes", return_value={}),
+                mock.patch.object(autosync, "managed_sync_refs", return_value={}),
                 mock.patch.object(autosync, "snapshot_roots", side_effect=[{}, {}]),
                 mock.patch.object(autosync, "queue_vault_changes", return_value=[]),
                 mock.patch.object(autosync, "run_filesystem_sync", return_value={"ok": True, "removed": 0}),
@@ -819,6 +819,21 @@ def run_static_regressions() -> dict[str, object]:
             }
             if set(sidecar_value) != required_sidecar or "text" in sidecar_value or "raw_text" in sidecar_value:
                 raise AssertionError("pending metadata sidecar contract drifted")
+            autosync_required_sidecar = {
+                "schema",
+                "id",
+                "filename",
+                "source_type",
+                "status",
+                "imported_at",
+                "char_count",
+                "estimated_tokens",
+                "source_revision",
+                "source_ref",
+                "transaction_id",
+                "verification_state",
+                "suggested_processor",
+            }
             sidecar.unlink()
             duplicate = server.import_obsidian({"path": str(source), "commit": True})
             if duplicate.get("queue", {}).get("duplicate_count") != 1 or not sidecar.is_file():
@@ -919,9 +934,10 @@ def run_static_regressions() -> dict[str, object]:
             if stale_check.get("status") != "RUNNING_UNHEALTHY":
                 raise AssertionError("check-only hid a stale but still-running autosync daemon")
 
-            # A daemon restart after the cache copy but before snapshot commit
-            # must not re-import the router's own generated Markdown. A genuine
-            # user edit still differs from the published manifest and must enter
+            # A daemon restart before the manifest commits has no trustworthy
+            # reference for the copied cache file, so it must preserve a
+            # conflict. Once the manifest is committed, the exact managed
+            # output is suppressed while a genuine user edit still enters
             # pending review with a metadata-only sidecar.
             cache_vault = temp / "cache-vault"
             generated_source = temp / "generated-source"
@@ -934,31 +950,43 @@ def run_static_regressions() -> dict[str, object]:
             filesystem_sync.write_sync_manifest(cache_vault, applying_manifest)
             generated_snapshot = autosync.snapshot_roots([cache_vault])
             generated_key = next(iter(generated_snapshot))
-            stale_snapshot = {
-                generated_key: {
-                    **generated_snapshot[generated_key],
-                    "sha256": "0" * 64,
-                }
-            }
+            stale_snapshot = {generated_key: dict(generated_snapshot[generated_key])}
             restart_events = autosync.queue_vault_changes(
                 stale_snapshot,
                 generated_snapshot,
                 False,
                 cache_vault=cache_vault,
-                generated_hashes=autosync.managed_sync_hashes(cache_vault),
+                generated_refs=autosync.managed_sync_refs(cache_vault),
             )
-            if len(restart_events) != 1 or restart_events[0].get("reason") != "managed_sync_output":
-                raise AssertionError("autosync restart re-imported managed cache output")
+            if (
+                len(restart_events) != 1
+                or restart_events[0].get("reason") != "unverifiable_external_change"
+                or restart_events[0].get("conflict") is not True
+                or restart_events[0].get("queued") is not False
+            ):
+                raise AssertionError("autosync restart trusted an uncommitted cache output")
+
+            filesystem_sync.write_sync_manifest(
+                cache_vault,
+                filesystem_sync.generated_sync_manifest(generated_source, "committed"),
+            )
+            committed_refs = autosync.managed_sync_refs(cache_vault)
+            if not committed_refs:
+                raise AssertionError("committed sync manifest did not expose managed references")
 
             bootstrap_note = cache_vault / "user-bootstrap.md"
             bootstrap_note.write_text("pre-existing user note", encoding="utf-8")
             bootstrap_snapshot = autosync.snapshot_roots([cache_vault])
+            for item in bootstrap_snapshot.values():
+                reference = committed_refs.get(str(item.get("rel") or "").replace("\\", "/"))
+                if reference:
+                    item.update({"observation_state": "MANAGED", **reference})
             bootstrap_events = autosync.queue_vault_changes(
                 {},
                 bootstrap_snapshot,
                 True,
                 cache_vault=cache_vault,
-                generated_hashes=autosync.managed_sync_hashes(cache_vault),
+                generated_refs=committed_refs,
             )
             if sum(1 for item in bootstrap_events if item.get("reason") == "managed_sync_output") != 1:
                 raise AssertionError("first-run provenance did not suppress the exact managed output")
@@ -974,7 +1002,7 @@ def run_static_regressions() -> dict[str, object]:
                 autosync.snapshot_roots([bootstrap_inbox]),
                 True,
                 cache_vault=cache_vault,
-                generated_hashes=autosync.managed_sync_hashes(cache_vault),
+                generated_refs=autosync.managed_sync_refs(cache_vault),
             )
             if len(inbox_events) != 1 or not inbox_events[0].get("queued"):
                 raise AssertionError("first-run provenance silently adopted the dedicated inbox")
@@ -1000,14 +1028,21 @@ def run_static_regressions() -> dict[str, object]:
                 autosync.state_path().unlink()
 
             def fake_legacy_sync(_config: dict[str, object]) -> dict[str, object]:
+                manifest = filesystem_sync.generated_sync_manifest(
+                    legacy_source,
+                    "committed",
+                )
                 filesystem_sync.write_sync_manifest(
                     legacy_cache,
-                    filesystem_sync.generated_sync_manifest(legacy_source, "committed"),
+                    manifest,
                 )
                 return {
                     "ok": True,
                     "preserve_only": True,
                     "removed": 0,
+                    "source_revision": manifest["source_revision"],
+                    "source_ref": manifest["source_ref"],
+                    "sync_transaction_id": manifest["transaction_id"],
                     "user_modified_conflicts": [],
                     "user_modified_conflict_count": 0,
                 }
@@ -1040,12 +1075,17 @@ def run_static_regressions() -> dict[str, object]:
             (migration_source / "generated.md").write_text("generated-v2", encoding="utf-8")
             (migration_source / "index.jsonl").write_text('{"v":2}\n', encoding="utf-8")
             migration_result = filesystem_sync.mirror_tree(migration_source, migration_cache)
-            if migration_result.get("updated") != 2 or migration_result.get("user_modified_conflict_count") != 0:
-                raise AssertionError("legacy cache provenance did not permit generated updates")
-            if migration_result.get("manifest_migration_source") != "legacy_autosync_snapshot_and_managed_nontext":
-                raise AssertionError("legacy cache did not record its provenance migration source")
-            if not migration_result.get("legacy_export_marker_removed"):
-                raise AssertionError("legacy managed-export marker was not removed after manifest creation")
+            if (
+                migration_result.get("updated") != 0
+                or migration_result.get("preserved") != 2
+                or migration_result.get("user_modified_conflict_count") != 2
+                or migration_result.get("transaction_state") != "conflict"
+            ):
+                raise AssertionError("legacy cache provenance did not preserve unverified targets")
+            if migration_result.get("manifest_migration_source") != "legacy_autosync_snapshot_unverified":
+                raise AssertionError("legacy cache did not retain its unverified provenance boundary")
+            if migration_result.get("legacy_export_marker_removed"):
+                raise AssertionError("legacy managed-export marker was removed without committed references")
 
             (cache_vault / "generated.md").write_text("user edited note", encoding="utf-8")
             conflict_result = filesystem_sync.mirror_tree(generated_source, cache_vault)
@@ -1059,13 +1099,13 @@ def run_static_regressions() -> dict[str, object]:
                 edited_snapshot,
                 False,
                 cache_vault=cache_vault,
-                generated_hashes=autosync.managed_sync_hashes(cache_vault),
+                generated_refs=autosync.managed_sync_refs(cache_vault),
             )
             if len(edit_events) != 1 or not edit_events[0].get("queued"):
                 raise AssertionError("autosync suppressed a genuine cache-vault edit")
             edit_sidecar = Path(str(edit_events[0].get("metadata_sidecar") or ""))
             edit_metadata = json.loads(edit_sidecar.read_text(encoding="utf-8"))
-            if set(edit_metadata) != required_sidecar or "text" in edit_metadata or "raw_text" in edit_metadata:
+            if set(edit_metadata) != autosync_required_sidecar or "text" in edit_metadata or "raw_text" in edit_metadata:
                 raise AssertionError("autosync pending import omitted its metadata-only sidecar")
 
             json_source = temp / "json-source"
@@ -1079,11 +1119,16 @@ def run_static_regressions() -> dict[str, object]:
                 filesystem_sync.generated_sync_manifest(json_source, "committed"),
             )
             (json_source / "generated.jsonl").write_text('{"version":2}\n', encoding="utf-8")
-            json_update = filesystem_sync.mirror_tree(json_source, json_cache)
-            if json_update.get("updated") != 1 or json_update.get("user_modified_conflict_count") != 0:
-                raise AssertionError("generated JSON/JSONL was not refreshed through the manifest")
-            if (json_cache / "generated.jsonl").read_text(encoding="utf-8") != '{"version":2}\n':
-                raise AssertionError("generated JSON/JSONL cache stayed stale")
+            json_unverified = filesystem_sync.mirror_tree(json_source, json_cache)
+            if (
+                json_unverified.get("updated") != 0
+                or json_unverified.get("preserved") != 1
+                or json_unverified.get("user_modified_conflict_count") != 1
+                or json_unverified.get("transaction_state") != "conflict"
+            ):
+                raise AssertionError("unverified generated JSON/JSONL was not preserved as a conflict")
+            if (json_cache / "generated.jsonl").read_text(encoding="utf-8") != '{"version":1}\n':
+                raise AssertionError("unverified generated JSON/JSONL was overwritten")
             (json_cache / "generated.jsonl").write_text('{"user":"edit"}\n', encoding="utf-8")
             (json_source / "generated.jsonl").write_text('{"version":3}\n', encoding="utf-8")
             json_conflict = filesystem_sync.mirror_tree(json_source, json_cache)
@@ -1096,12 +1141,6 @@ def run_static_regressions() -> dict[str, object]:
             race_cache = temp / "race-cache"
             race_source.mkdir()
             race_cache.mkdir()
-            (race_source / "race.md").write_text("generated-v1", encoding="utf-8")
-            (race_cache / "race.md").write_text("generated-v1", encoding="utf-8")
-            filesystem_sync.write_sync_manifest(
-                race_cache,
-                filesystem_sync.generated_sync_manifest(race_source, "committed"),
-            )
             (race_source / "race.md").write_text("generated-v2", encoding="utf-8")
             original_copy2 = filesystem_sync.shutil.copy2
 
@@ -1113,7 +1152,7 @@ def run_static_regressions() -> dict[str, object]:
             with mock.patch.object(filesystem_sync.shutil, "copy2", side_effect=racing_copy2):
                 race_result = filesystem_sync.mirror_tree(race_source, race_cache)
             if race_result.get("user_modified_conflict_count") != 1:
-                raise AssertionError("hash-to-replace race did not become a user conflict")
+                raise AssertionError("create-only race did not become a user conflict")
             if (race_cache / "race.md").read_text(encoding="utf-8") != "user edit during copy":
                 raise AssertionError("staged sync overwrote an edit made during copy")
 
@@ -1180,7 +1219,7 @@ def run_static_regressions() -> dict[str, object]:
                 status_after,
                 False,
                 cache_vault=status_cache,
-                generated_hashes=autosync.managed_sync_hashes(status_cache),
+                generated_refs=autosync.managed_sync_refs(status_cache),
             )
             if len(status_events) != 1 or not status_events[0].get("queued"):
                 raise AssertionError("status marker user edit was suppressed by filename")
@@ -1394,7 +1433,7 @@ def run_static_regressions() -> dict[str, object]:
         "autosync_metadata_sidecar": True,
         "autosync_stale_pid_not_reused": True,
         "autosync_user_edit_conflict_preserved": True,
-        "autosync_generated_json_refresh": True,
+        "autosync_generated_json_conflict_preserved": True,
         "autosync_first_run_provenance": True,
         "autosync_legacy_cache_bootstrap": True,
         "autosync_legacy_manifest_migration": True,

@@ -10,7 +10,7 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 import argparse
-import hashlib
+import copy
 import json
 import os
 from pathlib import Path
@@ -27,6 +27,7 @@ from shiguan_paths import reference_path
 from court_capability_recruitment import (
     AUTHORITIES,
     SEARCHABLE_CANDIDATE_KINDS,
+    _reference_evidence,
     evaluate_recruitment,
     redact_discovery_query,
 )
@@ -50,30 +51,34 @@ def catalog_path() -> Path:
 
 def parse_manifest_payload(data: object) -> dict[str, object]:
     if not isinstance(data, dict):
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_root_not_object"}
+        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "registry_reference": {}, "error": "manifest_root_not_object"}
     if "capabilities" not in data:
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_capabilities_missing"}
+        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "registry_reference": {}, "error": "manifest_capabilities_missing"}
     records = data.get("capabilities")
     if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_capabilities_not_object_list"}
+        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "registry_reference": {}, "error": "manifest_capabilities_not_object_list"}
     normalized = [dict(record) for record in records]
+    registry_reference = data.get("registry_reference")
+    if not isinstance(registry_reference, Mapping):
+        registry_reference = {}
     return {
         "status": "VALID",
         "state": "EMPTY" if not normalized else "POPULATED",
         "records": normalized,
+        "registry_reference": copy.deepcopy(dict(registry_reference)) if isinstance(registry_reference, Mapping) else {},
         "error": None,
     }
 
 
 def load_manifest_records(path: Path) -> dict[str, object]:
     if not path.exists():
-        return {"status": "MISSING", "state": "MISSING", "records": [], "error": "manifest_missing"}
+        return {"status": "MISSING", "state": "MISSING", "records": [], "registry_reference": {}, "error": "manifest_missing"}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_json_invalid"}
+        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "registry_reference": {}, "error": "manifest_json_invalid"}
     except OSError:
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_unreadable"}
+        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "registry_reference": {}, "error": "manifest_unreadable"}
     return parse_manifest_payload(data)
 
 
@@ -383,7 +388,15 @@ def select_candidates(
     executable_inventory: Mapping[str, object] | None = None,
 ) -> list[dict[str, object]]:
     terms = tokenize(query)
-    source_records = load_records(manifest) if records is None else records
+    manifest_reference: Mapping[str, object] = {}
+    if records is None:
+        source_records = load_records(manifest)
+        loaded_manifest = load_manifest_records(manifest)
+        loaded_reference = loaded_manifest.get("registry_reference", {})
+        if isinstance(loaded_reference, Mapping):
+            manifest_reference = loaded_reference
+    else:
+        source_records = records
     ranked: list[tuple[int, dict[str, object]]] = []
     for record in source_records:
         score = score_record(record, terms)
@@ -394,15 +407,12 @@ def select_candidates(
     for score, record in ranked[:top]:
         fit = local_fit_evidence(record, terms)
         path_text = str(record.get("path", ""))
-        try:
-            content_hash = hashlib.sha256(Path(path_text).read_bytes()).hexdigest()
-        except OSError:
-            content_hash = ""
         verification = local_verification_evidence(
             record,
             source_roots=source_roots,
             executable_inventory=executable_inventory,
         )
+        reference = _reference_evidence(record, source_roots or {}, manifest_reference)
         source = str(record.get("source", ""))
         trusted_local_source = verification["verification_status"] == "VERIFIED_LOCAL"
         ambiguous = record.get("requires_review") is True
@@ -423,8 +433,7 @@ def select_candidates(
                 "kind": record.get("kind", ""),
                 "name": record.get("name", ""),
                 "source": source,
-                "immutable_ref": f"sha256:{content_hash}" if content_hash else "",
-                "content_hash": content_hash,
+                **reference,
                 "court_units": record.get("court_units", []),
                 "primary_fit": record.get("primary_fit", []),
                 "relative_path": record.get("relative_path", ""),
@@ -501,37 +510,6 @@ def _resolved_record_path(record: Mapping[str, object], source_roots: Mapping[st
     return next((candidate for candidate in candidates if candidate.exists()), None)
 
 
-def _hash_evidence(record: Mapping[str, object], source_roots: Mapping[str, object]) -> dict[str, object]:
-    declared = str(record.get("content_hash") or "").strip().casefold()
-    immutable_ref = str(record.get("immutable_ref") or "").strip().casefold()
-    immutable_hash = immutable_ref.removeprefix("sha256:") if immutable_ref.startswith("sha256:") else ""
-    declared_conflict = bool(declared and immutable_hash and declared != immutable_hash)
-    expected = declared or immutable_hash
-    path = _resolved_record_path(record, source_roots)
-    actual = ""
-    if path is not None and path.is_file():
-        try:
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError:
-            actual = ""
-    if declared_conflict:
-        status = "DECLARED_CONFLICT"
-    elif expected and actual:
-        status = "MATCH" if expected == actual else "MISMATCH"
-    elif expected:
-        status = "SOURCE_UNAVAILABLE"
-    elif actual:
-        status = "ACTUAL_ONLY"
-    else:
-        status = "UNAVAILABLE"
-    return {
-        "hash_status": status,
-        "declared_content_hash": expected,
-        "observed_content_hash": actual,
-        "immutable_ref": f"sha256:{actual}" if actual else immutable_ref,
-    }
-
-
 def _version_evidence(record: Mapping[str, object]) -> dict[str, object]:
     declared = str(record.get("version") or "").strip()
     observed = str(record.get("observed_version") or record.get("current_version") or "").strip()
@@ -565,6 +543,7 @@ def route_registry_first(
     state = _normalized_route_state(manifest_state)
     selected: dict[str, object] | None = None
     considered: list[dict[str, object]] = []
+    loaded: dict[str, object] = {}
     fallback_reason: str | None = state if state in {"missing", "stale", "corrupt"} else None
 
     if fallback_reason is None:
@@ -575,6 +554,9 @@ def route_registry_first(
         else:
             terms = tokenize(safe_query)
             records = [item for item in loaded.get("records", []) if isinstance(item, dict)]
+            registry_reference = loaded.get("registry_reference", {})
+            if not isinstance(registry_reference, Mapping):
+                registry_reference = {}
             ranked = sorted(
                 ((score_record(record, terms), record) for record in records),
                 key=lambda item: (-item[0], str(item[1].get("kind", "")), str(item[1].get("name", ""))),
@@ -593,13 +575,13 @@ def route_registry_first(
                     executable_inventory=executable_inventory,
                 )
                 compatibility = _tool_compatibility(record, current_tool)
-                hash_evidence = _hash_evidence(record, source_roots)
+                reference = _reference_evidence(record, source_roots, registry_reference)
                 version_evidence = _version_evidence(record)
                 stale = (
                     record.get("stale") is True
                     or str(record.get("state") or "").casefold() == "stale"
-                    or record.get("hash_drift") is True
-                    or hash_evidence["hash_status"] in {"MISMATCH", "DECLARED_CONFLICT", "SOURCE_UNAVAILABLE"}
+                    or record.get("reference_drift") is True
+                    or reference["reference_status"] == "REFERENCE_CONFLICT"
                     or version_evidence["version_status"] == "MISMATCH"
                 )
                 stale_match = stale_match or stale
@@ -625,7 +607,7 @@ def route_registry_first(
                     "registry_evidence": list(record.get("evidence", [])) if isinstance(record.get("evidence", []), list) else [],
                     **verification,
                     **compatibility,
-                    **hash_evidence,
+                    **reference,
                     **version_evidence,
                     **fit,
                 }
@@ -645,6 +627,7 @@ def route_registry_first(
             "current_tool": _tool_id(current_tool),
             "reason": fallback_reason,
             "source_roots": source_roots,
+            "registry_reference": copy.deepcopy(loaded.get("registry_reference", {})),
             "limit": 1,
             "offline": True,
             "allow_write": False,
@@ -661,6 +644,7 @@ def route_registry_first(
         "current_tool": _tool_id(current_tool),
         "registry_path": str(manifest),
         "manifest_state": state,
+        "registry_reference": copy.deepcopy(loaded.get("registry_reference", {})),
         "selection_source": "registry" if selected is not None else "bounded_discovery",
         "fallback_reason": fallback_reason,
         "selected_candidate": selected,
@@ -697,7 +681,10 @@ def build_recruitment_next_action(
                 "name": candidate.get("name", "unnamed"),
                 "source": candidate.get("source", "unknown"),
                 "immutable_ref": candidate.get("immutable_ref", ""),
-                "content_hash": candidate.get("content_hash", ""),
+                "source_path": candidate.get("source_path") or candidate.get("path", ""),
+                "registry_generation": candidate.get("registry_generation", ""),
+                "installation_binding": candidate.get("installation_binding"),
+                "refresh_transaction": candidate.get("refresh_transaction"),
                 "verified": gate_passed and candidate.get("verification_status") == "VERIFIED_LOCAL",
                 "trusted": candidate.get("trusted") is True,
                 "meets_requirements": (
@@ -898,6 +885,77 @@ def run_self_test() -> dict[str, object]:
             "disabled", 1, root / "unused.json", records=[disabled], source_roots=roots,
         )
         assert selected[0]["dispatchable"] is False
+        fixture_home = root / "home"
+        canonical_root = fixture_home / ".agents" / "skills" / "decretum-matrix"
+        canonical_root.mkdir(parents=True)
+        (canonical_root / "SKILL.md").write_text(
+            "---\nname: fixture\ndescription: fixture\n---\n", encoding="utf-8"
+        )
+        source_commit = "a" * 40
+        installation_binding = {
+            "schema": "court.installation_binding.v2",
+            "status": "COMMITTED",
+            "completion": "COMMITTED",
+            "source_commit": source_commit,
+            "release_label": "beta1.1.2",
+            "artifact_ref": f"release/fixture.zip@{source_commit}",
+            "build_id": f"beta1.1.2:{source_commit}:fixture-tree",
+            "installation_id": "install:fixture",
+            "generation": 1,
+            "canonical_root": str(canonical_root),
+            "selected_roots": [str(canonical_root)],
+            "provenance_receipt_ref": "candidate:fixture",
+            "transaction_id": "install-transaction:fixture",
+            "rollback_ref": "rollback:fixture",
+        }
+        refresh_transaction = {
+            "schema": "court.capability.refresh_transaction.v1",
+            "status": "COMMITTED",
+            "transaction_id": "refresh:fixture",
+            "registry_generation": "registry:fixture",
+            "source_paths": ["SKILL.md"],
+            "installation_id": "install:fixture",
+            "installation_transaction_id": "install-transaction:fixture",
+        }
+        registry_reference = {
+            "schema": "court.capability.registry_reference.v1",
+            "status": "COMMITTED",
+            "immutable_ref": source_commit,
+            "registry_generation": "registry:fixture",
+            "source_paths": ["SKILL.md"],
+            "installation_binding": installation_binding,
+            "refresh_transaction": refresh_transaction,
+        }
+        record = {
+            "source": "local_skill",
+            "path": "SKILL.md",
+            "source_path": "SKILL.md",
+            "immutable_ref": source_commit,
+            "registry_generation": "registry:fixture",
+            "installation_binding": installation_binding,
+            "refresh_transaction": refresh_transaction,
+        }
+        reference = _reference_evidence(
+            record,
+            {"local_skill": (canonical_root,)},
+            registry_reference,
+            home_root=fixture_home,
+        )
+        assert reference["reference_errors"] == []
+        external_binding = dict(installation_binding)
+        external_binding["canonical_root"] = str(root / "external" / "canonical")
+        external_binding["selected_roots"] = [str(root / "external" / "selected")]
+        external_reference = dict(registry_reference)
+        external_reference["installation_binding"] = external_binding
+        external_record = dict(record)
+        external_record["installation_binding"] = external_binding
+        external_evidence = _reference_evidence(
+            external_record,
+            {"local_skill": (canonical_root,)},
+            external_reference,
+            home_root=fixture_home,
+        )
+        assert "INSTALLATION_BINDING_CANONICAL_ROOT_INVALID" in external_evidence["reference_errors"]
     return {
         "ok": True,
         "shared_shiguan_path_error": True,
@@ -905,6 +963,7 @@ def run_self_test() -> dict[str, object]:
         "require_dispatchable_fail_closed": True,
         "plugin_skill_verified": True,
         "disabled_non_dispatchable": True,
+        "managed_binding_reference_coordinates": True,
     }
 
 
@@ -957,6 +1016,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-

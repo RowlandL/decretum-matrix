@@ -28,6 +28,7 @@ import tempfile
 from typing import Any, Callable
 from unittest import mock
 import zlib
+import zipfile
 
 sys.dont_write_bytecode = True
 Payload = dict[str, object]
@@ -1420,6 +1421,7 @@ def _invoke(
     install_transaction_adapter: object | None = None,
     platform_context: Payload | None = None,
     source_package_sha256: object | None = None,
+    installation_binding: Payload | None = None,
 ) -> tuple[Payload | None, str | None]:
     optional: Payload = {}
     if blank_host_configuration is not None:
@@ -1432,6 +1434,8 @@ def _invoke(
         optional["platform_context"] = platform_context
     if source_package_sha256 is not None:
         optional["source_package_sha256"] = source_package_sha256
+    if installation_binding is not None:
+        optional["installation_binding"] = installation_binding
     try:
         raw = install(
             source_root=source_root,
@@ -1867,7 +1871,7 @@ def _check_tx_cases(
 
 
 def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
-    name = "npm_blank_host_postinstall_installs_physical_authority"
+    name = "npm_postinstall_is_explicitly_disabled_without_mutation"
     launcher_path = ROOT / "bin" / "decretum-matrix.py"
     spec = importlib.util.spec_from_file_location(
         "decretum_matrix_npm_postinstall_fixture", launcher_path
@@ -1881,11 +1885,6 @@ def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
     except Exception as exc:
         errors.append(f"{name}:launcher_import_failed:{type(exc).__name__}:{exc}")
         return 0
-    run = getattr(module, "_run_postinstall", None)
-    if not callable(run):
-        errors.append(f"{name}:postinstall_callable_missing")
-        return 0
-
     home = temp_root / _fixture_slug(name) / "home"
     local = home / "AppData" / "Local"
     roaming = home / "AppData" / "Roaming"
@@ -1917,32 +1916,18 @@ def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
                 "USERPROFILE": str(home),
             }
         )
-        digest = hashlib.sha256(b"npm-postinstall-fixture").hexdigest()
-        with redirect_stdout(io.StringIO()):
-            returncode = run(ROOT, digest)
-    except Exception as exc:
-        receipts = list(
-            (
-                home
-                / ".agents"
-                / "install-receipts"
-                / "decretum-matrix"
-            ).glob("npm-postinstall-*.json")
-        )
-        detail = ""
-        if len(receipts) == 1:
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
-                failed_receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
-                detail = json.dumps(
-                    failed_receipt.get("bootstrap"),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-            except (OSError, json.JSONDecodeError):
-                detail = receipts[0].read_text(encoding="utf-8")[-6000:]
-        errors.append(
-            f"{name}:execution_failed:{type(exc).__name__}:{exc}:{detail}"
-        )
+                module.main(["--npm-postinstall"])
+            except Exception as exc:
+                if type(exc).__name__ != "LauncherError" or str(exc) != "npm_postinstall_disabled":
+                    errors.append(
+                        f"{name}:wrong_rejection:{type(exc).__name__}:{exc}"
+                    )
+            else:
+                errors.append(f"{name}:postinstall_was_accepted")
+    except Exception as exc:
+        errors.append(f"{name}:execution_failed:{type(exc).__name__}:{exc}")
         return 0
     finally:
         for key, value in saved.items():
@@ -1952,40 +1937,608 @@ def _check_npm_postinstall_fixture(temp_root: Path, errors: list[str]) -> int:
                 os.environ[key] = value
 
     canonical = home / ".agents" / "skills" / "decretum-matrix"
-    references = home / ".agents" / "court-shiguan" / "decretum-matrix" / "references"
-    previous = home / ".agents" / "court-shiguan" / "court-capability-router" / "references"
-    local_legacy = local / "court-shiguan" / "court-capability-router" / "references"
-    receipt = (
+    references = home / ".agents" / "court-shiguan" / "decretum-matrix"
+    tool_dir = home / ".tools"
+    receipt_dir = home / ".agents" / "install-receipts"
+    if any(path.exists() or path.is_symlink() for path in (canonical, references, tool_dir, receipt_dir)):
+        errors.append(f"{name}:postinstall_mutated_host")
+        return 0
+    return 1
+
+
+def _check_candidate_binding_provenance_cases(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """Require a clean, candidate-backed source before producing binding metadata."""
+
+    name = "candidate_binding_provenance_contract"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+
+    root = temp_root / _fixture_slug(name)
+    source = root / "source"
+    package_root = root / "npm-prefix" / "node_modules" / "@rowlandl" / "decretum-matrix"
+    release_root = package_root / "release"
+    source.mkdir(parents=True, exist_ok=True)
+    release_root.mkdir(parents=True, exist_ok=True)
+    release_label = "beta1.1.2"
+    artifact_name = f"decretum-matrix-{release_label}.zip"
+    receipt_name = f"decretum-matrix-{release_label}.candidate-receipt.json"
+    _write_files(
+        source,
+        {
+            "VERSION": f"{release_label}\n",
+            "SKILL.md": "# candidate source\n",
+            "release-manifest.json": json.dumps(
+                {
+                    "schema": "court.release_manifest.v2",
+                    "release_label": release_label,
+                    "version_core": "1.1.2",
+                    "channel": "beta",
+                    "artifact_name": artifact_name,
+                    "expected_final_tag": f"refs/tags/{release_label}",
+                },
+                sort_keys=True,
+            )
+            + "\n",
+        },
+    )
+    source_git_environment = {
+        **os.environ,
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=source,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            env=source_git_environment,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"git {' '.join(args)}:{result.stderr.strip()}")
+        return result.stdout.strip()
+
+    try:
+        git("init", "-q")
+        git("config", "user.name", "Decretum Candidate Fixture")
+        git("config", "user.email", "candidate@example.invalid")
+        git("add", ".")
+        git("commit", "-q", "-m", "candidate source")
+        source_commit = git("rev-parse", "HEAD")
+        source_tree = git("rev-parse", "HEAD^{tree}")
+        (source / "SKILL.md").write_text("# dirty candidate source\n", encoding="utf-8")
+    except Exception as exc:
+        errors.append(f"{name}:git_fixture:{type(exc).__name__}:{exc}")
+        return 0
+
+    def package_json(
+        *,
+        package_release_label: str = release_label,
+        artifact_ref: str | None = None,
+    ) -> Payload:
+        resolved_artifact_ref = artifact_ref or f"release/{artifact_name}@{source_commit}"
+        build_id = f"{package_release_label}:{source_commit}:{source_tree}"
+        return {
+            "name": "@rowlandl/decretum-matrix",
+            "version": "1.1.2-beta.0.local",
+            "bin": {"decretum-matrix": "bin/decretum-matrix.js"},
+            "decretumMatrix": {
+                "schema": "decretum.npm_local_install_candidate.v1",
+                "candidate": "local-install",
+                "payloadKind": "runtime",
+                "private": True,
+                "publication": "FORBIDDEN",
+                "releaseLabel": package_release_label,
+                "artifactRef": resolved_artifact_ref,
+                "buildId": build_id,
+                "candidateReceipt": f"release/{receipt_name}",
+                "source": {
+                    "commit": source_commit,
+                    "tree": source_tree,
+                    "tag": None,
+                    "tagRef": None,
+                },
+                "installationBinding": {
+                    "schema": "court.installation_binding.v2",
+                    "source_commit": source_commit,
+                    "release_label": package_release_label,
+                    "artifact_ref": resolved_artifact_ref,
+                    "build_id": build_id,
+                },
+                "cli": {
+                    "entrypoint": "bin/decretum-matrix.js",
+                    "pythonBootstrap": "bin/decretum-matrix.py",
+                    "installLifecycleScripts": False,
+                    "postinstallContract": "disabled_explicit_installer_required",
+                },
+            },
+        }
+
+    (package_root / "bin").mkdir(parents=True, exist_ok=True)
+    (package_root / "bin" / "decretum-matrix.js").write_text(
+        "#!/usr/bin/env node\n", encoding="utf-8"
+    )
+    (package_root / "bin" / "decretum-matrix.py").write_text(
+        "print('candidate')\n", encoding="utf-8"
+    )
+    with zipfile.ZipFile(release_root / artifact_name, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr(
+            "decretum-matrix/release-manifest.json",
+            json.dumps(
+                {"files": [{"path": "bin/decretum-matrix.py"}]},
+                sort_keys=True,
+            ),
+        )
+        archive.writestr("decretum-matrix/bin/decretum-matrix.py", "print('candidate')\n")
+    candidate_receipt = {
+        "schema": "court.release_candidate_receipt.v1",
+        "state": "CANDIDATE_NOT_RELEASED",
+        "name": "decretum-matrix",
+        "package_name": "decretum-matrix",
+        "release_label": release_label,
+        "candidate_id": source_commit,
+        "source": {
+            "kind": "commit",
+            "head_commit": source_commit,
+            "tree": source_tree,
+            "worktree_clean": True,
+            "expected_tag_ref": f"refs/tags/{release_label}",
+            "tag_ref": None,
+            "tag_object": None,
+            "tag_commit": None,
+            "tag_signature": "NOT_APPLICABLE",
+        },
+        "release_manifest": {
+            "path": "release-manifest.json",
+            "expected_final_tag": f"refs/tags/{release_label}",
+        },
+        "artifacts": [{"name": artifact_name}],
+    }
+    candidate_receipt_path = release_root / receipt_name
+    candidate_receipt_path.write_text(
+        json.dumps(candidate_receipt, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    def call_metadata() -> str:
+        try:
+            value = fix._installation_binding_metadata(
+                source,
+                candidate_package_root=package_root,
+                candidate_receipt=candidate_receipt_path,
+                transaction_id="transaction-a",
+                installation_id="installation-a",
+            )
+        except Exception as exc:
+            return f"{type(exc).__name__}:{exc}"
+        return f"accepted:{value!r}"
+
+    passed = 0
+    dirty_result = call_metadata()
+    if "candidate_source_worktree_dirty" in dirty_result:
+        passed += 1
+    else:
+        errors.append(f"{name}:dirty_source:{dirty_result}")
+
+    git("checkout", "--", "SKILL.md")
+    mismatched_version = package_json(package_release_label="beta9.9.9")
+    (package_root / "package.json").write_text(
+        json.dumps(mismatched_version, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    version_result = call_metadata()
+    if "candidate_release_label_mismatch" in version_result:
+        passed += 1
+    else:
+        errors.append(f"{name}:candidate_version:{version_result}")
+
+    mismatched_artifact = package_json(artifact_ref=f"release/wrong.zip@{source_commit}")
+    (package_root / "package.json").write_text(
+        json.dumps(mismatched_artifact, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    artifact_result = call_metadata()
+    if "candidate_artifact_ref_mismatch" in artifact_result:
+        passed += 1
+    else:
+        errors.append(f"{name}:candidate_artifact:{artifact_result}")
+
+    valid_package = package_json()
+    (package_root / "package.json").write_text(
+        json.dumps(valid_package, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with zipfile.ZipFile(release_root / artifact_name, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr(
+            "decretum-matrix/release-manifest.json",
+            json.dumps(
+                {"files": [{"path": "scripts/checks/forbidden.py"}]},
+                sort_keys=True,
+            ),
+        )
+        archive.writestr("decretum-matrix/scripts/checks/forbidden.py", "print('source-only')\n")
+    payload_result = call_metadata()
+    if "candidate_payload_checker_entries" in payload_result:
+        passed += 1
+    else:
+        errors.append(f"{name}:candidate_payload_checker:{payload_result}")
+    return passed
+
+
+def _check_fix_role_failure_compensation(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """A role write failure must compensate the preceding skill projection."""
+
+    name = "fix_role_failure_compensates_projection"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    source, home, manifest, roots = _case_fixture(temp_root, name)
+    _prime_roots(home, roots)
+    targets = [_agents_root(home), roots["codex"]]
+    before = _snapshots(targets)
+    role_path = home / ".codex" / "agents" / "gongbu.toml"
+    role_path.parent.mkdir(parents=True, exist_ok=True)
+    role_preimage = "name = 'preimage'\n"
+    role_path.write_text(role_preimage, encoding="utf-8")
+
+    def failing_role_sync(*_args: object, **_kwargs: object) -> Payload:
+        role_path.write_text("name = 'partial-role-write'\n", encoding="utf-8")
+        return {"ok": False, "status": "FAIL", "error": "role fixture"}
+
+    metadata: Payload = {
+        "source_commit": "commit-a",
+        "source_tree": "tree-a",
+        "release_label": "beta1.0.1",
+        "artifact_ref": "candidate/beta1.0.1/commit-a.zip",
+        "build_id": "beta1.0.1:commit-a:tree-a",
+        "installation_id": "installation-a",
+        "transaction_id": "transaction-a",
+        "provenance_receipt_ref": "candidate-receipt-a",
+        "candidate_package_root": str(temp_root),
+        "candidate_receipt_ref": "candidate-receipt-a",
+    }
+    try:
+        with mock.patch.object(
+            fix,
+            "_installation_binding_metadata",
+            side_effect=lambda *_args, **_kwargs: dict(metadata),
+        ), mock.patch.object(
+            fix,
+            "_sync_codex_agent_roles",
+            side_effect=failing_role_sync,
+        ):
+            result = fix._install_update(
+                {"selected_root": str(source)},
+                home,
+                write=True,
+                candidate_package_root=temp_root,
+                transaction_id="transaction-a",
+                installation_id="installation-a",
+                caller_cwd=temp_root,
+            )
+    except Exception as exc:
+        errors.append(f"{name}:unexpected:{type(exc).__name__}:{exc}")
+        return 0
+    compensation = result.get("compensation") if isinstance(result, dict) else None
+    binding_path = (
         home
         / ".agents"
         / "install-receipts"
         / "decretum-matrix"
-        / f"npm-postinstall-{digest}.json"
+        / "installation-binding-v2.json"
     )
-    try:
-        receipt_value = json.loads(receipt.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        errors.append(f"{name}:receipt_invalid:{type(exc).__name__}:{exc}")
-        return 0
-    legacy_topology_untouched = not (
-        previous.exists()
-        or previous.is_symlink()
-        or local_legacy.exists()
-        or local_legacy.is_symlink()
-    )
+    binding_state_ok = True
+    if binding_path.is_file():
+        try:
+            binding_state_ok = (
+                json.loads(binding_path.read_text(encoding="utf-8")).get("completion")
+                == "PENDING_VALIDATION"
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            binding_state_ok = False
     checks = (
-        returncode == 0,
-        canonical.is_dir() and not canonical.is_symlink(),
-        references.is_dir() and not references.is_symlink(),
-        legacy_topology_untouched,
-        receipt_value.get("ok") is True,
-        receipt_value.get("pending_body_access") == "NO",
-        receipt_value.get("body_content_reads") == 0,
-        receipt_value.get("body_hashes") == 0,
-        receipt_value.get("service_activation_requested") is False,
+        isinstance(result, dict)
+        and result.get("ok") is False
+        and result.get("status") == "ROLLED_BACK"
+        and result.get("reason") == "codex_agent_roles_sync_failed"
+        and isinstance(compensation, dict)
+        and compensation.get("ok") is True
+        and _snapshots(targets) == before
+        and role_path.read_text(encoding="utf-8") == role_preimage
+        and binding_state_ok
     )
-    if not all(checks):
-        errors.append(f"{name}:contract_failed:{receipt_value}")
+    if not checks:
+        errors.append(f"{name}:contract_failed:{result}")
+        return 0
+    return 1
+
+
+def _check_one_shot_post_projection_acceptance(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """The explicit update path must persist one producer receipt before commit."""
+
+    name = "one_shot_post_projection_acceptance"
+    try:
+        from commands import fix_decretum_matrix as fix
+        from install_current_agent_copy import INSTALLATION_ACCEPTANCE_SCHEMA
+        from install_current_agent_copy import INSTALLATION_BINDING_SCHEMA
+        import install_current_agent_copy as installer
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    root = temp_root / _fixture_slug(name)
+    source = root / "source"
+    home = root / "home"
+    source.mkdir(parents=True, exist_ok=True)
+    home.mkdir(parents=True, exist_ok=True)
+    counter = root / "checker-count.txt"
+    producer = {
+        "schema": "court.active_copy_hashes.v2",
+        "ok": True,
+        "status": "PASS",
+        "contract": "POST_INSTALL_STANDALONE_HASH_CHECK",
+        "source": str(source),
+        "source_version": "beta1.1.2",
+        "projection": "shared_agents",
+        "root_contract": "RECEIPT_SELECTED_ROOTS",
+        "roots": [
+            str((home / ".agents" / "skills" / "decretum-matrix").resolve()),
+            str((home / ".codex" / "skills" / "decretum-matrix").resolve()),
+        ],
+        "physical_authorities": [],
+        "physical_authority_count": 0,
+        "checked_files": 1,
+        "missing_roots": [],
+        "drift": [],
+        "extra_files": [],
+        "unsafe_paths": [],
+        "forbidden_checker_copies": [],
+        "codex_agent_roles": {"required": False, "ok": True, "status": "NOT_APPLICABLE"},
+        "root_evidence": [],
+        "pending_body_access": "NO",
+        "projection_sha256": "external-projection",
+        "receipt_sha256": "external-receipt",
+    }
+    checker = source / "scripts" / "checks" / "check_active_copy_hashes.py"
+    checker.parent.mkdir(parents=True, exist_ok=True)
+    checker.write_text(
+        "import json, os, pathlib\n"
+        "counter = pathlib.Path(os.environ['GONGbu_CHECKER_COUNTER'])\n"
+        "counter.write_text(str(int(counter.read_text() or '0') + 1), encoding='utf-8')\n"
+        f"print(json.dumps({producer!r}))\n",
+        encoding="utf-8",
+    )
+    binding = {
+        "schema": INSTALLATION_BINDING_SCHEMA,
+        "source_commit": "commit-a",
+        "release_label": "beta1.1.2",
+        "artifact_ref": "release/decretum-matrix-beta1.1.2.zip@commit-a",
+        "build_id": "beta1.1.2:commit-a:tree-a",
+        "installation_id": "installation-a",
+        "generation": 1,
+        "canonical_root": str((home / ".agents" / "skills" / "decretum-matrix").resolve()),
+        "selected_roots": producer["roots"],
+        "completion": "PENDING_VALIDATION",
+        "provenance_receipt_ref": "candidate:receipt@commit-a",
+        "transaction_id": "transaction-a",
+        "rollback_ref": "rollback-a",
+    }
+    candidate = {
+        "source_commit": "commit-a",
+        "source_tree": "tree-a",
+        "release_label": "beta1.1.2",
+        "artifact_ref": binding["artifact_ref"],
+        "build_id": binding["build_id"],
+        "candidate_receipt_ref": binding["provenance_receipt_ref"],
+    }
+    binding_path = home / ".agents" / "install-receipts" / "decretum-matrix" / "installation-binding-v2.json"
+    binding_path.parent.mkdir(parents=True, exist_ok=True)
+    binding_path.write_text(json.dumps(binding, sort_keys=True) + "\n", encoding="utf-8")
+    counter.write_text("0", encoding="utf-8")
+    prior_environment = os.environ.get("GONGbu_CHECKER_COUNTER")
+    os.environ["GONGbu_CHECKER_COUNTER"] = str(counter)
+    try:
+        with mock.patch.object(
+            fix,
+            "_acceptance_environment",
+            side_effect=lambda _home: {
+                **os.environ,
+                "PYTHONPATH": "",
+                "GONGbu_CHECKER_COUNTER": str(counter),
+            },
+        ):
+            result = fix._run_post_projection_acceptance(
+                source=source,
+                home=home,
+                binding=binding,
+                candidate=candidate,
+                installer_module=installer,
+            )
+    except Exception as exc:
+        errors.append(f"{name}:unexpected:{type(exc).__name__}:{exc}")
+        return 0
+    finally:
+        if prior_environment is None:
+            os.environ.pop("GONGbu_CHECKER_COUNTER", None)
+        else:
+            os.environ["GONGbu_CHECKER_COUNTER"] = prior_environment
+    receipt_path = home / ".agents" / "install-receipts" / "decretum-matrix" / "post-validation-transaction-a.json"
+    try:
+        persisted = json.loads(binding_path.read_text(encoding="utf-8"))
+        persisted_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        count = counter.read_text(encoding="utf-8")
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        errors.append(f"{name}:evidence_unreadable:{type(exc).__name__}:{exc}:result={result}")
+        return 0
+    checks = (
+        result.get("ok") is True
+        and result.get("status") == "COMMITTED"
+        and count == "1"
+        and persisted.get("completion") == "COMMITTED"
+        and persisted.get("provenance_receipt_ref") == "candidate:receipt@commit-a"
+        and persisted_receipt.get("schema") == INSTALLATION_ACCEPTANCE_SCHEMA
+        and persisted_receipt.get("binding", {}).get("transaction_id") == "transaction-a"
+        and result.get("commit_result", {}).get("post_projection_receipt_ref") == str(receipt_path)
+    )
+    if not checks:
+        errors.append(f"{name}:contract_failed:{result}:{persisted}:{persisted_receipt}:{count}")
+        return 0
+    return 1
+
+
+def _check_candidate_npm_failure_compensation(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """A failed candidate preflight removes an npm carrier installed by this transaction."""
+
+    name = "candidate_npm_failure_compensation"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    caller = temp_root / "caller"
+    prefix = temp_root / "npm-prefix"
+    home = temp_root / "home"
+    tgz = temp_root / "candidate.tgz"
+    caller.mkdir(parents=True, exist_ok=True)
+    prefix.mkdir(parents=True, exist_ok=True)
+    home.mkdir(parents=True, exist_ok=True)
+    tgz.write_bytes(b"candidate")
+    rollback_calls: list[tuple[Path, Path]] = []
+
+    def fake_install(**_kwargs: object) -> Payload:
+        return {
+            "ok": True,
+            "status": "INSTALLED",
+            "package_root": str(prefix / "node_modules" / "@rowlandl" / "decretum-matrix"),
+        }
+
+    def fake_rollback(**kwargs: object) -> Payload:
+        rollback_calls.append((Path(str(kwargs["npm_prefix"])), Path(str(kwargs["caller_cwd"]))))
+        return {"ok": True, "status": "ROLLED_BACK", "removed": True}
+
+    try:
+        with mock.patch.object(fix, "_install_candidate_npm", side_effect=fake_install), mock.patch.object(
+            fix,
+            "_rollback_candidate_npm",
+            side_effect=fake_rollback,
+        ), mock.patch.object(
+            fix,
+            "_installation_binding_metadata",
+            side_effect=RuntimeError("candidate_payload_checker_entries:fixture"),
+        ):
+            result = fix._install_update(
+                {"selected_root": str(temp_root)},
+                home,
+                write=True,
+                candidate_tgz=tgz,
+                npm_prefix=prefix,
+                transaction_id="transaction-a",
+                installation_id="installation-a",
+                caller_cwd=caller,
+            )
+    except Exception as exc:
+        errors.append(f"{name}:unexpected:{type(exc).__name__}:{exc}")
+        return 0
+    if not (
+        result.get("ok") is False
+        and result.get("reason") == "candidate_payload_checker_entries:fixture"
+        and result.get("npm_candidate_compensation", {}).get("ok") is True
+        and rollback_calls == [(prefix, caller)]
+    ):
+        errors.append(f"{name}:contract_failed:{result}:rollback_calls={rollback_calls!r}")
+        return 0
+    return 1
+
+
+def _check_candidate_public_shim_mismatch(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """The actual npm .bin shim, not the package-local JS file, gates completion."""
+
+    name = "candidate_public_shim_mismatch_is_rejected"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    root = temp_root / _fixture_slug(name)
+    source = root / "source"
+    caller = root / "caller"
+    home = root / "home"
+    package_root = (
+        root
+        / "npm-prefix"
+        / "node_modules"
+        / "@rowlandl"
+        / "decretum-matrix"
+    )
+    candidate_entry = package_root / "bin" / "decretum-matrix.js"
+    public_bin = package_root.parents[1] / ".bin"
+    for path in (source, caller, home, candidate_entry.parent, public_bin):
+        path.mkdir(parents=True, exist_ok=True)
+    binding = {
+        "schema": "court.installation_binding.v2",
+        "source_commit": "candidate-commit",
+        "release_label": "beta1.1.2",
+        "artifact_ref": "release/decretum-matrix-beta1.1.2.zip@candidate-commit",
+        "build_id": "beta1.1.2:candidate-commit:tree-a",
+        "installation_id": "installation-a",
+        "generation": 1,
+        "canonical_root": str((home / ".agents" / "skills" / "decretum-matrix").resolve()),
+        "selected_roots": [str((home / ".agents" / "skills" / "decretum-matrix").resolve())],
+        "completion": "COMMITTED",
+        "transaction_id": "transaction-a",
+        "rollback_ref": "rollback-a",
+    }
+    candidate_entry.write_text(
+        "#!/usr/bin/env node\n"
+        + f"process.stdout.write({json.dumps(json.dumps(binding))} + '\\n');\n",
+        encoding="utf-8",
+    )
+    stale = {**binding, "source_commit": "old-public-shim-commit"}
+    stale_json = json.dumps(stale, sort_keys=True)
+    if os.name == "nt":
+        public_shim = public_bin / "decretum-matrix.cmd"
+        public_shim.write_text("@echo off\r\necho " + stale_json + "\r\n", encoding="utf-8")
+    else:
+        public_shim = public_bin / "decretum-matrix"
+        public_shim.write_text(
+            "#!/bin/sh\n" + "printf '%s\\n' '" + stale_json + "'\n",
+            encoding="utf-8",
+        )
+        public_shim.chmod(public_shim.stat().st_mode | stat.S_IXUSR)
+    try:
+        result = fix._run_public_shim_probe(
+            candidate_package_root=package_root,
+            source=source,
+            home=home,
+            binding=binding,
+            caller_cwd=caller,
+        )
+    except Exception as exc:
+        errors.append(f"{name}:unexpected:{type(exc).__name__}:{exc}")
+        return 0
+    if not (
+        result.get("ok") is False
+        and result.get("reason") == "public_shim_binding_mismatch"
+    ):
+        errors.append(f"{name}:contract_failed:{result}")
         return 0
     return 1
 
@@ -2969,6 +3522,205 @@ def _check_cases(
     if rejected and len(errors) == before:
         passed += 1
 
+    name = "installation_binding_v2_stays_pending_until_external_acceptance"
+    before = len(errors)
+    source, home, manifest, roots = _case_fixture(
+        temp_root, "installation-binding-v2"
+    )
+    binding_metadata: Payload = {
+        "source_commit": "commit-a",
+        "release_label": "beta1.0.1",
+        "artifact_ref": "candidate/beta1.0.1/commit-a.zip",
+        "build_id": "beta1.0.1:commit-a:tree-a",
+        "installation_id": "installation-a",
+        "transaction_id": "transaction-a",
+        "provenance_receipt_ref": "candidate-receipt-a",
+    }
+    binding_result, binding_rejection = _invoke(
+        install,
+        **install_args(
+            source,
+            home,
+            manifest,
+            roots,
+            write=True,
+            installation_binding=binding_metadata,
+        ),
+    )
+    if binding_result is None or binding_rejection is not None:
+        errors.append(f"{name}:unexpected_rejection:{binding_rejection}")
+    else:
+        if binding_result.get("status") != "PENDING_VALIDATION":
+            errors.append(
+                f"{name}:install_status_must_be_pending:{binding_result.get('status')!r}"
+            )
+        binding = binding_result.get("installation_binding")
+        if not isinstance(binding, dict):
+            errors.append(f"{name}:binding_missing")
+        else:
+            expected_fields = {
+                "source_commit",
+                "release_label",
+                "artifact_ref",
+                "build_id",
+                "installation_id",
+                "generation",
+                "canonical_root",
+                "selected_roots",
+                "completion",
+                "provenance_receipt_ref",
+                "transaction_id",
+                "rollback_ref",
+            }
+            if binding.get("schema") != "court.installation_binding.v2":
+                errors.append(f"{name}:schema:{binding.get('schema')!r}")
+            if not expected_fields.issubset(binding):
+                errors.append(f"{name}:required_fields_missing")
+            if binding.get("completion") != "PENDING_VALIDATION":
+                errors.append(
+                    f"{name}:completion_must_be_pending:{binding.get('completion')!r}"
+                )
+            if binding.get("canonical_root") != str(_agents_root(home).resolve(strict=False)):
+                errors.append(f"{name}:canonical_root_mismatch")
+            if binding.get("selected_roots") != [
+                str(_agents_root(home).resolve(strict=False)),
+                str(roots["codex"].resolve(strict=False)),
+            ]:
+                errors.append(f"{name}:selected_roots_mismatch")
+            binding_path = binding_result.get("installation_binding_path")
+            if not isinstance(binding_path, str) or not Path(binding_path).is_file():
+                errors.append(f"{name}:binding_persistence_missing")
+            else:
+                install_receipt = binding_result.get("install_receipt")
+                if (
+                    not isinstance(install_receipt, dict)
+                    or install_receipt.get("status") != "PENDING_VALIDATION"
+                    or install_receipt.get("installation_binding") != binding
+                ):
+                    errors.append(f"{name}:install_receipt_binding_mismatch")
+                commit_binding = install.__globals__["commit_installation_binding"]
+                generic = commit_binding(
+                    home_root=home,
+                    external_validation={
+                        "ok": True,
+                        "status": "PASS",
+                        "scope": "post_projection",
+                        "receipt_ref": "external-check-a",
+                    },
+                )
+                if (
+                    isinstance(generic, dict) and generic.get("ok") is True
+                ):
+                    errors.append(f"{name}:generic_receipt_was_accepted:{generic}")
+                else:
+                    persisted_pending = json.loads(
+                        Path(binding_path).read_text(encoding="utf-8")
+                    )
+                    if (
+                        persisted_pending.get("completion") != "PENDING_VALIDATION"
+                        or persisted_pending.get("provenance_receipt_ref")
+                        != "candidate-receipt-a"
+                    ):
+                        errors.append(f"{name}:generic_receipt_changed_pending_binding")
+                    producer_receipt: Payload = {
+                        "schema": "court.active_copy_hashes.v2",
+                        "ok": True,
+                        "status": "PASS",
+                        "contract": "POST_INSTALL_STANDALONE_HASH_CHECK",
+                        "source": str(source),
+                        "source_version": "beta1.0.1",
+                        "projection": "shared_agents",
+                        "root_contract": "RECEIPT_SELECTED_ROOTS",
+                        "roots": list(binding["selected_roots"]),
+                        "physical_authorities": list(binding["selected_roots"]),
+                        "physical_authority_count": len(binding["selected_roots"]),
+                        "checked_files": 1,
+                        "missing_roots": [],
+                        "drift": [],
+                        "extra_files": [],
+                        "unsafe_paths": [],
+                        "forbidden_checker_copies": [],
+                        "codex_agent_roles": {
+                            "required": False,
+                            "ok": True,
+                            "status": "NOT_APPLICABLE",
+                        },
+                        "root_evidence": [],
+                        "pending_body_access": "NO",
+                        "projection_sha256": "external-projection-receipt",
+                        "receipt_sha256": "external-receipt",
+                    }
+                    validation: Payload = {
+                        "schema": "court.installation_acceptance.v1",
+                        "producer_receipt": producer_receipt,
+                        "candidate": {
+                            "source_root": str(source),
+                            "source_commit": binding["source_commit"],
+                            "source_tree": "tree-a",
+                            "release_label": binding["release_label"],
+                            "artifact_ref": binding["artifact_ref"],
+                            "build_id": binding["build_id"],
+                            "candidate_receipt_ref": "candidate-receipt-a",
+                        },
+                        "binding": deepcopy(binding),
+                        "post_projection_receipt_ref": str(
+                            home
+                            / ".agents"
+                            / "install-receipts"
+                            / "decretum-matrix"
+                            / "post-validation-transaction-a.json"
+                        ),
+                    }
+                    validation_path = Path(str(validation["post_projection_receipt_ref"]))
+                    validation_path.parent.mkdir(parents=True, exist_ok=True)
+                    validation_path.write_text(
+                        json.dumps(validation, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    mismatched = deepcopy(validation)
+                    mismatched["binding"]["transaction_id"] = "wrong-transaction"
+                    mismatch_result = commit_binding(
+                        home_root=home,
+                        external_validation=mismatched,
+                    )
+                    if isinstance(mismatch_result, dict) and mismatch_result.get("ok") is True:
+                        errors.append(f"{name}:mismatched_binding_was_accepted")
+                    committed = commit_binding(
+                        home_root=home,
+                        external_validation=validation,
+                    )
+                    if (
+                        not isinstance(committed, dict)
+                        or committed.get("ok") is not True
+                        or committed.get("status") != "COMMITTED"
+                        or committed.get("post_projection_receipt_ref")
+                        != str(validation_path)
+                    ):
+                        errors.append(f"{name}:external_acceptance_did_not_commit:{committed}")
+                    else:
+                        persisted_binding = json.loads(
+                            Path(binding_path).read_text(encoding="utf-8")
+                        )
+                        if (
+                            persisted_binding.get("completion") != "COMMITTED"
+                            or persisted_binding.get("provenance_receipt_ref")
+                            != "candidate-receipt-a"
+                            or "court_code" in persisted_binding
+                            or any(
+                                key.endswith("sha256")
+                                for key in persisted_binding
+                            )
+                        ):
+                            errors.append(f"{name}:committed_binding_contract_failed")
+                        replay = commit_binding(
+                            home_root=home,
+                            external_validation=validation,
+                        )
+                        if isinstance(replay, dict) and replay.get("ok") is True:
+                            errors.append(f"{name}:external_acceptance_replayed")
+    if len(errors) == before:
+        passed += 1
+
     return passed
 
 
@@ -3402,6 +4154,27 @@ def _check_sanitized_cache_receipt_transaction(
         receipt_path = home / ".agents" / "install-receipts" / "decretum-matrix" / "install-fixture.json"
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+        binding_path = home / ".agents" / "install-receipts" / "decretum-matrix" / "installation-binding-v2.json"
+        binding_path.write_text(
+            json.dumps(
+                {
+                    "schema": "court.installation_binding.v2",
+                    "source_commit": "fixture-commit",
+                    "release_label": "fixture-release",
+                    "artifact_ref": "fixture-artifact",
+                    "build_id": "fixture-build",
+                    "installation_id": "fixture-installation",
+                    "generation": 1,
+                    "canonical_root": str(roots[0]),
+                    "selected_roots": [str(path) for path in roots],
+                    "completion": "COMMITTED",
+                    "provenance_receipt_ref": "fixture-provenance",
+                    "transaction_id": "fixture-transaction",
+                    "rollback_ref": "fixture-rollback",
+                }
+            ),
+            encoding="utf-8",
+        )
         environment = {
             "HOME": str(home),
             "USERPROFILE": str(home),
@@ -3885,6 +4658,41 @@ def evaluate() -> Payload:
                     errors,
                 )
             with tempfile.TemporaryDirectory(
+                prefix="cpc-"
+            ) as temp_dir:
+                passed += _check_candidate_binding_provenance_cases(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
+                prefix="cfc-"
+            ) as temp_dir:
+                passed += _check_fix_role_failure_compensation(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
+                prefix="csa-"
+            ) as temp_dir:
+                passed += _check_one_shot_post_projection_acceptance(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
+                prefix="cnf-"
+            ) as temp_dir:
+                passed += _check_candidate_npm_failure_compensation(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
+                prefix="cps-"
+            ) as temp_dir:
+                passed += _check_candidate_public_shim_mismatch(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
                 prefix="cbr-"
             ) as temp_dir:
                 configuration_passed = _check_blank_host_configuration_cases(
@@ -3904,7 +4712,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 37,
+        "declared_cases": 46,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

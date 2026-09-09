@@ -11,7 +11,7 @@ import uuid
 
 sys.dont_write_bytecode = True
 
-from court_operation_journal import payload_sha256, write_journal
+from court_operation_journal import write_journal
 from court_public_api import has_replacement_characters
 from court_public_registry import invoke_public_tool, load_public_tools, validate_public_tool_arguments
 from shiguan_paths import reference_path
@@ -73,28 +73,55 @@ def _write_mcp_audit(
     receipt: dict[str, object],
     *,
     actor: str | None = None,
+    protocol: str = CURRENT_PROTOCOL_VERSION,
 ) -> None:
-    """Write the tools/call audit journal entry (digest only, never raw args).
+    """Write a metadata-only tools/call audit journal entry.
 
     Audit failures must never break the tool surface: the journal is best-effort
-    and any error is swallowed after an attempt. Only hashes and receipts are
-    stored; arguments and result bodies are never written.
+    and any error is swallowed after an attempt. Arguments and result bodies are
+    never written, and neither is a digest derived from them.
     """
 
     try:
         root = reference_path("court-runtime")
-        digest = payload_sha256({"tool": tool_name, "args": arguments})
+        del arguments
         record_receipt = dict(receipt)
         if actor:
             record_receipt["actor"] = actor
+        binding = {
+            "operation_id": operation_id,
+            "task_id": "mcp",
+            "operation_kind": "mcp-call",
+            "case_ref": {"namespace": "mcp"},
+            "actor": actor or "unknown",
+            "role": "mcp",
+            "expected_task_revision": 0,
+            "target_ref": {"kind": "mcp-tool", "name": tool_name},
+            "request_schema": "court.mcp.audit.v2",
+        }
         write_journal(
             root,
             operation_id=operation_id,
-            payload_digest=digest,
-            task_id="mcp",
+            operation_binding=binding,
             phase="mcp-call",
-            receipt=record_receipt,
+            receipt_ref=f"mcp-receipt:{operation_id}",
             updated_at=datetime.now(timezone.utc).isoformat(),
+            receipt_metadata={
+                "ok": record_receipt.get("ok") is True,
+                "outcome": "succeeded" if record_receipt.get("ok") is True else "error",
+                **(
+                    {"error": _audit_error_code(record_receipt["error"])}
+                    if record_receipt.get("error") is not None
+                    else {}
+                ),
+                **(
+                    {"actor": str(record_receipt["actor"])}
+                    if record_receipt.get("actor")
+                    else {}
+                ),
+                "protocol": protocol,
+                "tool": tool_name,
+            },
         )
     except (ImportError, OSError, TypeError, ValueError):
         # best-effort audit: journal unavailability must not break calls
@@ -102,15 +129,36 @@ def _write_mcp_audit(
 
 
 def _audit_receipt(result: dict[str, object]) -> dict[str, object]:
-    """Build the journal receipt from a call_tool result (hashes only)."""
+    """Build a bounded outcome projection without retaining result content."""
 
-    ok = result.get("ok") is True
-    api = result.get("api")
-    if ok and isinstance(api, dict):
-        result_sha256 = payload_sha256(api)
-    else:
-        result_sha256 = None
-    return {"ok": ok, "result_sha256": result_sha256}
+    structured = result.get("structuredContent")
+    ok = structured.get("ok") is True if isinstance(structured, dict) else False
+    problem = structured.get("problem") if isinstance(structured, dict) else None
+    receipt: dict[str, object] = {
+        "ok": ok,
+        "outcome": "succeeded" if ok else "error",
+    }
+    if isinstance(problem, str) and problem.strip():
+        receipt["error"] = problem.strip().split(":", 1)[0][:128]
+    return receipt
+
+
+def _audit_error_code(value: object) -> str:
+    """Reduce a validation failure to a bounded, non-body error code."""
+
+    text = str(value or "").strip().casefold()
+    for code in (
+        "missing_arguments",
+        "tool_not_allowed",
+        "invalid_tools_call_params",
+        "invalid",
+        "required",
+        "not_allowed",
+        "unsupported",
+    ):
+        if code in text:
+            return code
+    return "tool_call_error"
 
 
 def call_tool(name: str, arguments: object = None, *, modern: bool = False) -> dict[str, object]:
@@ -317,8 +365,9 @@ def handle(message: dict[str, Any], state: dict[str, object]) -> dict[str, objec
                 operation_id,
                 str(params.get("name") or ""),
                 arguments,
-                {"ok": False, "result_sha256": None, "error": "tool_not_allowed"},
+                {"ok": False, "error": "tool_not_allowed"},
                 actor=actor or None,
+                protocol=CURRENT_PROTOCOL_VERSION if modern else LEGACY_PROTOCOL_VERSION,
             )
             return _error(request_id, -32602, f"Unknown tool: {params['name']}")
         try:
@@ -328,12 +377,20 @@ def handle(message: dict[str, Any], state: dict[str, object]) -> dict[str, objec
                 operation_id,
                 tool.name,
                 arguments,
-                {"ok": False, "result_sha256": None, "error": str(exc)},
+                {"ok": False, "error": str(exc)},
                 actor=actor or None,
+                protocol=CURRENT_PROTOCOL_VERSION if modern else LEGACY_PROTOCOL_VERSION,
             )
             return _error(request_id, -32602, str(exc))
         result = call_tool(params["name"], arguments, modern=modern)
-        _write_mcp_audit(operation_id, tool.name, arguments, _audit_receipt(result), actor=actor or None)
+        _write_mcp_audit(
+            operation_id,
+            tool.name,
+            arguments,
+            _audit_receipt(result),
+            actor=actor or None,
+            protocol=CURRENT_PROTOCOL_VERSION if modern else LEGACY_PROTOCOL_VERSION,
+        )
         return _response(request_id, result)
     return _error(request_id, -32601, f"Method not found: {method}")
 

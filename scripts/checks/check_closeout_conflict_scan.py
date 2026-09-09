@@ -6,7 +6,6 @@ affected-topic scoping (P3-8 interface)."""
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -287,10 +286,13 @@ def evaluate() -> dict[str, Any]:
                     receipt.get("schema") == domain_ledger_api.GIT_RECEIPT_SCHEMA
                     and receipt.get("transaction_id") == transaction_id
                     and receipt.get("ledger_path") == ledger_path
-                    and receipt.get("ledger_sha256") == hashlib.sha256(committed_ledger_bytes).hexdigest()
+                    and receipt.get("revision") == revision.get("revision")
+                    and "ledger_sha256" not in receipt
                     and len(matching) == 1
                     and matching[0].get("revision") == revision.get("revision")
                     and matching[0].get("topic") == revision.get("topic")
+                    and projected.get("transaction_id") == transaction_id
+                    and projected.get("receipt_path") == receipt_path
                     and changed_paths.get(receipt_path) == "A"
                     and changed_paths.get(ledger_path) in {"A", "M"}
                 ):

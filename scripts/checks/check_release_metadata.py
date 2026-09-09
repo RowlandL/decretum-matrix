@@ -121,7 +121,7 @@ def evaluate(root: Path = ROOT) -> dict[str, Any]:
         frozen = {"path": "release-manifest.json", "status": "FROZEN_BY_SCOPE", "observed_release_label": manifest.get("release_label")}
     except (AssertionError, FileNotFoundError, json.JSONDecodeError, TypeError) as exc:
         errors.append(f"readme_brand:{exc}")
-    return {"schema": "decretum.release_metadata_gate.v1", "gate": "PASSED" if not errors else "FAILED", "active_version": TARGET, "active_version_map": values, "scope_exceptions": frozen, "checks": checks, "errors": sorted(set(errors))}
+    return {"schema": "decretum.release_metadata_gate.v1", "ok": not errors, "gate": "PASSED" if not errors else "FAILED", "active_version": TARGET, "active_version_map": values, "scope_exceptions": frozen, "checks": checks, "errors": sorted(set(errors))}
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)

@@ -350,6 +350,7 @@ def evaluate() -> dict[str, Any]:
         errors.append(str(exc))
     return {
         "schema": "decretum.shiguan_git_federation_gate.v1",
+        "ok": not errors,
         "gate": "PASSED" if not errors else "FAILED",
         "checks": checks,
         "errors": errors,
@@ -372,6 +373,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

@@ -538,6 +538,7 @@ def evaluate() -> dict[str, object]:
     validator_evidence = _check_shared_validator(errors)
     return {
         "schema": SCHEMA,
+        "ok": not errors,
         "status": "PASSED" if not errors else "FAILED",
         "first_error": errors[0] if errors else None,
         "errors": errors,
@@ -556,4 +557,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

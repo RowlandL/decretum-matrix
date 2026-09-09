@@ -19,13 +19,14 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -33,11 +34,11 @@ import tomllib
 from unittest.mock import patch
 import socket
 import io
-import hashlib
 
 sys.dont_write_bytecode = True
 
 from shiguan_paths import ensure_shared_seed, reference_path
+from court_file_lock import atomic_write_text, file_lock
 
 
 UNIT_RULES: list[tuple[str, str, list[str]]] = [
@@ -69,13 +70,33 @@ REGISTRY_MAINTENANCE_EVENTS = frozenset(
     {
         "skill_install",
         "skill_upgrade",
-        "hash_drift",
+        "reference_drift",
         "version_drift",
         "dispatch_failure",
         "phase_closeout",
     }
 )
 READ_ONLY_AUTHORITIES = frozenset({"approval", "read-only", "read_only", "readonly", "no-write"})
+REGISTRY_REFERENCE_SCHEMA = "court.capability.registry_reference.v1"
+REFRESH_TRANSACTION_SCHEMA = "court.capability.refresh_transaction.v1"
+INSTALLATION_BINDING_SCHEMA = "court.installation_binding.v2"
+INSTALLATION_BINDING_RELATIVE = Path(
+    ".agents/install-receipts/decretum-matrix/installation-binding-v2.json"
+)
+INSTALLATION_BINDING_REQUIRED_FIELDS = (
+    "source_commit",
+    "release_label",
+    "artifact_ref",
+    "build_id",
+    "installation_id",
+    "generation",
+    "canonical_root",
+    "selected_roots",
+    "completion",
+    "provenance_receipt_ref",
+    "transaction_id",
+    "rollback_ref",
+)
 
 
 def plan_registry_maintenance(
@@ -308,11 +329,10 @@ def normalize_records(records: list[dict[str, object]]) -> list[dict[str, object
         canonical = dict(sorted(decorated, key=lambda pair: pair[0])[0][1])
         canonical.pop("_semantic", None)
         if len(variants) > 1:
-            digests = [hashlib.sha256(value.encode("utf-8")).hexdigest() for value in variants]
             canonical["enabled"] = all(bool(item.get("enabled")) for _normalized, item in decorated)
             canonical["dispatchable"] = False
             canonical["verified"] = False
-            canonical["evidence"] = ["LOCAL_METADATA_CONFLICT", "CONFLICT_DIGESTS:" + ",".join(digests)]
+            canonical["evidence"] = ["LOCAL_METADATA_CONFLICT", f"CONFLICT_VARIANTS:{len(variants)}"]
         output.append(canonical)
     return sorted(output, key=record_sort_key)
 
@@ -525,7 +545,6 @@ def collect_registry_records(
                 path=public_relative_path(path, root), relative_path=public_relative_path(path, root),
                 classification_path=Path(name),
             )
-            record["_semantic"] = {"content_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
             records.append(record)
     del agents_root
     records.extend(collect_mcp_config(config_path))
@@ -621,6 +640,294 @@ def collect_mcp_state() -> list[dict[str, object]]:
     return collect_mcp_config(config, source="codex_mcp")
 
 
+def _path_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _path_is_link_or_reparse(path: Path) -> bool:
+    try:
+        value = path.lstat()
+    except OSError:
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return stat.S_ISLNK(value.st_mode) or bool(
+        reparse_flag and getattr(value, "st_file_attributes", 0) & reparse_flag
+    )
+
+
+def _physical_directory(path: Path) -> Path:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    for candidate in [*reversed(absolute.parents), absolute]:
+        try:
+            value = candidate.lstat()
+        except OSError as exc:
+            raise ValueError(str(candidate)) from exc
+        if _path_is_link_or_reparse(candidate) or not stat.S_ISDIR(value.st_mode):
+            raise ValueError(str(candidate))
+    return absolute
+
+
+def _managed_installation_binding_path(home_root: Path) -> Path:
+    home = _physical_directory(Path(home_root))
+    path = home / INSTALLATION_BINDING_RELATIVE
+    for parent in [home / Path(*INSTALLATION_BINDING_RELATIVE.parts[:index])
+                   for index in range(1, len(INSTALLATION_BINDING_RELATIVE.parts))]:
+        _physical_directory(parent)
+    return path
+
+
+def installation_binding_errors(
+    binding: object,
+    *,
+    home_root: Path | None = None,
+) -> list[str]:
+    """Return failures for an already committed installation binding."""
+
+    if not isinstance(binding, dict):
+        return ["INSTALLATION_BINDING_MISSING"]
+    errors: list[str] = []
+    if binding.get("schema") != INSTALLATION_BINDING_SCHEMA:
+        errors.append("INSTALLATION_BINDING_SCHEMA_INVALID")
+    binding_status = str(binding.get("status") or "").strip().casefold()
+    if binding_status in {"unavailable", "stale", "conflict", "failed", "blocked", "recovery_required"}:
+        errors.append("INSTALLATION_BINDING_UNAVAILABLE")
+    elif binding_status and binding_status != "committed":
+        errors.append("INSTALLATION_BINDING_STATUS_INVALID")
+    if binding.get("completion") != "COMMITTED":
+        errors.append("INSTALLATION_BINDING_NOT_COMMITTED")
+    for field in INSTALLATION_BINDING_REQUIRED_FIELDS:
+        value = binding.get(field)
+        if field == "selected_roots":
+            if not isinstance(value, list) or not value or any(not str(item).strip() for item in value):
+                errors.append("INSTALLATION_BINDING_SELECTED_ROOTS_INVALID")
+        elif field == "generation":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                errors.append("INSTALLATION_BINDING_GENERATION_INVALID")
+        elif not str(value or "").strip():
+            errors.append(f"INSTALLATION_BINDING_FIELD_MISSING:{field}")
+    if home_root is None:
+        errors.append("INSTALLATION_BINDING_HOME_ROOT_REQUIRED")
+        return sorted(set(errors))
+    try:
+        home = _physical_directory(Path(home_root))
+        expected_canonical = _physical_directory(
+            home / ".agents" / "skills" / "decretum-matrix"
+        )
+        bound_canonical = _physical_directory(Path(str(binding.get("canonical_root") or "")))
+    except ValueError:
+        errors.append("INSTALLATION_BINDING_CANONICAL_ROOT_INVALID")
+        return sorted(set(errors))
+    if _path_key(bound_canonical) != _path_key(expected_canonical):
+        errors.append("INSTALLATION_BINDING_CANONICAL_ROOT_INVALID")
+    selected = binding.get("selected_roots")
+    selected_paths: list[Path] = []
+    if isinstance(selected, list):
+        for raw_path in selected:
+            try:
+                selected_path = _physical_directory(Path(str(raw_path)))
+                selected_path.relative_to(home)
+            except (ValueError, TypeError):
+                errors.append("INSTALLATION_BINDING_SELECTED_ROOT_INVALID")
+                continue
+            if any(_path_key(selected_path) == _path_key(existing) for existing in selected_paths):
+                errors.append("INSTALLATION_BINDING_SELECTED_ROOTS_INVALID")
+                continue
+            selected_paths.append(selected_path)
+    if not any(_path_key(path) == _path_key(expected_canonical) for path in selected_paths):
+        errors.append("INSTALLATION_BINDING_PRIMARY_ROOT_MISSING")
+    return sorted(set(errors))
+
+
+def refresh_transaction_errors(
+    transaction: object,
+    *,
+    registry_generation: str,
+    source_paths: list[str],
+    installation_binding: dict[str, object],
+    for_commit: bool = False,
+) -> list[str]:
+    """Validate the explicit registry refresh transaction boundary."""
+
+    if not isinstance(transaction, dict):
+        return ["REFRESH_TRANSACTION_MISSING"]
+    errors: list[str] = []
+    if transaction.get("schema") != REFRESH_TRANSACTION_SCHEMA:
+        errors.append("REFRESH_TRANSACTION_SCHEMA_INVALID")
+    status = str(transaction.get("status") or "").strip().casefold()
+    allowed_statuses = {"pending", "authorized"} if not for_commit else {"committed"}
+    if status in {"unavailable", "blocked", "failed", "recovery_required"}:
+        errors.append("REFRESH_TRANSACTION_UNAVAILABLE")
+    if status not in allowed_statuses:
+        errors.append("REFRESH_TRANSACTION_STATUS_INVALID")
+    transaction_id = str(transaction.get("transaction_id") or "").strip()
+    if not transaction_id:
+        errors.append("REFRESH_TRANSACTION_ID_MISSING")
+    transaction_generation = str(transaction.get("registry_generation") or "").strip()
+    if not transaction_generation:
+        errors.append("REFRESH_TRANSACTION_GENERATION_MISSING")
+    elif transaction_generation != registry_generation:
+        errors.append("REFRESH_TRANSACTION_GENERATION_MISMATCH")
+    declared_sources = transaction.get("source_paths")
+    normalized_sources = [str(item).strip() for item in declared_sources] if isinstance(declared_sources, list) else []
+    if normalized_sources != source_paths:
+        errors.append("REFRESH_TRANSACTION_SOURCE_PATHS_MISMATCH")
+    binding_id = str(installation_binding.get("installation_id") or "").strip()
+    transaction_binding_id = str(transaction.get("installation_id") or "").strip()
+    if not transaction_binding_id or transaction_binding_id != binding_id:
+        errors.append("REFRESH_TRANSACTION_INSTALLATION_MISMATCH")
+    return sorted(set(errors))
+
+
+def registry_reference_errors(
+    reference: object,
+    *,
+    source_paths: list[str],
+    for_commit: bool = False,
+    home_root: Path | None = None,
+) -> list[str]:
+    """Validate one complete registry/install/refresh reference bundle."""
+
+    if not isinstance(reference, dict):
+        return ["REGISTRY_REFERENCE_MISSING"]
+    errors: list[str] = []
+    if reference.get("schema") != REGISTRY_REFERENCE_SCHEMA:
+        errors.append("REGISTRY_REFERENCE_SCHEMA_INVALID")
+    reference_status = str(reference.get("status") or "").strip().casefold()
+    if reference_status in {"unavailable", "stale", "conflict", "failed", "blocked", "recovery_required"}:
+        errors.append("REGISTRY_REFERENCE_UNAVAILABLE")
+    generation_raw = reference.get("registry_generation")
+    generation = str(generation_raw or "").strip()
+    if generation_raw is not None and not isinstance(generation_raw, str):
+        errors.append("REGISTRY_GENERATION_INVALID")
+    if not generation:
+        errors.append("REGISTRY_GENERATION_MISSING")
+    declared_sources = reference.get("source_paths")
+    if not isinstance(declared_sources, list) or [str(item).strip() for item in declared_sources] != source_paths:
+        errors.append("REGISTRY_SOURCE_PATHS_MISMATCH")
+    binding = reference.get("installation_binding")
+    errors.extend(installation_binding_errors(binding, home_root=home_root))
+    if isinstance(binding, dict):
+        immutable_ref = str(reference.get("immutable_ref") or "").strip()
+        source_commit = str(binding.get("source_commit") or "").strip()
+        if not immutable_ref:
+            errors.append("IMMUTABLE_REF_MISSING")
+        elif source_commit and immutable_ref != source_commit:
+            errors.append("IMMUTABLE_REF_BINDING_MISMATCH")
+        errors.extend(
+            refresh_transaction_errors(
+                reference.get("refresh_transaction"),
+                registry_generation=generation,
+                source_paths=source_paths,
+                installation_binding=binding,
+                for_commit=for_commit,
+            )
+        )
+    else:
+        errors.append("REFRESH_TRANSACTION_MISSING")
+    return sorted(set(errors))
+
+
+def build_registry_reference(
+    records: list[dict[str, object]],
+    *,
+    generated_at: str | None = None,
+    installation_binding: dict[str, object] | None = None,
+    refresh_transaction: dict[str, object] | None = None,
+    registry_generation: str | None = None,
+    registry_path: str | None = None,
+    home_root: Path | None = None,
+) -> dict[str, object]:
+    """Build a structural registry generation and refresh transaction reference.
+
+    A refresh references the source paths and the installation receipt boundary;
+    it does not inspect or identify source bytes. Missing installation state is
+    explicit so callers cannot mistake a registry refresh for an installation.
+    """
+
+    timestamp = generated_at or datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    source_paths = sorted(
+        {
+            str(record.get("source_path") or record.get("path") or "").strip()
+            for record in records
+            if str(record.get("source_path") or record.get("path") or "").strip()
+        }
+    )
+    binding = (
+        dict(installation_binding)
+        if isinstance(installation_binding, dict)
+        else {"status": "UNAVAILABLE", "source": "installation_receipt"}
+    )
+    binding_ready = not installation_binding_errors(binding, home_root=home_root)
+    supplied_transaction = dict(refresh_transaction) if isinstance(refresh_transaction, dict) else None
+    generation_raw = registry_generation
+    if generation_raw is None and supplied_transaction is not None:
+        generation_raw = supplied_transaction.get("registry_generation")
+    generation = str(generation_raw or "").strip() if isinstance(generation_raw, str) else ""
+    if not binding_ready:
+        generation = ""
+    transaction = (
+        supplied_transaction
+        if supplied_transaction is not None
+        else {
+            "schema": REFRESH_TRANSACTION_SCHEMA,
+            "transaction_id": None,
+            "registry_generation": generation or None,
+            "status": "PENDING",
+            "source_paths": source_paths,
+        }
+    )
+    transaction.setdefault("schema", REFRESH_TRANSACTION_SCHEMA)
+    transaction.setdefault("registry_generation", generation or None)
+    transaction.setdefault("source_paths", source_paths)
+    if not binding_ready and str(transaction.get("status") or "").strip().casefold() == "committed":
+        transaction["status"] = "BLOCKED"
+    immutable_ref = str(
+        (binding.get("source_commit") if binding_ready else "")
+        or ""
+    ).strip() or None
+    transaction_status = str(transaction.get("status") or "").strip().casefold()
+    reference_status = (
+        "COMMITTED"
+        if binding_ready and transaction_status == "committed"
+        else ("PENDING" if binding_ready else "UNAVAILABLE")
+    )
+    if transaction_status in {"blocked", "failed", "recovery_required"}:
+        reference_status = "BLOCKED"
+    return {
+        "schema": REGISTRY_REFERENCE_SCHEMA,
+        "status": reference_status,
+        "immutable_ref": immutable_ref,
+        "registry_generation": generation or None,
+        "generated_at": timestamp,
+        "source_paths": source_paths,
+        "registry_path": registry_path or "references/installed-capabilities-manifest.json",
+        "installation_binding": binding,
+        "refresh_transaction": transaction,
+    }
+
+
+def attach_registry_references(
+    records: list[dict[str, object]],
+    registry_reference: dict[str, object],
+) -> list[dict[str, object]]:
+    """Attach one controlled generation/transaction reference to each record."""
+
+    generation = str(registry_reference.get("registry_generation") or "").strip()
+    immutable_ref = str(registry_reference.get("immutable_ref") or "").strip()
+    binding = registry_reference.get("installation_binding")
+    transaction = registry_reference.get("refresh_transaction")
+    source: list[dict[str, object]] = []
+    for record in records:
+        item = dict(record)
+        item["immutable_ref"] = str(item.get("immutable_ref") or immutable_ref).strip()
+        item["source_path"] = str(item.get("source_path") or item.get("path") or "").strip()
+        item["registry_generation"] = generation
+        item["installation_binding"] = dict(binding) if isinstance(binding, dict) else None
+        item["refresh_transaction"] = dict(transaction) if isinstance(transaction, dict) else None
+        source.append(item)
+    return source
+
+
 def department_table(records: list[dict[str, object]]) -> dict[str, list[str]]:
     grouped: dict[str, list[str]] = {unit: [] for unit, _zh, _terms in UNIT_RULES}
     for record in records:
@@ -630,12 +937,44 @@ def department_table(records: list[dict[str, object]]) -> dict[str, list[str]]:
     return {unit: sorted(set(values)) for unit, values in grouped.items()}
 
 
-def write_manifest(records: list[dict[str, object]]) -> Path:
+def _write_registry_text(path: Path, text: str) -> None:
+    """Atomically write one generated registry artifact."""
+
+    atomic_write_text(path, text, encoding="utf-8", newline="\n")
+
+
+def _require_committed_reference(
+    records: list[dict[str, object]],
+    registry_reference: dict[str, object] | None,
+) -> dict[str, object]:
+    if not isinstance(registry_reference, dict):
+        raise PermissionError("refresh_transaction_required")
+    source_paths = sorted(
+        {
+            str(record.get("source_path") or record.get("path") or "").strip()
+            for record in records
+            if str(record.get("source_path") or record.get("path") or "").strip()
+        }
+    )
+    errors = registry_reference_errors(
+        registry_reference, source_paths=source_paths, for_commit=True
+    )
+    if errors:
+        raise PermissionError("refresh_reference_invalid:" + ",".join(errors))
+    return registry_reference
+
+
+def write_manifest(
+    records: list[dict[str, object]],
+    registry_reference: dict[str, object] | None = None,
+) -> Path:
+    registry_reference = _require_committed_reference(records, registry_reference)
     path = reference_path("installed-capabilities-manifest.json")
-    path.write_text(
+    _write_registry_text(path,
         json.dumps(
             {
                 "generator": "refresh_capability_registry.py",
+                "registry_reference": registry_reference,
                 "roots": {
                     "codex_skills": "${CODEX_HOME}/skills",
                     "codex_system_skills": "${CODEX_HOME}/skills/.system",
@@ -656,18 +995,23 @@ def write_manifest(records: list[dict[str, object]]) -> Path:
             sort_keys=True,
         )
         + "\n",
-        encoding="utf-8",
     )
     return path
 
 
-def write_skills_catalog(records: list[dict[str, object]]) -> Path:
+def write_skills_catalog(
+    records: list[dict[str, object]],
+    registry_reference: dict[str, object] | None = None,
+) -> Path:
+    registry_reference = _require_committed_reference(records, registry_reference)
     path = reference_path("installed-skills-catalog.md")
     skills = [record for record in records if record.get("kind") == "skill"]
     lines = [
         "# Installed Skills Catalog",
         "",
         "Generated deterministically from current local metadata.",
+        f"registry_generation: `{registry_reference.get('registry_generation', '')}`",
+        f"refresh_transaction: `{registry_reference.get('refresh_transaction', {}).get('transaction_id', '') if isinstance(registry_reference.get('refresh_transaction'), dict) else ''}`",
         "",
         "This local catalog is regenerated from skill frontmatter. It is a routing aid, not a permission grant.",
         "",
@@ -687,18 +1031,24 @@ def write_skills_catalog(records: list[dict[str, object]]) -> Path:
             )
             + " |"
         )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    _write_registry_text(path, "\n".join(lines) + "\n")
     return path
 
 
-def write_capabilities_catalog(records: list[dict[str, object]]) -> Path:
+def write_capabilities_catalog(
+    records: list[dict[str, object]],
+    registry_reference: dict[str, object] | None = None,
+) -> Path:
+    registry_reference = _require_committed_reference(records, registry_reference)
     path = reference_path("installed-capabilities-catalog.md")
     grouped = department_table(records)
     unit_lookup = {key: zh for key, zh, _terms in UNIT_RULES}
     lines = [
         "# Installed Capabilities Catalog",
         "",
-        f"Generated: {datetime.now().isoformat(timespec='seconds')}",
+        f"Generated: {registry_reference.get('generated_at', '')}",
+        f"registry_generation: `{registry_reference.get('registry_generation', '')}`",
+        f"refresh_transaction: `{registry_reference.get('refresh_transaction', {}).get('transaction_id', '') if isinstance(registry_reference.get('refresh_transaction'), dict) else ''}`",
         "Mode: local refresh by `scripts/refresh_capability_registry.py`",
         "",
         "This catalog covers local skills, standing Codex agents, and selected CLI tools. It is regenerated when new skills are installed so 吏部 can classify and 尚书省 can dispatch them under `/court`.",
@@ -766,7 +1116,7 @@ def write_capabilities_catalog(records: list[dict[str, object]]) -> Path:
             "Then `/court` can select the new capability from the refreshed 官籍 and assign it by explicit 差遣.",
         ]
     )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    _write_registry_text(path, "\n".join(lines) + "\n")
     return path
 
 
@@ -852,7 +1202,8 @@ def kind_fragments(records: list[dict[str, object]]) -> dict[str, list[dict[str,
 
 def write_table(path: Path, title: str, records: list[dict[str, object]], note: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    _write_registry_text(
+        path,
         "\n".join(
             [
                 f"# {title}",
@@ -863,8 +1214,6 @@ def write_table(path: Path, title: str, records: list[dict[str, object]], note: 
                 "",
             ]
         ),
-        encoding="utf-8",
-        newline="\n",
     )
 
 
@@ -897,7 +1246,11 @@ def write_fragment_tables(root: Path, records: list[dict[str, object]], obsidian
     return links
 
 
-def write_capability_index(records: list[dict[str, object]]) -> Path:
+def write_capability_index(
+    records: list[dict[str, object]],
+    registry_reference: dict[str, object] | None = None,
+) -> Path:
+    registry_reference = _require_committed_reference(records, registry_reference)
     root = reference_path("capability-index")
     machine = root / "04-machine-readable"
     machine.mkdir(parents=True, exist_ok=True)
@@ -906,13 +1259,16 @@ def write_capability_index(records: list[dict[str, object]]) -> Path:
         kind: sum(1 for record in records if record.get("kind") == kind)
         for kind in sorted({str(record.get("kind", "")) for record in records})
     }
-    generated_at = datetime.now().isoformat(timespec="seconds")
-    (root / "README.md").write_text(
+    generated_at = str(registry_reference.get("generated_at") or "")
+    _write_registry_text(
+        root / "README.md",
         "\n".join(
             [
                 "# Decretum Matrix（诏令矩阵） capability index",
                 "",
                 f"generated_at: {generated_at}",
+                f"registry_generation: {registry_reference.get('registry_generation', '')}",
+                f"refresh_transaction: {registry_reference.get('refresh_transaction', {}).get('transaction_id', '') if isinstance(registry_reference.get('refresh_transaction'), dict) else ''}",
                 "source_skill: current installed `decretum-matrix`",
                 "",
                 "This generated index is a routing aid, not a permission grant.",
@@ -937,10 +1293,9 @@ def write_capability_index(records: list[dict[str, object]]) -> Path:
                 "",
             ]
         ),
-        encoding="utf-8",
-        newline="\n",
     )
-    (root / "capabilities.md").write_text(
+    _write_registry_text(
+        root / "capabilities.md",
         "\n".join(
             [
                 "# Capability Routing Table",
@@ -951,15 +1306,18 @@ def write_capability_index(records: list[dict[str, object]]) -> Path:
                 "",
             ]
         ),
-        encoding="utf-8",
-        newline="\n",
     )
-    (machine / "capabilities.csv").write_text(csv_text(records), encoding="utf-8", newline="\n")
-    (machine / "index-meta.json").write_text(
+    _write_registry_text(machine / "capabilities.csv", csv_text(records))
+    _write_registry_text(
+        machine / "index-meta.json",
         json.dumps(
             {
                 "generated_at": generated_at,
                 "generator": "refresh_capability_registry.py",
+                "registry_generation": registry_reference.get("registry_generation"),
+                "refresh_transaction": registry_reference.get("refresh_transaction"),
+                "installation_binding": registry_reference.get("installation_binding"),
+                "source_paths": registry_reference.get("source_paths", []),
                 "count": len(records),
                 "counts": counts,
                 "invocation_rule": "index_first_select_one_or_bounded_set; do_not_invoke_all_candidates",
@@ -969,18 +1327,20 @@ def write_capability_index(records: list[dict[str, object]]) -> Path:
             sort_keys=True,
         )
         + "\n",
-        encoding="utf-8",
-        newline="\n",
     )
     return root / "README.md"
 
 
-def write_shiguan_capability_index(records: list[dict[str, object]]) -> Path:
+def write_shiguan_capability_index(
+    records: list[dict[str, object]],
+    registry_reference: dict[str, object] | None = None,
+) -> Path:
+    registry_reference = _require_committed_reference(records, registry_reference)
     ensure_shared_seed()
     root = reference_path("shiguan-tree", "capability-index")
     root.mkdir(parents=True, exist_ok=True)
     fragment_links = write_fragment_tables(root, records, obsidian_links=True)
-    generated_at = datetime.now().isoformat(timespec="seconds")
+    generated_at = str(registry_reference.get("generated_at") or "")
     counts = {
         kind: sum(1 for record in records if record.get("kind") == kind)
         for kind in sorted({str(record.get("kind", "")) for record in records})
@@ -989,12 +1349,15 @@ def write_shiguan_capability_index(records: list[dict[str, object]]) -> Path:
         "---",
         "type: shiguan_capability_index",
         f"generated_at: \"{generated_at}\"",
+        f"registry_generation: \"{registry_reference.get('registry_generation', '')}\"",
+        f"refresh_transaction: \"{registry_reference.get('refresh_transaction', {}).get('transaction_id', '') if isinstance(registry_reference.get('refresh_transaction'), dict) else ''}\"",
         f"capability_count: {len(records)}",
         "capability_index_skill_gate: \"PASSED\"",
         "---",
         "",
     ]
-    (root / "_index.md").write_text(
+    _write_registry_text(
+        root / "_index.md",
         "\n".join(
             [
                 *frontmatter,
@@ -1019,10 +1382,9 @@ def write_shiguan_capability_index(records: list[dict[str, object]]) -> Path:
                 "",
             ]
         ),
-        encoding="utf-8",
-        newline="\n",
     )
-    (root / "capabilities.md").write_text(
+    _write_registry_text(
+        root / "capabilities.md",
         "\n".join(
             [
                 *frontmatter,
@@ -1034,13 +1396,74 @@ def write_shiguan_capability_index(records: list[dict[str, object]]) -> Path:
                 "",
             ]
         ),
-        encoding="utf-8",
-        newline="\n",
     )
     return root / "_index.md"
 
 
-def refresh() -> tuple[int, list[Path]]:
+def _refresh_lock_path() -> Path:
+    return reference_path("court-runtime", "capability-registry-refresh.lock")
+
+
+def _refresh_output_roots() -> tuple[Path, ...]:
+    return (
+        reference_path("installed-capabilities-manifest.json"),
+        reference_path("installed-skills-catalog.md"),
+        reference_path("installed-capabilities-catalog.md"),
+        reference_path("capability-index"),
+        reference_path("shiguan-tree", "capability-index"),
+    )
+
+
+def _snapshot_refresh_outputs(roots: tuple[Path, ...]) -> dict[Path, bytes]:
+    snapshot: dict[Path, bytes] = {}
+    for root in roots:
+        if root.is_file():
+            snapshot[root] = root.read_bytes()
+        elif root.is_dir():
+            for path in root.rglob("*"):
+                if path.is_file():
+                    snapshot[path] = path.read_bytes()
+    return snapshot
+
+
+def _restore_refresh_outputs(snapshot: dict[Path, bytes], roots: tuple[Path, ...]) -> None:
+    current: set[Path] = set()
+    for root in roots:
+        if root.is_file():
+            current.add(root)
+        elif root.is_dir():
+            current.update(path for path in root.rglob("*") if path.is_file())
+    for path in sorted(current - set(snapshot), key=lambda value: len(value.parts), reverse=True):
+        path.unlink(missing_ok=True)
+    for path, data in snapshot.items():
+        _write_registry_text(path, data.decode("utf-8"))
+
+
+def _load_reference_file(
+    path: Path | None,
+    schema: str,
+    *,
+    expected_path: Path | None = None,
+) -> dict[str, object] | None:
+    if path is None or expected_path is None or _path_key(path) != _path_key(expected_path):
+        return None
+    try:
+        value_info = path.lstat()
+        if _path_is_link_or_reparse(path) or not stat.S_ISREG(value_info.st_mode):
+            return None
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) and value.get("schema") == schema else None
+
+
+def refresh(
+    *,
+    installation_binding: dict[str, object] | None = None,
+    refresh_transaction: dict[str, object] | None = None,
+    registry_generation: str | None = None,
+    authorized: bool = False,
+) -> tuple[int, list[Path]]:
     home = codex_home()
     records: list[dict[str, object]] = []
     records.extend(collect_skills(home / "skills", "codex_skills"))
@@ -1050,13 +1473,51 @@ def refresh() -> tuple[int, list[Path]]:
     records.extend(collect_plugins(home / "config.toml", (home / "plugins" / "cache",)))
     records.extend(collect_cli_state())
     records = normalize_records(records)
-    paths = [
-        write_manifest(records),
-        write_skills_catalog(records),
-        write_capabilities_catalog(records),
-        write_capability_index(records),
-        write_shiguan_capability_index(records),
-    ]
+    registry_reference = build_registry_reference(
+        records,
+        installation_binding=installation_binding,
+        refresh_transaction=refresh_transaction,
+        registry_generation=registry_generation,
+        registry_path="references/installed-capabilities-manifest.json",
+        home_root=home,
+    )
+    source_paths = list(registry_reference.get("source_paths", []))
+    if not authorized or registry_reference_errors(
+        registry_reference, source_paths=source_paths, for_commit=False, home_root=home
+    ):
+        return len(records), []
+    committed_transaction = dict(registry_reference["refresh_transaction"])
+    committed_transaction["status"] = "COMMITTED"
+    committed_transaction["installation_id"] = installation_binding.get("installation_id") if isinstance(installation_binding, dict) else None
+    registry_reference = build_registry_reference(
+        records,
+        generated_at=str(registry_reference.get("generated_at") or ""),
+        installation_binding=installation_binding,
+        refresh_transaction=committed_transaction,
+        registry_generation=str(registry_reference.get("registry_generation") or ""),
+        registry_path="references/installed-capabilities-manifest.json",
+        home_root=home,
+    )
+    committed_errors = registry_reference_errors(
+        registry_reference, source_paths=source_paths, for_commit=True, home_root=home
+    )
+    if committed_errors:
+        return len(records), []
+    records = attach_registry_references(records, registry_reference)
+    roots = _refresh_output_roots()
+    with file_lock(_refresh_lock_path()):
+        snapshot = _snapshot_refresh_outputs(roots)
+        try:
+            paths = [
+                write_manifest(records, registry_reference),
+                write_skills_catalog(records, registry_reference),
+                write_capabilities_catalog(records, registry_reference),
+                write_capability_index(records, registry_reference),
+                write_shiguan_capability_index(records, registry_reference),
+            ]
+        except BaseException:
+            _restore_refresh_outputs(snapshot, roots)
+            raise
     return len(records), paths
 
 
@@ -1160,7 +1621,7 @@ def run_self_test() -> dict[str, object]:
         assert len(neutral) == 1
         assert neutral[0]["enabled"] is True and neutral[0]["verified"] is False and neutral[0]["dispatchable"] is False
         assert "LOCAL_METADATA_CONFLICT" in neutral[0]["evidence"]
-        assert any(item.startswith("CONFLICT_DIGESTS:") for item in neutral[0]["evidence"])
+        assert any(item.startswith("CONFLICT_VARIANTS:") for item in neutral[0]["evidence"])
         equivalent = [item for item in records if item["name"] == "equivalent"]
         assert len(equivalent) == 1 and equivalent[0]["verified"] is True and equivalent[0]["dispatchable"] is True
         disabled = next(item for item in records if item["name"] == "disabled_one")
@@ -1206,7 +1667,7 @@ def run_self_test() -> dict[str, object]:
     expected_boundaries = {
         "skill_install": "incremental",
         "skill_upgrade": "incremental",
-        "hash_drift": "incremental",
+        "reference_drift": "incremental",
         "version_drift": "incremental",
         "dispatch_failure": "light",
         "phase_closeout": "light",
@@ -1215,17 +1676,76 @@ def run_self_test() -> dict[str, object]:
         plan = plan_registry_maintenance(event, changed_sources=("fixture",))
         assert plan["refresh_boundary"] == expected
         assert plan["network"] is False and plan["second_registry"] is False and plan["daemon"] is False
-    full = plan_registry_maintenance("hash_drift", manifest_state="corrupt")
+    full = plan_registry_maintenance("reference_drift", manifest_state="corrupt")
     assert full["refresh_boundary"] == "full"
     blocked = plan_registry_maintenance("skill_install", authority="read-only")
     assert blocked["status"] == "authority_blocked"
     assert blocked["mutation_allowed"] is False and blocked["staleness_warning"]
+    unbound = build_registry_reference(
+        [{"path": "fixture/SKILL.md"}], generated_at="2026-09-08T00:00:00+00:00"
+    )
+    assert unbound["status"] == "UNAVAILABLE"
+    assert unbound["immutable_ref"] is None and unbound["registry_generation"] is None
+    assert unbound["installation_binding"]["status"] == "UNAVAILABLE"
+    assert unbound["refresh_transaction"]["status"] == "PENDING"
+    assert registry_reference_errors(
+        unbound, source_paths=["fixture/SKILL.md"], for_commit=False
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+        fixture_root = Path(temporary)
+        fixture_home = fixture_root / "home"
+        canonical_root = fixture_home / ".agents" / "skills" / "decretum-matrix"
+        canonical_root.mkdir(parents=True)
+        (canonical_root / "SKILL.md").write_text(
+            "---\nname: fixture\ndescription: fixture\n---\n", encoding="utf-8"
+        )
+        source_commit = "a" * 40
+        binding = {
+            "schema": INSTALLATION_BINDING_SCHEMA,
+            "status": "COMMITTED",
+            "completion": "COMMITTED",
+            "source_commit": source_commit,
+            "release_label": "beta1.1.2",
+            "artifact_ref": f"release/fixture.zip@{source_commit}",
+            "build_id": f"beta1.1.2:{source_commit}:fixture-tree",
+            "installation_id": "install:fixture",
+            "generation": 1,
+            "canonical_root": str(canonical_root),
+            "selected_roots": [str(canonical_root)],
+            "provenance_receipt_ref": "candidate:fixture",
+            "transaction_id": "install-transaction:fixture",
+            "rollback_ref": "rollback:fixture",
+        }
+        assert not installation_binding_errors(binding, home_root=fixture_home)
+        external_binding = dict(binding)
+        external_binding["canonical_root"] = str(fixture_root / "external" / "canonical")
+        external_binding["selected_roots"] = [str(fixture_root / "external" / "selected")]
+        assert "INSTALLATION_BINDING_CANONICAL_ROOT_INVALID" in installation_binding_errors(
+            external_binding, home_root=fixture_home
+        )
+        managed_path = fixture_home / ".agents" / "install-receipts" / "decretum-matrix" / "installation-binding-v2.json"
+        managed_path.parent.mkdir(parents=True)
+        managed_path.write_text(json.dumps(binding), encoding="utf-8")
+        external_path = fixture_root / "external-binding.json"
+        external_path.write_text(json.dumps(binding), encoding="utf-8")
+        assert _load_reference_file(
+            external_path,
+            INSTALLATION_BINDING_SCHEMA,
+            expected_path=managed_path,
+        ) is None
+        assert _load_reference_file(
+            managed_path,
+            INSTALLATION_BINDING_SCHEMA,
+            expected_path=managed_path,
+        ) == binding
     return {
         "ok": True,
         "offline": True,
         "maintenance_events": True,
         "read_only_authority_blocked": True,
         "skill_identity_records": True,
+        "unbound_refresh_blocked": True,
+        "installation_binding_roots_anchored": True,
         **effects,
     }
 
@@ -1234,13 +1754,91 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Print a JSON summary.")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--apply", action="store_true", help="Apply an explicitly bound refresh transaction.")
+    parser.add_argument("--yes", action="store_true", help="Confirm the explicitly bound refresh transaction.")
+    parser.add_argument("--installation-binding", type=Path)
+    parser.add_argument("--refresh-transaction", type=Path)
+    parser.add_argument("--registry-generation")
     args = parser.parse_args()
     if args.self_test:
         print(json.dumps(run_self_test(), ensure_ascii=False, indent=2, sort_keys=True))
         return 0
-    count, paths = refresh()
+    if not args.apply or not args.yes:
+        count, _paths = refresh()
+        payload = {
+            "schema": "court.capability.registry_refresh.result.v1",
+            "status": "BLOCKED",
+            "reason": "EXPLICIT_APPLY_AND_YES_REQUIRED",
+            "count": count,
+            "paths": [],
+            "write_enabled": False,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print("CAPABILITY_REGISTRY_REFRESH_BLOCKED reason=EXPLICIT_APPLY_AND_YES_REQUIRED")
+        return 2
+    try:
+        managed_binding_path = _managed_installation_binding_path(Path.home())
+    except ValueError:
+        managed_binding_path = None
+    installation_binding = _load_reference_file(
+        args.installation_binding,
+        INSTALLATION_BINDING_SCHEMA,
+        expected_path=managed_binding_path,
+    )
+    refresh_transaction = _load_reference_file(args.refresh_transaction, REFRESH_TRANSACTION_SCHEMA)
+    if installation_binding is None or refresh_transaction is None:
+        payload = {
+            "schema": "court.capability.registry_refresh.result.v1",
+            "status": "BLOCKED",
+            "reason": "BOUND_INSTALLATION_AND_REFRESH_REFERENCES_REQUIRED",
+            "count": 0,
+            "paths": [],
+            "write_enabled": False,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print("CAPABILITY_REGISTRY_REFRESH_BLOCKED reason=BOUND_INSTALLATION_AND_REFRESH_REFERENCES_REQUIRED")
+        return 2
+    try:
+        count, paths = refresh(
+            installation_binding=installation_binding,
+            refresh_transaction=refresh_transaction,
+            registry_generation=args.registry_generation,
+            authorized=True,
+        )
+    except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+        payload = {
+            "schema": "court.capability.registry_refresh.result.v1",
+            "status": "FAILED",
+            "reason": f"REFRESH_TRANSACTION_FAILED:{type(exc).__name__}",
+            "count": 0,
+            "paths": [],
+            "write_enabled": True,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(f"CAPABILITY_REGISTRY_REFRESH_FAILED reason={type(exc).__name__}")
+        return 1
+    if not paths:
+        payload = {
+            "schema": "court.capability.registry_refresh.result.v1",
+            "status": "BLOCKED",
+            "reason": "REFERENCE_BUNDLE_INVALID",
+            "count": count,
+            "paths": [],
+            "write_enabled": False,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print("CAPABILITY_REGISTRY_REFRESH_BLOCKED reason=REFERENCE_BUNDLE_INVALID")
+        return 2
     if args.json:
-        print(json.dumps({"count": count, "paths": [str(path) for path in paths]}, ensure_ascii=False, indent=2))
+        print(json.dumps({"schema": "court.capability.registry_refresh.result.v1", "status": "COMMITTED", "count": count, "paths": [str(path) for path in paths], "write_enabled": True}, ensure_ascii=False, indent=2))
     else:
         print(f"CAPABILITY_REGISTRY_REFRESHED count={count}")
         for path in paths:
@@ -1250,4 +1848,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

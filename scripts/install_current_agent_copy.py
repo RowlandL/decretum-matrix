@@ -10,6 +10,7 @@ safe while using the canonical ``decretum-matrix`` physical install directory.
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -37,6 +38,70 @@ RESULT_SCHEMA = "court.install_current_agent_copy.result.v1"
 PROJECTION_SCHEMA = "court.install_projection.v1"
 CONFIG_REQUEST_SCHEMA = "court.blank_host_configuration.request.v1"
 IDENTITY_MANIFEST_RELATIVE = "references/manifests/skill-identity.v1.json"
+INSTALLATION_BINDING_SCHEMA = "court.installation_binding.v2"
+INSTALLATION_BINDING_RELATIVE = PurePosixPath(
+    ".agents/install-receipts/decretum-matrix/installation-binding-v2.json"
+)
+INSTALLATION_BINDING_FIELDS = (
+    "source_commit",
+    "release_label",
+    "artifact_ref",
+    "build_id",
+    "installation_id",
+    "generation",
+    "canonical_root",
+    "selected_roots",
+    "completion",
+    "provenance_receipt_ref",
+    "transaction_id",
+    "rollback_ref",
+)
+INSTALLATION_ACCEPTANCE_SCHEMA = "court.installation_acceptance.v1"
+POST_PROJECTION_PRODUCER_SCHEMA = "court.active_copy_hashes.v2"
+POST_PROJECTION_CONTRACT = "POST_INSTALL_STANDALONE_HASH_CHECK"
+INSTALLATION_ACCEPTANCE_BINDING_FIELDS = (
+    "source_commit",
+    "release_label",
+    "artifact_ref",
+    "build_id",
+    "installation_id",
+    "generation",
+    "canonical_root",
+    "selected_roots",
+    "completion",
+    "provenance_receipt_ref",
+    "transaction_id",
+    "rollback_ref",
+)
+INSTALLATION_ACCEPTANCE_CANDIDATE_FIELDS = (
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "release_label",
+    "artifact_ref",
+    "build_id",
+    "candidate_receipt_ref",
+)
+INSTALLATION_ACCEPTANCE_PRODUCER_FIELDS = (
+    "schema",
+    "ok",
+    "status",
+    "contract",
+    "source",
+    "projection",
+    "root_contract",
+    "roots",
+    "missing_roots",
+    "drift",
+    "extra_files",
+    "unsafe_paths",
+    "forbidden_checker_copies",
+    "codex_agent_roles",
+    "root_evidence",
+    "pending_body_access",
+    "projection_sha256",
+    "receipt_sha256",
+)
 
 POLICY_EXPECTED = {
     "required_target": ".agents",
@@ -86,6 +151,369 @@ class _InstallContractError(RuntimeError):
         super().__init__(detail or reason)
         self.reason = reason
         self.detail = detail or reason
+
+
+def _nonempty_text(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _installation_binding_path(home_root: Path) -> Path:
+    home = Path(home_root).resolve(strict=False)
+    path = home / Path(INSTALLATION_BINDING_RELATIVE)
+    current = home
+    for part in INSTALLATION_BINDING_RELATIVE.parts[:-1]:
+        current = current / part
+        if current.is_symlink() or _is_junction(current):
+            raise _InstallContractError(
+                "installation_binding_path_invalid", str(current)
+            )
+    if path.is_symlink() or _is_junction(path):
+        raise _InstallContractError("installation_binding_path_invalid", str(path))
+    return path
+
+
+def _write_json_atomic(path: Path, value: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        newline="\n",
+        prefix=f".{path.name}.install-",
+        dir=path.parent,
+        delete=False,
+    )
+    temporary = Path(handle.name)
+    try:
+        with handle:
+            handle.write(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _path_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _same_path_list(left: object, right: object) -> bool:
+    if not isinstance(left, list) or not isinstance(right, list):
+        return False
+    try:
+        return [_path_key(Path(str(item))) for item in left] == [
+            _path_key(Path(str(item))) for item in right
+        ]
+    except (TypeError, ValueError):
+        return False
+
+
+def _binding_shape_reason(binding: object, home_root: Path) -> str | None:
+    if not isinstance(binding, dict):
+        return "installation_binding_missing_or_invalid"
+    if binding.get("schema") != INSTALLATION_BINDING_SCHEMA:
+        return "installation_binding_schema_mismatch"
+    if any(
+        key in {"court_code", "case_ref", "record_ref", "content_digest", "runtime_content_digest"}
+        or str(key).casefold().endswith("sha256")
+        for key in binding
+    ):
+        return "installation_binding_forbidden_field"
+    if binding.get("completion") != "PENDING_VALIDATION":
+        return "installation_binding_not_pending"
+    if any(_nonempty_text(binding.get(field)) is None for field in (
+        "source_commit",
+        "release_label",
+        "artifact_ref",
+        "build_id",
+        "installation_id",
+        "provenance_receipt_ref",
+        "transaction_id",
+        "rollback_ref",
+        "canonical_root",
+    )):
+        return "installation_binding_fields_missing"
+    generation = binding.get("generation")
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+        return "installation_binding_generation_invalid"
+    selected = binding.get("selected_roots")
+    if not isinstance(selected, list) or not selected or any(
+        _nonempty_text(item) is None for item in selected
+    ):
+        return "installation_binding_selected_roots_invalid"
+    home = Path(home_root).resolve(strict=False)
+    expected_canonical = home / ".agents" / "skills" / "decretum-matrix"
+    if _path_key(Path(str(binding["canonical_root"]))) != _path_key(expected_canonical):
+        return "installation_binding_canonical_root_mismatch"
+    selected_paths = [Path(str(item)).resolve(strict=False) for item in selected]
+    if len({_path_key(path) for path in selected_paths}) != len(selected_paths):
+        return "installation_binding_selected_roots_duplicate"
+    if not any(_path_key(path) == _path_key(expected_canonical) for path in selected_paths):
+        return "installation_binding_primary_root_missing"
+    if any(not _within(path, home) for path in selected_paths):
+        return "installation_binding_selected_root_outside_home"
+    return None
+
+
+def _validate_external_acceptance(
+    *,
+    binding: object,
+    validation: object,
+    home_root: Path,
+) -> str | None:
+    binding_reason = _binding_shape_reason(binding, home_root)
+    if binding_reason is not None:
+        return binding_reason
+    if not isinstance(validation, dict) or set(validation) != {
+        "schema",
+        "producer_receipt",
+        "candidate",
+        "binding",
+        "post_projection_receipt_ref",
+    }:
+        return "installation_binding_external_acceptance_schema_required"
+    if validation.get("schema") != INSTALLATION_ACCEPTANCE_SCHEMA:
+        return "installation_binding_external_acceptance_schema_required"
+    if validation.get("binding") != binding:
+        return "installation_binding_acceptance_binding_mismatch"
+    candidate = validation.get("candidate")
+    if not isinstance(candidate, dict) or set(candidate) != set(
+        INSTALLATION_ACCEPTANCE_CANDIDATE_FIELDS
+    ):
+        return "installation_binding_candidate_context_required"
+    for field in (
+        "source_commit",
+        "release_label",
+        "artifact_ref",
+        "build_id",
+        "candidate_receipt_ref",
+        "source_root",
+        "source_tree",
+    ):
+        if _nonempty_text(candidate.get(field)) is None:
+            return "installation_binding_candidate_context_required"
+    assert isinstance(binding, dict)
+    if any(
+        candidate.get(field) != binding.get(field)
+        for field in ("source_commit", "release_label", "artifact_ref", "build_id")
+    ):
+        return "installation_binding_candidate_context_mismatch"
+    if candidate.get("build_id") != (
+        f"{candidate['release_label']}:{candidate['source_commit']}:{candidate['source_tree']}"
+    ):
+        return "installation_binding_candidate_tree_mismatch"
+    if candidate.get("candidate_receipt_ref") != binding.get("provenance_receipt_ref"):
+        return "installation_binding_candidate_provenance_mismatch"
+    producer = validation.get("producer_receipt")
+    if not isinstance(producer, dict) or any(
+        field not in producer for field in INSTALLATION_ACCEPTANCE_PRODUCER_FIELDS
+    ):
+        return "installation_binding_post_projection_producer_required"
+    if producer.get("schema") != POST_PROJECTION_PRODUCER_SCHEMA:
+        return "installation_binding_post_projection_producer_schema_mismatch"
+    if producer.get("ok") is not True or producer.get("status") != "PASS":
+        return "installation_binding_post_projection_producer_not_passed"
+    if producer.get("contract") != POST_PROJECTION_CONTRACT:
+        return "installation_binding_post_projection_contract_mismatch"
+    if _nonempty_text(producer.get("source")) is None or _path_key(
+        Path(str(producer["source"]))
+    ) != _path_key(Path(str(candidate["source_root"]))):
+        return "installation_binding_post_projection_source_mismatch"
+    if producer.get("projection") not in {"shared_agents", "portable_current_tool"}:
+        return "installation_binding_post_projection_projection_invalid"
+    if producer.get("root_contract") not in {
+        "RECEIPT_SELECTED_ROOTS",
+        "FIVE_GOVERNED_ROOTS",
+        "FIVE_GOVERNED_ROOTS_PLUS_QODER",
+    }:
+        return "installation_binding_post_projection_root_contract_invalid"
+    if not _same_path_list(producer.get("roots"), binding.get("selected_roots")):
+        return "installation_binding_post_projection_roots_mismatch"
+    for field in (
+        "missing_roots",
+        "drift",
+        "extra_files",
+        "unsafe_paths",
+        "forbidden_checker_copies",
+    ):
+        if producer.get(field) != []:
+            return "installation_binding_post_projection_findings_present"
+    roles = producer.get("codex_agent_roles")
+    if not isinstance(roles, dict) or roles.get("ok") is not True:
+        return "installation_binding_post_projection_roles_not_passed"
+    if producer.get("pending_body_access") != "NO":
+        return "installation_binding_post_projection_body_access"
+    if _nonempty_text(producer.get("projection_sha256")) is None or _nonempty_text(
+        producer.get("receipt_sha256")
+    ) is None:
+        return "installation_binding_post_projection_receipt_incomplete"
+    post_ref = _nonempty_text(validation.get("post_projection_receipt_ref"))
+    if post_ref is None or post_ref == binding.get("provenance_receipt_ref"):
+        return "installation_binding_post_projection_receipt_ref_invalid"
+    post_path = Path(post_ref).resolve(strict=False)
+    try:
+        post_value = post_path.lstat()
+        if (
+            not stat.S_ISREG(post_value.st_mode)
+            or post_path.is_symlink()
+            or _is_junction(post_path)
+        ):
+            return "installation_binding_post_projection_receipt_not_regular"
+        persisted = json.loads(post_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "installation_binding_post_projection_receipt_not_durable"
+    if persisted != validation:
+        return "installation_binding_post_projection_receipt_mismatch"
+    return None
+
+
+@contextmanager
+def _binding_commit_lock(path: Path):
+    lock = path.with_name(f".{path.name}.lock")
+    try:
+        descriptor = os.open(
+            os.fspath(lock),
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+    except FileExistsError as exc:
+        raise _InstallContractError("installation_binding_busy", str(lock)) from exc
+    try:
+        os.write(descriptor, b"court.installation_binding.v2 commit\n")
+        yield
+    finally:
+        os.close(descriptor)
+        try:
+            lock.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _previous_binding_generation(home_root: Path) -> int:
+    try:
+        path = _installation_binding_path(home_root)
+        if not path.is_file():
+            return 0
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, _InstallContractError):
+        return 0
+    generation = value.get("generation") if isinstance(value, dict) else None
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+        return 0
+    return generation
+
+
+def _build_installation_binding(
+    *,
+    metadata: dict[str, object],
+    home_root: Path,
+    selected: list[tuple[str, Path, str]],
+    backup_receipt: dict[str, object],
+    external_validation: dict[str, object] | None,
+) -> dict[str, object]:
+    required = {
+        "source_commit": _nonempty_text(metadata.get("source_commit")),
+        "release_label": _nonempty_text(metadata.get("release_label")),
+        "artifact_ref": _nonempty_text(metadata.get("artifact_ref")),
+        "build_id": _nonempty_text(metadata.get("build_id")),
+        "installation_id": _nonempty_text(metadata.get("installation_id")),
+        "transaction_id": _nonempty_text(metadata.get("transaction_id")),
+    }
+    missing = [field for field, value in required.items() if value is None]
+    if missing:
+        raise _InstallContractError(
+            "installation_binding_invalid", "missing:" + ",".join(missing)
+        )
+    primary = (Path(home_root) / ".agents" / "skills" / "decretum-matrix").resolve(
+        strict=False
+    )
+    selected_roots = [
+        str(Path(target).resolve(strict=False))
+        for _label, target, _projection in selected
+    ]
+    if str(primary) not in selected_roots:
+        raise _InstallContractError("installation_binding_primary_root_missing")
+    transaction_id = required["transaction_id"]
+    installation_id = required["installation_id"]
+    generation_value = metadata.get("generation")
+    generation = (
+        generation_value
+        if isinstance(generation_value, int)
+        and not isinstance(generation_value, bool)
+        and generation_value > 0
+        else _previous_binding_generation(home_root) + 1
+    )
+    provenance = _nonempty_text(metadata.get("provenance_receipt_ref")) or (
+        "source:release-manifest.json"
+    )
+    rollback_ref = _nonempty_text(metadata.get("rollback_ref"))
+    if rollback_ref is None:
+        rollback_ref = _nonempty_text(backup_receipt.get("backup_root")) or "none"
+    # The projection transaction cannot self-validate. Completion is promoted
+    # only by commit_installation_binding after the external producer returns.
+    completion = "PENDING_VALIDATION"
+    return {
+        "schema": INSTALLATION_BINDING_SCHEMA,
+        "source_commit": required["source_commit"],
+        "release_label": required["release_label"],
+        "artifact_ref": required["artifact_ref"],
+        "build_id": required["build_id"],
+        "installation_id": installation_id,
+        "generation": generation,
+        "canonical_root": str(primary),
+        "selected_roots": selected_roots,
+        "completion": completion,
+        "provenance_receipt_ref": provenance,
+        "transaction_id": transaction_id,
+        "rollback_ref": rollback_ref,
+    }
+
+
+def commit_installation_binding(
+    *,
+    home_root: Path,
+    external_validation: dict[str, object],
+) -> dict[str, object]:
+    """Commit only the pending binding matched by the existing producer receipt."""
+
+    path = _installation_binding_path(Path(home_root))
+    try:
+        with _binding_commit_lock(path):
+            binding = json.loads(path.read_text(encoding="utf-8"))
+            reason = _binding_shape_reason(binding, Path(home_root))
+            if reason is not None:
+                return _failure(reason)
+            reason = _validate_external_acceptance(
+                binding=binding,
+                validation=external_validation,
+                home_root=Path(home_root),
+            )
+            if reason is not None:
+                return _failure(reason)
+            assert isinstance(binding, dict)
+            binding = dict(binding)
+            binding["completion"] = "COMMITTED"
+            _write_json_atomic(path, binding)
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return _failure(
+            "installation_binding_missing_or_invalid",
+            detail=f"{type(exc).__name__}:{exc}",
+        )
+    return {
+        "schema": INSTALLATION_BINDING_SCHEMA,
+        "ok": True,
+        "status": "COMMITTED",
+        "completion": "COMMITTED",
+        "installation_binding": binding,
+        "installation_binding_path": str(path),
+        "post_projection_receipt_ref": str(
+            external_validation["post_projection_receipt_ref"]
+        ),
+    }
 
 
 def _validate_source_package_sha256(value: object | None) -> str | None:
@@ -1979,6 +2407,8 @@ def install_current_agent_copy(
     platform_context: dict[str, object] | None = None,
     source_package_sha256: str | None = None,
     backup_root: Path | None = None,
+    installation_binding: dict[str, object] | None = None,
+    external_install_validation: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Plan or apply the manifest projection without real host discovery."""
 
@@ -1986,6 +2416,32 @@ def install_current_agent_copy(
     home = Path(home_root).resolve(strict=False)
     if fanout:
         return _failure("fanout_forbidden")
+    if installation_binding is not None:
+        missing_binding_fields = [
+            field
+            for field in (
+                "source_commit",
+                "release_label",
+                "artifact_ref",
+                "build_id",
+                "installation_id",
+                "transaction_id",
+            )
+            if _nonempty_text(installation_binding.get(field)) is None
+        ]
+        if missing_binding_fields:
+            return _failure(
+                "installation_binding_invalid",
+                detail="missing:" + ",".join(missing_binding_fields),
+            )
+        try:
+            _installation_binding_path(home)
+        except _InstallContractError as exc:
+            return _failure(exc.reason, detail=exc.detail)
+        if external_install_validation is not None:
+            return _failure(
+                "installation_binding_external_validation_must_follow_projection"
+            )
     try:
         validated_source_package_sha256 = _validate_source_package_sha256(
             source_package_sha256
@@ -2090,6 +2546,26 @@ def install_current_agent_copy(
     if portability is not None:
         result["portability_evidence"] = portability
 
+    if installation_binding is not None:
+        try:
+            binding = _build_installation_binding(
+                metadata=installation_binding,
+                home_root=home,
+                selected=selected,
+                backup_receipt=backup_receipt,
+                external_validation=external_install_validation,
+            )
+            binding_path = _installation_binding_path(home)
+            if write:
+                _write_json_atomic(binding_path, binding)
+            result["installation_binding"] = binding
+            result["installation_binding_path"] = str(binding_path)
+            if binding["completion"] != "COMMITTED":
+                result["status"] = "PENDING_VALIDATION"
+                result["reason"] = "projection_applied_pending_external_validation"
+        except _InstallContractError as exc:
+            return _failure(exc.reason, detail=exc.detail)
+
     # M3 GREEN（R-I1）：APPLY 成功（write=True）时生成 §4.4 install receipt
     # （计划书 §4.4 第 4 条：selection_policy/primary_root/current_tool/current_tool_root/
     # current_tool_root_proof/status/explicit_extra_targets/selected_roots/authority/receipt_sha256），
@@ -2114,7 +2590,11 @@ def install_current_agent_copy(
             "current_tool": current_tool,
             "current_tool_root": _current_tool_root,
             "current_tool_root_proof": "install_applied",
-            "status": "INSTALLED",
+            "status": (
+                "INSTALLED"
+                if result.get("status") == "INSTALLED"
+                else "PENDING_VALIDATION"
+            ),
             "explicit_extra_targets": _explicit_extra_targets,
             "selected_roots": _selected_roots,
             "authority": "installer",
@@ -2122,6 +2602,8 @@ def install_current_agent_copy(
         }
         if validated_source_package_sha256 is not None:
             _receipt_body["source_package_sha256"] = validated_source_package_sha256
+        if installation_binding is not None:
+            _receipt_body["installation_binding"] = result["installation_binding"]
         _receipt_body["receipt_sha256"] = hashlib.sha256(
             json.dumps(_receipt_body, sort_keys=True, separators=(",", ":")).encode(
                 "utf-8"
@@ -2208,5 +2690,8 @@ def install_current_agent_copy(
 __all__ = [
     "install_current_agent_copy",
     "rollback_install_backup",
+    "commit_installation_binding",
+    "INSTALLATION_ACCEPTANCE_SCHEMA",
+    "INSTALLATION_BINDING_SCHEMA",
     "WindowsJunctionTransactionAdapter",
 ]

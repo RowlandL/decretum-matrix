@@ -146,9 +146,14 @@ def evaluate() -> dict[str, Any]:
             failures.append("repair_verbatim_source_missing")
         if entry.get("replacements"):
             if not all(
-                item.get("original_line_sha256") for item in entry["replacements"]
+                isinstance(item.get("fragment_reference"), dict)
+                and isinstance(item.get("line_coordinate"), dict)
+                and item["line_coordinate"].get("record_ref")
+                and item["line_coordinate"].get("checkpoint_ref")
+                and item["line_coordinate"].get("line_number")
+                for item in entry["replacements"]
             ):
-                failures.append("repair_journal_line_fingerprint_missing")
+                failures.append("repair_journal_structured_reference_missing")
         evidence["repair_journal_receipt_and_snapshot"] = (
             entry.get("original_size_bytes") == len(original_bytes)
             and entry.get("beforeimage_verification") == "exact_bytes"

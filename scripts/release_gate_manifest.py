@@ -81,8 +81,7 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
         (
             "$PYTHON",
             "scripts/check_capability_index_gate.py",
-            "--query",
-            "release license manifest package security",
+            "--self-test",
             "--json",
         ),
         "always",

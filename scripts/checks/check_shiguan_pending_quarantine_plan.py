@@ -724,6 +724,7 @@ def fixture_check() -> dict[str, object]:
 
         return {
             "schema": "court.shiguan_pending_quarantine_plan_check.v1",
+            "ok": True,
             "status": "PASSED",
             "fixture_only": True,
             "pending_bodies": counts["pending_bodies"],

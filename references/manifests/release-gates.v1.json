@@ -200,7 +200,7 @@
     {
       "name": "capability_index",
       "gate_class": "source",
-      "command": ["$PYTHON", "scripts/check_capability_index_gate.py", "--query", "release license manifest package security", "--json"],
+      "command": ["$PYTHON", "scripts/check_capability_index_gate.py", "--self-test", "--json"],
       "timeout": 120,
       "allowed_returncodes": [0],
       "condition": "always"

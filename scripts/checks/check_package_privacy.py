@@ -9,7 +9,9 @@ _SCRIPTS_ROOT = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
+import ast
 import hashlib
+import json
 import os
 from pathlib import Path
 import stat
@@ -1168,6 +1170,24 @@ class ZipStructurePrivacyTests(unittest.TestCase):
                     "repository-only-file",
                 )
 
+    def test_runtime_zip_rejects_source_only_checker_members(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="court-runtime-zip-") as tmp_text:
+            archive_path = Path(tmp_text) / "runtime.zip"
+            write_zip(
+                archive_path,
+                [
+                    (
+                        f"{ROOT_NAME}/scripts/checks/check_runtime_no_file_rehash.py",
+                        b"print('source-only')\n",
+                    )
+                ],
+            )
+            problems = package_skill.validate_zip(
+                archive_path,
+                payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+            )[1]
+        self.assert_problem(problems, "runtime-source-only-checker")
+
     def test_zip_slip_member_is_rejected(self) -> None:
         problems = validation_problems([("../escape.md", b"escape\n")])
         self.assert_problem(problems, "unsafe-member-path")
@@ -1351,6 +1371,88 @@ class PackageBuildTests(unittest.TestCase):
             f"decretum-matrix-{release_label}.zip",
         )
         self.assertTrue(package_skill.should_skip(Path(".github"), is_dir=True))
+
+    def test_runtime_payload_mode_excludes_source_checkers(self) -> None:
+        source_entries = package_skill.package_projection_entries()
+        source_checkers = [
+            item
+            for item in source_entries
+            if item == "scripts/check_active_copy_hashes.py"
+            or item.startswith("scripts/check_")
+            or item.startswith("scripts/checks/")
+        ]
+        self.assertEqual(len(source_checkers), 181)
+        self.assertFalse(
+            package_skill.should_skip(
+                Path("scripts/checks/check_runtime_no_file_rehash.py"),
+                is_dir=False,
+            )
+        )
+        stage = self.temp_path / ROOT_NAME
+        package_skill.copy_runtime_projection(
+            package_skill.skill_root(),
+            stage,
+            target_class="shared_agents",
+        )
+        package_skill.write_core_shiguan_files(
+            stage,
+            source_root=package_skill.skill_root(),
+        )
+        package_skill._write_runtime_release_manifest(
+            stage,
+            package_skill.skill_root(),
+        )
+        out = self.temp_path / "runtime-payload.zip"
+        package_skill.make_zip(stage, out)
+        _entry_count, runtime_problems = package_skill.validate_zip(
+            out,
+            payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+        )
+        current_version_transition = {
+            f"{ROOT_NAME}/VERSION:invalid-version",
+            f"{ROOT_NAME}/SBOM.spdx.json:invalid-sbom",
+        }
+        self.assertEqual(
+            [problem for problem in runtime_problems if problem not in current_version_transition],
+            [],
+        )
+        names = {
+            path.relative_to(stage).as_posix()
+            for path in stage.rglob("*")
+            if path.is_file()
+        }
+        self.assertFalse(
+            any(
+                name == "scripts/check_active_copy_hashes.py"
+                or name.startswith("scripts/check_")
+                or name.startswith("scripts/checks/")
+                for name in names
+            )
+        )
+        self.assertNotIn("scripts/court_diagnostics.py", names)
+        direct_checker_imports: list[str] = []
+        for path in stage.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    direct_checker_imports.extend(
+                        alias.name
+                        for alias in node.names
+                        if alias.name.startswith("check_")
+                        or alias.name.startswith("commands.check")
+                    )
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    if module.startswith("check_") or module.startswith("commands.check"):
+                        direct_checker_imports.append(module)
+        self.assertEqual(direct_checker_imports, [])
+        active_manifest = json.loads(
+            (stage / "references" / "manifests" / "install-projection.v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertNotIn("active_render", active_manifest)
+        self.assertEqual(active_manifest.get("projections", {}).get("repository_only"), [])
 
     def test_legal_governance_files_are_mandatory_package_members(self) -> None:
         self.assertEqual(package_skill.LEGAL_REQUIRED_MEMBERS, LEGAL_REQUIRED)
@@ -1552,5 +1654,3 @@ class ContentPrivacyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
-

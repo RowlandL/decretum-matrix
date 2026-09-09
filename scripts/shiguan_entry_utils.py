@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import hashlib
 from pathlib import Path
 import re
 import zlib
@@ -2176,14 +2175,14 @@ def _recall_matched_discriminative(
 
 
 def _recall_dedupe_key(entry: dict[str, object]) -> str:
-    """Normalized identity key for same-topic duplicate folding (P1-1).
+    """Normalized in-memory key for same-topic duplicate folding (P1-1).
 
     The authoritative store stays md/jsonl; this key is a pure derived
-    projection and never writes back to the source documents.
+    projection and never writes back to the source documents. It is not a
+    record identity or a content-integrity proof.
     """
     material = "|".join(str(entry.get(key) or "") for key in RECALL_DEDUPE_FIELDS)
-    normalized = re.sub(r"\s+", " ", material).strip().casefold()
-    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+    return re.sub(r"\s+", " ", material).strip().casefold()
 
 
 def _status_facet_aliases(status: object) -> tuple[str, ...]:

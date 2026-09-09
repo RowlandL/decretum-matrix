@@ -10,7 +10,7 @@ from __future__ import annotations
 from argparse import Namespace
 import json
 import sys
-from typing import Any
+from typing import Mapping
 
 sys.dont_write_bytecode = True
 
@@ -369,6 +369,60 @@ def public_shiguan_entries_query(query: str, limit: int = 20) -> dict[str, objec
     }
 
 
+IKU_PUBLIC_CANDIDATE_FIELDS = (
+    "record_path",
+    "record_id",
+    "record_ref",
+    "checkpoint",
+    "checkpoint_ref",
+    "checkpoint_line_number",
+    "field",
+    "line_number",
+    "line_coordinate",
+    "placeholder_kind",
+    "suggested_action",
+    "reason",
+    "nearest_court_code",
+    "nearest_lineage",
+    "receipt_hint",
+    "receipt_verified",
+)
+IKU_LINE_COORDINATE_FIELDS = (
+    "record_ref",
+    "record_id",
+    "record_path",
+    "checkpoint_ref",
+    "checkpoint",
+    "checkpoint_line_number",
+    "line_number",
+    "field",
+    "placeholder_kind",
+)
+
+
+def _public_iku_candidate(candidate: object) -> dict[str, object]:
+    """Project only structured IKU coordinates through the public boundary."""
+
+    if not isinstance(candidate, Mapping):
+        return {}
+    projection: dict[str, object] = {}
+    for field in IKU_PUBLIC_CANDIDATE_FIELDS:
+        if field not in candidate:
+            continue
+        value = candidate[field]
+        if field == "line_coordinate":
+            if isinstance(value, Mapping):
+                value = {
+                    key: value[key]
+                    for key in IKU_LINE_COORDINATE_FIELDS
+                    if key in value
+                }
+            else:
+                continue
+        projection[field] = value
+    return projection
+
+
 def public_iku_candidates(scope: str = "plan-archives", limit: int = 20) -> dict[str, object]:
     """Read-only IKU placeholder candidate discovery (dry_run, never writes)."""
 
@@ -390,6 +444,6 @@ def public_iku_candidates(scope: str = "plan-archives", limit: int = 20) -> dict
         "dry_run": True,
         "write_enabled": False,
         "scope": scope,
-        "candidates": candidates,
+        "candidates": [_public_iku_candidate(candidate) for candidate in candidates],
         "count": len(candidates),
     }

@@ -44,7 +44,7 @@ from stdio_encoding import configure_stdio
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
-RELEASE_LABEL = "beta1.1.1"
+RELEASE_LABEL = "beta1.1.2"
 LICENSE_ID = "AGPL-3.0-only"
 # Canonical package and physical install root. Legacy locators may only resolve
 # to this same authority through an explicitly validated compatibility link.
@@ -420,6 +420,42 @@ PACKAGE_IDENTITY_REQUIRED_MEMBERS = {
 FROZEN_REFERENCE_REQUIRED_MEMBERS = {
     f"{ROOT_NAME}/references/benchmarks/cft0808-edict.yaml",
 }
+PAYLOAD_KIND_SOURCE = "development_source"
+PAYLOAD_KIND_RUNTIME = "runtime"
+RUNTIME_REPOSITORY_ONLY_MEMBERS = frozenset(
+    {
+        "scripts/install_current_agent_copy.py",
+        "scripts/install_projection_renderer.py",
+        "scripts/commands/fix_decretum_matrix.py",
+        "scripts/commands/migrate_legacy_skill_locator.py",
+        "scripts/commands/sync_active_copies.py",
+        "scripts/sync_active_copies.py",
+        "scripts/check_active_copy_hashes.py",
+        "scripts/fix_decretum_matrix.py",
+        "scripts/court_diagnostics.py",
+    }
+)
+SOURCE_EXTERNAL_TOOL_FILES = frozenset(
+    {
+        "scripts/commands/fix_decretum_matrix.py",
+        "scripts/commands/migrate_legacy_skill_locator.py",
+        "scripts/commands/sync_active_copies.py",
+        "scripts/install_codex_plugin_projection.py",
+        "scripts/install_current_agent_copy.py",
+        "scripts/install_projection_renderer.py",
+        "scripts/check_active_copy_hashes.py",
+        "scripts/sync_active_copies.py",
+    }
+)
+
+
+def is_source_only_checker_path(relative: str | Path) -> bool:
+    value = (
+        relative.as_posix() if isinstance(relative, Path) else str(relative)
+    ).replace("\\", "/").casefold()
+    return value == "scripts/check_active_copy_hashes.py" or value.startswith(
+        "scripts/check_"
+    ) or value.startswith("scripts/checks/")
 
 def skill_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -499,6 +535,8 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
     lower_parts = {part.casefold() for part in relative.parts}
     lower_name = relative.name.casefold()
     key = relative_key(relative)
+    if not is_dir and key in SOURCE_EXTERNAL_TOOL_FILES:
+        return False
     if key in REPOSITORY_ONLY_PATHS:
         return True
     if has_sensitive_directory(relative):
@@ -710,7 +748,108 @@ def copy_portable_tree(src: Path, dst: Path) -> None:
     visit(source_root, Path())
 
 
-def write_core_shiguan_files(root: Path) -> None:
+def _write_stage_file(stage: Path, relative: str | Path, data: bytes) -> None:
+    relative_path = Path(relative)
+    target = stage / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() or target.is_symlink():
+        raise PackagePolicyError(f"runtime-stage-collision:{relative_path.as_posix()}")
+    with target.open("xb") as handle:
+        handle.write(data)
+
+
+def copy_runtime_projection(
+    src: Path,
+    dst: Path,
+    *,
+    target_class: str = "shared_agents",
+) -> None:
+    """Materialize the active renderer output as a checker-free runtime stage."""
+
+    source_root = Path(src).resolve(strict=True)
+    destination = Path(dst)
+    try:
+        from install_projection_renderer import (
+            ActiveProjectionRenderError,
+            render_active_projection,
+        )
+
+        rendered = render_active_projection(
+            source_root=source_root,
+            target_class=target_class,
+        )
+    except (ActiveProjectionRenderError, OSError, ValueError) as exc:
+        raise PackagePolicyError(f"runtime_projection_render_failed:{exc}") from exc
+    for relative, payload in rendered.files.items():
+        relative_text = relative.as_posix()
+        if is_source_only_checker_path(relative_text):
+            raise PackagePolicyError(
+                f"runtime-source-only-checker:{relative_text}"
+            )
+        if relative_text in RUNTIME_REPOSITORY_ONLY_MEMBERS:
+            continue
+        _write_stage_file(destination, relative_text, payload)
+    for relative_text in ("bin/decretum-matrix.js", "bin/decretum-matrix.py"):
+        source_path = source_root / Path(relative_text)
+        payload = read_source_file_stable(
+            source_path,
+            Path(relative_text),
+            source_root,
+        )
+        _write_stage_file(destination, relative_text, payload)
+
+
+def _write_runtime_release_manifest(stage: Path, source_root: Path) -> None:
+    """Write a manifest for the materialized runtime payload using existing inventory helpers."""
+
+    try:
+        from release_payload_manifest import inventory_entry, payload_index
+
+        source_manifest = json.loads(
+            (source_root / "release-manifest.json").read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ImportError) as exc:
+        raise PackagePolicyError(f"runtime_release_manifest_invalid:{type(exc).__name__}") from exc
+    if not isinstance(source_manifest, dict):
+        raise PackagePolicyError("runtime_release_manifest_invalid:object_required")
+    entries: list[dict[str, object]] = []
+    stage_root = stage.resolve(strict=True)
+    for path in sorted(
+        (item for item in stage.rglob("*") if item.is_file()),
+        key=lambda item: item.relative_to(stage).as_posix().encode("utf-8"),
+    ):
+        relative = path.relative_to(stage).as_posix()
+        if relative == "release-manifest.json":
+            continue
+        data = read_source_file_stable(path, Path(relative), stage_root)
+        entries.append(inventory_entry(relative, data))
+    entries.sort(key=lambda entry: str(entry["path"]).encode("utf-8"))
+    manifest = dict(source_manifest)
+    manifest["payload_kind"] = PAYLOAD_KIND_RUNTIME
+    manifest["files"] = entries
+    integrity = dict(manifest.get("integrity") or {})
+    index = payload_index(entries)
+    from release_payload_manifest import sha256_bytes
+
+    integrity.update(
+        {
+            "manifest_in_file_inventory": False,
+            "payload_file_count": len(entries),
+            "payload_bytes": sum(int(entry["size"]) for entry in entries),
+            "payload_index_sha256": sha256_bytes(index),
+        }
+    )
+    manifest["integrity"] = integrity
+    manifest["repository_only_files"] = []
+    target = stage / "release-manifest.json"
+    target.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def write_core_shiguan_files(root: Path, *, source_root: Path | None = None) -> None:
     references = root / "references"
     startup_tasks = references / "startup-tasks"
     tree = references / "shiguan-tree"
@@ -729,7 +868,7 @@ def write_core_shiguan_files(root: Path) -> None:
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    source_readme = skill_root() / "references" / "README.md"
+    source_readme = (source_root or skill_root()) / "references" / "README.md"
     if source_readme.exists():
         shutil.copy2(source_readme, references / "README.md")
     else:
@@ -1045,6 +1184,10 @@ def archive_member_policy_problem(normalized: str, is_dir: bool) -> str | None:
     lower_parts = [part.casefold() for part in relative_parts]
     if not is_dir and lower_relative in REPOSITORY_ONLY_PATHS:
         return "repository-only-file"
+    if not is_dir and lower_relative in {
+        item.casefold() for item in SOURCE_EXTERNAL_TOOL_FILES
+    }:
+        return None
     if any(part in SENSITIVE_DIR_NAMES for part in lower_parts[:-1] if not is_dir) or any(
         part in SENSITIVE_DIR_NAMES for part in lower_parts if is_dir
     ):
@@ -1144,7 +1287,30 @@ def validate_optional_release_metadata(name: str, data: bytes) -> str | None:
     return None
 
 
-def validate_zip(path: Path) -> tuple[int, list[str]]:
+def _infer_payload_kind(path: Path) -> str:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            manifest = json.loads(
+                archive.read(f"{ROOT_NAME}/release-manifest.json").decode("utf-8")
+            )
+    except (OSError, KeyError, UnicodeError, json.JSONDecodeError, zipfile.BadZipFile):
+        return PAYLOAD_KIND_SOURCE
+    return (
+        PAYLOAD_KIND_RUNTIME
+        if isinstance(manifest, dict)
+        and manifest.get("payload_kind") == PAYLOAD_KIND_RUNTIME
+        else PAYLOAD_KIND_SOURCE
+    )
+
+
+def validate_zip(
+    path: Path,
+    *,
+    payload_kind: str | None = None,
+) -> tuple[int, list[str]]:
+    payload_kind = payload_kind or _infer_payload_kind(path)
+    if payload_kind not in {PAYLOAD_KIND_SOURCE, PAYLOAD_KIND_RUNTIME}:
+        raise PackagePolicyError(f"payload-kind-invalid:{payload_kind}")
     forbidden: list[str] = []
     required = {
         f"{ROOT_NAME}/SKILL.md",
@@ -1209,6 +1375,13 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
             )
         }
     )
+    if payload_kind == PAYLOAD_KIND_RUNTIME:
+        required.difference_update(
+            {
+                f"{ROOT_NAME}/{relative}"
+                for relative in RUNTIME_REPOSITORY_ONLY_MEMBERS
+            }
+        )
     names: set[str] = set()
     data_by_name: dict[str, bytes] = {}
     entry_count = 0
@@ -1232,6 +1405,20 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
                 if path_problem or normalized is None:
                     forbidden.append(f"{info.filename}:{path_problem or 'unsafe-member-path'}")
                     continue
+
+                relative_name = normalized.split("/", 1)[1]
+                if payload_kind == PAYLOAD_KIND_RUNTIME and is_source_only_checker_path(
+                    relative_name
+                ):
+                    forbidden.append(
+                        f"{normalized}:runtime-source-only-checker"
+                    )
+                if payload_kind == PAYLOAD_KIND_RUNTIME and relative_name in {
+                    path.casefold() for path in RUNTIME_REPOSITORY_ONLY_MEMBERS
+                }:
+                    forbidden.append(
+                        f"{normalized}:runtime-repository-only-file"
+                    )
 
                 collision_key = normalized.casefold()
                 previous = case_names.get(collision_key)
@@ -1295,6 +1482,33 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
                     forbidden.append(f"{normalized}:unsupported-binary:not-utf8")
                     continue
                 data_by_name[normalized] = data
+                if payload_kind == PAYLOAD_KIND_RUNTIME and normalized == (
+                    f"{ROOT_NAME}/references/manifests/install-projection.v1.json"
+                ):
+                    try:
+                        active_manifest = json.loads(data.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        forbidden.append(
+                            f"{normalized}:runtime-active-manifest-invalid"
+                        )
+                    else:
+                        active_projections = (
+                            active_manifest.get("projections")
+                            if isinstance(active_manifest, dict)
+                            else None
+                        )
+                        if not isinstance(active_manifest, dict):
+                            forbidden.append(
+                                f"{normalized}:runtime-active-manifest-invalid"
+                            )
+                        elif (
+                            "active_render" in active_manifest
+                            or not isinstance(active_projections, dict)
+                            or active_projections.get("repository_only") != []
+                        ):
+                            forbidden.append(
+                                f"{normalized}:runtime-active-manifest-source-only"
+                            )
                 if any(pattern.search(data) for pattern in SECRET_PATTERNS):
                     forbidden.append(f"{normalized}:secret-like-content")
                 if any(pattern.search(data) for pattern in HOST_ABSOLUTE_PATH_PATTERNS):
@@ -1334,7 +1548,11 @@ def validate_zip(path: Path) -> tuple[int, list[str]]:
     return entry_count, missing + sorted(set(forbidden))
 
 
-def run_stage_validation(stage: Path) -> list[str]:
+def run_stage_validation(
+    stage: Path,
+    *,
+    payload_kind: str = PAYLOAD_KIND_SOURCE,
+) -> list[str]:
     problems: list[str] = []
     readme = stage / "references" / "README.md"
     readme_text = readme.read_text(encoding="utf-8", errors="replace") if readme.exists() else ""
@@ -1343,6 +1561,10 @@ def run_stage_validation(stage: Path) -> list[str]:
             problems.append(f"stage:references/README.md:missing:{term}")
 
     for script, args in (("quick_validate.py", []),):
+        if payload_kind == PAYLOAD_KIND_RUNTIME and not (
+            stage / "scripts" / script
+        ).is_file():
+            continue
         command = [sys.executable, "-B", str(stage / "scripts" / script), *args]
         env = os.environ.copy()
         completed = subprocess.run(
@@ -1368,7 +1590,14 @@ def cleanup_stage_transients(stage: Path) -> None:
             path.unlink()
 
 
-def build(out: Path) -> tuple[int, int, list[str]]:
+def build(
+    out: Path,
+    *,
+    payload_kind: str = PAYLOAD_KIND_SOURCE,
+    target_class: str = "shared_agents",
+) -> tuple[int, int, list[str]]:
+    if payload_kind not in {PAYLOAD_KIND_SOURCE, PAYLOAD_KIND_RUNTIME}:
+        return 0, 0, [f"payload-kind-invalid:{payload_kind}"]
     if out.exists():
         return 0, 0, [f"output-already-exists:{out}"]
     src = skill_root()
@@ -1383,17 +1612,31 @@ def build(out: Path) -> tuple[int, int, list[str]]:
         stage = tmp / ROOT_NAME
         candidate = candidate_path_for(out)
         try:
-            copy_portable_tree(src, stage)
+            if payload_kind == PAYLOAD_KIND_RUNTIME:
+                copy_runtime_projection(src, stage, target_class=target_class)
+            else:
+                copy_portable_tree(src, stage)
         except PackagePolicyError as exc:
             return 0, 0, [f"source-policy:{exc}"]
         try:
-            write_core_shiguan_files(stage)
-            stage_problems = run_stage_validation(stage)
+            write_core_shiguan_files(stage, source_root=src)
+            if payload_kind == PAYLOAD_KIND_RUNTIME:
+                _write_runtime_release_manifest(stage, src)
+            stage_problems = run_stage_validation(
+                stage,
+                payload_kind=payload_kind,
+            )
             if stage_problems:
                 return 0, 0, stage_problems
             cleanup_stage_transients(stage)
             entry_count = make_zip(stage, candidate)
-            zip_count, problems = validate_zip(candidate)
+            if payload_kind == PAYLOAD_KIND_SOURCE:
+                zip_count, problems = validate_zip(candidate)
+            else:
+                zip_count, problems = validate_zip(
+                    candidate,
+                    payload_kind=payload_kind,
+                )
             if problems:
                 return entry_count, zip_count, problems
             try:

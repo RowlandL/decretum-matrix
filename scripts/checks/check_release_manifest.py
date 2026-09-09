@@ -273,6 +273,29 @@ def run_negative_contract_checks(manifest: dict[str, object]) -> list[str]:
     returncode_expansion["steps"][0]["allowed_returncodes"] = [0, 2, 255]  # type: ignore[index]
     cases.append(("returncode_expansion", returncode_expansion, "allowed_returncodes drifted from required policy"))
 
+    capability_query = deepcopy(manifest)
+    capability_steps = [
+        step
+        for step in capability_query["steps"]  # type: ignore[index,union-attr]
+        if step.get("name") == "capability_index"
+    ]
+    if len(capability_steps) != 1:
+        raise AssertionError("capability_index step is required exactly once")
+    capability_steps[0]["command"] = [
+        "$PYTHON",
+        "scripts/check_capability_index_gate.py",
+        "--query",
+        "release license manifest package security",
+        "--json",
+    ]
+    cases.append(
+        (
+            "capability_index_environment_query",
+            capability_query,
+            "command drifted from required policy",
+        )
+    )
+
     passed: list[str] = []
     for name, value, expected in cases:
         expect_invalid(value, expected)
@@ -716,6 +739,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 

@@ -12,10 +12,10 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 from copy import deepcopy
-import hashlib
 import json
 import subprocess
 import sys
+from urllib.parse import quote
 
 sys.dont_write_bytecode = True
 import court_runtime
@@ -267,15 +267,34 @@ def _producer_receipt_from_stdout(stdout: str) -> dict[str, object]:
 
 
 def _receipt_cache_path(preflight: dict[str, object]) -> Path:
-    digest = hashlib.sha256(
-        json.dumps(
-            preflight,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-    return court_runtime.runtime_root() / "archive-runtime-receipts" / f"{digest}.json"
+    task_id = preflight.get("task_id")
+    assessment_ref = preflight.get("assessment_ref")
+    revision = preflight.get("charter_revision")
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise ValueError("archive_runtime_cache_task_id_invalid")
+    if not isinstance(assessment_ref, str) or not assessment_ref.strip():
+        raise ValueError("archive_runtime_cache_assessment_ref_invalid")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        raise ValueError("archive_runtime_cache_charter_revision_invalid")
+
+    def reference_component(value: str, *, label: str) -> str:
+        encoded = quote(value.strip(), safe="-._~")
+        if encoded in {"", ".", ".."} or len(encoded) > 128:
+            raise ValueError(f"archive_runtime_cache_{label}_invalid")
+        return encoded
+
+    assessment_component = reference_component(
+        assessment_ref,
+        label="assessment_ref",
+    )
+    return (
+        court_runtime.runtime_root()
+        / "archive-runtime-receipts"
+        / "reference-v1"
+        / reference_component(task_id, label="task_id")
+        / f"r{revision}"
+        / f"{assessment_component}.json"
+    )
 
 
 def _cached_producer_receipt(path: Path) -> dict[str, object]:

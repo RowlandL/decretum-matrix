@@ -9,7 +9,6 @@ import re
 import secrets
 import sys
 from typing import Any, Callable, Mapping
-import zlib
 
 sys.dont_write_bytecode = True
 
@@ -44,8 +43,22 @@ def canonical_json_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def _stable_json_id(value: object) -> str:
-    return f"json-{zlib.crc32(canonical_json_bytes(value)):08x}"
+def _structured_reference(kind: str, **fields: object) -> str:
+    """Return a readable reference bound to existing task/dispatch records."""
+
+    selected = {
+        key: value
+        for key, value in fields.items()
+        if value is not None and value != ""
+    }
+    if not selected:
+        raise ValueError(f"{kind} reference requires an existing binding")
+    return f"{kind}:" + json.dumps(
+        selected,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _validate_dispatch_context_packet(
@@ -60,8 +73,95 @@ def _validate_dispatch_context_packet(
     task_id = task.get("task_id") or task.get("id")
     if task_id is not None and packet.get("task_id") != task_id:
         raise ValueError("semantic dispatch context task mismatch")
-    if receipt is not None and not isinstance(receipt, Mapping):
-        raise ValueError("semantic receipt pointer must be an object when supplied")
+    authority_problems: list[str] = []
+    if not isinstance(receipt, Mapping):
+        authority_problems.append("semantic_receipt_missing")
+    else:
+        capsule = task.get("invariant_capsule")
+        if capsule is None:
+            authority_problems.append("semantic_task_invariant_capsule_missing")
+        elif not isinstance(capsule, Mapping):
+            authority_problems.append("semantic_task_invariant_capsule_invalid")
+        receipt_id = receipt.get("receipt_id")
+        receipt_epoch = receipt.get("semantic_epoch")
+        packet_receipt_id = packet.get("semantic_receipt_id")
+        packet_epoch = packet.get("semantic_epoch")
+        if not isinstance(receipt_id, str) or not receipt_id.strip():
+            authority_problems.append("semantic_receipt_id_missing")
+        elif packet_receipt_id != receipt_id:
+            authority_problems.append("semantic_receipt_id_not_current")
+        if (
+            type(receipt_epoch) is not int
+            or receipt_epoch < 1
+            or receipt_epoch != task.get("semantic_epoch")
+        ):
+            authority_problems.append("semantic_receipt_epoch_invalid")
+        if packet_epoch != receipt_epoch:
+            authority_problems.append("semantic_epoch_not_current")
+        if not isinstance(receipt.get("plan_cursor"), str) or not receipt.get("plan_cursor", "").strip():
+            authority_problems.append("semantic_receipt_revision_missing")
+        elif packet.get("plan_cursor") != receipt.get("plan_cursor"):
+            authority_problems.append("semantic_receipt_revision_not_current")
+        try:
+            from court_case_binding import case_reference, plan_reference
+
+            task_case = task.get("case_ref")
+            if task_case is None and isinstance(capsule, Mapping):
+                task_case = capsule.get("case_ref")
+            expected_case = case_reference(task_case)
+            receipt_case = case_reference(receipt.get("case_ref"))
+            packet_case = case_reference(packet.get("case_ref"))
+            if receipt_case != expected_case:
+                authority_problems.append("semantic_receipt_case_not_current")
+            if packet_case != receipt_case:
+                authority_problems.append("semantic_packet_case_not_current")
+            task_revision = task.get("charter_revision")
+            if task_revision is not None and (
+                type(task_revision) is not int or task_revision != expected_case["charter_revision"]
+            ):
+                authority_problems.append("task_charter_revision_invalid")
+            authority_revision = receipt.get("authority_revision")
+            if authority_revision is not None and (
+                type(authority_revision) is not int
+                or authority_revision != expected_case["charter_revision"]
+            ):
+                authority_problems.append("semantic_receipt_authority_revision_invalid")
+            receipt_plan = receipt.get("plan_ref")
+            packet_plan = packet.get("plan_ref")
+            if receipt_plan is None:
+                if packet_plan is not None:
+                    authority_problems.append("semantic_packet_plan_not_current")
+            elif not isinstance(receipt_plan, Mapping):
+                authority_problems.append("semantic_receipt_plan_invalid")
+            elif packet_plan is None or plan_reference(packet_plan) != plan_reference(receipt_plan):
+                authority_problems.append("semantic_packet_plan_not_current")
+        except (AttributeError, TypeError, ValueError, KeyError):
+            authority_problems.append("semantic_receipt_case_invalid")
+        try:
+            from court_semantic_continuity import verify_semantic_receipt
+
+            context = {
+                field: receipt.get(field)
+                for field in (
+                    "authority_revision",
+                    "case_ref",
+                    "plan_ref",
+                    "plan_cursor",
+                    "recovery_checkpoint_id",
+                    "shiguan_revision",
+                )
+            }
+            authority_problems.extend(
+                f"semantic_receipt_validator:{problem}"
+                for problem in verify_semantic_receipt(dict(task), dict(receipt), context)
+            )
+        except (AttributeError, ImportError, TypeError, ValueError, KeyError) as exc:
+            authority_problems.append(f"semantic_receipt_validator_error:{exc}")
+    if authority_problems:
+        raise ValueError(
+            "semantic dispatch context authority mismatch:"
+            + ",".join(dict.fromkeys(authority_problems))
+        )
     if packet.get("context_mode") != "bounded":
         raise ValueError("semantic dispatch context must be bounded")
     return {"packet": dict(packet)}
@@ -139,6 +239,27 @@ def validate_enter_dispatch_context(
             "ok": False,
             "reason": "enter_dispatch_semantic_packet_binding_mismatch",
         }
+    scope = packet.get("scope")
+    if not isinstance(scope, dict) or set(scope) != scope_fields:
+        return {"ok": False, "reason": "enter_dispatch_scope_fields_invalid"}
+    normalized_scope: dict[str, list[str]] = {}
+    for field in scope_fields:
+        values = _nonempty_string_list(scope.get(field))
+        if values is None:
+            return {"ok": False, "reason": f"enter_dispatch_scope_invalid:{field}"}
+        normalized_scope[field] = values
+    portable_paths = [
+        normalized
+        for value in normalized_scope["allowed_paths"]
+        if (normalized := _portable_repo_path(value)) is not None
+    ]
+    if len(portable_paths) != len(normalized_scope["allowed_paths"]):
+        return {"ok": False, "reason": "enter_dispatch_scope_invalid:allowed_paths"}
+    normalized_scope["allowed_paths"] = portable_paths
+    if set(normalized_scope["allowed_actions"]) & set(
+        normalized_scope["forbidden_actions"]
+    ):
+        return {"ok": False, "reason": "enter_dispatch_scope_action_conflict"}
     task_loader = runtime.get("load_supercc_tasks")
     if not callable(task_loader):
         return {"ok": False, "reason": "enter_dispatch_supercc_task_loader_unavailable"}
@@ -170,41 +291,47 @@ def validate_enter_dispatch_context(
     if normalized_semantic.get("context_mode") != "bounded":
         return {"ok": False, "reason": "enter_dispatch_semantic_packet_not_bounded"}
 
-    scope = packet.get("scope")
-    if not isinstance(scope, dict) or set(scope) != scope_fields:
-        return {"ok": False, "reason": "enter_dispatch_scope_fields_invalid"}
-    normalized_scope: dict[str, list[str]] = {}
-    for field in scope_fields:
-        values = _nonempty_string_list(scope.get(field))
-        if values is None:
-            return {"ok": False, "reason": f"enter_dispatch_scope_invalid:{field}"}
-        normalized_scope[field] = values
-    portable_paths = [
-        normalized
-        for value in normalized_scope["allowed_paths"]
-        if (normalized := _portable_repo_path(value)) is not None
-    ]
-    if len(portable_paths) != len(normalized_scope["allowed_paths"]):
-        return {"ok": False, "reason": "enter_dispatch_scope_invalid:allowed_paths"}
-    normalized_scope["allowed_paths"] = portable_paths
-    if set(normalized_scope["allowed_actions"]) & set(
-        normalized_scope["forbidden_actions"]
-    ):
-        return {"ok": False, "reason": "enter_dispatch_scope_action_conflict"}
     normalized_packet = dict(packet)
     normalized_packet["semantic_packet"] = normalized_semantic
     normalized_packet["scope"] = normalized_scope
     packet_bytes = len(canonical_json_bytes(normalized_packet))
     if packet_bytes > context_max_bytes:
         return {"ok": False, "reason": "enter_dispatch_context_packet_too_large"}
+    task_ref = task_id
+    dispatch_ref = dispatch_uid
+    semantic_receipt_ref = normalized_semantic.get("semantic_receipt_id")
+    semantic_revision = normalized_semantic.get("semantic_epoch")
+    authority_ref = normalized_packet.get("calling_office")
+    direct_superior_ref = normalized_packet.get("direct_superior")
     return {
         "ok": True,
         "schema": context_schema,
         "packet": normalized_packet,
-        "packet_id": _stable_json_id(normalized_packet),
+        "packet_id": _structured_reference(
+            "dispatch-packet",
+            task_id=task_ref,
+            dispatch_uid=dispatch_ref,
+            semantic_receipt_id=semantic_receipt_ref,
+            semantic_revision=semantic_revision,
+            authority=authority_ref,
+            direct_superior=direct_superior_ref,
+        ),
         "packet_bytes": packet_bytes,
-        "semantic_packet_id": _stable_json_id(normalized_semantic),
-        "scope_id": _stable_json_id(normalized_scope),
+        "semantic_packet_id": _structured_reference(
+            "semantic-packet",
+            task_id=task_ref,
+            dispatch_uid=normalized_semantic.get("sub_id"),
+            semantic_receipt_id=semantic_receipt_ref,
+            semantic_revision=semantic_revision,
+        ),
+        "scope_id": _structured_reference(
+            "dispatch-scope",
+            task_id=task_ref,
+            dispatch_uid=dispatch_ref,
+            semantic_receipt_id=semantic_receipt_ref,
+            authority=authority_ref,
+            direct_superior=direct_superior_ref,
+        ),
         "task_id": task_id,
         "allowed_paths": portable_paths,
         "validation_scope": "current_runtime_task_and_semantic_receipt",
@@ -308,7 +435,16 @@ def active_office_identity_binding(
         "role": role,
         "identity_id": row.get("id"),
         "identity_generation": identity_generation,
-        "identity_binding_id": _stable_json_id(identity),
+        "identity_binding_id": _structured_reference(
+            "office-identity",
+            role=identity.get("role"),
+            identity_id=row.get("id"),
+            identity_generation=identity_generation,
+            session_id=row_binding.get("session_id"),
+            pane_id=(identity.get("pane") or {}).get("pane_id")
+            if isinstance(identity.get("pane"), dict)
+            else None,
+        ),
         "identity": identity,
         "visible_pane_selection": pane_selection,
     }

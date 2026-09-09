@@ -385,7 +385,7 @@ function buildPackageReadmeForContract(contract) {
     "",
     `This package contains the release ZIP, release attestation, release notes, SPDX SBOM, and legal/governance documents validated against the ${contract.releaseLabel} release manifest.`,
     "",
-    "It bundles no third-party binaries. Its bounded `postinstall` performs structural ZIP safety checks, backs up managed public files, installs the canonical `.agents/skills/decretum-matrix` runtime, creates or atomically migrates the physical shared Shiguan root, installs or reuses the first-run superCC `zellij` and `squad` dependencies, and records rollback receipts without reading pending/private bodies. The install receipt thanks the Zellij and squad open source projects and links to their repositories. Any temporary install validator must be removed before the runtime projection is activated.",
+    "It bundles no third-party binaries and declares no npm lifecycle mutation. Use the explicit installer command with a committed installation binding; ordinary launcher calls only read that binding and refuse incomplete or stale installations. Content acceptance remains a single post-projection step performed by the existing external installer tooling.",
   ].join("\n")}\n`;
 }
 
@@ -493,9 +493,15 @@ if archive_root != package_skill.ROOT_NAME:
     problems.append("accepted-manifest:archive-root-mismatch")
 if accepted_manifest.get("release_label") != expected_label:
     problems.append("accepted-manifest:release-label-mismatch")
+if accepted_manifest.get("payload_kind") != "runtime":
+    problems.append("accepted-manifest:runtime-payload-kind-required")
 
 expected = {}
 expected_casefolded = {}
+source_only_checker_entries = []
+def is_source_only_checker(relative):
+    relative = relative.replace("\\", "/").casefold()
+    return relative == "scripts/check_active_copy_hashes.py" or relative.startswith("scripts/check_") or relative.startswith("scripts/checks/")
 for entry in accepted_manifest.get("files", []):
     if not isinstance(entry, dict):
         problems.append("accepted-manifest:non-object-file-entry")
@@ -521,6 +527,8 @@ for entry in accepted_manifest.get("files", []):
     if collision is not None and collision != relative:
         problems.append(f"accepted-manifest:case-collision:{relative}:{collision}")
     expected_casefolded[relative.casefold()] = relative
+    if is_source_only_checker(relative):
+        source_only_checker_entries.append(relative)
     if mode != "100644":
         problems.append(f"accepted-manifest:unsupported-mode:{relative}:{mode}")
     if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
@@ -602,6 +610,8 @@ with zipfile.ZipFile(archive_path) as archive:
             if package_skill.has_host_absolute_path_content(archive, info):
                 problems.append(f"{normalized}:host-absolute-path-content")
         relative = normalized.split("/", 1)[1]
+        if is_source_only_checker(relative):
+            source_only_checker_entries.append(relative)
         digest = hashlib.sha256(archive.read(info)).hexdigest()
         if relative == "release-manifest.json":
             manifest_member_count += 1
@@ -617,6 +627,11 @@ with zipfile.ZipFile(archive_path) as archive:
 
 if manifest_member_count != 1:
     problems.append(f"release-manifest.json:member-count:{manifest_member_count}")
+if source_only_checker_entries:
+    problems.extend(
+        f"source-only-checker-in-runtime-payload:{relative}"
+        for relative in sorted(set(source_only_checker_entries))
+    )
 missing = sorted(set(expected) - set(actual), key=lambda value: value.encode("utf-8"))
 extra = sorted(set(actual) - set(expected), key=lambda value: value.encode("utf-8"))
 problems.extend(f"missing:{relative}" for relative in missing)
@@ -640,6 +655,7 @@ if problems:
         "manifest_inventory_sha256": manifest_inventory_sha256,
         "payload_inventory_count": len(actual),
         "payload_inventory_sha256": payload_inventory_sha256,
+        "source_only_checker_entries": sorted(set(source_only_checker_entries)),
     }, ensure_ascii=False))
     raise SystemExit(2)
 print(json.dumps({
@@ -652,6 +668,7 @@ print(json.dumps({
     "manifest_inventory_sha256": manifest_inventory_sha256,
     "payload_inventory_count": len(actual),
     "payload_inventory_sha256": payload_inventory_sha256,
+    "source_only_checker_entries": [],
 }, ensure_ascii=False))
 `;
 
@@ -700,6 +717,7 @@ function runFixtureCommand(command, args, options = {}) {
     cwd: options.cwd || REPO_ROOT,
     encoding: "utf8",
     env: withoutInheritedGitIndex(options.env || process.env),
+    input: options.input,
     maxBuffer: 32 * 1024 * 1024,
     shell: false,
     timeout: options.timeout || 120_000,
@@ -1025,7 +1043,7 @@ async function snapshotOutputDirectory(outputDirectory) {
   return snapshot;
 }
 
-async function verifyInstalledCliParity(operationRoot, installedRoot) {
+async function verifyInstalledCliParity(operationRoot, installedRoot, npmState) {
   const sourceResult = runPythonFixtureCommand(
     [path.join(REPO_ROOT, "scripts", "court_cli.py"), "--format", "json", "--help"],
     { cwd: REPO_ROOT },
@@ -1041,6 +1059,10 @@ async function verifyInstalledCliParity(operationRoot, installedRoot) {
     fail(`source CLI receipt is not JSON: ${error.message}`);
   }
   const launcher = path.join(installedRoot, "bin", "decretum-matrix.js");
+  const installedPackage = await readJson(
+    path.join(installedRoot, "package.json"),
+    "installed package.json",
+  );
   const python = resolvePythonInvocation();
   const platforms = [];
   for (const platform of ["win32", "darwin", "linux"]) {
@@ -1048,13 +1070,56 @@ async function verifyInstalledCliParity(operationRoot, installedRoot) {
     const homeRoot = path.join(fixtureRoot, "home");
     const cacheRoot = path.join(fixtureRoot, "cache");
     await mkdir(homeRoot, { recursive: true });
+    const canonicalRuntime = path.join(
+      homeRoot,
+      ".agents",
+      "skills",
+      "decretum-matrix",
+      "scripts",
+    );
+    await mkdir(canonicalRuntime, { recursive: true });
+    await writeFile(
+      path.join(canonicalRuntime, "court_cli.py"),
+      `print(${JSON.stringify(jsonText(sourceReceipt))})\n`,
+      { encoding: "utf8", flag: "wx", mode: 0o644 },
+    );
+    const packageIdentity = installedPackage.decretumMatrix || {};
+    const packageSource = packageIdentity.source || {};
+    const binding = {
+      schema: "court.installation_binding.v2",
+      source_commit: packageSource.commit,
+      release_label: packageIdentity.releaseLabel,
+      artifact_ref: packageIdentity.artifactRef,
+      build_id: packageIdentity.buildId,
+      installation_id: "fixture-installation",
+      generation: 1,
+      canonical_root: path.join(homeRoot, ".agents", "skills", "decretum-matrix"),
+      selected_roots: [path.join(homeRoot, ".agents", "skills", "decretum-matrix")],
+      completion: "COMMITTED",
+      provenance_receipt_ref: "fixture-installation-receipt",
+      transaction_id: "fixture-installation-transaction",
+      rollback_ref: "none",
+    };
+    const bindingPath = path.join(
+      homeRoot,
+      ".agents",
+      "install-receipts",
+      "decretum-matrix",
+      "installation-binding-v2.json",
+    );
+    await mkdir(path.dirname(bindingPath), { recursive: true });
+    await writeFile(bindingPath, jsonText(binding), {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o644,
+    });
     const result = runFixtureCommand(
       process.execPath,
       [launcher, "--format", "json", "--help"],
       {
         cwd: fixtureRoot,
         env: {
-          ...process.env,
+          ...isolatedProcessEnvironment(homeRoot, cacheRoot, npmState, platform),
           DECRETUM_MATRIX_NPM_CACHE_ROOT: cacheRoot,
           DECRETUM_MATRIX_PYTHON: python.command,
           DECRETUM_MATRIX_PYTHON_PREFIX_JSON: JSON.stringify(python.prefixArgs),
@@ -1106,6 +1171,8 @@ async function runSyntheticInstalledSmoke(
     jsonText({ name: "decretum-npm-synthetic-smoke", private: true, version: "1.0.0" }),
     { encoding: "utf8", flag: "wx", mode: 0o644 },
   );
+  const smokeHome = path.join(smokeRoot, "install-home");
+  await mkdir(smokeHome, { recursive: true });
   runNpm(
     [
       "install",
@@ -1117,6 +1184,12 @@ async function runSyntheticInstalledSmoke(
     ],
     smokeRoot,
     npmState,
+    isolatedProcessEnvironment(
+      smokeHome,
+      npmState.cache,
+      npmState,
+      null,
+    ),
   );
   const installedRoot = path.join(
     smokeRoot,
@@ -1139,16 +1212,15 @@ async function runSyntheticInstalledSmoke(
   );
   assert(installedPackage.main === undefined, "synthetic package unexpectedly exposes a main entry");
   assert(
-    installedPackage.scripts?.postinstall ===
-      "node bin/decretum-matrix.js --npm-postinstall",
-    "synthetic package postinstall contract mismatch",
+    installedPackage.scripts?.postinstall === undefined,
+    "synthetic package unexpectedly declares a postinstall mutation",
   );
   assert(
     installedPackage.exports?.["./package.json"] === "./package.json" &&
       installedPackage.exports?.["./release/*"] === "./release/*",
     "synthetic package exports contract mismatch",
   );
-  return await verifyInstalledCliParity(operationRoot, installedRoot);
+  return await verifyInstalledCliParity(operationRoot, installedRoot, npmState);
 }
 
 export async function runSyntheticSelfTest() {
@@ -1269,6 +1341,7 @@ export async function runSyntheticSelfTest() {
     manifest.files = [...legalEntries, ...fixtureCliPayloadEntries, versionEntry, sbomEntry].sort((left, right) =>
       Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")),
     );
+    manifest.payload_kind = "runtime";
     const syntheticInventoryText = payloadInventoryText(manifest.files);
     manifest.integrity = {
       manifest_in_file_inventory: false,
@@ -1710,6 +1783,64 @@ export async function runSyntheticSelfTest() {
     );
     const zipPrivacyEvidence = JSON.parse(zipPrivacy.stdout.trim());
     assert(zipPrivacyEvidence.ok === true, "synthetic ZIP privacy did not report ok");
+    assert(
+      Array.isArray(zipPrivacyEvidence.source_only_checker_entries) &&
+        zipPrivacyEvidence.source_only_checker_entries.length === 0,
+      "synthetic runtime ZIP still carries source-only checker entries",
+    );
+    const checkerPayloadNegativeRelative = "scripts/checks/forbidden.py";
+    const checkerPayloadNegativeSource = path.join(
+      authorityRoot,
+      ...checkerPayloadNegativeRelative.split("/"),
+    );
+    await mkdir(path.dirname(checkerPayloadNegativeSource), { recursive: true });
+    await writeFile(checkerPayloadNegativeSource, "print('source-only')\n", {
+      encoding: "utf8",
+      flag: "wx",
+    });
+    const checkerPayloadNegativeZip = path.join(
+      root,
+      "checker-payload-negative.zip",
+    );
+    const checkerPayloadNegativeCreate = runPythonFixtureCommand(
+      [
+        "-c",
+        SYNTHETIC_ZIP_SCRIPT,
+        authorityRoot,
+        checkerPayloadNegativeZip,
+        JSON.stringify([...zipMembers, checkerPayloadNegativeRelative]),
+      ],
+      { cwd: root },
+    );
+    assert(
+      checkerPayloadNegativeCreate.status === 0,
+      `checker payload negative ZIP creation failed: ${checkerPayloadNegativeCreate.stderr}`,
+    );
+    const checkerPayloadNegativeCheck = runPythonFixtureCommand(
+      [
+        "-c",
+        ZIP_PRIVACY_SCRIPT,
+        checkerPayloadNegativeZip,
+        REPO_ROOT,
+        releaseLabel,
+        path.join(authorityRoot, "release-manifest.json"),
+      ],
+      { cwd: root },
+    );
+    assert(
+      checkerPayloadNegativeCheck.status === 2,
+      `checker payload negative ZIP was accepted: ${checkerPayloadNegativeCheck.stdout}${checkerPayloadNegativeCheck.stderr}`,
+    );
+    const checkerPayloadNegativeEvidence = JSON.parse(
+      checkerPayloadNegativeCheck.stdout.trim(),
+    );
+    assert(
+      checkerPayloadNegativeEvidence.ok === false &&
+        checkerPayloadNegativeEvidence.problems.some((problem) =>
+          problem.includes("source-only-checker-in-runtime-payload"),
+        ),
+      "checker payload negative ZIP did not report source-only checker entries",
+    );
 
     const tamperedRoot = path.join(root, "inventory-tampered-release-assets");
     await mkdir(tamperedRoot, { recursive: false });
@@ -1912,6 +2043,67 @@ export async function runSyntheticSelfTest() {
       cloneStatus.status === 0 && cloneStatus.stdout.trim() === "",
       "local candidate fixture runtime normalization drifted from HEAD",
     );
+    const localCandidateSnapshot = runFixtureCommand(
+      "git",
+      ["diff", "--binary", "--full-index", "HEAD", "--"],
+      { cwd: REPO_ROOT },
+    );
+    assert(
+      localCandidateSnapshot.status === 0,
+      `local candidate fixture source snapshot failed: ${localCandidateSnapshot.stderr}`,
+    );
+    let localCandidateSnapshotApplied = false;
+    if (localCandidateSnapshot.stdout !== "") {
+      const applySnapshot = runFixtureCommand(
+        "git",
+        ["apply", "--binary", "--whitespace=nowarn", "-"],
+        {
+          cwd: localCandidateAuthority,
+          input: localCandidateSnapshot.stdout,
+        },
+      );
+      assert(
+        applySnapshot.status === 0,
+        `local candidate fixture source snapshot apply failed: ${applySnapshot.stderr}`,
+      );
+      const stageSnapshot = runFixtureCommand(
+        "git",
+        ["add", "--all"],
+        { cwd: localCandidateAuthority },
+      );
+      assert(
+        stageSnapshot.status === 0,
+        `local candidate fixture source snapshot staging failed: ${stageSnapshot.stderr}`,
+      );
+      const commitSnapshot = runFixtureCommand(
+        "git",
+        [
+          "-c",
+          "user.name=Decretum Synthetic",
+          "-c",
+          "user.email=synthetic@example.invalid",
+          "commit",
+          "-q",
+          "-m",
+          "synthetic local candidate source snapshot",
+        ],
+        { cwd: localCandidateAuthority },
+      );
+      assert(
+        commitSnapshot.status === 0,
+        `local candidate fixture source snapshot commit failed: ${commitSnapshot.stderr}`,
+      );
+      localCandidateSnapshotApplied = true;
+    }
+    const snapshotStatus = runFixtureCommand(
+      "git",
+      ["status", "--porcelain=v1"],
+      { cwd: localCandidateAuthority },
+    );
+    assert(
+      snapshotStatus.status === 0 && snapshotStatus.stdout.trim() === "",
+      "local candidate fixture source snapshot is not clean",
+    );
     const localCandidateHead = runFixtureCommand(
       "git",
       ["rev-parse", "HEAD"],
@@ -2000,7 +2192,7 @@ export async function runSyntheticSelfTest() {
     );
     assert(
       candidateBuild.status === 0,
-      `complete local candidate fixture build failed: ${candidateBuild.stderr}`,
+      `complete local candidate fixture build failed: ${candidateBuild.stdout}${candidateBuild.stderr}`,
     );
     const localCandidateDirectory = path.join(
       localCandidateRoot,
@@ -2222,6 +2414,18 @@ export async function runSyntheticSelfTest() {
             zipPrivacyEvidence.payload_inventory_count,
           payload_inventory_sha256:
             zipPrivacyEvidence.payload_inventory_sha256,
+          source_only_checker_entries:
+            zipPrivacyEvidence.source_only_checker_entries || [],
+        },
+        checker_payload_negative: {
+          command:
+            "$PYTHON -B -c <nested-zip-member-privacy-checker> <checker-negative-zip>",
+          rc: checkerPayloadNegativeCheck.status,
+          rejected: checkerPayloadNegativeEvidence.ok === false,
+          source_only_checker_entries:
+            checkerPayloadNegativeEvidence.problems.filter((problem) =>
+              problem.includes("source-only-checker-in-runtime-payload"),
+            ),
         },
         inventory_tamper_negative: {
           command:
@@ -2256,6 +2460,7 @@ export async function runSyntheticSelfTest() {
         local_install_candidate: {
           candidate_zip_sha256: localCandidateBuild.receipt.candidate.zip_sha256,
           local_tgz_sha256: localCandidateBuild.receipt.package.sha256,
+          source_snapshot_applied: localCandidateSnapshotApplied,
           private: localCandidateBuild.publishPackage.private === true,
           publish_config_absent:
             localCandidateBuild.publishPackage.publishConfig === undefined,
@@ -2268,10 +2473,11 @@ export async function runSyntheticSelfTest() {
       validation: {
         canonical_privacy_fixture: "PASS",
         nested_zip_member_privacy: "PASS",
+        runtime_payload_checker_entries_rejected: "PASS",
         deterministic_double_pack: "PASS",
         strict_offline_install: "PASS",
         bin_entry: "PASS",
-        transactional_postinstall_declared: "PASS",
+        postinstall_side_effect_free: "PASS",
         source_local_tgz_cli_parity: "PASS",
         clean_home_windows_macos_linux: "PASS",
         create_only: "PASS",
@@ -2420,9 +2626,6 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
       bin: {
         "decretum-matrix": "bin/decretum-matrix.js",
       },
-      scripts: {
-        postinstall: "node bin/decretum-matrix.js --npm-postinstall",
-      },
       license: contract.license,
       repository: contract.repositoryUrl,
       homepage: contract.releaseUrl,
@@ -2447,9 +2650,19 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
       decretumMatrix: {
         schema: "decretum.npm_local_install_candidate.v1",
         candidate: "local-install",
+        payloadKind: "runtime",
         private: true,
         publication: "FORBIDDEN",
         releaseLabel: contract.releaseLabel,
+        artifactRef: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,
+        buildId: `${contract.releaseLabel}:${contract.sourceCommit}:${contract.sourceTree}`,
+        installationBinding: {
+          schema: "court.installation_binding.v2",
+          source_commit: contract.sourceCommit,
+          release_label: contract.releaseLabel,
+          artifact_ref: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,
+          build_id: `${contract.releaseLabel}:${contract.sourceCommit}:${contract.sourceTree}`,
+        },
         candidateReceipt: `release/${contract.localCandidate.receiptName}`,
         candidateZipSha256: contract.localCandidate.zipSha256,
         source: {
@@ -2471,10 +2684,8 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
         cli: {
           entrypoint: "bin/decretum-matrix.js",
           pythonBootstrap: "bin/decretum-matrix.py",
-          installLifecycleScripts: true,
-          postinstall: "node bin/decretum-matrix.js --npm-postinstall",
-          postinstallContract:
-            "structural_zip_then_transactional_canonical_install_and_physical_shiguan_bootstrap",
+          installLifecycleScripts: false,
+          postinstallContract: "disabled_explicit_installer_required",
           runtimeAuthority: `release/${contract.identity.artifactName}`,
         },
         legalSurface: {
@@ -2500,9 +2711,6 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
     type: "module",
     bin: {
       "decretum-matrix": "bin/decretum-matrix.js",
-    },
-    scripts: {
-      postinstall: "node bin/decretum-matrix.js --npm-postinstall",
     },
     license: contract.license,
     repository: contract.repositoryUrl,
@@ -2533,8 +2741,18 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
     decretumMatrix: {
       schema: "decretum.npm_release.v2",
       candidate: "legal-v2",
+      payloadKind: "runtime",
       distTag: contract.distTag,
       releaseLabel: contract.releaseLabel,
+      artifactRef: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,
+      buildId: `${contract.releaseLabel}:${contract.sourceCommit}:${contract.sourceTree}`,
+      installationBinding: {
+        schema: "court.installation_binding.v2",
+        source_commit: contract.sourceCommit,
+        release_label: contract.releaseLabel,
+        artifact_ref: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,
+        build_id: `${contract.releaseLabel}:${contract.sourceCommit}:${contract.sourceTree}`,
+      },
       source: {
         commit: contract.sourceCommit,
         tree: contract.sourceTree,
@@ -2554,10 +2772,8 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
       cli: {
         entrypoint: "bin/decretum-matrix.js",
         pythonBootstrap: "bin/decretum-matrix.py",
-        installLifecycleScripts: true,
-        postinstall: "node bin/decretum-matrix.js --npm-postinstall",
-        postinstallContract:
-          "structural_zip_then_transactional_canonical_install_and_physical_shiguan_bootstrap",
+        installLifecycleScripts: false,
+        postinstallContract: "disabled_explicit_installer_required",
         runtimeAuthority: `release/${contract.identity.artifactName}`,
       },
       legalSurface: {
@@ -2915,6 +3131,11 @@ export async function validateReleaseAssets() {
   );
   const zipPrivacyEvidence = JSON.parse(zipPrivacy.stdout.trim());
   assert(zipPrivacyEvidence.ok === true, "release ZIP privacy did not report ok");
+  assert(
+    Array.isArray(zipPrivacyEvidence.source_only_checker_entries) &&
+      zipPrivacyEvidence.source_only_checker_entries.length === 0,
+    "release runtime ZIP still carries source-only checker entries",
+  );
 
   assertSafePackPaths(EXPECTED_PACK_FILES);
   return Object.freeze({
@@ -3029,6 +3250,23 @@ try:
         entries = embedded_manifest.get("files")
         if not isinstance(entries, list):
             fail("embedded_manifest_files_missing")
+        if embedded_manifest.get("payload_kind") != "runtime":
+            fail("embedded_manifest_runtime_payload_kind_required")
+        source_only_checker_entries = []
+        for entry in entries:
+            relative = entry.get("path") if isinstance(entry, dict) else None
+            if isinstance(relative, str) and (
+                relative.replace("\\", "/").casefold()
+                == "scripts/check_active_copy_hashes.py"
+                or relative.replace("\\", "/").casefold().startswith("scripts/check_")
+                or relative.replace("\\", "/").casefold().startswith("scripts/checks/")
+            ):
+                source_only_checker_entries.append(relative)
+        if source_only_checker_entries:
+            fail(
+                "embedded_manifest_source_only_checker_entries:"
+                + ",".join(sorted(set(source_only_checker_entries)))
+            )
         runtime_files = {}
         for relative in ("bin/decretum-matrix.js", "bin/decretum-matrix.py"):
             matches = [entry for entry in entries if isinstance(entry, dict) and entry.get("path") == relative]
@@ -3791,6 +4029,39 @@ function sanitizedNpmEnvironment(npmState) {
   };
 }
 
+function isolatedProcessEnvironment(homeRoot, cacheRoot, npmState, platform) {
+  const state = npmState || {
+    cache: cacheRoot,
+    globalConfig: path.join(homeRoot, "npm-global.npmrc"),
+    userConfig: path.join(homeRoot, "npm-user.npmrc"),
+  };
+  const environment = {
+    ...sanitizedNpmEnvironment(state),
+    HOME: homeRoot,
+    USERPROFILE: homeRoot,
+    APPDATA: path.join(homeRoot, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(homeRoot, "AppData", "Local"),
+    XDG_DATA_HOME: path.join(homeRoot, ".local", "share"),
+    XDG_CONFIG_HOME: path.join(homeRoot, ".config"),
+    XDG_CACHE_HOME: path.join(homeRoot, ".cache"),
+    npm_config_prefix: path.join(homeRoot, "npm-prefix"),
+    npm_config_cache: cacheRoot,
+    npm_config_userconfig: state.userConfig,
+    COURT_RUNTIME_ROOT: path.join(homeRoot, "court-runtime"),
+    COURT_SHARED_SHIGUAN_ROOT: path.join(homeRoot, "test-shiguan"),
+    COURT_DISABLE_AGENT_PRESENCE: "1",
+    PYTHONDONTWRITEBYTECODE: "1",
+    PYTHONUTF8: "1",
+  };
+  delete environment.PYTHONPATH;
+  delete environment.PYTHONHOME;
+  delete environment.DECRETUM_MATRIX_TEST_PLATFORM;
+  if (platform) {
+    environment.DECRETUM_MATRIX_TEST_PLATFORM = platform;
+  }
+  return environment;
+}
+
 function npmInvocation(args) {
   const npmCli = process.env.npm_execpath;
   if (npmCli) {
@@ -3979,49 +4250,15 @@ async function runInstalledSmoke(
     { encoding: "utf8", flag: "wx", mode: 0o644 },
   );
 
-  const postinstallHome = path.join(smokeRoot, "postinstall-home");
-  const postinstallCache = path.join(smokeRoot, "postinstall-cache");
-  const localAppData = path.join(postinstallHome, "AppData", "Local");
-  const roamingAppData = path.join(postinstallHome, "AppData", "Roaming");
-  const toolInstallDir = path.join(smokeRoot, "tool-bin");
-  await mkdir(postinstallHome, { recursive: true });
-  await mkdir(localAppData, { recursive: true });
-  await mkdir(roamingAppData, { recursive: true });
-  await mkdir(toolInstallDir, { recursive: true });
-  if (process.platform === "win32") {
-    for (const tool of ["zellij", "squad"]) {
-      await writeFile(
-        path.join(toolInstallDir, `${tool}.cmd`),
-        `@echo off\r\necho ${tool} smoke-stub 0.0.0\r\nexit /b 0\r\n`,
-        { encoding: "utf8", flag: "wx", mode: 0o644 },
-      );
-    }
-  } else {
-    for (const tool of ["zellij", "squad"]) {
-      const toolPath = path.join(toolInstallDir, tool);
-      await writeFile(
-        toolPath,
-        `#!/bin/sh\necho "${tool} smoke-stub 0.0.0"\n`,
-        { encoding: "utf8", flag: "wx", mode: 0o755 },
-      );
-      await chmod(toolPath, 0o755);
-    }
-  }
-
+  const installHome = path.join(smokeRoot, "install-home");
+  await mkdir(installHome, { recursive: true });
   runNpm(
     ["install", "--package-lock=false", "--save=false", tarballPath],
     smokeRoot,
     npmState,
     {
-      APPDATA: roamingAppData,
-      COURT_TOOL_INSTALL_DIR: toolInstallDir,
-      DECRETUM_MATRIX_NPM_CACHE_ROOT: postinstallCache,
-      DECRETUM_MATRIX_POSTINSTALL_ACTIVATE_SERVICES: "0",
-      HOME: postinstallHome,
-      LOCALAPPDATA: localAppData,
-      PYTHONDONTWRITEBYTECODE: "1",
-      USERPROFILE: postinstallHome,
-      npm_config_ignore_scripts: "false",
+      ...isolatedProcessEnvironment(installHome, npmState.cache, npmState, null),
+      npm_config_ignore_scripts: "true",
     },
   );
 
@@ -4049,8 +4286,7 @@ async function runInstalledSmoke(
   );
   assert(
     installedPackage.bin?.["decretum-matrix"] === "bin/decretum-matrix.js" &&
-      installedPackage.scripts?.postinstall ===
-        "node bin/decretum-matrix.js --npm-postinstall",
+      installedPackage.scripts?.postinstall === undefined,
     "installed package executable/lifecycle contract mismatch",
   );
 
@@ -4089,83 +4325,25 @@ async function runInstalledSmoke(
     assert(installedStat.size === asset.size, `installed size drift: ${asset.path}`);
   }
 
-  const canonicalRuntime = path.join(
-    postinstallHome,
-    ".agents",
-    "skills",
-    "decretum-matrix",
-  );
-  const canonicalShiguan = path.join(
-    postinstallHome,
-    ".agents",
-    "court-shiguan",
-    "decretum-matrix",
-    "references",
-  );
-  const canonicalRuntimeStat = await lstat(canonicalRuntime);
-  const canonicalShiguanStat = await lstat(canonicalShiguan);
   assert(
-    canonicalRuntimeStat.isDirectory() && !canonicalRuntimeStat.isSymbolicLink(),
-    "postinstall canonical runtime is not a physical directory",
+    !(await pathExists(path.join(installHome, ".agents", "skills", "decretum-matrix"))),
+    "npm install performed an implicit runtime install",
   );
   assert(
-    canonicalShiguanStat.isDirectory() && !canonicalShiguanStat.isSymbolicLink(),
-    "postinstall canonical Shiguan root is not a physical directory",
-  );
-  for (const relativePath of [
-    "release-manifest.json",
-    "scripts/release_payload_manifest.py",
-    "scripts/check_release_gate.py",
-  ]) {
-    assert(
-      !(await pathExists(path.join(canonicalRuntime, ...relativePath.split("/")))),
-      `postinstall runtime retained a release-only validator: ${relativePath}`,
-    );
-  }
-  const receiptRoot = path.join(
-    postinstallHome,
-    ".agents",
-    "install-receipts",
-    "decretum-matrix",
-  );
-  const receiptNames = (await readdir(receiptRoot)).filter((name) =>
-    name.startsWith("npm-postinstall-"),
-  );
-  assert(receiptNames.length === 1, "postinstall receipt count mismatch");
-  const postinstallReceipt = await readJson(
-    path.join(receiptRoot, receiptNames[0]),
-    "postinstall receipt",
+    !(await pathExists(path.join(installHome, ".agents", "court-shiguan"))),
+    "npm install performed an implicit Shiguan migration",
   );
   assert(
-    postinstallReceipt.ok === true &&
-      postinstallReceipt.pending_body_access === "NO" &&
-      postinstallReceipt.body_content_reads === 0 &&
-      postinstallReceipt.bootstrap_validation === "STRUCTURAL_ONLY" &&
-      postinstallReceipt.supercc_dependencies?.ok === true &&
-      Array.isArray(
-        postinstallReceipt.supercc_dependencies?.open_source_acknowledgements,
-      ) &&
-      postinstallReceipt.supercc_dependencies.open_source_acknowledgements.some(
-        (entry) => entry?.url === "https://github.com/zellij-org/zellij",
-      ) &&
-      postinstallReceipt.supercc_dependencies.open_source_acknowledgements.some(
-        (entry) => entry?.url === "https://github.com/mco-org/squad",
-      ) &&
-      ["NOT_USED", "TEMPORARY_REMOVED"].includes(
-        postinstallReceipt.temporary_validation_helper,
-      ) &&
-      postinstallReceipt.body_hashes === 0 &&
-      postinstallReceipt.service_activation_requested === false,
-    "postinstall receipt contract mismatch",
+    !(await pathExists(path.join(installHome, ".agents", "install-receipts"))),
+    "npm install wrote an implicit installation receipt",
   );
 
-  await verifyInstalledCliParity(operationRoot, installedRoot);
+  await verifyInstalledCliParity(operationRoot, installedRoot, npmState);
   return {
     status: "PASS",
-    canonical_runtime: canonicalRuntime,
-    canonical_shiguan: canonicalShiguan,
-    receipt: receiptNames[0],
-    service_activation_requested: false,
+    lifecycle: "DISABLED",
+    install_home: installHome,
+    implicit_mutation: false,
   };
 }
 

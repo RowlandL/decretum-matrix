@@ -248,6 +248,8 @@ def evaluate(root: Path | None = None) -> dict[str, object]:
     ) and taizi_cases >= 3
     result = {
         "schema": "court.result_semantics_gate.v1",
+        "ok": not errors,
+        "status": "PASSED" if not errors else "FAILED",
         "gate": "PASSED" if not errors else "FAILED",
         "MENXIA_REVIEW_ATTRIBUTION": "PASS" if menxia_gate else "FAIL",
         "TAIZI_LABEL_SEMANTICS": "PASS" if taizi_gate else "FAIL",
@@ -268,5 +270,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 

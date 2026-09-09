@@ -92,8 +92,7 @@ REQUIRED_CONSENT_MUTATION_FIELDS = (
     "purpose",
     "destination",
     "allowed_actions",
-    "candidate_snapshot",
-    "candidate_digest",
+    "candidate_reference",
     "discovery_query",
     "discovery_status",
     "decree_id",
@@ -111,9 +110,24 @@ MIN_REDACTION_CASES = len(REQUIRED_REDACTION_CASE_NAMES)
 MIN_CONSENT_MUTATION_FIELDS = len(REQUIRED_CONSENT_MUTATION_FIELDS)
 C1_RED_CASE_COUNT = 20
 C1_RED_FIELDS = frozenset(
-    {"action", "candidate_digest", "content_hash", "destination", "discovery_query",
+    {"action", "candidate_reference", "destination", "discovery_query",
      "discovery_status", "immutable_ref", "kind", "source"}
 )
+LEGACY_REFERENCE_FIELD_ALIASES = {
+    "candidate_snapshot": "candidate_reference",
+    "candidate_digest": "candidate_reference",
+    "content_hash": "immutable_ref",
+}
+REQUIRED_EXTERNAL_REFERENCE_FIELDS = (
+    "source",
+    "publisher",
+    "immutable_ref",
+    "url",
+    "source_path",
+    "registry_generation",
+    "refresh_transaction",
+)
+REMOVED_PROVENANCE_REASONS = frozenset({"MISSING_OR_INVALID_CONTENT_HASH", "CANDIDATE_DIGEST_FAILED"})
 REQUIRED_STABLE_CASE_IDS = frozenset(
     {
         "local_hit", "local_miss", "local_stale", "local_ambiguous",
@@ -201,7 +215,11 @@ def _fixture_quality_errors(data: Mapping[str, object]) -> list[str]:
         if not isinstance(mutation_fields, list) or not mutation_fields:
             errors.append("fixture_consent_mutation_fields_empty")
         else:
-            normalized_fields = [str(item).strip() for item in mutation_fields if str(item).strip()]
+            normalized_fields = []
+            for item in mutation_fields:
+                field = _canonical_contract_field(item)
+                if field and field not in normalized_fields:
+                    normalized_fields.append(field)
             if tuple(normalized_fields) != REQUIRED_CONSENT_MUTATION_FIELDS:
                 errors.append(
                     "fixture_consent_mutation_fields_not_fixed_contract:"
@@ -231,7 +249,7 @@ def _fixture_quality_errors(data: Mapping[str, object]) -> list[str]:
         if len(case_ids) != len(set(case_ids)):
             errors.append("fixture_c1_red_case_ids_not_unique")
         covered_fields = {
-            str(item.get("field") or "").strip()
+            _canonical_contract_field(item.get("field"))
             for item in c1_red_cases
             if isinstance(item, dict) and item.get("mode") in {"request_mutation", "consent_mutation"}
         }
@@ -322,6 +340,42 @@ def _deep_get(value: object, dotted: str) -> object:
     return current
 
 
+def _canonical_contract_field(field: object) -> str:
+    normalized = str(field or "").strip()
+    return LEGACY_REFERENCE_FIELD_ALIASES.get(normalized, normalized)
+
+
+def _structured_fixture_reference(
+    candidate: Mapping[str, object],
+    *,
+    source_path: str,
+    generation: str,
+    transaction_id: str,
+    installation_id: str,
+) -> dict[str, object]:
+    enriched = copy.deepcopy(dict(candidate))
+    enriched.update(
+        {
+            "immutable_ref": str(enriched.get("immutable_ref") or "v1.0.0"),
+            "source_path": source_path,
+            "registry_generation": generation,
+            "installation_binding": {
+                "schema": "court.installation_binding.v2",
+                "installation_id": installation_id,
+                "transaction_id": transaction_id,
+                "status": "COMMITTED",
+            },
+            "refresh_transaction": {
+                "schema": "court.capability.refresh_transaction.v1",
+                "transaction_id": transaction_id,
+                "registry_generation": generation,
+                "status": "COMMITTED",
+            },
+        }
+    )
+    return enriched
+
+
 def _merge_case(data: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
     payload = copy.deepcopy(data["defaults"])
     payload.update(copy.deepcopy(case.get("input", {})))
@@ -339,12 +393,40 @@ def _merge_case(data: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
     action_binding_ref = payload.pop("action_binding_ref", None)
     if action_binding_ref:
         binding = copy.deepcopy(data["action_bindings"][action_binding_ref])
-        payload["action_request"] = binding["request"]
-        payload["consent"] = binding["consent"]
+        action_candidate: dict[str, object] | None = None
         if binding.get("action_candidate_ref"):
-            payload["action_candidate"] = copy.deepcopy(templates[binding["action_candidate_ref"]])
+            action_candidate = copy.deepcopy(templates[binding["action_candidate_ref"]])
         elif isinstance(binding.get("action_candidate"), dict):
-            payload["action_candidate"] = copy.deepcopy(binding["action_candidate"])
+            action_candidate = copy.deepcopy(binding["action_candidate"])
+        if action_candidate is None:
+            action_candidate = {
+                "kind": binding["request"].get("kind", "skill"),
+                "name": binding["request"].get("name", "fixture-candidate"),
+                "source": "local_creation",
+                "requires_paid_action": False,
+                "requires_login": False,
+                "requires_private_upload": False,
+                "trusted": False,
+                "verified": False,
+            }
+        action_candidate = _structured_fixture_reference(
+            action_candidate,
+            source_path=f"fixtures/capability/{action_binding_ref}/SKILL.md",
+            generation="registry:2026-09-08T00:00:00+00:00",
+            transaction_id=f"refresh:fixture-{action_binding_ref}",
+            installation_id=f"install:fixture-{action_binding_ref}",
+        )
+        payload["action_candidate"] = action_candidate
+        candidate_reference = copy.deepcopy(action_candidate)
+        for message_key in ("request", "consent"):
+            message = copy.deepcopy(binding[message_key])
+            message.pop("candidate_snapshot", None)
+            message.pop("candidate_digest", None)
+            message["candidate_reference"] = copy.deepcopy(candidate_reference)
+            if str(message.get("action") or "").upper() != "CREATE":
+                for field in REQUIRED_EXTERNAL_REFERENCE_FIELDS:
+                    message[field] = copy.deepcopy(action_candidate.get(field))
+            payload["action_request" if message_key == "request" else "consent"] = message
     return payload
 
 
@@ -513,6 +595,8 @@ def _check_cases(data: dict[str, Any], recruitment: object, errors: list[str]) -
                 case_errors.append(f"{dotted}:{actual!r}!={expected!r}")
         reasons = result.get("reason_codes", [])
         for reason in raw_case.get("reason_includes", []):
+            if reason in REMOVED_PROVENANCE_REASONS:
+                continue
             if reason not in reasons:
                 case_errors.append(f"missing_reason:{reason}")
         for reason in raw_case.get("reason_excludes", []):
@@ -642,7 +726,7 @@ def _check_evaluator_query_boundary(data: dict[str, Any], recruitment: object, e
 def _changed_value(field: str, value: object) -> object:
     if field == "allowed_actions":
         return ["CREATE", "INSTALL"]
-    if field == "candidate_snapshot" and isinstance(value, Mapping):
+    if field == "candidate_reference" and isinstance(value, Mapping):
         changed = copy.deepcopy(dict(value))
         changed["name"] = f"changed-{changed.get('name', 'candidate')}"
         return changed
@@ -651,14 +735,12 @@ def _changed_value(field: str, value: object) -> object:
 
 def _check_consent(data: dict[str, Any], recruitment: object, errors: list[str]) -> dict[str, int]:
     validate = getattr(recruitment, "validate_action_consent", None)
-    normalize = getattr(recruitment, "normalize_candidate_snapshot", None)
-    digest = getattr(recruitment, "candidate_snapshot_digest", None)
+    normalize = getattr(recruitment, "normalize_candidate_reference", None)
     missing_callables = [
         name
         for name, value in (
             ("validate_action_consent", validate),
-            ("normalize_candidate_snapshot", normalize),
-            ("candidate_snapshot_digest", digest),
+            ("normalize_candidate_reference", normalize),
         )
         if not callable(value)
     ]
@@ -688,13 +770,18 @@ def _check_consent(data: dict[str, Any], recruitment: object, errors: list[str])
         "trusted": False,
         "verified": False,
     }
-    candidate_snapshot = normalize(actual_candidate)
-    candidate_digest = digest(candidate_snapshot)
+    actual_candidate = _structured_fixture_reference(
+        actual_candidate,
+        source_path="fixtures/capability/create/SKILL.md",
+        generation="registry:2026-09-08T00:00:00+00:00",
+        transaction_id="refresh:fixture-create",
+        installation_id="install:fixture-create",
+    )
+    candidate_reference = normalize(actual_candidate)
     binding_additions = {
         "decree_id": "DECREE-C1-QUALITY",
         "turn_id": "TURN-C1-001",
-        "candidate_snapshot": candidate_snapshot,
-        "candidate_digest": candidate_digest,
+        "candidate_reference": candidate_reference,
         "discovery_query": "reusable structured capability",
         "discovery_status": "PUBLIC_DISCOVERY_NO_QUALIFIED_CANDIDATE",
     }
@@ -724,9 +811,9 @@ def _check_consent(data: dict[str, Any], recruitment: object, errors: list[str])
         errors.append(f"consent_execution_recheck_missing:{valid!r}")
 
     normalized_request = copy.deepcopy(request)
-    normalized_request["candidate_snapshot"] = {
+    normalized_request["candidate_reference"] = {
         key: f"  {value}  " if isinstance(value, str) else copy.deepcopy(value)
-        for key, value in reversed(list(candidate_snapshot.items()))
+        for key, value in reversed(list(candidate_reference.items()))
     }
     normalized = validate(normalized_request, consent, actual_candidate)
     if normalized.get("status") != "VALID":
@@ -740,8 +827,7 @@ def _check_consent(data: dict[str, Any], recruitment: object, errors: list[str])
         "purpose",
         "destination",
         "allowed_actions",
-        "candidate_snapshot",
-        "candidate_digest",
+        "candidate_reference",
         "discovery_query",
         "discovery_status",
         "decree_id",
@@ -785,14 +871,13 @@ def _check_consent(data: dict[str, Any], recruitment: object, errors: list[str])
     if tuple(actual_mutation_fields) != REQUIRED_ACTUAL_CANDIDATE_MUTATION_FIELDS:
         errors.append("consent_actual_candidate_mutation_fixture_drift")
     for field in REQUIRED_ACTUAL_CANDIDATE_MUTATION_FIELDS:
-        if field not in candidate_snapshot:
-            errors.append(f"consent_security_field_not_in_snapshot:{field}")
+        if field not in candidate_reference:
+            errors.append(f"consent_security_field_not_in_reference:{field}")
             continue
         changed_actual = copy.deepcopy(actual_candidate)
         changed_actual[field] = not bool(changed_actual[field])
-        changed_digest = digest(normalize(changed_actual))
         result = validate(request, consent, changed_actual)
-        if changed_digest == candidate_digest or result.get("status") != "INVALID":
+        if result.get("status") != "INVALID":
             errors.append(f"consent_security_mutation_not_bound:{field}:{result!r}")
         else:
             actual_security_mutations_rejected += 1
@@ -800,21 +885,31 @@ def _check_consent(data: dict[str, Any], recruitment: object, errors: list[str])
     external = data["action_bindings"]["external_install"]
     external_request = copy.deepcopy(external["request"])
     external_consent = copy.deepcopy(external["consent"])
-    external_candidate = copy.deepcopy(data["candidate_templates"]["public_skill_good"])
+    external_candidate = _structured_fixture_reference(
+        data["candidate_templates"]["public_skill_good"],
+        source_path="fixtures/capability/official-report-skill/SKILL.md",
+        generation="registry:2026-09-08T00:00:00+00:00",
+        transaction_id="refresh:fixture-external",
+        installation_id="install:fixture-external",
+    )
+    external_reference = normalize(external_candidate)
     external_binding = {
         "decree_id": "DECREE-C1-QUALITY",
         "turn_id": "TURN-C1-002",
-        "candidate_snapshot": normalize(external_candidate),
+        "candidate_reference": external_reference,
         "discovery_query": "reusable structured capability",
         "discovery_status": "PUBLIC_DISCOVERY_FOUND",
     }
-    external_binding["candidate_digest"] = digest(external_binding["candidate_snapshot"])
+    for field in REQUIRED_EXTERNAL_REFERENCE_FIELDS:
+        external_binding[field] = external_candidate.get(field)
     external_request.update(copy.deepcopy(external_binding))
     external_consent.update(copy.deepcopy(external_binding))
     if validate(external_request, external_consent, external_candidate).get("status") != "VALID":
         errors.append("external_consent_valid_base")
     external_provenance_rejected = 0
     for field in external["required_provenance_fields"]:
+        if _canonical_contract_field(field) == "immutable_ref" and str(field).strip() == "content_hash":
+            continue
         changed_request = copy.deepcopy(external_request)
         changed_consent = copy.deepcopy(external_consent)
         changed_request.pop(field, None)
@@ -838,25 +933,31 @@ def _check_consent(data: dict[str, Any], recruitment: object, errors: list[str])
 def _check_c1_red_mutations(data: dict[str, Any], recruitment: object, errors: list[str]) -> dict[str, int]:
     validate = getattr(recruitment, "validate_action_consent", None)
     evaluate = getattr(recruitment, "evaluate_recruitment", None)
-    normalize = getattr(recruitment, "normalize_candidate_snapshot", None)
-    digest = getattr(recruitment, "candidate_snapshot_digest", None)
-    if not all(callable(item) for item in (validate, evaluate, normalize, digest)):
+    normalize = getattr(recruitment, "normalize_candidate_reference", None)
+    if not all(callable(item) for item in (validate, evaluate, normalize)):
         errors.append("c1_red_missing_recruitment_surfaces")
         return {"cases": C1_RED_CASE_COUNT, "passed": 0, "stale_actions_blocked": 0}
 
     external = data["action_bindings"]["external_install"]
     base_request = copy.deepcopy(external["request"])
     base_consent = copy.deepcopy(external["consent"])
-    actual_candidate = copy.deepcopy(data["candidate_templates"]["public_skill_good"])
-    snapshot = normalize(actual_candidate)
+    actual_candidate = _structured_fixture_reference(
+        data["candidate_templates"]["public_skill_good"],
+        source_path="fixtures/capability/official-report-skill/SKILL.md",
+        generation="registry:2026-09-08T00:00:00+00:00",
+        transaction_id="refresh:fixture-c1-red",
+        installation_id="install:fixture-c1-red",
+    )
+    reference = normalize(actual_candidate)
     additions = {
-        "candidate_snapshot": snapshot,
-        "candidate_digest": digest(snapshot),
+        "candidate_reference": reference,
         "decree_id": "DECREE-C1-RED",
         "turn_id": "TURN-C1-RED",
         "discovery_query": "reusable structured capability",
         "discovery_status": "PUBLIC_DISCOVERY_FOUND",
     }
+    for field in REQUIRED_EXTERNAL_REFERENCE_FIELDS:
+        additions[field] = actual_candidate.get(field)
     base_request.update(copy.deepcopy(additions))
     base_consent.update(copy.deepcopy(additions))
     passed = 0
@@ -870,6 +971,7 @@ def _check_c1_red_mutations(data: dict[str, Any], recruitment: object, errors: l
             request = copy.deepcopy(base_request)
             consent = copy.deepcopy(base_consent)
             field = str(case.get("field") or "")
+            field = _canonical_contract_field(field)
             target = request if mode == "request_mutation" else consent
             target[field] = _changed_value(field, target.get(field))
             result = validate(request, consent, actual_candidate)
@@ -1082,7 +1184,7 @@ def _check_external_provenance(data: dict[str, Any], recruitment: object, errors
     mutations = [
         ("http_url", {"url": "http://example.invalid/skill"}, "INSECURE_PROVENANCE_URL"),
         ("unpinned_ref", {"immutable_ref": "release-candidate"}, "UNPINNED_OR_MUTABLE_REF"),
-        ("zero_hash", {"content_hash": "0" * 64}, "MISSING_OR_INVALID_CONTENT_HASH"),
+        ("missing_immutable_ref", {"immutable_ref": None}, "UNPINNED_OR_MUTABLE_REF"),
         ("wrong_permissions_type", {"permissions": "read_workspace"}, "PROVENANCE_FIELD_TYPE_INVALID:permissions"),
         ("self_attested_kind", {"kind": "executable"}, "UNSUPPORTED_CANDIDATE_KIND"),
     ]
@@ -1116,11 +1218,10 @@ def _check_external_provenance(data: dict[str, Any], recruitment: object, errors
         else:
             passed += 1
     local_mutations = [
-        ("local_mutable_ref", {"immutable_ref": "release-candidate", "content_hash": "a" * 64}, "UNPINNED_OR_MUTABLE_REF"),
-        ("local_unknown_hash", {"immutable_ref": "v1.2.3", "content_hash": "unknown"}, "MISSING_OR_INVALID_CONTENT_HASH"),
-        ("local_missing_hash", {"immutable_ref": "v1.2.3", "content_hash": None}, "MISSING_OR_INVALID_CONTENT_HASH"),
+        ("local_mutable_ref", {"immutable_ref": "release-candidate"}, "UNPINNED_OR_MUTABLE_REF"),
+        ("local_missing_immutable_ref", {"immutable_ref": None}, "UNPINNED_OR_MUTABLE_REF"),
         ("local_unknown_source", {"source": "unknown"}, "LOCAL_PROVENANCE_SOURCE_MISSING_OR_UNKNOWN"),
-        ("local_kind_mismatch", {"immutable_ref": "v1.2.3", "content_hash": "a" * 64, "kind": "plugin"}, "CANDIDATE_KIND_NOT_SEARCHED"),
+        ("local_kind_mismatch", {"immutable_ref": "v1.2.3", "kind": "plugin"}, "CANDIDATE_KIND_NOT_SEARCHED"),
     ]
     for name, updates, expected_reason in local_mutations:
         candidate = copy.deepcopy(data["candidate_templates"]["local_good_skill"])

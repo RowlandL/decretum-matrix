@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import hashlib
 import io
 import json
 from pathlib import Path
@@ -624,6 +623,190 @@ def check_dispatch_evidence() -> None:
     finally:
         ensure_supercc_court.supercc_check = original_supercc_check  # type: ignore[assignment]
         ensure_supercc_court.create_squad_task_assignment = original_create_task  # type: ignore[assignment]
+
+
+def check_structured_dispatch_references() -> None:
+    """Keep packet IDs as explainable task/dispatch references, not CRCs."""
+
+    sys.path.insert(0, str(SCRIPTS))
+    import ensure_supercc_court  # noqa: PLC0415
+
+    dispatch_uid = "STRUCTURED-REF-DISPATCH"
+    packet_json = dispatch_context_fixture(
+        "gongbu",
+        "shangshu",
+        dispatch_uid,
+        "structured reference fixture",
+    )
+    args = argparse.Namespace(
+        dispatch_context_packet_json=packet_json,
+        dispatch_uid=dispatch_uid,
+        message="structured reference fixture",
+    )
+    result = ensure_supercc_court.validate_enter_dispatch_context(
+        args,
+        "gongbu",
+        "shangshu",
+        "shangshu",
+    )
+    if result.get("ok") is not True:
+        raise AssertionError(f"structured reference fixture did not validate: {result}")
+    references = {
+        "packet_id": result.get("packet_id"),
+        "semantic_packet_id": result.get("semantic_packet_id"),
+        "scope_id": result.get("scope_id"),
+    }
+    expected_prefixes = {
+        "packet_id": "dispatch-packet:",
+        "semantic_packet_id": "semantic-packet:",
+        "scope_id": "dispatch-scope:",
+    }
+    parsed: dict[str, dict[str, object]] = {}
+    for name, value in references.items():
+        prefix = expected_prefixes[name]
+        if not isinstance(value, str) or not value.startswith(prefix):
+            raise AssertionError(f"{name} is still payload-derived: {value!r}")
+        try:
+            identity = json.loads(value[len(prefix) :])
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"{name} is not an explainable reference: {value!r}") from exc
+        if not isinstance(identity, dict) or "court_code" in identity:
+            raise AssertionError(f"{name} used court_code or a non-reference identity: {value!r}")
+        parsed[name] = identity
+    normalized_packet = result.get("packet")
+    normalized_semantic = (
+        normalized_packet.get("semantic_packet")
+        if isinstance(normalized_packet, dict)
+        else None
+    )
+    if not isinstance(normalized_semantic, dict):
+        raise AssertionError("structured reference fixture lost normalized semantic packet")
+    current_task = RUNTIME_TASK_FIXTURES.get(str(result.get("task_id")))
+    current_receipt = current_task.get("semantic_receipt") if isinstance(current_task, dict) else None
+    if not isinstance(current_receipt, dict):
+        raise AssertionError("structured reference fixture lost authority semantic receipt")
+    if (
+        parsed["packet_id"].get("task_id") != result.get("task_id")
+        or parsed["packet_id"].get("dispatch_uid") != dispatch_uid
+        or parsed["semantic_packet_id"].get("semantic_receipt_id")
+        != current_receipt.get("receipt_id")
+        or parsed["semantic_packet_id"].get("semantic_revision")
+        != current_receipt.get("semantic_epoch")
+        or parsed["scope_id"].get("authority") != "shangshu"
+        or parsed["scope_id"].get("direct_superior") != "shangshu"
+    ):
+        raise AssertionError(f"structured reference lost task/dispatch/receipt/revision/authority binding: {references}")
+
+    original_packet = json.loads(packet_json)
+    original_ids = references.copy()
+    original_packet["scope"]["allowed_actions"] = ["inspect-alternate"]
+    scope_changed = ensure_supercc_court.validate_enter_dispatch_context(
+        argparse.Namespace(
+            dispatch_context_packet_json=json.dumps(original_packet, ensure_ascii=False),
+            dispatch_uid=dispatch_uid,
+            message="structured reference fixture",
+        ),
+        "gongbu",
+        "shangshu",
+        "shangshu",
+    )
+    original_packet["semantic_packet"]["summary"]["text"] = "summary changed"
+    semantic_changed = ensure_supercc_court.validate_enter_dispatch_context(
+        argparse.Namespace(
+            dispatch_context_packet_json=json.dumps(original_packet, ensure_ascii=False),
+            dispatch_uid=dispatch_uid,
+            message="structured reference fixture",
+        ),
+        "gongbu",
+        "shangshu",
+        "shangshu",
+    )
+    if (
+        scope_changed.get("scope_id") != original_ids["scope_id"]
+        or semantic_changed.get("semantic_packet_id") != original_ids["semantic_packet_id"]
+    ):
+        raise AssertionError("scope or semantic text was incorrectly used as reference identity")
+
+    for label, mutation in (
+        (
+            "forged_receipt_epoch",
+            lambda value: value["semantic_packet"].update(
+                semantic_receipt_id="receipt-forged",
+                semantic_epoch=999,
+            ),
+        ),
+        (
+            "missing_receipt_revision",
+            lambda value: (
+                value["semantic_packet"].pop("semantic_receipt_id"),
+                value["semantic_packet"].pop("semantic_epoch"),
+            ),
+        ),
+        (
+            "foreign_case",
+            lambda value: value["semantic_packet"].update(
+                case_ref={"court_code": "COURT-FOREIGN-1-BBBB", "charter_revision": 1}
+            ),
+        ),
+    ):
+        mutated = json.loads(packet_json)
+        mutation(mutated)
+        rejected = ensure_supercc_court.validate_enter_dispatch_context(
+            argparse.Namespace(
+                dispatch_context_packet_json=json.dumps(mutated, ensure_ascii=False),
+                dispatch_uid=dispatch_uid,
+                message="structured reference fixture",
+            ),
+            "gongbu",
+            "shangshu",
+            "shangshu",
+        )
+        if rejected.get("ok") is not False or rejected.get("reason") != "enter_dispatch_semantic_authority_invalid":
+            raise AssertionError(f"authority semantic {label} was accepted: {rejected}")
+
+    saved_receipt = current_task["semantic_receipt"]
+    current_task["semantic_receipt"] = None
+    try:
+        missing_authority = ensure_supercc_court.validate_enter_dispatch_context(
+            argparse.Namespace(
+                dispatch_context_packet_json=packet_json,
+                dispatch_uid=dispatch_uid,
+                message="structured reference fixture",
+            ),
+            "gongbu",
+            "shangshu",
+            "shangshu",
+        )
+    finally:
+        current_task["semantic_receipt"] = saved_receipt
+    if missing_authority.get("ok") is not False or missing_authority.get("reason") != "enter_dispatch_semantic_authority_invalid":
+        raise AssertionError(f"missing authority semantic receipt was accepted: {missing_authority}")
+
+    saved_capsule = current_task.get("invariant_capsule")
+    for label, invalid_capsule, expected_marker in (
+        ("missing_invariant_capsule", None, "semantic_task_invariant_capsule_missing"),
+        ("wrong_invariant_capsule_type", ["invalid"], "semantic_task_invariant_capsule_invalid"),
+    ):
+        current_task["invariant_capsule"] = invalid_capsule
+        try:
+            capsule_rejected = ensure_supercc_court.validate_enter_dispatch_context(
+                argparse.Namespace(
+                    dispatch_context_packet_json=packet_json,
+                    dispatch_uid=dispatch_uid,
+                    message="structured reference fixture",
+                ),
+                "gongbu",
+                "shangshu",
+                "shangshu",
+            )
+        finally:
+            current_task["invariant_capsule"] = saved_capsule
+        if (
+            capsule_rejected.get("ok") is not False
+            or capsule_rejected.get("reason") != "enter_dispatch_semantic_authority_invalid"
+            or expected_marker not in str(capsule_rejected.get("semantic_authority_error"))
+        ):
+            raise AssertionError(f"authority task {label} was accepted: {capsule_rejected}")
 
 
 def check_taizi_to_gongbu_rejected_before_side_effects() -> None:
@@ -2279,6 +2462,7 @@ def main() -> int:
         check_source_rules()
         check_supercc_launcher_shape()
         check_dispatch_evidence()
+        check_structured_dispatch_references()
         check_taizi_to_gongbu_rejected_before_side_effects()
         check_missing_target_profile_rejected_before_side_effects()
         check_special_lifecycle_dispatch_edges()

@@ -1567,16 +1567,19 @@ def check_incomplete_capsule_and_multisource_drift_fail_closed() -> None:
 def _operation_args(
     task_id: str,
     operation_id: str,
-    payload: dict[str, object],
+    payload: dict[str, object] | None,
     *,
+    expected_task_revision: int | None = None,
     killpoint: str = "",
+    replay_only: bool = False,
 ) -> Namespace:
     task = court_runtime.load_tasks().get(task_id)
-    expected_task_revision = (
-        int(task.get("task_revision") or 1)
-        if isinstance(task, dict)
-        else 1
-    )
+    if expected_task_revision is None:
+        expected_task_revision = (
+            int(task.get("task_revision") or 1)
+            if isinstance(task, dict)
+            else 1
+        )
     return Namespace(
         task_id=task_id,
         operation_id=operation_id,
@@ -1587,6 +1590,7 @@ def _operation_args(
         actor="taizi",
         evidence=f"F-CRASH-003 {operation_id}",
         note="paired ledger crash tracer",
+        replay_only=replay_only,
     )
 
 
@@ -1629,6 +1633,7 @@ def check_f_crash_003_paired_ledger_recovery_and_replay() -> None:
                 finalize_payload,
                 killpoint="after_event_write",
             )
+            finalize_expected_revision = finalize_args.expected_task_revision
             try:
                 court_runtime.apply_synthetic_paired_operation(finalize_args)
             except court_runtime.SimulatedPairedLedgerCrash:
@@ -1648,7 +1653,13 @@ def check_f_crash_003_paired_ledger_recovery_and_replay() -> None:
                 if event.get("operation_id") == finalize_id
             ]
             replay = court_runtime.apply_synthetic_paired_operation(
-                _operation_args(task_id, finalize_id, finalize_payload)
+                _operation_args(
+                    task_id,
+                    finalize_id,
+                    None,
+                    expected_task_revision=finalize_expected_revision,
+                    replay_only=True,
+                )
             )
             operation_events_after = [
                 event
@@ -1666,15 +1677,44 @@ def check_f_crash_003_paired_ledger_recovery_and_replay() -> None:
                         task_id,
                         finalize_id,
                         {"action": "different-payload", "value": 3},
+                        expected_task_revision=finalize_expected_revision,
                     )
                 )
             except ValueError as exc:
-                if str(exc) != "operation_payload_conflict":
+                if str(exc) != "operation_replay_requires_reference_only":
                     raise AssertionError("F_CRASH_003_CONFLICT_WRONG_ERROR " + str(exc)) from exc
             else:
                 raise AssertionError("F_CRASH_003_CONFLICT_ACCEPTED")
             if court_runtime.tasks_path().read_bytes() != before_conflict:
                 raise AssertionError("F_CRASH_003_CONFLICT_MUTATED_TASK")
+
+            replay_only = court_runtime.apply_synthetic_paired_operation(
+                _operation_args(
+                    task_id,
+                    finalize_id,
+                    None,
+                    expected_task_revision=finalize_expected_revision,
+                    replay_only=True,
+                )
+            )
+            if (
+                replay_only.get("status") != "REPLAYED"
+                or replay_only.get("replay_reason") != "REPLAYED_BODY_NOT_COMPARED"
+                or replay_only.get("receipt") != operation.get("receipt")
+            ):
+                raise AssertionError("F_CRASH_003_REFERENCE_ONLY_REPLAY_INVALID")
+
+            foreign_task_id = "f-crash-003-foreign"
+            court_runtime.create_task(_create_args(foreign_task_id, "foreign operation binding"))
+            try:
+                court_runtime.apply_synthetic_paired_operation(
+                    _operation_args(foreign_task_id, finalize_id, finalize_payload)
+                )
+            except ValueError as exc:
+                if str(exc) != "operation_binding_conflict":
+                    raise AssertionError("F_CRASH_003_BINDING_CONFLICT_WRONG_ERROR " + str(exc)) from exc
+            else:
+                raise AssertionError("F_CRASH_003_FOREIGN_BINDING_ACCEPTED")
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
@@ -2277,10 +2317,11 @@ def check_semantic_reconcile_cli_requires_restored_sources_then_reverify() -> No
 def _decree_open_args(
     task_id: str,
     operation_id: str,
-    payload: dict[str, object],
+    payload: dict[str, object] | None,
     *,
     expected_revision: int,
     killpoint: str = "",
+    replay_only: bool = False,
 ) -> Namespace:
     return Namespace(
         task_id=task_id,
@@ -2292,34 +2333,89 @@ def _decree_open_args(
         actor="taizi",
         evidence=f"decree-open {operation_id}",
         note="decree open fixture",
+        replay_only=replay_only,
     )
 
 
 def check_decree_open_is_idempotent_concurrent_and_crash_recoverable() -> None:
     task_id = "decree-open-idempotent"
     operation_id = "00000000-0000-4000-8000-000000000401"
-    payload = {"title": "主诏并发编号", "decree_anchor": "RC2 synthetic fixture"}
+    payload = {
+        "title": "主诏并发编号",
+        "decree_anchor": "RC2 synthetic fixture",
+        "lineage_key": "LNG-COMPAT-SUPPLIED",
+    }
     with tempfile.TemporaryDirectory() as temp_dir:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
         try:
+            standard_task_id = "decree-open-standard-retry"
+            standard_first = court_runtime.create_task(
+                _create_args(standard_task_id, "standard retry charter")
+            )
+            standard_operation = next(
+                iter(standard_first.task["operations"].values())
+            )
+            if not isinstance(standard_operation, dict):
+                raise AssertionError("DECREE_OPEN_STANDARD_OPERATION_MISSING")
+            standard_receipt = standard_operation.get("receipt")
+            if not isinstance(standard_receipt, dict):
+                raise AssertionError("DECREE_OPEN_STANDARD_RECEIPT_MISSING")
+            standard_code = standard_first.task.get("court_code")
+            standard_main_code = standard_first.task.get("main_court_code")
+            standard_sequence = standard_receipt.get("daily_sequence")
+            before_standard_retry_tasks = court_runtime.tasks_path().read_bytes()
+            before_standard_retry_events = court_runtime.events_path().read_bytes()
+            standard_retry = court_runtime.create_task(
+                _create_args(standard_task_id, "standard retry charter")
+            )
+            retry_operation = next(
+                iter(standard_retry.task["operations"].values())
+            )
+            retry_receipt = (
+                retry_operation.get("receipt")
+                if isinstance(retry_operation, dict)
+                else None
+            )
+            if (
+                standard_retry.task != standard_first.task
+                or standard_retry.task.get("court_code") != standard_code
+                or standard_retry.task.get("main_court_code") != standard_main_code
+                or not isinstance(retry_receipt, dict)
+                or retry_receipt.get("daily_sequence") != standard_sequence
+                or retry_receipt.get("court_code") != standard_receipt.get("court_code")
+                or court_runtime.tasks_path().read_bytes() != before_standard_retry_tasks
+                or court_runtime.events_path().read_bytes() != before_standard_retry_events
+            ):
+                raise AssertionError("DECREE_OPEN_STANDARD_RETRY_RENUMBERED_OR_MUTATED")
+
             legacy_create = _create_args(task_id, "decree-open charter")
             legacy_create.session_id = None
             legacy_create.legacy_compatibility = True
             court_runtime.create_task(legacy_create)
+
+            first = court_runtime.decree_open_task(
+                _decree_open_args(
+                    task_id,
+                    operation_id,
+                    payload,
+                    expected_revision=1,
+                )
+            )
 
             def replay(_: int) -> dict[str, object]:
                 return court_runtime.decree_open_task(
                     _decree_open_args(
                         task_id,
                         operation_id,
-                        payload,
+                        None,
                         expected_revision=1,
+                        replay_only=True,
                     )
                 )
 
             with ThreadPoolExecutor(max_workers=16) as pool:
-                results = list(pool.map(replay, range(32)))
+                results = [first, *list(pool.map(replay, range(31)))]
             receipts = [result.get("receipt") for result in results]
             if not all(isinstance(receipt, dict) for receipt in receipts):
                 raise AssertionError("DECREE_OPEN_RECEIPT_MISSING")
@@ -2331,6 +2427,8 @@ def check_decree_open_is_idempotent_concurrent_and_crash_recoverable() -> None:
                 raise AssertionError("DECREE_OPEN_FIRST_SEQUENCE_INVALID")
             if not str(canonical.get("main_court_code") or "").endswith("-0001"):
                 raise AssertionError("DECREE_OPEN_MAIN_CODE_INVALID")
+            if canonical.get("lineage_key") != payload["lineage_key"]:
+                raise AssertionError("DECREE_OPEN_SUPPLIED_LINEAGE_KEY_NOT_PRESERVED")
             operation_events = [
                 event
                 for event in court_runtime.events_for_task(task_id)
@@ -2349,12 +2447,28 @@ def check_decree_open_is_idempotent_concurrent_and_crash_recoverable() -> None:
                     )
                 )
             except ValueError as exc:
-                if str(exc) != "operation_payload_conflict":
+                if str(exc) != "operation_replay_requires_reference_only":
                     raise AssertionError("DECREE_OPEN_CONFLICT_WRONG_ERROR:" + str(exc)) from exc
             else:
                 raise AssertionError("DECREE_OPEN_CONFLICT_ACCEPTED")
             if court_runtime.tasks_path().read_bytes() != before_conflict:
                 raise AssertionError("DECREE_OPEN_CONFLICT_MUTATED")
+
+            reference_only = court_runtime.decree_open_task(
+                _decree_open_args(
+                    task_id,
+                    operation_id,
+                    None,
+                    expected_revision=1,
+                    replay_only=True,
+                )
+            )
+            if (
+                reference_only.get("status") != "REPLAYED"
+                or reference_only.get("replay_reason") != "REPLAYED_BODY_NOT_COMPARED"
+                or reference_only.get("receipt") != canonical
+            ):
+                raise AssertionError("DECREE_OPEN_REFERENCE_ONLY_REPLAY_INVALID")
 
             crash_id = "00000000-0000-4000-8000-000000000402"
             crash_payload = {"title": "allocation crash decree"}
@@ -2402,14 +2516,97 @@ def check_decree_open_is_idempotent_concurrent_and_crash_recoverable() -> None:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
+def check_decree_open_lineage_input_boundaries() -> None:
+    task_id = "decree-open-lineage-boundaries"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            court_runtime.create_task(_create_args(task_id, "lineage boundary charter"))
+            invalid_values: list[object] = [
+                ["not", "a", "string"],
+                {"not": "a string"},
+                17,
+                True,
+                "",
+                " \t ",
+                "line\x00age",
+                "line\r\nage",
+                "a" * 245,
+            ]
+            for index, invalid_value in enumerate(invalid_values, start=1):
+                current = court_runtime.load_tasks()[task_id]
+                expected_revision = int(current["task_revision"])
+                before_tasks = court_runtime.tasks_path().read_bytes()
+                before_events = court_runtime.events_path().read_bytes()
+                try:
+                    court_runtime.decree_open_task(
+                        _decree_open_args(
+                            task_id,
+                            f"00000000-0000-4000-8000-0000000004{20 + index:02d}",
+                            {"lineage_parts": ["court", "decree"], "lineage_key": invalid_value},
+                            expected_revision=expected_revision,
+                        )
+                    )
+                except ValueError as exc:
+                    if str(exc) != "decree_lineage_key_invalid":
+                        raise AssertionError("DECREE_LINEAGE_INVALID_WRONG_ERROR") from exc
+                else:
+                    raise AssertionError("DECREE_LINEAGE_INVALID_ACCEPTED")
+                if (
+                    court_runtime.tasks_path().read_bytes() != before_tasks
+                    or court_runtime.events_path().read_bytes() != before_events
+                ):
+                    raise AssertionError("DECREE_LINEAGE_INVALID_MUTATED")
+
+            current = court_runtime.load_tasks()[task_id]
+            expected_revision = int(current["task_revision"])
+            boundary_input = " " + ("a" * 244) + " "
+            boundary = court_runtime.decree_open_task(
+                _decree_open_args(
+                    task_id,
+                    "00000000-0000-4000-8000-000000000431",
+                    {"lineage_parts": ["court", "decree"], "lineage_key": boundary_input},
+                    expected_revision=expected_revision,
+                )
+            )
+            boundary_receipt = boundary.get("receipt")
+            if (
+                boundary.get("status") != "COMMITTED"
+                or not isinstance(boundary_receipt, dict)
+                or boundary_receipt.get("lineage_key") != "a" * 244
+            ):
+                raise AssertionError("DECREE_LINEAGE_BOUNDARY_NOT_ACCEPTED")
+
+            current = court_runtime.load_tasks()[task_id]
+            fallback = court_runtime.decree_open_task(
+                _decree_open_args(
+                    task_id,
+                    "00000000-0000-4000-8000-000000000432",
+                    {"lineage_parts": ["court", "decree"]},
+                    expected_revision=int(current["task_revision"]),
+                )
+            )
+            fallback_receipt = fallback.get("receipt")
+            if (
+                fallback.get("status") != "COMMITTED"
+                or not isinstance(fallback_receipt, dict)
+                or not str(fallback_receipt.get("lineage_key") or "").startswith("LNG-")
+            ):
+                raise AssertionError("DECREE_LINEAGE_MISSING_FIELD_FALLBACK_INVALID")
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
 def _synthetic_closeout_args(
     task_id: str,
     operation_id: str,
-    payload: dict[str, object],
+    payload: dict[str, object] | None,
     *,
     expected_revision: int,
     synthetic_root: Path,
     killpoint: str = "",
+    replay_only: bool = False,
 ) -> Namespace:
     return Namespace(
         task_id=task_id,
@@ -2422,6 +2619,7 @@ def _synthetic_closeout_args(
         actor="shiguan",
         evidence=f"synthetic closeout {operation_id}",
         note="synthetic closeout fixture",
+        replay_only=replay_only,
     )
 
 
@@ -2440,7 +2638,20 @@ def _jsonl_rows(path: Path) -> list[dict[str, object]]:
 
 def check_operation_journal_rmw_is_serialized() -> None:
     operation_id = "00000000-0000-4000-8000-000000000409"
-    payload_digest = _digest("operation journal serialized rmw")
+    operation_binding = {
+        "operation_id": operation_id,
+        "task_id": "operation-journal-rmw",
+        "operation_kind": "paired",
+        "case_ref": {
+            "court_code": "CCR-20260908-1-ABCD",
+            "charter_revision": 1,
+        },
+        "actor": "taizi",
+        "role": "taizi",
+        "expected_task_revision": 1,
+        "target_ref": {"kind": "task", "id": "operation-journal-rmw"},
+        "request_schema": "court.operation.paired.v2",
+    }
     first_load_entered = threading.Event()
     second_write_started = threading.Event()
     release_first_load = threading.Event()
@@ -2474,10 +2685,9 @@ def check_operation_journal_rmw_is_serialized() -> None:
         return court_operation_journal.write_journal(
             root,
             operation_id=operation_id,
-            payload_digest=payload_digest,
-            task_id="operation-journal-rmw",
+            operation_binding=operation_binding,
             phase="PREPARED",
-            receipt=None,
+            receipt_ref=None,
             updated_at=f"2026-07-16T00:00:0{index}+00:00",
         )
 
@@ -2501,6 +2711,103 @@ def check_operation_journal_rmw_is_serialized() -> None:
             court_operation_journal.load_json = original_load_json
     if overlap_detected.is_set():
         raise AssertionError("OPERATION_JOURNAL_RMW_NOT_SERIALIZED")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        record = court_operation_journal.write_journal(
+            root,
+            operation_id=operation_id,
+            operation_binding=operation_binding,
+            phase="PREPARED",
+            receipt_ref=None,
+            updated_at="2026-07-16T00:00:01+00:00",
+        )
+        if (
+            record.get("schema") != "court.operation_journal.v2"
+            or "payload_sha256" in record
+            or record.get("operation_binding") != operation_binding
+            or court_operation_journal.journal_path(root, operation_id).name
+            != f"{operation_id}.json"
+            or court_operation_journal.journal_path(root, operation_id).parent.name
+            != court_operation_journal.OPERATION_V2_NAMESPACE
+        ):
+            raise AssertionError("OPERATION_JOURNAL_V2_BINDING_INVALID")
+        court_operation_journal.write_journal(
+            root,
+            operation_id=operation_id,
+            operation_binding=operation_binding,
+            phase="EVENT_WRITTEN",
+            receipt_ref=None,
+            updated_at="2026-07-16T00:00:02+00:00",
+        )
+        conflicting_binding = {
+            **operation_binding,
+            "task_id": "foreign-task",
+        }
+        try:
+            court_operation_journal.write_journal(
+                root,
+                operation_id=operation_id,
+                operation_binding=conflicting_binding,
+                phase="PREPARED",
+                receipt_ref=None,
+                updated_at="2026-07-16T00:00:02+00:00",
+            )
+        except ValueError as exc:
+            if str(exc) != "operation_binding_conflict":
+                raise AssertionError("OPERATION_JOURNAL_BINDING_CONFLICT_WRONG_ERROR") from exc
+        else:
+            raise AssertionError("OPERATION_JOURNAL_BINDING_CONFLICT_ACCEPTED")
+        try:
+            court_operation_journal.write_journal(
+                root,
+                operation_id=operation_id,
+                operation_binding=operation_binding,
+                phase="PREPARED",
+                receipt_ref=None,
+                updated_at="2026-07-16T00:00:03+00:00",
+            )
+        except ValueError as exc:
+            if str(exc) != "operation_phase_regression":
+                raise AssertionError("OPERATION_JOURNAL_PHASE_REGRESSION_WRONG_ERROR") from exc
+        else:
+            raise AssertionError("OPERATION_JOURNAL_PHASE_REGRESSION_ACCEPTED")
+
+
+def check_operation_journal_legacy_marker_is_read_only() -> None:
+    operation_id = "00000000-0000-4000-8000-00000000040a"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            marker = {
+                "schema": court_operation_journal.LEGACY_MARKER_SCHEMA,
+                "operation_id": operation_id,
+                "payload_sha256": "0" * 64,
+                "task_id": "legacy-journal",
+                "phase": "PREPARED",
+                "tasks_preimage_exists": False,
+                "tasks_preimage_b64": "",
+                "events_preimage_exists": False,
+                "events_preimage_b64": "",
+                "receipt": None,
+                "created_at": "2026-09-08T00:00:00+00:00",
+            }
+            court_operation_journal.write_json(
+                Path(temp_dir)
+                / "operation-markers"
+                / f"{operation_id}.json",
+                marker,
+            )
+            try:
+                court_runtime.recover_paired_operation(operation_id)
+            except ValueError as exc:
+                if str(exc) != "LEGACY_READ_ONLY":
+                    raise AssertionError("OPERATION_LEGACY_MARKER_WRONG_ERROR") from exc
+            else:
+                raise AssertionError("OPERATION_LEGACY_MARKER_MUTATED")
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
 def check_synthetic_closeout_saga_recovers_all_side_effect_killpoints() -> None:
@@ -2531,19 +2838,30 @@ def check_synthetic_closeout_saga_recovers_all_side_effect_killpoints() -> None:
                 "summary": "32 replay synthetic closeout",
             }
 
+            first = court_runtime.synthetic_closeout_task(
+                _synthetic_closeout_args(
+                    task_id,
+                    concurrent_id,
+                    concurrent_payload,
+                    expected_revision=2,
+                    synthetic_root=synthetic_root,
+                )
+            )
+
             def replay(_: int) -> dict[str, object]:
                 return court_runtime.synthetic_closeout_task(
                     _synthetic_closeout_args(
                         task_id,
                         concurrent_id,
-                        concurrent_payload,
+                        None,
                         expected_revision=2,
                         synthetic_root=synthetic_root,
+                        replay_only=True,
                     )
                 )
 
             with ThreadPoolExecutor(max_workers=16) as pool:
-                replay_results = list(pool.map(replay, range(32)))
+                replay_results = [first, *list(pool.map(replay, range(31)))]
             replay_receipts = [result.get("receipt") for result in replay_results]
             canonical = replay_receipts[0]
             if not isinstance(canonical, dict) or any(
@@ -2593,9 +2911,10 @@ def check_synthetic_closeout_saga_recovers_all_side_effect_killpoints() -> None:
                     _synthetic_closeout_args(
                         task_id,
                         operation_id,
-                        payload,
+                        None,
                         expected_revision=expected_revision,
                         synthetic_root=synthetic_root,
+                        replay_only=True,
                     )
                 )
                 if replayed.get("receipt") != receipt:
@@ -4277,8 +4596,16 @@ def evaluate() -> dict[str, object]:
             check_decree_open_is_idempotent_concurrent_and_crash_recoverable,
         ),
         (
+            "DECREE_OPEN_LINEAGE_INPUT_BOUNDARIES",
+            check_decree_open_lineage_input_boundaries,
+        ),
+        (
             "OPERATION_JOURNAL_RMW_SERIALIZATION",
             check_operation_journal_rmw_is_serialized,
+        ),
+        (
+            "OPERATION_JOURNAL_LEGACY_READ_ONLY",
+            check_operation_journal_legacy_marker_is_read_only,
         ),
         (
             "SYNTHETIC_CLOSEOUT_SAGA",

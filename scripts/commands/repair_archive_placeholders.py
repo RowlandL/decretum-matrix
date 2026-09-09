@@ -6,9 +6,9 @@
 Read-only by default: ``--dry-run`` (default) reports what would change with
 zero byte mutations. ``--apply`` requires an explicit ``--yes``, prints the
 file list first, saves a rollback snapshot (original bytes) plus a repair
-journal/receipt (original fragment fingerprint + nearest archive-checkpoint
-receipt pointer) before writing, and is idempotent (a second ``--apply`` or
-``--dry-run`` finds no new REPAIR_CANDIDATE).
+journal/receipt (structured record/checkpoint/line references) before writing,
+and is idempotent (a second ``--apply`` or ``--dry-run`` finds no new
+REPAIR_CANDIDATE).
 
 Only REPAIR_CANDIDATE identity-field placeholders are repaired (safe single
 nearest source, no conflict), matching contract-a three-state semantics. The
@@ -27,7 +27,6 @@ if _SCRIPTS_ROOT not in sys.path:
 
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -41,7 +40,7 @@ sys.dont_write_bytecode = True
 
 from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
 from shiguan_paths import code_root, ensure_shared_seed, reference_path
-from iku_candidates import detect_record_candidates
+from iku_candidates import detect_record_candidates, field_kind, placeholder_kind
 
 
 def skill_root() -> Path:
@@ -121,7 +120,7 @@ def plan_repairs(
     selected_root = Path(root) if root is not None else archive_root()
     plan: list[dict[str, object]] = []
     for path in sorted(selected_root.glob("*.md")):
-        text = path.read_bytes().decode("utf-8")
+        text = path.read_text(encoding="utf-8")
         plan.extend(_plan_record_repairs(text, path, selected_root))
         if len(plan) >= max(1, min(int(limit), 100)):
             break
@@ -139,7 +138,18 @@ def _plan_record_repairs(text: str, path: Path, root: Path) -> list[dict[str, ob
         if replacement is not None:
             plan.append({
                 **candidate,
-                "original_line_sha256": hashlib.sha256(line.encode("utf-8")).hexdigest(),
+                "fragment_reference": {
+                    "schema": "court.iku.fragment_reference.v1",
+                    "record_ref": candidate.get("record_ref"),
+                    "record_id": candidate.get("record_id"),
+                    "record_path": candidate.get("record_path"),
+                    "checkpoint_ref": candidate.get("checkpoint_ref"),
+                    "checkpoint": candidate.get("checkpoint"),
+                    "checkpoint_line_number": candidate.get("checkpoint_line_number"),
+                    "line_coordinate": candidate.get("line_coordinate"),
+                    "field": candidate.get("field"),
+                    "placeholder_kind": candidate.get("placeholder_kind"),
+                },
                 "replacement_line": replacement,
             })
     return plan
@@ -177,9 +187,9 @@ def _apply_repairs_locked(
     """Apply a repair plan with rollback snapshots + journal/receipt (P3-4/P3-5).
 
     Requires ``yes=True`` (the CLI ``--yes`` gate). Returns a journal with one
-    entry per repaired file containing the original fingerprint, rollback
-    snapshot path and the nearest archive-checkpoint receipt pointer. Raises
-    ValueError when confirmation is missing.
+    entry per repaired file containing structured record/checkpoint/line
+    references, a rollback snapshot path and the nearest archive-checkpoint
+    receipt pointer. Raises ValueError when confirmation is missing.
     """
     if not yes:
         raise ValueError("repair_requires_yes")
@@ -221,22 +231,31 @@ def _apply_repairs_locked(
         used: set[tuple[int, str]] = set()
         replaced_lines: list[dict[str, object]] = []
         for index, line in enumerate(lines):
-            fragment_sha = hashlib.sha256(line.strip().encode("utf-8")).hexdigest()
             for item in items:
                 if item.get("line_number") != index + 1:
                     continue
-                key = str(item.get("fragment_sha256") or "")
-                if key != fragment_sha or (index + 1, key) in used:
+                coordinate = item.get("line_coordinate")
+                if not isinstance(coordinate, dict):
+                    continue
+                if (
+                    coordinate.get("line_number") != index + 1
+                    or coordinate.get("record_path") != record_path
+                    or coordinate.get("field") != item.get("field")
+                    or coordinate.get("placeholder_kind") != item.get("placeholder_kind")
+                    or field_kind(line) != item.get("field")
+                    or placeholder_kind(line) != item.get("placeholder_kind")
+                    or (index + 1, str(item.get("field") or "")) in used
+                ):
                     continue
                 replacement = str(item.get("replacement_line") or "")
                 newline = line[len(line.rstrip("\r\n")) :]
                 lines[index] = replacement + newline
-                used.add((index + 1, key))
+                used.add((index + 1, str(item.get("field") or "")))
                 replaced_lines.append(
                     {
                         "field": item.get("field"),
-                        "fragment_sha256": key,
-                        "original_line_sha256": item.get("original_line_sha256"),
+                        "fragment_reference": item.get("fragment_reference"),
+                        "line_coordinate": coordinate,
                         "replacement_line": replacement,
                         "line_number": int(item.get("line_number") or index + 1),
                         **{key: item.get(key) for key in (

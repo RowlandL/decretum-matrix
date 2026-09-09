@@ -1151,6 +1151,29 @@ def check_archive_builder_is_pure_and_unverified() -> None:
     assert command[command.index("--status") + 1] == "PASSED"
 
 
+def check_archive_receipt_cache_uses_authoritative_references() -> None:
+    """The archive cache key must not derive from serialized preflight content."""
+
+    preflight = {
+        "task_id": "archive/task",
+        "charter_revision": 3,
+        "case_ref": {"court_code": "COURT-20260908-1-AAAA", "charter_revision": 3},
+        "assessment_ref": "assessment/ref",
+        "assessment_gate": "PASSED",
+    }
+    cache_path = archive_runtime_task._receipt_cache_path(preflight)
+
+    expected = (
+        court_runtime.runtime_root()
+        / "archive-runtime-receipts"
+        / "reference-v1"
+        / "archive%2Ftask"
+        / "r3"
+        / "assessment%2Fref.json"
+    )
+    assert cache_path == expected
+
+
 def check_verified_completion_projection() -> None:
     handoff = assessment_ready_task("projection-handoff")
     handoff["completion"] = {"status": "HANDOFF"}
@@ -1879,6 +1902,7 @@ def main() -> int:
             check_assessment_cli_cas_idempotency_and_rollback()
             check_stored_binding_integrity_is_revalidated()
             check_archive_builder_is_pure_and_unverified()
+            check_archive_receipt_cache_uses_authoritative_references()
             check_verified_completion_projection()
             check_checkpoint_receipt_strict_binding()
             check_atomic_complete_and_exact_rollback()

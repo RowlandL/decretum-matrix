@@ -144,27 +144,6 @@ class InstallationIdentityTests(unittest.TestCase):
                 self.assertIsNone(result["harness_sha256"])
                 self.assertIsNone(result["verifier_sha256"])
 
-    def test_capability_caller_digest_remains_declared(self):
-        for value in ("c" * 64, "d" * 64):
-            with self.subTest(value=value), no_file_hashes():
-                result = recruitment._hash_evidence({"path": str(self.capability), "content_hash": value}, {})
-                self.assertEqual(result["hash_status"], "DECLARED")
-                self.assertEqual(result["declared_content_hash"], value)
-                self.assertEqual(result["observed_content_hash"], "")
-                self.assertFalse(result["file_content_verified"])
-
-    def test_no_declared_capability_digest_is_unavailable_not_rehashed(self):
-        with no_file_hashes():
-            result = recruitment._hash_evidence({"path": str(self.capability)}, {})
-        self.assertEqual(result["hash_status"], "UNAVAILABLE_NOT_REHASHED")
-        self.assertEqual(result["observed_content_hash"], "")
-
-    def test_unrelated_install_manifest_cannot_invalidate_external_capability(self):
-        (self.root / bootstrap.INSTALLED_PRELOAD_IDENTITY).write_text("{}", encoding="utf-8")
-        with no_file_hashes():
-            result = recruitment._hash_evidence({"path": str(self.capability), "content_hash": "c" * 64}, {})
-        self.assertEqual(result["hash_status"], "DECLARED")
-
     def route(self, record, roots):
         registry = self.area / "registry.json"
         registry.write_text(json.dumps({"capabilities": [record]}), encoding="utf-8")
@@ -185,16 +164,19 @@ class InstallationIdentityTests(unittest.TestCase):
             (self.record(kind="plugin", source="local_plugin", path=str(plugin)), {"local_plugin": [self.external]}),
         ]
         for record, roots in cases:
-            for declared in (False, True):
-                with self.subTest(kind=record["kind"], declared=declared):
-                    selected = {**record, **({"content_hash": "d" * 64} if declared else {})}
-                    result = self.route(selected, roots)
-                    self.assertTrue(result["dispatchable"])
-                    self.assertEqual(result["selection_source"], "registry")
-                    self.assertFalse(result["discovery_invoked"])
+            with self.subTest(kind=record["kind"]):
+                result = self.route(record, roots)
+                self.assertTrue(result["dispatchable"])
+                self.assertEqual(result["selection_source"], "registry")
+                self.assertFalse(result["discovery_invoked"])
+                selected = result["selected_candidate"]
+                self.assertIsNotNone(selected)
+                self.assertEqual(selected["reference_status"], "EXTERNAL_LOCAL_UNBOUND")
+                self.assertEqual(selected["reference_errors"], [])
+                self.assertNotIn("content_hash", selected)
 
     def test_original_verification_compatibility_and_conflict_gates_remain(self):
-        for change in ({"verified": False}, {"compatible_tools": ["hermes"]}, {"stale": True}, {"path": str(self.external / "missing" / "SKILL.md")}, {"content_hash": "c" * 64, "immutable_ref": "sha256:" + "d" * 64}):
+        for change in ({"verified": False}, {"compatible_tools": ["hermes"]}, {"stale": True}, {"path": str(self.external / "missing" / "SKILL.md")}, {"installation_binding": {"schema": "court.installation_binding.v2"}}):
             with self.subTest(change=change):
                 self.assertFalse(self.route(self.record(**change), {"codex_skills": [self.external]})["dispatchable"])
 

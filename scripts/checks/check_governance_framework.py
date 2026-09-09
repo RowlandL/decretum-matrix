@@ -738,6 +738,7 @@ def evaluate(only: str | None = None) -> dict[str, object]:
             errors.append(f"{name}:{exc}")
     return {
         "schema": "decretum.governance_framework_gate.v1",
+        "ok": not errors,
         "gate": "PASSED" if not errors else "FAILED",
         "SEMANTIC_CLEANLINESS_GATE": (
             "PASS" if "semantic_cleanliness" in passed else "NOT_EVALUATED"
@@ -768,5 +769,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 

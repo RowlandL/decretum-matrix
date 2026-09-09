@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import sys
 import tomllib
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 from urllib.parse import urlsplit
 
 
@@ -27,7 +27,6 @@ PUBLIC_PROVENANCE_FIELDS = (
     "source",
     "url",
     "immutable_ref",
-    "content_hash",
     "version_date",
     "license",
     "permissions",
@@ -43,6 +42,15 @@ PUBLIC_PROVENANCE_FIELDS = (
     "requires_login",
     "requires_private_upload",
 )
+STRUCTURED_PROVENANCE_FIELDS = (
+    "source_path",
+    "registry_generation",
+    "installation_binding",
+    "refresh_transaction",
+)
+REGISTRY_REFERENCE_SCHEMA = "court.capability.registry_reference.v1"
+INSTALLATION_BINDING_SCHEMA = "court.installation_binding.v2"
+REFRESH_TRANSACTION_SCHEMA = "court.capability.refresh_transaction.v1"
 CONSENT_SECURITY_FIELDS = (
     "requires_paid_action",
     "requires_login",
@@ -50,14 +58,13 @@ CONSENT_SECURITY_FIELDS = (
     "trusted",
     "verified",
 )
-CANDIDATE_SNAPSHOT_FIELDS = (
+CANDIDATE_REFERENCE_FIELDS = (
     "kind",
     "name",
     "source",
     "publisher",
     "url",
     "immutable_ref",
-    "content_hash",
     "version_date",
     "license",
     "permissions",
@@ -69,8 +76,10 @@ CANDIDATE_SNAPSHOT_FIELDS = (
     "fit_score",
     "risk",
     "evidence_time",
-    "purpose",
-    "destination",
+    *STRUCTURED_PROVENANCE_FIELDS,
+    "record_ref",
+    "checkpoint_ref",
+    "line_coordinate",
     *CONSENT_SECURITY_FIELDS,
 )
 SEARCHABLE_CANDIDATE_KINDS = frozenset({"mcp", "plugin", "skill"})
@@ -94,8 +103,7 @@ BASE_CONSENT_BINDING_FIELDS = (
     "purpose",
     "destination",
     "allowed_actions",
-    "candidate_snapshot",
-    "candidate_digest",
+    "candidate_reference",
     "discovery_query",
     "discovery_status",
     "decree_id",
@@ -105,7 +113,10 @@ EXTERNAL_PROVENANCE_BINDING_FIELDS = (
     "source",
     "publisher",
     "immutable_ref",
-    "content_hash",
+    "url",
+    "source_path",
+    "registry_generation",
+    "refresh_transaction",
 )
 CONSENT_BINDING_FIELDS = BASE_CONSENT_BINDING_FIELDS + EXTERNAL_PROVENANCE_BINDING_FIELDS
 HARD_STOP_FLAGS = {
@@ -115,7 +126,6 @@ HARD_STOP_FLAGS = {
     "requires_private_upload": "CANDIDATE_REQUIRES_PRIVATE_UPLOAD",
     "source_conflict": "CANDIDATE_SOURCE_CONFLICT",
     "tls_failed": "CANDIDATE_TLS_FAILED",
-    "digest_failed": "CANDIDATE_DIGEST_FAILED",
     "cross_domain_redirect": "CANDIDATE_CROSS_DOMAIN_REDIRECT",
 }
 
@@ -144,18 +154,70 @@ def _normalized_string_list(value: object) -> list[str]:
     return sorted(_unique(str(item).strip() for item in value))
 
 
-def normalize_candidate_snapshot(candidate: Mapping[str, object] | None) -> dict[str, object]:
-    """Return the bounded canonical candidate identity used for consent binding."""
+REFERENCE_OBJECT_FIELDS = {
+    "installation_binding": {
+        "schema", "artifact_ref", "build_id", "source_commit", "release_label",
+        "installation_id", "transaction_id", "generation", "canonical_root",
+        "selected_roots", "completion", "status", "provenance_receipt_ref", "rollback_ref",
+    },
+    "refresh_transaction": {
+        "schema", "transaction_id", "registry_generation", "status", "source_paths",
+        "registry_path", "started_at", "completed_at",
+    },
+    "line_coordinate": {
+        "record_ref", "record_id", "record_path", "checkpoint_ref", "checkpoint",
+        "checkpoint_line_number", "line_number", "field", "placeholder_kind",
+    },
+}
+
+
+def _normalize_reference_object(field: str, value: object) -> object:
+    allowed = REFERENCE_OBJECT_FIELDS.get(field)
+    if not isinstance(value, Mapping):
+        return {}
+    if allowed is None:
+        allowed = set(value)
+    normalized: dict[str, object] = {}
+    for key in sorted(str(item) for item in allowed):
+        if key not in value:
+            continue
+        item = value.get(key)
+        if isinstance(item, Mapping):
+            normalized[key] = {
+                str(nested_key): str(nested_value).strip()
+                for nested_key, nested_value in sorted(item.items(), key=lambda pair: str(pair[0]))
+                if nested_value is not None
+            }
+        elif isinstance(item, (list, tuple, set)):
+            normalized[key] = sorted(_unique(str(nested) for nested in item))
+        elif isinstance(item, bool):
+            normalized[key] = item
+        elif item is None:
+            normalized[key] = ""
+        else:
+            normalized[key] = str(item).strip()
+    return normalized
+
+
+def normalize_candidate_reference(candidate: Mapping[str, object] | None) -> dict[str, object]:
+    """Return a bounded structured capability reference for consent binding.
+
+    The reference deliberately contains only registry/provenance coordinates and
+    security flags. It is compared structurally on each turn and never reads
+    source bytes.
+    """
 
     if not isinstance(candidate, Mapping):
         return {}
     normalized: dict[str, object] = {}
-    for field in CANDIDATE_SNAPSHOT_FIELDS:
+    for field in CANDIDATE_REFERENCE_FIELDS:
         if field not in candidate:
             continue
         value = candidate.get(field)
         if field in {"permissions", "binary_dependencies"}:
             normalized[field] = _normalized_string_list(value)
+        elif field in REFERENCE_OBJECT_FIELDS:
+            normalized[field] = _normalize_reference_object(field, value)
         elif field in CONSENT_SECURITY_FIELDS:
             normalized[field] = value if isinstance(value, bool) else str(value).strip()
         elif field == "fit_score" and isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -167,21 +229,13 @@ def normalize_candidate_snapshot(candidate: Mapping[str, object] | None) -> dict
     return normalized
 
 
-def candidate_snapshot_digest(candidate: Mapping[str, object] | None) -> str:
-    normalized = normalize_candidate_snapshot(candidate)
-    canonical = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
 def _binding_value(field: str, value: object) -> object:
     if field == "action":
         return str(value or "").upper()
     if field == "allowed_actions":
         return _normalized_actions(value)
-    if field == "candidate_snapshot":
-        return normalize_candidate_snapshot(value if isinstance(value, Mapping) else None)
-    if field == "candidate_digest":
-        return str(value or "").strip().casefold()
+    if field == "candidate_reference":
+        return normalize_candidate_reference(value if isinstance(value, Mapping) else None)
     return str(value or "").strip()
 
 
@@ -277,30 +331,52 @@ def default_executable_inventory(names: Sequence[str]) -> dict[str, tuple[Path, 
 
 def parse_manifest_payload(data: object) -> dict[str, object]:
     if not isinstance(data, dict):
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_root_not_object"}
+        return {
+            "status": "CORRUPT", "state": "CORRUPT", "records": [],
+            "registry_reference": {}, "error": "manifest_root_not_object",
+        }
     if "capabilities" not in data:
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_capabilities_missing"}
+        return {
+            "status": "CORRUPT", "state": "CORRUPT", "records": [],
+            "registry_reference": {}, "error": "manifest_capabilities_missing",
+        }
     records = data.get("capabilities")
     if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_capabilities_not_object_list"}
+        return {
+            "status": "CORRUPT", "state": "CORRUPT", "records": [],
+            "registry_reference": {}, "error": "manifest_capabilities_not_object_list",
+        }
     normalized = [dict(record) for record in records]
+    registry_reference = data.get("registry_reference")
+    if not isinstance(registry_reference, Mapping):
+        registry_reference = {}
     return {
         "status": "VALID",
         "state": "EMPTY" if not normalized else "POPULATED",
         "records": normalized,
+        "registry_reference": copy.deepcopy(dict(registry_reference)),
         "error": None,
     }
 
 
 def load_manifest_records(path: Path) -> dict[str, object]:
     if not path.exists():
-        return {"status": "MISSING", "state": "MISSING", "records": [], "error": "manifest_missing"}
+        return {
+            "status": "MISSING", "state": "MISSING", "records": [],
+            "registry_reference": {}, "error": "manifest_missing",
+        }
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_json_invalid"}
+        return {
+            "status": "CORRUPT", "state": "CORRUPT", "records": [],
+            "registry_reference": {}, "error": "manifest_json_invalid",
+        }
     except OSError:
-        return {"status": "CORRUPT", "state": "CORRUPT", "records": [], "error": "manifest_unreadable"}
+        return {
+            "status": "CORRUPT", "state": "CORRUPT", "records": [],
+            "registry_reference": {}, "error": "manifest_unreadable",
+        }
     return parse_manifest_payload(data)
 
 
@@ -600,29 +676,299 @@ def _resolved_record_path(record: Mapping[str, object], source_roots: Mapping[st
     return next((candidate for candidate in candidates if candidate.exists()), None)
 
 
-def _hash_evidence(record: Mapping[str, object], source_roots: Mapping[str, object]) -> dict[str, object]:
-    declared = str(record.get("content_hash") or "").strip().casefold()
-    immutable_ref = str(record.get("immutable_ref") or "").strip().casefold()
-    immutable_hash = immutable_ref.removeprefix("sha256:") if immutable_ref.startswith("sha256:") else ""
-    declared_conflict = bool(declared and immutable_hash and declared != immutable_hash)
-    expected = declared or immutable_hash
-    path = _resolved_record_path(record, source_roots)
-    # Registry capabilities span unrelated skill, MCP and plugin roots. Their
-    # caller declarations are not Decretum installation pins or observed bytes.
-    if declared_conflict:
-        status = "DECLARED_CONFLICT"
-    elif expected:
-        status = "DECLARED"
-    else:
-        status = "UNAVAILABLE_NOT_REHASHED"
+INSTALLATION_BINDING_REQUIRED_FIELDS = (
+    "source_commit",
+    "release_label",
+    "artifact_ref",
+    "build_id",
+    "installation_id",
+    "generation",
+    "canonical_root",
+    "selected_roots",
+    "completion",
+    "provenance_receipt_ref",
+    "transaction_id",
+    "rollback_ref",
+)
+
+
+def _path_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _path_is_link_or_reparse(path: Path) -> bool:
+    try:
+        value = path.lstat()
+    except OSError:
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return stat.S_ISLNK(value.st_mode) or bool(
+        reparse_flag and getattr(value, "st_file_attributes", 0) & reparse_flag
+    )
+
+
+def _physical_directory(path: Path) -> Path:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    for candidate in [*reversed(absolute.parents), absolute]:
+        try:
+            value = candidate.lstat()
+        except OSError as exc:
+            raise ValueError(str(candidate)) from exc
+        if _path_is_link_or_reparse(candidate) or not stat.S_ISDIR(value.st_mode):
+            raise ValueError(str(candidate))
+    return absolute
+
+
+def _installation_binding_errors(
+    binding: object,
+    *,
+    home_root: Path | None = None,
+) -> list[str]:
+    if not isinstance(binding, Mapping):
+        return ["INSTALLATION_BINDING_MISSING"]
+    errors: list[str] = []
+    if binding.get("schema") != INSTALLATION_BINDING_SCHEMA:
+        errors.append("INSTALLATION_BINDING_SCHEMA_INVALID")
+    binding_status = str(binding.get("status") or "").strip().casefold()
+    if binding_status in {"unavailable", "stale", "conflict", "failed", "blocked", "recovery_required"}:
+        errors.append("INSTALLATION_BINDING_UNAVAILABLE")
+    elif binding_status and binding_status != "committed":
+        errors.append("INSTALLATION_BINDING_STATUS_INVALID")
+    if binding.get("completion") != "COMMITTED":
+        errors.append("INSTALLATION_BINDING_NOT_COMMITTED")
+    for field in INSTALLATION_BINDING_REQUIRED_FIELDS:
+        value = binding.get(field)
+        if field == "selected_roots":
+            if not isinstance(value, list) or not value or any(not str(item).strip() for item in value):
+                errors.append("INSTALLATION_BINDING_SELECTED_ROOTS_INVALID")
+        elif field == "generation":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                errors.append("INSTALLATION_BINDING_GENERATION_INVALID")
+        elif not str(value or "").strip():
+            errors.append(f"INSTALLATION_BINDING_FIELD_MISSING:{field}")
+    if home_root is None:
+        errors.append("INSTALLATION_BINDING_HOME_ROOT_REQUIRED")
+        return _unique(errors)
+    try:
+        home = _physical_directory(Path(home_root))
+        expected_canonical = _physical_directory(
+            home / ".agents" / "skills" / "decretum-matrix"
+        )
+        bound_canonical = _physical_directory(Path(str(binding.get("canonical_root") or "")))
+    except ValueError:
+        errors.append("INSTALLATION_BINDING_CANONICAL_ROOT_INVALID")
+        return _unique(errors)
+    if _path_key(bound_canonical) != _path_key(expected_canonical):
+        errors.append("INSTALLATION_BINDING_CANONICAL_ROOT_INVALID")
+    selected = binding.get("selected_roots")
+    selected_paths: list[Path] = []
+    if isinstance(selected, list):
+        for raw_path in selected:
+            try:
+                selected_path = _physical_directory(Path(str(raw_path)))
+                selected_path.relative_to(home)
+            except (ValueError, TypeError):
+                errors.append("INSTALLATION_BINDING_SELECTED_ROOT_INVALID")
+                continue
+            if any(_path_key(selected_path) == _path_key(existing) for existing in selected_paths):
+                errors.append("INSTALLATION_BINDING_SELECTED_ROOTS_INVALID")
+                continue
+            selected_paths.append(selected_path)
+    if not any(_path_key(path) == _path_key(expected_canonical) for path in selected_paths):
+        errors.append("INSTALLATION_BINDING_PRIMARY_ROOT_MISSING")
+    return errors
+
+
+def _refresh_transaction_errors(
+    transaction: object,
+    *,
+    registry_generation: str,
+    source_path: str,
+    installation_binding: Mapping[str, object] | None,
+) -> list[str]:
+    if not isinstance(transaction, Mapping):
+        return ["REFRESH_TRANSACTION_MISSING"]
+    errors: list[str] = []
+    if transaction.get("schema") != REFRESH_TRANSACTION_SCHEMA:
+        errors.append("REFRESH_TRANSACTION_SCHEMA_INVALID")
+    status = str(transaction.get("status") or "").strip().casefold()
+    if status in {"unavailable", "pending", "blocked", "failed", "recovery_required"}:
+        errors.append("REFRESH_TRANSACTION_UNAVAILABLE")
+    if status != "committed":
+        errors.append("REFRESH_TRANSACTION_NOT_COMMITTED")
+    transaction_id = str(transaction.get("transaction_id") or "").strip()
+    if not transaction_id:
+        errors.append("REFRESH_TRANSACTION_ID_MISSING")
+    transaction_generation = str(transaction.get("registry_generation") or "").strip()
+    if not transaction_generation:
+        errors.append("REFRESH_TRANSACTION_GENERATION_MISSING")
+    elif transaction_generation != registry_generation:
+        errors.append("REFRESH_TRANSACTION_GENERATION_MISMATCH")
+    source_paths = transaction.get("source_paths")
+    if not isinstance(source_paths, list) or source_path not in {str(item).strip() for item in source_paths}:
+        errors.append("REFRESH_TRANSACTION_SOURCE_PATH_MISMATCH")
+    if installation_binding is not None:
+        binding_installation_id = str(installation_binding.get("installation_id") or "").strip()
+        transaction_installation_id = str(transaction.get("installation_id") or "").strip()
+        if binding_installation_id and transaction_installation_id != binding_installation_id:
+            errors.append("REFRESH_TRANSACTION_INSTALLATION_MISMATCH")
+    return errors
+
+
+def _declared_source_path(
+    record: Mapping[str, object],
+    source_roots: Mapping[str, object],
+    source_path: str,
+) -> tuple[Path | None, bool, bool]:
+    source = str(record.get("source") or "").strip()
+    raw = Path(source_path)
+    roots = _mapping_paths(source_roots.get(source, ()))
+    if not roots:
+        return None, False, False
+    for root in roots:
+        root = Path(root)
+        if root.is_file() and (raw.name.casefold() == root.name.casefold() or source_path == "config.toml"):
+            candidate = root
+        elif raw.is_absolute():
+            candidate = raw
+        else:
+            candidate = root / raw
+        inside = _within_declared_root(candidate, root)
+        if inside:
+            return candidate, True, candidate.exists()
+    return None, False, False
+
+
+def _reference_evidence(
+    record: Mapping[str, object],
+    source_roots: Mapping[str, object],
+    registry_reference: Mapping[str, object] | None = None,
+    *,
+    home_root: Path | None = None,
+) -> dict[str, object]:
+    """Return validated registry/install/transaction references without bytes."""
+
+    registry_reference = registry_reference if isinstance(registry_reference, Mapping) else {}
+    immutable_ref = str(record.get("immutable_ref") or registry_reference.get("immutable_ref") or "").strip()
+    source_path = str(record.get("source_path") or "").strip()
+    managed_reference_declared = bool(registry_reference) or any(
+        field in record
+        for field in (
+            "registry_generation",
+            "installation_binding",
+            "refresh_transaction",
+        )
+    )
+    if not managed_reference_declared:
+        declared_source_path = source_path or str(record.get("path") or "").strip()
+        _resolved_path, source_path_in_root, source_path_available = _declared_source_path(
+            record, source_roots, declared_source_path
+        ) if declared_source_path else (None, False, False)
+        return {
+            "reference_status": "EXTERNAL_LOCAL_UNBOUND",
+            "reference_errors": [],
+            "immutable_ref": immutable_ref,
+            "source_path": declared_source_path,
+            "source_path_available": source_path_available,
+            "source_path_in_declared_root": source_path_in_root,
+            "registry_generation": "",
+            "installation_binding": None,
+            "refresh_transaction": None,
+        }
+    registry_generation_raw = record.get("registry_generation")
+    if registry_generation_raw is None:
+        registry_generation_raw = registry_reference.get("registry_generation")
+    registry_generation = str(registry_generation_raw or "").strip()
+    installation_binding = record.get("installation_binding")
+    if installation_binding is None:
+        installation_binding = registry_reference.get("installation_binding")
+    refresh_transaction = record.get("refresh_transaction")
+    if refresh_transaction is None:
+        refresh_transaction = registry_reference.get("refresh_transaction")
+    errors: list[str] = []
+    if record.get("reference_conflict") is True:
+        errors.append("REFERENCE_CONFLICT")
+    record_reference_status = str(record.get("reference_status") or "").strip().casefold()
+    if record_reference_status in {"stale", "conflict", "unavailable", "failed", "blocked"}:
+        errors.append("REFERENCE_STALE" if record_reference_status == "stale" else "REFERENCE_CONFLICT")
+    registry_status = str(registry_reference.get("status") or "").strip().casefold()
+    if registry_status in {"unavailable", "stale", "conflict", "failed", "blocked", "recovery_required"}:
+        errors.append("REGISTRY_REFERENCE_UNAVAILABLE")
+    elif registry_status == "pending":
+        errors.append("REGISTRY_REFERENCE_NOT_COMMITTED")
+    if not immutable_ref:
+        errors.append("IMMUTABLE_REF_MISSING")
+    elif _mutable_ref(immutable_ref):
+        errors.append("UNPINNED_OR_MUTABLE_REF")
+    if not source_path:
+        errors.append("SOURCE_PATH_MISSING")
+    resolved_path, source_path_in_root, source_path_available = _declared_source_path(
+        record, source_roots, source_path
+    ) if source_path else (None, False, False)
+    if source_path and not source_path_in_root:
+        errors.append("SOURCE_PATH_OUTSIDE_DECLARED_ROOT")
+    elif source_path and not source_path_available:
+        errors.append("SOURCE_PATH_UNAVAILABLE")
+    declared_path = str(record.get("path") or "").strip()
+    if declared_path and source_path and resolved_path is not None:
+        declared_resolved, declared_inside, _declared_available = _declared_source_path(
+            record, source_roots, declared_path
+        )
+        if not declared_inside or declared_resolved is None or _resolved(declared_resolved) != _resolved(resolved_path):
+            errors.append("SOURCE_PATH_REFERENCE_MISMATCH")
+    if not registry_reference:
+        errors.append("REGISTRY_REFERENCE_MISSING")
+    elif registry_reference.get("schema") != REGISTRY_REFERENCE_SCHEMA:
+        errors.append("REGISTRY_REFERENCE_SCHEMA_INVALID")
+    manifest_generation_raw = registry_reference.get("registry_generation")
+    manifest_generation = str(manifest_generation_raw or "").strip()
+    if manifest_generation_raw is not None and not isinstance(manifest_generation_raw, str):
+        errors.append("REGISTRY_GENERATION_INVALID")
+    if not registry_generation:
+        errors.append("REGISTRY_GENERATION_MISSING")
+    if registry_generation_raw is not None and not isinstance(registry_generation_raw, str):
+        errors.append("REGISTRY_GENERATION_INVALID")
+    elif manifest_generation and registry_generation != manifest_generation:
+        errors.append("REGISTRY_GENERATION_MISMATCH")
+    registered_sources = registry_reference.get("source_paths")
+    if not isinstance(registered_sources, list) or source_path not in {str(item).strip() for item in registered_sources}:
+        errors.append("SOURCE_PATH_NOT_IN_REGISTRY_REFERENCE")
+    binding_errors = _installation_binding_errors(
+        installation_binding,
+        home_root=home_root or Path.home(),
+    )
+    errors.extend(binding_errors)
+    if isinstance(installation_binding, Mapping):
+        source_commit = str(installation_binding.get("source_commit") or "").strip()
+        if source_commit and immutable_ref and source_commit != immutable_ref:
+            errors.append("IMMUTABLE_REF_BINDING_MISMATCH")
+    transaction_errors = _refresh_transaction_errors(
+        refresh_transaction,
+        registry_generation=registry_generation,
+        source_path=source_path,
+        installation_binding=installation_binding if isinstance(installation_binding, Mapping) else None,
+    )
+    errors.extend(transaction_errors)
+    if isinstance(installation_binding, Mapping) and isinstance(refresh_transaction, Mapping):
+        binding_tx = str(installation_binding.get("transaction_id") or "").strip()
+        refresh_tx = str(refresh_transaction.get("installation_transaction_id") or "").strip()
+        if refresh_tx and binding_tx and refresh_tx != binding_tx:
+            errors.append("REFRESH_TRANSACTION_BINDING_MISMATCH")
+    errors = _unique(errors)
+    status = "REFERENCE_CONFLICT" if any(
+        error.endswith("_MISMATCH") or error.endswith("_CONFLICT") or error.endswith("_OUTSIDE_DECLARED_ROOT")
+        for error in errors
+    ) else ("VERIFIED_REFERENCES" if not errors else "REFERENCE_GAPS")
     return {
-        "hash_status": status,
-        "declared_content_hash": expected,
-        "observed_content_hash": "",
+        "reference_status": status,
+        "reference_errors": errors,
         "immutable_ref": immutable_ref,
-        "hash_evidence_basis": "CALLER_DECLARED" if expected else "unavailable",
-        "hash_errors": ["capability_source_unavailable"] if path is None or not path.exists() else [],
-        "file_content_verified": False,
+        "source_path": source_path,
+        "source_path_available": source_path_available,
+        "source_path_in_declared_root": source_path_in_root,
+        "registry_generation": registry_generation,
+        "installation_binding": copy.deepcopy(installation_binding) if isinstance(installation_binding, Mapping) else None,
+        "refresh_transaction": copy.deepcopy(refresh_transaction) if isinstance(refresh_transaction, Mapping) else None,
     }
 
 
@@ -661,6 +1007,7 @@ def route_registry_first(
     state = _normalized_route_state(manifest_state)
     selected: dict[str, object] | None = None
     considered: list[dict[str, object]] = []
+    loaded: dict[str, object] = {}
     fallback_reason: str | None = state if state in {"missing", "stale", "corrupt"} else None
 
     if fallback_reason is None:
@@ -671,6 +1018,9 @@ def route_registry_first(
         else:
             terms = tokenize(safe_query)
             records = [item for item in loaded.get("records", []) if isinstance(item, dict)]
+            registry_reference = loaded.get("registry_reference", {})
+            if not isinstance(registry_reference, Mapping):
+                registry_reference = {}
             ranked = sorted(
                 ((score_record(record, terms), record) for record in records),
                 key=lambda item: (-item[0], str(item[1].get("kind", "")), str(item[1].get("name", ""))),
@@ -689,13 +1039,13 @@ def route_registry_first(
                     executable_inventory=executable_inventory,
                 )
                 compatibility = _tool_compatibility(record, current_tool)
-                hash_evidence = _hash_evidence(record, source_roots)
+                reference_evidence = _reference_evidence(record, source_roots, registry_reference)
                 version_evidence = _version_evidence(record)
                 stale = (
                     record.get("stale") is True
                     or str(record.get("state") or "").casefold() == "stale"
-                    or record.get("hash_drift") is True
-                    or hash_evidence["hash_status"] == "DECLARED_CONFLICT"
+                    or record.get("reference_drift") is True
+                    or reference_evidence["reference_status"] == "REFERENCE_CONFLICT"
                     or version_evidence["version_status"] == "MISMATCH"
                 )
                 stale_match = stale_match or stale
@@ -703,6 +1053,10 @@ def route_registry_first(
                     verification["verification_status"] == "VERIFIED_LOCAL"
                     and compatibility["tool_compatibility_status"] == "VERIFIED"
                     and fit["meets_requirements"] is True
+                    and reference_evidence["reference_status"] in {
+                        "VERIFIED_REFERENCES",
+                        "EXTERNAL_LOCAL_UNBOUND",
+                    }
                     and record.get("enabled") is not False
                     and record.get("dispatchable") is not False
                     and record.get("verified") is not False
@@ -721,7 +1075,7 @@ def route_registry_first(
                     "registry_evidence": list(record.get("evidence", [])) if isinstance(record.get("evidence", []), list) else [],
                     **verification,
                     **compatibility,
-                    **hash_evidence,
+                    **reference_evidence,
                     **version_evidence,
                     **fit,
                 }
@@ -741,6 +1095,7 @@ def route_registry_first(
             "current_tool": _tool_id(current_tool),
             "reason": fallback_reason,
             "source_roots": source_roots,
+            "registry_reference": copy.deepcopy(loaded.get("registry_reference", {})),
             "limit": 1,
             "offline": True,
             "allow_write": False,
@@ -757,6 +1112,7 @@ def route_registry_first(
         "current_tool": _tool_id(current_tool),
         "registry_path": str(manifest),
         "manifest_state": state,
+        "registry_reference": copy.deepcopy(loaded.get("registry_reference", {})),
         "selection_source": "registry" if selected is not None else "bounded_discovery",
         "fallback_reason": fallback_reason,
         "selected_candidate": selected,
@@ -813,38 +1169,35 @@ def validate_action_consent(
         if value == "" or value == []:
             reasons.append(f"CONSENT_BINDING_MISSING:{field}")
 
-    requested_snapshot = normalize_candidate_snapshot(
-        action_request.get("candidate_snapshot") if isinstance(action_request.get("candidate_snapshot"), Mapping) else None
+    requested_reference = normalize_candidate_reference(
+        action_request.get("candidate_reference")
+        if isinstance(action_request.get("candidate_reference"), Mapping)
+        else None
     )
-    granted_snapshot = normalize_candidate_snapshot(
-        consent.get("candidate_snapshot") if isinstance(consent.get("candidate_snapshot"), Mapping) else None
+    granted_reference = normalize_candidate_reference(
+        consent.get("candidate_reference")
+        if isinstance(consent.get("candidate_reference"), Mapping)
+        else None
     )
-    actual_snapshot = normalize_candidate_snapshot(actual_candidate)
-    for label, snapshot in (
-        ("REQUEST", requested_snapshot),
-        ("CONSENT", granted_snapshot),
-        ("ACTUAL", actual_snapshot),
+    actual_reference = normalize_candidate_reference(actual_candidate)
+    for label, reference in (
+        ("REQUEST", requested_reference),
+        ("CONSENT", granted_reference),
+        ("ACTUAL", actual_reference),
     ):
         for field in CONSENT_SECURITY_FIELDS:
-            if field not in snapshot:
+            if field not in reference:
                 reasons.append(f"CONSENT_SECURITY_FIELD_MISSING:{label}:{field}")
-            elif not isinstance(snapshot.get(field), bool):
+            elif not isinstance(reference.get(field), bool):
                 reasons.append(f"CONSENT_SECURITY_FIELD_TYPE_INVALID:{label}:{field}")
-    computed_digest = candidate_snapshot_digest(requested_snapshot)
-    requested_digest = str(action_request.get("candidate_digest") or "").strip().casefold()
-    granted_digest = str(consent.get("candidate_digest") or "").strip().casefold()
-    if not requested_snapshot:
-        reasons.append("CONSENT_CANDIDATE_SNAPSHOT_MISSING")
-    if not actual_snapshot:
+    if not requested_reference:
+        reasons.append("CONSENT_CANDIDATE_REFERENCE_MISSING")
+    if not actual_reference:
         reasons.append("CONSENT_ACTUAL_CANDIDATE_MISSING")
-    elif requested_snapshot != actual_snapshot:
+    elif requested_reference != actual_reference:
         reasons.append("CONSENT_ACTUAL_CANDIDATE_CHANGED")
-    if requested_snapshot != granted_snapshot:
-        reasons.append("CONSENT_CANDIDATE_SNAPSHOT_CHANGED")
-    if not _valid_hash(requested_digest) or requested_digest == "0" * 64 or requested_digest != computed_digest:
-        reasons.append("CONSENT_CANDIDATE_DIGEST_INVALID")
-    if granted_digest != computed_digest:
-        reasons.append("CONSENT_CANDIDATE_DIGEST_CHANGED")
+    if requested_reference != granted_reference:
+        reasons.append("CONSENT_CANDIDATE_REFERENCE_CHANGED")
 
     decree_id = str(action_request.get("decree_id") or "").strip()
     turn_id = str(action_request.get("turn_id") or "").strip()
@@ -861,7 +1214,7 @@ def validate_action_consent(
             "name": str(action_request.get("name") or ""),
             "purpose": str(action_request.get("purpose") or ""),
             "destination": str(action_request.get("destination") or ""),
-            "candidate_digest": computed_digest,
+            "candidate_reference": requested_reference,
             "decree_id": decree_id,
             "turn_id": turn_id,
         },
@@ -870,16 +1223,11 @@ def validate_action_consent(
         "execution_recheck": {
             "required": True,
             "status": "FAILED" if reasons else "PASSED",
-            "candidate_digest": computed_digest,
+            "candidate_reference": requested_reference,
             "decree_id": decree_id,
             "turn_id": turn_id,
         },
     }
-
-
-def _valid_hash(value: object) -> bool:
-    normalized = str(value or "").strip()
-    return bool(re.fullmatch(r"[A-Fa-f0-9]{64}", normalized)) and normalized != "0" * 64
 
 
 def _mutable_ref(value: object) -> bool:
@@ -923,7 +1271,7 @@ def _provenance_type_errors(candidate: Mapping[str, object]) -> list[str]:
         "binary_dependencies",
         "fit_score",
         *boolean_fields,
-    }
+    } | {"source_path", "registry_generation"}
     errors: list[str] = []
     for field in sorted(text_fields):
         if field in candidate and not isinstance(candidate.get(field), str):
@@ -934,6 +1282,9 @@ def _provenance_type_errors(candidate: Mapping[str, object]) -> list[str]:
             not isinstance(value, list)
             or any(not isinstance(item, str) or not item.strip() for item in value)
         ):
+            errors.append(f"PROVENANCE_FIELD_TYPE_INVALID:{field}")
+    for field in ("installation_binding", "refresh_transaction"):
+        if field in candidate and not isinstance(candidate.get(field), Mapping):
             errors.append(f"PROVENANCE_FIELD_TYPE_INVALID:{field}")
     fit_score = candidate.get("fit_score")
     if "fit_score" in candidate and (
@@ -998,8 +1349,6 @@ def _candidate_evidence(
             reasons.append("CANDIDATE_FIT_INSUFFICIENT")
         if _mutable_ref(candidate.get("immutable_ref")):
             reasons.append("UNPINNED_OR_MUTABLE_REF")
-        if not _valid_hash(candidate.get("content_hash")):
-            reasons.append("MISSING_OR_INVALID_CONTENT_HASH")
     else:
         for field in PUBLIC_PROVENANCE_FIELDS:
             value = candidate.get(field)
@@ -1020,8 +1369,6 @@ def _candidate_evidence(
             reasons.append("CANDIDATE_FIT_INSUFFICIENT")
         if _mutable_ref(candidate.get("immutable_ref")):
             reasons.append("UNPINNED_OR_MUTABLE_REF")
-        if not _valid_hash(candidate.get("content_hash")):
-            reasons.append("MISSING_OR_INVALID_CONTENT_HASH")
         if str(candidate.get("postinstall") or "").strip().casefold() in {"", "unknown", "unspecified"}:
             reasons.append("UNKNOWN_POSTINSTALL")
 
@@ -1054,7 +1401,6 @@ def _candidate_evidence(
     hard_stop_reasons = {
         "UNTRUSTED_SOURCE",
         "UNPINNED_OR_MUTABLE_REF",
-        "MISSING_OR_INVALID_CONTENT_HASH",
         "LOCAL_PROVENANCE_SOURCE_MISSING_OR_UNKNOWN",
         "UNKNOWN_POSTINSTALL",
         "PROVENANCE_EVIDENCE_INCOMPLETE",
@@ -1095,6 +1441,11 @@ def _candidate_evidence(
         for field in PUBLIC_PROVENANCE_FIELDS
         if field in candidate
     }
+    for field in STRUCTURED_PROVENANCE_FIELDS:
+        if field in candidate:
+            evidence[field] = copy.deepcopy(candidate.get(field))
+    if "source_path" not in evidence and candidate.get("path") is not None:
+        evidence["source_path"] = str(candidate.get("path") or "")
     evidence.update(
         {
             "scope": scope,
@@ -1603,14 +1954,13 @@ def evaluate_recruitment(
 
 __all__ = [
     "SCHEMA",
-    "candidate_snapshot_digest",
     "default_executable_inventory",
     "default_source_roots",
     "evaluate_recruitment",
     "load_manifest_records",
     "local_fit_evidence",
     "local_verification_evidence",
-    "normalize_candidate_snapshot",
+    "normalize_candidate_reference",
     "route_registry_first",
     "redact_discovery_query",
     "score_record",

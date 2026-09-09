@@ -22,7 +22,6 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 
-import hashlib
 import json
 import re
 import sys
@@ -62,10 +61,6 @@ def archive_root() -> Path:
     """
 
     return reference_path("plan-archives")
-
-
-def fragment_sha256(fragment: str) -> str:
-    return hashlib.sha256(fragment.encode("utf-8")).hexdigest()
 
 
 def placeholder_kind(line: str) -> str | None:
@@ -141,6 +136,8 @@ def _record_projection(text: str, path: Path, root: Path) -> dict[str, object]:
         nearest_lineage = next(iter(lineages))
     receipt_hint = None
     receipt_verified = False
+    record_ref = None
+    checkpoint_ref = None
     receipts = set(value.strip() for value in RECEIPT_RE.findall(text))
     if len(receipts) == 1:
         try:
@@ -166,12 +163,14 @@ def _record_projection(text: str, path: Path, root: Path) -> dict[str, object]:
             )
             if receipt_verified:
                 receipt_hint = str(receipt["receipt_id"])
+                record_ref = str(receipt.get("record_ref") or receipt_hint)
+                checkpoint_ref = str(receipt.get("receipt_id") or record_ref)
                 nearest_court_code = str(receipt_code or "")
                 nearest_lineage = str(receipt_lineage or "")
     try:
-        record_path = str(path.relative_to(root.parents[2]))
+        record_path = path.relative_to(root.parent.parent).as_posix()
     except (ValueError, IndexError):
-        record_path = str(path.relative_to(root))
+        record_path = path.relative_to(root).as_posix()
     return {
         "record_path": record_path,
         "record_id": record_id,
@@ -179,6 +178,8 @@ def _record_projection(text: str, path: Path, root: Path) -> dict[str, object]:
         "nearest_lineage": nearest_lineage,
         "receipt_hint": receipt_hint,
         "receipt_verified": receipt_verified,
+        "record_ref": record_ref,
+        "checkpoint_ref": checkpoint_ref,
     }
 
 
@@ -200,13 +201,28 @@ def detect_record_candidates(text: str, path: Path, root: Path) -> list[dict[str
                 kind, field, record["nearest_court_code"], record["nearest_lineage"],
                 record["receipt_hint"], receipt_verified=bool(record["receipt_verified"]),
             )
+            checkpoint = block.partition("\n")[0].strip()
+            checkpoint_line_number = line_offset + 1
+            checkpoint_ref = record.get("checkpoint_ref")
+            if not checkpoint_ref and record.get("record_ref"):
+                checkpoint_ref = f"{record['record_ref']}#checkpoint:{checkpoint_line_number}"
             candidates.append({
                 **record,
-                "checkpoint": block.partition("\n")[0].strip(),
-                "checkpoint_line_number": line_offset + 1,
+                "checkpoint": checkpoint,
+                "checkpoint_line_number": checkpoint_line_number,
                 "field": field,
                 "line_number": line_number,
-                "fragment_sha256": fragment_sha256(line.strip()),
+                "line_coordinate": {
+                    "record_ref": record.get("record_ref"),
+                    "record_id": record.get("record_id"),
+                    "record_path": record.get("record_path"),
+                    "checkpoint_ref": checkpoint_ref,
+                    "checkpoint": checkpoint,
+                    "checkpoint_line_number": checkpoint_line_number,
+                    "line_number": line_number,
+                    "field": field,
+                    "placeholder_kind": kind,
+                },
                 "placeholder_kind": kind,
                 "suggested_action": action,
                 "reason": reason,

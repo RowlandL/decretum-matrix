@@ -393,7 +393,11 @@ def _domain_probe_session() -> dict[str, Any]:
     from pathlib import Path as _Path
     from shiguan_paths import reference_path
 
-    journal_root = _Path(reference_path("court-runtime")) / "operation-journal"
+    journal_root = (
+        _Path(reference_path("court-runtime"))
+        / "operation-journal"
+        / "v2"
+    )
     before = {p.name for p in journal_root.glob("*.json")} if journal_root.exists() else set()
     proc = _start()
     try:
@@ -661,7 +665,6 @@ def _domain_ledger_checks() -> list[tuple[str, bool]]:
 def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
     """Exercise Git write-set isolation and rollback against real temporary repos."""
     from concurrent.futures import ThreadPoolExecutor
-    import hashlib
     import tempfile as _tempfile
     from unittest import mock
 
@@ -718,8 +721,16 @@ def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
         commit_sha = str(created_record.get("git_commit") or "")
         receipt_ref = created_record.get("git_receipt", {})
         receipt_relative = str(receipt_ref.get("path") or "") if isinstance(receipt_ref, dict) else ""
+        receipt_transaction = (
+            str(receipt_ref.get("transaction_id") or "")
+            if isinstance(receipt_ref, dict)
+            else ""
+        )
         receipt_path = repo / receipt_relative
         receipt_value = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.is_file() else {}
+        public_projection = domain_ledger_read("memory", root=repo)
+        public_revisions = public_projection.get("revisions", [])
+        public_record = public_revisions[-1] if isinstance(public_revisions, list) and public_revisions else {}
         committed_paths = set(git_output(repo, "show", "--format=", "--name-only", "HEAD").splitlines())
         success_isolated = (
             created.get("ok") is True
@@ -731,7 +742,14 @@ def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
         )
         success_receipt_consistent = (
             receipt_value.get("ledger_path") == "domain-ledger/memory.json"
-            and receipt_value.get("ledger_sha256") == hashlib.sha256(ledger_path.read_bytes()).hexdigest()
+            and receipt_value.get("revision") == created_record.get("revision")
+            and "ledger_sha256" not in receipt_value
+            and "content_sha256" not in created_record
+            and isinstance(public_record, dict)
+            and public_record.get("revision") == created_record.get("revision")
+            and public_record.get("transaction_id") == receipt_transaction
+            and public_record.get("receipt_path") == receipt_relative
+            and "content_sha256" not in public_record
             and git_bytes(repo, "show", f"HEAD:domain-ledger/memory.json") == ledger_path.read_bytes()
             and git_bytes(repo, "show", f"HEAD:{receipt_relative}") == receipt_path.read_bytes()
             and git_result(repo, "diff", "--quiet", "HEAD", "--", "domain-ledger/memory.json", receipt_relative, check=False).returncode == 0
@@ -847,6 +865,7 @@ def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
         )
         sidecar_anchor = domain_ledger_write(operation="create", topic="sidecar-anchor", content="anchor", **shared)
         original_commit = str(sidecar_anchor.get("record", {}).get("git_commit") or "")
+        anchor_revision = sidecar_anchor.get("record", {}).get("revision")
         anchor_receipt = sidecar_anchor.get("record", {}).get("git_receipt", {})
         anchor_receipt_relative = str(anchor_receipt.get("path") or "") if isinstance(anchor_receipt, dict) else ""
         anchor_ledger_relative = str(anchor_receipt.get("ledger_path") or "") if isinstance(anchor_receipt, dict) else ""
@@ -858,7 +877,6 @@ def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
         projected_after_change = domain_ledger_read("memory", root=repo)
         repeated_after_change = domain_ledger_write(operation="create", topic="sidecar-anchor", content="anchor", **shared)
         original_receipt = json.loads(git_bytes(repo, "show", f"{original_commit}:{anchor_receipt_relative}").decode("utf-8"))
-        original_ledger = git_bytes(repo, "show", f"{original_commit}:{anchor_ledger_relative}")
         original_projection = next(
             (item for item in projected_after_change.get("revisions", []) if item.get("topic") == "sidecar-anchor"),
             {},
@@ -871,7 +889,10 @@ def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
             and repeated_after_change.get("record", {}).get("git_commit") == original_commit
             and original_receipt.get("schema") == domain_ledger_api.GIT_RECEIPT_SCHEMA
             and original_receipt.get("transaction_id") == anchor_receipt.get("transaction_id")
-            and original_receipt.get("ledger_sha256") == hashlib.sha256(original_ledger).hexdigest()
+            and original_receipt.get("revision") == anchor_revision
+            and "ledger_sha256" not in original_receipt
+            and original_projection.get("transaction_id") == anchor_receipt.get("transaction_id")
+            and original_projection.get("receipt_path") == anchor_receipt_relative
             and git_output(repo, "status", "--porcelain") == ""
         )
 
@@ -1298,15 +1319,45 @@ def run() -> dict[str, object]:
             ),
         ),
         (
-            "audit_journal_written_with_digest",
+            "audit_journal_written_metadata_only",
             len(journal_records) >= 4
-            and all(rec.get("schema") == "court.operation_journal.v1" and rec.get("task_id") == "mcp" and rec.get("phase") == "mcp-call" for rec in journal_records),
+            and all(
+                rec.get("schema") == "court.operation_journal.v2"
+                and rec.get("phase") == "mcp-call"
+                and isinstance(rec.get("operation_binding"), dict)
+                and rec["operation_binding"].get("operation_kind") == "mcp-call"
+                and rec["operation_binding"].get("request_schema") == "court.mcp.audit.v2"
+                and "payload_sha256" not in rec
+                and "result_sha256" not in json.dumps(rec, ensure_ascii=False)
+                for rec in journal_records
+            ),
         ),
         (
             "audit_journal_no_raw_args",
             all(
                 "plan_cursor" not in json.dumps(rec, ensure_ascii=False)
                 and "结诏" not in json.dumps(rec, ensure_ascii=False)
+                for rec in journal_records
+            ),
+        ),
+        (
+            "audit_journal_success_server_envelope",
+            any(
+                rec.get("receipt", {}).get("ok") is True
+                and rec.get("receipt", {}).get("outcome") == "succeeded"
+                and rec.get("receipt", {}).get("protocol") == CURRENT_PROTOCOL_VERSION
+                and isinstance(rec.get("operation_binding"), dict)
+                and rec["operation_binding"].get("operation_kind") == "mcp-call"
+                for rec in journal_records
+            ),
+        ),
+        (
+            "audit_journal_failure_server_envelope",
+            any(
+                rec.get("receipt", {}).get("ok") is False
+                and rec.get("receipt", {}).get("outcome") == "error"
+                and isinstance(rec.get("receipt", {}).get("error"), str)
+                and len(rec["receipt"]["error"]) <= 128
                 for rec in journal_records
             ),
         ),

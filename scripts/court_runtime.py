@@ -77,11 +77,14 @@ from court_multi_agent_protocol import (
 from court_codex_office_worker import validate_host_proof
 from court_operation_journal import (
     MARKER_SCHEMA,
+    LEGACY_JOURNAL_SCHEMA,
+    LEGACY_MARKER_SCHEMA,
+    OPERATION_V2_NAMESPACE,
     canonical_operation_id,
     journal_path as operation_journal_path,
     load_json as load_operation_json,
     marker_path as operation_marker_path,
-    payload_sha256 as operation_payload_sha256,
+    normalize_operation_binding,
     remove_marker as remove_operation_marker,
     write_journal,
     write_json as write_operation_json,
@@ -288,6 +291,7 @@ AGENT_LONG_CONTEXT_TOKENS = 32_000
 AGENT_MAX_RECENT_FORK_TURNS = 3
 AGENT_DEFAULT_DEADLINE_SECONDS = 600
 AGENT_DEFAULT_TOOL_CALL_BUDGET = 8
+LEGACY_OPERATION_FILENAME_SCAN_LIMIT = 64
 AGENT_MESSAGE_BUDGET_SCHEMA = "court.agent.dispatch_message_budget.v1"
 AGENT_MESSAGE_BUDGET_FLOOR_CHARS = 6_000
 AGENT_MESSAGE_BUDGET_QUANTUM_CHARS = 1_000
@@ -400,6 +404,99 @@ def result_recovery_marker_path(operation_id: object) -> Path:
     """Return the disposable crash marker path for one recovery operation."""
     digest = hashlib.sha256(str(operation_id).encode("utf-8")).hexdigest()
     return runtime_root() / f"result-recovery-operation-{digest}.json"
+
+
+def _operation_binding(
+    task: Mapping[str, object],
+    *,
+    operation_id: object,
+    operation_kind: str,
+    request_schema: str,
+    actor: str,
+    expected_task_revision: int,
+    target_ref: Mapping[str, object],
+) -> dict[str, object]:
+    """Build the server-owned binding used by v2 operation journals."""
+
+    return normalize_operation_binding(
+        {
+            "operation_id": canonical_operation_id(operation_id),
+            "task_id": str(task.get("task_id") or ""),
+            "operation_kind": operation_kind,
+            "case_ref": case_reference(task),
+            "actor": str(actor or "").strip(),
+            "role": str(actor or "").strip(),
+            "expected_task_revision": expected_task_revision,
+            "target_ref": dict(target_ref),
+            "request_schema": request_schema,
+        }
+    )
+
+
+def _operation_receipt_ref(receipt: object) -> str | None:
+    if not isinstance(receipt, Mapping):
+        return None
+    for field in ("receipt_id", "record_ref", "event_id"):
+        value = str(receipt.get(field) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _write_operation_journal(
+    *,
+    binding: Mapping[str, object],
+    phase: str,
+    receipt: Mapping[str, object] | None,
+    updated_at: str,
+    committed_task_revision: int | None = None,
+    event_id: str | None = None,
+) -> dict[str, object]:
+    """Persist only v2 references; task/event records remain authoritative."""
+
+    return write_journal(
+        runtime_root(),
+        operation_id=binding["operation_id"],
+        operation_binding=binding,
+        phase=phase,
+        receipt_ref=_operation_receipt_ref(receipt),
+        updated_at=updated_at,
+        committed_task_revision=committed_task_revision,
+        event_id=event_id,
+    )
+
+
+def _stored_operation_binding(operation: Mapping[str, object]) -> dict[str, object]:
+    raw = operation.get("operation_binding")
+    if raw is None:
+        raise ValueError("LEGACY_READ_ONLY")
+    try:
+        return normalize_operation_binding(raw, operation_id=operation.get("operation_id"))
+    except ValueError as exc:
+        raise ValueError("operation_binding_conflict") from exc
+
+
+def _require_operation_replay_mode(
+    *,
+    stored_binding: Mapping[str, object],
+    incoming_binding: Mapping[str, object] | None,
+    replay_only: bool,
+    payload_present: bool,
+) -> None:
+    """Apply the no-body replay contract to an existing operation."""
+
+    if incoming_binding is not None:
+        if replay_only:
+            comparable = set(stored_binding) - {"expected_task_revision"}
+            if any(
+                stored_binding.get(field) != incoming_binding.get(field)
+                for field in comparable
+            ):
+                raise ValueError("operation_binding_conflict")
+        elif dict(stored_binding) != dict(incoming_binding):
+            raise ValueError("operation_binding_conflict")
+    if not replay_only or payload_present:
+        raise ValueError("operation_replay_requires_reference_only")
 
 
 def _task_revision_value(task: Mapping[str, object]) -> int:
@@ -3138,22 +3235,68 @@ def _ensure_standard_case_decree(created: TransitionResult) -> TransitionResult:
         if isinstance(current_before.get("operations"), dict)
         else None
     )
-    if isinstance(operation, dict) and operation.get("status") == "ALLOCATED":
-        recover_decree_open_operation(operation_id)
-    else:
+
+    def replay_or_recover_existing() -> None:
+        latest = load_tasks().get(str(binding["task_id"]))
+        latest_operation = (
+            latest.get("operations", {}).get(operation_id)
+            if isinstance(latest, dict) and isinstance(latest.get("operations"), dict)
+            else None
+        )
+        if (
+            isinstance(latest_operation, dict)
+            and latest_operation.get("status") == "ALLOCATED"
+        ):
+            recover_decree_open_operation(operation_id)
+            return
         decree_open_task(
             argparse.Namespace(
                 task_id=binding["task_id"],
                 operation_id=operation_id,
-                expected_task_revision=int(current_before["task_revision"]),
-                payload={"lineage_parts": ["court", "standard-session"]},
+                expected_task_revision=int(
+                    latest.get("task_revision")
+                    if isinstance(latest, dict)
+                    else current_before["task_revision"]
+                ),
+                payload=None,
                 payload_file=None,
+                replay_only=True,
                 actor="taizi",
-                evidence="standard session create decree-open",
-                note="standard session create decree-open",
+                evidence="standard session create decree-open replay",
+                note="standard session create decree-open replay",
                 killpoint="",
             )
         )
+
+    if isinstance(operation, dict):
+        if operation.get("status") == "ALLOCATED":
+            recover_decree_open_operation(operation_id)
+        elif operation.get("status") == "COMMITTED":
+            replay_or_recover_existing()
+        else:
+            recover_decree_open_operation(operation_id)
+    else:
+        try:
+            decree_open_task(
+                argparse.Namespace(
+                    task_id=binding["task_id"],
+                    operation_id=operation_id,
+                    expected_task_revision=int(current_before["task_revision"]),
+                    payload={"lineage_parts": ["court", "standard-session"]},
+                    payload_file=None,
+                    actor="taizi",
+                    evidence="standard session create decree-open",
+                    note="standard session create decree-open",
+                    killpoint="",
+                )
+            )
+        except ValueError as exc:
+            if str(exc) not in {
+                "operation_binding_conflict",
+                "operation_replay_requires_reference_only",
+            }:
+                raise
+            replay_or_recover_existing()
     current = load_tasks().get(str(binding["task_id"]))
     if not isinstance(current, dict):
         raise ValueError("case_create_task_missing_after_decree_open")
@@ -4475,16 +4618,267 @@ class SimulatedCloseoutCrash(RuntimeError):
     """Synthetic killpoint used only by isolated closeout recovery checks."""
 
 
+def _operation_request_payload(
+    args: argparse.Namespace,
+    label: str,
+) -> dict[str, object] | None:
+    replay_only = bool(getattr(args, "replay_only", False))
+    direct = getattr(args, "payload", None)
+    payload_file = getattr(args, "payload_file", None)
+    if replay_only:
+        if direct is not None or payload_file:
+            raise ValueError("operation_replay_requires_reference_only")
+        return None
+    return _json_object_from_args(args, "payload", "payload_file", label)
+
+
+def _marker_bytes(value: object, field: str) -> bytes | None:
+    if not isinstance(value, str):
+        raise ValueError(f"operation_recovery_marker_{field}_invalid")
+    try:
+        return base64.b64decode(value, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"operation_recovery_marker_{field}_invalid") from exc
+
+
+def _marker_preimage(marker: Mapping[str, object], prefix: str) -> bytes | None:
+    exists = marker.get(f"{prefix}_preimage_exists")
+    encoded = marker.get(f"{prefix}_preimage_b64")
+    if not isinstance(exists, bool):
+        raise ValueError("operation_recovery_marker_corrupt")
+    decoded = _marker_bytes(encoded, f"{prefix}_preimage_b64")
+    if not exists and decoded:
+        raise ValueError("operation_recovery_marker_corrupt")
+    return decoded if exists else None
+
+
+def _marker_postimage(marker: Mapping[str, object], prefix: str) -> bytes | None:
+    exists = marker.get(f"{prefix}_postimage_exists")
+    encoded = marker.get(f"{prefix}_postimage_b64")
+    if not isinstance(exists, bool):
+        raise ValueError("operation_recovery_marker_corrupt")
+    decoded = _marker_bytes(encoded, f"{prefix}_postimage_b64")
+    if not exists and decoded:
+        raise ValueError("operation_recovery_marker_corrupt")
+    return decoded if exists else None
+
+
+def _marker_operation_state_matches(
+    marker: Mapping[str, object],
+    *,
+    require_event: bool,
+) -> bool:
+    try:
+        current_tasks = tasks_path().read_bytes() if tasks_path().exists() else None
+        current_events = events_path().read_bytes() if events_path().exists() else None
+        expected_tasks = _marker_postimage(marker, "tasks")
+        expected_events = (
+            _marker_postimage(marker, "events") if require_event else None
+        )
+    except (OSError, ValueError):
+        return False
+    if current_tasks != expected_tasks or (
+        require_event and current_events != expected_events
+    ):
+        return False
+    if not require_event:
+        return True
+    try:
+        tasks_value = json.loads((current_tasks or b"{}").decode("utf-8"))
+        if not isinstance(tasks_value, dict):
+            return False
+        task_id = str(marker.get("task_id") or "")
+        operation_id = str(marker.get("operation_id") or "")
+        task = tasks_value.get(task_id)
+        if not isinstance(task, dict):
+            return False
+        operations = task.get("operations")
+        operation = operations.get(operation_id) if isinstance(operations, dict) else None
+        if not isinstance(operation, dict):
+            return False
+        if operation.get("operation_binding") != marker.get("operation_binding"):
+            return False
+        receipt = marker.get("receipt")
+        if not isinstance(receipt, dict) or operation.get("receipt") != receipt:
+            return False
+        expected_revision = marker.get("committed_task_revision")
+        if expected_revision is not None and task.get("task_revision") != expected_revision:
+            return False
+        events: list[dict[str, object]] = []
+        for line in (current_events or b"").decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            value = json.loads(line)
+            if isinstance(value, dict):
+                events.append(value)
+        event_id = str(marker.get("event_id") or receipt.get("event_id") or "")
+        matches = [
+            event for event in events
+            if event.get("task_id") == task_id
+            and event.get("operation_id") == operation_id
+            and event.get("event_id") == event_id
+        ]
+        return len(matches) == 1
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+
+
+def _operation_marker_for_recovery(
+    operation_id: str,
+    *,
+    legacy_locator: object | None = None,
+) -> tuple[Path | None, dict[str, object] | None]:
+    """Resolve a marker only for an explicit recovery request.
+
+    The v2 path is canonical.  Legacy records have no trustworthy operation-id
+    filename, so an explicit relative locator is required before reading one.
+    Without that locator, only names are enumerated under the same bounded
+    legacy-store limit; startup never scans this directory and legacy records
+    remain read-only.
+    """
+
+    canonical = canonical_operation_id(operation_id)
+    current = operation_marker_path(runtime_root(), canonical)
+
+    def load_requested(path: Path, *, locator_supplied: bool) -> tuple[Path, dict[str, object]]:
+        try:
+            if not path.resolve().is_relative_to(runtime_root().resolve()):
+                raise ValueError("operation_recovery_marker_path_escape")
+        except OSError as exc:
+            raise ValueError("operation_recovery_marker_path_invalid") from exc
+        try:
+            value = load_operation_json(path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError("operation_recovery_marker_corrupt") from exc
+        if value is None:
+            raise ValueError(
+                "legacy_marker_locator_missing"
+                if locator_supplied
+                else "operation_recovery_marker_missing"
+            )
+        if value.get("operation_id") != canonical:
+            raise ValueError("legacy_marker_locator_operation_mismatch")
+        return path, value
+
+    if current.is_file():
+        return load_requested(current, locator_supplied=False)
+    legacy_root = runtime_root() / "operation-markers"
+    if not legacy_root.is_dir():
+        return None, None
+
+    if legacy_locator is not None:
+        raw_locator = str(legacy_locator).strip()
+        locator = Path(raw_locator)
+        if (
+            not raw_locator
+            or any(character in raw_locator for character in "\x00\r\n")
+            or locator.is_absolute()
+            or locator.name != raw_locator
+            or locator.name in {".", ".."}
+            or locator.suffix.casefold() != ".json"
+        ):
+            raise ValueError("legacy_marker_locator_invalid")
+        locator_path = legacy_root / locator.name
+        try:
+            if locator_path.resolve().parent != legacy_root.resolve():
+                raise ValueError("legacy_marker_locator_invalid")
+        except OSError as exc:
+            raise ValueError("legacy_marker_locator_invalid") from exc
+        return load_requested(locator_path, locator_supplied=True)
+
+    requested = legacy_root / f"{canonical}.json"
+    if requested.is_file():
+        return load_requested(requested, locator_supplied=False)
+
+    scanned = 0
+    try:
+        for candidate in legacy_root.iterdir():
+            if candidate.name == OPERATION_V2_NAMESPACE:
+                continue
+            scanned += 1
+            if scanned >= LEGACY_OPERATION_FILENAME_SCAN_LIMIT:
+                raise ValueError("legacy_marker_locator_required")
+    except OSError as exc:
+        raise ValueError("legacy_marker_locator_required") from exc
+    if scanned:
+        raise ValueError("legacy_marker_locator_required")
+    return None, None
+
+
+def _legacy_operation_artifact_for_mutation(
+    operation_id: str,
+    *,
+    allow_reference: bool = False,
+) -> tuple[Path, dict[str, object]] | None:
+    """Reject a legacy store using names only, without reading other bodies.
+
+    Historical markers/journals used SHA-derived filenames.  The migration
+    cannot reimplement that naming algorithm, so a non-canonical JSON filename
+    is conservatively treated as a legacy store and requires explicit recovery.
+    Only the requested canonical path may be parsed for a legacy schema.
+    """
+
+    canonical = canonical_operation_id(operation_id)
+    for directory, legacy_schema in ((
+        "operation-markers", LEGACY_MARKER_SCHEMA
+    ), ("operation-journal", LEGACY_JOURNAL_SCHEMA)):
+        root = runtime_root() / directory
+        if not root.is_dir():
+            continue
+        requested = root / f"{canonical}.json"
+        if requested.is_file():
+            if not allow_reference:
+                return requested, {"schema": legacy_schema, "store_present": True}
+            try:
+                value = load_operation_json(requested)
+            except (OSError, ValueError, json.JSONDecodeError):
+                return requested, {"schema": "corrupt", "requested": True}
+            if isinstance(value, dict) and value.get("schema") == legacy_schema:
+                return requested, value
+            if allow_reference:
+                return None
+        scanned = 0
+        try:
+            candidates = root.iterdir()
+            for candidate in candidates:
+                if candidate.name == OPERATION_V2_NAMESPACE:
+                    continue
+                scanned += 1
+                if scanned >= LEGACY_OPERATION_FILENAME_SCAN_LIMIT:
+                    return root, {
+                        "schema": legacy_schema,
+                        "store_present": True,
+                        "scan_limit": LEGACY_OPERATION_FILENAME_SCAN_LIMIT,
+                    }
+                if candidate.name == requested.name:
+                    continue
+                if not candidate.is_file() or candidate.suffix.casefold() != ".json":
+                    continue
+                try:
+                    candidate_operation_id = canonical_operation_id(candidate.stem)
+                except ValueError:
+                    candidate_operation_id = ""
+                if candidate_operation_id != candidate.stem:
+                    return candidate, {"schema": legacy_schema, "store_present": True}
+        except OSError:
+            return root, {"schema": legacy_schema, "store_present": True}
+    return None
+
+
 def _paired_ledger_commit(
     *,
-    operation_id: str,
-    payload_digest: str,
-    task_id: str,
+    operation_binding: Mapping[str, object],
     tasks: dict[str, dict[str, Any]],
     event: dict[str, Any],
     receipt: dict[str, object],
     killpoint: str = "",
 ) -> None:
+    binding = normalize_operation_binding(
+        operation_binding,
+        operation_id=operation_binding.get("operation_id"),
+    )
+    operation_id = str(binding["operation_id"])
+    task_id = str(binding["task_id"])
     marker_file = operation_marker_path(runtime_root(), operation_id)
     if marker_file.exists():
         raise ValueError("operation_recovery_required")
@@ -4493,100 +4887,100 @@ def _paired_ledger_commit(
     marker: dict[str, object] = {
         "schema": MARKER_SCHEMA,
         "operation_id": operation_id,
-        "payload_sha256": payload_digest,
+        "operation_binding": binding,
         "task_id": task_id,
         "phase": "PREPARED",
         "tasks_preimage_exists": tasks_preimage is not None,
         "tasks_preimage_b64": base64.b64encode(tasks_preimage or b"").decode("ascii"),
         "events_preimage_exists": events_preimage is not None,
         "events_preimage_b64": base64.b64encode(events_preimage or b"").decode("ascii"),
+        "tasks_postimage_exists": False,
+        "tasks_postimage_b64": "",
+        "events_postimage_exists": False,
+        "events_postimage_b64": "",
         "receipt": deepcopy(receipt),
+        "receipt_ref": _operation_receipt_ref(receipt),
+        "event_id": event.get("event_id"),
+        "committed_task_revision": receipt.get("task_revision"),
         "created_at": now_text(),
     }
     write_operation_json(marker_file, marker)
-    write_journal(
-        runtime_root(),
-        operation_id=operation_id,
-        payload_digest=payload_digest,
-        task_id=task_id,
-        phase="PREPARED",
-        receipt=None,
-        updated_at=now_text(),
-    )
+    _write_operation_journal(binding=binding, phase="PREPARED", receipt=None, updated_at=now_text(), event_id=str(event.get("event_id") or ""))
     write_tasks(tasks)
     marker["phase"] = "TASK_WRITTEN"
-    marker["tasks_post_sha256"] = _ledger_sha256(tasks_path().read_bytes())
+    tasks_postimage = tasks_path().read_bytes() if tasks_path().exists() else None
+    marker["tasks_postimage_exists"] = tasks_postimage is not None
+    marker["tasks_postimage_b64"] = base64.b64encode(tasks_postimage or b"").decode("ascii")
     write_operation_json(marker_file, marker)
-    write_journal(
-        runtime_root(),
-        operation_id=operation_id,
-        payload_digest=payload_digest,
-        task_id=task_id,
-        phase="TASK_WRITTEN",
-        receipt=None,
-        updated_at=now_text(),
-    )
+    _write_operation_journal(binding=binding, phase="TASK_WRITTEN", receipt=None, updated_at=now_text(), event_id=str(event.get("event_id") or ""))
     if killpoint == "after_task_write":
         raise SimulatedPairedLedgerCrash("after_task_write")
     append_event(event)
     marker["phase"] = "EVENT_WRITTEN"
-    marker["events_post_sha256"] = _ledger_sha256(events_path().read_bytes())
+    events_postimage = events_path().read_bytes() if events_path().exists() else None
+    marker["events_postimage_exists"] = events_postimage is not None
+    marker["events_postimage_b64"] = base64.b64encode(events_postimage or b"").decode("ascii")
     write_operation_json(marker_file, marker)
-    write_journal(
-        runtime_root(),
-        operation_id=operation_id,
-        payload_digest=payload_digest,
-        task_id=task_id,
-        phase="EVENT_WRITTEN",
-        receipt=None,
-        updated_at=now_text(),
-    )
+    _write_operation_journal(binding=binding, phase="EVENT_WRITTEN", receipt=None, updated_at=now_text(), event_id=str(event.get("event_id") or ""))
     if killpoint == "after_event_write":
         raise SimulatedPairedLedgerCrash("after_event_write")
-    write_journal(
-        runtime_root(),
-        operation_id=operation_id,
-        payload_digest=payload_digest,
-        task_id=task_id,
+    _write_operation_journal(
+        binding=binding,
         phase="COMMITTED",
         receipt=receipt,
         updated_at=now_text(),
+        committed_task_revision=receipt.get("task_revision")
+        if isinstance(receipt.get("task_revision"), int)
+        else None,
+        event_id=str(event.get("event_id") or ""),
     )
     remove_operation_marker(runtime_root(), operation_id)
 
 
-def recover_paired_operation(operation_id: object) -> dict[str, object]:
+def recover_paired_operation(
+    operation_id: object,
+    *,
+    legacy_locator: object | None = None,
+) -> dict[str, object]:
     canonical = canonical_operation_id(operation_id)
     with runtime_lock():
-        marker_file = operation_marker_path(runtime_root(), canonical)
-        marker = load_operation_json(marker_file)
+        marker_file, marker = _operation_marker_for_recovery(
+            canonical,
+            legacy_locator=legacy_locator,
+        )
         if marker is None:
             raise ValueError("operation_recovery_marker_missing")
+        if marker_file is None:
+            raise ValueError("operation_recovery_marker_missing")
+        if marker.get("schema") == LEGACY_MARKER_SCHEMA:
+            raise ValueError("LEGACY_READ_ONLY")
         if marker.get("schema") != MARKER_SCHEMA or marker.get("operation_id") != canonical:
             raise ValueError("operation_recovery_marker_corrupt")
-        payload_digest = str(marker.get("payload_sha256") or "")
+        try:
+            binding = normalize_operation_binding(
+                marker.get("operation_binding"), operation_id=canonical
+            )
+        except ValueError as exc:
+            raise ValueError("operation_recovery_marker_corrupt") from exc
         task_id = str(marker.get("task_id") or "")
+        if task_id != str(binding.get("task_id") or ""):
+            raise ValueError("RECOVERY_CONFLICT")
         phase = str(marker.get("phase") or "")
         receipt = marker.get("receipt")
         if phase == "EVENT_WRITTEN":
-            current_tasks = tasks_path().read_bytes() if tasks_path().exists() else None
-            current_events = events_path().read_bytes() if events_path().exists() else None
-            if (
-                marker.get("tasks_post_sha256") != _ledger_sha256(current_tasks)
-                or marker.get("events_post_sha256") != _ledger_sha256(current_events)
-                or not isinstance(receipt, dict)
-            ):
-                raise ValueError("operation_finalize_integrity")
-            write_journal(
-                runtime_root(),
-                operation_id=canonical,
-                payload_digest=payload_digest,
-                task_id=task_id,
+            if not isinstance(receipt, dict) or not _marker_operation_state_matches(marker, require_event=True):
+                raise ValueError("RECOVERY_CONFLICT")
+            _write_operation_journal(
+                binding=binding,
                 phase="COMMITTED",
                 receipt=receipt,
                 updated_at=now_text(),
+                committed_task_revision=receipt.get("task_revision")
+                if isinstance(receipt.get("task_revision"), int)
+                else None,
+                event_id=str(marker.get("event_id") or receipt.get("event_id") or ""),
             )
-            remove_operation_marker(runtime_root(), canonical)
+            marker_file.unlink(missing_ok=True)
             return {
                 "operation_id": canonical,
                 "outcome": "FINALIZE",
@@ -4594,14 +4988,19 @@ def recover_paired_operation(operation_id: object) -> dict[str, object]:
             }
         if phase not in {"PREPARED", "TASK_WRITTEN"}:
             raise ValueError("operation_recovery_phase_invalid")
-        tasks_preimage = base64.b64decode(
-            str(marker.get("tasks_preimage_b64") or ""),
-            validate=True,
-        )
-        events_preimage = base64.b64decode(
-            str(marker.get("events_preimage_b64") or ""),
-            validate=True,
-        )
+        tasks_preimage = _marker_preimage(marker, "tasks")
+        events_preimage = _marker_preimage(marker, "events")
+        if phase == "PREPARED":
+            current_tasks = tasks_path().read_bytes() if tasks_path().exists() else None
+            current_events = events_path().read_bytes() if events_path().exists() else None
+            if current_tasks != tasks_preimage or current_events != events_preimage:
+                raise ValueError("RECOVERY_CONFLICT")
+        else:
+            if not _marker_operation_state_matches(marker, require_event=False):
+                raise ValueError("RECOVERY_CONFLICT")
+            current_events = events_path().read_bytes() if events_path().exists() else None
+            if current_events != events_preimage:
+                raise ValueError("RECOVERY_CONFLICT")
         _restore_ledger_preimage(
             tasks_path(),
             tasks_preimage if marker.get("tasks_preimage_exists") else None,
@@ -4610,16 +5009,8 @@ def recover_paired_operation(operation_id: object) -> dict[str, object]:
             events_path(),
             events_preimage if marker.get("events_preimage_exists") else None,
         )
-        write_journal(
-            runtime_root(),
-            operation_id=canonical,
-            payload_digest=payload_digest,
-            task_id=task_id,
-            phase="ROLLED_BACK",
-            receipt=None,
-            updated_at=now_text(),
-        )
-        remove_operation_marker(runtime_root(), canonical)
+        _write_operation_journal(binding=binding, phase="ROLLED_BACK", receipt=None, updated_at=now_text(), event_id=str(marker.get("event_id") or ""))
+        marker_file.unlink(missing_ok=True)
         return {
             "operation_id": canonical,
             "outcome": "ROLLBACK",
@@ -4629,8 +5020,8 @@ def recover_paired_operation(operation_id: object) -> dict[str, object]:
 
 def apply_synthetic_paired_operation(args: argparse.Namespace) -> dict[str, object]:
     operation_id = canonical_operation_id(args.operation_id)
-    payload = _json_object_from_args(args, "payload", "payload_file", "operation payload")
-    payload_digest = operation_payload_sha256(payload)
+    replay_only = bool(getattr(args, "replay_only", False))
+    payload = _operation_request_payload(args, "operation payload")
     evidence = require_text(args.evidence, "evidence")
     if args.actor not in OFFICES:
         raise ValueError("unknown_actor_office")
@@ -4638,35 +5029,66 @@ def apply_synthetic_paired_operation(args: argparse.Namespace) -> dict[str, obje
         if operation_marker_path(runtime_root(), operation_id).exists():
             raise ValueError("operation_recovery_required")
         tasks = load_tasks()
+        found = _find_task_operation(tasks, operation_id)
+        if found is not None and found[0] != args.task_id:
+            raise ValueError("operation_binding_conflict")
         task = tasks.get(args.task_id)
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
         require_semantic_mutation_binding(task)
+        incoming_binding = _operation_binding(
+            task,
+            operation_id=operation_id,
+            operation_kind="synthetic_paired",
+            request_schema="court.operation.paired.v2",
+            actor=args.actor,
+            expected_task_revision=int(getattr(args, "expected_task_revision", 0) or 0),
+            target_ref={"kind": "task_operation", "task_id": args.task_id},
+        )
         operations = task.setdefault("operations", {})
         if not isinstance(operations, dict):
             raise ValueError("task_operation_ledger_corrupt")
         existing = operations.get(operation_id)
         if isinstance(existing, dict):
-            if existing.get("payload_sha256") != payload_digest:
-                raise ValueError("operation_payload_conflict")
+            stored_binding = _stored_operation_binding(
+                {**existing, "operation_id": operation_id}
+            )
+            _require_operation_replay_mode(
+                stored_binding=stored_binding,
+                incoming_binding=incoming_binding,
+                replay_only=replay_only,
+                payload_present=payload is not None,
+            )
             receipt = existing.get("receipt")
             if not isinstance(receipt, dict):
                 raise ValueError("task_operation_receipt_corrupt")
-            write_journal(
-                runtime_root(),
-                operation_id=operation_id,
-                payload_digest=payload_digest,
-                task_id=args.task_id,
+            if existing.get("status") != "TASK_EVENT_COMMITTED":
+                raise ValueError("operation_recovery_required")
+            _write_operation_journal(
+                binding=stored_binding,
                 phase="COMMITTED",
                 receipt=receipt,
                 updated_at=now_text(),
+                committed_task_revision=receipt.get("task_revision")
+                if isinstance(receipt.get("task_revision"), int)
+                else None,
+                event_id=str(receipt.get("event_id") or ""),
             )
             return {
                 "status": "REPLAYED",
                 "operation_id": operation_id,
-                "payload_sha256": payload_digest,
+                "replay_reason": "REPLAYED_BODY_NOT_COMPARED",
                 "receipt": receipt,
             }
+        legacy_artifact = _legacy_operation_artifact_for_mutation(operation_id)
+        if legacy_artifact is not None:
+            raise ValueError(
+                "legacy_store_present_requires_explicit_recovery"
+                if legacy_artifact[1].get("store_present")
+                else "LEGACY_READ_ONLY"
+            )
+        if replay_only:
+            raise ValueError("operation_not_found")
         try:
             current_revision = int(task.get("task_revision") or 1)
         except (TypeError, ValueError) as exc:
@@ -4675,21 +5097,29 @@ def apply_synthetic_paired_operation(args: argparse.Namespace) -> dict[str, obje
             raise ValueError("expected_task_revision_conflict")
         next_revision = current_revision + 1
         created_at = now_text()
-        event_id = "EVT-" + hashlib.sha256(
-            f"{operation_id}|{payload_digest}|{args.task_id}".encode("utf-8")
-        ).hexdigest()[:24].upper()
+        event_id = "EVT-" + uuid.uuid4().hex.upper()
         receipt: dict[str, object] = {
             "schema": "court.operation.receipt.v1",
             "operation_id": operation_id,
-            "payload_sha256": payload_digest,
             "task_id": args.task_id,
             "task_revision": next_revision,
             "event_id": event_id,
             "status": "TASK_EVENT_COMMITTED",
             "created_at": created_at,
         }
+        operation_binding = _operation_binding(
+            task,
+            operation_id=operation_id,
+            operation_kind="synthetic_paired",
+            request_schema="court.operation.paired.v2",
+            actor=args.actor,
+            expected_task_revision=args.expected_task_revision,
+            target_ref={"kind": "task_operation", "task_id": args.task_id},
+        )
         operations[operation_id] = {
-            "payload_sha256": payload_digest,
+            "operation_id": operation_id,
+            "operation_binding": operation_binding,
+            "payload": deepcopy(payload),
             "status": "TASK_EVENT_COMMITTED",
             "receipt": deepcopy(receipt),
         }
@@ -4709,13 +5139,10 @@ def apply_synthetic_paired_operation(args: argparse.Namespace) -> dict[str, obje
         event.update(
             event_id=event_id,
             operation_id=operation_id,
-            payload_sha256=payload_digest,
             task_revision=next_revision,
         )
         _paired_ledger_commit(
-            operation_id=operation_id,
-            payload_digest=payload_digest,
-            task_id=args.task_id,
+            operation_binding=operation_binding,
             tasks=tasks,
             event=event,
             receipt=receipt,
@@ -4724,7 +5151,6 @@ def apply_synthetic_paired_operation(args: argparse.Namespace) -> dict[str, obje
     return {
         "status": "COMMITTED",
         "operation_id": operation_id,
-        "payload_sha256": payload_digest,
         "receipt": receipt,
     }
 
@@ -4788,7 +5214,6 @@ def _decree_open_event(
     event.update(
         event_id=receipt["event_id"],
         operation_id=receipt["operation_id"],
-        payload_sha256=receipt["payload_sha256"],
         task_revision=receipt["task_revision"],
         decree_id=receipt["decree_id"],
         main_court_code=receipt["main_court_code"],
@@ -4834,8 +5259,8 @@ def _ensure_decree_open_event(
 
 def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
     operation_id = canonical_operation_id(args.operation_id)
-    payload = _json_object_from_args(args, "payload", "payload_file", "decree payload")
-    payload_digest = operation_payload_sha256(payload)
+    replay_only = bool(getattr(args, "replay_only", False))
+    payload = _operation_request_payload(args, "decree payload")
     evidence = require_text(args.evidence, "evidence")
     if args.actor not in OFFICES:
         raise ValueError("unknown_actor_office")
@@ -4845,17 +5270,49 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
     with runtime_lock():
         tasks = load_tasks()
         found = _find_task_operation(tasks, operation_id)
+        if found is not None and found[0] != args.task_id:
+            raise ValueError("operation_binding_conflict")
         if found is not None:
             existing_task_id, task, operation = found
             if existing_task_id != args.task_id:
-                raise ValueError("operation_task_conflict")
+                raise ValueError("operation_binding_conflict")
             if operation.get("kind") != "decree_open":
-                raise ValueError("operation_kind_conflict")
-            if operation.get("payload_sha256") != payload_digest:
-                raise ValueError("operation_payload_conflict")
+                raise ValueError("operation_binding_conflict")
+            require_semantic_mutation_binding(task)
+            stored_binding = _stored_operation_binding(
+                {**operation, "operation_id": operation_id}
+            )
+            incoming_expected_revision = (
+                int(stored_binding["expected_task_revision"])
+                if replay_only
+                else int(getattr(args, "expected_task_revision", 0) or 0)
+            )
+            stored_target_ref = stored_binding.get("target_ref")
+            incoming_target_ref = (
+                dict(stored_target_ref)
+                if replay_only and isinstance(stored_target_ref, Mapping)
+                else {"kind": "decree_open", "task_id": args.task_id}
+            )
+            incoming_binding = _operation_binding(
+                task,
+                operation_id=operation_id,
+                operation_kind="decree_open",
+                request_schema="court.decree_open.v2",
+                actor=args.actor,
+                expected_task_revision=incoming_expected_revision,
+                target_ref=incoming_target_ref,
+            )
+            _require_operation_replay_mode(
+                stored_binding=stored_binding,
+                incoming_binding=incoming_binding,
+                replay_only=replay_only,
+                payload_present=payload is not None,
+            )
             receipt = operation.get("receipt")
             if not isinstance(receipt, dict):
                 raise ValueError("decree_open_receipt_corrupt")
+            if operation.get("status") != "COMMITTED":
+                raise ValueError("operation_recovery_required")
             from court_case_binding import validate_task_case_binding
 
             replay_binding = validate_task_case_binding(task, require_decree=True)
@@ -4867,21 +5324,34 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
             ):
                 raise ValueError("case_binding_decree_receipt_mismatch")
             _ensure_decree_open_event(task, operation)
-            write_journal(
-                runtime_root(),
-                operation_id=operation_id,
-                payload_digest=payload_digest,
-                task_id=args.task_id,
+            _write_operation_journal(
+                binding=stored_binding,
                 phase="COMMITTED",
                 receipt=receipt,
                 updated_at=now_text(),
+                committed_task_revision=receipt.get("task_revision")
+                if isinstance(receipt.get("task_revision"), int)
+                else None,
+                event_id=str(receipt.get("event_id") or ""),
             )
             return {
                 "status": "REPLAYED",
                 "operation_id": operation_id,
-                "payload_sha256": payload_digest,
+                "replay_reason": "REPLAYED_BODY_NOT_COMPARED",
                 "receipt": deepcopy(receipt),
             }
+        legacy_artifact = _legacy_operation_artifact_for_mutation(
+            operation_id,
+            allow_reference=replay_only,
+        )
+        if legacy_artifact is not None:
+            raise ValueError(
+                "legacy_store_present_requires_explicit_recovery"
+                if legacy_artifact[1].get("store_present")
+                else "LEGACY_READ_ONLY"
+            )
+        if replay_only:
+            raise ValueError("operation_not_found")
         task = tasks.get(args.task_id)
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
@@ -4928,23 +5398,27 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
         ):
             raise ValueError("decree_lineage_parts_invalid")
         lineage_parts = [part.strip() for part in raw_lineage_parts]
-        lineage_key = "LNG-" + canonical_json_sha256(lineage_parts)[:24].upper()
-        supplied_lineage_key = str(payload.get("lineage_key") or "").strip()
-        if supplied_lineage_key and supplied_lineage_key != lineage_key:
-            raise ValueError("decree_lineage_key_mismatch")
+        if "lineage_key" in payload:
+            supplied_lineage_key = payload.get("lineage_key")
+            if not isinstance(supplied_lineage_key, str):
+                raise ValueError("decree_lineage_key_invalid")
+            lineage_key = supplied_lineage_key.strip()
+            if (
+                not lineage_key
+                or len(lineage_key) > 244
+                or any(character in lineage_key for character in "\x00\r\n")
+            ):
+                raise ValueError("decree_lineage_key_invalid")
+        else:
+            lineage_key = "LNG-" + uuid.uuid4().hex.upper()
         lineage_version = payload.get("lineage_version", 1)
         if lineage_version != 1:
             raise ValueError("decree_lineage_version_invalid")
-        decree_id = "DEC-" + hashlib.sha256(
-            f"{args.task_id}|{operation_id}|{payload_digest}".encode("utf-8")
-        ).hexdigest()[:24].upper()
-        event_id = "EVT-" + hashlib.sha256(
-            f"decree_open|{operation_id}|{payload_digest}".encode("utf-8")
-        ).hexdigest()[:24].upper()
+        decree_id = "DEC-" + uuid.uuid4().hex.upper()
+        event_id = "EVT-" + uuid.uuid4().hex.upper()
         receipt: dict[str, object] = {
             "schema": "court.decree_open.receipt.v1",
             "operation_id": operation_id,
-            "payload_sha256": payload_digest,
             "task_id": args.task_id,
             "task_revision": next_revision,
             "event_id": event_id,
@@ -4966,12 +5440,22 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
                 charter_revision=case_binding["charter_revision"],
                 case_ref=case_reference(case_binding),
             )
+        operation_binding = _operation_binding(
+            task,
+            operation_id=operation_id,
+            operation_kind="decree_open",
+            request_schema="court.decree_open.v2",
+            actor=args.actor,
+            expected_task_revision=args.expected_task_revision,
+            target_ref={"kind": "decree_open", "task_id": args.task_id},
+        )
         operations = task.setdefault("operations", {})
         if not isinstance(operations, dict):
             raise ValueError("task_operation_ledger_corrupt")
         operation = {
             "kind": "decree_open",
-            "payload_sha256": payload_digest,
+            "operation_id": operation_id,
+            "operation_binding": operation_binding,
             "payload": deepcopy(payload),
             "expected_task_revision": args.expected_task_revision,
             "status": "ALLOCATED",
@@ -4993,14 +5477,13 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
         task["last_evidence"] = evidence
         tasks[args.task_id] = task
         write_tasks(tasks)
-        write_journal(
-            runtime_root(),
-            operation_id=operation_id,
-            payload_digest=payload_digest,
-            task_id=args.task_id,
+        _write_operation_journal(
+            binding=operation_binding,
             phase="ALLOCATED",
             receipt=receipt,
             updated_at=created_at,
+            committed_task_revision=next_revision,
+            event_id=event_id,
         )
         if killpoint == "after_allocation":
             raise SimulatedDecreeOpenCrash("after_allocation")
@@ -5008,21 +5491,19 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
         operation["status"] = "COMMITTED"
         tasks[args.task_id] = task
         write_tasks(tasks)
-        write_journal(
-            runtime_root(),
-            operation_id=operation_id,
-            payload_digest=payload_digest,
-            task_id=args.task_id,
+        _write_operation_journal(
+            binding=operation_binding,
             phase="COMMITTED",
             receipt=receipt,
             updated_at=now_text(),
+            committed_task_revision=next_revision,
+            event_id=event_id,
         )
         if killpoint == "after_event":
             raise SimulatedDecreeOpenCrash("after_event")
     return {
         "status": "COMMITTED",
         "operation_id": operation_id,
-        "payload_sha256": payload_digest,
         "receipt": deepcopy(receipt),
     }
 
@@ -5030,29 +5511,42 @@ def decree_open_task(args: argparse.Namespace) -> dict[str, object]:
 def recover_decree_open_operation(operation_id: object) -> dict[str, object]:
     canonical = canonical_operation_id(operation_id)
     with runtime_lock():
+        legacy_artifact = _legacy_operation_artifact_for_mutation(
+            operation_id,
+            allow_reference=True,
+        )
+        if legacy_artifact is not None:
+            raise ValueError(
+                "legacy_store_present_requires_explicit_recovery"
+                if legacy_artifact[1].get("store_present")
+                else "LEGACY_READ_ONLY"
+            )
         tasks = load_tasks()
         found = _find_task_operation(tasks, canonical)
         if found is None:
             raise ValueError("decree_open_operation_not_found")
         task_id, task, operation = found
         if operation.get("kind") != "decree_open":
-            raise ValueError("operation_kind_conflict")
+            raise ValueError("operation_binding_conflict")
+        binding = _stored_operation_binding(
+            {**operation, "operation_id": canonical}
+        )
         receipt = operation.get("receipt")
         if not isinstance(receipt, dict):
             raise ValueError("decree_open_receipt_corrupt")
-        payload_digest = str(operation.get("payload_sha256") or "")
         event = _ensure_decree_open_event(task, operation)
         operation["status"] = "COMMITTED"
         tasks[task_id] = task
         write_tasks(tasks)
-        write_journal(
-            runtime_root(),
-            operation_id=canonical,
-            payload_digest=payload_digest,
-            task_id=task_id,
+        _write_operation_journal(
+            binding=binding,
             phase="COMMITTED",
             receipt=receipt,
             updated_at=now_text(),
+            committed_task_revision=receipt.get("task_revision")
+            if isinstance(receipt.get("task_revision"), int)
+            else None,
+            event_id=str(event.get("event_id") or ""),
         )
     return {
         "status": "RECOVERED",
@@ -5127,22 +5621,18 @@ def _operation_row(
 
 def _closeout_archive_material(operation: dict[str, Any]) -> tuple[dict[str, object], dict[str, object]]:
     operation_id = str(operation.get("operation_id") or "")
-    payload_digest = str(operation.get("payload_sha256") or "")
     task_id = str(operation.get("task_id") or "")
     decree_id = str(operation.get("decree_id") or "")
     main_court_code = str(operation.get("main_court_code") or "")
     prepared_at = str(operation.get("prepared_at") or "")
-    if not all((operation_id, payload_digest, task_id, decree_id, main_court_code, prepared_at)):
+    if not all((operation_id, task_id, decree_id, main_court_code, prepared_at)):
         raise ValueError("synthetic_closeout_intent_corrupt")
-    suffix = hashlib.sha256(
-        f"{operation_id}|{payload_digest}|{main_court_code}".encode("utf-8")
-    ).hexdigest().upper()
-    record_uid = "REC-" + suffix[:24]
+    suffix = operation_id.replace("-", "").upper()
+    record_uid = "REC-" + suffix
     court_code = f"{main_court_code}-R{suffix[:8]}"
     archive_record: dict[str, object] = {
         "schema": "court.synthetic_archive.record.v1",
         "operation_id": operation_id,
-        "payload_sha256": payload_digest,
         "task_id": task_id,
         "decree_id": decree_id,
         "main_court_code": main_court_code,
@@ -5152,11 +5642,10 @@ def _closeout_archive_material(operation: dict[str, Any]) -> tuple[dict[str, obj
         "recorded_at": prepared_at,
         "status": "ARCHIVE_COMMITTED",
     }
-    archive_record["record_ref"] = operation_payload_sha256(archive_record)
+    archive_record["record_ref"] = f"record:{record_uid}"
     index_record: dict[str, object] = {
         "schema": "court.synthetic_archive.index.v1",
         "operation_id": operation_id,
-        "payload_sha256": payload_digest,
         "task_id": task_id,
         "decree_id": decree_id,
         "main_court_code": main_court_code,
@@ -5199,7 +5688,6 @@ def _ensure_synthetic_archive_side_effects(
     return {
         "schema": "court.synthetic_archive.receipt.v1",
         "operation_id": operation_id,
-        "payload_sha256": operation["payload_sha256"],
         "task_id": operation["task_id"],
         "decree_id": operation["decree_id"],
         "main_court_code": operation["main_court_code"],
@@ -5228,7 +5716,6 @@ def _closeout_event(
     event.update(
         event_id=receipt["event_id"],
         operation_id=receipt["operation_id"],
-        payload_sha256=receipt["payload_sha256"],
         task_revision=receipt["task_revision"],
         decree_id=receipt["decree_id"],
         main_court_code=receipt["main_court_code"],
@@ -5267,16 +5754,12 @@ def _ensure_closeout_event(
 
 def _prepare_synthetic_closeout(
     args: argparse.Namespace,
-) -> tuple[str, str, dict[str, Any]]:
+) -> tuple[str, dict[str, object], dict[str, Any]]:
     operation_id = canonical_operation_id(args.operation_id)
-    payload = _json_object_from_args(args, "payload", "payload_file", "closeout payload")
+    replay_only = bool(getattr(args, "replay_only", False))
+    payload = _operation_request_payload(args, "closeout payload")
     synthetic_root, relative_root = _synthetic_closeout_root(args.synthetic_archive_root)
     del synthetic_root
-    operation_payload = {
-        "payload": payload,
-        "synthetic_archive_relpath": relative_root,
-    }
-    payload_digest = operation_payload_sha256(operation_payload)
     evidence = require_text(args.evidence, "evidence")
     if args.actor not in OFFICES:
         raise ValueError("unknown_actor_office")
@@ -5286,12 +5769,68 @@ def _prepare_synthetic_closeout(
         if found is not None:
             existing_task_id, task, operation = found
             if existing_task_id != args.task_id:
-                raise ValueError("operation_task_conflict")
+                raise ValueError("operation_binding_conflict")
             if operation.get("kind") != "synthetic_closeout":
-                raise ValueError("operation_kind_conflict")
-            if operation.get("payload_sha256") != payload_digest:
-                raise ValueError("operation_payload_conflict")
-            return operation_id, payload_digest, deepcopy(operation)
+                raise ValueError("operation_binding_conflict")
+            require_semantic_mutation_binding(task)
+            stored_binding = _stored_operation_binding(
+                {**operation, "operation_id": operation_id}
+            )
+            target_ref = stored_binding.get("target_ref")
+            if (
+                replay_only
+                and isinstance(target_ref, Mapping)
+                and target_ref.get("synthetic_archive_relpath") != relative_root
+            ):
+                raise ValueError("operation_binding_conflict")
+            if replay_only:
+                incoming_expected_revision = int(stored_binding["expected_task_revision"])
+                incoming_target_ref = (
+                    dict(target_ref) if isinstance(target_ref, Mapping) else {}
+                )
+            else:
+                if not isinstance(payload, Mapping):
+                    raise ValueError("closeout payload is required")
+                incoming_expected_revision = int(
+                    getattr(args, "expected_task_revision", 0) or 0
+                )
+                incoming_target_ref = {
+                    "kind": "synthetic_closeout",
+                    "task_id": args.task_id,
+                    "decree_id": str(payload.get("decree_id") or ""),
+                    "main_court_code": str(payload.get("main_court_code") or ""),
+                    "synthetic_archive_relpath": relative_root,
+                }
+            incoming_binding = _operation_binding(
+                task,
+                operation_id=operation_id,
+                operation_kind="synthetic_closeout",
+                request_schema="court.synthetic_closeout.v2",
+                actor=args.actor,
+                expected_task_revision=incoming_expected_revision,
+                target_ref=incoming_target_ref,
+            )
+            _require_operation_replay_mode(
+                stored_binding=stored_binding,
+                incoming_binding=incoming_binding,
+                replay_only=replay_only,
+                payload_present=payload is not None,
+            )
+            if operation.get("status") != "TASK_EVENT_COMMITTED":
+                raise ValueError("operation_recovery_required")
+            return operation_id, stored_binding, deepcopy(operation)
+        legacy_artifact = _legacy_operation_artifact_for_mutation(
+            operation_id,
+            allow_reference=replay_only,
+        )
+        if legacy_artifact is not None:
+            raise ValueError(
+                "legacy_store_present_requires_explicit_recovery"
+                if legacy_artifact[1].get("store_present")
+                else "LEGACY_READ_ONLY"
+            )
+        if replay_only:
+            raise ValueError("operation_not_found")
         task = tasks.get(args.task_id)
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
@@ -5309,10 +5848,25 @@ def _prepare_synthetic_closeout(
         if main_court_code != str(task.get("main_court_code") or ""):
             raise ValueError("closeout_main_court_code_mismatch")
         prepared_at = now_text()
+        operation_binding = _operation_binding(
+            task,
+            operation_id=operation_id,
+            operation_kind="synthetic_closeout",
+            request_schema="court.synthetic_closeout.v2",
+            actor=args.actor,
+            expected_task_revision=args.expected_task_revision,
+            target_ref={
+                "kind": "synthetic_closeout",
+                "task_id": args.task_id,
+                "decree_id": decree_id,
+                "main_court_code": main_court_code,
+                "synthetic_archive_relpath": relative_root,
+            },
+        )
         operation = {
             "kind": "synthetic_closeout",
             "operation_id": operation_id,
-            "payload_sha256": payload_digest,
+            "operation_binding": operation_binding,
             "payload": deepcopy(payload),
             "expected_task_revision": args.expected_task_revision,
             "synthetic_archive_relpath": relative_root,
@@ -5334,21 +5888,18 @@ def _prepare_synthetic_closeout(
         task["last_evidence"] = evidence
         tasks[args.task_id] = task
         write_tasks(tasks)
-        write_journal(
-            runtime_root(),
-            operation_id=operation_id,
-            payload_digest=payload_digest,
-            task_id=args.task_id,
+        _write_operation_journal(
+            binding=operation_binding,
             phase="PREPARED",
             receipt=None,
             updated_at=prepared_at,
         )
-    return operation_id, payload_digest, deepcopy(operation)
+    return operation_id, operation_binding, deepcopy(operation)
 
 
 def _commit_synthetic_closeout_task_event(
     operation_id: str,
-    payload_digest: str,
+    operation_binding: Mapping[str, object],
     archive_receipt: dict[str, object],
     *,
     killpoint: str = "",
@@ -5360,24 +5911,29 @@ def _commit_synthetic_closeout_task_event(
             raise ValueError("closeout_operation_not_found")
         task_id, task, operation = found
         if operation.get("kind") != "synthetic_closeout":
-            raise ValueError("operation_kind_conflict")
-        if operation.get("payload_sha256") != payload_digest:
-            raise ValueError("operation_payload_conflict")
+            raise ValueError("operation_binding_conflict")
+        stored_binding = _stored_operation_binding(
+            {**operation, "operation_id": operation_id}
+        )
+        if dict(stored_binding) != dict(operation_binding):
+            raise ValueError("operation_binding_conflict")
         existing_receipt = operation.get("receipt")
         if isinstance(existing_receipt, dict):
             event = _ensure_closeout_event(task, operation)
-            write_journal(
-                runtime_root(),
-                operation_id=operation_id,
-                payload_digest=payload_digest,
-                task_id=task_id,
+            _write_operation_journal(
+                binding=stored_binding,
                 phase="COMMITTED",
                 receipt=existing_receipt,
                 updated_at=now_text(),
+                committed_task_revision=existing_receipt.get("task_revision")
+                if isinstance(existing_receipt.get("task_revision"), int)
+                else None,
+                event_id=str(event.get("event_id") or ""),
             )
             return {
                 "status": "REPLAYED",
                 "event_id": event.get("event_id"),
+                "replay_reason": "REPLAYED_BODY_NOT_COMPARED",
                 "receipt": deepcopy(existing_receipt),
             }
         try:
@@ -5386,13 +5942,10 @@ def _commit_synthetic_closeout_task_event(
             raise ValueError("task_revision_corrupt") from exc
         committed_at = now_text()
         next_revision = current_revision + 1
-        event_id = "EVT-" + hashlib.sha256(
-            f"closeout_commit|{operation_id}|{payload_digest}".encode("utf-8")
-        ).hexdigest()[:24].upper()
+        event_id = "EVT-" + uuid.uuid4().hex.upper()
         receipt: dict[str, object] = {
             "schema": "court.closeout.receipt.v1",
             "operation_id": operation_id,
-            "payload_sha256": payload_digest,
             "task_id": task_id,
             "task_revision": next_revision,
             "event_id": event_id,
@@ -5419,14 +5972,13 @@ def _commit_synthetic_closeout_task_event(
         event = _ensure_closeout_event(task, operation)
         if killpoint == "after_event":
             raise SimulatedCloseoutCrash("after_event")
-        write_journal(
-            runtime_root(),
-            operation_id=operation_id,
-            payload_digest=payload_digest,
-            task_id=task_id,
+        _write_operation_journal(
+            binding=stored_binding,
             phase="COMMITTED",
             receipt=receipt,
             updated_at=now_text(),
+            committed_task_revision=next_revision,
+            event_id=event_id,
         )
     return {
         "status": "COMMITTED",
@@ -5439,32 +5991,40 @@ def synthetic_closeout_task(args: argparse.Namespace) -> dict[str, object]:
     killpoint = str(getattr(args, "killpoint", "") or "")
     if killpoint not in {"", "after_archive", "after_index", "after_task", "after_event"}:
         raise ValueError("invalid_closeout_killpoint")
-    operation_id, payload_digest, operation = _prepare_synthetic_closeout(args)
+    operation_id, operation_binding, operation = _prepare_synthetic_closeout(args)
+    if bool(getattr(args, "replay_only", False)):
+        receipt = operation.get("receipt")
+        if not isinstance(receipt, dict):
+            raise ValueError("operation_recovery_required")
+        return {
+            "status": "REPLAYED",
+            "operation_id": operation_id,
+            "replay_reason": "REPLAYED_BODY_NOT_COMPARED",
+            "event_id": receipt.get("event_id"),
+            "receipt": deepcopy(receipt),
+        }
     if isinstance(operation.get("receipt"), dict):
         archive_receipt = operation.get("archive_receipt")
         if not isinstance(archive_receipt, dict):
             raise ValueError("closeout_archive_receipt_corrupt")
         return _commit_synthetic_closeout_task_event(
             operation_id,
-            payload_digest,
+            operation_binding,
             archive_receipt,
         )
     archive_receipt = _ensure_synthetic_archive_side_effects(
         operation,
         killpoint=killpoint if killpoint in {"after_archive", "after_index"} else "",
     )
-    write_journal(
-        runtime_root(),
-        operation_id=operation_id,
-        payload_digest=payload_digest,
-        task_id=str(operation["task_id"]),
+    _write_operation_journal(
+        binding=operation_binding,
         phase="ARCHIVE_COMMITTED",
         receipt=archive_receipt,
         updated_at=now_text(),
     )
     return _commit_synthetic_closeout_task_event(
         operation_id,
-        payload_digest,
+        operation_binding,
         archive_receipt,
         killpoint=killpoint if killpoint in {"after_task", "after_event"} else "",
     )
@@ -5481,22 +6041,19 @@ def recover_closeout_operation(operation_id: object) -> dict[str, object]:
         if operation.get("kind") != "synthetic_closeout":
             raise ValueError("operation_kind_conflict")
         operation_copy = deepcopy(operation)
-    payload_digest = str(operation_copy.get("payload_sha256") or "")
-    if not payload_digest:
-        raise ValueError("closeout_operation_corrupt")
+    operation_binding = _stored_operation_binding(
+        {**operation_copy, "operation_id": canonical}
+    )
     archive_receipt = _ensure_synthetic_archive_side_effects(operation_copy)
-    write_journal(
-        runtime_root(),
-        operation_id=canonical,
-        payload_digest=payload_digest,
-        task_id=str(operation_copy.get("task_id") or ""),
+    _write_operation_journal(
+        binding=operation_binding,
         phase="ARCHIVE_COMMITTED",
         receipt=archive_receipt,
         updated_at=now_text(),
     )
     result = _commit_synthetic_closeout_task_event(
         canonical,
-        payload_digest,
+        operation_binding,
         archive_receipt,
     )
     return {
@@ -11519,7 +12076,12 @@ def build_parser() -> argparse.ArgumentParser:
     decree_open.add_argument("--task-id", required=True)
     decree_open.add_argument("--operation-id", required=True)
     decree_open.add_argument("--expected-task-revision", type=int, required=True)
-    decree_open.add_argument("--payload-file", type=Path, required=True)
+    decree_open.add_argument("--payload-file", type=Path)
+    decree_open.add_argument(
+        "--replay-only",
+        action="store_true",
+        help="reference-only replay; no operation body is accepted",
+    )
     decree_open.add_argument("--actor", default="taizi", choices=sorted(OFFICES))
     decree_open.add_argument("--evidence", required=True)
     decree_open.add_argument("--note", default="")
@@ -11532,7 +12094,12 @@ def build_parser() -> argparse.ArgumentParser:
     synthetic_closeout.add_argument("--task-id", required=True)
     synthetic_closeout.add_argument("--operation-id", required=True)
     synthetic_closeout.add_argument("--expected-task-revision", type=int, required=True)
-    synthetic_closeout.add_argument("--payload-file", type=Path, required=True)
+    synthetic_closeout.add_argument("--payload-file", type=Path)
+    synthetic_closeout.add_argument(
+        "--replay-only",
+        action="store_true",
+        help="reference-only replay; no closeout body is accepted",
+    )
     synthetic_closeout.add_argument("--synthetic-archive-root", type=Path, required=True)
     synthetic_closeout.add_argument("--actor", default="shiguan", choices=sorted(OFFICES))
     synthetic_closeout.add_argument("--evidence", required=True)

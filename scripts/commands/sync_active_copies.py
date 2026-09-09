@@ -1,8 +1,9 @@
-"""Synchronize Decretum Matrix source files to known active installations.
+"""Synchronize a committed installation binding's selected active roots.
 
-This tool copies the manifest-selected runtime surface to the five local skill
-roots. It compares file bytes directly to decide whether a copy is needed and
-does not perform startup validation of unrelated files.
+This external maintenance tool copies the manifest-selected runtime surface to
+the roots recorded by the committed installation binding. It never chooses a
+first-install target, creates a binding, or migrates a legacy locator
+implicitly; those actions require the explicit installer transaction.
 """
 
 
@@ -18,7 +19,6 @@ if _SCRIPTS_ROOT not in sys.path:
 
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,7 +36,11 @@ from install_projection_renderer import (
     ActiveProjectionRenderError,
     render_active_projection,
 )
-from install_current_agent_copy import install_current_agent_copy
+from install_current_agent_copy import (
+    INSTALLATION_BINDING_RELATIVE,
+    INSTALLATION_BINDING_SCHEMA,
+    install_current_agent_copy,
+)
 from sync_codex_agents_from_profiles import sync_agents as sync_codex_agent_roles
 from sync_codex_agents_from_profiles import backup_root as codex_role_backup_root
 
@@ -864,7 +868,90 @@ def rendered_active_files(source: Path, target: Path) -> dict[Path, bytes]:
     }
 
 
+def _read_committed_installation_binding() -> dict[str, object] | None:
+    home = _absolute_no_follow(Path.home())
+    binding_path = home / Path(INSTALLATION_BINDING_RELATIVE)
+    try:
+        _assert_safe_descendant(
+            home,
+            binding_path,
+            allow_missing=False,
+            require_file=True,
+            label="installation binding",
+        )
+        binding = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(binding, dict)
+        or binding.get("schema") != INSTALLATION_BINDING_SCHEMA
+        or binding.get("completion") != "COMMITTED"
+    ):
+        return None
+    required = (
+        "source_commit",
+        "release_label",
+        "artifact_ref",
+        "build_id",
+        "installation_id",
+        "generation",
+        "canonical_root",
+        "selected_roots",
+        "provenance_receipt_ref",
+        "transaction_id",
+        "rollback_ref",
+    )
+    if any(
+        not isinstance(binding.get(field), str) or not str(binding[field]).strip()
+        for field in required
+        if field != "generation" and field != "selected_roots"
+    ):
+        return None
+    generation = binding.get("generation")
+    selected = binding.get("selected_roots")
+    if (
+        isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation < 1
+        or not isinstance(selected, list)
+        or not selected
+        or any(not isinstance(value, str) or not value.strip() for value in selected)
+    ):
+        return None
+    canonical_value = binding.get("canonical_root")
+    try:
+        canonical_root = _assert_safe_root(
+            _absolute_no_follow(Path(str(canonical_value))),
+            allow_missing=True,
+            label="installation binding canonical root",
+        )
+    except (OSError, ValueError, TypeError):
+        return None
+    selected_roots: list[Path] = []
+    for value in selected:
+        try:
+            root = _assert_safe_root(
+                _absolute_no_follow(Path(value)),
+                allow_missing=True,
+                label="installation binding selected root",
+            )
+        except (OSError, ValueError, TypeError):
+            return None
+        if any(_path_key(root) == _path_key(existing) for existing in selected_roots):
+            return None
+        selected_roots.append(root)
+    if not any(_path_key(canonical_root) == _path_key(root) for root in selected_roots):
+        return None
+    binding["canonical_root"] = str(canonical_root)
+    binding["selected_roots"] = [str(root) for root in selected_roots]
+    return binding
+
+
 def _latest_install_receipt() -> dict[str, object] | None:
+    binding = _read_committed_installation_binding()
+    if binding is None:
+        return None
+    binding_selected = binding.get("selected_roots")
     receipts_dir = (
         Path.home()
         / ".agents"
@@ -881,7 +968,18 @@ def _latest_install_receipt() -> dict[str, object] | None:
     if not candidates:
         return None
     value = json.loads(candidates[0].read_text(encoding="utf-8"))
-    return value if isinstance(value, dict) else None
+    if not isinstance(value, dict):
+        return None
+    receipt_selected = value.get("selected_roots")
+    if (
+        not isinstance(binding_selected, list)
+        or not isinstance(receipt_selected, list)
+        or [_path_key(Path(str(item))) for item in binding_selected]
+        != [_path_key(Path(str(item))) for item in receipt_selected]
+    ):
+        return None
+    value["installation_binding"] = binding
+    return value
 
 
 def _receipt_selected_installer_request(
@@ -891,6 +989,13 @@ def _receipt_selected_installer_request(
     *,
     write: bool,
 ) -> dict[str, object]:
+    binding = receipt.get("installation_binding")
+    if (
+        not isinstance(binding, dict)
+        or binding.get("schema") != INSTALLATION_BINDING_SCHEMA
+        or binding.get("completion") != "COMMITTED"
+    ):
+        raise ValueError("installation_binding_required")
     selected = receipt.get("selected_roots")
     current_tool = receipt.get("current_tool")
     current_root = receipt.get("current_tool_root")
@@ -1201,9 +1306,8 @@ def _self_test() -> dict[str, object]:
             failures.append("legacy_migration:transaction_or_rollback_failed")
 
         # ---- M2 投影子门 RED：R-P3 include-qoder 无授权证明必须 fail closed（计划书 §4.4 第 3 条）----
-        # 期望：--include-qoder 在 receipt selected_roots 未含 Qoder 时目标解析拒绝，
-        # reason=include_qoder_legacy_switch_rejected；GREEN 后 main() 先经 receipt 检查
-        # （有合法 receipt 但不含 Qoder）→ 走到 include-qoder 分支拒绝。
+        # 期望：--include-qoder 在 committed binding selected_roots 未含 Qoder 时
+        # 目标解析拒绝，reason=include_qoder_legacy_switch_rejected。
         r3_environment = {
             "HOME": str(fixture / "home"),
             "USERPROFILE": str(fixture / "home"),
@@ -1268,8 +1372,29 @@ def _self_test() -> dict[str, object]:
         # 使 main() 通过 receipt 检查后于 include-qoder 分支拒绝。
         r3_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "install-valid-fixture.json"
         r3_receipt.parent.mkdir(parents=True, exist_ok=True)
-        r3_agents_root = fixture / "receipt-agents-root-r3"
+        r3_agents_root = fixture / "home" / ".agents" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
         r3_agents_root.mkdir(parents=True, exist_ok=True)
+        r3_binding = fixture / "home" / Path(INSTALLATION_BINDING_RELATIVE)
+        r3_binding.write_text(
+            json.dumps(
+                {
+                    "schema": INSTALLATION_BINDING_SCHEMA,
+                    "source_commit": "fixture-commit",
+                    "release_label": "fixture-release",
+                    "artifact_ref": "fixture-artifact",
+                    "build_id": "fixture-build",
+                    "installation_id": "fixture-installation",
+                    "generation": 1,
+                    "canonical_root": str(r3_agents_root),
+                    "selected_roots": [str(r3_agents_root)],
+                    "completion": "COMMITTED",
+                    "provenance_receipt_ref": "fixture-provenance",
+                    "transaction_id": "fixture-transaction",
+                    "rollback_ref": "fixture-rollback",
+                }
+            ),
+            encoding="utf-8",
+        )
         r3_receipt.write_text(
             json.dumps(
                 {
@@ -1283,7 +1408,6 @@ def _self_test() -> dict[str, object]:
                     "explicit_extra_targets": [],
                     "selected_roots": [str(r3_agents_root)],
                     "authority": "fixture-authority",
-                    "receipt_sha256": "fixture-receipt-sha256",
                 }
             ),
             encoding="utf-8",
@@ -1297,6 +1421,7 @@ def _self_test() -> dict[str, object]:
         finally:
             _sys.argv = r3_old_argv
             r3_receipt.unlink(missing_ok=True)
+            r3_binding.unlink(missing_ok=True)
             if r3_manifest_original is None:
                 r3_manifest_path.unlink(missing_ok=True)
             else:
@@ -1381,8 +1506,7 @@ def _self_test() -> dict[str, object]:
         )
 
         # ---- M2 迁移子门 RED：R-M1 默认路径无 receipt 不得回落五根 fanout（计划书 L188 + §4.4 第 3 条）----
-        # 期望：main() 默认路径（无 --root 且无 --include-qoder）在无已验证 receipt 时必须 fail closed，
-        # reason=selected_roots_receipt_required；现状 targets=default_roots() 无条件执行 → RED FAIL。
+        # 期望：main() 默认路径在无 committed installation binding 时必须 fail closed。
         r1_buffer = io.StringIO()
         r1_old_argv = _sys.argv
         _sys.argv = ["sync_active_copies.py", "--json", "--source", str(source)]
@@ -1400,10 +1524,10 @@ def _self_test() -> dict[str, object]:
                 "failures": [f"unparseable:{r1_buffer.getvalue()[:200]}"],
             }
         evidence["selected_roots_receipt_required"] = r1_main
-        if r1_main.get("ok") or "selected_roots_receipt_required" not in " ".join(
+        if r1_main.get("ok") or "installation_binding_required" not in " ".join(
             str(item) for item in r1_main.get("failures", [])
         ):
-            failures.append("selected_roots_receipt_required:expected_fail")
+            failures.append("installation_binding_required:expected_fail")
 
         # ---- M2 迁移子门 RED：R-M2 legacy 迁移必须绑定 receipt（计划书 L188）----
         # 期望：无已验证 receipt 时，--migrate-legacy-locators 必须 fail closed
@@ -1442,10 +1566,9 @@ def _self_test() -> dict[str, object]:
         ):
             failures.append("legacy_migration_not_receipt_derived:expected_fail")
 
-        # ---- M2 迁移子门 RED：R-M3 alias 分组必须绑定 receipt selected set（计划书 L188）----
-        # 期望：有合法 receipt（selected_roots 仅含 .agents 类根）时，main() 默认路径 targets
-        # 严格等于 receipt selected_roots（不含默认五根中的 alias 根）；现状 main() 用
-        # default_roots()（含 user_data hermes 等 alias 目标）→ RED FAIL。
+        # ---- M2 迁移子门：R-M3 alias 分组必须绑定 binding selected set ----
+        # 期望：有合法 binding/receipt（selected_roots 仅含 .agents 类根）时，main()
+        # 默认路径 targets 严格等于 binding selected_roots。
         # 先清理 R-M2 遗留的 legacy fixture（fixture/court-capability-router 会与 R-M3 的
         # agents_root 兄弟路径冲突，触发 legacy_locator_conflicts 而非 receipt 语义）。
         r3_legacy_leftover = fixture / LEGACY_INSTALL_DIRECTORY_NAME
@@ -1453,8 +1576,29 @@ def _self_test() -> dict[str, object]:
             shutil.rmtree(r3_legacy_leftover, ignore_errors=True)
         r3_receipt = fixture / "home" / ".agents" / "install-receipts" / "decretum-matrix" / "install-valid-fixture.json"
         r3_receipt.parent.mkdir(parents=True, exist_ok=True)
-        r3_agents_root = fixture / "receipt-agents-root"
+        r3_agents_root = fixture / "home" / ".agents" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
         r3_agents_root.mkdir(parents=True, exist_ok=True)
+        r3_binding = fixture / "home" / Path(INSTALLATION_BINDING_RELATIVE)
+        r3_binding.write_text(
+            json.dumps(
+                {
+                    "schema": INSTALLATION_BINDING_SCHEMA,
+                    "source_commit": "fixture-commit",
+                    "release_label": "fixture-release",
+                    "artifact_ref": "fixture-artifact",
+                    "build_id": "fixture-build",
+                    "installation_id": "fixture-installation",
+                    "generation": 1,
+                    "canonical_root": str(r3_agents_root),
+                    "selected_roots": [str(r3_agents_root)],
+                    "completion": "COMMITTED",
+                    "provenance_receipt_ref": "fixture-provenance",
+                    "transaction_id": "fixture-transaction",
+                    "rollback_ref": "fixture-rollback",
+                }
+            ),
+            encoding="utf-8",
+        )
         r3_receipt.write_text(
             json.dumps(
                 {
@@ -1468,7 +1612,6 @@ def _self_test() -> dict[str, object]:
                     "explicit_extra_targets": [],
                     "selected_roots": [str(r3_agents_root)],
                     "authority": "fixture-authority",
-                    "receipt_sha256": "fixture-receipt-sha256",
                 }
             ),
             encoding="utf-8",
@@ -1507,6 +1650,7 @@ def _self_test() -> dict[str, object]:
         ):
             failures.append("alias_group_not_receipt_derived:expected_fail")
         r3_receipt.unlink(missing_ok=True)
+        r3_binding.unlink(missing_ok=True)
         if r1_manifest_original is None:
             r1_manifest_path.unlink(missing_ok=True)
         else:
@@ -1533,21 +1677,8 @@ def _qoder_in_verified_selected_roots() -> bool:
     读取 ~/.agents/install-receipts/decretum-matrix/ 下最新 JSON receipt；
     无 receipt、receipt 无 selected_roots、或 selected_roots 不含 Qoder → False（fail closed）。
     """
-    home = Path.home()
-    receipts_dir = home / ".agents" / "install-receipts" / "decretum-matrix"
-    if not receipts_dir.is_dir():
-        return False
-    # 只读 installer 生成的 install-*.json（§4.4 receipt），排除 npm-postinstall-*.json。
-    candidates = sorted(
-        (path for path in receipts_dir.glob("install-*.json") if path.is_file()),
-        key=lambda p: p.stat().st_mtime_ns,
-        reverse=True,
-    )
-    if not candidates:
-        return False
-    try:
-        receipt = json.loads(candidates[0].read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    receipt = _read_committed_installation_binding()
+    if receipt is None:
         return False
     selected = receipt.get("selected_roots")
     if not isinstance(selected, list):
@@ -1568,22 +1699,8 @@ def _load_verified_selected_roots() -> list[Path] | None:
     无 receipt、receipt 读取失败、或 selected_roots 缺失/非 list → None（fail closed）。
     返回的列表逐根为绝对路径；调用方以 None 判定 fail closed 并记录原因。
     """
-    home = Path.home()
-    receipts_dir = home / ".agents" / "install-receipts" / "decretum-matrix"
-    if not receipts_dir.is_dir():
-        return None
-    # 只读 installer 生成的 install-*.json（§4.4 receipt），排除 npm-postinstall-*.json
-    # 运行收条（无 selected_roots，会污染「最新 receipt」判定）。
-    candidates = sorted(
-        (path for path in receipts_dir.glob("install-*.json") if path.is_file()),
-        key=lambda p: p.stat().st_mtime_ns,
-        reverse=True,
-    )
-    if not candidates:
-        return None
-    try:
-        receipt = json.loads(candidates[0].read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    receipt = _read_committed_installation_binding()
+    if receipt is None:
         return None
     selected = receipt.get("selected_roots")
     if not isinstance(selected, list) or not selected:
@@ -1595,44 +1712,6 @@ def _load_verified_selected_roots() -> list[Path] | None:
         except (TypeError, ValueError):
             return None
     return roots
-
-
-def _write_first_install_receipt(canonical_root: Path) -> dict[str, object]:
-    """npm postinstall 首装时生成 §4.4 install receipt（计划书 §4.4 第 4 条）。
-
-    仅在无既有 receipt 且目标仅为 canonical primary root 时由 main() 调用；
-    selected_roots 仅含 canonical_root（不 fanout），status=INSTALLED，
-    authority=installer（本包自装）。receipt_sha256 为除自身字段外的规范序列化哈希。
-    """
-    home = Path.home()
-    primary_root = _absolute_no_follow(canonical_root)
-    receipt_body: dict[str, object] = {
-        "schema": "court.install_current_agent_copy.result.v1",
-        "selection_policy": "receipt",
-        "primary_root": str(primary_root),
-        "current_tool": "codex",
-        "current_tool_root": str(primary_root),
-        "current_tool_root_proof": "install_applied",
-        "status": "INSTALLED",
-        "explicit_extra_targets": [],
-        "selected_roots": [str(primary_root)],
-        "authority": "installer",
-    }
-    receipt_body["receipt_sha256"] = hashlib.sha256(
-        json.dumps(receipt_body, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-    receipts_dir = home / ".agents" / "install-receipts" / "decretum-matrix"
-    receipts_dir.mkdir(parents=True, exist_ok=True)
-    receipt_path = receipts_dir / f"install-{receipt_body['receipt_sha256'][:16]}.json"
-    receipt_path.write_text(
-        json.dumps(receipt_body, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    return {
-        "path": str(receipt_path),
-        "receipt_sha256": str(receipt_body["receipt_sha256"]),
-        "selected_roots": [str(primary_root)],
-    }
 
 
 def sync_installed_codex_roles(*, write: bool) -> dict[str, object]:
@@ -1716,52 +1795,38 @@ def main() -> int:
 
     source = resolve_source(args.source)
     first_install_extra: dict[str, object] | None = None
-    # M2 迁移子门 GREEN（R-M1/R-M2/R-M3）：默认路径 targets 必须从已验证 receipt 的
-    # selected_roots 派生（计划书 §4.4 第 3 条 + L188「以同一 receipt 为依据」）；
-    # 无 receipt → fail closed（带 --migrate-legacy-locators 时报迁移专属 reason）。
-    # 例外：npm postinstall 首装（--write + 显式 --source + 无 receipt）→ 仅写 canonical
-    # primary root 并生成 §4.4 install receipt（计划书 L88「零写入」仅指无授权 fanout，
-    # canonical 首装不是 fanout；receipt 由 installer 在首装时生成，之后 sync 从 receipt 派生）。
+    # Ordinary synchronization is a consumer of the committed installation
+    # binding. It never creates a first-install receipt or chooses a target.
     verified_roots = _load_verified_selected_roots()
     if verified_roots is None:
-        if args.write and args.source is not None:
-            first_install_targets = [default_roots()[0]]
-            targets = first_install_targets
-            install_receipt = _write_first_install_receipt(targets[0])
-            first_install_extra = {
-                "first_install": True,
-                "install_receipt": install_receipt,
-            }
+        failure_reason = (
+            "legacy_migration_not_receipt_derived"
+            if args.migrate_legacy_locators
+            else "installation_binding_required"
+        )
+        result = {
+            "ok": False,
+            "status": "FAIL",
+            "schema": "court.active_copy_sync.v1",
+            "source": str(source),
+            "source_files": 0,
+            "write": args.write,
+            "prune_obsolete": args.prune_obsolete,
+            "include_qoder": args.include_qoder,
+            "migrate_legacy_locators": args.migrate_legacy_locators,
+            "frozen_install_references": [],
+            "targets": [],
+            "logical_target_count": 0,
+            "physical_authority_count": 0,
+            "legacy_locator_conflicts": [],
+            "failures": [failure_reason],
+        }
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         else:
-            failure_reason = (
-                "legacy_migration_not_receipt_derived"
-                if args.migrate_legacy_locators
-                else "selected_roots_receipt_required"
-            )
-            result = {
-                "ok": False,
-                "status": "FAIL",
-                "schema": "court.active_copy_sync.v1",
-                "source": str(source),
-                "source_files": 0,
-                "write": args.write,
-                "prune_obsolete": args.prune_obsolete,
-                "include_qoder": args.include_qoder,
-                "migrate_legacy_locators": args.migrate_legacy_locators,
-                "frozen_install_references": [],
-                "targets": [],
-                "logical_target_count": 0,
-                "physical_authority_count": 0,
-                "legacy_locator_conflicts": [],
-                "failures": [failure_reason],
-            }
-            if args.json:
-                print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-            else:
-                print(f"ACTIVE_COPY_SYNC_FAIL {failure_reason}")
-            return 1
-    if "targets" not in locals():
-        targets = list(verified_roots)
+            print(f"ACTIVE_COPY_SYNC_FAIL {failure_reason}")
+        return 1
+    targets = list(verified_roots)
     if args.include_qoder:
         # M2 投影子门 GREEN（R-P3）：include-qoder 必须具有最新授权/proof 证据。
         # 仅当已验证 install receipt 的 selected_roots 显式含 Qoder 根时才允许，

@@ -14,11 +14,16 @@ if _SCRIPTS_ROOT not in sys.path:
 
 
 import argparse
+from copy import deepcopy
 import importlib
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
+import stat
 import sys
+import subprocess
+import zipfile
 
 sys.dont_write_bytecode = True
 
@@ -32,6 +37,15 @@ from court_diagnostics import (
 
 
 SCHEMA = "decretum.fix.v1"
+CANDIDATE_RECEIPT_SCHEMA = "court.release_candidate_receipt.v1"
+CANDIDATE_PACKAGE_SCHEMA = "decretum.npm_local_install_candidate.v1"
+CANDIDATE_STATE = "CANDIDATE_NOT_RELEASED"
+INSTALLATION_ACCEPTANCE_SCHEMA = "court.installation_acceptance.v1"
+POST_PROJECTION_PRODUCER_SCHEMA = "court.active_copy_hashes.v2"
+POST_PROJECTION_CONTRACT = "POST_INSTALL_STANDALONE_HASH_CHECK"
+POST_PROJECTION_CHECKER_RELATIVE = Path("scripts/checks/check_active_copy_hashes.py")
+MAX_METADATA_BYTES = 256 * 1024
+NPM_PACKAGE_NAME = "@rowlandl/decretum-matrix"
 
 
 def _home_root(value: str | None) -> Path:
@@ -42,19 +56,1005 @@ def _sync_codex_agent_roles(home: Path, *, write: bool) -> dict[str, object]:
     """Reuse the existing renderer for native Codex role files."""
 
     module = importlib.import_module("sync_codex_agents_from_profiles")
-    previous = os.environ.get("CODEX_HOME")
-    os.environ["CODEX_HOME"] = str(home / ".codex")
+    keys = (
+        "APPDATA",
+        "CODEX_HOME",
+        "HOME",
+        "LOCALAPPDATA",
+        "USERPROFILE",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    )
+    previous = {key: os.environ.get(key) for key in keys}
+    os.environ.update(
+        {
+            "APPDATA": str(home / "AppData" / "Roaming"),
+            "CODEX_HOME": str(home / ".codex"),
+            "HOME": str(home),
+            "LOCALAPPDATA": str(home / "AppData" / "Local"),
+            "USERPROFILE": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_DATA_HOME": str(home / ".local" / "share"),
+            "XDG_CACHE_HOME": str(home / ".cache"),
+        }
+    )
     try:
         result = module.sync_agents(write=write)
     finally:
-        if previous is None:
-            os.environ.pop("CODEX_HOME", None)
-        else:
-            os.environ["CODEX_HOME"] = previous
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
     return result if isinstance(result, dict) else {"ok": False, "status": "INVALID"}
 
 
-def _install_update(source_selection: dict[str, object], home: Path, *, write: bool) -> dict[str, object]:
+def _nonempty(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _path_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    try:
+        value = path.lstat()
+    except FileNotFoundError:
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return stat.S_ISLNK(value.st_mode) or bool(
+        reparse_flag and getattr(value, "st_file_attributes", 0) & reparse_flag
+    )
+
+
+def _physical_directory(path: Path, *, label: str) -> Path:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    for candidate in [*reversed(absolute.parents), absolute]:
+        try:
+            value = candidate.lstat()
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"{label}_missing:{candidate}") from exc
+        if _is_link_or_reparse(candidate):
+            raise RuntimeError(f"{label}_link_or_reparse:{candidate}")
+        if not stat.S_ISDIR(value.st_mode):
+            raise RuntimeError(f"{label}_not_directory:{candidate}")
+    return absolute
+
+
+def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
+    try:
+        value = path.lstat()
+        if _is_link_or_reparse(path) or not stat.S_ISREG(value.st_mode):
+            raise RuntimeError(f"{label}_not_regular")
+        if value.st_size > MAX_METADATA_BYTES:
+            raise RuntimeError(f"{label}_oversized")
+        payload = path.read_text(encoding="utf-8")
+        if len(payload.encode("utf-8")) > MAX_METADATA_BYTES:
+            raise RuntimeError(f"{label}_oversized")
+        decoded = json.loads(payload)
+    except RuntimeError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"{label}_invalid:{type(exc).__name__}") from exc
+    if not isinstance(decoded, dict):
+        raise RuntimeError(f"{label}_object_required")
+    return decoded
+
+
+def _safe_candidate_file(root: Path, relative: object, *, label: str) -> Path:
+    if not isinstance(relative, str) or not relative or "\\" in relative:
+        raise RuntimeError(f"{label}_path_invalid")
+    candidate = PurePosixPath(relative)
+    if candidate.is_absolute() or candidate.drive or any(
+        part in {"", ".", ".."} for part in candidate.parts
+    ):
+        raise RuntimeError(f"{label}_path_invalid")
+    path = (root / Path(*candidate.parts)).resolve(strict=False)
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError(f"{label}_path_escape") from exc
+    current = root
+    for part in candidate.parts:
+        current = current / part
+        if _is_link_or_reparse(current):
+            raise RuntimeError(f"{label}_link_or_reparse:{current}")
+    return path
+
+
+def _git_output(source: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-c", f"safe.directory={source.as_posix()}", *args],
+            cwd=source,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            shell=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"installation_binding_source_git:{type(exc).__name__}") from exc
+    if result.returncode != 0:
+        raise RuntimeError("installation_binding_source_git:unavailable")
+    return result.stdout.strip()
+
+
+def _validate_candidate_zip_payload(path: Path) -> None:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            manifest_info = archive.getinfo(
+                "decretum-matrix/release-manifest.json"
+            )
+            if (
+                manifest_info.is_dir()
+                or manifest_info.file_size > MAX_METADATA_BYTES
+                or stat.S_IFMT((manifest_info.external_attr >> 16) & 0xFFFF)
+                not in {0, stat.S_IFREG}
+            ):
+                raise RuntimeError("candidate_artifact_manifest_unsafe")
+            payload = json.loads(
+                archive.read("decretum-matrix/release-manifest.json").decode("utf-8")
+            )
+    except (
+        OSError,
+        KeyError,
+        UnicodeError,
+        json.JSONDecodeError,
+        RuntimeError,
+        zipfile.BadZipFile,
+    ) as exc:
+        raise RuntimeError("candidate_artifact_invalid") from exc
+    entries = payload.get("files") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        raise RuntimeError("candidate_artifact_manifest_invalid")
+    checker_paths = sorted(
+        {
+            str(entry.get("path"))
+            for entry in entries
+            if isinstance(entry, dict)
+            and isinstance(entry.get("path"), str)
+            and (
+                entry["path"] == "scripts/check_active_copy_hashes.py"
+                or entry["path"].startswith("scripts/check_")
+                or entry["path"].startswith("scripts/checks/")
+            )
+        }
+    )
+    if checker_paths:
+        raise RuntimeError(
+            "candidate_payload_checker_entries:" + ",".join(checker_paths)
+        )
+
+
+def _candidate_binding_metadata(
+    source: Path,
+    *,
+    candidate_package_root: Path,
+    candidate_receipt: Path | None,
+    npm_prefix: Path | None,
+    transaction_id: str,
+    installation_id: str,
+) -> dict[str, object]:
+    source = _physical_directory(source, label="installation_binding_source")
+    package_root = _physical_directory(
+        candidate_package_root,
+        label="installation_binding_candidate_package",
+    )
+    if npm_prefix is not None:
+        prefix = _physical_directory(npm_prefix, label="installation_binding_npm_prefix")
+        try:
+            package_root.relative_to(prefix)
+        except ValueError as exc:
+            raise RuntimeError("candidate_package_outside_npm_prefix") from exc
+    for value, label in (
+        (transaction_id, "installation_binding_transaction_id"),
+        (installation_id, "installation_binding_installation_id"),
+    ):
+        if _nonempty(value) is None or any(char in value for char in "/\\\x00"):
+            raise RuntimeError(f"{label}_invalid")
+
+    status = _git_output(source, "status", "--porcelain")
+    if status:
+        raise RuntimeError("candidate_source_worktree_dirty")
+    source_commit = _git_output(source, "rev-parse", "HEAD")
+    source_tree = _git_output(source, "rev-parse", "HEAD^{tree}")
+    try:
+        release_label = (source / "VERSION").read_text(encoding="utf-8").strip()
+        source_manifest = _read_json_object(
+            source / "release-manifest.json",
+            label="installation_binding_source_metadata",
+        )
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError(f"installation_binding_source_metadata:{type(exc).__name__}") from exc
+    manifest_label = _nonempty(source_manifest.get("release_label"))
+    artifact_name = _nonempty(source_manifest.get("artifact_name"))
+    if (
+        not release_label
+        or manifest_label != release_label
+        or not artifact_name
+        or "/" in artifact_name
+        or "\\" in artifact_name
+    ):
+        raise RuntimeError("installation_binding_source_metadata:release_identity_mismatch")
+    expected_artifact_ref = f"release/{artifact_name}@{source_commit}"
+    expected_build_id = f"{release_label}:{source_commit}:{source_tree}"
+
+    package = _read_json_object(package_root / "package.json", label="candidate_package")
+    package_identity = package.get("decretumMatrix")
+    if not isinstance(package_identity, dict):
+        raise RuntimeError("candidate_package_metadata_missing")
+    if package_identity.get("schema") != CANDIDATE_PACKAGE_SCHEMA:
+        raise RuntimeError("candidate_package_schema_mismatch")
+    if package_identity.get("payloadKind") != "runtime":
+        raise RuntimeError("candidate_package_payload_kind_mismatch")
+    if package_identity.get("candidate") != "local-install" or package_identity.get("private") is not True:
+        raise RuntimeError("candidate_package_not_private_local")
+    if package_identity.get("publication") != "FORBIDDEN":
+        raise RuntimeError("candidate_package_publication_not_forbidden")
+    package_label = _nonempty(package_identity.get("releaseLabel"))
+    package_artifact_ref = _nonempty(package_identity.get("artifactRef"))
+    package_build_id = _nonempty(package_identity.get("buildId"))
+    package_source = package_identity.get("source")
+    if package_label != release_label:
+        raise RuntimeError("candidate_release_label_mismatch")
+    if package_artifact_ref != expected_artifact_ref:
+        raise RuntimeError("candidate_artifact_ref_mismatch")
+    if package_build_id != expected_build_id:
+        raise RuntimeError("candidate_build_id_mismatch")
+    if not isinstance(package_source, dict) or (
+        package_source.get("commit") != source_commit
+        or package_source.get("tree") != source_tree
+    ):
+        raise RuntimeError("candidate_source_identity_mismatch")
+    nested_binding = package_identity.get("installationBinding")
+    if not isinstance(nested_binding, dict) or any(
+        nested_binding.get(key) != expected
+        for key, expected in (
+            ("schema", "court.installation_binding.v2"),
+            ("source_commit", source_commit),
+            ("release_label", release_label),
+            ("artifact_ref", expected_artifact_ref),
+            ("build_id", expected_build_id),
+        )
+    ):
+        raise RuntimeError("candidate_package_binding_metadata_mismatch")
+    cli = package_identity.get("cli")
+    if not isinstance(cli, dict) or cli.get("installLifecycleScripts") is not False or cli.get(
+        "postinstallContract"
+    ) != "disabled_explicit_installer_required":
+        raise RuntimeError("candidate_package_lifecycle_contract_mismatch")
+    scripts = package.get("scripts")
+    if isinstance(scripts, dict) and "postinstall" in scripts:
+        raise RuntimeError("candidate_package_postinstall_present")
+    for relative in ("bin/decretum-matrix.js", "bin/decretum-matrix.py"):
+        path = _safe_candidate_file(package_root, relative, label="candidate_shim")
+        try:
+            value = path.lstat()
+        except OSError as exc:
+            raise RuntimeError("candidate_shim_missing") from exc
+        if _is_link_or_reparse(path) or not stat.S_ISREG(value.st_mode):
+            raise RuntimeError("candidate_shim_not_regular")
+
+    receipt_relative = package_identity.get("candidateReceipt")
+    if candidate_receipt is None:
+        if not isinstance(receipt_relative, str):
+            raise RuntimeError("candidate_receipt_missing")
+        receipt_path = _safe_candidate_file(
+            package_root,
+            receipt_relative,
+            label="candidate_receipt",
+        )
+    else:
+        receipt_path = Path(candidate_receipt).resolve(strict=False)
+        try:
+            receipt_relative_value = receipt_path.relative_to(package_root).as_posix()
+        except ValueError as exc:
+            raise RuntimeError("candidate_receipt_outside_package") from exc
+        receipt_path = _safe_candidate_file(
+            package_root,
+            receipt_relative_value,
+            label="candidate_receipt",
+        )
+    receipt = _read_json_object(receipt_path, label="candidate_receipt")
+    if receipt.get("schema") != CANDIDATE_RECEIPT_SCHEMA or receipt.get("state") != CANDIDATE_STATE:
+        raise RuntimeError("candidate_receipt_schema_or_state_mismatch")
+    if receipt.get("release_label") != release_label or receipt.get("candidate_id") != source_commit:
+        raise RuntimeError("candidate_receipt_identity_mismatch")
+    receipt_source = receipt.get("source")
+    if not isinstance(receipt_source, dict) or (
+        receipt_source.get("head_commit") != source_commit
+        or receipt_source.get("tree") != source_tree
+        or receipt_source.get("worktree_clean") is not True
+    ):
+        raise RuntimeError("candidate_receipt_source_mismatch")
+    receipt_manifest = receipt.get("release_manifest")
+    if (
+        not isinstance(receipt_manifest, dict)
+        or receipt_manifest.get("path") != "release-manifest.json"
+        or receipt_manifest.get("expected_final_tag")
+        != source_manifest.get("expected_final_tag")
+    ):
+        raise RuntimeError("candidate_receipt_manifest_mismatch")
+    artifacts = receipt.get("artifacts")
+    if not isinstance(artifacts, list) or not any(
+        isinstance(item, dict) and item.get("name") == artifact_name
+        for item in artifacts
+    ):
+        raise RuntimeError("candidate_receipt_artifact_missing")
+    artifact_path = _safe_candidate_file(
+        package_root,
+        f"release/{artifact_name}",
+        label="candidate_artifact",
+    )
+    if not artifact_path.is_file() or _is_link_or_reparse(artifact_path):
+        raise RuntimeError("candidate_artifact_missing")
+    _validate_candidate_zip_payload(artifact_path)
+    receipt_ref = f"candidate:{receipt_path.relative_to(package_root).as_posix()}@{source_commit}"
+    return {
+        "source_commit": source_commit,
+        "source_tree": source_tree,
+        "release_label": release_label,
+        "artifact_ref": expected_artifact_ref,
+        "build_id": expected_build_id,
+        "installation_id": installation_id,
+        "transaction_id": transaction_id,
+        "provenance_receipt_ref": receipt_ref,
+        "candidate_package_root": str(package_root),
+        "candidate_receipt_ref": receipt_ref,
+    }
+
+
+def _installation_binding_metadata(
+    source: Path,
+    *,
+    candidate_package_root: Path | None = None,
+    candidate_tgz: Path | None = None,
+    candidate_receipt: Path | None = None,
+    npm_prefix: Path | None = None,
+    transaction_id: str | None = None,
+    installation_id: str | None = None,
+) -> dict[str, object]:
+    """Derive binding metadata only from a clean, verified local candidate."""
+
+    if candidate_package_root is None:
+        raise RuntimeError("candidate_package_required")
+    if _nonempty(transaction_id) is None or _nonempty(installation_id) is None:
+        raise RuntimeError("installation_binding_transaction_and_installation_required")
+    return _candidate_binding_metadata(
+        source,
+        candidate_package_root=candidate_package_root,
+        candidate_receipt=candidate_receipt,
+        npm_prefix=npm_prefix,
+        transaction_id=str(transaction_id),
+        installation_id=str(installation_id),
+    )
+
+
+def _acceptance_environment(home: Path) -> dict[str, str]:
+    """Give the repository-only checker an isolated metadata environment."""
+
+    environment = dict(os.environ)
+    for key in (
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "DECRETUM_MATRIX_TEST_PLATFORM",
+    ):
+        environment.pop(key, None)
+    local_appdata = home / "AppData" / "Local"
+    appdata = home / "AppData" / "Roaming"
+    environment.update(
+        {
+            "HOME": str(home),
+            "USERPROFILE": str(home),
+            "APPDATA": str(appdata),
+            "LOCALAPPDATA": str(local_appdata),
+            "XDG_DATA_HOME": str(home / ".local" / "share"),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_CACHE_HOME": str(home / ".cache"),
+            "npm_config_prefix": str(home / "npm-prefix"),
+            "npm_config_cache": str(home / "npm-cache"),
+            "npm_config_userconfig": str(home / "empty-npm-userconfig"),
+            "COURT_RUNTIME_ROOT": str(home / "court-runtime"),
+            "COURT_SHARED_SHIGUAN_ROOT": str(home / "test-shiguan"),
+            "COURT_DISABLE_AGENT_PRESENCE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONUTF8": "1",
+        }
+    )
+    return environment
+
+
+def _npm_executable() -> str:
+    return "npm.cmd" if os.name == "nt" else "npm"
+
+
+def _candidate_tgz_regular(path: Path) -> Path:
+    candidate = Path(os.path.abspath(os.fspath(path)))
+    try:
+        value = candidate.lstat()
+    except OSError as exc:
+        raise RuntimeError("candidate_tgz_missing") from exc
+    if any(_is_link_or_reparse(parent) for parent in (candidate, *candidate.parents)) or not stat.S_ISREG(value.st_mode):
+        raise RuntimeError("candidate_tgz_unsafe")
+    return candidate
+
+
+def _install_candidate_npm(
+    *,
+    candidate_tgz: Path,
+    npm_prefix: Path,
+    home: Path,
+    caller_cwd: Path,
+) -> dict[str, object]:
+    tgz = _candidate_tgz_regular(candidate_tgz)
+    prefix = Path(npm_prefix).resolve(strict=False)
+    if prefix.exists() and _is_link_or_reparse(prefix):
+        return {"ok": False, "status": "BLOCKED", "reason": "npm_prefix_unsafe"}
+    prefix.mkdir(parents=True, exist_ok=True)
+    try:
+        prefix = _physical_directory(prefix, label="installation_binding_npm_prefix")
+        caller = _physical_directory(caller_cwd, label="candidate_npm_caller_cwd")
+    except RuntimeError as exc:
+        return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
+    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
+    if package_root.exists() or package_root.is_symlink():
+        return {"ok": False, "status": "BLOCKED", "reason": "candidate_package_preexisting"}
+    command = [
+        _npm_executable(),
+        "install",
+        "--ignore-scripts",
+        "--package-lock=false",
+        "--save=false",
+        "--prefix",
+        str(prefix),
+        str(tgz),
+    ]
+    environment = _acceptance_environment(home)
+    environment["npm_config_prefix"] = str(prefix)
+    environment["npm_config_ignore_scripts"] = "true"
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=caller,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            shell=False,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"npm_candidate_install_failed:{type(exc).__name__}",
+            "command": command,
+            "cwd": str(caller),
+        }
+    if completed.returncode != 0:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "npm_candidate_install_failed",
+            "command": command,
+            "cwd": str(caller),
+            "exit_code": completed.returncode,
+            "stdout": completed.stdout[-4000:],
+            "stderr": completed.stderr[-4000:],
+        }
+    if not package_root.is_dir() or _is_link_or_reparse(package_root):
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "npm_candidate_package_missing_after_install",
+            "command": command,
+            "cwd": str(caller),
+            "exit_code": completed.returncode,
+        }
+    return {
+        "ok": True,
+        "status": "INSTALLED",
+        "command": command,
+        "cwd": str(caller),
+        "exit_code": completed.returncode,
+        "package_root": str(package_root.resolve(strict=False)),
+        "npm_prefix": str(prefix),
+    }
+
+
+def _rollback_candidate_npm(
+    *,
+    npm_prefix: Path,
+    home: Path,
+    caller_cwd: Path,
+) -> dict[str, object]:
+    try:
+        prefix = _physical_directory(npm_prefix, label="installation_binding_npm_prefix")
+        caller = _physical_directory(caller_cwd, label="candidate_npm_caller_cwd")
+    except RuntimeError as exc:
+        return {"ok": False, "status": "RECOVERY_REQUIRED", "reason": str(exc)}
+    command = [
+        _npm_executable(),
+        "uninstall",
+        "--ignore-scripts",
+        "--package-lock=false",
+        "--save=false",
+        "--prefix",
+        str(prefix),
+        NPM_PACKAGE_NAME,
+    ]
+    environment = _acceptance_environment(home)
+    environment["npm_config_prefix"] = str(prefix)
+    environment["npm_config_ignore_scripts"] = "true"
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=caller,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            shell=False,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": f"npm_candidate_rollback_failed:{type(exc).__name__}",
+            "command": command,
+            "cwd": str(caller),
+        }
+    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
+    removed = not package_root.exists() and not package_root.is_symlink()
+    return {
+        "ok": completed.returncode == 0 and removed,
+        "status": "ROLLED_BACK" if completed.returncode == 0 and removed else "RECOVERY_REQUIRED",
+        "command": command,
+        "cwd": str(caller),
+        "exit_code": completed.returncode,
+        "removed": removed,
+        "stdout": completed.stdout[-4000:],
+        "stderr": completed.stderr[-4000:],
+    }
+
+
+def _run_post_projection_acceptance(
+    *,
+    source: Path,
+    home: Path,
+    binding: dict[str, object],
+    candidate: dict[str, object],
+    installer_module: object,
+) -> dict[str, object]:
+    """Run the existing repository-only checker once after all projections."""
+
+    checker = source / POST_PROJECTION_CHECKER_RELATIVE
+    try:
+        checker_status = checker.lstat()
+    except OSError as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"post_projection_checker_missing:{type(exc).__name__}",
+        }
+    if _is_link_or_reparse(checker) or not stat.S_ISREG(checker_status.st_mode):
+        return {"ok": False, "status": "BLOCKED", "reason": "post_projection_checker_unsafe"}
+    command = [
+        sys.executable,
+        "-B",
+        str(checker),
+        "--json",
+        "--source",
+        str(source),
+        "--projection",
+        "shared_agents",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=source,
+            env=_acceptance_environment(home),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            shell=False,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"post_projection_checker_failed:{type(exc).__name__}",
+            "command": command,
+            "cwd": str(source),
+        }
+    try:
+        producer = json.loads(completed.stdout)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"post_projection_checker_invalid_json:{type(exc).__name__}",
+            "command": command,
+            "cwd": str(source),
+            "exit_code": completed.returncode,
+            "stdout": completed.stdout[-4000:],
+            "stderr": completed.stderr[-4000:],
+        }
+    if not isinstance(producer, dict):
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "post_projection_checker_result_not_object",
+            "command": command,
+            "cwd": str(source),
+            "exit_code": completed.returncode,
+        }
+    if completed.returncode != 0 or producer.get("ok") is not True:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "post_projection_checker_not_passed",
+            "command": command,
+            "cwd": str(source),
+            "exit_code": completed.returncode,
+            "producer_receipt": producer,
+        }
+    receipt_root = producer.get("roots")
+    selected_roots = binding.get("selected_roots")
+    if not isinstance(receipt_root, list) or not isinstance(selected_roots, list):
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "post_projection_checker_roots_missing",
+            "producer_receipt": producer,
+        }
+    if [_path_key(Path(str(item))) for item in receipt_root] != [
+        _path_key(Path(str(item))) for item in selected_roots
+    ]:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "post_projection_checker_roots_mismatch",
+            "producer_receipt": producer,
+        }
+    transaction_id = str(binding["transaction_id"])
+    receipt_path = (
+        home
+        / ".agents"
+        / "install-receipts"
+        / NAME
+        / f"post-validation-{transaction_id}.json"
+    )
+    validation = {
+        "schema": INSTALLATION_ACCEPTANCE_SCHEMA,
+        "producer_receipt": producer,
+        "candidate": {
+            "source_root": str(source),
+            "source_commit": candidate["source_commit"],
+            "source_tree": candidate["source_tree"],
+            "release_label": candidate["release_label"],
+            "artifact_ref": candidate["artifact_ref"],
+            "build_id": candidate["build_id"],
+            "candidate_receipt_ref": candidate["candidate_receipt_ref"],
+        },
+        "binding": deepcopy(binding),
+        "post_projection_receipt_ref": str(receipt_path),
+    }
+    try:
+        writer = getattr(installer_module, "_write_json_atomic")
+        writer(receipt_path, validation)
+    except (AttributeError, OSError, ValueError) as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"post_projection_receipt_persist_failed:{type(exc).__name__}",
+            "producer_receipt": producer,
+        }
+    committed = installer_module.commit_installation_binding(
+        home_root=home,
+        external_validation=validation,
+    )
+    if not isinstance(committed, dict) or committed.get("ok") is not True:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "installation_binding_commit_rejected",
+            "producer_receipt": producer,
+            "validation_receipt": str(receipt_path),
+            "commit_result": committed,
+        }
+    return {
+        "ok": True,
+        "status": "COMMITTED",
+        "producer_receipt": producer,
+        "validation_receipt": str(receipt_path),
+        "commit_result": committed,
+    }
+
+
+def _snapshot_codex_roles(home: Path) -> dict[str, tuple[bytes, int]]:
+    role_root = home / ".codex" / "agents"
+    if not role_root.exists():
+        return {}
+    if _is_link_or_reparse(role_root) or not role_root.is_dir():
+        raise RuntimeError("codex_agent_roles_root_unsafe")
+    snapshot: dict[str, tuple[bytes, int]] = {}
+    for path in sorted(role_root.glob("*.toml")):
+        if _is_link_or_reparse(path) or not path.is_file():
+            raise RuntimeError("codex_agent_role_file_unsafe")
+        value = path.stat()
+        snapshot[path.name] = (path.read_bytes(), value.st_mode)
+    return snapshot
+
+
+def _restore_codex_roles(
+    home: Path,
+    snapshot: dict[str, tuple[bytes, int]],
+) -> dict[str, object]:
+    role_root = home / ".codex" / "agents"
+    try:
+        role_root.mkdir(parents=True, exist_ok=True)
+        if _is_link_or_reparse(role_root) or not role_root.is_dir():
+            raise RuntimeError("codex_agent_roles_root_unsafe")
+        for path in role_root.glob("*.toml"):
+            if _is_link_or_reparse(path) or not path.is_file():
+                raise RuntimeError("codex_agent_role_file_unsafe")
+            if path.name not in snapshot:
+                path.unlink()
+        for name, (payload, mode) in snapshot.items():
+            path = role_root / name
+            path.write_bytes(payload)
+            path.chmod(mode)
+    except (OSError, RuntimeError) as exc:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": f"codex_agent_roles_rollback_failed:{type(exc).__name__}:{exc}",
+        }
+    return {
+        "ok": True,
+        "status": "ROLLED_BACK",
+        "restored_count": len(snapshot),
+    }
+
+
+def _compensate_projection(
+    *,
+    installer_module: object,
+    home: Path,
+    result: dict[str, object],
+    role_snapshot: dict[str, tuple[bytes, int]] | None = None,
+) -> dict[str, object]:
+    backup = result.get("backup")
+    if not isinstance(backup, dict) or not backup.get("backup_root"):
+        projection = {
+            "ok": True,
+            "status": "NOT_REQUIRED",
+            "reason": "no_projection_backup",
+        }
+        if role_snapshot is not None:
+            roles = _restore_codex_roles(home, role_snapshot)
+            projection["roles"] = roles
+            projection["ok"] = roles.get("ok") is True
+            if projection["ok"] is not True:
+                projection["status"] = "RECOVERY_REQUIRED"
+        return projection
+    try:
+        rollback = installer_module.rollback_install_backup(
+            home_root=home,
+            backup_root=Path(str(backup["backup_root"])),
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": f"projection_rollback_failed:{type(exc).__name__}:{exc}",
+        }
+    projection = rollback if isinstance(rollback, dict) else {
+        "ok": False,
+        "status": "RECOVERY_REQUIRED",
+        "reason": "projection_rollback_invalid",
+    }
+    if role_snapshot is not None:
+        roles = _restore_codex_roles(home, role_snapshot)
+        projection["roles"] = roles
+        projection["ok"] = projection.get("ok") is True and roles.get("ok") is True
+        if projection["ok"] is not True:
+            projection["status"] = "RECOVERY_REQUIRED"
+    return projection
+
+
+def _demote_committed_binding(
+    *,
+    home: Path,
+    installer_module: object,
+) -> dict[str, object]:
+    path = home / ".agents" / "install-receipts" / NAME / "installation-binding-v2.json"
+    try:
+        binding = _read_json_object(path, label="installation_binding")
+        if binding.get("schema") != "court.installation_binding.v2":
+            return {"ok": False, "status": "RECOVERY_REQUIRED", "reason": "binding_schema_invalid"}
+        binding["completion"] = "RECOVERY_REQUIRED"
+        writer = getattr(installer_module, "_write_json_atomic")
+        writer(path, binding)
+    except (AttributeError, OSError, RuntimeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": f"binding_demote_failed:{type(exc).__name__}:{exc}",
+        }
+    return {"ok": True, "status": "RECOVERY_REQUIRED", "path": str(path)}
+
+
+def _run_public_shim_probe(
+    *,
+    candidate_package_root: Path,
+    source: Path,
+    home: Path,
+    binding: dict[str, object],
+    caller_cwd: Path | None,
+) -> dict[str, object]:
+    if caller_cwd is None:
+        return {"ok": False, "status": "BLOCKED", "reason": "caller_cwd_required"}
+    try:
+        caller = _physical_directory(caller_cwd, label="public_shim_caller_cwd")
+        source_physical = _physical_directory(source, label="public_shim_source")
+        package_root = _physical_directory(
+            candidate_package_root,
+            label="public_shim_candidate_package",
+        )
+    except RuntimeError as exc:
+        return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
+    try:
+        caller.relative_to(source_physical)
+    except ValueError:
+        pass
+    else:
+        return {"ok": False, "status": "BLOCKED", "reason": "public_shim_caller_inside_source"}
+    try:
+        node_modules = package_root.parents[1]
+    except IndexError:
+        return {"ok": False, "status": "BLOCKED", "reason": "public_shim_layout_invalid"}
+    if node_modules.name.casefold() != "node_modules":
+        return {"ok": False, "status": "BLOCKED", "reason": "public_shim_layout_invalid"}
+    try:
+        shim_root = _physical_directory(
+            node_modules / ".bin",
+            label="public_shim_directory",
+        )
+    except RuntimeError as exc:
+        return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
+    if os.name == "nt":
+        shim = shim_root / "decretum-matrix.cmd"
+        try:
+            shim_status = shim.lstat()
+        except OSError as exc:
+            return {"ok": False, "status": "BLOCKED", "reason": f"public_shim_missing:{type(exc).__name__}"}
+        if _is_link_or_reparse(shim) or not stat.S_ISREG(shim_status.st_mode):
+            return {"ok": False, "status": "BLOCKED", "reason": "public_shim_unsafe"}
+        command = [
+            os.environ.get("ComSpec", "cmd.exe"),
+            "/d",
+            "/s",
+            "/c",
+            subprocess.list2cmdline([str(shim), "--runtime-identity"]),
+        ]
+    else:
+        shim = shim_root / "decretum-matrix"
+        try:
+            resolved_shim = shim.resolve(strict=True)
+            shim_status = resolved_shim.lstat()
+            resolved_shim.relative_to(package_root)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "status": "BLOCKED", "reason": f"public_shim_missing:{type(exc).__name__}"}
+        if _is_link_or_reparse(resolved_shim) or not stat.S_ISREG(shim_status.st_mode):
+            return {"ok": False, "status": "BLOCKED", "reason": "public_shim_unsafe"}
+        command = [str(shim), "--runtime-identity"]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=caller,
+            env=_acceptance_environment(home),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            shell=False,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"public_shim_failed:{type(exc).__name__}",
+            "command": command,
+            "cwd": str(caller),
+        }
+    try:
+        emitted = json.loads(completed.stdout.strip())
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"public_shim_invalid_json:{type(exc).__name__}",
+            "command": command,
+            "cwd": str(caller),
+            "exit_code": completed.returncode,
+            "stdout": completed.stdout[-4000:],
+            "stderr": completed.stderr[-4000:],
+        }
+    if completed.returncode != 0 or not isinstance(emitted, dict):
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "public_shim_not_passed",
+            "command": command,
+            "cwd": str(caller),
+            "exit_code": completed.returncode,
+            "identity": emitted,
+        }
+    if any(
+        emitted.get(field) != binding.get(field)
+        for field in (
+            "schema",
+            "source_commit",
+            "release_label",
+            "artifact_ref",
+            "build_id",
+            "installation_id",
+            "generation",
+            "canonical_root",
+            "selected_roots",
+            "completion",
+            "transaction_id",
+            "rollback_ref",
+        )
+    ):
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "public_shim_binding_mismatch",
+            "command": command,
+            "cwd": str(caller),
+            "identity": emitted,
+        }
+    return {
+        "ok": True,
+        "status": "PASS",
+        "command": command,
+        "cwd": str(caller),
+        "exit_code": completed.returncode,
+        "identity": emitted,
+    }
+
+
+def _install_update(
+    source_selection: dict[str, object],
+    home: Path,
+    *,
+    write: bool,
+    candidate_package_root: Path | None = None,
+    candidate_tgz: Path | None = None,
+    candidate_receipt: Path | None = None,
+    npm_prefix: Path | None = None,
+    transaction_id: str | None = None,
+    installation_id: str | None = None,
+    caller_cwd: Path | None = None,
+) -> dict[str, object]:
     selected = source_selection.get("selected_root")
     if not isinstance(selected, str):
         return {
@@ -63,6 +1063,71 @@ def _install_update(source_selection: dict[str, object], home: Path, *, write: b
             "status": "BLOCKED",
             "reason": "source_unavailable",
         }
+    if write and caller_cwd is None:
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "caller_cwd_required",
+        }
+    npm_install_result: dict[str, object] | None = None
+    npm_installed_here = False
+    if candidate_tgz is not None:
+        if not write:
+            return {
+                "schema": SCHEMA,
+                "ok": False,
+                "status": "PLANNED",
+                "reason": "explicit_apply_required_for_candidate_npm_install",
+            }
+        if npm_prefix is None:
+            return {
+                "schema": SCHEMA,
+                "ok": False,
+                "status": "BLOCKED",
+                "reason": "npm_prefix_required_for_candidate_tgz",
+            }
+        npm_install_result = _install_candidate_npm(
+            candidate_tgz=candidate_tgz,
+            npm_prefix=npm_prefix,
+            home=home,
+            caller_cwd=caller_cwd,
+        )
+        if npm_install_result.get("ok") is not True:
+            return {"schema": SCHEMA, **npm_install_result}
+        npm_installed_here = True
+        candidate_package_root = Path(str(npm_install_result["package_root"]))
+
+    def attach_npm_compensation(payload: dict[str, object]) -> dict[str, object]:
+        if not npm_installed_here or npm_prefix is None or caller_cwd is None:
+            return payload
+        rollback = _rollback_candidate_npm(
+            npm_prefix=npm_prefix,
+            home=home,
+            caller_cwd=caller_cwd,
+        )
+        payload["npm_candidate_install"] = npm_install_result
+        payload["npm_candidate_compensation"] = rollback
+        if rollback.get("ok") is not True:
+            payload["status"] = "RECOVERY_REQUIRED"
+            payload["recovery_required"] = True
+        return payload
+    try:
+        binding_metadata = _installation_binding_metadata(
+            Path(selected),
+            candidate_package_root=candidate_package_root,
+            candidate_receipt=candidate_receipt,
+            npm_prefix=npm_prefix,
+            transaction_id=transaction_id,
+            installation_id=installation_id,
+        )
+    except RuntimeError as exc:
+        return attach_npm_compensation({
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": str(exc),
+        })
     module = importlib.import_module("install_current_agent_copy")
     result = module.install_current_agent_copy(
         source_root=Path(selected),
@@ -73,19 +1138,141 @@ def _install_update(source_selection: dict[str, object], home: Path, *, write: b
         projection_manifest=Path(selected) / PROJECTION_PATH,
         write=write,
         fanout=False,
+        installation_binding=binding_metadata,
     )
     if not isinstance(result, dict) or result.get("ok") is not True:
-        return result if isinstance(result, dict) else {"ok": False, "status": "INVALID"}
-    role_result = _sync_codex_agent_roles(home, write=write)
+        return attach_npm_compensation(
+            result if isinstance(result, dict) else {"ok": False, "status": "INVALID"}
+        )
+    try:
+        role_snapshot = _snapshot_codex_roles(home) if write else None
+    except RuntimeError as exc:
+        compensation = _compensate_projection(
+            installer_module=module,
+            home=home,
+            result=result,
+        ) if write else {"ok": True, "status": "NOT_APPLIED"}
+        return attach_npm_compensation({
+            **result,
+            "ok": False,
+            "status": "ROLLED_BACK" if compensation.get("ok") is True else "RECOVERY_REQUIRED",
+            "reason": "codex_agent_roles_snapshot_failed",
+            "compensation": compensation,
+            "recovery_required": compensation.get("ok") is not True,
+        })
+    try:
+        role_result = _sync_codex_agent_roles(home, write=write)
+    except Exception as exc:
+        role_result = {
+            "ok": False,
+            "status": "FAIL",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     result = {**result, "codex_agent_roles": role_result}
     if role_result.get("ok") is not True:
+        compensation = _compensate_projection(
+            installer_module=module,
+            home=home,
+            result=result,
+            role_snapshot=role_snapshot,
+        ) if write else {"ok": True, "status": "NOT_APPLIED"}
         result.update(
             {
                 "ok": False,
-                "status": "PARTIAL",
+                "status": "ROLLED_BACK" if compensation.get("ok") is True else "RECOVERY_REQUIRED",
                 "reason": "codex_agent_roles_sync_failed",
+                "compensation": compensation,
+                "recovery_required": compensation.get("ok") is not True,
             }
         )
+        return attach_npm_compensation(result)
+    if write:
+        binding = result.get("installation_binding")
+        if not isinstance(binding, dict):
+            return attach_npm_compensation({
+                **result,
+                "ok": False,
+                "status": "RECOVERY_REQUIRED",
+                "reason": "installation_binding_missing_after_projection",
+                "compensation": _compensate_projection(
+                    installer_module=module,
+                    home=home,
+                    result=result,
+                    role_snapshot=role_snapshot,
+                ),
+            })
+        acceptance = _run_post_projection_acceptance(
+            source=Path(selected),
+            home=home,
+            binding=binding,
+            candidate=binding_metadata,
+            installer_module=module,
+        )
+        result["post_projection_acceptance"] = acceptance
+        result["candidate_package_root"] = binding_metadata.get("candidate_package_root")
+        if acceptance.get("ok") is not True:
+            compensation = _compensate_projection(
+                installer_module=module,
+                home=home,
+                result=result,
+                role_snapshot=role_snapshot,
+            )
+            result.update(
+                {
+                    "ok": False,
+                    "status": "ROLLED_BACK" if compensation.get("ok") is True else "RECOVERY_REQUIRED",
+                    "reason": "post_projection_acceptance_failed",
+                    "compensation": compensation,
+                    "recovery_required": compensation.get("ok") is not True,
+                }
+            )
+            return attach_npm_compensation(result)
+        committed_binding = (
+            acceptance.get("commit_result", {}).get("installation_binding")
+            if isinstance(acceptance.get("commit_result"), dict)
+            else None
+        )
+        if not isinstance(committed_binding, dict):
+            committed_binding = dict(binding)
+            committed_binding["completion"] = "COMMITTED"
+        result["installation_binding"] = committed_binding
+        result["status"] = "COMMITTED"
+        result["reason"] = "projection_applied_and_post_projection_accepted"
+        shim_probe = _run_public_shim_probe(
+            candidate_package_root=Path(str(binding_metadata["candidate_package_root"])),
+            source=Path(selected),
+            home=home,
+            binding=committed_binding,
+            caller_cwd=caller_cwd,
+        )
+        result["public_shim"] = shim_probe
+        if shim_probe.get("ok") is not True:
+            demoted = _demote_committed_binding(
+                home=home,
+                installer_module=module,
+            )
+            compensation = _compensate_projection(
+                installer_module=module,
+                home=home,
+                result=result,
+                role_snapshot=role_snapshot,
+            )
+            compensation["binding"] = demoted
+            compensation_ok = (
+                compensation.get("ok") is True and demoted.get("ok") is True
+            )
+            result.update(
+                {
+                    "ok": False,
+                    "status": "ROLLED_BACK" if compensation_ok else "RECOVERY_REQUIRED",
+                    "reason": "public_shim_probe_failed",
+                    "compensation": compensation,
+                    "recovery_required": not compensation_ok,
+                }
+            )
+            return attach_npm_compensation(result)
+    if npm_install_result is not None:
+        result["npm_candidate_install"] = npm_install_result
     return result
 
 
@@ -127,6 +1314,96 @@ def _projection_rollback(home: Path, backup_root: str | None) -> dict[str, objec
     )
 
 
+def _commit_installation_binding(
+    home: Path,
+    validation_receipt: str | None,
+    *,
+    source_root: Path | None = None,
+    candidate_package_root: Path | None = None,
+    candidate_receipt: Path | None = None,
+    npm_prefix: Path | None = None,
+) -> dict[str, object]:
+    if not validation_receipt:
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "validation_receipt_required",
+        }
+    resolved = resolve_user_path(validation_receipt, default=home)
+    try:
+        validation = _read_json_object(resolved, label="validation_receipt")
+    except RuntimeError as exc:
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": f"validation_receipt_invalid:{exc}",
+        }
+    if validation.get("schema") != INSTALLATION_ACCEPTANCE_SCHEMA:
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "validation_receipt_producer_schema_required",
+        }
+    binding = validation.get("binding")
+    if not isinstance(binding, dict):
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "validation_receipt_binding_context_required",
+        }
+    if source_root is None or candidate_package_root is None:
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "candidate_context_required_for_commit",
+        }
+    try:
+        candidate = _installation_binding_metadata(
+            source_root,
+            candidate_package_root=candidate_package_root,
+            candidate_receipt=candidate_receipt,
+            npm_prefix=npm_prefix,
+            transaction_id=str(binding.get("transaction_id") or ""),
+            installation_id=str(binding.get("installation_id") or ""),
+        )
+    except RuntimeError as exc:
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": str(exc),
+        }
+    if any(
+        candidate.get(field) != binding.get(field)
+        for field in (
+            "source_commit",
+            "release_label",
+            "artifact_ref",
+            "build_id",
+            "installation_id",
+            "transaction_id",
+            "provenance_receipt_ref",
+        )
+    ):
+        return {
+            "schema": SCHEMA,
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "candidate_binding_context_mismatch",
+        }
+    module = importlib.import_module("install_current_agent_copy")
+    result = module.commit_installation_binding(
+        home_root=home,
+        external_validation=validation,
+    )
+    return result if isinstance(result, dict) else {"ok": False, "status": "INVALID"}
+
+
 def _legacy_rollback(home: Path, receipt: str, *, write: bool) -> dict[str, object]:
     module = importlib.import_module("migrate_legacy_skill_locator")
     resolved = resolve_user_path(receipt, default=home)
@@ -135,7 +1412,10 @@ def _legacy_rollback(home: Path, receipt: str, *, write: bool) -> dict[str, obje
 
 def run(argv: list[str] | None = None) -> dict[str, object]:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("update", "migrate", "rollback"))
+    parser.add_argument(
+        "operation",
+        choices=("update", "migrate", "rollback", "commit-binding"),
+    )
     parser.add_argument("--apply", action="store_true", help="Apply the requested repair. Default is a read-only plan.")
     parser.add_argument("--source-root")
     parser.add_argument("--mapped-root")
@@ -143,6 +1423,14 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
     parser.add_argument("--root", action="append", default=[])
     parser.add_argument("--receipt")
     parser.add_argument("--backup-root")
+    parser.add_argument("--validation-receipt")
+    parser.add_argument("--candidate-package-root")
+    parser.add_argument("--candidate-tgz")
+    parser.add_argument("--candidate-receipt")
+    parser.add_argument("--npm-prefix")
+    parser.add_argument("--transaction-id")
+    parser.add_argument("--installation-id")
+    parser.add_argument("--caller-cwd")
     parser.add_argument("--format", choices=("text", "json"), default="json")
     args = parser.parse_args(argv)
     audit_intent = write_audit_event(
@@ -156,16 +1444,93 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             "source_root": args.source_root,
             "mapped_root": args.mapped_root,
             "home_root": args.home_root,
+            "candidate_package_root": args.candidate_package_root,
+            "candidate_tgz": args.candidate_tgz,
+            "candidate_receipt": args.candidate_receipt,
+            "npm_prefix": args.npm_prefix,
+            "transaction_id": args.transaction_id,
+            "installation_id": args.installation_id,
+            "caller_cwd": args.caller_cwd,
         },
     )
     home = _home_root(args.home_root)
-    source_selection = select_source(source_root=args.source_root, mapped_root=args.mapped_root)
+    candidate_package_root = (
+        resolve_user_path(args.candidate_package_root, default=home)
+        if args.candidate_package_root
+        else None
+    )
+    candidate_tgz = (
+        resolve_user_path(args.candidate_tgz, default=home)
+        if args.candidate_tgz
+        else None
+    )
+    candidate_receipt = (
+        resolve_user_path(args.candidate_receipt, default=home)
+        if args.candidate_receipt
+        else None
+    )
+    npm_prefix = (
+        resolve_user_path(args.npm_prefix, default=home)
+        if args.npm_prefix
+        else None
+    )
+    caller_cwd = (
+        resolve_user_path(args.caller_cwd, default=home)
+        if args.caller_cwd
+        else None
+    )
+    source_selection = (
+        {
+            "selected_root": None,
+            "status": "NOT_REQUIRED",
+            "reason": "installation_binding_commit_uses_existing_home_binding",
+        }
+        if args.operation == "commit-binding"
+        else select_source(
+            source_root=args.source_root,
+            mapped_root=args.mapped_root,
+        )
+    )
     backup = resolve_user_path(args.backup_root, default=home) if args.backup_root else None
     try:
         if args.operation == "update":
-            result = _install_update(source_selection, home, write=args.apply)
+            result = _install_update(
+                source_selection,
+                home,
+                write=args.apply,
+                candidate_package_root=candidate_package_root,
+                candidate_tgz=candidate_tgz,
+                candidate_receipt=candidate_receipt,
+                npm_prefix=npm_prefix,
+                transaction_id=args.transaction_id,
+                installation_id=args.installation_id,
+                caller_cwd=caller_cwd,
+            )
         elif args.operation == "migrate":
             result = _legacy_migration(home, args.root, args.receipt, write=args.apply)
+        elif args.operation == "commit-binding":
+            result = (
+                _commit_installation_binding(
+                    home,
+                    args.validation_receipt,
+                    source_root=(
+                        Path(args.source_root).resolve(strict=False)
+                        if args.source_root
+                        else None
+                    ),
+                    candidate_package_root=candidate_package_root,
+                    candidate_receipt=candidate_receipt,
+                    npm_prefix=npm_prefix,
+                )
+                if args.apply
+                else {
+                    "schema": "court.installation_binding.v2",
+                    "ok": False,
+                    "status": "PLANNED",
+                    "write": False,
+                    "reason": "explicit_apply_required",
+                }
+            )
         elif args.receipt:
             result = _legacy_rollback(home, args.receipt, write=args.apply)
         else:
@@ -226,4 +1591,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

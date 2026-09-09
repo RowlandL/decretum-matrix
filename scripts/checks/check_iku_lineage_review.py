@@ -115,7 +115,7 @@ class ReviewIdentityTests(unittest.TestCase):
         self.assertEqual(detector.detect_candidates(root=self.root)[0]["suggested_action"], "REVIEW")
         self.assertEqual(repair.plan_repairs(root=self.root), [])
 
-    def test_checkpoint_sources_and_duplicate_fragments_stay_bound_to_lines(self) -> None:
+    def test_checkpoint_sources_and_duplicate_references_stay_bound_to_coordinates(self) -> None:
         path = self.root / "multi.md"
         path.write_text(record(LEGACY, REVIEW_LINEAGE, path=path) + record(VALID, LINEAGE, path=path), encoding="utf-8")
         plan = repair.plan_repairs(root=self.root)
@@ -282,7 +282,7 @@ class ReviewIdentityTests(unittest.TestCase):
         self.assertNotEqual(journals[0]["journal_path"], journals[1]["journal_path"])
         self.assertNotEqual(journals[0]["files"][0]["backup_path"], journals[1]["files"][0]["backup_path"])
         # Rollback remains compatible with an existing binary .bak, without
-        # requiring any new journal fields or recomputing a historical hash.
+        # requiring any new journal fields or recomputing a content fingerprint.
         old_backup = backups / "historical.bak"
         old_backup.write_bytes(original)
         repair.rollback(old_backup, path)

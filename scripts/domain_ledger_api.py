@@ -21,7 +21,6 @@ Guarantees implemented in this module:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -56,10 +55,6 @@ def default_ledger_root() -> Path:
 
 def ledger_file(root: Path, kind: str) -> Path:
     return Path(root) / "domain-ledger" / f"{kind}.json"
-
-
-def _topic_sha256(topic: str) -> str:
-    return hashlib.sha256(topic.encode("utf-8")).hexdigest()
 
 
 def _load_ledger(path: Path) -> dict[str, Any]:
@@ -299,7 +294,7 @@ def _receipt_commit_proves_record(
         receipt.get("schema") != GIT_RECEIPT_SCHEMA
         or receipt.get("transaction_id") != transaction_id
         or receipt.get("ledger_path") != ledger_relative_path
-        or receipt.get("ledger_sha256") != hashlib.sha256(ledger_text.encode("utf-8")).hexdigest()
+        or receipt.get("revision") != record.get("revision")
     ):
         return False
     revisions = ledger.get("revisions") if isinstance(ledger, dict) else None
@@ -314,7 +309,7 @@ def _receipt_commit_proves_record(
     if len(matching) != 1:
         return False
     candidate = matching[0]
-    for field in ("revision", "topic", "operation", "content_sha256"):
+    for field in ("revision", "topic", "operation", "actor", "authority", "write_set", "idempotency_key"):
         if candidate.get(field) != record.get(field):
             return False
     parents = _git_run(root, "show", "-s", "--format=%P", commit_sha).stdout.strip().split()
@@ -395,7 +390,6 @@ def _commit_receipt_text(
     kind: str,
     revision: int,
     ledger_relative_path: str,
-    ledger_text: str,
     parent_commit: str | None,
 ) -> str:
     """Build a durable receipt before committing, avoiding a self-referential SHA."""
@@ -405,7 +399,6 @@ def _commit_receipt_text(
         "kind": kind,
         "revision": revision,
         "ledger_path": ledger_relative_path,
-        "ledger_sha256": hashlib.sha256(ledger_text.encode("utf-8")).hexdigest(),
         "parent_commit": parent_commit,
     }
     return json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -432,6 +425,7 @@ def _verify_committed_receipt(
     receipt_relative_path: str,
     receipt_text: str,
     transaction_id: str,
+    revision: int,
 ) -> None:
     """Require committed, index, and worktree copies to agree before success."""
     for relative, expected, label in (
@@ -448,7 +442,7 @@ def _verify_committed_receipt(
     if (
         receipt.get("transaction_id") != transaction_id
         or receipt.get("ledger_path") != ledger_relative_path
-        or receipt.get("ledger_sha256") != hashlib.sha256(ledger_text.encode("utf-8")).hexdigest()
+        or receipt.get("revision") != revision
     ):
         raise ValueError("domain_ledger_commit_receipt_mismatch")
     for label, arguments in (
@@ -514,7 +508,17 @@ def domain_ledger_read(kind: str, root: Path | None = None, limit: int = 50) -> 
             "revision": item.get("revision"),
             "operation": item.get("operation"),
             "topic": item.get("topic"),
-            "content_sha256": item.get("content_sha256"),
+            "idempotency_key": item.get("idempotency_key"),
+            "transaction_id": (
+                item["git_receipt"].get("transaction_id")
+                if isinstance(item.get("git_receipt"), dict)
+                else None
+            ),
+            "receipt_path": (
+                item["git_receipt"].get("path")
+                if isinstance(item.get("git_receipt"), dict)
+                else None
+            ),
             "actor": item.get("actor"),
             "authority": item.get("authority"),
             "write_set": item.get("write_set"),
@@ -630,7 +634,6 @@ def domain_ledger_write(
                 "revision": revision,
                 "operation": operation,
                 "topic": topic,
-                "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
                 "actor": str(actor).strip(),
                 "authority": str(authority).strip().lower(),
                 "write_set": sorted(str(item).strip() for item in write_set if str(item).strip()),
@@ -654,7 +657,6 @@ def domain_ledger_write(
                 kind=kind,
                 revision=revision,
                 ledger_relative_path=ledger_relative_path,
-                ledger_text=ledger_text,
                 parent_commit=before_head,
             )
             index_path = _git_index_path(selected_root)
@@ -669,7 +671,7 @@ def domain_ledger_write(
                 failure_stage = "git_commit"
                 commit_sha = _git_commit(
                     selected_root,
-                    f"domain-ledger: {kind} {operation} {_topic_sha256(topic)[:12]}",
+                    f"domain-ledger: {kind} {operation} {topic}",
                     [ledger_relative_path, receipt_relative_path],
                 )
             except (OSError, ValueError, UnicodeError, subprocess.TimeoutExpired) as exc:
@@ -700,6 +702,7 @@ def domain_ledger_write(
                     receipt_relative_path=receipt_relative_path,
                     receipt_text=receipt_text,
                     transaction_id=transaction_id,
+                    revision=revision,
                 )
             except (OSError, ValueError, UnicodeError, subprocess.TimeoutExpired) as exc:
                 return {

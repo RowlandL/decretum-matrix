@@ -36,6 +36,14 @@ PROJECTION_MANIFEST = ROOT / "references" / "manifests" / "install-projection.v1
 CLI_REGISTRY = ROOT / "scripts" / "court_cli_registry.py"
 INSTALL_CHECKER_MODULE = "check_active_copy_hashes"
 INSTALL_CHECKER_RELATIVE = "scripts/check_active_copy_hashes.py"
+EXTERNAL_INSTALLER_PATHS = (
+    "scripts/install_current_agent_copy.py",
+    "scripts/install_projection_renderer.py",
+    "scripts/commands/sync_active_copies.py",
+    "scripts/sync_active_copies.py",
+    "scripts/commands/fix_decretum_matrix.py",
+    "scripts/commands/migrate_legacy_skill_locator.py",
+)
 MANDATORY_RUNTIME_GUIDES = ("references/court-normal-startup.md",)
 RUNTIME_DOCUMENT_ROOTS = (
     "SKILL.md",
@@ -869,6 +877,29 @@ def evaluate() -> dict[str, Any]:
         or INSTALL_CHECKER_RELATIVE not in repository_only
     ):
         failures.append("checker_repository_only_declaration_missing")
+    installer_projection_leaks = [
+        path
+        for path in EXTERNAL_INSTALLER_PATHS
+        if any(
+            isinstance(projections.get(name), list)
+            and path in projections[name]
+            for name in ("shared_agents", "portable_current_tool", "cli_public")
+        )
+    ]
+    installer_repository_only_missing = [
+        path
+        for path in EXTERNAL_INSTALLER_PATHS
+        if not isinstance(repository_only, list) or path not in repository_only
+    ]
+    if installer_projection_leaks:
+        failures.append(
+            "external_installer_projected:" + ",".join(installer_projection_leaks)
+        )
+    if installer_repository_only_missing:
+        failures.append(
+            "external_installer_repository_only_missing:"
+            + ",".join(installer_repository_only_missing)
+        )
     checker_source = ROOT / INSTALL_CHECKER_RELATIVE
     source_checkout = (ROOT / ".git").exists()
     if source_checkout and not checker_source.is_file():
@@ -879,6 +910,11 @@ def evaluate() -> dict[str, Any]:
     if not isinstance(cli_public, list) or any(not isinstance(item, str) for item in cli_public):
         failures.append("cli_public:projection_list_invalid")
         cli_public = []
+    excluded_globs = tuple(
+        value
+        for value in projection.get("active_render", {}).get("exclude_path_globs", [])
+        if isinstance(value, str)
+    )
     for target in ("shared_agents", "portable_current_tool"):
         raw_paths = projections.get(target)
         if not isinstance(raw_paths, list) or any(not isinstance(item, str) for item in raw_paths):
@@ -929,6 +965,8 @@ def evaluate() -> dict[str, Any]:
         missing_imports: list[str] = []
         checker_couplings: list[str] = []
         for relative in sorted(projected_files):
+            if active_path_is_excluded(relative, excluded_globs):
+                continue
             path = ROOT / relative
             suffix = path.suffix.casefold()
             if not path.is_file():
@@ -983,6 +1021,9 @@ def evaluate() -> dict[str, Any]:
             if checker_source.is_file()
             else "INSTALLED_ABSENT"
         ),
+        "external_installer_paths": list(EXTERNAL_INSTALLER_PATHS),
+        "external_installer_projection_leaks": installer_projection_leaks,
+        "external_installer_repository_only_missing": installer_repository_only_missing,
         "evidence": evidence,
         "failures": failures,
     }

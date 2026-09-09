@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import importlib
 import importlib.util
 import io
@@ -52,7 +53,17 @@ NON_PUBLIC_ENTRYPOINTS = frozenset(
         "scripts/build_npm_package.mjs",
         "scripts/check_npm_package.mjs",
         "scripts/checks/check_active_copy_hashes.py",
+        "scripts/checks/check_runtime_identity_contract.py",
+        "scripts/checks/check_runtime_no_file_rehash.py",
+        "scripts/checks/check_supercc_functional.py",
+        "scripts/checks/check_supercc_truth_gates.py",
+        "scripts/commands/fix_decretum_matrix.py",
+        "scripts/commands/migrate_legacy_skill_locator.py",
+        "scripts/commands/sync_active_copies.py",
         "scripts/court_mcp_server.py",
+        "scripts/install_current_agent_copy.py",
+        "scripts/install_projection_renderer.py",
+        "scripts/sync_active_copies.py",
         "scripts/commands/install_codex_plugin_projection.py",
         "scripts/commands/memory_pipeline_fixture.py",
         "scripts/checks/check_doctor_debug_fix.py",
@@ -618,10 +629,14 @@ def evaluate_inventory() -> dict[str, object]:
             problems.append("entrypoints_stale")
         duplicate_ids = _duplicates(str(entry.get("id") or "") for entry in entries)
         duplicate_paths = _duplicates(manifest_paths)
+        def effective_public(entry: Mapping[str, object]) -> bool:
+            path = str(entry.get("legacy_path") or "")
+            return entry.get("public") is True and path not in NON_PUBLIC_ENTRYPOINTS
+
         public_tuples = [
             f"{entry.get('group')}\0{entry.get('command')}"
             for entry in entries
-            if entry.get("public") is True
+            if effective_public(entry)
         ]
         duplicate_public = [value.replace("\0", " ") for value in _duplicates(public_tuples)]
         if duplicate_ids:
@@ -630,7 +645,7 @@ def evaluate_inventory() -> dict[str, object]:
             problems.append("duplicate_legacy_paths")
         if duplicate_public:
             problems.append("duplicate_public_commands")
-        public_entries = [entry for entry in entries if entry.get("public") is True]
+        public_entries = [entry for entry in entries if effective_public(entry)]
         public_count = len(public_entries)
         expected_public = {
             path: _manifest_entry(path).get("public") is True
@@ -641,7 +656,7 @@ def evaluate_inventory() -> dict[str, object]:
             for path, expected in expected_public.items()
             if next(
                 (
-                    entry.get("public") is True
+                    effective_public(entry)
                     for entry in entries
                     if entry.get("legacy_path") == path
                 ),
@@ -674,7 +689,7 @@ def evaluate_inventory() -> dict[str, object]:
         groups = {
             str(entry.get("group") or "")
             for entry in entries
-            if entry.get("public") is True and entry.get("group") != "root"
+            if effective_public(entry) and entry.get("group") != "root"
         }
         missing_groups = sorted(EXPECTED_MANIFEST_PUBLIC_GROUPS - groups)
         if missing_groups:
@@ -1744,6 +1759,145 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
         "fallback_cli": fallback_cli,
         "runtime_identity": probe_identity,
         "postinstall_runtime": postinstall_runtime,
+        "problems": problems,
+    }
+
+
+def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
+    """Exercise the v2 binding selector without executing an install path."""
+
+    problems: list[str] = []
+    normal_cli: str | None = None
+    emitted_binding: dict[str, object] | None = None
+    binding_relative = Path(
+        ".agents/install-receipts/decretum-matrix/installation-binding-v2.json"
+    )
+    binding_schema = "court.installation_binding.v2"
+    try:
+        launcher_path = ROOT / "bin" / "decretum-matrix.py"
+        spec = importlib.util.spec_from_file_location(
+            "decretum_matrix_npm_launcher_binding_check", launcher_path
+        )
+        if spec is None or spec.loader is None:
+            raise AssertionError("npm launcher import spec unavailable")
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        with tempfile.TemporaryDirectory(prefix="decretum-npm-binding-cli-") as temp_text:
+            temp = Path(temp_text)
+            package_root = temp / "package"
+            home = temp / "home"
+            canonical = home / ".agents" / "skills" / "decretum-matrix"
+            (canonical / "scripts").mkdir(parents=True, exist_ok=True)
+            (canonical / "scripts" / "court_cli.py").write_text(
+                "print('binding-cli')\n", encoding="utf-8"
+            )
+            package_root.mkdir()
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "@rowlandl/decretum-matrix",
+                        "decretumMatrix": {
+                            "releaseLabel": "beta-test",
+                            "source": {"commit": "commit-a", "tree": "tree-a"},
+                            "artifactRef": "release/decretum-matrix-beta-test.zip@commit-a",
+                            "buildId": "beta-test:commit-a:tree-a",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            binding_path = home / binding_relative
+            binding_path.parent.mkdir(parents=True, exist_ok=True)
+            binding_path.write_text(
+                json.dumps(
+                    {
+                        "schema": binding_schema,
+                        "source_commit": "commit-a",
+                        "release_label": "beta-test",
+                        "artifact_ref": "release/decretum-matrix-beta-test.zip@commit-a",
+                        "build_id": "beta-test:commit-a:tree-a",
+                        "installation_id": "installation-a",
+                        "generation": 1,
+                        "canonical_root": str(canonical.resolve(strict=False)),
+                        "selected_roots": [str(canonical.resolve(strict=False))],
+                        "completion": "COMMITTED",
+                        "provenance_receipt_ref": "receipt:candidate-a",
+                        "transaction_id": "transaction-a",
+                        "rollback_ref": "rollback:none",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            original_file = launcher.__file__
+            original_run_path = launcher.runpy.run_path
+            calls: list[str] = []
+
+            def fake_run_path(path: str, run_name: str | None = None) -> dict[str, object]:
+                calls.append(path)
+                return {}
+
+            launcher.__file__ = str(package_root / "bin" / "decretum-matrix.py")
+            launcher.runpy.run_path = fake_run_path
+            previous_home = os.environ.get("HOME")
+            previous_userprofile = os.environ.get("USERPROFILE")
+            os.environ["HOME"] = str(home)
+            os.environ["USERPROFILE"] = str(home)
+            try:
+                if launcher._canonical_runtime_root(package_root, home=home) != canonical:
+                    problems.append("committed_binding_not_selected")
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    rc = launcher.main(["--help"])
+                normal_cli = calls[-1] if calls else None
+                if rc != 0 or normal_cli != str(canonical / "scripts" / "court_cli.py"):
+                    problems.append("ordinary_binding_launcher_failed")
+                if output.getvalue():
+                    problems.append("ordinary_binding_launcher_polluted_stdout")
+                identity_output = io.StringIO()
+                with contextlib.redirect_stdout(identity_output):
+                    rc = launcher.main(["--runtime-identity"])
+                try:
+                    emitted_binding = json.loads(identity_output.getvalue())
+                except json.JSONDecodeError:
+                    emitted_binding = None
+                if rc != 0 or not isinstance(emitted_binding, dict):
+                    problems.append("binding_identity_probe_failed")
+                elif (
+                    emitted_binding.get("schema") != binding_schema
+                    or emitted_binding.get("completion") != "COMMITTED"
+                    or "content_digest" in emitted_binding
+                ):
+                    problems.append("binding_identity_probe_contract_failed")
+                try:
+                    launcher.main(["--npm-postinstall"])
+                except Exception as exc:
+                    if type(exc).__name__ != "LauncherError" or str(exc) != "npm_postinstall_disabled":
+                        problems.append(
+                            f"npm_postinstall_wrong_rejection:{type(exc).__name__}:{exc}"
+                        )
+                else:
+                    problems.append("npm_postinstall_was_accepted")
+            finally:
+                if previous_home is None:
+                    os.environ.pop("HOME", None)
+                else:
+                    os.environ["HOME"] = previous_home
+                if previous_userprofile is None:
+                    os.environ.pop("USERPROFILE", None)
+                else:
+                    os.environ["USERPROFILE"] = previous_userprofile
+                launcher.__file__ = original_file
+                launcher.runpy.run_path = original_run_path
+    except (AssertionError, ImportError, OSError, UnicodeError, AttributeError) as exc:
+        problems.append(f"npm_launcher_binding_unavailable:{type(exc).__name__}:{exc}")
+    return {
+        "schema": "decretum.cli_npm_runtime_selection_check.v2",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_NPM_CANONICAL_RUNTIME": "PASS" if not problems else "FAIL",
+        "normal_cli": normal_cli,
+        "runtime_identity": emitted_binding,
+        "binding_schema": binding_schema,
         "problems": problems,
     }
 
