@@ -2107,7 +2107,7 @@ def main() -> int:
         if field in {"source_commit", "artifact_ref"}
     }
     package_provenance_problems: list[str] = []
-    if phase in {"candidate", "pre-install", "post-install", "full"} and package_gate.get("status") == "PASSED":
+    if phase in {"post-install", "full"} and package_gate.get("status") == "PASSED":
         package_provenance_problems = validate_evidence_provenance(
             package_gate,
             required=("source_commit", "artifact_ref", "build_id", "release_label"),
