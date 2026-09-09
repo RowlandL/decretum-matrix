@@ -2225,7 +2225,7 @@ export async function runSyntheticSelfTest() {
       candidateDirectory: localCandidateDirectory,
       candidateRoot: localCandidateRoot,
       contract: localCandidateContract,
-      installedSmoke: false,
+      installedSmoke: true,
       outputDirectory: path.join(root, "local-install-output"),
       sourceRoot: localCandidateAuthority,
     });
@@ -2244,13 +2244,110 @@ export async function runSyntheticSelfTest() {
     assert(
       localCandidateGateEvidence?.status === "PASSED" &&
         localCandidateGateEvidence.domain_result?.ok === true &&
+        localCandidateGateEvidence.domain_result?.status === "PASSED" &&
+        localCandidateGateEvidence.domain_result?.installed_package_smoke?.status === "PASS" &&
+        localCandidateGateEvidence.execution?.entrypoint === "npm_bin_shim" &&
+        localCandidateGateEvidence.execution?.status === "PASS" &&
+        localCandidateGateEvidence.execution?.argv?.join(" ") ===
+          "--format json court status" &&
+        localCandidateGateEvidence.execution?.exit_code === 0 &&
+        localCandidateGateEvidence.execution?.output_truncated === false &&
         localCandidateGateEvidence.source_commit === localCandidateHead &&
         typeof localCandidateGateEvidence.artifact_ref === "string" &&
         typeof localCandidateGateEvidence.build_id === "string" &&
         localCandidateGateEvidence.log_complete === true &&
         localCandidateGateEvidence.log_capture?.complete === true &&
         typeof localCandidateBuild.candidateEvidenceFile === "string",
-      "local-install candidate did not emit gate-consumable evidence",
+      `local-install candidate did not retain a completed real public-shim smoke: ${JSON.stringify(localCandidateGateEvidence)}`,
+    );
+    const firstCandidateAttempt = localCandidateBuild.attempt;
+    assert(
+      typeof localCandidateBuild.candidateEvidencePath === "string" &&
+        typeof firstCandidateAttempt?.directory === "string" &&
+        typeof firstCandidateAttempt?.executionRef === "string" &&
+        localCandidateGateEvidence.execution?.stdout_ref ===
+          localCandidateGateEvidence.log_capture?.stdout_path &&
+        localCandidateGateEvidence.execution?.stderr_ref ===
+          localCandidateGateEvidence.log_capture?.stderr_path &&
+        localCandidateGateEvidence.installer_execution?.entrypoint ===
+          "explicit_isolated_installer" &&
+        typeof localCandidateGateEvidence.installer_execution?.stdout_ref === "string" &&
+        typeof localCandidateGateEvidence.installer_execution?.stderr_ref === "string" &&
+        typeof localCandidateGateEvidence.execution_ref === "string",
+      "local-install candidate did not retain per-attempt execution metadata and raw logs",
+    );
+    const capturedPublicStdout = await readFile(
+      localCandidateGateEvidence.execution.stdout_ref,
+      "utf8",
+    );
+    assert(
+      capturedPublicStdout ===
+        await readFile(localCandidateGateEvidence.log_capture.stdout_path, "utf8") &&
+        capturedPublicStdout.trim() !== "" &&
+        capturedPublicStdout !== jsonText(localCandidateBuild.receipt),
+      "candidate public-operation log was replaced by a receipt serialization",
+    );
+    const immutableCandidateBeforeReuse = await snapshotOutputDirectory(
+      localCandidateBuild.output.directory,
+    );
+    const repeatedLocalCandidateBuild = await buildLocalInstallCandidate({
+      candidateDirectory: localCandidateDirectory,
+      candidateRoot: localCandidateRoot,
+      contract: localCandidateContract,
+      installedSmoke: true,
+      outputDirectory: path.join(root, "local-install-output"),
+      sourceRoot: localCandidateAuthority,
+    });
+    const immutableCandidateAfterReuse = await snapshotOutputDirectory(
+      localCandidateBuild.output.directory,
+    );
+    assert(
+      repeatedLocalCandidateBuild.output.materialization === "REUSED" &&
+        repeatedLocalCandidateBuild.attempt?.directory !== firstCandidateAttempt.directory &&
+        isDeepStrictEqual(immutableCandidateBeforeReuse, immutableCandidateAfterReuse),
+      "genuine repeated candidate smoke mutated or collided with immutable output",
+    );
+    const collisionFiles = new Map();
+    for (const name of await readdir(localCandidateBuild.output.directory)) {
+      const body = await readFile(path.join(localCandidateBuild.output.directory, name));
+      collisionFiles.set(name, body);
+    }
+    const collisionTarball = Buffer.from(
+      collisionFiles.get(localCandidateBuild.receipt.package.filename),
+    );
+    collisionTarball[0] ^= 0x01;
+    collisionFiles.set(localCandidateBuild.receipt.package.filename, collisionTarball);
+    let candidateCollisionBlocked = false;
+    try {
+      await createOrReuseOutput(localCandidateBuild.output.directory, collisionFiles);
+    } catch (error) {
+      candidateCollisionBlocked =
+        error instanceof OutputCollisionError &&
+        error.code === "COLLISION_BLOCKED" &&
+        error.details?.reason === "CONTENT_MISMATCH";
+    }
+    const immutableCandidateAfterCollision = await snapshotOutputDirectory(
+      localCandidateBuild.output.directory,
+    );
+    assert(
+      candidateCollisionBlocked &&
+        isDeepStrictEqual(immutableCandidateBeforeReuse, immutableCandidateAfterCollision),
+      "candidate content collision did not remain blocked without mutation",
+    );
+    const unrunLocalCandidateBuild = await buildLocalInstallCandidate({
+      candidateDirectory: localCandidateDirectory,
+      candidateRoot: localCandidateRoot,
+      contract: localCandidateContract,
+      installedSmoke: false,
+      outputDirectory: path.join(root, "local-install-not-run-output"),
+      sourceRoot: localCandidateAuthority,
+    });
+    assert(
+      unrunLocalCandidateBuild.candidateEvidence?.status === "NOT_RUN" &&
+        unrunLocalCandidateBuild.candidateEvidence.domain_result?.ok === false &&
+        unrunLocalCandidateBuild.candidateEvidence.domain_result?.status === "NOT_RUN" &&
+        unrunLocalCandidateBuild.candidateEvidence.domain_result?.installed_package_smoke === "NOT_RUN",
+      "unrun local-install candidate was incorrectly eligible for gate acceptance",
     );
     let tamperedLocalCandidateRejected = false;
     const tamperedLocalCandidateRoot = path.join(root, "tampered-local-install-candidates");
@@ -3657,16 +3754,20 @@ async function createLocalInstallCandidatePackage({
         firstPack.size === secondPack.size,
       "npm pack is not deterministic for the local-install candidate",
     );
-    const smokeStatus = installedSmoke
-      ? await runInstalledSmoke(
+    const smoke = installedSmoke
+      ? await runIsolatedCandidateSmoke({
           operationRoot,
-          firstPack.tarballPath,
+          tarballPath: firstPack.tarballPath,
           npmState,
-          publishPackage,
-          candidate.assets,
-          localContract,
-        )
-      : "NOT_RUN";
+          candidate,
+          sourceRoot,
+        })
+      : {
+          status: "NOT_RUN",
+          summary: "NOT_RUN",
+          execution: null,
+          installerExecution: null,
+        };
     return {
       candidate,
       cleanup,
@@ -3674,7 +3775,7 @@ async function createLocalInstallCandidatePackage({
       dryRun,
       firstPack,
       publishPackage,
-      smokeStatus,
+      smoke,
     };
   } catch (error) {
     await cleanup();
@@ -3683,7 +3784,7 @@ async function createLocalInstallCandidatePackage({
 }
 
 function buildLocalInstallCandidateReceipt(verified) {
-  const { candidate, contract, firstPack, smokeStatus } = verified;
+  const { candidate, contract, firstPack, smoke } = verified;
   return {
     schema: "decretum.npm_local_install_candidate_receipt.v1",
     status: "PASS",
@@ -3725,7 +3826,7 @@ function buildLocalInstallCandidateReceipt(verified) {
       publish_config_absent: "PASS",
       npm_pack_dry_run: "PASS",
       deterministic_double_pack: "PASS",
-      installed_package_smoke: smokeStatus,
+      installed_package_smoke: smoke.summary,
       network_dependency: "NONE",
     },
     output: {
@@ -3733,7 +3834,8 @@ function buildLocalInstallCandidateReceipt(verified) {
       tarball: contract.tarballName,
       sha256_sidecar: contract.sidecarName,
       receipt: contract.receiptName,
-      candidate_evidence: localCandidateGateEvidenceName(contract),
+      candidate_evidence: "PER_ATTEMPT",
+      candidate_attempts: "SIBLING_PER_ATTEMPT_DIRECTORIES",
       materialization_contract: "CONTENT_KEYED_CREATE_OR_REUSE",
       publication: "FORBIDDEN",
     },
@@ -3744,40 +3846,113 @@ function localCandidateGateEvidenceName(contract) {
   return contract.receiptName.replace(/\.json$/, ".candidate-gate-evidence.json");
 }
 
-function buildLocalCandidateGateEvidence(verified, receipt, outputDirectory) {
+function candidateExecutionEvidence(execution, capture) {
+  if (!execution) {
+    return null;
+  }
+  return {
+    entrypoint: execution.entrypoint,
+    status: execution.status,
+    command: execution.command,
+    argv: execution.argv,
+    cwd: execution.cwd,
+    exit_code: execution.exit_code,
+    output_truncated: execution.output_truncated,
+    runner: execution.runner,
+    stdout_ref: capture.stdout_path,
+    stdout_bytes: capture.stdout_bytes,
+    stderr_ref: capture.stderr_path,
+    stderr_bytes: capture.stderr_bytes,
+    failure_reason: execution.failure_reason || null,
+    failure_details: execution.failure_details || null,
+  };
+}
+
+function buildLocalCandidateGateEvidence(
+  verified,
+  receipt,
+  outputDirectory,
+  attemptDirectory,
+) {
   const { candidate, contract } = verified;
   const evidenceName = localCandidateGateEvidenceName(contract);
-  const stdoutName = `${contract.receiptName}.stdout.log`;
-  const stderrName = `${contract.receiptName}.stderr.log`;
-  const stdout = jsonText(receipt);
-  const stderr = "";
+  const executionName = `${contract.receiptName}.execution.json`;
+  const stdoutName = `${contract.receiptName}.public-operation.stdout.log`;
+  const stderrName = `${contract.receiptName}.public-operation.stderr.log`;
+  const installerStdoutName = `${contract.receiptName}.installer.stdout.log`;
+  const installerStderrName = `${contract.receiptName}.installer.stderr.log`;
+  const smoke = verified.smoke;
+  const smokeSummary = receipt.validation.installed_package_smoke;
+  const stdout = typeof smoke?.execution?.stdout === "string" ? smoke.execution.stdout : "";
+  const stderr = typeof smoke?.execution?.stderr === "string" ? smoke.execution.stderr : "";
+  const installerStdout = typeof smoke?.installerExecution?.stdout === "string"
+    ? smoke.installerExecution.stdout
+    : "";
+  const installerStderr = typeof smoke?.installerExecution?.stderr === "string"
+    ? smoke.installerExecution.stderr
+    : "";
+  const smokePassed = Boolean(
+    smoke && typeof smoke === "object" && smoke.status === "PASS",
+  );
+  const smokeNotRun = smoke?.status === "NOT_RUN";
+  const evidenceStatus = smokePassed ? "PASSED" : smokeNotRun ? "NOT_RUN" : "FAILED";
   const logCapture = {
     complete: true,
-    stdout_path: path.join(outputDirectory, stdoutName),
+    stdout_path: path.join(attemptDirectory, stdoutName),
     stdout_bytes: Buffer.byteLength(stdout),
-    stderr_path: path.join(outputDirectory, stderrName),
+    stderr_path: path.join(attemptDirectory, stderrName),
     stderr_bytes: Buffer.byteLength(stderr),
   };
+  const installerLogCapture = {
+    complete: true,
+    stdout_path: path.join(attemptDirectory, installerStdoutName),
+    stdout_bytes: Buffer.byteLength(installerStdout),
+    stderr_path: path.join(attemptDirectory, installerStderrName),
+    stderr_bytes: Buffer.byteLength(installerStderr),
+  };
+  const execution = candidateExecutionEvidence(smoke?.execution, logCapture);
+  const installerExecution = candidateExecutionEvidence(
+    smoke?.installerExecution,
+    installerLogCapture,
+  );
   const evidence = {
-    schema: "decretum.npm_local_install_candidate_gate_evidence.v1",
-    status: "PASSED",
+    schema: "decretum.npm_local_install_candidate_gate_evidence.v2",
+    status: evidenceStatus,
     source_commit: contract.sourceCommit,
     artifact_ref: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,
     build_id: `${contract.releaseLabel}:${contract.sourceCommit}:${contract.sourceTree}`,
     release_label: contract.releaseLabel,
     domain_result: {
-      ok: true,
-      status: "PASSED",
+      ok: smokePassed,
+      status: evidenceStatus,
       candidate_receipt: receipt.validation.candidate_receipt,
-      installed_package_smoke: receipt.validation.installed_package_smoke,
+      installed_package_smoke: smokeSummary,
       publication: receipt.publication,
     },
-    exit_code: 0,
-    output_truncated: false,
-    log_complete: true,
+    exit_code: smoke?.execution?.exit_code ?? null,
+    output_truncated: smoke?.execution?.output_truncated === true,
+    log_complete: smokePassed,
     log_capture: logCapture,
-    receipt_ref: contract.receiptName,
-    candidate_receipt_ref: candidate.candidateReceipt.name,
+    execution,
+    installer_execution: installerExecution,
+    installer_log_capture: installerLogCapture,
+    execution_ref: path.join(attemptDirectory, executionName),
+    receipt_ref: path.join(outputDirectory, contract.receiptName),
+    candidate_receipt_ref: path.join(
+      candidate.candidateDirectory,
+      candidate.candidateReceipt.name,
+    ),
+  };
+  const attempt = {
+    schema: "decretum.npm_local_install_candidate_execution.v1",
+    status: evidenceStatus,
+    source_commit: contract.sourceCommit,
+    artifact_ref: evidence.artifact_ref,
+    build_id: evidence.build_id,
+    receipt_ref: evidence.receipt_ref,
+    candidate_receipt_ref: evidence.candidate_receipt_ref,
+    public_operation: execution,
+    installer: installerExecution,
   };
   return {
     evidence,
@@ -3785,9 +3960,46 @@ function buildLocalCandidateGateEvidence(verified, receipt, outputDirectory) {
     files: new Map([
       [stdoutName, Buffer.from(stdout, "utf8")],
       [stderrName, Buffer.from(stderr, "utf8")],
+      [installerStdoutName, Buffer.from(installerStdout, "utf8")],
+      [installerStderrName, Buffer.from(installerStderr, "utf8")],
+      [executionName, Buffer.from(jsonText(attempt), "utf8")],
       [evidenceName, Buffer.from(jsonText(evidence), "utf8")],
     ]),
+    executionName,
   };
+}
+
+async function materializeLocalCandidateAttempt(verified, receipt, outputDirectory) {
+  const attemptRoot = path.join(
+    path.dirname(outputDirectory),
+    `${path.basename(outputDirectory)}.attempts`,
+  );
+  await mkdir(attemptRoot, { recursive: true });
+  const attemptDirectory = await mkdtemp(path.join(attemptRoot, "attempt-"));
+  try {
+    const candidateEvidence = buildLocalCandidateGateEvidence(
+      verified,
+      receipt,
+      outputDirectory,
+      attemptDirectory,
+    );
+    for (const [name, body] of candidateEvidence.files) {
+      await writeFile(path.join(attemptDirectory, name), body, {
+        flag: "wx",
+        mode: 0o644,
+      });
+    }
+    return {
+      ...candidateEvidence,
+      attempt: {
+        directory: attemptDirectory,
+        executionRef: path.join(attemptDirectory, candidateEvidence.executionName),
+      },
+    };
+  } catch (error) {
+    await rm(attemptDirectory, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 export async function buildLocalInstallCandidate({
@@ -3822,21 +4034,23 @@ export async function buildLocalInstallCandidate({
         { output_directory: materializedOutput },
       );
     }
-    const candidateEvidence = buildLocalCandidateGateEvidence(
+    const files = await packageOutputFiles(verified, receipt, verified.contract);
+    const materialization = await createOrReuseOutput(materializedOutput, files);
+    const candidateEvidence = await materializeLocalCandidateAttempt(
       verified,
       receipt,
       materializedOutput,
     );
-    const files = await packageOutputFiles(verified, receipt, verified.contract);
-    for (const [name, body] of candidateEvidence.files) {
-      files.set(name, body);
-    }
-    const materialization = await createOrReuseOutput(materializedOutput, files);
     return {
       candidate: verified.candidate,
       candidateEvidence: candidateEvidence.evidence,
       candidateEvidenceFile: candidateEvidence.evidenceName,
+      candidateEvidencePath: path.join(
+        candidateEvidence.attempt.directory,
+        candidateEvidence.evidenceName,
+      ),
       contract: verified.contract,
+      attempt: candidateEvidence.attempt,
       output: {
         directory: materializedOutput,
         materialization,
@@ -3882,7 +4096,8 @@ async function buildLocalInstallCandidateArtifacts(candidateDirectory) {
     ...result.receipt,
     candidate_evidence: {
       file: result.candidateEvidenceFile,
-      path: path.join(result.output.directory, result.candidateEvidenceFile),
+      path: result.candidateEvidencePath,
+      attempt: result.attempt,
     },
     output: {
       ...result.receipt.output,
@@ -4332,7 +4547,7 @@ async function listRegularFiles(root) {
   return files.sort();
 }
 
-async function runInstalledSmoke(
+async function runPackageInstallStructureSmoke(
   operationRoot,
   tarballPath,
   npmState,
@@ -4436,12 +4651,160 @@ async function runInstalledSmoke(
     "npm install wrote an implicit installation receipt",
   );
 
-  await verifyInstalledCliParity(operationRoot, installedRoot, npmState);
   return {
     status: "PASS",
     lifecycle: "DISABLED",
-    install_home: installHome,
+    entrypoint: "package_structure",
     implicit_mutation: false,
+  };
+}
+
+function commandExecution({ entrypoint, command, argv, cwd, result, runner }) {
+  const stdout = typeof result.stdout === "string" ? result.stdout : "";
+  const stderr = typeof result.stderr === "string" ? result.stderr : "";
+  return {
+    entrypoint,
+    status: result.error || result.status !== 0 ? "FAIL" : "PASS",
+    command,
+    argv: [...argv],
+    cwd,
+    exit_code: typeof result.status === "number" ? result.status : null,
+    output_truncated: false,
+    runner,
+    stdout,
+    stderr,
+  };
+}
+
+function publicShimInvocation(npmPrefix, argv) {
+  const shimRoot = path.join(npmPrefix, "node_modules", ".bin");
+  if (process.platform === "win32") {
+    const shim = path.join(shimRoot, "decretum-matrix.cmd");
+    return {
+      publicCommand: shim,
+      command: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/s", "/c", shim, ...argv],
+    };
+  }
+  const shim = path.join(shimRoot, "decretum-matrix");
+  return { publicCommand: shim, command: shim, args: [...argv] };
+}
+
+async function runIsolatedCandidateSmoke({
+  operationRoot,
+  tarballPath,
+  npmState,
+  candidate,
+  sourceRoot,
+}) {
+  const smokeRoot = path.join(operationRoot, "installed-smoke");
+  const installHome = path.join(smokeRoot, "install-home");
+  const npmPrefix = path.join(installHome, "npm-prefix");
+  const callerCwd = path.join(smokeRoot, "caller");
+  await mkdir(smokeRoot, { recursive: false });
+  await mkdir(callerCwd, { recursive: false });
+  const codexConfig = path.join(installHome, ".codex", "config.toml");
+  await mkdir(path.dirname(codexConfig), { recursive: true });
+  await writeFile(
+    codexConfig,
+    "[agents]\nmax_depth=4\n\n[features.multi_agent_v2]\nenabled=true\nmax_concurrent_threads_per_session=16\nhide_spawn_agent_metadata=true\n",
+    { encoding: "utf8", flag: "wx", mode: 0o644 },
+  );
+  const python = resolvePythonInvocation();
+  const environment = {
+    ...isolatedProcessEnvironment(installHome, npmState.cache, npmState, null),
+    DECRETUM_MATRIX_PYTHON: python.command,
+    DECRETUM_MATRIX_PYTHON_PREFIX_JSON: JSON.stringify(python.prefixArgs),
+  };
+  const installerArgs = [
+    path.join(sourceRoot, "scripts", "commands", "fix_decretum_matrix.py"),
+    "update",
+    "--apply",
+    "--source-root",
+    sourceRoot,
+    "--home-root",
+    installHome,
+    "--candidate-tgz",
+    tarballPath,
+    "--npm-prefix",
+    npmPrefix,
+    "--transaction-id",
+    "isolated-npm-smoke",
+    "--installation-id",
+    "isolated-npm-smoke",
+    "--caller-cwd",
+    callerCwd,
+    "--format",
+    "json",
+  ];
+  const installerProcess = runFixtureCommand(
+    python.command,
+    [...python.prefixArgs, "-B", ...installerArgs],
+    { cwd: callerCwd, env: environment, timeout: 300_000 },
+  );
+  const installerExecution = commandExecution({
+    entrypoint: "explicit_isolated_installer",
+    command: python.command,
+    argv: [...python.prefixArgs, "-B", ...installerArgs],
+    cwd: callerCwd,
+    result: installerProcess,
+    runner: "python",
+  });
+  let installerResult;
+  try {
+    installerResult = JSON.parse(installerExecution.stdout.trim());
+  } catch {
+    installerResult = null;
+  }
+  if (
+    installerExecution.status !== "PASS" ||
+    !installerResult ||
+    installerResult.ok !== true ||
+    installerResult.status !== "COMMITTED"
+  ) {
+    return {
+      status: "FAIL",
+      summary: {
+        status: "FAIL",
+        lifecycle: "DISABLED",
+        installer: "EXPLICIT_ISOLATED",
+        entrypoint: "npm_bin_shim",
+        operation: "court_status",
+        implicit_mutation: false,
+      },
+      execution: installerExecution,
+      installerExecution,
+    };
+  }
+
+  const publicArgs = ["--format", "json", "court", "status"];
+  const shim = publicShimInvocation(npmPrefix, publicArgs);
+  const publicProcess = runFixtureCommand(shim.command, shim.args, {
+    cwd: callerCwd,
+    env: environment,
+    timeout: 120_000,
+  });
+  const execution = commandExecution({
+    entrypoint: "npm_bin_shim",
+    command: shim.publicCommand,
+    argv: publicArgs,
+    cwd: callerCwd,
+    result: publicProcess,
+    runner: { command: shim.command, argv: shim.args },
+  });
+  const passed = execution.status === "PASS" && execution.stdout.trim() !== "";
+  return {
+    status: passed ? "PASS" : "FAIL",
+    summary: {
+      status: passed ? "PASS" : "FAIL",
+      lifecycle: "DISABLED",
+      installer: "EXPLICIT_ISOLATED",
+      entrypoint: "npm_bin_shim",
+      operation: "court_status",
+      implicit_mutation: false,
+    },
+    execution,
+    installerExecution,
   };
 }
 
@@ -4505,7 +4868,7 @@ export async function createVerifiedPackage({
     );
 
     const smokeStatus = installedSmoke
-      ? await runInstalledSmoke(
+      ? await runPackageInstallStructureSmoke(
           operationRoot,
           firstPack.tarballPath,
           npmState,

@@ -2465,6 +2465,131 @@ def _check_candidate_npm_failure_compensation(
     return 1
 
 
+def _check_candidate_npm_partial_failure_compensation(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """A nonzero npm attempt must compensate before any success flag exists."""
+
+    name = "candidate_npm_partial_failure_compensation"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    caller = temp_root / "caller"
+    prefix = temp_root / "npm-prefix"
+    home = temp_root / "home"
+    tgz = temp_root / "candidate.tgz"
+    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
+    caller.mkdir(parents=True, exist_ok=True)
+    prefix.mkdir(parents=True, exist_ok=True)
+    home.mkdir(parents=True, exist_ok=True)
+    tgz.write_bytes(b"candidate")
+    rollback_calls: list[tuple[Path, Path]] = []
+
+    def fake_install(**_kwargs: object) -> Payload:
+        package_root.mkdir(parents=True, exist_ok=True)
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "npm_candidate_install_failed",
+            "mutation_attempted": True,
+            "residual_targets": [str(package_root)],
+        }
+
+    def fake_rollback(**kwargs: object) -> Payload:
+        rollback_calls.append((Path(str(kwargs["npm_prefix"])), Path(str(kwargs["caller_cwd"]))))
+        return {"ok": True, "status": "ROLLED_BACK", "removed": True}
+
+    try:
+        with mock.patch.object(fix, "_install_candidate_npm", side_effect=fake_install), mock.patch.object(
+            fix,
+            "_rollback_candidate_npm",
+            side_effect=fake_rollback,
+        ):
+            result = fix._install_update(
+                {"selected_root": str(temp_root)},
+                home,
+                write=True,
+                candidate_tgz=tgz,
+                npm_prefix=prefix,
+                transaction_id="transaction-partial",
+                installation_id="installation-partial",
+                caller_cwd=caller,
+            )
+    except Exception as exc:
+        errors.append(f"{name}:unexpected:{type(exc).__name__}:{exc}")
+        return 0
+    if not (
+        result.get("ok") is False
+        and result.get("status") == "ROLLED_BACK"
+        and result.get("reason") == "npm_candidate_install_failed"
+        and result.get("npm_candidate_install", {}).get("mutation_attempted") is True
+        and result.get("npm_candidate_compensation", {}).get("ok") is True
+        and rollback_calls == [(prefix, caller)]
+    ):
+        errors.append(f"{name}:contract_failed:{result}:rollback_calls={rollback_calls!r}")
+        return 0
+    return 1
+
+
+def _check_candidate_npm_partial_attempt_metadata(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """The real npm producer must report the owned residue of a failed run."""
+
+    name = "candidate_npm_partial_attempt_metadata"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    caller = temp_root / "caller"
+    prefix = temp_root / "npm-prefix"
+    home = temp_root / "home"
+    tgz = temp_root / "candidate.tgz"
+    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
+    caller.mkdir(parents=True, exist_ok=True)
+    prefix.mkdir(parents=True, exist_ok=True)
+    home.mkdir(parents=True, exist_ok=True)
+    tgz.write_bytes(b"candidate")
+
+    def partial_npm(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        package_root.mkdir(parents=True, exist_ok=True)
+        return subprocess.CompletedProcess(
+            args=["npm"],
+            returncode=7,
+            stdout="partial stdout",
+            stderr="partial stderr",
+        )
+
+    try:
+        with mock.patch.object(fix.subprocess, "run", side_effect=partial_npm):
+            result = fix._install_candidate_npm(
+                candidate_tgz=tgz,
+                npm_prefix=prefix,
+                home=home,
+                caller_cwd=caller,
+            )
+    except Exception as exc:
+        errors.append(f"{name}:unexpected:{type(exc).__name__}:{exc}")
+        return 0
+    if not (
+        result.get("ok") is False
+        and result.get("reason") == "npm_candidate_install_failed"
+        and result.get("mutation_attempted") is True
+        and str(package_root) in result.get("residual_targets", [])
+        and result.get("exit_code") == 7
+        and result.get("stdout") == "partial stdout"
+        and result.get("stderr") == "partial stderr"
+    ):
+        errors.append(f"{name}:contract_failed:{result}")
+        return 0
+    return 1
+
+
 def _check_candidate_public_shim_mismatch(
     temp_root: Path,
     errors: list[str],
@@ -4686,6 +4811,20 @@ def evaluate() -> Payload:
                     errors,
                 )
             with tempfile.TemporaryDirectory(
+                prefix="cnp-"
+            ) as temp_dir:
+                passed += _check_candidate_npm_partial_failure_compensation(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
+                prefix="cnm-"
+            ) as temp_dir:
+                passed += _check_candidate_npm_partial_attempt_metadata(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
                 prefix="cps-"
             ) as temp_dir:
                 passed += _check_candidate_public_shim_mismatch(
@@ -4712,7 +4851,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 46,
+        "declared_cases": 48,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

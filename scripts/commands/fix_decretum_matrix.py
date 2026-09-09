@@ -484,6 +484,33 @@ def _candidate_tgz_regular(path: Path) -> Path:
     return candidate
 
 
+def _candidate_npm_owned_targets(prefix: Path) -> tuple[Path, ...]:
+    """Return only paths npm may create for this private candidate package."""
+
+    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
+    shim_root = prefix / "node_modules" / ".bin"
+    return (
+        package_root,
+        shim_root / "decretum-matrix",
+        shim_root / "decretum-matrix.cmd",
+        shim_root / "decretum-matrix.ps1",
+    )
+
+
+def _candidate_npm_residual_targets(prefix: Path) -> list[str]:
+    return [
+        str(target)
+        for target in _candidate_npm_owned_targets(prefix)
+        if target.exists() or target.is_symlink()
+    ]
+
+
+def _subprocess_text(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return value if isinstance(value, str) else ""
+
+
 def _install_candidate_npm(
     *,
     candidate_tgz: Path,
@@ -504,6 +531,18 @@ def _install_candidate_npm(
     package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
     if package_root.exists() or package_root.is_symlink():
         return {"ok": False, "status": "BLOCKED", "reason": "candidate_package_preexisting"}
+    preexisting_shims = [
+        str(target)
+        for target in _candidate_npm_owned_targets(prefix)[1:]
+        if target.exists() or target.is_symlink()
+    ]
+    if preexisting_shims:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "candidate_shim_preexisting",
+            "preexisting_targets": preexisting_shims,
+        }
     command = [
         _npm_executable(),
         "install",
@@ -530,33 +569,51 @@ def _install_candidate_npm(
             shell=False,
             timeout=300,
         )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "status": "BLOCKED",
+            "reason": "npm_candidate_install_timeout",
+            "mutation_attempted": True,
+            "command": command,
+            "cwd": str(caller),
+            "stdout": _subprocess_text(exc.stdout)[-4000:],
+            "stderr": _subprocess_text(exc.stderr)[-4000:],
+            "residual_targets": _candidate_npm_residual_targets(prefix),
+        }
     except (OSError, subprocess.SubprocessError) as exc:
         return {
             "ok": False,
             "status": "BLOCKED",
             "reason": f"npm_candidate_install_failed:{type(exc).__name__}",
+            "mutation_attempted": True,
             "command": command,
             "cwd": str(caller),
+            "residual_targets": _candidate_npm_residual_targets(prefix),
         }
     if completed.returncode != 0:
         return {
             "ok": False,
             "status": "BLOCKED",
             "reason": "npm_candidate_install_failed",
+            "mutation_attempted": True,
             "command": command,
             "cwd": str(caller),
             "exit_code": completed.returncode,
             "stdout": completed.stdout[-4000:],
             "stderr": completed.stderr[-4000:],
+            "residual_targets": _candidate_npm_residual_targets(prefix),
         }
     if not package_root.is_dir() or _is_link_or_reparse(package_root):
         return {
             "ok": False,
             "status": "BLOCKED",
             "reason": "npm_candidate_package_missing_after_install",
+            "mutation_attempted": True,
             "command": command,
             "cwd": str(caller),
             "exit_code": completed.returncode,
+            "residual_targets": _candidate_npm_residual_targets(prefix),
         }
     return {
         "ok": True,
@@ -566,6 +623,8 @@ def _install_candidate_npm(
         "exit_code": completed.returncode,
         "package_root": str(package_root.resolve(strict=False)),
         "npm_prefix": str(prefix),
+        "mutation_attempted": True,
+        "residual_targets": _candidate_npm_residual_targets(prefix),
     }
 
 
@@ -580,6 +639,14 @@ def _rollback_candidate_npm(
         caller = _physical_directory(caller_cwd, label="candidate_npm_caller_cwd")
     except RuntimeError as exc:
         return {"ok": False, "status": "RECOVERY_REQUIRED", "reason": str(exc)}
+    residual_before = _candidate_npm_residual_targets(prefix)
+    if not residual_before:
+        return {
+            "ok": True,
+            "status": "NOT_REQUIRED",
+            "removed": True,
+            "residual_targets": [],
+        }
     command = [
         _npm_executable(),
         "uninstall",
@@ -606,6 +673,17 @@ def _rollback_candidate_npm(
             shell=False,
             timeout=300,
         )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": "npm_candidate_rollback_timeout",
+            "command": command,
+            "cwd": str(caller),
+            "stdout": _subprocess_text(exc.stdout)[-4000:],
+            "stderr": _subprocess_text(exc.stderr)[-4000:],
+            "residual_targets": _candidate_npm_residual_targets(prefix),
+        }
     except (OSError, subprocess.SubprocessError) as exc:
         return {
             "ok": False,
@@ -613,9 +691,10 @@ def _rollback_candidate_npm(
             "reason": f"npm_candidate_rollback_failed:{type(exc).__name__}",
             "command": command,
             "cwd": str(caller),
+            "residual_targets": _candidate_npm_residual_targets(prefix),
         }
-    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
-    removed = not package_root.exists() and not package_root.is_symlink()
+    residual_after = _candidate_npm_residual_targets(prefix)
+    removed = not residual_after
     return {
         "ok": completed.returncode == 0 and removed,
         "status": "ROLLED_BACK" if completed.returncode == 0 and removed else "RECOVERY_REQUIRED",
@@ -625,6 +704,7 @@ def _rollback_candidate_npm(
         "removed": removed,
         "stdout": completed.stdout[-4000:],
         "stderr": completed.stderr[-4000:],
+        "residual_targets": residual_after,
     }
 
 
@@ -1071,7 +1151,8 @@ def _install_update(
             "reason": "caller_cwd_required",
         }
     npm_install_result: dict[str, object] | None = None
-    npm_installed_here = False
+    npm_mutation_attempted = False
+    npm_install_failed = False
     if candidate_tgz is not None:
         if not write:
             return {
@@ -1093,13 +1174,17 @@ def _install_update(
             home=home,
             caller_cwd=caller_cwd,
         )
+        npm_mutation_attempted = (
+            npm_install_result.get("mutation_attempted") is True
+            or npm_install_result.get("ok") is True
+        )
         if npm_install_result.get("ok") is not True:
-            return {"schema": SCHEMA, **npm_install_result}
-        npm_installed_here = True
-        candidate_package_root = Path(str(npm_install_result["package_root"]))
+            npm_install_failed = True
+        else:
+            candidate_package_root = Path(str(npm_install_result["package_root"]))
 
     def attach_npm_compensation(payload: dict[str, object]) -> dict[str, object]:
-        if not npm_installed_here or npm_prefix is None or caller_cwd is None:
+        if not npm_mutation_attempted or npm_prefix is None or caller_cwd is None:
             return payload
         rollback = _rollback_candidate_npm(
             npm_prefix=npm_prefix,
@@ -1111,7 +1196,19 @@ def _install_update(
         if rollback.get("ok") is not True:
             payload["status"] = "RECOVERY_REQUIRED"
             payload["recovery_required"] = True
+        elif (
+            payload.get("status") == "BLOCKED"
+            and (
+                str(payload.get("reason") or "").startswith("npm_candidate_install_")
+                or payload.get("reason") == "npm_candidate_package_missing_after_install"
+            )
+        ):
+            payload["status"] = "ROLLED_BACK"
+            payload["recovery_required"] = False
         return payload
+    if npm_install_failed:
+        assert npm_install_result is not None
+        return attach_npm_compensation({"schema": SCHEMA, **npm_install_result})
     try:
         binding_metadata = _installation_binding_metadata(
             Path(selected),

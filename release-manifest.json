@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "1b82fecac213e4851936c7af1dd3fff8e70632ff66356a3a453200d5b1204ddd",
+      "sha256": "1b12b5ae84b8cd23e2a8c9562aaa674a149cdf8b78f7773eb784c1df955af099",
       "size": 4689
     },
     {
@@ -1551,8 +1551,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_current_agent_copy.py",
-      "sha256": "a4b41736b720b810447e007eb38bfc9a2c5574bb5d852506361485bb2628379c",
-      "size": 187904
+      "sha256": "388343767c4b4b4141d25b1869031b2f790d1672a8cfdf4b7bdcf61b52f366f5",
+      "size": 193076
     },
     {
       "mode": "100644",
@@ -1623,8 +1623,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_gate.py",
-      "sha256": "018e0c78d4d35ab2a270d24c303d60b23876b509afb3e6c29b5b482928dda261",
-      "size": 77757
+      "sha256": "1c3e597738b7fe9e045e058d317d22fce4c1f5198bd09aed20674892ea4b88dc",
+      "size": 96761
     },
     {
       "mode": "100644",
@@ -1983,8 +1983,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/fix_decretum_matrix.py",
-      "sha256": "6893538f568b2c0da64f5e8bba63ea3103f4ae12c973961f6b4637af79849ab4",
-      "size": 58670
+      "sha256": "077047ee01e42349d4166de53c2b9c05462a51c73366d36362658b9f082af014",
+      "size": 62262
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8537295,
+    "payload_bytes": 8565063,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "b699dff4b812d5dae1e736cbc1df996781ad426de3b6599e1aae17316b4fc569",
+    "payload_index_sha256": "908a1d0f45bd0a4e9976c1b7cda3740fdc9103d517f8cbd4a98c1f0d27d513ce",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 620
   },

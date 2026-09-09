@@ -513,6 +513,185 @@ def run_domain_contract_self_test() -> dict[str, bool]:
     }
 
 
+def run_candidate_evidence_self_test() -> dict[str, bool]:
+    """Keep candidate acceptance bound to an executed public-shim attempt."""
+
+    manifest = load_release_manifest()
+    check = next(
+        item
+        for item in manifest["required_checks"]
+        if isinstance(item, dict) and item.get("id") == "package_entrypoint_isolated"
+    )
+    source_commit = "a" * 40
+    source_tree = "b" * 40
+    release_label = "beta1.1.2"
+    artifact_ref = f"release/decretum-matrix-{release_label}.zip@{source_commit}"
+    build_id = f"{release_label}:{source_commit}:{source_tree}"
+
+    with tempfile.TemporaryDirectory(prefix="decretum-candidate-evidence-") as text:
+        root = Path(text)
+        stdout_path = root / "public-operation.stdout.log"
+        stderr_path = root / "public-operation.stderr.log"
+        installer_stdout_path = root / "installer.stdout.log"
+        installer_stderr_path = root / "installer.stderr.log"
+        execution_path = root / "candidate.execution.json"
+        receipt_path = root / "local-install.receipt.json"
+        candidate_receipt_path = root / "candidate.receipt.json"
+        stdout_path.write_text('{"status":"PENDING"}\n', encoding="utf-8")
+        stderr_path.write_text("", encoding="utf-8")
+        installer_stdout_path.write_text('{"status":"COMMITTED"}\n', encoding="utf-8")
+        installer_stderr_path.write_text("", encoding="utf-8")
+        receipt_path.write_text(
+            json.dumps(
+                {
+                    "schema": "decretum.npm_local_install_candidate_receipt.v1",
+                    "status": "PASS",
+                    "private": True,
+                    "publication": "FORBIDDEN",
+                    "candidate": {
+                        "release_label": release_label,
+                        "receipt": {"name": candidate_receipt_path.name, "sha256": "c" * 64},
+                        "source": {"head": source_commit, "tree": source_tree},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        candidate_receipt_path.write_text(
+            json.dumps(
+                {
+                    "schema": "court.release_candidate_receipt.v1",
+                    "state": "CANDIDATE_NOT_RELEASED",
+                    "release_label": release_label,
+                    "source": {"head_commit": source_commit, "tree": source_tree},
+                    "artifacts": [{"name": f"decretum-matrix-{release_label}.zip"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        evidence: dict[str, object] = {
+            "schema": "decretum.npm_local_install_candidate_gate_evidence.v2",
+            "status": "PASSED",
+            "source_commit": source_commit,
+            "artifact_ref": artifact_ref,
+            "build_id": build_id,
+            "release_label": release_label,
+            "domain_result": {
+                "ok": True,
+                "status": "PASSED",
+                "candidate_receipt": "PASS",
+                "installed_package_smoke": {"status": "PASS"},
+                "publication": "FORBIDDEN",
+            },
+            "exit_code": 0,
+            "output_truncated": False,
+            "log_complete": True,
+            "log_capture": {
+                "complete": True,
+                "stdout_path": str(stdout_path),
+                "stdout_bytes": stdout_path.stat().st_size,
+                "stderr_path": str(stderr_path),
+                "stderr_bytes": stderr_path.stat().st_size,
+            },
+            "execution": {
+                "entrypoint": "npm_bin_shim",
+                "status": "PASS",
+                "command": "decretum-matrix",
+                "argv": ["--format", "json", "court", "status"],
+                "cwd": str(root),
+                "exit_code": 0,
+                "output_truncated": False,
+                "stdout_ref": str(stdout_path),
+                "stdout_bytes": stdout_path.stat().st_size,
+                "stderr_ref": str(stderr_path),
+                "stderr_bytes": stderr_path.stat().st_size,
+            },
+            "installer_execution": {
+                "entrypoint": "explicit_isolated_installer",
+                "status": "PASS",
+                "command": "python",
+                "argv": ["-B", "scripts/commands/fix_decretum_matrix.py"],
+                "cwd": str(root),
+                "exit_code": 0,
+                "output_truncated": False,
+                "stdout_ref": str(installer_stdout_path),
+                "stdout_bytes": installer_stdout_path.stat().st_size,
+                "stderr_ref": str(installer_stderr_path),
+                "stderr_bytes": installer_stderr_path.stat().st_size,
+            },
+            "installer_log_capture": {
+                "complete": True,
+                "stdout_path": str(installer_stdout_path),
+                "stdout_bytes": installer_stdout_path.stat().st_size,
+                "stderr_path": str(installer_stderr_path),
+                "stderr_bytes": installer_stderr_path.stat().st_size,
+            },
+            "execution_ref": str(execution_path),
+            "receipt_ref": str(receipt_path),
+            "candidate_receipt_ref": str(candidate_receipt_path),
+        }
+        execution_path.write_text(
+            json.dumps(
+                {
+                    "schema": "decretum.npm_local_install_candidate_execution.v1",
+                    "status": "PASSED",
+                    "public_operation": evidence["execution"],
+                    "installer": evidence["installer_execution"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def candidate_result(value: dict[str, object]) -> dict[str, object]:
+            return _required_check_result(
+                check,
+                phase="pre-install",
+                step_results={},
+                manifest_self_test={"status": "PASSED"},
+                package_gate={},
+                candidate_evidence=value,
+                expected_provenance={
+                    "source_commit": source_commit,
+                    "artifact_ref": artifact_ref,
+                    "build_id": build_id,
+                },
+            )
+
+        valid = candidate_result(evidence)
+        not_run = deepcopy(evidence)
+        not_run["domain_result"] = {
+            **evidence["domain_result"],  # type: ignore[arg-type]
+            "installed_package_smoke": "NOT_RUN",
+        }
+        failed_smoke = deepcopy(evidence)
+        failed_smoke["domain_result"] = {
+            **evidence["domain_result"],  # type: ignore[arg-type]
+            "installed_package_smoke": {"status": "FAIL"},
+        }
+        nonzero = deepcopy(evidence)
+        nonzero["exit_code"] = 7
+        wrong_build = deepcopy(evidence)
+        wrong_build["build_id"] = f"{release_label}:{source_commit}:wrong-tree"
+        missing_receipt = deepcopy(evidence)
+        missing_receipt.pop("receipt_ref")
+        missing_receipt.pop("candidate_receipt_ref")
+        missing_installer = deepcopy(evidence)
+        missing_installer.pop("installer_execution")
+        missing_installer.pop("installer_log_capture")
+        missing_execution_record = deepcopy(evidence)
+        missing_execution_record.pop("execution_ref")
+        return {
+            "executed_candidate_accepted": valid.get("status") == "PASSED",
+            "not_run_smoke_rejected": candidate_result(not_run).get("status") == "FAILED",
+            "failed_smoke_rejected": candidate_result(failed_smoke).get("status") == "FAILED",
+            "nonzero_execution_rejected": candidate_result(nonzero).get("status") == "FAILED",
+            "build_provenance_mismatch_rejected": candidate_result(wrong_build).get("status") == "FAILED",
+            "missing_receipt_rejected": candidate_result(missing_receipt).get("status") == "FAILED",
+            "missing_installer_log_rejected": candidate_result(missing_installer).get("status") == "FAILED",
+            "missing_execution_record_rejected": candidate_result(missing_execution_record).get("status") == "FAILED",
+        }
+
+
 def run_log_capture_self_test() -> dict[str, bool]:
     """Keep summary truncation separate from complete external log evidence."""
 
@@ -1110,6 +1289,195 @@ def validate_native_evidence(
     ]
 
 
+def _candidate_receipt_problems(record: object) -> list[str]:
+    """Validate the two existing candidate receipts named by a smoke attempt."""
+
+    if not isinstance(record, dict):
+        return ["candidate_evidence_not_object"]
+    problems: list[str] = []
+    receipt_ref = record.get("receipt_ref")
+    candidate_receipt_ref = record.get("candidate_receipt_ref")
+    if not isinstance(receipt_ref, str) or not receipt_ref.strip():
+        problems.append("candidate_receipt_ref_missing")
+    if not isinstance(candidate_receipt_ref, str) or not candidate_receipt_ref.strip():
+        problems.append("candidate_source_receipt_ref_missing")
+    if problems:
+        return problems
+    receipt_path = Path(receipt_ref)
+    candidate_path = Path(candidate_receipt_ref)
+    if not receipt_path.is_absolute() or not receipt_path.is_file():
+        problems.append("candidate_receipt_unreadable")
+    if not candidate_path.is_absolute() or not candidate_path.is_file():
+        problems.append("candidate_source_receipt_unreadable")
+    if problems:
+        return problems
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        candidate_receipt = json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return ["candidate_receipt_unreadable"]
+    if not isinstance(receipt, dict):
+        return ["candidate_receipt_not_object"]
+    if not isinstance(candidate_receipt, dict):
+        return ["candidate_source_receipt_not_object"]
+    if receipt.get("schema") != "decretum.npm_local_install_candidate_receipt.v1":
+        problems.append("candidate_receipt_schema_invalid")
+    if receipt.get("status") != "PASS":
+        problems.append("candidate_receipt_not_passed")
+    candidate = receipt.get("candidate")
+    source = candidate.get("source") if isinstance(candidate, dict) else None
+    receipt_descriptor = candidate.get("receipt") if isinstance(candidate, dict) else None
+    source_commit = record.get("source_commit")
+    release_label = record.get("release_label")
+    if not isinstance(source, dict):
+        problems.append("candidate_receipt_source_missing")
+        source_tree = None
+    else:
+        source_tree = source.get("tree")
+        if source.get("head") != source_commit:
+            problems.append("candidate_receipt_source_commit_mismatch")
+    if not isinstance(receipt_descriptor, dict) or receipt_descriptor.get("name") != candidate_path.name:
+        problems.append("candidate_receipt_reference_mismatch")
+    if not isinstance(source_tree, str) or not source_tree:
+        problems.append("candidate_receipt_source_tree_missing")
+    expected_build_id = (
+        f"{release_label}:{source_commit}:{source_tree}"
+        if isinstance(release_label, str)
+        and release_label
+        and isinstance(source_commit, str)
+        and source_commit
+        and isinstance(source_tree, str)
+        and source_tree
+        else None
+    )
+    if record.get("build_id") != expected_build_id:
+        problems.append("candidate_build_id_mismatch")
+    expected_artifact_ref = (
+        f"release/decretum-matrix-{release_label}.zip@{source_commit}"
+        if isinstance(release_label, str)
+        and release_label
+        and isinstance(source_commit, str)
+        and source_commit
+        else None
+    )
+    if record.get("artifact_ref") != expected_artifact_ref:
+        problems.append("candidate_artifact_ref_mismatch")
+    if candidate_receipt.get("schema") != "court.release_candidate_receipt.v1":
+        problems.append("candidate_source_receipt_schema_invalid")
+    if candidate_receipt.get("state") != "CANDIDATE_NOT_RELEASED":
+        problems.append("candidate_source_receipt_state_invalid")
+    if candidate_receipt.get("release_label") != release_label:
+        problems.append("candidate_source_receipt_release_label_mismatch")
+    candidate_source = candidate_receipt.get("source")
+    if not isinstance(candidate_source, dict):
+        problems.append("candidate_source_receipt_source_missing")
+    else:
+        if candidate_source.get("head_commit") != source_commit:
+            problems.append("candidate_source_receipt_source_commit_mismatch")
+        if candidate_source.get("tree") != source_tree:
+            problems.append("candidate_source_receipt_tree_mismatch")
+    artifacts = candidate_receipt.get("artifacts")
+    expected_zip_name = f"decretum-matrix-{release_label}.zip"
+    if not isinstance(artifacts, list) or not any(
+        isinstance(item, dict) and item.get("name") == expected_zip_name
+        for item in artifacts
+    ):
+        problems.append("candidate_source_receipt_zip_missing")
+    return problems
+
+
+def _candidate_execution_problems(record: object) -> list[str]:
+    """Require a completed ordinary public-shim operation, not a fixture summary."""
+
+    if not isinstance(record, dict):
+        return ["candidate_evidence_not_object"]
+    problems: list[str] = []
+    if record.get("schema") != "decretum.npm_local_install_candidate_gate_evidence.v2":
+        problems.append("candidate_evidence_schema_invalid")
+    domain_result = record.get("domain_result")
+    smoke = domain_result.get("installed_package_smoke") if isinstance(domain_result, dict) else None
+    if not isinstance(smoke, dict) or smoke.get("status") != "PASS":
+        problems.append("candidate_smoke_not_passed")
+    if record.get("exit_code") != 0:
+        problems.append("candidate_execution_exit_code_invalid")
+    if record.get("output_truncated") is not False:
+        problems.append("candidate_execution_output_truncated")
+    execution = record.get("execution")
+    if not isinstance(execution, dict):
+        problems.append("candidate_execution_missing")
+    else:
+        if execution.get("entrypoint") != "npm_bin_shim":
+            problems.append("candidate_execution_not_public_shim")
+        if execution.get("status") != "PASS" or execution.get("exit_code") != 0:
+            problems.append("candidate_execution_not_passed")
+        if execution.get("output_truncated") is not False:
+            problems.append("candidate_execution_output_truncated")
+        if not isinstance(execution.get("command"), str) or not execution["command"].strip():
+            problems.append("candidate_execution_command_missing")
+        argv = execution.get("argv")
+        if argv != ["--format", "json", "court", "status"]:
+            problems.append("candidate_execution_operation_invalid")
+        if not isinstance(execution.get("cwd"), str) or not execution["cwd"].strip():
+            problems.append("candidate_execution_cwd_missing")
+    log_capture = record.get("log_capture")
+    if not _log_capture_complete(log_capture):
+        problems.append("candidate_public_log_incomplete")
+    elif isinstance(execution, dict):
+        for stream in ("stdout", "stderr"):
+            if execution.get(f"{stream}_ref") != log_capture.get(f"{stream}_path"):
+                problems.append(f"candidate_execution_{stream}_reference_mismatch")
+            if execution.get(f"{stream}_bytes") != log_capture.get(f"{stream}_bytes"):
+                problems.append(f"candidate_execution_{stream}_size_mismatch")
+    installer_execution = record.get("installer_execution")
+    installer_capture = record.get("installer_log_capture")
+    if not isinstance(installer_execution, dict):
+        problems.append("candidate_installer_execution_missing")
+    else:
+        if installer_execution.get("entrypoint") != "explicit_isolated_installer":
+            problems.append("candidate_installer_entrypoint_invalid")
+        if installer_execution.get("status") != "PASS" or installer_execution.get("exit_code") != 0:
+            problems.append("candidate_installer_not_passed")
+        if installer_execution.get("output_truncated") is not False:
+            problems.append("candidate_installer_output_truncated")
+        if not isinstance(installer_execution.get("command"), str) or not installer_execution["command"].strip():
+            problems.append("candidate_installer_command_missing")
+        if not isinstance(installer_execution.get("argv"), list) or not installer_execution["argv"]:
+            problems.append("candidate_installer_argv_missing")
+        if not isinstance(installer_execution.get("cwd"), str) or not installer_execution["cwd"].strip():
+            problems.append("candidate_installer_cwd_missing")
+    if not _log_capture_complete(installer_capture):
+        problems.append("candidate_installer_log_incomplete")
+    elif isinstance(installer_execution, dict):
+        for stream in ("stdout", "stderr"):
+            if installer_execution.get(f"{stream}_ref") != installer_capture.get(f"{stream}_path"):
+                problems.append(f"candidate_installer_{stream}_reference_mismatch")
+            if installer_execution.get(f"{stream}_bytes") != installer_capture.get(f"{stream}_bytes"):
+                problems.append(f"candidate_installer_{stream}_size_mismatch")
+    execution_ref = record.get("execution_ref")
+    if not isinstance(execution_ref, str) or not execution_ref.strip():
+        problems.append("candidate_execution_record_missing")
+    else:
+        execution_path = Path(execution_ref)
+        if not execution_path.is_absolute() or not execution_path.is_file():
+            problems.append("candidate_execution_record_unreadable")
+        else:
+            try:
+                attempt = json.loads(execution_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                problems.append("candidate_execution_record_unreadable")
+            else:
+                if not isinstance(attempt, dict) or attempt.get("schema") != "decretum.npm_local_install_candidate_execution.v1":
+                    problems.append("candidate_execution_record_schema_invalid")
+                elif (
+                    attempt.get("status") != "PASSED"
+                    or attempt.get("public_operation") != execution
+                    or attempt.get("installer") != installer_execution
+                ):
+                    problems.append("candidate_execution_record_mismatch")
+    problems.extend(_candidate_receipt_problems(record))
+    return problems
+
+
 def _required_check_result(
     check: dict[str, object],
     *,
@@ -1159,7 +1527,7 @@ def _required_check_result(
                 expected={
                     field: value
                     for field, value in (expected_provenance or {}).items()
-                    if field in {"source_commit", "artifact_ref"}
+                    if field in {"source_commit", "artifact_ref", "build_id"}
                 },
             )
             if provenance_problems:
@@ -1167,6 +1535,14 @@ def _required_check_result(
                     status="FAILED",
                     reason="candidate_provenance_invalid",
                     provenance_problems=provenance_problems,
+                )
+        if result.get("status") == "PASSED":
+            execution_problems = _candidate_execution_problems(result)
+            if execution_problems:
+                result.update(
+                    status="FAILED",
+                    reason="candidate_execution_invalid",
+                    execution_problems=execution_problems,
                 )
         if result.get("status") == "PASSED" and not log_evidence_is_complete(result):
             result.update(status="FAILED", reason="candidate_log_incomplete")
@@ -1570,11 +1946,13 @@ def main() -> int:
         try:
             git_index_self_test = run_git_index_isolation_self_test()
             domain_contract_self_test = run_domain_contract_self_test()
+            candidate_evidence_self_test = run_candidate_evidence_self_test()
             ci_summary_self_test = run_ci_summary_self_test()
             log_capture_self_test = run_log_capture_self_test()
             result = {
                 "ok": (
                     all(domain_contract_self_test.values())
+                    and all(candidate_evidence_self_test.values())
                     and all(ci_summary_self_test.values())
                     and all(log_capture_self_test.values())
                 ),
@@ -1582,6 +1960,7 @@ def main() -> int:
                 "manifest_self_test": manifest_self_test,
                 "git_index_self_test": git_index_self_test,
                 "domain_contract_self_test": domain_contract_self_test,
+                "candidate_evidence_self_test": candidate_evidence_self_test,
                 "ci_summary_self_test": ci_summary_self_test,
                 "log_capture_self_test": log_capture_self_test,
             }
@@ -1592,6 +1971,7 @@ def main() -> int:
                 "manifest_self_test": manifest_self_test,
                 "git_index_self_test": {"status": "FAILED", "error": str(exc)},
                 "domain_contract_self_test": {"status": "FAILED", "error": str(exc)},
+                "candidate_evidence_self_test": {"status": "FAILED", "error": str(exc)},
                 "ci_summary_self_test": {"status": "FAILED", "error": str(exc)},
                 "log_capture_self_test": {"status": "FAILED", "error": str(exc)},
             }
@@ -1727,7 +2107,7 @@ def main() -> int:
         if field in {"source_commit", "artifact_ref"}
     }
     package_provenance_problems: list[str] = []
-    if phase in {"post-install", "full"} and package_gate.get("status") == "PASSED":
+    if phase in {"candidate", "pre-install", "post-install", "full"} and package_gate.get("status") == "PASSED":
         package_provenance_problems = validate_evidence_provenance(
             package_gate,
             required=("source_commit", "artifact_ref", "build_id", "release_label"),
@@ -1746,7 +2126,7 @@ def main() -> int:
     receipt_expected_provenance = dict(expected_provenance)
     if phase in {"post-install", "full"} and package_gate.get("status") == "PASSED":
         if isinstance(package_provenance, dict):
-            for field in ("source_commit", "artifact_ref"):
+            for field in ("source_commit", "artifact_ref", "build_id"):
                 value = package_provenance.get(field)
                 if isinstance(value, str) and value.strip():
                     candidate_expected_provenance[field] = value
