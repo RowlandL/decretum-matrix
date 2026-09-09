@@ -15,6 +15,7 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 from copy import deepcopy
+from datetime import datetime, timezone
 import importlib
 import json
 import os
@@ -25,6 +26,7 @@ import stat
 import sys
 import subprocess
 import tempfile
+import uuid
 import zipfile
 
 sys.dont_write_bytecode = True
@@ -48,6 +50,18 @@ POST_PROJECTION_CONTRACT = "POST_INSTALL_STANDALONE_HASH_CHECK"
 POST_PROJECTION_CHECKER_RELATIVE = Path("scripts/checks/check_active_copy_hashes.py")
 MAX_METADATA_BYTES = 256 * 1024
 NPM_PACKAGE_NAME = "@rowlandl/decretum-matrix"
+NPM_REPLACE_BACKUP_SCHEMA = "decretum.npm_global_replace_backup.v1"
+NPM_PACKAGE_RELATIVE = PurePosixPath("node_modules/@rowlandl/decretum-matrix")
+NPM_LOCAL_BIN_RELATIVES = (
+    PurePosixPath("node_modules/.bin/decretum-matrix"),
+    PurePosixPath("node_modules/.bin/decretum-matrix.cmd"),
+    PurePosixPath("node_modules/.bin/decretum-matrix.ps1"),
+)
+NPM_GLOBAL_SHIM_RELATIVES = (
+    PurePosixPath("decretum-matrix"),
+    PurePosixPath("decretum-matrix.cmd"),
+    PurePosixPath("decretum-matrix.ps1"),
+)
 
 
 def _home_root(value: str | None) -> Path:
@@ -164,6 +178,13 @@ def _safe_candidate_file(root: Path, relative: object, *, label: str) -> Path:
         if _is_link_or_reparse(current):
             raise RuntimeError(f"{label}_link_or_reparse:{current}")
     return path
+
+
+def _path_from_relative(root: Path, relative: PurePosixPath | str) -> Path:
+    normalized = relative if isinstance(relative, PurePosixPath) else PurePosixPath(str(relative))
+    if normalized.is_absolute() or any(part in {"", ".", ".."} for part in normalized.parts):
+        raise RuntimeError("relative_path_invalid")
+    return root / Path(*normalized.parts)
 
 
 def _git_output(source: Path, *args: str) -> str:
@@ -489,14 +510,202 @@ def _candidate_tgz_regular(path: Path) -> Path:
 def _candidate_npm_owned_targets(prefix: Path) -> tuple[Path, ...]:
     """Return only paths npm may create for this private candidate package."""
 
-    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
-    shim_root = prefix / "node_modules" / ".bin"
-    return (
-        package_root,
-        shim_root / "decretum-matrix",
-        shim_root / "decretum-matrix.cmd",
-        shim_root / "decretum-matrix.ps1",
+    return tuple(
+        _path_from_relative(prefix, relative)
+        for relative in (NPM_PACKAGE_RELATIVE, *NPM_LOCAL_BIN_RELATIVES)
     )
+
+
+def _candidate_npm_owned_relative(target: Path, prefix: Path) -> str:
+    try:
+        relative = Path(os.path.abspath(target)).relative_to(Path(os.path.abspath(prefix)))
+    except ValueError as exc:
+        raise RuntimeError("candidate_npm_target_outside_prefix") from exc
+    return PurePosixPath(relative.as_posix()).as_posix()
+
+
+def _candidate_npm_replacement_backup_root(home: Path) -> Path:
+    base = home / ".agents" / "install-backups" / NAME
+    base.mkdir(parents=True, exist_ok=True)
+    _physical_directory(base, label="candidate_npm_backup_base")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    root = base / f"npm-local-{stamp}-{uuid.uuid4().hex}"
+    root.mkdir(mode=0o700)
+    return root
+
+
+def _snapshot_optional_npm_shim(
+    *,
+    backup_root: Path,
+    prefix: Path,
+    relative: PurePosixPath,
+) -> dict[str, object] | None:
+    target = _path_from_relative(prefix, relative)
+    if not target.exists() and not target.is_symlink():
+        return None
+    try:
+        parent = _physical_directory(target.parent, label="candidate_npm_global_shim_parent")
+    except RuntimeError as exc:
+        raise RuntimeError(f"candidate_npm_global_shim_parent_invalid:{relative}") from exc
+    try:
+        parent.relative_to(prefix)
+    except ValueError as exc:
+        raise RuntimeError(f"candidate_npm_global_shim_parent_escape:{relative}") from exc
+    status = target.lstat()
+    if _is_link_or_reparse(target) or not stat.S_ISREG(status.st_mode):
+        raise RuntimeError(f"candidate_npm_global_shim_unsafe:{relative}")
+    backup_relative = PurePosixPath("shims") / relative
+    backup_target = _path_from_relative(backup_root, backup_relative)
+    backup_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(target, backup_target)
+    return {
+        "target_relative": relative.as_posix(),
+        "backup_relative": backup_relative.as_posix(),
+        "kind": "file",
+        "action": "SNAPSHOT_ONLY",
+        "size": status.st_size,
+    }
+
+
+def _move_existing_candidate_npm_target(
+    *,
+    backup_root: Path,
+    prefix: Path,
+    target: Path,
+) -> dict[str, object] | None:
+    if not target.exists() and not target.is_symlink():
+        return None
+    relative = PurePosixPath(_candidate_npm_owned_relative(target, prefix))
+    parent = _physical_directory(target.parent, label="candidate_npm_existing_parent")
+    try:
+        parent.relative_to(prefix)
+    except ValueError as exc:
+        raise RuntimeError(f"candidate_npm_existing_parent_escape:{relative}") from exc
+    status = target.lstat()
+    kind = "symlink" if stat.S_ISLNK(status.st_mode) else "directory" if stat.S_ISDIR(status.st_mode) else "file"
+    package_root = _path_from_relative(prefix, NPM_PACKAGE_RELATIVE)
+    if kind == "symlink":
+        if target not in [_path_from_relative(prefix, item) for item in NPM_LOCAL_BIN_RELATIVES] or not _candidate_npm_bin_link(target, package_root):
+            raise RuntimeError(f"candidate_npm_existing_target_unsafe:{relative}")
+    elif _is_link_or_reparse(target) or kind not in {"directory", "file"}:
+        raise RuntimeError(f"candidate_npm_existing_target_unsafe:{relative}")
+    backup_relative = PurePosixPath("targets") / relative
+    backup_target = _path_from_relative(backup_root, backup_relative)
+    backup_target.parent.mkdir(parents=True, exist_ok=True)
+    if backup_target.exists() or backup_target.is_symlink():
+        raise RuntimeError(f"candidate_npm_backup_collision:{backup_relative}")
+    os.replace(target, backup_target)
+    return {
+        "target_relative": relative.as_posix(),
+        "backup_relative": backup_relative.as_posix(),
+        "kind": kind,
+        "action": "MOVED",
+        "size": status.st_size,
+    }
+
+
+def _prepare_candidate_npm_replacement(prefix: Path, home: Path) -> dict[str, object]:
+    """Move only owned package/.bin targets aside; record paths relative to npm prefix."""
+
+    backup_root = _candidate_npm_replacement_backup_root(home)
+    moved: list[dict[str, object]] = []
+    snapshots: list[dict[str, object]] = []
+    try:
+        for target in _candidate_npm_owned_targets(prefix):
+            item = _move_existing_candidate_npm_target(
+                backup_root=backup_root,
+                prefix=prefix,
+                target=target,
+            )
+            if item is not None:
+                moved.append(item)
+        for relative in NPM_GLOBAL_SHIM_RELATIVES:
+            item = _snapshot_optional_npm_shim(
+                backup_root=backup_root,
+                prefix=prefix,
+                relative=relative,
+            )
+            if item is not None:
+                snapshots.append(item)
+        manifest = {
+            "schema": NPM_REPLACE_BACKUP_SCHEMA,
+            "status": "CREATED",
+            "path_style": "relative_to_npm_prefix",
+            "npm_prefix_evidence": str(prefix),
+            "backup_root": str(backup_root),
+            "moved_targets": moved,
+            "unmoved_global_shim_snapshots": snapshots,
+            "rollback_supported": True,
+        }
+        (backup_root / "backup-manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        return manifest
+    except Exception:
+        _restore_candidate_npm_replacement(
+            prefix=prefix,
+            replacement_backup={
+                "schema": NPM_REPLACE_BACKUP_SCHEMA,
+                "status": "CREATED",
+                "backup_root": str(backup_root),
+                "moved_targets": moved,
+            },
+        )
+        raise
+
+
+def _restore_candidate_npm_replacement(
+    *,
+    prefix: Path,
+    replacement_backup: dict[str, object] | None,
+) -> dict[str, object]:
+    if replacement_backup is None:
+        return {"ok": True, "status": "NOT_REQUIRED"}
+    if replacement_backup.get("schema") != NPM_REPLACE_BACKUP_SCHEMA:
+        return {"ok": False, "status": "RECOVERY_REQUIRED", "reason": "npm_replacement_backup_schema_invalid"}
+    backup_root_value = _nonempty(replacement_backup.get("backup_root"))
+    moved = replacement_backup.get("moved_targets")
+    if backup_root_value is None or not isinstance(moved, list):
+        return {"ok": False, "status": "RECOVERY_REQUIRED", "reason": "npm_replacement_backup_incomplete"}
+    backup_root = Path(backup_root_value)
+    restored: list[dict[str, object]] = []
+    try:
+        _physical_directory(backup_root, label="candidate_npm_restore_backup_root")
+        _candidate_npm_parent_check(prefix)
+        for item in moved:
+            if not isinstance(item, dict):
+                raise RuntimeError("candidate_npm_restore_item_invalid")
+            target_relative = _nonempty(item.get("target_relative"))
+            backup_relative = _nonempty(item.get("backup_relative"))
+            if target_relative is None or backup_relative is None:
+                raise RuntimeError("candidate_npm_restore_relative_missing")
+            target = _path_from_relative(prefix, PurePosixPath(target_relative))
+            source = _path_from_relative(backup_root, PurePosixPath(backup_relative))
+            if target.exists() or target.is_symlink():
+                raise RuntimeError(f"candidate_npm_restore_target_exists:{target_relative}")
+            if not source.exists() and not source.is_symlink():
+                raise RuntimeError(f"candidate_npm_restore_source_missing:{backup_relative}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _physical_directory(target.parent, label="candidate_npm_restore_parent")
+            os.replace(source, target)
+            restored.append({
+                "target_relative": target_relative,
+                "backup_relative": backup_relative,
+            })
+    except (OSError, RuntimeError) as exc:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": f"npm_replacement_restore_failed:{type(exc).__name__}:{exc}",
+            "restored": restored,
+        }
+    return {
+        "ok": True,
+        "status": "RESTORED" if restored else "NOT_REQUIRED",
+        "restored": restored,
+    }
 
 
 def _candidate_npm_residual_targets(prefix: Path) -> list[str]:
@@ -538,6 +747,7 @@ def _install_candidate_npm(
     npm_prefix: Path,
     home: Path,
     caller_cwd: Path,
+    replace_existing: bool = False,
 ) -> dict[str, object]:
     tgz = _candidate_tgz_regular(candidate_tgz)
     prefix = Path(npm_prefix).resolve(strict=False)
@@ -551,6 +761,17 @@ def _install_candidate_npm(
     except RuntimeError as exc:
         return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
     package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
+    replacement_backup: dict[str, object] | None = None
+    if replace_existing:
+        try:
+            replacement_backup = _prepare_candidate_npm_replacement(prefix, home)
+        except RuntimeError as exc:
+            return {
+                "ok": False,
+                "status": "BLOCKED",
+                "reason": str(exc),
+                "mutation_attempted": True,
+            }
     if package_root.exists() or package_root.is_symlink():
         return {"ok": False, "status": "BLOCKED", "reason": "candidate_package_preexisting"}
     preexisting_shims = [
@@ -564,6 +785,7 @@ def _install_candidate_npm(
             "status": "BLOCKED",
             "reason": "candidate_shim_preexisting",
             "preexisting_targets": preexisting_shims,
+            **({"replacement_backup": replacement_backup} if replacement_backup else {}),
         }
     stage_prefix = Path(tempfile.mkdtemp(prefix="decretum-candidate-npm-"))
     command = [_npm_executable(), "install", "--ignore-scripts", "--package-lock=false",
@@ -575,7 +797,9 @@ def _install_candidate_npm(
     def failed(reason: str, **details: object) -> dict[str, object]:
         return {"ok": False, "status": "BLOCKED", "reason": reason,
                 "mutation_attempted": True, "command": command, "cwd": str(caller),
-                "residual_targets": _candidate_npm_residual_targets(prefix), **details}
+                "residual_targets": _candidate_npm_residual_targets(prefix),
+                **({"replacement_backup": replacement_backup} if replacement_backup else {}),
+                **details}
 
     try:
         try:
@@ -615,6 +839,7 @@ def _install_candidate_npm(
             "package_root": str(package_root.resolve(strict=False)),
             "npm_prefix": str(prefix), "mutation_attempted": True,
             "residual_targets": _candidate_npm_residual_targets(prefix),
+            **({"replacement_backup": replacement_backup} if replacement_backup else {}),
         }
     except (OSError, RuntimeError) as exc:
         return failed(f"candidate_npm_stage_failed:{type(exc).__name__}")
@@ -627,6 +852,7 @@ def _rollback_candidate_npm(
     npm_prefix: Path,
     home: Path,
     caller_cwd: Path,
+    replacement_backup: dict[str, object] | None = None,
 ) -> dict[str, object]:
     try:
         prefix = _physical_directory(npm_prefix, label="installation_binding_npm_prefix")
@@ -636,11 +862,28 @@ def _rollback_candidate_npm(
         return {"ok": False, "status": "RECOVERY_REQUIRED", "reason": str(exc)}
     residual_before = _candidate_npm_residual_targets(prefix)
     if not residual_before:
+        restore = _restore_candidate_npm_replacement(
+            prefix=prefix,
+            replacement_backup=replacement_backup,
+        )
+        current_targets = (
+            _candidate_npm_residual_targets(prefix)
+            if replacement_backup is not None
+            else []
+        )
         return {
-            "ok": True,
-            "status": "NOT_REQUIRED",
+            "ok": restore.get("ok") is True,
+            "status": (
+                "ROLLED_BACK"
+                if replacement_backup is not None and restore.get("ok") is True
+                else "NOT_REQUIRED"
+                if restore.get("ok") is True
+                else "RECOVERY_REQUIRED"
+            ),
             "removed": True,
             "residual_targets": [],
+            "current_owned_targets": current_targets,
+            "replacement_restore": restore,
         }
     try:
         targets = _candidate_npm_owned_targets(prefix)
@@ -667,7 +910,33 @@ def _rollback_candidate_npm(
             "cwd": str(caller),
             "residual_targets": _candidate_npm_residual_targets(prefix),
         }
+    restore = _restore_candidate_npm_replacement(
+        prefix=prefix,
+        replacement_backup=replacement_backup,
+    )
+    if restore.get("ok") is not True:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": str(restore.get("reason") or "npm_replacement_restore_failed"),
+            "command": ["owned_remove"],
+            "cwd": str(caller),
+            "removed": True,
+            "residual_targets": _candidate_npm_residual_targets(prefix),
+            "replacement_restore": restore,
+        }
     residual_after = _candidate_npm_residual_targets(prefix)
+    if replacement_backup is not None:
+        return {
+            "ok": True,
+            "status": "ROLLED_BACK",
+            "command": ["owned_remove"],
+            "cwd": str(caller),
+            "removed": True,
+            "residual_targets": [],
+            "restored_owned_targets": residual_after,
+            "replacement_restore": restore,
+        }
     removed = not residual_after
     return {
         "ok": removed,
@@ -676,6 +945,7 @@ def _rollback_candidate_npm(
         "cwd": str(caller),
         "removed": removed,
         "residual_targets": residual_after,
+        "replacement_restore": restore,
     }
 
 
@@ -986,10 +1256,21 @@ def _run_public_shim_probe(
             node_modules / ".bin",
             label="public_shim_directory",
         )
+        prefix_root = _physical_directory(
+            node_modules.parent,
+            label="public_shim_prefix",
+        )
     except RuntimeError as exc:
         return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
     if os.name == "nt":
-        shim = shim_root / "decretum-matrix.cmd"
+        shim_candidates = (
+            prefix_root / "decretum-matrix.cmd",
+            shim_root / "decretum-matrix.cmd",
+        )
+        shim = next(
+            (candidate for candidate in shim_candidates if candidate.exists()),
+            shim_candidates[-1],
+        )
         try:
             shim_status = shim.lstat()
         except OSError as exc:
@@ -1105,6 +1386,7 @@ def _install_update(
     transaction_id: str | None = None,
     installation_id: str | None = None,
     caller_cwd: Path | None = None,
+    replace_existing_npm: bool = False,
 ) -> dict[str, object]:
     selected = source_selection.get("selected_root")
     if not isinstance(selected, str):
@@ -1144,6 +1426,7 @@ def _install_update(
             npm_prefix=npm_prefix,
             home=home,
             caller_cwd=caller_cwd,
+            replace_existing=replace_existing_npm,
         )
         npm_mutation_attempted = (
             npm_install_result.get("mutation_attempted") is True
@@ -1161,6 +1444,12 @@ def _install_update(
             npm_prefix=npm_prefix,
             home=home,
             caller_cwd=caller_cwd,
+            replacement_backup=(
+                npm_install_result.get("replacement_backup")
+                if isinstance(npm_install_result, dict)
+                and isinstance(npm_install_result.get("replacement_backup"), dict)
+                else None
+            ),
         )
         payload["npm_candidate_install"] = npm_install_result
         payload["npm_candidate_compensation"] = rollback
@@ -1499,6 +1788,11 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
     parser.add_argument("--transaction-id")
     parser.add_argument("--installation-id")
     parser.add_argument("--caller-cwd")
+    parser.add_argument(
+        "--replace-existing-npm",
+        action="store_true",
+        help="Back up and replace an existing npm prefix package/shim set for an explicit upgrade.",
+    )
     parser.add_argument("--format", choices=("text", "json"), default="json")
     args = parser.parse_args(argv)
     audit_intent = write_audit_event(
@@ -1519,6 +1813,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             "transaction_id": args.transaction_id,
             "installation_id": args.installation_id,
             "caller_cwd": args.caller_cwd,
+            "replace_existing_npm": args.replace_existing_npm,
         },
     )
     home = _home_root(args.home_root)
@@ -1573,6 +1868,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                 transaction_id=args.transaction_id,
                 installation_id=args.installation_id,
                 caller_cwd=caller_cwd,
+                replace_existing_npm=args.replace_existing_npm,
             )
         elif args.operation == "migrate":
             result = _legacy_migration(home, args.root, args.receipt, write=args.apply)

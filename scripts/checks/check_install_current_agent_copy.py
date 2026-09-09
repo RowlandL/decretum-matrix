@@ -2624,6 +2624,113 @@ def _check_candidate_npm_partial_attempt_metadata(
     return 1
 
 
+def _check_candidate_npm_replace_existing_relative_backup(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """Explicit npm replacement backs up owned targets with relative coordinates."""
+
+    name = "candidate_npm_replace_existing_relative_backup"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    passed = 0
+    home = temp_root / "home"
+    caller = temp_root / "caller"
+    prefix = temp_root / "npm-prefix"
+    tgz = temp_root / "candidate.tgz"
+    package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
+    local_bin = prefix / "node_modules" / ".bin"
+    global_shim = prefix / "decretum-matrix.cmd"
+    caller.mkdir(parents=True, exist_ok=True)
+    package_root.mkdir(parents=True, exist_ok=True)
+    local_bin.mkdir(parents=True, exist_ok=True)
+    home.mkdir(parents=True, exist_ok=True)
+    (package_root / "old-marker.txt").write_text("old package\n", encoding="utf-8")
+    (local_bin / "decretum-matrix.cmd").write_text("old local shim\n", encoding="utf-8")
+    global_shim.write_text("old global shim\n", encoding="utf-8")
+    tgz.write_bytes(b"candidate")
+
+    default_result = fix._install_candidate_npm(
+        candidate_tgz=tgz,
+        npm_prefix=prefix,
+        home=home,
+        caller_cwd=caller,
+    )
+    if default_result.get("reason") == "candidate_package_preexisting":
+        passed += 1
+    else:
+        errors.append(f"{name}:default_rejection:{default_result}")
+
+    try:
+        backup = fix._prepare_candidate_npm_replacement(prefix.resolve(), home.resolve())
+    except Exception as exc:
+        errors.append(f"{name}:prepare:{type(exc).__name__}:{exc}")
+        return passed
+    manifest_path = Path(str(backup["backup_root"])) / "backup-manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        errors.append(f"{name}:manifest:{type(exc).__name__}:{exc}")
+        return passed
+    moved = manifest.get("moved_targets")
+    snapshots = manifest.get("unmoved_global_shim_snapshots")
+    moved_relatives = {
+        item.get("target_relative")
+        for item in moved
+        if isinstance(item, dict)
+    } if isinstance(moved, list) else set()
+    snapshot_relatives = {
+        item.get("target_relative")
+        for item in snapshots
+        if isinstance(item, dict)
+    } if isinstance(snapshots, list) else set()
+    absolute_item_paths = [
+        value
+        for collection in (moved or [], snapshots or [])
+        for item in collection
+        if isinstance(item, dict)
+        for value in (item.get("target_relative"), item.get("backup_relative"))
+        if isinstance(value, str) and Path(value).is_absolute()
+    ]
+    if not (
+        manifest.get("schema") == "decretum.npm_global_replace_backup.v1"
+        and manifest.get("path_style") == "relative_to_npm_prefix"
+        and "node_modules/@rowlandl/decretum-matrix" in moved_relatives
+        and "node_modules/.bin/decretum-matrix.cmd" in moved_relatives
+        and "decretum-matrix.cmd" in snapshot_relatives
+        and not absolute_item_paths
+        and not package_root.exists()
+        and not (local_bin / "decretum-matrix.cmd").exists()
+        and global_shim.read_text(encoding="utf-8") == "old global shim\n"
+    ):
+        errors.append(f"{name}:relative_backup_contract:{manifest}")
+        return passed
+
+    package_root.mkdir(parents=True, exist_ok=True)
+    (package_root / "new-marker.txt").write_text("new package\n", encoding="utf-8")
+    (local_bin / "decretum-matrix.cmd").write_text("new local shim\n", encoding="utf-8")
+    rollback = fix._rollback_candidate_npm(
+        npm_prefix=prefix,
+        home=home,
+        caller_cwd=caller,
+        replacement_backup=manifest,
+    )
+    if (
+        rollback.get("ok") is True
+        and (package_root / "old-marker.txt").read_text(encoding="utf-8") == "old package\n"
+        and (local_bin / "decretum-matrix.cmd").read_text(encoding="utf-8") == "old local shim\n"
+        and global_shim.read_text(encoding="utf-8") == "old global shim\n"
+        and rollback.get("replacement_restore", {}).get("status") == "RESTORED"
+    ):
+        passed += 1
+    else:
+        errors.append(f"{name}:rollback_restore:{rollback}")
+    return passed
+
+
 def _check_candidate_public_shim_mismatch(
     temp_root: Path,
     errors: list[str],
@@ -4858,6 +4965,13 @@ def evaluate() -> Payload:
                     Path(temp_dir),
                     errors,
                 )
+            with tempfile.TemporaryDirectory(
+                prefix="cnr-"
+            ) as temp_dir:
+                passed += _check_candidate_npm_replace_existing_relative_backup(
+                    Path(temp_dir),
+                    errors,
+                )
             passed += runpy.run_path(str(ROOT / ".github/test-support/candidate-install-regression.py"))["verify"](errors)
             with tempfile.TemporaryDirectory(
                 prefix="cps-"
@@ -4886,7 +5000,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 55,
+        "declared_cases": 57,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,
