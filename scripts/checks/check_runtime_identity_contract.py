@@ -122,7 +122,7 @@ def evaluate() -> dict[str, Any]:
             selected = None
             failures.append(f"committed_binding_selection_error:{type(exc).__name__}:{exc}")
         selected_root = str(selected) if selected is not None else None
-        if selected != canonical:
+        if selected is None or not launcher._same_path(selected, canonical):
             failures.append("committed_installation_binding_not_selected")
         binding_value = json.loads(
             (home / BINDING_RELATIVE).read_text(encoding="utf-8")

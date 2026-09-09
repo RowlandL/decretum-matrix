@@ -9,6 +9,35 @@
 4. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
 5. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
 
+## Codex/Claude Hierarchical Relay Evidence
+
+This section is a governing reference for formal parallel and relay claims in
+Codex, Claude Code, and similar recursive subagent hosts where task/thread
+paths and inter-agent messages are evidence. It does not govern DeepSeek
+Harness, EAC/DSH, MCP-only tools, local CLIs/scripts, or other non-recursive
+runtimes; those carriers keep their own host evidence rules.
+
+Text such as `direct_superior=shangshu`, an intended dispatch graph, or a
+root-collected flat OK wave is not office communication proof by itself. Before
+claiming 三省会审, 尚书统合六部, or any office-level interconnection, preserve the
+current-session evidence chain that the host can actually provide: original
+office relay request, lawful direct child-to-child or parent-to-child delivery,
+receiver read acknowledgement, and superior/root receipt.
+
+When the host exposes no child-to-child messaging, the root thread or 太子 may
+act as the host relay surface. That relay is transport only: it must follow the
+court hierarchy, preserve the original sender/receiver roles, and never create a
+new authority edge. If the relay chain cannot be evidenced, report
+`runtime_degraded/PARTIAL` instead of presenting the wave as verified
+inter-office communication.
+
+Source, profile, dossier, and governing-reference paths in prompts and documents
+should be skill-root relative, for example `SKILL.md`,
+`references/court-offices-dispatch.md`, `agents/standing-officials/<role>.toml`,
+and `agents/office-dossiers/<role>/AGENTS.md`. Absolute or resolved paths belong
+only in host receipts, installation bindings, and other machine evidence where
+the concrete local path is itself the fact being proven.
+
 渐进加载注记：本卷由原 `SKILL.md` 顶级章节机械迁移而来，保留原文语义用于按需加载。新的短 `SKILL.md` 是入口、硬门禁与直接索引；本卷是该入口直接链接的 governing reference。若旧文出现“必须写入 SKILL.md”等位置性表述，在本次渐进加载结构下解释为：硬门禁、触发、三权、只读、安全、状态机、史馆/记忆、语义再载入、奏报模板等规则必须在短 `SKILL.md` 保持摘要和直链；细节规则可写入本卷等直接链接 governing reference。史馆仍只作证据与召回锚点，不替代本 skill 源文件与 governing references。
 
 本卷章节：`三省六部 Semantic Bedrock`, `Court Roles`, `Court Semantics`, `Court Voice And Pronouns`, `Internal Court Functions`, `Clarification Loop`, `Dispatch Rules`。

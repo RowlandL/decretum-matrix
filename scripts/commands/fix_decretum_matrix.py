@@ -111,7 +111,27 @@ def _nonempty(value: object) -> str | None:
 
 
 def _path_key(path: Path) -> str:
-    return os.path.normcase(os.path.abspath(os.fspath(path)))
+    return os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(path))))
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    return _path_key(left) == _path_key(right)
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        return os.path.commonpath([_path_key(path), _path_key(root)]) == _path_key(root)
+    except ValueError:
+        return False
+
+
+def _relative_posix(path: Path, root: Path, *, reason: str) -> str:
+    resolved_path = Path(os.path.realpath(os.path.abspath(os.fspath(path))))
+    resolved_root = Path(os.path.realpath(os.path.abspath(os.fspath(root))))
+    if not _path_is_under(resolved_path, resolved_root):
+        raise RuntimeError(reason)
+    relative = Path(os.path.relpath(os.fspath(resolved_path), os.fspath(resolved_root)))
+    return PurePosixPath(relative.as_posix()).as_posix()
 
 
 def _is_link_or_reparse(path: Path) -> bool:
@@ -126,7 +146,10 @@ def _is_link_or_reparse(path: Path) -> bool:
 
 
 def _physical_directory(path: Path, *, label: str) -> Path:
-    absolute = Path(os.path.abspath(os.fspath(path)))
+    raw = Path(os.path.abspath(os.fspath(path)))
+    if _is_link_or_reparse(raw):
+        raise RuntimeError(f"{label}_link_or_reparse:{raw}")
+    absolute = Path(os.path.realpath(os.fspath(raw)))
     for candidate in [*reversed(absolute.parents), absolute]:
         try:
             value = candidate.lstat()
@@ -168,10 +191,8 @@ def _safe_candidate_file(root: Path, relative: object, *, label: str) -> Path:
     ):
         raise RuntimeError(f"{label}_path_invalid")
     path = (root / Path(*candidate.parts)).resolve(strict=False)
-    try:
-        path.relative_to(root)
-    except ValueError as exc:
-        raise RuntimeError(f"{label}_path_escape") from exc
+    if not _path_is_under(path, root):
+        raise RuntimeError(f"{label}_path_escape")
     current = root
     for part in candidate.parts:
         current = current / part
@@ -270,10 +291,8 @@ def _candidate_binding_metadata(
     )
     if npm_prefix is not None:
         prefix = _physical_directory(npm_prefix, label="installation_binding_npm_prefix")
-        try:
-            package_root.relative_to(prefix)
-        except ValueError as exc:
-            raise RuntimeError("candidate_package_outside_npm_prefix") from exc
+        if not _path_is_under(package_root, prefix):
+            raise RuntimeError("candidate_package_outside_npm_prefix")
     for value, label in (
         (transaction_id, "installation_binding_transaction_id"),
         (installation_id, "installation_binding_installation_id"),
@@ -374,10 +393,11 @@ def _candidate_binding_metadata(
         )
     else:
         receipt_path = Path(candidate_receipt).resolve(strict=False)
-        try:
-            receipt_relative_value = receipt_path.relative_to(package_root).as_posix()
-        except ValueError as exc:
-            raise RuntimeError("candidate_receipt_outside_package") from exc
+        receipt_relative_value = _relative_posix(
+            receipt_path,
+            package_root,
+            reason="candidate_receipt_outside_package",
+        )
         receipt_path = _safe_candidate_file(
             package_root,
             receipt_relative_value,
@@ -417,7 +437,7 @@ def _candidate_binding_metadata(
     if not artifact_path.is_file() or _is_link_or_reparse(artifact_path):
         raise RuntimeError("candidate_artifact_missing")
     _validate_candidate_zip_payload(artifact_path)
-    receipt_ref = f"candidate:{receipt_path.relative_to(package_root).as_posix()}@{source_commit}"
+    receipt_ref = f"candidate:{_relative_posix(receipt_path, package_root, reason='candidate_receipt_outside_package')}@{source_commit}"
     return {
         "source_commit": source_commit,
         "source_tree": source_tree,
@@ -497,12 +517,15 @@ def _npm_executable() -> str:
 
 
 def _candidate_tgz_regular(path: Path) -> Path:
-    candidate = Path(os.path.abspath(os.fspath(path)))
+    raw = Path(os.path.abspath(os.fspath(path)))
+    if _is_link_or_reparse(raw):
+        raise RuntimeError("candidate_tgz_unsafe")
+    candidate = Path(os.path.realpath(os.fspath(raw)))
     try:
         value = candidate.lstat()
     except OSError as exc:
         raise RuntimeError("candidate_tgz_missing") from exc
-    if any(_is_link_or_reparse(parent) for parent in (candidate, *candidate.parents)) or not stat.S_ISREG(value.st_mode):
+    if _is_link_or_reparse(candidate) or not stat.S_ISREG(value.st_mode):
         raise RuntimeError("candidate_tgz_unsafe")
     return candidate
 
@@ -517,11 +540,7 @@ def _candidate_npm_owned_targets(prefix: Path) -> tuple[Path, ...]:
 
 
 def _candidate_npm_owned_relative(target: Path, prefix: Path) -> str:
-    try:
-        relative = Path(os.path.abspath(target)).relative_to(Path(os.path.abspath(prefix)))
-    except ValueError as exc:
-        raise RuntimeError("candidate_npm_target_outside_prefix") from exc
-    return PurePosixPath(relative.as_posix()).as_posix()
+    return _relative_posix(target, prefix, reason="candidate_npm_target_outside_prefix")
 
 
 def _candidate_npm_replacement_backup_root(home: Path) -> Path:
@@ -547,10 +566,8 @@ def _snapshot_optional_npm_shim(
         parent = _physical_directory(target.parent, label="candidate_npm_global_shim_parent")
     except RuntimeError as exc:
         raise RuntimeError(f"candidate_npm_global_shim_parent_invalid:{relative}") from exc
-    try:
-        parent.relative_to(prefix)
-    except ValueError as exc:
-        raise RuntimeError(f"candidate_npm_global_shim_parent_escape:{relative}") from exc
+    if not _path_is_under(parent, prefix):
+        raise RuntimeError(f"candidate_npm_global_shim_parent_escape:{relative}")
     status = target.lstat()
     if _is_link_or_reparse(target) or not stat.S_ISREG(status.st_mode):
         raise RuntimeError(f"candidate_npm_global_shim_unsafe:{relative}")
@@ -577,10 +594,8 @@ def _move_existing_candidate_npm_target(
         return None
     relative = PurePosixPath(_candidate_npm_owned_relative(target, prefix))
     parent = _physical_directory(target.parent, label="candidate_npm_existing_parent")
-    try:
-        parent.relative_to(prefix)
-    except ValueError as exc:
-        raise RuntimeError(f"candidate_npm_existing_parent_escape:{relative}") from exc
+    if not _path_is_under(parent, prefix):
+        raise RuntimeError(f"candidate_npm_existing_parent_escape:{relative}")
     status = target.lstat()
     kind = "symlink" if stat.S_ISLNK(status.st_mode) else "directory" if stat.S_ISDIR(status.st_mode) else "file"
     package_root = _path_from_relative(prefix, NPM_PACKAGE_RELATIVE)
@@ -724,13 +739,14 @@ def _candidate_npm_parent_check(prefix: Path) -> None:
 
 
 def _candidate_npm_bin_link(target: Path, package: Path) -> bool:
-    if target != package.parents[1] / ".bin" / "decretum-matrix" or not target.is_symlink():
+    if not _same_path(target, package.parents[1] / ".bin" / "decretum-matrix") or not target.is_symlink():
         return False
     if Path(os.readlink(target)).is_absolute():
         return False
     try:
-        relative = target.resolve(strict=True).relative_to(package)
-        return _safe_candidate_file(package, relative.as_posix(), label="candidate_npm_bin").is_file()
+        resolved = target.resolve(strict=True)
+        relative = _relative_posix(resolved, package, reason="candidate_npm_bin_target_escape")
+        return _safe_candidate_file(package, relative, label="candidate_npm_bin").is_file()
     except (OSError, RuntimeError, ValueError):
         return False
 
@@ -1239,11 +1255,7 @@ def _run_public_shim_probe(
         )
     except RuntimeError as exc:
         return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
-    try:
-        caller.relative_to(source_physical)
-    except ValueError:
-        pass
-    else:
+    if _path_is_under(caller, source_physical):
         return {"ok": False, "status": "BLOCKED", "reason": "public_shim_caller_inside_source"}
     try:
         node_modules = package_root.parents[1]
@@ -1287,12 +1299,18 @@ def _run_public_shim_probe(
     else:
         shim = shim_root / "decretum-matrix"
         try:
-            resolved_shim = shim.resolve(strict=True)
-            shim_status = resolved_shim.lstat()
-            resolved_shim.relative_to(package_root)
-        except (OSError, ValueError) as exc:
+            shim_status = shim.lstat()
+        except OSError as exc:
             return {"ok": False, "status": "BLOCKED", "reason": f"public_shim_missing:{type(exc).__name__}"}
-        if _is_link_or_reparse(resolved_shim) or not stat.S_ISREG(shim_status.st_mode):
+        if _is_link_or_reparse(shim):
+            try:
+                resolved_shim = shim.resolve(strict=True)
+                resolved_status = resolved_shim.lstat()
+            except OSError as exc:
+                return {"ok": False, "status": "BLOCKED", "reason": f"public_shim_missing:{type(exc).__name__}"}
+            if not _path_is_under(resolved_shim, package_root) or _is_link_or_reparse(resolved_shim) or not stat.S_ISREG(resolved_status.st_mode):
+                return {"ok": False, "status": "BLOCKED", "reason": "public_shim_unsafe"}
+        elif not stat.S_ISREG(shim_status.st_mode):
             return {"ok": False, "status": "BLOCKED", "reason": "public_shim_unsafe"}
         command = [str(shim), "--runtime-identity"]
     try:

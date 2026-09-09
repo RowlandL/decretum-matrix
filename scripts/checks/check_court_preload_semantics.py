@@ -317,10 +317,14 @@ def isolated_preload_installation():
         scratch = root / "tmp"
         scratch.mkdir()
         stack.enter_context(patch.object(tempfile, "tempdir", str(scratch)))
+        root_physical = root.resolve(strict=False)
         original_read_bytes = Path.read_bytes
 
         def fixture_bytes_only(path: Path) -> bytes:
-            require(path.resolve().is_relative_to(root), "real source/host byte read forbidden: " + str(path))
+            require(
+                path.resolve(strict=False).is_relative_to(root_physical),
+                "real source/host byte read forbidden: " + str(path),
+            )
             return original_read_bytes(path)
 
         stack.enter_context(patch.object(Path, "read_bytes", fixture_bytes_only))

@@ -196,7 +196,17 @@ def _write_json_atomic(path: Path, value: dict[str, object]) -> None:
 
 
 def _path_key(path: Path) -> str:
-    return os.path.normcase(os.path.abspath(os.fspath(path)))
+    return os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(path))))
+
+
+def _physical_path(path: Path) -> Path:
+    return Path(os.path.realpath(os.path.abspath(os.fspath(path))))
+
+
+def _relative_to_root(path: Path, root: Path) -> Path:
+    if not _within(path, root):
+        raise ValueError(f"{path} is not in the subpath of {root}")
+    return Path(os.path.relpath(os.fspath(_physical_path(path)), os.fspath(_physical_path(root))))
 
 
 def _same_path_list(left: object, right: object) -> bool:
@@ -540,9 +550,10 @@ def _safe_relative(value: object) -> bool:
 
 
 def _within(path: Path, root: Path) -> bool:
-    resolved_path = path.resolve(strict=False)
-    resolved_root = root.resolve(strict=False)
-    return resolved_path == resolved_root or resolved_root in resolved_path.parents
+    try:
+        return os.path.commonpath([_path_key(path), _path_key(root)]) == _path_key(root)
+    except ValueError:
+        return False
 
 
 def _read_json(path: Path, *, reason: str) -> dict[str, object]:
@@ -876,11 +887,11 @@ def _expand_projection(
                 if child.is_symlink():
                     raise _InstallContractError(
                         "projection_symlink_forbidden",
-                        child.relative_to(source_root).as_posix(),
+                        _relative_to_root(child, source_root).as_posix(),
                     )
                 if not child.is_file():
                     continue
-                child_relative = child.relative_to(source_root).as_posix()
+                child_relative = _relative_to_root(child, source_root).as_posix()
                 child_parts = tuple(
                     part.casefold() for part in PurePosixPath(child_relative).parts
                 )
@@ -1277,7 +1288,7 @@ def _remove_empty_source_only_directories(
         while current != root:
             if current in removed:
                 break
-            relative = current.relative_to(root)
+            relative = _relative_to_root(current, root)
             if tuple(part.casefold() for part in relative.parts[:2]) != (
                 "scripts",
                 "checks",
@@ -1302,7 +1313,7 @@ def _operation_target(
     matches: list[tuple[str, Path, PurePosixPath]] = []
     for label, target, _projection in selected:
         try:
-            relative = path.relative_to(target)
+            relative = _relative_to_root(path, target)
         except ValueError:
             continue
         matches.append((label, target, PurePosixPath(relative.as_posix())))

@@ -62,10 +62,19 @@ def _runtime_home() -> Path:
     return Path(value or Path.home()).expanduser().resolve(strict=False)
 
 
+def _path_key(path: Path) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(path))))
+
+
 def _same_path(left: Path, right: Path) -> bool:
-    left_value = os.path.normcase(os.path.abspath(os.fspath(left)))
-    right_value = os.path.normcase(os.path.abspath(os.fspath(right)))
-    return left_value == right_value
+    return _path_key(left) == _path_key(right)
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        return os.path.commonpath([_path_key(path), _path_key(root)]) == _path_key(root)
+    except ValueError:
+        return False
 
 
 def _path_is_link_or_reparse(path: Path) -> bool:
@@ -80,6 +89,10 @@ def _path_is_link_or_reparse(path: Path) -> bool:
 
 
 def _physical_directory(path: Path) -> bool:
+    raw = Path(os.path.abspath(os.fspath(path)))
+    if _path_is_link_or_reparse(raw):
+        return False
+    path = Path(os.path.realpath(os.fspath(raw)))
     try:
         value = path.lstat()
     except OSError:
@@ -241,9 +254,7 @@ def _validate_installation_binding(
         candidate = raw_candidate.resolve(strict=False)
         if any(_same_path(candidate, existing) for existing in selected_roots):
             return None
-        try:
-            candidate.relative_to(home)
-        except ValueError:
+        if not _path_is_under(candidate, home):
             return None
         selected_roots.append(candidate)
     if not any(_same_path(candidate, canonical) for candidate in selected_roots):

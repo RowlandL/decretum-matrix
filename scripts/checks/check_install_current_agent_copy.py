@@ -217,8 +217,8 @@ def _same_filesystem_path(left: Path, right: Path) -> bool:
     try:
         return left.samefile(right)
     except OSError:
-        return os.path.normcase(os.path.abspath(str(left))) == os.path.normcase(
-            os.path.abspath(str(right))
+        return os.path.normcase(os.path.realpath(os.path.abspath(str(left)))) == os.path.normcase(
+            os.path.realpath(os.path.abspath(str(right)))
         )
 
 
@@ -4465,6 +4465,9 @@ def _check_sanitized_cache_receipt_transaction(
             "USERPROFILE": str(home),
             "LOCALAPPDATA": str(local),
             "APPDATA": str(home / "AppData" / "Roaming"),
+            "XDG_DATA_HOME": str(local),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_CACHE_HOME": str(home / ".cache"),
         }
         output = io.StringIO()
         with mock.patch.dict(os.environ, environment, clear=False), mock.patch.object(

@@ -70,6 +70,20 @@ def _absolute_no_follow(path: Path) -> Path:
     return Path(os.path.abspath(os.fspath(path)))
 
 
+def _path_key(path: Path) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(path))))
+
+
+def _physical_path(path: Path) -> Path:
+    return Path(os.path.realpath(os.path.abspath(os.fspath(path))))
+
+
+def _relative_to_root(path: Path, root: Path) -> Path:
+    if not _is_under(path, root):
+        raise ValueError(f"{path} is not in the subpath of {root}")
+    return Path(os.path.relpath(os.fspath(_physical_path(path)), os.fspath(_physical_path(root))))
+
+
 def _lstat(path: Path) -> os.stat_result | None:
     try:
         return path.lstat()
@@ -114,10 +128,6 @@ def _physical_authority_root(root: Path) -> Path:
     return _known_alias_target(absolute) or absolute
 
 
-def _path_key(path: Path) -> str:
-    return os.path.normcase(str(_absolute_no_follow(path)))
-
-
 def _physical_target_groups(targets: list[Path]) -> list[tuple[Path, list[Path]]]:
     groups: dict[str, tuple[Path, list[Path]]] = {}
     for target in targets:
@@ -144,10 +154,9 @@ def _safe_relative(value: str | Path, *, label: str) -> Path:
 
 def _is_under(path: Path, root: Path) -> bool:
     try:
-        _absolute_no_follow(path).relative_to(_absolute_no_follow(root))
+        return os.path.commonpath([_path_key(path), _path_key(root)]) == _path_key(root)
     except ValueError:
         return False
-    return True
 
 
 def _assert_safe_root(root: Path, *, allow_missing: bool, label: str) -> Path:
@@ -184,7 +193,7 @@ def _assert_safe_descendant(
     path_absolute = _absolute_no_follow(path)
     if not _is_under(path_absolute, root_absolute):
         raise ValueError(f"{label} escapes root: {path_absolute}")
-    relative = path_absolute.relative_to(root_absolute)
+    relative = _relative_to_root(path_absolute, root_absolute)
     current = root_absolute
     for index, part in enumerate(relative.parts):
         current = current / part
@@ -247,7 +256,7 @@ def _ensure_safe_directory(root: Path, directory: Path) -> None:
         ):
             raise ValueError(f"unsafe target root component: {candidate}")
     current = root_absolute
-    for part in directory_absolute.relative_to(root_absolute).parts:
+    for part in _relative_to_root(directory_absolute, root_absolute).parts:
         current = current / part
         value = _lstat(current)
         if value is None:

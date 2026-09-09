@@ -13,16 +13,16 @@ metadata:
 
 `P00_HIGHEST_PRIORITY=REQUIRED`. Before dispatch/resume/handoff, bind the existing `court.semantic.invariant_capsule.v1`, semantic receipt, authority/plan pointers and `plan_cursor`; require `semantic_epoch == charter_revision`. Capsule and dispatch context packet are each at most 2,048 UTF-8 bytes.
 
-- Carry exact ids, bounded scope/write set, receipt pointers and `fork_turns=none`; no full transcript/file/diff/agent list by default.
+- Carry exact ids, bounded scope/write set, receipt pointers, role/direct_superior and `fork_turns=none`; no full transcript/file/diff/agent list by default.
 - `child_agent` and `worktree_thread` share capsule, receipt, hierarchy, role context and bounded trace; neither creates another authority.
-- Reuse compatible live instances below 80% context; keep in-flight work until completion/recall. Unrelated work or large parallel work may require a fresh instance. Full-context override never changes authority, safety or hierarchy.
+- Reuse compatible live instances below 80% context; keep in-flight work until completion/recall. Unrelated or large parallel work may need a fresh instance. Full-context override never changes authority, safety or hierarchy.
 - `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: durable Shiguan projections after migration are not inline runtime authority.
 
 ## Codex/Claude Hierarchical Relay Evidence
 
-In Codex, Claude Code, and similar recursive subagent hosts, text such as `direct_superior=shangshu`, an intended dispatch graph, or root-collected parallel replies should not by itself be presented as office communication evidence. Before claiming 三省会审 or 尚书统合六部, record current-session communication evidence appropriate to the host: direct child-to-child or parent-to-child messages when the host exposes them, or a host-mediated hierarchical relay when the root/太子 is the only available relay surface. A relay claim should keep the useful evidence chain: original office relay request, root/太子 relay delivery according to the court layer, receiver read acknowledgement, and parent/root receipt. If that chain is unavailable, report the limitation as `runtime_degraded/PARTIAL` rather than treating a flat OK wave as verified inter-office communication.
+Codex/Claude-style recursive hosts need current-session delivery evidence before claiming 三省会审/尚书统合六部。主线程/太子可作中枢转发，但不得改变官署层级；`direct_superior=...`、计划图或 flat OK wave 不足以证明互联互通。缺证据标 `runtime_degraded/PARTIAL`。仅适用于 Codex/Claude 类递归子代理宿主；DeepSeek Harness、EAC/DSH、MCP-only、CLI/script 等非递归 runtime 按其宿主规则。
 
-Scope: this note applies only to Codex/Claude-style recursive subagent environments where task/thread paths and inter-agent messaging are evidence. DeepSeek Harness, EAC/DSH, MCP-only tools, local CLIs/scripts, and other non-recursive-subagent runtimes keep their own host evidence rules and are not governed by this note.
+Ref: relay/parallel claims load [court-offices-dispatch.md](references/court-offices-dispatch.md).
 
 ## Unified Dynamic Dispatch Semantics
 
@@ -30,16 +30,16 @@ Scope: this note applies only to Codex/Claude-style recursive subagent environme
 2. 默认 whole-tree 上限 16（含 root），`max_depth=4`；只有最新用户明确给出更大数量或 `unlimited/解限` 才可提高 ceiling。预算、宿主容量/拒绝、资源压力、层级、写集、preload 与实例追溯仍须有效。
 3. `execution_authority=approval|autonomous|super` 与 `behavior=serial|parallel` 独立。缺哪项分别询问；不得从记忆、旧会话、sandbox、安装意图或运行权限推定。
 4. `super并行` = super + parallel + native。superCC 是独立 runtime/入口，不是第四权；native/superCC 互斥，不探测候选、不切换、不回退。
-5. 普通生产路由优先使用宿主已证实兼容的层级子官署协议；Codex Multi-Agent V2 只是一个兼容目标，不是跨宿主强制字样。若宿主未暴露相应子 agent 工具或证据链，则使用 serial 或中枢转发并标注 `runtime_degraded`。兼容协议不得外露或强行设置 model-reserved override fields；子 agente 默认继承主线程/主 profile model/effort，除非 fresh-session worker 有精确 host proof。
+5. 普通生产路由优先使用宿主已证实兼容的层级子官署协议；`subagent`/`Multi-Agent V2` 只作兼容选项，不是强制字段或字样。若宿主无工具或证据链，则使用 serial 或中枢转发并标注 `runtime_degraded`；不得强设 model-reserved override fields。
 6. serial 禁止物理 child 并发，保留 `serial_inline` 官署责任与证据；parallel 使用真实宿主派遣。共享/外部写串行；拒绝、限流或语义漂移即停当前 wave。
 
 ## Normal Startup Entry / Loading Procedure
 
-各载体首次完整读取 installed 本文件及 [court-normal-startup.md](references/court-normal-startup.md)，不用 preview 代替。版本及材料未变即复用，结诏不重复读入口；恢复时核对最新旨意与 P00。
+首次读全本文件与 [court-normal-startup.md](references/court-normal-startup.md)，禁 preview；核心语义阶段读 [court-core-contract.md](references/court-core-contract.md)。版本/材料未变复用；恢复核对最新旨意/P00；结诏不重复读入口。
 
-- 入口、当前官署 profile/dossier、启动指引及紧凑 metadata 合计 `<=20 KiB`。具体官署派遣前才读自己的材料，父级不预读全部子署。
-- 已指定能力时直接用 CLI/MCP；不全读能力索引、core/dispatch/state/closeout 大卷，不翻源码猜参数。操作或语义争议确需时才读对应卷。
-- 安装验收在安装阶段一次完成，随后移除安装专用检查。身份预载保留：先完整读取技能，再读本署 profile/dossier，以诏令编号关联实际读取、职责、直接上级与宿主证据；正常启动不重复安装验收。
+- 入口、当前官署 profile/dossier、启动指引及 metadata 合计 `<=20 KiB`。派遣前读本署材料，父级不预读全部子署。
+- 已指定能力直接用 CLI/MCP；不全读能力索引，不翻源码猜参数。进入 core/dispatch/state/closeout 阶段读对应卷。
+- 安装验收在安装阶段完成，随后移除安装专用检查。身份预载：先完整读取技能，再读本署 profile/dossier，以诏令编号关联实际读取、职责、直接上级与宿主证据；正常启动不重复安装验收。
 
 ## Common Hard Gates
 
@@ -69,23 +69,7 @@ CLI (`scripts/court_cli.py` → `court_cli_registry.py`) 与 MCP 共用 `scripts
 
 ## Progressive Loading Map
 
-普通启动只读上述入口；下列卷按当前操作/争议读取，完整目录不是启动阅读顺序。
-
-| Active behavior | Governing reference |
-| --- | --- |
-| 普通启动/CLI 与 MCP 路由 | [court-normal-startup.md](references/court-normal-startup.md) |
-| 核心语义/最新旨意 | [court-core-contract.md](references/court-core-contract.md) |
-| 三权/边界/只读 | [court-startup-authority.md](references/court-startup-authority.md) |
-| superCC runtime | [court-supercc-runtime-selection.md](references/court-supercc-runtime-selection.md) |
-| Hermes super GL | [hermes-studio-super-gl.md](references/hermes-studio-super-gl.md) |
-| 官署职责/差遣 | [court-offices-dispatch.md](references/court-offices-dispatch.md) |
-| P00/状态/预算 | [court-state-runtime-agents.md](references/court-state-runtime-agents.md) |
-| Codex 模型路由 | [court-office-model-routing.md](references/court-office-model-routing.md) |
-| 官籍/能力铨选 | [court-capability-registry.md](references/court-capability-registry.md) |
-| 安装/host 风险 | [court-host-platform-pitfalls.md](references/court-host-platform-pitfalls.md) |
-| 史馆/记忆 | [court-shiguan-memory.md](references/court-shiguan-memory.md) |
-| Hermes group chat | [hermes-studio-group-chat.md](references/hermes-studio-group-chat.md) |
-| 结诏/校验/包装 | [court-closeout-validation.md](references/court-closeout-validation.md) |
+路径默认 skill-root 相对；绝对路径只作机器证据。阶段：启动 [court-normal-startup.md](references/court-normal-startup.md)；语义 [court-core-contract.md](references/court-core-contract.md)；官署/转发 [court-offices-dispatch.md](references/court-offices-dispatch.md)；P00/状态 [court-state-runtime-agents.md](references/court-state-runtime-agents.md)；能力 [court-capability-registry.md](references/court-capability-registry.md)；史馆 [court-shiguan-memory.md](references/court-shiguan-memory.md)；安装 [court-host-platform-pitfalls.md](references/court-host-platform-pitfalls.md)；结诏 [court-closeout-validation.md](references/court-closeout-validation.md)。
 
 ## Shiguan, Pending, And Memory
 
