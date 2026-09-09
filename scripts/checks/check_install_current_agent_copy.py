@@ -2123,12 +2123,24 @@ def _check_candidate_binding_provenance_cases(
 
     passed = 0
     dirty_result = call_metadata()
-    if "candidate_source_worktree_dirty" in dirty_result:
+    if "candidate_source_tracked_worktree_dirty" in dirty_result:
         passed += 1
     else:
         errors.append(f"{name}:dirty_source:{dirty_result}")
 
     git("checkout", "--", "SKILL.md")
+    valid_package = package_json()
+    (package_root / "package.json").write_text(
+        json.dumps(valid_package, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (source / "preserved-untracked.md").write_text("preserve\n", encoding="utf-8")
+    untracked_result = call_metadata()
+    if untracked_result.startswith("accepted:"):
+        passed += 1
+    else:
+        errors.append(f"{name}:preserved_untracked:{untracked_result}")
+    (source / "preserved-untracked.md").unlink()
+
     mismatched_version = package_json(package_release_label="beta9.9.9")
     (package_root / "package.json").write_text(
         json.dumps(mismatched_version, sort_keys=True) + "\n", encoding="utf-8"
@@ -4851,7 +4863,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 48,
+        "declared_cases": 49,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

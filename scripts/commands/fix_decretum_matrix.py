@@ -258,9 +258,9 @@ def _candidate_binding_metadata(
         if _nonempty(value) is None or any(char in value for char in "/\\\x00"):
             raise RuntimeError(f"{label}_invalid")
 
-    status = _git_output(source, "status", "--porcelain")
+    status = _git_output(source, "status", "--porcelain", "--untracked-files=no")
     if status:
-        raise RuntimeError("candidate_source_worktree_dirty")
+        raise RuntimeError("candidate_source_tracked_worktree_dirty")
     source_commit = _git_output(source, "rev-parse", "HEAD")
     source_tree = _git_output(source, "rev-parse", "HEAD^{tree}")
     try:
