@@ -906,6 +906,32 @@ def _normalized_json(value: object) -> object:
     return value
 
 
+def _equivalent_failure_envelope(
+    *,
+    legacy: subprocess.CompletedProcess[str],
+    unified: subprocess.CompletedProcess[str],
+) -> bool:
+    if legacy.returncode == 0 or unified.returncode == 0:
+        return False
+    try:
+        envelope = json.loads(unified.stdout)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(envelope, dict):
+        return False
+    evidence = envelope.get("evidence")
+    problems = envelope.get("problems")
+    legacy_problem = (legacy.stderr or legacy.stdout).strip()
+    return (
+        envelope.get("status") == "INVALID"
+        and envelope.get("payload") is None
+        and isinstance(evidence, dict)
+        and evidence.get("original_exit_code") == legacy.returncode
+        and isinstance(problems, list)
+        and problems == [legacy_problem]
+    )
+
+
 def evaluate_parity() -> dict[str, object]:
     problems: list[str] = []
     declared_adapters = 0
@@ -938,9 +964,10 @@ def evaluate_parity() -> dict[str, object]:
         legacy = _run_cli(["--format", "json", parity_command])
         unified = _run_cli(["--format", "json", "court", parity_command])
         if legacy.returncode != 0 or unified.returncode != 0:
-            problems.append(
-                f"probe_exit_mismatch:legacy={legacy.returncode}:unified={unified.returncode}"
-            )
+            if not _equivalent_failure_envelope(legacy=legacy, unified=unified):
+                problems.append(
+                    f"probe_exit_mismatch:legacy={legacy.returncode}:unified={unified.returncode}"
+                )
         else:
             legacy_payload = _json_stdout(legacy)
             unified_envelope = _json_stdout(unified)

@@ -32,6 +32,9 @@
 - `python -B scripts/commands/release_payload_manifest.py --check --json` -> `ok=true`
 - `python -B scripts/check_catalog.py --strict` -> exit `0`
 - `python -B scripts/check_release_gate.py --phase source --json` -> `exit=0`, `failed=[]`, `layer_results.source.status=PASSED`
+- GitHub Actions run `34390680956`（commit `d5db989`）仍红；失败集中在 CI 临时 HOME/跨平台检查合约：`unified_cli` 的 legacy `probe` 非零失败被 unified envelope 包装为 exit `3`，以及 `install_current_agent_copy` 的 fixture 断言绑定了硬编码 replace 数量和 macOS `/var`/`/private/var` 路径形态。
+- Actions 续修已做：`scripts/check_unified_cli.py` 只承认等价失败 envelope；`scripts/checks/check_install_current_agent_copy.py` 改为语义化 replace/rollback 判断，并对 macOS symlink temp path 做物理路径等价处理。本机临时 HOME 单项复测两项均 exit `0`。
+- Actions 续修后完整复测：`python -B scripts/check_release_gate.py --phase source --json` -> `ok=true`, `release_gate=PASSED`, `failed=[]`。
 
 注意：正确聚合入口是 `scripts/check_release_gate.py`。直接执行内部 `scripts/checks/check_release_gate.py` 会缺少 wrapper 注入的 `scripts/` import path。
 

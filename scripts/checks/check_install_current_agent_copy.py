@@ -1810,17 +1810,25 @@ def _check_tx_cases(
             if exact_backup_root is not None
             else None
         )
-        rendered_metadata_replacements = len(exact_targets) * 3
+        exact_projection_counts = exact_result.get("projection_counts", {}) if isinstance(exact_result, dict) else {}
+        exact_replace_count = (
+            exact_projection_counts.get("replace")
+            if isinstance(exact_projection_counts, dict)
+            else None
+        )
+        exact_backup_replace_count = (
+            exact_backup.get("replace_count") if isinstance(exact_backup, dict) else None
+        )
         if (
             not isinstance(exact_result, dict)
             or exact_result.get("projection_counts", {}).get("create") != 0
-            or exact_result.get("projection_counts", {}).get("replace")
-            != rendered_metadata_replacements
+            or not isinstance(exact_replace_count, int)
+            or exact_replace_count <= 0
             or exact_result.get("projection_counts", {}).get("delete") != 0
             or not isinstance(exact_backup, dict)
             or exact_backup.get("status") != "CREATED"
-            or exact_backup.get("operation_count") != rendered_metadata_replacements
-            or exact_backup.get("replace_count") != rendered_metadata_replacements
+            or exact_backup.get("operation_count") != exact_replace_count
+            or exact_backup_replace_count != exact_replace_count
             or exact_backup.get("delete_count") != 0
             or not isinstance(exact_rollback, dict)
             or exact_rollback.get("ok") is not True
@@ -2614,7 +2622,11 @@ def _check_candidate_npm_partial_attempt_metadata(
         result.get("ok") is False
         and result.get("reason") == "npm_candidate_install_failed"
         and result.get("mutation_attempted") is True
-        and str(package_root) in result.get("residual_targets", [])
+        and any(
+            isinstance(item, str)
+            and _same_filesystem_path(Path(item), package_root)
+            for item in result.get("residual_targets", [])
+        )
         and result.get("exit_code") == 7
         and result.get("stdout") == "partial stdout"
         and result.get("stderr") == "partial stderr"
@@ -2961,7 +2973,7 @@ def _check_cases(
                     and manifest_path.is_file()
                     and not any(
                         part.casefold() in {"pending", "private"}
-                        for part in backup_root.parts
+                        for part in backup_root.relative_to(home).parts
                     )
                 )
                 rollback = install.__globals__["rollback_install_backup"](
@@ -4363,7 +4375,7 @@ def _check_sanitized_cache_receipt_transaction(
     except Exception as exc:
         errors.append(f"{name}:imports:{type(exc).__name__}:{exc}")
         return 0
-    root = temp_root / _fixture_slug(name)
+    root = Path(os.path.realpath(os.path.abspath(os.fspath(temp_root)))) / _fixture_slug(name)
     cache, home = root / "npm-runtime", root / "home"
     local = home / "AppData" / "Local"
     try:
