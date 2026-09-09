@@ -157,8 +157,8 @@ def collect_candidate_source_identity(
     release_label: str,
     root: Path = ROOT,
 ) -> dict[str, object]:
-    if git_text("status", "--porcelain", root=root):
-        raise ArtifactBuildError("candidate source worktree is not clean")
+    if git_text("status", "--porcelain", "--untracked-files=no", root=root):
+        raise ArtifactBuildError("candidate source tracked worktree is not clean")
     return {
         "kind": "commit",
         "head_commit": git_text("rev-parse", "HEAD", root=root),
@@ -577,6 +577,30 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
     )
     with tempfile.TemporaryDirectory(prefix="decretum-release-builder-self-test-") as tmp_text:
         temp_root = Path(tmp_text)
+        tracked_fixture = temp_root / "tracked-source"
+        tracked_fixture.mkdir()
+        for args in (
+            ("init", "-q"),
+            ("config", "user.name", "Decretum Fixture"),
+            ("config", "user.email", "fixture@example.invalid"),
+        ):
+            git_text(*args, root=tracked_fixture)
+        (tracked_fixture / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        git_text("add", "tracked.txt", root=tracked_fixture)
+        git_text("commit", "-q", "-m", "fixture", root=tracked_fixture)
+        (tracked_fixture / "preserved-untracked.md").write_text("preserve\n", encoding="utf-8")
+        try:
+            untracked_identity = collect_candidate_source_identity("beta1.1.2", tracked_fixture)
+            tests["candidate_allows_preserved_untracked"] = untracked_identity["worktree_clean"] is True
+        except ArtifactBuildError:
+            tests["candidate_allows_preserved_untracked"] = False
+        (tracked_fixture / "tracked.txt").write_text("changed\n", encoding="utf-8")
+        try:
+            collect_candidate_source_identity("beta1.1.2", tracked_fixture)
+        except ArtifactBuildError:
+            tests["candidate_rejects_tracked_dirty"] = True
+        else:
+            tests["candidate_rejects_tracked_dirty"] = False
         first = temp_root / "candidate-a.zip"
         second = temp_root / "candidate-b.zip"
         first_bytes = build_candidate_zip(first)
