@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 from pathlib import PurePosixPath
+import shutil
 import stat
 import sys
 import subprocess
@@ -647,63 +648,36 @@ def _rollback_candidate_npm(
             "removed": True,
             "residual_targets": [],
         }
-    command = [
-        _npm_executable(),
-        "uninstall",
-        "--ignore-scripts",
-        "--package-lock=false",
-        "--save=false",
-        "--prefix",
-        str(prefix),
-        NPM_PACKAGE_NAME,
-    ]
-    environment = _acceptance_environment(home)
-    environment["npm_config_prefix"] = str(prefix)
-    environment["npm_config_ignore_scripts"] = "true"
     try:
-        completed = subprocess.run(
-            command,
-            cwd=caller,
-            env=environment,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            shell=False,
-            timeout=300,
-        )
-    except subprocess.TimeoutExpired as exc:
+        for target in _candidate_npm_owned_targets(prefix):
+            try:
+                metadata = target.lstat()
+            except FileNotFoundError:
+                continue
+            if _is_link_or_reparse(target):
+                raise RuntimeError("candidate_npm_target_unsafe")
+            if stat.S_ISDIR(metadata.st_mode):
+                shutil.rmtree(target)
+            elif stat.S_ISREG(metadata.st_mode):
+                target.unlink()
+            else:
+                raise RuntimeError("candidate_npm_target_not_regular")
+    except (OSError, RuntimeError) as exc:
         return {
             "ok": False,
             "status": "RECOVERY_REQUIRED",
-            "reason": "npm_candidate_rollback_timeout",
-            "command": command,
-            "cwd": str(caller),
-            "stdout": _subprocess_text(exc.stdout)[-4000:],
-            "stderr": _subprocess_text(exc.stderr)[-4000:],
-            "residual_targets": _candidate_npm_residual_targets(prefix),
-        }
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {
-            "ok": False,
-            "status": "RECOVERY_REQUIRED",
-            "reason": f"npm_candidate_rollback_failed:{type(exc).__name__}",
-            "command": command,
+            "reason": f"candidate_npm_target_remove_failed:{type(exc).__name__}",
             "cwd": str(caller),
             "residual_targets": _candidate_npm_residual_targets(prefix),
         }
     residual_after = _candidate_npm_residual_targets(prefix)
     removed = not residual_after
     return {
-        "ok": completed.returncode == 0 and removed,
-        "status": "ROLLED_BACK" if completed.returncode == 0 and removed else "RECOVERY_REQUIRED",
-        "command": command,
+        "ok": removed,
+        "status": "ROLLED_BACK" if removed else "RECOVERY_REQUIRED",
+        "command": ["owned_remove"],
         "cwd": str(caller),
-        "exit_code": completed.returncode,
         "removed": removed,
-        "stdout": completed.stdout[-4000:],
-        "stderr": completed.stderr[-4000:],
         "residual_targets": residual_after,
     }
 
