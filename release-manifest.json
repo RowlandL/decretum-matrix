@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "61c5ca9b181f4e6b7964cca1802ef52036215223d050d1d22d6adf52a2e93892",
-      "size": 9522
+      "sha256": "60a02d54d247363c39c0fc316f4197a00896a6e8e7d23be4b197407772cfb2cc",
+      "size": 10776
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8592156,
+    "payload_bytes": 8593410,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "bebe0d3560b70b96f94ab59ebeedd8228494e0e2b922953a9d19666980540f99",
+    "payload_index_sha256": "167d3e636f855bbaf32ef10a7939e1547a8f7d5e349ef826c797f2e7091c0fff",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 622
   },

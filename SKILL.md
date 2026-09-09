@@ -18,6 +18,12 @@ metadata:
 - Reuse compatible live instances below 80% context; keep in-flight work until completion/recall. Unrelated work or large parallel work may require a fresh instance. Full-context override never changes authority, safety or hierarchy.
 - `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: durable Shiguan projections after migration are not inline runtime authority.
 
+## Codex/Claude Hierarchical Relay Evidence
+
+In Codex, Claude Code, and similar recursive subagent hosts, text such as `direct_superior=shangshu`, an intended dispatch graph, or root-collected parallel replies should not by itself be presented as office communication evidence. Before claiming 三省会审 or 尚书统合六部, record current-session communication evidence appropriate to the host: direct child-to-child or parent-to-child messages when the host exposes them, or a host-mediated hierarchical relay when the root/太子 is the only available relay surface. A relay claim should keep the useful evidence chain: original office relay request, root/太子 relay delivery according to the court layer, receiver read acknowledgement, and parent/root receipt. If that chain is unavailable, report the limitation as `runtime_degraded/PARTIAL` rather than treating a flat OK wave as verified inter-office communication.
+
+Scope: this note applies only to Codex/Claude-style recursive subagent environments where task/thread paths and inter-agent messaging are evidence. DeepSeek Harness, EAC/DSH, MCP-only tools, local CLIs/scripts, and other non-recursive-subagent runtimes keep their own host evidence rules and are not governed by this note.
+
 ## Unified Dynamic Dispatch Semantics
 
 1. 官署按职责、依赖、风险和证据价值选择，不为填满容量派生。
@@ -98,4 +104,3 @@ pending/private 仅允许 metadata governance；没有不可伪造主机授权�
 ## Local Validation
 
 `python -B scripts/quick_validate.py .`
-
