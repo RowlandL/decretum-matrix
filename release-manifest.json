@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "b1b418938c5398b80a932c5fd2f5ce48eeb1823042c0b33d06c25b3a98f0037e",
+      "sha256": "1b82fecac213e4851936c7af1dd3fff8e70632ff66356a3a453200d5b1204ddd",
       "size": 4689
     },
     {
@@ -2935,7 +2935,7 @@
     "payload_bytes": 8537295,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "7f61516a84f3d660008945e5c0985e262ec724836beb0f15ffc79678c22da80a",
+    "payload_index_sha256": "b699dff4b812d5dae1e736cbc1df996781ad426de3b6599e1aae17316b4fc569",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 620
   },

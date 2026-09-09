@@ -2240,6 +2240,18 @@ export async function runSyntheticSelfTest() {
         /^[0-9a-f]{64}$/.test(localCandidateBuild.receipt.candidate.zip_sha256),
       "local-install receipt is not bound to the candidate source and ZIP",
     );
+    const localCandidateGateEvidence = localCandidateBuild.candidateEvidence;
+    assert(
+      localCandidateGateEvidence?.status === "PASSED" &&
+        localCandidateGateEvidence.domain_result?.ok === true &&
+        localCandidateGateEvidence.source_commit === localCandidateHead &&
+        typeof localCandidateGateEvidence.artifact_ref === "string" &&
+        typeof localCandidateGateEvidence.build_id === "string" &&
+        localCandidateGateEvidence.log_complete === true &&
+        localCandidateGateEvidence.log_capture?.complete === true &&
+        typeof localCandidateBuild.candidateEvidenceFile === "string",
+      "local-install candidate did not emit gate-consumable evidence",
+    );
     let tamperedLocalCandidateRejected = false;
     const tamperedLocalCandidateRoot = path.join(root, "tampered-local-install-candidates");
     const tamperedLocalCandidateDirectory = path.join(
@@ -2483,6 +2495,7 @@ export async function runSyntheticSelfTest() {
           private: localCandidateBuild.publishPackage.private === true,
           publish_config_absent:
             localCandidateBuild.publishPackage.publishConfig === undefined,
+          gate_evidence: localCandidateGateEvidence.status === "PASSED",
           receipt_tamper_rejected: tamperedLocalCandidateRejected,
           cli_argument_exact:
             parsedLocalInstallCandidate === localCandidateDirectory,
@@ -2525,6 +2538,7 @@ export async function runSyntheticSelfTest() {
         local_install_candidate_runtime_zip_bound: "PASS",
         local_install_candidate_private: "PASS",
         local_install_candidate_publish_forbidden: "PASS",
+        local_install_candidate_gate_evidence: "PASS",
         local_install_candidate_receipt_tamper_rejected: "PASS",
         local_install_candidate_cli_argument: "PASS",
       },
@@ -3719,9 +3733,60 @@ function buildLocalInstallCandidateReceipt(verified) {
       tarball: contract.tarballName,
       sha256_sidecar: contract.sidecarName,
       receipt: contract.receiptName,
+      candidate_evidence: localCandidateGateEvidenceName(contract),
       materialization_contract: "CONTENT_KEYED_CREATE_OR_REUSE",
       publication: "FORBIDDEN",
     },
+  };
+}
+
+function localCandidateGateEvidenceName(contract) {
+  return contract.receiptName.replace(/\.json$/, ".candidate-gate-evidence.json");
+}
+
+function buildLocalCandidateGateEvidence(verified, receipt, outputDirectory) {
+  const { candidate, contract } = verified;
+  const evidenceName = localCandidateGateEvidenceName(contract);
+  const stdoutName = `${contract.receiptName}.stdout.log`;
+  const stderrName = `${contract.receiptName}.stderr.log`;
+  const stdout = jsonText(receipt);
+  const stderr = "";
+  const logCapture = {
+    complete: true,
+    stdout_path: path.join(outputDirectory, stdoutName),
+    stdout_bytes: Buffer.byteLength(stdout),
+    stderr_path: path.join(outputDirectory, stderrName),
+    stderr_bytes: Buffer.byteLength(stderr),
+  };
+  const evidence = {
+    schema: "decretum.npm_local_install_candidate_gate_evidence.v1",
+    status: "PASSED",
+    source_commit: contract.sourceCommit,
+    artifact_ref: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,
+    build_id: `${contract.releaseLabel}:${contract.sourceCommit}:${contract.sourceTree}`,
+    release_label: contract.releaseLabel,
+    domain_result: {
+      ok: true,
+      status: "PASSED",
+      candidate_receipt: receipt.validation.candidate_receipt,
+      installed_package_smoke: receipt.validation.installed_package_smoke,
+      publication: receipt.publication,
+    },
+    exit_code: 0,
+    output_truncated: false,
+    log_complete: true,
+    log_capture: logCapture,
+    receipt_ref: contract.receiptName,
+    candidate_receipt_ref: candidate.candidateReceipt.name,
+  };
+  return {
+    evidence,
+    evidenceName,
+    files: new Map([
+      [stdoutName, Buffer.from(stdout, "utf8")],
+      [stderrName, Buffer.from(stderr, "utf8")],
+      [evidenceName, Buffer.from(jsonText(evidence), "utf8")],
+    ]),
   };
 }
 
@@ -3742,7 +3807,6 @@ export async function buildLocalInstallCandidate({
   });
   try {
     const receipt = buildLocalInstallCandidateReceipt(verified);
-    const files = await packageOutputFiles(verified, receipt, verified.contract);
     const materializedOutput = outputDirectory || path.join(
       WORKSPACE_ROOT,
       "release-staging",
@@ -3758,9 +3822,20 @@ export async function buildLocalInstallCandidate({
         { output_directory: materializedOutput },
       );
     }
+    const candidateEvidence = buildLocalCandidateGateEvidence(
+      verified,
+      receipt,
+      materializedOutput,
+    );
+    const files = await packageOutputFiles(verified, receipt, verified.contract);
+    for (const [name, body] of candidateEvidence.files) {
+      files.set(name, body);
+    }
     const materialization = await createOrReuseOutput(materializedOutput, files);
     return {
       candidate: verified.candidate,
+      candidateEvidence: candidateEvidence.evidence,
+      candidateEvidenceFile: candidateEvidence.evidenceName,
       contract: verified.contract,
       output: {
         directory: materializedOutput,
@@ -3805,6 +3880,10 @@ async function buildLocalInstallCandidateArtifacts(candidateDirectory) {
   });
   const execution = {
     ...result.receipt,
+    candidate_evidence: {
+      file: result.candidateEvidenceFile,
+      path: path.join(result.output.directory, result.candidateEvidenceFile),
+    },
     output: {
       ...result.receipt.output,
       directory: result.output.directory,

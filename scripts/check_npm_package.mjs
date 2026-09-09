@@ -678,6 +678,7 @@ export async function selfTestNpmPackage() {
     "local_install_candidate_runtime_zip_bound",
     "local_install_candidate_private",
     "local_install_candidate_publish_forbidden",
+    "local_install_candidate_gate_evidence",
     "local_install_candidate_receipt_tamper_rejected",
     "local_install_candidate_cli_argument",
   ];
