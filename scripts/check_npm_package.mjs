@@ -605,6 +605,12 @@ export async function selfTestNpmPackage() {
   }
   const builderReport = await packageBuilder.runSyntheticSelfTest();
   const pythonContract = packageBuilder.pythonInvocationContract();
+  const discoveredWorkspaceRoot = packageBuilder.discoverWorkspaceRoot(
+    packageBuilder.REPO_ROOT,
+  );
+  if (path.resolve(packageBuilder.WORKSPACE_ROOT) !== discoveredWorkspaceRoot) {
+    fail("builder workspace root does not resolve to the nearest workspace.yaml ancestor");
+  }
   if (
     pythonContract.command !== "$PYTHON" ||
     pythonContract.bytecode_disabled !== true ||
@@ -620,11 +626,13 @@ export async function selfTestNpmPackage() {
     evidence: {
       ...builderReport.evidence,
       python_invocation: pythonContract,
+      workspace_root: discoveredWorkspaceRoot,
       checker_independent_tag_oracle: checkerTagTest.evidence,
       checker_independent_origin_oracle: checkerOriginTest.evidence,
     },
     validation: {
       ...builderReport.validation,
+      workspace_root_discovery: "PASS",
       ...checkerTagTest.validation,
       ...checkerOriginTest.validation,
     },
@@ -664,6 +672,7 @@ export async function selfTestNpmPackage() {
     "checker_independent_wrong_target_tag_rejected",
     "checker_independent_origin_userinfo_rejected",
     "checker_independent_origin_userinfo_redacted",
+    "workspace_root_discovery",
     "python_interpreter_contract",
     "local_install_candidate_receipt_bound",
     "local_install_candidate_runtime_zip_bound",

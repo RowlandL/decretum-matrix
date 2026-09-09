@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants as fsConstants, createReadStream, readFileSync } from "node:fs";
+import {
+  constants as fsConstants,
+  createReadStream,
+  existsSync,
+  readFileSync,
+} from "node:fs";
 import {
   chmod,
   copyFile,
@@ -24,6 +29,20 @@ export const REPO_ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
 const SYNTHETIC_SELF_TEST =
   process.argv.includes("--self-test") ||
   process.env.DECRETUM_NPM_SYNTHETIC_SELF_TEST === "1";
+
+export function discoverWorkspaceRoot(start = REPO_ROOT) {
+  let current = path.resolve(start);
+  while (true) {
+    if (existsSync(path.join(current, "workspace.yaml"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return path.dirname(path.resolve(start));
+    }
+    current = parent;
+  }
+}
 
 function withoutInheritedGitIndex(environment = process.env) {
   const result = { ...environment };
@@ -244,7 +263,7 @@ export const TAG_REF = LIVE_IDENTITY.tagRef;
 export const REPOSITORY_URL = LIVE_REPOSITORY.canonicalUrl;
 export const RELEASE_URL = `${REPOSITORY_URL.replace(/\.git$/, "")}/releases/tag/${RELEASE_LABEL}`;
 export const WORKSPACE_ROOT = path.resolve(
-  process.env.DECRETUM_WORKSPACE_ROOT || path.dirname(REPO_ROOT),
+  process.env.DECRETUM_WORKSPACE_ROOT || discoverWorkspaceRoot(),
 );
 export const RELEASE_ASSET_DIR = path.join(
   WORKSPACE_ROOT,
