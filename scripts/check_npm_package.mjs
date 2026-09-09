@@ -640,6 +640,7 @@ export async function selfTestNpmPackage() {
   const requiredPasses = [
     "canonical_privacy_fixture",
     "nested_zip_member_privacy",
+    "runtime_zip_embedded_manifest_authority",
     "runtime_payload_checker_entries_rejected",
     "deterministic_double_pack",
     "strict_offline_install",

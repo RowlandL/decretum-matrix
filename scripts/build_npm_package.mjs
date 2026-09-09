@@ -504,9 +504,32 @@ sys.path.insert(0, str(checker_root / "scripts"))
 import package_skill
 
 problems = []
-accepted_manifest_bytes = accepted_manifest_path.read_bytes()
+source_manifest_bytes = accepted_manifest_path.read_bytes()
+source_manifest_sha256 = hashlib.sha256(source_manifest_bytes).hexdigest()
+try:
+    source_manifest = json.loads(source_manifest_bytes.decode("utf-8"))
+except Exception as exc:
+    source_manifest = {}
+    problems.append(f"source-manifest:invalid-json:{type(exc).__name__}")
+source_archive_root = str(source_manifest.get("archive_root", "")).rstrip("/")
+if source_archive_root and source_archive_root != package_skill.ROOT_NAME:
+    problems.append("source-manifest:archive-root-mismatch")
+if source_manifest.get("release_label") != expected_label:
+    problems.append("source-manifest:release-label-mismatch")
+
+manifest_member_name = f"{package_skill.ROOT_NAME}/release-manifest.json"
+try:
+    with zipfile.ZipFile(archive_path) as manifest_archive:
+        accepted_manifest_bytes = manifest_archive.read(manifest_member_name)
+except KeyError:
+    accepted_manifest_bytes = b"{}"
+    problems.append("release-manifest.json:member-missing")
 accepted_manifest_sha256 = hashlib.sha256(accepted_manifest_bytes).hexdigest()
-accepted_manifest = json.loads(accepted_manifest_bytes.decode("utf-8"))
+try:
+    accepted_manifest = json.loads(accepted_manifest_bytes.decode("utf-8"))
+except Exception as exc:
+    accepted_manifest = {}
+    problems.append(f"release-manifest.json:invalid-json:{type(exc).__name__}")
 archive_root = str(accepted_manifest.get("archive_root", "")).rstrip("/")
 if archive_root != package_skill.ROOT_NAME:
     problems.append("accepted-manifest:archive-root-mismatch")
@@ -674,6 +697,7 @@ if problems:
         "manifest_inventory_sha256": manifest_inventory_sha256,
         "payload_inventory_count": len(actual),
         "payload_inventory_sha256": payload_inventory_sha256,
+        "source_manifest_sha256": source_manifest_sha256,
         "source_only_checker_entries": sorted(set(source_only_checker_entries)),
     }, ensure_ascii=False))
     raise SystemExit(2)
@@ -687,6 +711,7 @@ print(json.dumps({
     "manifest_inventory_sha256": manifest_inventory_sha256,
     "payload_inventory_count": len(actual),
     "payload_inventory_sha256": payload_inventory_sha256,
+    "source_manifest_sha256": source_manifest_sha256,
     "source_only_checker_entries": [],
 }, ensure_ascii=False))
 `;
@@ -1720,6 +1745,30 @@ export async function runSyntheticSelfTest() {
       `${zipHash}  ${current.artifactName}\n`,
       { encoding: "utf8", flag: "wx" },
     );
+    const broaderSourceManifest = structuredClone(manifestFromDisk);
+    const sourceOnlyFixturePath = "docs/source-only.md";
+    delete broaderSourceManifest.payload_kind;
+    broaderSourceManifest.repository_only_files = [sourceOnlyFixturePath];
+    broaderSourceManifest.files = [
+      ...manifestFromDisk.files,
+      {
+        mode: "100644",
+        path: sourceOnlyFixturePath,
+        sha256: "0".repeat(64),
+        size: 0,
+      },
+    ].sort((left, right) =>
+      Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")),
+    );
+    const broaderSourceManifestPath = path.join(
+      root,
+      "source-release-manifest-with-repository-only.json",
+    );
+    await writeFile(
+      broaderSourceManifestPath,
+      `${JSON.stringify(broaderSourceManifest, null, 2)}\n`,
+      { encoding: "utf8", flag: "wx" },
+    );
     await writeFile(
       path.join(assetRoot, current.releaseNotesName),
       `# Synthetic release notes\n\n## ${releaseLabel}\n`,
@@ -1806,6 +1855,21 @@ export async function runSyntheticSelfTest() {
       Array.isArray(zipPrivacyEvidence.source_only_checker_entries) &&
         zipPrivacyEvidence.source_only_checker_entries.length === 0,
       "synthetic runtime ZIP still carries source-only checker entries",
+    );
+    const broaderSourceManifestZipPrivacy = runPythonFixtureCommand(
+      [
+        "-c",
+        ZIP_PRIVACY_SCRIPT,
+        zipPath,
+        REPO_ROOT,
+        releaseLabel,
+        broaderSourceManifestPath,
+      ],
+      { cwd: root },
+    );
+    assert(
+      broaderSourceManifestZipPrivacy.status === 0,
+      `synthetic ZIP privacy ignored embedded runtime manifest authority: ${broaderSourceManifestZipPrivacy.stdout}${broaderSourceManifestZipPrivacy.stderr}`,
     );
     const checkerPayloadNegativeRelative = "scripts/checks/forbidden.py";
     const checkerPayloadNegativeSource = path.join(
@@ -2553,6 +2617,14 @@ export async function runSyntheticSelfTest() {
           source_only_checker_entries:
             zipPrivacyEvidence.source_only_checker_entries || [],
         },
+        runtime_zip_manifest_authority: {
+          command:
+            "$PYTHON -B -c <nested-zip-member-privacy-checker> <zip> <broader-source-manifest>",
+          rc: broaderSourceManifestZipPrivacy.status,
+          source_manifest_file_count: broaderSourceManifest.files.length,
+          runtime_manifest_file_count:
+            zipPrivacyEvidence.manifest_inventory_count,
+        },
         checker_payload_negative: {
           command:
             "$PYTHON -B -c <nested-zip-member-privacy-checker> <checker-negative-zip>",
@@ -2610,6 +2682,7 @@ export async function runSyntheticSelfTest() {
       validation: {
         canonical_privacy_fixture: "PASS",
         nested_zip_member_privacy: "PASS",
+        runtime_zip_embedded_manifest_authority: "PASS",
         runtime_payload_checker_entries_rejected: "PASS",
         deterministic_double_pack: "PASS",
         strict_offline_install: "PASS",
