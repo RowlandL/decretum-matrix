@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "4e29baa4f8bd7936b5d4223b4cef77acee53c117e123b23e2174a80ad708d917",
-      "size": 9524
+      "sha256": "42b5d5a0b21ba4a2e092e03cedda5be4e23bac0f7dd0b7712bc98979abfd715d",
+      "size": 9618
     },
     {
       "mode": "100644",
@@ -279,8 +279,8 @@
     {
       "mode": "100644",
       "path": "agents/standing-officials/taizi.toml",
-      "sha256": "a4503c9b1b4bdd7dbb5c46592947e5896ee422269b8f70ff426df0b044d1c496",
-      "size": 4854
+      "sha256": "d7a2b889ecf06d254e1002a8fd82ba03077a813fbeefe7c93353375dbbbf22c6",
+      "size": 4687
     },
     {
       "mode": "100644",
@@ -585,13 +585,13 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "195b44dc399a9c24aea52ef1d4e72b1416eb96d5c99cfbf4526a6cc7c6599fda",
+      "sha256": "eac6b46e5ecf917613413995ff4e7e2446e1bd2ec560df074ad4616de06bb929",
       "size": 1435
     },
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "d5a1692727e8bcc26d4933dbe80e8ba339fb9e21a181a40a4e296bad3e7bb552",
+      "sha256": "cc06b387645428ab27591713c6fc155ea24ab71d73227f61583fba3df93611ce",
       "size": 4689
     },
     {
@@ -2932,12 +2932,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8602026,
+    "payload_bytes": 8601953,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "1e099d622feb0d0d5f7289b0ad62ab971d868d378e1eb5a91efcf2a492ebe6ea",
+    "payload_index_sha256": "a1dca812f96403e634c4ddc939e1303c2e6554a122427ad72cbdbc259e370b39",
     "source_packaged_tracked_file_count": 475,
-    "source_tracked_file_count": 624
+    "source_tracked_file_count": 625
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -2960,6 +2960,7 @@
     "AGENTS.md",
     "CHANGELOG.md",
     "HANDOFF-decretum-matrix-2026-08-10.md",
+    "HANDOFF-decretum-matrix-2026-09-10.md",
     "RELEASE-LOG.md",
     "development-manual/README.md",
     "development-manual/decretum-matrix-development-manual-zh.md",

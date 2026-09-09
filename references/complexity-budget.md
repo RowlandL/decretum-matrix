@@ -16,6 +16,7 @@ Fast path: `quick_validate.py`, `check_catalog.py --strict`,
 | 2026-07-16 | 258 files / 5,409,889 bytes | 265 files / 5,600,000 bytes |
 | 2026-07-17 | 273 files / 6,138,661 bytes | 275 files / 6,200,000 bytes |
 | 2026-07-18 | 273 files / 6,205,322 bytes | 275 files / 6,225,000 bytes |
+| 2026-09-10 | 508 files / 9,292,241 bytes | 545 files / 9,300,000 bytes |
 
 `references/manifests/source-state-budget.v1.json` owns classification and
 ceilings. Focused checkers own behavior; history does not permit growth.

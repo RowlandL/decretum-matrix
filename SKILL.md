@@ -69,7 +69,7 @@ CLI (`scripts/court_cli.py` → `court_cli_registry.py`) 与 MCP 共用 `scripts
 
 ## Progressive Loading Map
 
-路径默认 skill-root 相对；绝对路径只作机器证据。阶段：启动 [court-normal-startup.md](references/court-normal-startup.md)；语义 [court-core-contract.md](references/court-core-contract.md)；官署/转发 [court-offices-dispatch.md](references/court-offices-dispatch.md)；P00/状态 [court-state-runtime-agents.md](references/court-state-runtime-agents.md)；能力 [court-capability-registry.md](references/court-capability-registry.md)；史馆 [court-shiguan-memory.md](references/court-shiguan-memory.md)；安装 [court-host-platform-pitfalls.md](references/court-host-platform-pitfalls.md)；结诏 [court-closeout-validation.md](references/court-closeout-validation.md)。
+路径默认 skill-root 相对；绝对路径只作机器证据。阶段：启动 [court-normal-startup.md](references/court-normal-startup.md)；语义 [court-core-contract.md](references/court-core-contract.md)；官署/转发 [court-offices-dispatch.md](references/court-offices-dispatch.md)；P00/状态 [court-state-runtime-agents.md](references/court-state-runtime-agents.md)；能力 [court-capability-registry.md](references/court-capability-registry.md)；superCC [court-supercc-runtime-selection.md](references/court-supercc-runtime-selection.md)；史馆 [court-shiguan-memory.md](references/court-shiguan-memory.md)；安装 [court-host-platform-pitfalls.md](references/court-host-platform-pitfalls.md)；结诏 [court-closeout-validation.md](references/court-closeout-validation.md)。
 
 ## Shiguan, Pending, And Memory
 
