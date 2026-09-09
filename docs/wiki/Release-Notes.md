@@ -25,8 +25,6 @@
 - 外部 tag、GitHub Release、npm 远端状态与宿主实际加载仍由对应回执证明；本条不替代
   capability evidence 或外部发布回执。
 
-# Release Notes
-
 ## beta1.0.7
 
 - 状态：源码阶段已完成收尾，`release/beta1.0.7` HEAD 为 `2571178`，作为 beta1.0.8 开发基线。

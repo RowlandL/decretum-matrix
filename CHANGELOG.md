@@ -17,6 +17,13 @@
 - 保留 beta1.1.1 及更早历史条目；根 `package.json` 继续保持 version-neutral 的 `0.0.0-private`。
 - beta1.1.2 的候选构建、安装、tag、GitHub Release、npm 发布和活动安装分别由独立回执或远端回读证明；本条目不替代这些证据。
 
+### Docs
+
+- 说明文档改为说明书式：README 增加「安装 / 快速开始 / 功能大模块 / 接口：CLI 与 MCP / 版本 / 许可」六个编号章节，并给出五根投影、升级回滚与安装后验证口径。
+- 新增离线 Wiki 页面 `docs/wiki/Modules.md`（七个功能大模块用途）与 `docs/wiki/CLI-and-MCP.md`（CLI 命令面与 13 个 MCP 只读工具矩阵），并同步 `Home.md`、`_Sidebar.md`、`docs/wiki/README.md` 与 `check-sync.ps1` 的页面清单。
+- 重写 `docs/wiki/Installation.md` 为三步快速安装加完整口径；扩充 `Usage.md` 与 `Troubleshooting.md`（新增 CLI 入口、`source_checkout_required`、MCP 可见性与参数错误章节）；修复 `Release-Notes.md` 的重复 H1。
+- 文档改版不改变运行时、命令面、MCP 工具集、状态机或发布门禁；相关能力声明仍以对应回执为准。
+
 ## beta1.0.9 - 2026-09-02
 
 ### Changed

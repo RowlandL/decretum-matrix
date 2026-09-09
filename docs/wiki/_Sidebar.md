@@ -1,6 +1,8 @@
 - [Home](Home.md)
 - [Installation](Installation.md)
 - [Usage](Usage.md)
+- [Modules](Modules.md)
+- [CLI and MCP](CLI-and-MCP.md)
 - [Governance](Governance.md)
 - [Architecture](Architecture.md)
 - [Troubleshooting](Troubleshooting.md)

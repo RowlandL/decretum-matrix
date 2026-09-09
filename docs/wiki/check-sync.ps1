@@ -10,6 +10,8 @@ $pageNames = @(
     "Home.md",
     "Installation.md",
     "Usage.md",
+    "Modules.md",
+    "CLI-and-MCP.md",
     "Governance.md",
     "Architecture.md",
     "Troubleshooting.md",
