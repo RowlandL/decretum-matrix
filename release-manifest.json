@@ -21,8 +21,8 @@
     {
       "mode": "100644",
       "path": ".codex-plugin/plugin.json",
-      "sha256": "fc38fddd156e0027c4b7347716575a37c41d0599bd99a01d0de4e501a2104511",
-      "size": 750
+      "sha256": "b95cec9fae108e290677a0d5e645babeac4a5198e66b02d2eb02bf1f03425ab9",
+      "size": 730
     },
     {
       "mode": "100644",
@@ -87,8 +87,8 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "1614dd67e310b49013d71d70709e0e6415a5e967a24a19f817cbbef9d298a651",
-      "size": 5536
+      "sha256": "ad73630aca1983b0511d7509940a2cfabba1f4e68f453d64a1364bd3adbdcdb7",
+      "size": 5489
     },
     {
       "mode": "100644",
@@ -561,8 +561,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/github-release-metadata.v1.json",
-      "sha256": "d53a35896c68ce7fc4c7a8b98712a2b1c9968be7ae34aae9b6944f8d5a41153e",
-      "size": 15154
+      "sha256": "9b8ebed008d78dd378fbdcbd9013c1f09e00950a5be02e080bb00c130942fea6",
+      "size": 15284
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8592093,
+    "payload_bytes": 8592156,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "554932bfd882fe64947e75c026bf4d64bcc1b355ab16cc217e16389e2a916bd5",
+    "payload_index_sha256": "bebe0d3560b70b96f94ab59ebeedd8228494e0e2b922953a9d19666980540f99",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 622
   },

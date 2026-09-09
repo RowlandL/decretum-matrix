@@ -1,5 +1,17 @@
 # Release Notes
 
+## beta1.1.2
+
+- 当前发布线统一为 `beta1.1.2`；根 `package.json` 继续保持 version-neutral 的
+  `0.0.0-private`，历史 beta1.1.1 及更早记录保留。
+- 新增已存在全局 npm 包的显式替换安装路径；默认拒绝覆盖，明确选择替换时才移动旧包并
+  安装候选包。
+- 全局 npm 替换备份清单使用相对 npm prefix / 备份根的路径字段，根 shim 只做快照记录，
+  绝对路径仅作为当次宿主证据。
+- 安装投影清理覆盖当前源码清单中的 repository-only/source-only 精确残留，保留未知用户
+  文件和目录型私有数据。
+- npm 版本为 `1.1.2-beta.0`，继续使用 `beta` dist-tag；远端状态以发布后回读为准。
+
 ## beta1.0.8
 
 - 状态：发布阶段（M5）全量门禁 22 项与 Phase 2/3/4 新增独立 check 全绿（本机环境受限项另述）；

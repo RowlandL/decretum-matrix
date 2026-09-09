@@ -2,11 +2,20 @@
 
 ## beta1.1.2 - 2026-09-08
 
+### Added
+
+- 新增已存在全局 npm 包的显式替换安装路径；默认仍 fail-closed 拒绝覆盖，只有调用方明确选择替换时才移动旧包并安装候选包。
+- 全局 npm 替换备份清单使用相对 npm prefix / 备份根的路径字段，根 shim 只做快照记录，绝对路径仅保留为当次宿主证据。
+
+### Fixed
+
+- 安装投影清理会依据当前源码清单处理 repository-only/source-only 的精确残留文件，并继续保留未知用户文件和目录型私有数据。
+
 ### Changed
 
 - 将本地版本标记统一至 `beta1.1.2`，同步 VERSION、SKILL 元数据、README 当前说明、发布记录、SBOM、插件与 GitHub release metadata。
 - 保留 beta1.1.1 及更早历史条目；根 `package.json` 继续保持 version-neutral 的 `0.0.0-private`。
-- 本条目只描述本地未发行开发版本；tag、GitHub Release、npm 发布和活动安装仍未执行，须以后续独立回执证明。
+- beta1.1.2 的候选构建、安装、tag、GitHub Release、npm 发布和活动安装分别由独立回执或远端回读证明；本条目不替代这些证据。
 
 ## beta1.0.9 - 2026-09-02
 

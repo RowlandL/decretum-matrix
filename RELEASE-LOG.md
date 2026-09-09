@@ -2,9 +2,13 @@
 
 ## beta1.1.2
 
-- 状态：本地未发行开发版本记录（非候选制品、非发行）；本次同步版本字段与既有生成器/法律检查器合同。
+- 状态：当前发布版本；候选构建、安装投影、全局 npm 替换、tag、GitHub Release 与 npm
+  发布分别以对应本地回执或远端回读为准。
 - 活动字段统一为 `beta1.1.2`，历史 beta1.1.1 及更早记录保持原样；根 `package.json` 继续为 `0.0.0-private`。
-- `release-manifest.json` 保持冻结，待全部代码冻结后由串行步骤生成；本记录不构成候选、安装、tag、推送、GitHub Release 或 npm 发布回执。
+- 新增已存在全局 npm 包的显式替换路径；旧包移动到相对 npm prefix / 备份根记录的备份清单，
+  根 shim 仅快照，路径类字段优先相对化，绝对路径只作为当次宿主证据。
+- 安装投影清理覆盖当前源码清单中的 repository-only/source-only 精确残留，保留未知用户文件和
+  目录型私有数据，并由 post-projection 验收确认无 extra/drift。
 
 ## beta1.0.8
 

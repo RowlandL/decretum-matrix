@@ -9,13 +9,13 @@
   "latest_tag": "beta1.1.2",
   "releases": [
     {
-      "asset_note": "本条目只描述 beta1.1.2 本地未发行开发版本；未创建 tag、推送、GitHub Release、发布 npm 或更新活动安装。",
+      "asset_note": "beta1.1.2 发布资产、GitHub Release、npm beta 与活动安装分别以远端回读和安装回执为准；路径类安装证据优先记录相对路径。",
       "highlights": [
         "统一 VERSION、SKILL 元数据、README、CHANGELOG、RELEASE-LOG、SBOM 与插件版本字段。",
-        "保留 beta1.1.1 及更早历史记录，根 package.json 继续保持 0.0.0-private。",
-        "活动版本矩阵与现有 release identity、metadata/legal 检查器合同保持一致。"
+        "新增已存在全局 npm 包的显式替换安装路径，默认 fail-closed，备份清单使用 relative_to_npm_prefix。",
+        "安装投影清理覆盖当前源码清单中的 repository-only/source-only 精确残留，并保留未知用户文件。"
       ],
-      "summary": "beta1.1.2 目前仅为本地未发行开发版本；版本字段已对齐，候选构建、安装与远端发行仍须后续独立授权和回执。",
+      "summary": "beta1.1.2 完成版本投影、全局 npm 替换安装路径和相对路径备份语义；候选构建、安装、GitHub Release 与 npm 发布状态由独立回执或远端回读证明。",
       "tag": "beta1.1.2",
       "title": "Decretum Matrix beta1.1.2"
     },

@@ -11,7 +11,7 @@
     "category": "Productivity",
     "developerName": "RowlandL",
     "displayName": "Decretum Matrix",
-    "longDescription": "Keeps the optional Codex plugin activation entrypoint available for the private beta1.1.2 development version while the skill and read-only MCP remain the authoritative transports.",
+    "longDescription": "Keeps the optional Codex plugin activation entrypoint available for the beta1.1.2 release while the skill and read-only MCP remain the authoritative transports.",
     "shortDescription": "Skill activation metadata and read-only MCP routing."
   },
   "license": "AGPL-3.0-only",
