@@ -910,6 +910,7 @@ def _installed_projection_files(
     inspection_root: Path,
     projection_name: str,
     excluded_path_globs: tuple[str, ...],
+    source_repository_only: tuple[PurePosixPath, ...],
 ) -> set[PurePosixPath]:
     """Return only source-only files declared by the prior installed manifest.
 
@@ -1002,6 +1003,14 @@ def _installed_projection_files(
         relative = PurePosixPath(str(value))
         consider_exact_source_only(relative)
 
+    for relative in source_repository_only:
+        if not _safe_relative(relative.as_posix()):
+            raise _InstallContractError(
+                "projection_manifest_invalid",
+                f"repository_only_invalid:{relative.as_posix()}",
+            )
+        consider_exact_source_only(relative)
+
     for pattern in excluded_path_globs:
         pattern_path = PurePosixPath(pattern)
         static_parts: list[str] = []
@@ -1070,6 +1079,7 @@ def _plan_projection_writes(
     *,
     source_root: Path,
     selected: list[tuple[str, Path, str]],
+    source_repository_only: tuple[PurePosixPath, ...],
     migration_sources: dict[Path, Path] | None = None,
 ) -> tuple[list[tuple[Path, bytes | None, bytes | None]], dict[str, int]]:
     rendered: dict[str, RenderedActiveProjection] = {}
@@ -1139,6 +1149,7 @@ def _plan_projection_writes(
                 inspection_root=inspection_root,
                 projection_name=projection_name,
                 excluded_path_globs=rendered_target.excluded_path_globs,
+                source_repository_only=source_repository_only,
             ),
             key=lambda item: item.as_posix(),
         ):
@@ -2511,6 +2522,11 @@ def install_current_agent_copy(
         operations, projection_counts = _plan_projection_writes(
             source_root=source,
             selected=selected,
+            source_repository_only=tuple(
+                PurePosixPath(str(item))
+                for item in manifest["projections"]["repository_only"]
+                if isinstance(item, str)
+            ),
             migration_sources={
                 Path(str(item["canonical_root"])).resolve(strict=False): Path(
                     str(item["source_root"])

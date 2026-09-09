@@ -2989,6 +2989,14 @@ def _check_cases(
         projection = cleanup_projections[projection_name]
         assert isinstance(projection, list)
         projection.append(SOURCE_ONLY_CHECKER)
+    cleanup_old_manifest = deepcopy(cleanup_manifest)
+    cleanup_old_projections = cleanup_old_manifest["projections"]
+    assert isinstance(cleanup_old_projections, dict)
+    cleanup_old_projections["repository_only"] = []
+    cleanup_old_manifest_bytes = (
+        json.dumps(cleanup_old_manifest, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n"
+    ).encode("utf-8")
     source, home, manifest, roots = _case_fixture(
         temp_root,
         cleanup_name,
@@ -3004,6 +3012,9 @@ def _check_cases(
         repository_only = target / Path(REPOSITORY_ONLY_FILES[0])
         repository_only.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / Path(REPOSITORY_ONLY_FILES[0]), repository_only)
+        (
+            target / "references" / "manifests" / "install-projection.v1.json"
+        ).write_bytes(cleanup_old_manifest_bytes)
         (target / "nonmanaged.txt").write_text("preserve\n", encoding="utf-8")
     cleanup_result = _require_success(
         install,
