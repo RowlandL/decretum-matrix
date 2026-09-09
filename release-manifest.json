@@ -2139,8 +2139,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/sync_active_copies.py",
-      "sha256": "bf620d8b823d812c12113a234d67f59c6cf85ef97b72a4a0ca270f6184e0e3af",
-      "size": 92663
+      "sha256": "540ca1b1f9e0d886d9d5121b804318f80e0fb9de186da438584afcda156cfdc6",
+      "size": 92755
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8607342,
+    "payload_bytes": 8607434,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "b21be15df30ffb6ea1253daed98747a952f5599ba31673440dc14e977779df50",
+    "payload_index_sha256": "6f7cd6429dec385d34ad4d348955d05066857cff97c1b33f7cc203a17203d943",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 625
   },

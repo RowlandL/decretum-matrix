@@ -1029,24 +1029,22 @@ def _receipt_selected_installer_request(
     primary = _absolute_no_follow(
         home / ".agents" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
     )
-    known_tools = {
-        "codex": _absolute_no_follow(
-            home / ".codex" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
-        ),
-        "claude": _absolute_no_follow(
-            home / ".claude" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
-        ),
-        "hermes": _absolute_no_follow(
-            user_data_base() / "hermes" / "skills" / CANONICAL_INSTALL_DIRECTORY_NAME
-        ),
+    n = CANONICAL_INSTALL_DIRECTORY_NAME
+    def root(base, *parts):
+        return _absolute_no_follow(Path(base).joinpath(*parts, n))
+    local = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+    tool_by_root = {
+        _path_key(root(home, ".codex", "skills")): "codex",
+        _path_key(root(home, ".claude", "skills")): "claude",
+        _path_key(root(user_data_base(), "hermes", "skills")): "hermes",
+        _path_key(root(home, ".hermes", "skills")): "hermes",
+        _path_key(root(local, "hermes", "skills")): "hermes",
     }
     keys = {_path_key(path) for path in selected_roots}
     pkey = _path_key(primary)
-    if pkey not in keys or current_tool not in known_tools:
-        raise ValueError("receipt_installer_primary_or_tool_invalid")
     current = _absolute_no_follow(Path(current_root))
     ckey = _path_key(current)
-    if ckey != _path_key(known_tools[current_tool]) or ckey not in keys:
+    if pkey not in keys or ckey not in keys or tool_by_root.get(ckey) != current_tool:
         raise ValueError("receipt_installer_current_root_invalid")
     explicit_roots = [_absolute_no_follow(Path(value)) for value in explicit]
     reserved = {pkey, ckey}
@@ -1059,12 +1057,13 @@ def _receipt_selected_installer_request(
         _path_key(path) for path in expected_explicit
     }:
         raise ValueError("receipt_installer_explicit_targets_invalid")
-    explicit_tools = [
-        name
-        for path in expected_explicit
-        for name, known_root in known_tools.items()
-        if _path_key(path) == _path_key(known_root) and name != current_tool
-    ]
+    tool_roots = {current_tool: current}
+    explicit_tools = []
+    for path in expected_explicit:
+        name = tool_by_root.get(_path_key(path))
+        if name and name != current_tool:
+            explicit_tools.append(name)
+            tool_roots[name] = path
     if len(explicit_tools) != len(expected_explicit):
         raise ValueError("receipt_installer_explicit_tool_unknown")
     return {
@@ -1072,7 +1071,7 @@ def _receipt_selected_installer_request(
         "home_root": home,
         "current_tool": current_tool,
         "explicit_tools": explicit_tools,
-        "tool_roots": known_tools,
+        "tool_roots": tool_roots,
         "projection_manifest": source / PROJECTION_MANIFEST_RELATIVE,
         "write": write,
     }
