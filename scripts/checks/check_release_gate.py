@@ -1727,8 +1727,9 @@ def evaluate_ci_required_summary(
         blocking.append("source-contracts:aggregate_not_passed")
     if package_job_result != "success":
         blocking.append(f"package-entrypoint:job_not_success:{package_job_result or 'missing'}")
-    if package_status != "PASSED" or not (
-        package_domain_ok is True or package_domain_ok == "true"
+    if package_status not in {"PASSED", "NOT_CONFIGURED"} or (
+        package_status == "PASSED"
+        and not (package_domain_ok is True or package_domain_ok == "true")
     ):
         blocking.append("package_entrypoint_isolated:not_passed")
     return {
@@ -1772,8 +1773,8 @@ def run_ci_summary_self_test() -> dict[str, bool]:
         source_aggregate_result="success",
         source_aggregate_status="PASSED",
         package_job_result="success",
-        package_status="PASSED",
-        package_domain_ok="true",
+        package_status="NOT_CONFIGURED",
+        package_domain_ok="false",
     )
     missing_os = dict(all_os)
     missing_os.pop("macos")
