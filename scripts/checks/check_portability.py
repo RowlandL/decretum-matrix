@@ -6,6 +6,7 @@ import ast
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -20,6 +21,28 @@ import court_platform  # noqa: E402
 import ensure_supercc_court  # noqa: E402
 import package_skill  # noqa: E402
 import shiguan_paths  # noqa: E402
+
+
+FORMAL_SOURCE_PREFIXES = (
+    ".github/",
+    "agents/",
+    "bin/",
+    "docs/wiki/",
+    "references/",
+    "scripts/",
+)
+FORMAL_SOURCE_SKIP_PARTS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    "__pycache__",
+    "node_modules",
+}
+LOCAL_WORKSTATION_ABSOLUTE_PATH_PATTERNS = [
+    re.compile(rb"\bC:[\\/]Users[\\/]32893\b", re.IGNORECASE),
+    re.compile(rb"\bD:[\\/]project\b", re.IGNORECASE),
+    re.compile(rb"\bO:[\\/]gitmirror\b", re.IGNORECASE),
+]
 
 
 def text_file(path: Path) -> bool:
@@ -40,6 +63,31 @@ def source_candidates() -> list[Path]:
 def contains_host_path(path: Path) -> bool:
     data = path.read_bytes()
     return any(pattern.search(data) for pattern in package_skill.HOST_ABSOLUTE_PATH_PATTERNS)
+
+
+def contains_local_workstation_path(path: Path) -> bool:
+    data = path.read_bytes()
+    return any(
+        pattern.search(data) for pattern in LOCAL_WORKSTATION_ABSOLUTE_PATH_PATTERNS
+    )
+
+
+def formal_source_path(relative: Path) -> bool:
+    key = relative.as_posix()
+    return len(relative.parts) == 1 or any(
+        key.startswith(prefix) for prefix in FORMAL_SOURCE_PREFIXES
+    )
+
+
+def formal_source_candidates() -> list[Path]:
+    out: list[Path] = []
+    for path in ROOT.rglob("*"):
+        rel = path.relative_to(ROOT)
+        if FORMAL_SOURCE_SKIP_PARTS & {part.casefold() for part in rel.parts}:
+            continue
+        if path.is_file() and text_file(path) and formal_source_path(rel):
+            out.append(path)
+    return out
 
 
 def doc_command_portability_violations() -> list[str]:
@@ -276,6 +324,22 @@ def run() -> dict[str, object]:
             "name": "portable package candidate text files do not contain host user absolute paths",
             "ok": not leaked,
             "details": {"leaked": leaked[:20], "leaked_count": len(leaked)},
+        }
+    )
+
+    formal_leaked = sorted(
+        str(path.relative_to(ROOT)).replace("\\", "/")
+        for path in formal_source_candidates()
+        if contains_host_path(path) or contains_local_workstation_path(path)
+    )
+    checks.append(
+        {
+            "name": "formal source text files do not contain workstation absolute roots",
+            "ok": not formal_leaked,
+            "details": {
+                "leaked": formal_leaked[:20],
+                "leaked_count": len(formal_leaked),
+            },
         }
     )
 

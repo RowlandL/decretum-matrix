@@ -415,7 +415,7 @@ CLI、用户侧结诏、史馆 Web 与 Obsidian 只呈现已绑定的事实、�
 ## 仓库与数据边界
 
 ```text
-D:\project                         root control plane
+<control-plane-root>               root control plane
 decretum-matrix child repository   product source and releases
 ~\.agents\court-shiguan\...        shared local evidence/data
 ```

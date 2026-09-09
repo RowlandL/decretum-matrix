@@ -222,6 +222,23 @@ def _same_filesystem_path(left: Path, right: Path) -> bool:
         )
 
 
+def _relative_physical_parts(path: Path, root: Path) -> tuple[str, ...] | None:
+    try:
+        return path.relative_to(root).parts
+    except ValueError:
+        pass
+    parts: list[str] = []
+    current = Path(path)
+    while True:
+        if _same_filesystem_path(current, root):
+            return tuple(reversed(parts))
+        parent = current.parent
+        if parent == current:
+            return None
+        parts.append(current.name)
+        current = parent
+
+
 def _validate_loaded_identity(
     identity: object,
     *,
@@ -2964,6 +2981,11 @@ def _check_cases(
                     else None
                 )
                 manifest_path = backup_root / "manifest.json" if backup_root else None
+                relative_backup_parts = (
+                    _relative_physical_parts(backup_root, home)
+                    if backup_root is not None
+                    else None
+                )
                 backup_ok = (
                     isinstance(backup, dict)
                     and backup.get("status") == "CREATED"
@@ -2971,9 +2993,10 @@ def _check_cases(
                     and backup_root is not None
                     and manifest_path is not None
                     and manifest_path.is_file()
+                    and relative_backup_parts is not None
                     and not any(
                         part.casefold() in {"pending", "private"}
-                        for part in backup_root.relative_to(home).parts
+                        for part in relative_backup_parts
                     )
                 )
                 rollback = install.__globals__["rollback_install_backup"](

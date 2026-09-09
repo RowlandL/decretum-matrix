@@ -4,7 +4,7 @@ Receipt: `DM-LPR-P0-20260716`
 
 Status: `PASS / CUTOVER_CANDIDATE_ELIGIBLE / LEGAL_REVIEW_REQUIRED`
 
-Captured from `D:\project\decretum-matrix-beta0.5.10` at 2026-07-16 14:28 +08:00.
+Captured from `<legacy-source-root>/decretum-matrix-beta0.5.10` at 2026-07-16 14:28 +08:00.
 
 ## Git and publication boundary
 

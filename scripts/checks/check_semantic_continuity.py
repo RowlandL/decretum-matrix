@@ -4064,7 +4064,7 @@ def check_stage3_result_recovery_pure_schema_core_head_idempotency_red() -> None
         "agent_id": "gongbu-stage3-red",
         "role": "gongbu",
         "direct_superior": "shangshu",
-        "worktree": "D:/project/worktrees/decretum-matrix/beta106-local-stage-019fb7f5",
+        "worktree": "worktrees/decretum-matrix/beta106-local-stage-019fb7f5",
         "write_set": ["results/stage3-red.json"],
         "status": "completed",
         "summary": "bounded projection",

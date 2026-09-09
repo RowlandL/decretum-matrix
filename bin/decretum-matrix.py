@@ -67,10 +67,21 @@ def _path_key(path: Path) -> str:
 
 
 def _same_path(left: Path, right: Path) -> bool:
-    return _path_key(left) == _path_key(right)
+    try:
+        return left.samefile(right)
+    except OSError:
+        return _path_key(left) == _path_key(right)
 
 
 def _path_is_under(path: Path, root: Path) -> bool:
+    current = Path(path)
+    while True:
+        if _same_path(current, root):
+            return True
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
     try:
         return os.path.commonpath([_path_key(path), _path_key(root)]) == _path_key(root)
     except ValueError:

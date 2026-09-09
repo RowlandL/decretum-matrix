@@ -52,7 +52,7 @@ jobs:
           manifest = load_release_manifest()
           source_checks = [check for check in manifest["required_checks"] if check["ci_job"] == "source-contracts"]
           commands = [(check["id"], check["command"][1:]) for check in source_checks]
-          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "portability", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
           if [stable_id for stable_id, _ in commands] != expected_ids:
               raise SystemExit("source-contracts command IDs drifted from manifest")
           contracts = {check["id"]: check["domain_contract"] for check in source_checks}
@@ -150,7 +150,7 @@ jobs:
           manifest = load_release_manifest()
           source_checks = [check for check in manifest["required_checks"] if check["ci_job"] == "source-contracts"]
           commands = [(check["id"], check["command"][1:]) for check in source_checks]
-          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "portability", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
           if [stable_id for stable_id, _ in commands] != expected_ids:
               raise SystemExit("source-contracts command IDs drifted from manifest")
           contracts = {check["id"]: check["domain_contract"] for check in source_checks}
@@ -248,7 +248,7 @@ jobs:
           manifest = load_release_manifest()
           source_checks = [check for check in manifest["required_checks"] if check["ci_job"] == "source-contracts"]
           commands = [(check["id"], check["command"][1:]) for check in source_checks]
-          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "portability", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
           if [stable_id for stable_id, _ in commands] != expected_ids:
               raise SystemExit("source-contracts command IDs drifted from manifest")
           contracts = {check["id"]: check["domain_contract"] for check in source_checks}
@@ -338,7 +338,7 @@ jobs:
           MACOS_RESULTS: ${{ needs['source-contracts-macos'].outputs.results }}
         run: |
           import json, os
-          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
+          expected_ids = ["supercc_truth_gates", "runtime_no_file_rehash", "portability", "court_preload_semantics", "office_decree_startup", "runtime_identity_contract", "unified_cli", "install_projection_closure", "install_current_agent_copy", "release_gate_policy_selftest"]
           failures = []
           for label in ("UBUNTU", "WINDOWS", "MACOS"):
               if os.environ.get(label + "_JOB_RESULT") != "success":

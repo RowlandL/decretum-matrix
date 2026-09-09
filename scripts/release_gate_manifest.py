@@ -302,6 +302,16 @@ REQUIRED_CHECK_CONTRACTS: tuple[dict[str, object], ...] = (
         "domain_contract": {"kind": "sentinel", "success": "RUNTIME_NO_FILE_REHASH_OK ordinary_anchors=14 schema_preserved=true wrong_case_rejected=true reads_required=true"},
     },
     {
+        "id": "portability",
+        "scope": "source",
+        "phases": ["source", "candidate", "pre-install", "full"],
+        "ci_job": "source-contracts",
+        "entrypoint": "scripts/check_portability.py",
+        "command": ["$PYTHON", "scripts/check_portability.py"],
+        "timeout": 120,
+        "domain_contract": {"kind": "json", "required_fields": ["ok", "checks"]},
+    },
+    {
         "id": "court_preload_semantics",
         "scope": "source",
         "phases": ["source", "candidate", "pre-install", "full"],

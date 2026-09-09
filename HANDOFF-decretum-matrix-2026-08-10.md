@@ -21,9 +21,9 @@
 
 | Item | Detail |
 | --- | --- |
-| 克隆镜像 | `RowlandL/decretum-matrix` → `\\TRUENAS\Omina\gitmirror\decretum-matrix`（`origin` 改名 `upstream`）|
+| 克隆镜像 | `RowlandL/decretum-matrix` → `<network-mirror-root>/decretum-matrix`（`origin` 改名 `upstream`）|
 | 网络约束 | git 全程 `-c http.version=HTTP/1.1`（沙箱默认 HTTP/2 直连 `github.com:443` 被阻断）|
-| 属主白名单 | 网络共享仓库 SID 与当前用户不一致，已加 `git config --global --add safe.directory '%(prefix)///TRUENAS/Omina/gitmirror/decretum-matrix'` 解除 `dubious ownership` |
+| 属主白名单 | 网络共享仓库 SID 与当前用户不一致，已加 `git config --global --add safe.directory <network-mirror-root>/decretum-matrix` 解除 `dubious ownership` |
 | 版号分支 | 顺位新建 **`release/beta1.0.7`**（基 `release/beta1.0.6`，HEAD `650d2c3`）|
 | SKILL.md 改动 | `Overview` 之后、`Progressive Loading Map` 之前新增 **`## Loading Procedure`** 一节；英文为主，贴合原文件风格；八步 |
 | 提交 | 本地 `98ccb02`（仅 `SKILL.md`，+18 行）；**未推送** |
@@ -57,12 +57,12 @@
 - [x] **发布完成（2026-08-11，用户授权 + 备注「仅为预修复」）**：tag `beta1.0.7`（annotated，无签名 → attestation tag_signature=UNAVAILABLE）已推送 upstream；Release https://github.com/RowlandL/decretum-matrix/releases/tag/beta1.0.7 已发布（body 顶部标注 ⚠️ 预修复 / Pre-fix release），5 资产（ZIP/sha256/attestation/release-notes/SBOM）全部上传，线上 ZIP sha256 `29bbf56e…` 与本地 release 包一致；分支 `release/beta1.0.7` 已推送 upstream（HEAD `956f3e0`）。
 - [ ] 正式版本：交叉审查 + 完整发布回归通过后，另行发布正式 1.0.7（替代预修复语义）；关闭 issue #1。
 - [ ] 可选：升级本机已装 skill（`~/.agents/skills/decretum-matrix/` 与 `~/.zcode/skills/decretum-matrix/` 已于 2026-08-11 同步至 1.0.7 本地分支投影；正式发布后可拉线上 ZIP 复核）。
-- [ ] 机器配套（2026-08-11 已完成）：Python 3.14.7 用户级装 + PATH（`C:\Users\Administrator\AppData\Local\Programs\Python\Python314`），PyYAML 6.0.3（清华 PyPI）；`quick_validate.py .` 对 1.0.6 与 1.0.7 均 PASS。
+- [ ] 机器配套（2026-08-11 已完成）：Python 3.14.7 用户级装 + PATH（`<user-home>/AppData/Local/Programs/Python/Python314`），PyYAML 6.0.3（清华 PyPI）；`quick_validate.py .` 对 1.0.6 与 1.0.7 均 PASS。
 
 ## 6. References（引用）
 
 - Issue #1: https://github.com/RowlandL/decretum-matrix/issues/1
-- Local mirror: `\\TRUENAS\Omina\gitmirror\decretum-matrix`
+- Local mirror: `<network-mirror-root>/decretum-matrix`
 - Branch: `release/beta1.0.7` · Commits: `956f3e0`（HEAD）· `062a22d` · `057054c` · `a3e8dee` · `5a5b4da` · `9f2e010` · `854a4e0` · `ebf5ed0` · `eede0ec` · `98ccb02` · Base: `release/beta1.0.6` (`650d2c3`)
 - Release: https://github.com/RowlandL/decretum-matrix/releases/tag/beta1.0.7（预修复/pre-fix，body 已标注）
 - ZIP sha256: `29bbf56e01cbf4d9731c416d426bd39d8853c5025f31d5bc27caf21fb2f0b28c`

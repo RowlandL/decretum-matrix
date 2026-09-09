@@ -74,7 +74,7 @@ python -B scripts/court_cli.py doctor `
 ```
 
 The selected root and equivalence decision are recorded in the diagnostic
-receipt; no `O:\gitmirror` or UNC path is embedded in product configuration.
+receipt; no legacy mirror root or UNC path is embedded in product configuration.
 
 ## MCP Protocol Contract
 
