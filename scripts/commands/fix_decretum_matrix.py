@@ -507,6 +507,25 @@ def _candidate_npm_residual_targets(prefix: Path) -> list[str]:
     ]
 
 
+def _candidate_npm_parent_check(prefix: Path) -> None:
+    modules = prefix / "node_modules"
+    for parent in (modules, modules / "@rowlandl", modules / ".bin"):
+        if parent.exists() or _is_link_or_reparse(parent):
+            _physical_directory(parent, label="candidate_npm_parent")
+
+
+def _candidate_npm_bin_link(target: Path, package: Path) -> bool:
+    if target != package.parents[1] / ".bin" / "decretum-matrix" or not target.is_symlink():
+        return False
+    if Path(os.readlink(target)).is_absolute():
+        return False
+    try:
+        relative = target.resolve(strict=True).relative_to(package)
+        return _safe_candidate_file(package, relative.as_posix(), label="candidate_npm_bin").is_file()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def _subprocess_text(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", "replace")
@@ -528,6 +547,7 @@ def _install_candidate_npm(
     try:
         prefix = _physical_directory(prefix, label="installation_binding_npm_prefix")
         caller = _physical_directory(caller_cwd, label="candidate_npm_caller_cwd")
+        _candidate_npm_parent_check(prefix)
     except RuntimeError as exc:
         return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
     package_root = prefix / "node_modules" / "@rowlandl" / "decretum-matrix"
@@ -551,49 +571,41 @@ def _install_candidate_npm(
     environment = _acceptance_environment(home)
     environment["npm_config_prefix"] = str(stage_prefix)
     environment["npm_config_ignore_scripts"] = "true"
+
+    def failed(reason: str, **details: object) -> dict[str, object]:
+        return {"ok": False, "status": "BLOCKED", "reason": reason,
+                "mutation_attempted": True, "command": command, "cwd": str(caller),
+                "residual_targets": _candidate_npm_residual_targets(prefix), **details}
+
     try:
         try:
             completed = subprocess.run(command, cwd=caller, env=environment,
                                        capture_output=True, text=True, encoding="utf-8",
                                        errors="replace", check=False, shell=False, timeout=300)
         except subprocess.TimeoutExpired as exc:
-            return {
-                "ok": False, "status": "BLOCKED", "reason": "npm_candidate_install_timeout",
-                "mutation_attempted": True, "command": command, "cwd": str(caller),
-                "stdout": _subprocess_text(exc.stdout)[-4000:],
-                "stderr": _subprocess_text(exc.stderr)[-4000:],
-                "residual_targets": _candidate_npm_residual_targets(prefix),
-            }
+            return failed("npm_candidate_install_timeout",
+                          stdout=_subprocess_text(exc.stdout)[-4000:],
+                          stderr=_subprocess_text(exc.stderr)[-4000:])
         except (OSError, subprocess.SubprocessError) as exc:
-            return {
-                "ok": False, "status": "BLOCKED",
-                "reason": f"npm_candidate_install_failed:{type(exc).__name__}",
-                "mutation_attempted": True, "command": command, "cwd": str(caller),
-                "residual_targets": _candidate_npm_residual_targets(prefix),
-            }
+            return failed(f"npm_candidate_install_failed:{type(exc).__name__}")
         if completed.returncode != 0:
-            return {
-                "ok": False, "status": "BLOCKED", "reason": "npm_candidate_install_failed",
-                "mutation_attempted": True, "command": command, "cwd": str(caller),
-                "exit_code": completed.returncode, "stdout": completed.stdout[-4000:],
-                "stderr": completed.stderr[-4000:],
-                "residual_targets": _candidate_npm_residual_targets(prefix),
-            }
+            return failed("npm_candidate_install_failed", exit_code=completed.returncode,
+                          stdout=completed.stdout[-4000:], stderr=completed.stderr[-4000:])
         staged = _candidate_npm_owned_targets(stage_prefix)
         if not staged[0].is_dir() or _is_link_or_reparse(staged[0]):
-            return {
-                "ok": False, "status": "BLOCKED",
-                "reason": "npm_candidate_package_missing_after_install",
-                "mutation_attempted": True, "command": command, "cwd": str(caller),
-                "exit_code": completed.returncode,
-                "residual_targets": _candidate_npm_residual_targets(prefix),
-            }
+            return failed("npm_candidate_package_missing_after_install", exit_code=completed.returncode)
+        _physical_directory(staged[0], label="candidate_npm_staged_package")
+        for staged_target in staged[1:]:
+            if _is_link_or_reparse(staged_target) and not _candidate_npm_bin_link(staged_target, staged[0]):
+                raise RuntimeError("candidate_npm_stage_target_unsafe")
         for staged_target, target in zip(staged, _candidate_npm_owned_targets(prefix)):
             if not staged_target.exists() and not staged_target.is_symlink():
                 continue
-            if _is_link_or_reparse(staged_target) or target.exists() or target.is_symlink():
+            _candidate_npm_parent_check(prefix)
+            if target.exists() or _is_link_or_reparse(target):
                 raise RuntimeError("candidate_npm_stage_target_unsafe")
             target.parent.mkdir(parents=True, exist_ok=True)
+            _physical_directory(target.parent, label="candidate_npm_parent")
             shutil.move(str(staged_target), str(target))
         if not package_root.is_dir() or _is_link_or_reparse(package_root):
             raise RuntimeError("candidate_npm_target_missing_after_stage")
@@ -605,12 +617,7 @@ def _install_candidate_npm(
             "residual_targets": _candidate_npm_residual_targets(prefix),
         }
     except (OSError, RuntimeError) as exc:
-        return {
-            "ok": False, "status": "BLOCKED",
-            "reason": f"candidate_npm_stage_failed:{type(exc).__name__}",
-            "mutation_attempted": True, "command": command, "cwd": str(caller),
-            "residual_targets": _candidate_npm_residual_targets(prefix),
-        }
+        return failed(f"candidate_npm_stage_failed:{type(exc).__name__}")
     finally:
         shutil.rmtree(stage_prefix, ignore_errors=True)
 
@@ -624,6 +631,7 @@ def _rollback_candidate_npm(
     try:
         prefix = _physical_directory(npm_prefix, label="installation_binding_npm_prefix")
         caller = _physical_directory(caller_cwd, label="candidate_npm_caller_cwd")
+        _candidate_npm_parent_check(prefix)
     except RuntimeError as exc:
         return {"ok": False, "status": "RECOVERY_REQUIRED", "reason": str(exc)}
     residual_before = _candidate_npm_residual_targets(prefix)
@@ -635,14 +643,17 @@ def _rollback_candidate_npm(
             "residual_targets": [],
         }
     try:
-        for target in _candidate_npm_owned_targets(prefix):
+        targets = _candidate_npm_owned_targets(prefix)
+        for target in reversed(targets):
             try:
                 metadata = target.lstat()
             except FileNotFoundError:
                 continue
             if _is_link_or_reparse(target):
-                raise RuntimeError("candidate_npm_target_unsafe")
-            if stat.S_ISDIR(metadata.st_mode):
+                if not _candidate_npm_bin_link(target, targets[0]):
+                    raise RuntimeError("candidate_npm_target_unsafe")
+                target.unlink()
+            elif stat.S_ISDIR(metadata.st_mode):
                 shutil.rmtree(target)
             elif stat.S_ISREG(metadata.st_mode):
                 target.unlink()

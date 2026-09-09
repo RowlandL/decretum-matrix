@@ -3872,6 +3872,7 @@ function candidateExecutionEvidence(execution, capture) {
     stderr_ref: capture.stderr_path,
     stderr_bytes: capture.stderr_bytes,
     timed_out: execution.timed_out,
+    signal: execution.signal,
     failure_reason: execution.failure_reason || null,
   };
 }
@@ -4687,9 +4688,10 @@ function commandExecution({ entrypoint, command, argv, cwd, result, runner }) {
   const errorCode = typeof result.error?.code === "string" ? result.error.code : null;
   const timedOut = errorCode === "ETIMEDOUT";
   const nonzeroExit = typeof result.status === "number" && result.status !== 0;
+  const signal = result.signal || null;
   return {
     entrypoint,
-    status: result.error || nonzeroExit ? "FAIL" : "PASS",
+    status: result.error || result.status !== 0 || signal ? "FAIL" : "PASS",
     command,
     argv: [...argv],
     cwd,
@@ -4699,7 +4701,8 @@ function commandExecution({ entrypoint, command, argv, cwd, result, runner }) {
     stdout,
     stderr,
     timed_out: timedOut,
-    failure_reason: errorCode || (nonzeroExit ? `EXIT_${result.status}` : null),
+    signal,
+    failure_reason: errorCode || signal || (nonzeroExit ? `EXIT_${result.status}` : result.status === 0 ? null : "EXIT_UNKNOWN"),
   };
 }
 

@@ -19,6 +19,7 @@ import importlib.util
 import io
 import json
 import os
+import runpy
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -4857,6 +4858,7 @@ def evaluate() -> Payload:
                     Path(temp_dir),
                     errors,
                 )
+            passed += runpy.run_path(str(ROOT / ".github/test-support/candidate-install-regression.py"))["verify"](errors)
             with tempfile.TemporaryDirectory(
                 prefix="cps-"
             ) as temp_dir:
@@ -4884,7 +4886,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 49,
+        "declared_cases": 55,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

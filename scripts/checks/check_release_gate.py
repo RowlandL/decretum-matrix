@@ -676,7 +676,19 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
         missing_execution_record = deepcopy(evidence)
         missing_execution_record.pop("execution_ref")
 
+        attempt_cases = {}
+        for field in ("source_commit", "artifact_ref", "build_id", "receipt_ref", "candidate_receipt_ref"):
+            for nested in (False, True):
+                changed = {**attempt, field: "FOREIGN_RECORD"}
+                if nested:
+                    changed["provenance"] = {key: evidence[key] for key in ("source_commit", "artifact_ref", "build_id")}
+                execution_path.write_text(json.dumps(changed), encoding="utf-8")
+                attempt_cases[f"attempt_{field}_{nested}_rejected"] = candidate_result(evidence).get("status") == "FAILED"
+        execution_path.write_text(json.dumps(attempt), encoding="utf-8")
+
         return {
+            **attempt_cases,
+            "old_zip_smoke_mismatch_rejected": candidate_result(evidence, package_sha256="e" * 64).get("status") == "FAILED",
             "executed_candidate_accepted": valid.get("status") == "PASSED",
             "not_run_smoke_rejected": candidate_result(not_run).get("status") == "FAILED",
             "failed_smoke_rejected": candidate_result(failed_smoke).get("status") == "FAILED",
@@ -1485,7 +1497,8 @@ def _candidate_execution_problems(
                     ):
                         problems.append("candidate_execution_record_mismatch")
                     problems.extend(validate_evidence_provenance(
-                        attempt, required=("source_commit", "artifact_ref", "build_id"),
+                        {field: attempt.get(field) for field in ("source_commit", "artifact_ref", "build_id")},
+                        required=("source_commit", "artifact_ref", "build_id"),
                         expected={field: record[field] for field in ("source_commit", "artifact_ref", "build_id") if isinstance(record.get(field), str)},
                     ))
                     for field in ("receipt_ref", "candidate_receipt_ref"):

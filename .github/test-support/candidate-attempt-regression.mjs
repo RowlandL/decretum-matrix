@@ -9,6 +9,21 @@ export async function verifyCandidateAttempts({
   runFixtureCommand,
   snapshotOutputDirectory,
 }) {
+  for (const result of [
+    { status: null, signal: "SIGTERM", stdout: "partial", stderr: "err" },
+    { status: null, signal: "SIGKILL", stdout: "partial", stderr: "err" },
+  ]) {
+    const execution = commandExecution({
+      entrypoint: "signal-fixture", command: "fixture", argv: [], cwd: root,
+      result, runner: "fixture",
+    });
+    assert(
+      execution.status === "FAIL" && execution.exit_code === null &&
+        execution.signal === result.signal && execution.failure_reason &&
+        execution.stdout === "partial" && execution.stderr === "err",
+      "signal termination passed or lost its signal/partial output",
+    );
+  }
   const timeout = commandExecution({
     entrypoint: "timeout-fixture",
     command: process.execPath,

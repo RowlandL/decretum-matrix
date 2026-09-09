@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "5798d119ed990051a8f801c8663c1a0079fb4090e5e8b2cad90c9a1c86fe3602",
+      "sha256": "d5a1692727e8bcc26d4933dbe80e8ba339fb9e21a181a40a4e296bad3e7bb552",
       "size": 4689
     },
     {
@@ -1551,8 +1551,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_current_agent_copy.py",
-      "sha256": "51000aec2c1b78b0236a039e08a1ce41e57496f6fdcfae424bdd21b7012354b0",
-      "size": 194364
+      "sha256": "ba15598eba6591a2398ea041b6c5eb2534a09ccb17664ba0a27d3be48b2d858c",
+      "size": 194500
     },
     {
       "mode": "100644",
@@ -1623,8 +1623,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_gate.py",
-      "sha256": "043632bbc75b66090100ebfe5fd31551d24e0e7e74326b1a9e53ad614c37d8dc",
-      "size": 98325
+      "sha256": "c5bbd707e5e1611ae2de0f689305c8fc4c84b989a66ed9855acbaa6370e957a1",
+      "size": 99249
     },
     {
       "mode": "100644",
@@ -1983,8 +1983,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/fix_decretum_matrix.py",
-      "sha256": "ca72be0ea0163e576b0c333298f6312212eccb613dd576ac3f9e6733ba9feb86",
-      "size": 62536
+      "sha256": "8c182c665c68d2bc0819c1ec5e3cb4611bf2c17a43741f554ff8cad11d7a6979",
+      "size": 63067
     },
     {
       "mode": "100644",
@@ -2932,12 +2932,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8569513,
+    "payload_bytes": 8571104,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "9201f83148e4e18cb3479e3e448cd181f3889b64feb574ed99193e2c524f0675",
+    "payload_index_sha256": "8fe91a9fe33bf4a7c1aa09d1ec3fdfb178fdf35753d2b2d6c77a648286a74878",
     "source_packaged_tracked_file_count": 475,
-    "source_tracked_file_count": 621
+    "source_tracked_file_count": 622
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -2951,6 +2951,7 @@
   "repository_only_files": [
     ".github/CODEOWNERS",
     ".github/test-support/candidate-attempt-regression.mjs",
+    ".github/test-support/candidate-install-regression.py",
     ".github/workflows/ci.yml",
     ".gitignore",
     ".repo-control/evidence/decretum-matrix/objective-remediation/post-059-script-review.json",
