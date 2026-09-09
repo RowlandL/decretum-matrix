@@ -527,6 +527,7 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
     release_label = "beta1.1.2"
     artifact_ref = f"release/decretum-matrix-{release_label}.zip@{source_commit}"
     build_id = f"{release_label}:{source_commit}:{source_tree}"
+    zip_sha256 = "d" * 64
 
     with tempfile.TemporaryDirectory(prefix="decretum-candidate-evidence-") as text:
         root = Path(text)
@@ -564,7 +565,12 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
                     "state": "CANDIDATE_NOT_RELEASED",
                     "release_label": release_label,
                     "source": {"head_commit": source_commit, "tree": source_tree},
-                    "artifacts": [{"name": f"decretum-matrix-{release_label}.zip"}],
+                    "artifacts": [
+                        {
+                            "name": f"decretum-matrix-{release_label}.zip",
+                            "sha256": zip_sha256,
+                        }
+                    ],
                 }
             ),
             encoding="utf-8",
@@ -630,25 +636,29 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
             "receipt_ref": str(receipt_path),
             "candidate_receipt_ref": str(candidate_receipt_path),
         }
-        execution_path.write_text(
-            json.dumps(
-                {
-                    "schema": "decretum.npm_local_install_candidate_execution.v1",
-                    "status": "PASSED",
-                    "public_operation": evidence["execution"],
-                    "installer": evidence["installer_execution"],
-                }
-            ),
-            encoding="utf-8",
-        )
+        attempt = {
+            "schema": "decretum.npm_local_install_candidate_execution.v1",
+            "status": "PASSED",
+            "source_commit": source_commit,
+            "artifact_ref": artifact_ref,
+            "build_id": build_id,
+            "receipt_ref": str(receipt_path),
+            "candidate_receipt_ref": str(candidate_receipt_path),
+            "public_operation": evidence["execution"],
+            "installer": evidence["installer_execution"],
+        }
 
-        def candidate_result(value: dict[str, object]) -> dict[str, object]:
+        execution_path.write_text(json.dumps(attempt), encoding="utf-8")
+
+        def candidate_result(
+            value: dict[str, object], *, package_sha256: str = zip_sha256
+        ) -> dict[str, object]:
             return _required_check_result(
                 check,
                 phase="pre-install",
                 step_results={},
                 manifest_self_test={"status": "PASSED"},
-                package_gate={},
+                package_gate={"status": "PASSED", "sha256": package_sha256},
                 candidate_evidence=value,
                 expected_provenance={
                     "source_commit": source_commit,
@@ -680,6 +690,7 @@ def run_candidate_evidence_self_test() -> dict[str, bool]:
         missing_installer.pop("installer_log_capture")
         missing_execution_record = deepcopy(evidence)
         missing_execution_record.pop("execution_ref")
+
         return {
             "executed_candidate_accepted": valid.get("status") == "PASSED",
             "not_run_smoke_rejected": candidate_result(not_run).get("status") == "FAILED",
@@ -1289,7 +1300,9 @@ def validate_native_evidence(
     ]
 
 
-def _candidate_receipt_problems(record: object) -> list[str]:
+def _candidate_receipt_problems(
+    record: object, *, package_gate: dict[str, object]
+) -> list[str]:
     """Validate the two existing candidate receipts named by a smoke attempt."""
 
     if not isinstance(record, dict):
@@ -1378,15 +1391,37 @@ def _candidate_receipt_problems(record: object) -> list[str]:
             problems.append("candidate_source_receipt_tree_mismatch")
     artifacts = candidate_receipt.get("artifacts")
     expected_zip_name = f"decretum-matrix-{release_label}.zip"
-    if not isinstance(artifacts, list) or not any(
-        isinstance(item, dict) and item.get("name") == expected_zip_name
-        for item in artifacts
-    ):
+    package_artifact = (
+        next(
+            (
+                item
+                for item in artifacts
+                if isinstance(item, dict) and item.get("name") == expected_zip_name
+            ),
+            None,
+        )
+        if isinstance(artifacts, list)
+        else None
+    )
+    if not isinstance(package_artifact, dict):
         problems.append("candidate_source_receipt_zip_missing")
+    else:
+        candidate_package_sha256 = package_artifact.get("sha256")
+        package_sha256 = package_gate.get("sha256")
+        if package_gate.get("status") != "PASSED":
+            problems.append("candidate_package_validation_not_passed")
+        if not _is_sha256(package_sha256):
+            problems.append("candidate_package_sha256_unavailable")
+        if not _is_sha256(candidate_package_sha256):
+            problems.append("candidate_source_receipt_zip_sha256_invalid")
+        elif _is_sha256(package_sha256) and candidate_package_sha256 != package_sha256:
+            problems.append("candidate_package_sha256_mismatch")
     return problems
 
 
-def _candidate_execution_problems(record: object) -> list[str]:
+def _candidate_execution_problems(
+    record: object, *, package_gate: dict[str, object]
+) -> list[str]:
     """Require a completed ordinary public-shim operation, not a fixture summary."""
 
     if not isinstance(record, dict):
@@ -1468,13 +1503,28 @@ def _candidate_execution_problems(record: object) -> list[str]:
             else:
                 if not isinstance(attempt, dict) or attempt.get("schema") != "decretum.npm_local_install_candidate_execution.v1":
                     problems.append("candidate_execution_record_schema_invalid")
-                elif (
-                    attempt.get("status") != "PASSED"
-                    or attempt.get("public_operation") != execution
-                    or attempt.get("installer") != installer_execution
-                ):
-                    problems.append("candidate_execution_record_mismatch")
-    problems.extend(_candidate_receipt_problems(record))
+                else:
+                    if (
+                        attempt.get("status") != "PASSED"
+                        or attempt.get("public_operation") != execution
+                        or attempt.get("installer") != installer_execution
+                    ):
+                        problems.append("candidate_execution_record_mismatch")
+                    problems.extend(
+                        validate_evidence_provenance(
+                            attempt,
+                            required=("source_commit", "artifact_ref", "build_id"),
+                            expected={
+                                field: record[field]
+                                for field in ("source_commit", "artifact_ref", "build_id")
+                                if isinstance(record.get(field), str)
+                            },
+                        )
+                    )
+                    for field in ("receipt_ref", "candidate_receipt_ref"):
+                        if attempt.get(field) != record.get(field):
+                            problems.append(f"candidate_execution_record_{field}_mismatch")
+    problems.extend(_candidate_receipt_problems(record, package_gate=package_gate))
     return problems
 
 
@@ -1537,7 +1587,9 @@ def _required_check_result(
                     provenance_problems=provenance_problems,
                 )
         if result.get("status") == "PASSED":
-            execution_problems = _candidate_execution_problems(result)
+            execution_problems = _candidate_execution_problems(
+                result, package_gate=package_gate
+            )
             if execution_problems:
                 result.update(
                     status="FAILED",

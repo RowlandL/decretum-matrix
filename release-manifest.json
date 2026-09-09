@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "460878a12f84b78c6deb64a550a1dd1ff46cb432f9c121b75dd360c2f46a2ff0",
+      "sha256": "3b29cca311222fb17278990cc41c6ce019fe326b58b96bbc1a0778ba9f4d8d92",
       "size": 4689
     },
     {
@@ -1623,8 +1623,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_gate.py",
-      "sha256": "4f759ae825a50e01cda0ba1ff29f1c19b68b16cbe7acb6c216565bd2a8c57099",
-      "size": 96733
+      "sha256": "91c3c69f70c814128980e9365cc16836880823fc6b6263ade2f103ccf681b67f",
+      "size": 98989
     },
     {
       "mode": "100644",
@@ -2932,12 +2932,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8566886,
+    "payload_bytes": 8569142,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "4f59b1bb02bfcdb85087d4c470d8d3a1c01866af7b8ef473b554165f6c6995ab",
+    "payload_index_sha256": "1027eb0f24c0682ad9ace3b5edf9cf35f9e71a9bd1ab68cd1cd5cf56f7b1516b",
     "source_packaged_tracked_file_count": 475,
-    "source_tracked_file_count": 620
+    "source_tracked_file_count": 621
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -2950,6 +2950,7 @@
   "release_label": "beta1.1.2",
   "repository_only_files": [
     ".github/CODEOWNERS",
+    ".github/test-support/candidate-attempt-regression.mjs",
     ".github/workflows/ci.yml",
     ".gitignore",
     ".repo-control/evidence/decretum-matrix/objective-remediation/post-059-script-review.json",

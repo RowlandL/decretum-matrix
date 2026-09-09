@@ -742,7 +742,7 @@ function runFixtureCommand(command, args, options = {}) {
     timeout: options.timeout || 120_000,
     windowsHide: true,
   });
-  if (result.error) {
+  if (result.error && options.allowProcessError !== true) {
     fail(`${command} fixture invocation failed: ${result.error.message}`);
   }
   return result;
@@ -2334,21 +2334,29 @@ export async function runSyntheticSelfTest() {
         isDeepStrictEqual(immutableCandidateBeforeReuse, immutableCandidateAfterCollision),
       "candidate content collision did not remain blocked without mutation",
     );
-    const unrunLocalCandidateBuild = await buildLocalInstallCandidate({
-      candidateDirectory: localCandidateDirectory,
-      candidateRoot: localCandidateRoot,
-      contract: localCandidateContract,
-      installedSmoke: false,
-      outputDirectory: path.join(root, "local-install-not-run-output"),
-      sourceRoot: localCandidateAuthority,
-    });
-    assert(
-      unrunLocalCandidateBuild.candidateEvidence?.status === "NOT_RUN" &&
-        unrunLocalCandidateBuild.candidateEvidence.domain_result?.ok === false &&
-        unrunLocalCandidateBuild.candidateEvidence.domain_result?.status === "NOT_RUN" &&
-        unrunLocalCandidateBuild.candidateEvidence.domain_result?.installed_package_smoke === "NOT_RUN",
-      "unrun local-install candidate was incorrectly eligible for gate acceptance",
+
+    const { verifyCandidateAttempts } = await import(
+      new URL("../.github/test-support/candidate-attempt-regression.mjs", import.meta.url),
     );
+    await verifyCandidateAttempts({
+      assert,
+      buildCandidate: (options) =>
+        buildLocalInstallCandidate({
+          candidateDirectory: localCandidateDirectory,
+          candidateRoot: localCandidateRoot,
+          contract: localCandidateContract,
+          sourceRoot: localCandidateAuthority,
+          ...options,
+        }),
+      commandExecution,
+      outputDirectory: localCandidateBuild.output.directory,
+      path,
+      pathExists,
+      root,
+      runFixtureCommand,
+      snapshotOutputDirectory,
+    });
+
     let tamperedLocalCandidateRejected = false;
     const tamperedLocalCandidateRoot = path.join(root, "tampered-local-install-candidates");
     const tamperedLocalCandidateDirectory = path.join(
@@ -3784,7 +3792,7 @@ async function createLocalInstallCandidatePackage({
 }
 
 function buildLocalInstallCandidateReceipt(verified) {
-  const { candidate, contract, firstPack, smoke } = verified;
+  const { candidate, contract, firstPack } = verified;
   return {
     schema: "decretum.npm_local_install_candidate_receipt.v1",
     status: "PASS",
@@ -3826,7 +3834,7 @@ function buildLocalInstallCandidateReceipt(verified) {
       publish_config_absent: "PASS",
       npm_pack_dry_run: "PASS",
       deterministic_double_pack: "PASS",
-      installed_package_smoke: smoke.summary,
+      installed_package_smoke: "PER_ATTEMPT",
       network_dependency: "NONE",
     },
     output: {
@@ -3863,6 +3871,8 @@ function candidateExecutionEvidence(execution, capture) {
     stdout_bytes: capture.stdout_bytes,
     stderr_ref: capture.stderr_path,
     stderr_bytes: capture.stderr_bytes,
+    timed_out: execution.timed_out,
+    signal: execution.signal,
     failure_reason: execution.failure_reason || null,
     failure_details: execution.failure_details || null,
   };
@@ -3882,7 +3892,7 @@ function buildLocalCandidateGateEvidence(
   const installerStdoutName = `${contract.receiptName}.installer.stdout.log`;
   const installerStderrName = `${contract.receiptName}.installer.stderr.log`;
   const smoke = verified.smoke;
-  const smokeSummary = receipt.validation.installed_package_smoke;
+  const smokeSummary = smoke?.summary ?? "NOT_RUN";
   const stdout = typeof smoke?.execution?.stdout === "string" ? smoke.execution.stdout : "";
   const stderr = typeof smoke?.execution?.stderr === "string" ? smoke.execution.stderr : "";
   const installerStdout = typeof smoke?.installerExecution?.stdout === "string"
@@ -4034,13 +4044,27 @@ export async function buildLocalInstallCandidate({
         { output_directory: materializedOutput },
       );
     }
-    const files = await packageOutputFiles(verified, receipt, verified.contract);
-    const materialization = await createOrReuseOutput(materializedOutput, files);
     const candidateEvidence = await materializeLocalCandidateAttempt(
       verified,
       receipt,
       materializedOutput,
     );
+    if (candidateEvidence.evidence.status !== "PASSED") {
+      throw new BlockedReleaseError(
+        "BLOCKED_LOCAL_INSTALL_CANDIDATE_SMOKE",
+        "isolated candidate smoke did not pass",
+        {
+          candidate_evidence: path.join(
+            candidateEvidence.attempt.directory,
+            candidateEvidence.evidenceName,
+          ),
+          attempt: candidateEvidence.attempt,
+          smoke_status: candidateEvidence.evidence.status,
+        },
+      );
+    }
+    const files = await packageOutputFiles(verified, receipt, verified.contract);
+    const materialization = await createOrReuseOutput(materializedOutput, files);
     return {
       candidate: verified.candidate,
       candidateEvidence: candidateEvidence.evidence,
@@ -4662,17 +4686,29 @@ async function runPackageInstallStructureSmoke(
 function commandExecution({ entrypoint, command, argv, cwd, result, runner }) {
   const stdout = typeof result.stdout === "string" ? result.stdout : "";
   const stderr = typeof result.stderr === "string" ? result.stderr : "";
+  const errorCode = typeof result.error?.code === "string" ? result.error.code : null;
+  const timedOut = errorCode === "ETIMEDOUT";
+  const nonzeroExit = typeof result.status === "number" && result.status !== 0;
   return {
     entrypoint,
-    status: result.error || result.status !== 0 ? "FAIL" : "PASS",
+    status: result.error || nonzeroExit ? "FAIL" : "PASS",
     command,
     argv: [...argv],
     cwd,
     exit_code: typeof result.status === "number" ? result.status : null,
-    output_truncated: false,
+    output_truncated: errorCode === "ENOBUFS",
     runner,
     stdout,
     stderr,
+    timed_out: timedOut,
+    signal: typeof result.signal === "string" ? result.signal : null,
+    failure_reason: errorCode || (nonzeroExit ? `EXIT_${result.status}` : null),
+    failure_details:
+      typeof result.error?.message === "string"
+        ? result.error.message
+        : nonzeroExit
+          ? `process exited with ${result.status}`
+          : null,
   };
 }
 
@@ -4740,7 +4776,12 @@ async function runIsolatedCandidateSmoke({
   const installerProcess = runFixtureCommand(
     python.command,
     [...python.prefixArgs, "-B", ...installerArgs],
-    { cwd: callerCwd, env: environment, timeout: 300_000 },
+    {
+      cwd: callerCwd,
+      env: environment,
+      timeout: 300_000,
+      allowProcessError: true,
+    },
   );
   const installerExecution = commandExecution({
     entrypoint: "explicit_isolated_installer",
@@ -4783,6 +4824,7 @@ async function runIsolatedCandidateSmoke({
     cwd: callerCwd,
     env: environment,
     timeout: 120_000,
+    allowProcessError: true,
   });
   const execution = commandExecution({
     entrypoint: "npm_bin_shim",
