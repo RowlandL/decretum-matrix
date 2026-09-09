@@ -953,11 +953,29 @@ def _installed_projection_files(
                 f"projection_invalid:{name}",
             )
         entries.extend(PurePosixPath(str(value)) for value in values)
+    repository_only = projections.get("repository_only")
+    if not isinstance(repository_only, list) or any(
+        not _safe_relative(value) for value in repository_only
+    ):
+        raise _InstallContractError(
+            "installed_projection_manifest_invalid",
+            "projection_invalid:repository_only",
+        )
 
     candidates: set[PurePosixPath] = set()
 
     def consider(relative: PurePosixPath) -> None:
         if active_path_is_excluded(relative.as_posix(), excluded_path_globs):
+            candidates.add(relative)
+
+    def consider_exact_source_only(relative: PurePosixPath) -> None:
+        path = inspection_root / Path(relative.as_posix())
+        if not _within(path, inspection_root):
+            raise _InstallContractError(
+                "installed_projection_manifest_invalid",
+                f"path_escape:{relative.as_posix()}",
+            )
+        if path.is_symlink() or _is_junction(path) or path.is_file():
             candidates.add(relative)
 
     def walk_directory(root: Path, relative_root: PurePosixPath) -> None:
@@ -979,6 +997,44 @@ def _installed_projection_files(
                         stack.append((child_path, child_relative))
                     elif child.is_file(follow_symlinks=False):
                         consider(child_relative)
+
+    for value in repository_only:
+        relative = PurePosixPath(str(value))
+        consider_exact_source_only(relative)
+
+    for pattern in excluded_path_globs:
+        pattern_path = PurePosixPath(pattern)
+        static_parts: list[str] = []
+        has_wildcard = False
+        for part in pattern_path.parts:
+            if any(char in part for char in "*?["):
+                has_wildcard = True
+                break
+            static_parts.append(part)
+        if not static_parts:
+            continue
+        if has_wildcard and "__pycache__" not in static_parts:
+            continue
+        relative = PurePosixPath(*static_parts)
+        if not _safe_relative(relative.as_posix()):
+            raise _InstallContractError(
+                "installed_projection_manifest_invalid",
+                f"path_escape:{relative.as_posix()}",
+            )
+        candidate = inspection_root / Path(relative.as_posix())
+        if not _within(candidate, inspection_root):
+            raise _InstallContractError(
+                "installed_projection_manifest_invalid",
+                f"path_escape:{relative.as_posix()}",
+            )
+        if candidate.is_symlink() or _is_junction(candidate):
+            consider(relative)
+            continue
+        if candidate.is_file():
+            consider(relative)
+            continue
+        if candidate.is_dir():
+            walk_directory(candidate, relative)
 
     for relative in entries:
         candidate = inspection_root / Path(relative.as_posix())
@@ -1087,11 +1143,6 @@ def _plan_projection_writes(
             key=lambda item: item.as_posix(),
         ):
             if relative in desired:
-                continue
-            if not active_path_is_excluded(
-                relative.as_posix(),
-                rendered_target.excluded_path_globs,
-            ):
                 continue
             existing = inspection_root / Path(relative.as_posix())
             if not existing.exists() and not existing.is_symlink():

@@ -3001,6 +3001,9 @@ def _check_cases(
             target_path = target / Path(relative)
             target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, target_path)
+        repository_only = target / Path(REPOSITORY_ONLY_FILES[0])
+        repository_only.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / Path(REPOSITORY_ONLY_FILES[0]), repository_only)
         (target / "nonmanaged.txt").write_text("preserve\n", encoding="utf-8")
     cleanup_result = _require_success(
         install,
@@ -3055,19 +3058,24 @@ def _check_cases(
             ) and target_manifest["projections"].get("repository_only") == []
         applied_checks = (
             cleanup_result.get("projection_counts", {}).get("delete")
-            == len(cleanup_targets),
+            == len(cleanup_targets) * 2,
             isinstance(backup, dict)
-            and backup.get("delete_count") == len(cleanup_targets),
-            len(delete_entries) == len(cleanup_targets),
+            and backup.get("delete_count") == len(cleanup_targets) * 2,
+            len(delete_entries) == len(cleanup_targets) * 2,
             all(
-                entry.get("path") == SOURCE_ONLY_CHECKER
+                entry.get("path") in {SOURCE_ONLY_CHECKER, REPOSITORY_ONLY_FILES[0]}
                 and entry.get("installed_sha256") is None
-                and entry.get("previous_sha256") == source_checker_sha256
+                and (
+                    entry.get("previous_sha256") == source_checker_sha256
+                    if entry.get("path") == SOURCE_ONLY_CHECKER
+                    else isinstance(entry.get("previous_sha256"), str)
+                )
                 and isinstance(entry.get("backup_path"), str)
                 for entry in delete_entries
             ),
             all(
                 not (target / SOURCE_ONLY_CHECKER).exists()
+                and not (target / Path(REPOSITORY_ONLY_FILES[0])).exists()
                 and not (target / "scripts" / "checks").exists()
                 and (target / "nonmanaged.txt").read_text(encoding="utf-8")
                 == "preserve\n"
@@ -4473,9 +4481,12 @@ def _check_sanitized_cache_receipt_transaction(
             and isinstance(transaction, dict)
             and transaction.get("ok") is True
             and isinstance(backup, dict)
-            and backup.get("delete_count") == len(roots) * 2
+            and transaction.get("projection_counts", {}).get("delete")
+            == len(roots) * 3
+            and backup.get("delete_count") == len(roots) * 3
             and all(
-                not (target / A_B_ROOT_SOURCE_ONLY_CHECKER).exists()
+                not (target / A_B_ROOT_COMPATIBILITY_SHELL).exists()
+                and not (target / A_B_ROOT_SOURCE_ONLY_CHECKER).exists()
                 and not (target / A_B_CHECKS_SOURCE_ONLY_CHECKER).exists()
                 and (target / "scripts" / "checks" / "user-owned.txt").is_file()
                 for target in roots
