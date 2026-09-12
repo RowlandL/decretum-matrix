@@ -221,6 +221,7 @@ CHECKPOINT_RECEIPT_FIELDS = {
     "recorded_at",
 }
 CHECKPOINT_RECEIPT_CONCERN_FIELDS = {"residual_gaps"}
+CHECKPOINT_RECEIPT_CASE_FIELDS = {"session_id", "court_code"}
 CONTROL_STATES = {"Paused", "Cancelled"}
 SERIAL_OVERRIDE_RE = re.compile(
     r"(parallel_dispatch\s*=\s*NOT_APPLICABLE/user_serial_override|"
@@ -4158,7 +4159,8 @@ def validate_checkpoint_receipt(
         raise ValueError("checkpoint_receipt_must_be_object")
     validated = deepcopy(receipt)
     receipt_fields = set(validated)
-    if receipt_fields - CHECKPOINT_RECEIPT_FIELDS - CHECKPOINT_RECEIPT_CONCERN_FIELDS:
+    allowed_fields = CHECKPOINT_RECEIPT_FIELDS | CHECKPOINT_RECEIPT_CONCERN_FIELDS | CHECKPOINT_RECEIPT_CASE_FIELDS
+    if receipt_fields - allowed_fields:
         raise ValueError("checkpoint_receipt_unknown_fields")
     if CHECKPOINT_RECEIPT_FIELDS - receipt_fields:
         raise ValueError("checkpoint_receipt_missing_fields")
@@ -4180,6 +4182,9 @@ def validate_checkpoint_receipt(
         raise ValueError("checkpoint_receipt_revision_mismatch")
     if not isinstance(validated.get("case_ref"), Mapping) or case_reference(validated["case_ref"]) != case_reference(task):
         raise ValueError("checkpoint_receipt_case_reference_mismatch")
+    for field in CHECKPOINT_RECEIPT_CASE_FIELDS:
+        if field in validated and validated[field] != task.get(field):
+            raise ValueError(f"checkpoint_receipt_{field}_mismatch")
     binding = _revalidate_stored_assessment_binding(task)
     assessment_ref = str(validated.get("assessment_ref") or "").strip()
     if not assessment_ref:

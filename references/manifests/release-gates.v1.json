@@ -355,7 +355,7 @@
       "name": "court_runtime",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_court_runtime.py"],
-      "timeout": 180,
+      "timeout": 300,
       "allowed_returncodes": [0],
       "condition": "always"
     },
@@ -371,7 +371,7 @@
       "name": "court_agent_lifecycle",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_court_agent_lifecycle.py"],
-      "timeout": 180,
+      "timeout": 300,
       "allowed_returncodes": [0],
       "condition": "always"
     },

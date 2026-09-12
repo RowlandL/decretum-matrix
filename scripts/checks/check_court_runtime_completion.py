@@ -800,6 +800,20 @@ def check_archive_receipt_records_runtime_replays_and_completes_with_concerns() 
             current = court_runtime.load_tasks()[task["task_id"]]
             assert current["state"] == "ShiguanRecorded"
             assert current["completion"]["status"] == "READY"
+            bound_task = {
+                **current,
+                "session_id": "archive-session",
+                "case_binding": {**case_reference(current), "session_id": "archive-session"},
+            }
+            full_receipt = archive_runtime_task._runtime_receipt(bound_task)
+            assert court_runtime.validate_checkpoint_receipt(bound_task, full_receipt) == full_receipt
+            for field in ("session_id", "court_code"):
+                expect_error(
+                    lambda field=field: court_runtime.validate_checkpoint_receipt(
+                        bound_task, {**full_receipt, field: "foreign"}
+                    ),
+                    f"checkpoint_receipt_{field}_mismatch",
+                )
             assert current["shiguan_checkpoint"]["record_ref"] == producer_receipt["record_ref"]
             assert producer_receipt["residual_gaps"] == ["fixture archive residual gap"]
             assert (
