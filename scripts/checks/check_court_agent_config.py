@@ -1247,6 +1247,7 @@ unknown_provider_key = true
         assert timeout_proof["session_file_count"] == 0
         live_payload = {
             "schema": "court.codex-live-agent-config-gate.v1",
+            "ok": True,
             "evidence_scope": {
                 "codex_protocol_schema": "GENERIC_HOST_COMPATIBILITY_ONLY",
                 "decretum_office_dispatch": "NOT_EVALUATED",
@@ -1308,4 +1309,3 @@ unknown_provider_key = true
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

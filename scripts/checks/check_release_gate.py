@@ -2021,7 +2021,7 @@ def main() -> int:
                 f"names={','.join(manifest_self_test_cases)}"
             )
         return 0 if result["ok"] else 2
-    runtime_skip = phase in {"full", "native", "post-install"} and args.skip_runtime
+    runtime_skip = phase in {"full", "native"} and args.skip_runtime
     active_copies_skip = phase == "full" and args.skip_active_copies
     if runtime_skip or active_copies_skip:
         skip_reason = (
