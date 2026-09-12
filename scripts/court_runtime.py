@@ -12516,6 +12516,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "office":
             office_request = office_request_namespace(args)
+            standard_admission = (args.office_command == "admit" and
+                                  getattr(office_request, "schema", None) == "court.agent.admission_request.v1")
+            if standard_admission:
+                office_request = parser.parse_args(public_admission_request_argv(vars(office_request)))
             office_request._production_cli = True
             office_request._context_contract_required = True
             office_handlers = {
@@ -12529,7 +12533,7 @@ def main(argv: list[str] | None = None) -> int:
                 "finish": office_finish,
                 "close": office_close,
             }
-            handler = office_handlers.get(args.office_command)
+            handler = agent_admit if standard_admission else office_handlers.get(args.office_command)
             if handler is None:
                 parser.error("unknown office command")
             output(

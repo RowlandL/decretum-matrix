@@ -7,9 +7,10 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from argparse import Namespace
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from copy import deepcopy
 import json
+import io
 import os
 import subprocess
 import tempfile
@@ -118,7 +119,7 @@ class OfficeDecreeStartupTests(unittest.TestCase):
                 self.assertEqual(manifest.direct_superior, 'shangshu')
             self.assertEqual((run.call_count, popen.call_count, system.call_count), (0, 0, 0))
 
-    def _review_and_admit_libu(self) -> tuple[dict, dict]:
+    def _review_and_admit_libu(self, *, public_office_request=False) -> tuple[dict, dict]:
         task_id = self.task['task_id']
         for state in ('Taizi', 'ThreeDepartments'):
             runtime.transition_task(runtime.build_parser().parse_args([
@@ -174,12 +175,26 @@ class OfficeDecreeStartupTests(unittest.TestCase):
             transport='codex', evidence='office startup regression', system_memory_percent=0.,
         )
         template = runtime.public_admission_template_payload(args)
-        admission = runtime.agent_admit(runtime.build_parser().parse_args(template['argv']))
+        if public_office_request:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                status = runtime.main(['office', 'admit', '--request-json', json.dumps(template['request'])])
+            self.assertEqual(status, 0, output.getvalue())
+            admission = json.loads(output.getvalue())['result']
+        else:
+            admission = runtime.agent_admit(runtime.build_parser().parse_args(template['argv']))
         self.assertTrue(admission['allowed'])
         task = runtime.load_tasks()[task_id]
         task['agents'] = {'shangshu-ready': deepcopy(self.parent)}
         tasks = runtime.load_tasks(); tasks[task_id] = task; runtime.write_tasks(tasks)
         return task, admission
+
+    def test_generated_admission_request_uses_public_office_entry(self) -> None:
+        task, admission = self._review_and_admit_libu(public_office_request=True)
+        self.assertTrue(admission['allowed'])
+        self.assertEqual(admission['case_ref'], case_reference(task))
+        self.assertEqual(admission['selected_roles'], ['libu'])
+        self.assertTrue(admission['selected_bindings'][0]['instance_id'])
 
     def test_libu_bootstrap_instructs_read_and_ack_only(self) -> None:
         task, admission = self._review_and_admit_libu()

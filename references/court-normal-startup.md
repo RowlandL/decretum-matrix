@@ -53,7 +53,7 @@ checkpoint` / `--trigger verify`, task id, context, actor and evidence.
 
 Use `court open` / MCP request-template with actual authority/offices/host
 facts; submit `--request-file <request.json>`.
-After admission, run `office native-request --request-file <selector.json>`
+Submit admission JSON with `office admit`, then `office native-request --request-file <selector.json>`
 using schema `court.office.native_request.v1`, task_id, wave_id and instance_id.
 Execute the exact returned host_invocation, then call `office native-capture`
 with the same selector (schema `court.office.native_capture.v1`). Submit its

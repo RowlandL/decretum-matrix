@@ -871,6 +871,10 @@ Grant explicit limits with `admission-template` / `agent-admit`
 increase them. The context budget pool carries these limits only when granted.
 Host capacity, memory/context/message budgets, lease expiry, authority and write
 scope still apply. Start reuses the admitted pool instead of rebuilding defaults.
+`office admit --request-file` accepts the unchanged `court.agent.admission_request.v1`
+from the template and uses the existing native admission path. Do not add a
+carrier proof or guessed agent ID to that request; capture supplies start identity.
+Explicit office-instance requests retain their existing manual binding contract.
 Long context begins at 32,000 tokens and must not inherit
 conversation turns; pass bounded dossier/path pointers and a compact assignment
 instead. A short task may explicitly inherit only the latest one to three turns.
