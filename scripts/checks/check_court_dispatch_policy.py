@@ -948,6 +948,46 @@ def _dispatch_manifest(entries: Sequence[Mapping[str, object]]) -> dict[str, dic
     }
 
 
+def check_public_dispatch_contract() -> dict[str, object]:
+    from court_public_api import public_dispatch_plan_validation as validate
+
+    entry = dispatch_item("libu", "礼部", "report wording")
+    trusted = _dispatch_manifest([entry])
+    changes = [
+        {}, {"office_zh": "wrong"}, {"direct_superior": "user"},
+        {"duty": ""}, {"evidence_contract": ""}, {"parallel_group": ""},
+        {"visibility": "visible_core"}, {"visibility": "unknown"},
+        {"instance_key": "xingbu#0001"}, {"instance_key": ""},
+        {"dependency_roles": ["libu"]},
+        {"dependency_roles": ["xingbu", "xingbu"]},
+        {"dependency_roles": ["unknown"]},
+    ]
+    for change in changes:
+        for preload in (None, trusted):
+            result = validate([{**entry, **change}], trusted_preload_manifest=preload)
+            require(result["ok"] is (not change), f"dispatch structure parity: {change}")
+    for preload in (None, trusted):
+        require(validate([None], trusted_preload_manifest=preload)["ok"] is False,
+                "malformed dispatch entry escaped validation")
+        require(validate([entry, entry], trusted_preload_manifest=preload)["ok"] is False,
+                "duplicate dispatch instance accepted")
+    missing = {key: value for key, value in entry.items() if key != "instance_key"}
+    result = validate([missing])
+    require("entry_1_missing_instance_key" in result["errors"][0]["violations"],
+            "missing instance identity was replaced by a placeholder")
+    tampered = {key: {**value, "preload_ack": "PENDING"} for key, value in trusted.items()}
+    missing_ref = deepcopy(trusted)
+    for value in missing_ref.values():
+        value.pop("case_ref")
+    require(validate([entry])["ok"] is True, "public structural precheck needs host state")
+    for preload in ({}, tampered, missing_ref):
+        result = validate([entry], trusted_preload_manifest=preload)
+        require(result["ok"] is False and "exact_preload_contract_gate" in result["errors"][0]["code"],
+                "structural reuse bypassed trusted preload")
+    return {"paired_structure_cases": len(changes), "malformed_and_missing_rejected": True,
+            "trusted_preload_preserved": True}
+
+
 def check_dispatch_plan() -> dict[str, object]:
     valid_entries = [
         dispatch_item("libu", "礼部", "report wording"),
@@ -1989,6 +2029,7 @@ def main() -> int:
             "mode_semantics": check_mode_semantics(),
             "dynamic_capacity": check_dynamic_capacity(),
             "dispatch_plan": check_dispatch_plan(),
+            "public_dispatch_contract": check_public_dispatch_contract(),
             "parallel_limit_authorization": check_parallel_limit_authorization(),
             "lease_access_contract": "PASSED",
             "repository_relative_access_paths": "PASSED",
@@ -2010,6 +2051,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
 

@@ -166,7 +166,17 @@ def atomic_write_text(
     encoding: str = "utf-8",
     newline: str = "\n",
 ) -> None:
-    """Durably write text to a sibling temp file, then atomically replace.
+    """Encode text using the same newline rules as ``open``, then replace atomically."""
+    if newline not in (None, "", "\n", "\r", "\r\n"):
+        raise ValueError(f"illegal newline value: {newline!r}")
+    separator = os.linesep if newline is None else newline
+    if separator and separator != "\n":
+        text = text.replace("\n", separator)
+    atomic_write_bytes(path, text.encode(encoding))
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Durably write bytes to a sibling temp file, then atomically replace.
 
     Threads are serialized per target. Cross-process replace collisions on
     Windows are transiently retried; callers that need read-modify-write
@@ -179,8 +189,8 @@ def atomic_write_text(
         fd, raw_temp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
         temp_path = Path(raw_temp)
         try:
-            with os.fdopen(fd, "w", encoding=encoding, newline=newline) as handle:
-                handle.write(text)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
             if target.exists():

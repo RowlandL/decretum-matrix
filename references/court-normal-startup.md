@@ -1,4 +1,4 @@
-# Normal court startup
+# Decretum Matrix court open
 
 ## Required reads by phase
 
@@ -9,7 +9,7 @@
 | Operation/dispute | Relevant SKILL.md volume | Unrelated volumes |
 | Closeout | Closeout volume, memorial shard, Menxia result, archive receipt | Startup closeout services |
 
-Reuse unchanged reads; total preload <=20 KiB.
+Reuse unchanged reads; apply the entry/preload budget in SKILL.md.
 
 Preload/ack use installation declarations; never rehash.
 Fresh acceptance reads no past tasks/memory. No source scans or installation
@@ -45,7 +45,8 @@ then Menxia/Shangshu each `review`.
 Changes invalidate reviews. Ministries require reviewed plan and TaiziReply.
 `plan show` resolves the document; capsules cannot replace it.
 For `plan review`, fill `template.review.producer`, role and decision; submit
-that complete `review` object or the whole template. Its plan hash is prefilled.
+that complete `review` object or the whole template. After submission its plan
+reference is prefilled; an unplanned task has no review reference.
 
 Generate context after state changes with `court semantic-context-template`;
 validate payload.context. Checkpoint/verify require matching `--trigger

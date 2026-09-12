@@ -3,6 +3,7 @@
 This module deliberately contains no transport code and no second ledger. The
 CLI and MCP facades call these functions as peers, so neither adapter shells
 out to the other or inherits the other's encoding boundary.
+Backends load at their endpoint; metadata-only calls do not need workflow state.
 """
 
 from __future__ import annotations
@@ -14,13 +15,22 @@ from typing import Mapping
 
 sys.dont_write_bytecode = True
 
-from court_runtime import (
-    public_capsule_validation_payload,
-    public_intake_validation_payload,
-    public_semantic_context_validation_payload,
-    status_payload,
-)
-from query_shiguan_index import load_entries, select_query_matches
+
+def public_capsule_validation_payload(charter: str, value: object) -> dict[str, object]:
+    from court_runtime import public_capsule_validation_payload as validate
+    return validate(charter, value)
+
+
+def public_intake_validation_payload(
+    charter: str, intake_value: object, capsule_value: object | None = None,
+) -> dict[str, object]:
+    from court_runtime import public_intake_validation_payload as validate
+    return validate(charter, intake_value, capsule_value)
+
+
+def public_semantic_context_validation_payload(value: object) -> dict[str, object]:
+    from court_runtime import public_semantic_context_validation_payload as validate
+    return validate(value)
 
 
 def _api_result(payload: object, *, stderr: str = "", exit_status: int = 0) -> dict[str, object]:
@@ -33,6 +43,8 @@ def _api_result(payload: object, *, stderr: str = "", exit_status: int = 0) -> d
 
 def court_status(limit: int = 12, view: str = 'full') -> dict[str, object]:
     """Return the canonical court status projection without a subprocess."""
+
+    from court_runtime import status_payload
 
     bounded_limit = max(1, min(int(limit), 100))
     return _api_result(status_payload(Namespace(limit=bounded_limit, view=view)))
@@ -55,6 +67,8 @@ def court_workflow_status(task_id: str) -> dict[str, object]:
 
 def shiguan_query(terms: list[str] | None = None, limit: int = 5) -> dict[str, object]:
     """Return Shiguan query results through the shared query implementation."""
+
+    from query_shiguan_index import load_entries, select_query_matches
 
     bounded_limit = max(1, min(int(limit), 20))
     entries = load_entries()
@@ -100,63 +114,11 @@ DISPATCH_DEFAULT_BEHAVIOR = "serial"
 
 
 def _validate_dispatch_plan_structure(entries: object) -> list[str]:
-    """Structural dispatch-plan validation mirroring court_dispatch_policy rules.
-
-    The full ``validate_dispatch_plan`` path additionally enforces the host-side
-    exact preload contract gate (trusted_preload_manifest), which depends on
-    internal host state. This structural path covers the same public plan rules
-    (roles, superiors, required fields, visibility, instance identity) so MCP
-    callers can validate a plan without host preload state.
-    """
-
-    if not isinstance(entries, (list, tuple)) or not entries:
-        return ["dispatch_plan_must_contain_at_least_one_entry"]
-    violations: list[str] = []
-    seen_instances: set[str] = set()
     try:
-        from court_dispatch_policy import OFFICE_SPECS, VISIBILITIES
+        from court_dispatch_policy import dispatch_plan_structure_errors
     except ImportError:
         return ["dispatch_policy_unavailable"]
-    for ordinal, raw in enumerate(entries, start=1):
-        if not isinstance(raw, dict):
-            violations.append(f"entry_{ordinal}_must_be_object")
-            continue
-        role = str(raw.get("role") or "").strip().lower()
-        if role not in OFFICE_SPECS:
-            violations.append(f"entry_{ordinal}_invalid_role:{role or '<empty>'}")
-            continue
-        office_zh, expected_superior = OFFICE_SPECS[role]
-        if str(raw.get("office_zh") or "").strip() != office_zh:
-            violations.append(f"entry_{ordinal}_office_zh_mismatch")
-        if str(raw.get("direct_superior") or "").strip().lower() != expected_superior:
-            violations.append(f"entry_{ordinal}_direct_superior_mismatch")
-        for field in ("duty", "evidence_contract", "parallel_group"):
-            if not str(raw.get(field) or "").strip():
-                violations.append(f"entry_{ordinal}_missing_{field}")
-        visibility = str(raw.get("visibility") or "").strip().lower()
-        if visibility not in VISIBILITIES:
-            violations.append(f"entry_{ordinal}_invalid_visibility:{visibility or '<empty>'}")
-        elif visibility != "non_visible":
-            violations.append(f"entry_{ordinal}_visibility_must_be_non_visible")
-        instance_key = str(raw.get("instance_key") or f"<role>#{ordinal:04d}").strip().lower()
-        import re as _re
-
-        if not _re.fullmatch(rf"{_re.escape(role)}#\d{{4}}", instance_key):
-            violations.append(f"entry_{ordinal}_invalid_instance_key:{instance_key}")
-        elif instance_key in seen_instances:
-            violations.append(f"entry_{ordinal}_duplicate_instance_key:{instance_key}")
-        seen_instances.add(instance_key)
-        dependencies = raw.get("dependency_roles", [])
-        if isinstance(dependencies, (list, tuple)):
-            roles = [str(item).strip().lower() for item in dependencies if str(item).strip()]
-            if len(roles) != len(set(roles)):
-                violations.append(f"entry_{ordinal}_duplicate_dependency")
-            if role in roles:
-                violations.append(f"entry_{ordinal}_self_dependency")
-            for item in roles:
-                if item not in OFFICE_SPECS:
-                    violations.append(f"entry_{ordinal}_invalid_dependency:{item}")
-    return violations
+    return [problem.code for problem in dispatch_plan_structure_errors(entries)]
 
 
 def public_dispatch_plan_validation(
@@ -350,6 +312,8 @@ def public_shiguan_entries_query(query: str, limit: int = 20) -> dict[str, objec
             "errors": [{"field": "query", "kind": "contract", "code": "empty_query"}],
         }
     try:
+        from query_shiguan_index import load_entries, select_query_matches
+
         entries = load_entries()
         matches = select_query_matches(entries, [term])
     except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:

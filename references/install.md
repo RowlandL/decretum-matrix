@@ -4,8 +4,8 @@ This reference governs local installation of `decretum-matrix` into the active
 agent skill roots. It is runtime-focused; release packaging and publication
 checks stay in the source tree and are not startup prerequisites.
 
-The current beta1.1.2 source is an unreleased local development version.
-The commands and target details below do not authorize installing beta1.1.2;
+The current beta1.1.3 source is an unreleased local development version.
+The commands and target details below do not authorize installing beta1.1.3;
 its installation requires a later explicit external installation transaction
 and a matching receipt.
 
@@ -33,7 +33,7 @@ physical authority; otherwise report the conflict and stop before writing.
 
 ## Runtime Surface
 
-For the unreleased beta1.1.2 development version, no installed runtime surface
+For the unreleased beta1.1.3 development version, no installed runtime surface
 is being claimed. A later explicitly authorized installation transaction may
 project the bounded skill, governing references, office materials, and runtime
 helpers described by the manifest; projection, synchronization, release, and
@@ -113,7 +113,7 @@ handler may be installed for the seven-group CLI without becoming a startup
 dependency. Commands that require Git/tag authority return a typed
 `SOURCE_CHECKOUT_REQUIRED` or other blocked receipt outside a source checkout.
 
-The unreleased beta1.1.2 development version does not promise automatic
+The unreleased beta1.1.3 development version does not promise automatic
 installation or reuse of `zellij`, `squad`, or any other extra dependency.
 Any such dependency must be handled by a later explicitly authorized external
 installation transaction with its own receipt; the exact command is not

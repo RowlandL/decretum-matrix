@@ -110,6 +110,19 @@ class PlanArtifactTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plans.current_plan(task)
 
+    def test_review_retry_preserves_identity_and_changed_decision_replaces_it(self):
+        task, doc, producers, events = fixture()
+        task = plans.submit_plan(task, doc, producers['zhongshu'], events)
+        reference = plan_reference(task['zhongshu_plan'])
+        reviewed = plans.record_review(task, 'menxia', 'approved', reference, producers['menxia'], events)
+        self.assertEqual(plans.record_review(reviewed, 'menxia', 'approved', reference,
+                                            producers['menxia'], events), reviewed)
+        changed = plans.record_review(reviewed, 'menxia', 'rejected', reference, producers['menxia'], events)
+        self.assertNotEqual(changed['case_reviews']['menxia']['review_id'], reviewed['case_reviews']['menxia']['review_id'])
+        self.assertEqual(changed['case_reviews']['menxia']['decision'], 'rejected')
+        with self.assertRaises(ValueError):
+            plans.record_review(reviewed, 'menxia', 'approved', None, producers['menxia'], events)
+
     def test_serial_inline_is_not_parallel_delivery(self):
         task, doc, _, events = fixture()
         producer = {'kind': 'serial_inline', 'agent_id': '', 'evidence': 'inline drafting'}
@@ -156,6 +169,7 @@ class RuntimePlanFlowTests(unittest.TestCase):
     def test_generated_template_is_directly_submittable_and_task_bound(self):
         self.start_case()
         template=self.cli('plan','template','--task-id','plan-flow')
+        self.assertIsNone(template['review']['plan_ref'])
         template['document']=fixture()[1]
         template['producer']={'kind':'serial_inline','agent_id':'','evidence':'isolated explicit serial fixture'}
         wrong=copy.deepcopy(template);wrong['task_id']='foreign'
@@ -272,6 +286,7 @@ class RuntimePlanFlowTests(unittest.TestCase):
             'native_host_identity_kind': 'canonical_agent_path',
             'native_trace_session_id': task['session_id'], 'semantic_epoch': task['semantic_epoch'],
             'court_code': task['court_code'], 'preload_status': 'PASSED',
+            'case_ref': {'court_code': task['court_code'], 'charter_revision': task['charter_revision']},
             'office_execution_ready': True, 'status': 'running',
             'native_host_action_receipt_id': 'fixture-native-receipt',
             'native_host_instance_id': '/root/shangshu_ready'}
@@ -280,7 +295,9 @@ class RuntimePlanFlowTests(unittest.TestCase):
         with patch('commands.court_native_bridge.current_host_identity',
                    return_value={'thread_id': 'reader', 'session_id': task['session_id']}):
             self.assertEqual(len(court_runtime._native_bridge_identity_context(task, binding)['trusted_parent_paths']), 1)
-            for field, value in [('release_status', 'closed'), ('release_status', 'cancel_requested'),
+            for field, value in [('case_ref', None),
+                ('case_ref', {'court_code': task['court_code'], 'charter_revision': task['charter_revision'] + 1}),
+                ('release_status', 'closed'), ('release_status', 'cancel_requested'),
                 ('invalidated_at', '2026-09-06'), ('assignment_status', 'INVALIDATED'),
                 ('assignment_invalidated_by_semantic_resume', True),
                 ('assignment_invalidated_by_charter_revision', 2)]:

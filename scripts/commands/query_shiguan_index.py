@@ -16,14 +16,6 @@ import sys
 
 sys.dont_write_bytecode = True
 
-# A+B layering: real module lives in scripts/commands/; keep the scripts root
-# importable so root-level shared libraries resolve from any cwd.
-from pathlib import Path
-
-_SCRIPTS_ROOT = str(Path(__file__).resolve().parents[1])
-if _SCRIPTS_ROOT not in sys.path:
-    sys.path.insert(0, _SCRIPTS_ROOT)
-
 from shiguan_entry_utils import index_path, load_entries, score_entry, select_matches as fallback_select_matches
 
 
@@ -128,4 +120,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

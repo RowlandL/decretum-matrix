@@ -8,15 +8,19 @@ journal does not delete the task operation record.
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
+import base64
 import json
+import os
 from pathlib import Path
 import sys
 import uuid
+import threading
 from collections.abc import Mapping
 
 sys.dont_write_bytecode = True
 
-from court_file_lock import atomic_write_text, file_lock
+from court_file_lock import atomic_write_bytes, atomic_write_text, file_lock, fsync_parent_directory
 
 
 JOURNAL_SCHEMA = "court.operation_journal.v2"
@@ -50,6 +54,98 @@ _PHASE_ORDER = {
     "ROLLED_BACK": 60,
     "mcp-call": 60,
 }
+
+_PAIR_LOCAL = threading.local()
+
+
+def _pair_marker(root: Path) -> Path:
+    return Path(root) / "ledger-pair.rollback.json"
+
+
+def require_readable_ledgers(root: Path) -> None:
+    if getattr(_PAIR_LOCAL, "root", None) != Path(root) and _pair_marker(root).exists():
+        raise ValueError("ledger_pair_recovery_required")
+
+
+def _event_tail(path: Path, offset: int, length: int) -> bytes:
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        return handle.read(length + 1)
+
+
+def recover_ledger_pair(root: Path) -> bool:
+    """Restore an interrupted write under the caller's runtime lock, without digests."""
+    marker = _pair_marker(root)
+    record = load_json(marker)
+    if record is None:
+        return False
+    if record.get("schema") != "court.ledger_pair_rollback.v1":
+        raise ValueError("ledger_pair_marker_invalid")
+    try:
+        before = record["tasks_before"]
+        before = None if before is None else base64.b64decode(before, validate=True)
+        after = base64.b64decode(record["tasks_after"], validate=True)
+        line = record["event_line"].encode("utf-8")
+        size = record["events_size"]
+        if size is not None and (type(size) is not int or size < 0):
+            raise ValueError("invalid event offset")
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("ledger_pair_marker_invalid") from exc
+    task_path, event_path = Path(root) / "tasks.json", Path(root) / "court_events.jsonl"
+    current = task_path.read_bytes() if task_path.exists() else None
+    if current not in (before, after):
+        raise ValueError("ledger_pair_recovery_conflict")
+    if event_path.exists():
+        if event_path.stat().st_size < (size or 0) or not line.startswith(_event_tail(event_path, size or 0, len(line))):
+            raise ValueError("ledger_pair_recovery_conflict")
+    elif size is not None:
+        raise ValueError("ledger_pair_recovery_conflict")
+    # Validate both files before restoring either. The event prefix is append-only;
+    # keep it in place rather than copying the entire history into every marker.
+    if before is None:
+        task_path.unlink(missing_ok=True)
+    else:
+        atomic_write_bytes(task_path, before)
+    if size is None:
+        event_path.unlink(missing_ok=True)
+    else:
+        with event_path.open("r+b") as handle:
+            handle.truncate(size)
+            handle.flush()
+            os.fsync(handle.fileno())
+    marker.unlink()
+    fsync_parent_directory(marker.parent)
+    return True
+
+
+@contextmanager
+def ledger_pair_write(root: Path, tasks_document: str, event_line: str):
+    """Commit both files or preserve a recoverable preimage; caller holds runtime lock."""
+    marker = _pair_marker(root)
+    if marker.exists():
+        raise ValueError("ledger_pair_recovery_required")
+    task_path, event_path = Path(root) / "tasks.json", Path(root) / "court_events.jsonl"
+    before = task_path.read_bytes() if task_path.exists() else None
+    size = event_path.stat().st_size if event_path.exists() else None
+    after, line = tasks_document.encode("utf-8"), event_line.encode("utf-8")
+    write_json(marker, {"schema": "court.ledger_pair_rollback.v1", "events_size": size,
+                       "tasks_before": None if before is None else base64.b64encode(before).decode("ascii"),
+                       "tasks_after": base64.b64encode(after).decode("ascii"), "event_line": event_line})
+    previous_root = getattr(_PAIR_LOCAL, "root", None)
+    _PAIR_LOCAL.root = Path(root)
+    try:
+        try:
+            yield
+            if task_path.read_bytes() != after or _event_tail(event_path, size or 0, len(line)) != line:
+                raise ValueError("ledger_pair_commit_incomplete")
+        except BaseException:
+            recover_ledger_pair(root)
+            raise
+        else:
+            marker.unlink()
+            fsync_parent_directory(marker.parent)
+    finally:
+        _PAIR_LOCAL.root = previous_root
 
 
 def canonical_operation_id(value: object) -> str:

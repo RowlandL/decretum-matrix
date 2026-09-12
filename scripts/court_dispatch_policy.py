@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 import sys
-from typing import Mapping, Sequence
+from typing import Mapping, NamedTuple, Sequence
 
 sys.dont_write_bytecode = True
 
@@ -344,6 +344,70 @@ def _string_tuple(value: object, field: str) -> tuple[str, ...]:
     return result
 
 
+class DispatchPlanProblem(NamedTuple):
+    code: str
+    message: str
+
+
+def dispatch_plan_structure_errors(entries: object) -> list[DispatchPlanProblem]:
+    """One structural rule set; retain public codes and native error messages."""
+    if not isinstance(entries, (list, tuple)) or not entries:
+        return [DispatchPlanProblem("dispatch_plan_must_contain_at_least_one_entry",
+                                    "dispatch plan must contain at least one useful role")]
+    violations: list[DispatchPlanProblem] = []
+    seen_instances: set[str] = set()
+
+    def add(code: str, message: str) -> None:
+        violations.append(DispatchPlanProblem(code, message))
+
+    for ordinal, raw in enumerate(entries, start=1):
+        prefix = f"entry_{ordinal}_"
+        if not isinstance(raw, dict):
+            add(prefix + "must_be_object", "dispatch plan entries must be objects")
+            continue
+        role = str(raw.get("role") or "").strip().lower()
+        if role not in OFFICE_SPECS:
+            add(prefix + f"invalid_role:{role or '<empty>'}", f"invalid role: {role}")
+            continue
+        office_zh, expected_superior = OFFICE_SPECS[role]
+        if str(raw.get("office_zh") or "").strip() != office_zh:
+            add(prefix + "office_zh_mismatch", f"office_zh mismatch for {role}")
+        if str(raw.get("direct_superior") or "").strip().lower() != expected_superior:
+            add(prefix + "direct_superior_mismatch", f"direct_superior mismatch for {role}")
+        for field in ("duty", "evidence_contract", "parallel_group"):
+            if not str(raw.get(field) or "").strip():
+                add(prefix + f"missing_{field}",
+                    f"duty, evidence_contract, and parallel_group are required for {role}")
+        visibility = str(raw.get("visibility") or "").strip().lower()
+        if visibility not in VISIBILITIES:
+            add(prefix + f"invalid_visibility:{visibility or '<empty>'}", f"invalid visibility for {role}")
+        elif visibility != "non_visible":
+            add(prefix + "visibility_must_be_non_visible", "native dispatch must remain non-visible")
+        instance_key = str(raw.get("instance_key") or "").strip().lower()
+        if not instance_key:
+            add(prefix + "missing_instance_key",
+                "exact_preload_contract_gate: role and instance_key are required")
+        elif not re.fullmatch(rf"{re.escape(role)}#\d{{4}}", instance_key):
+            add(prefix + f"invalid_instance_key:{instance_key}",
+                "office_worker_instance_identity_gate: invalid or duplicate instance_key")
+        elif instance_key in seen_instances:
+            add(prefix + f"duplicate_instance_key:{instance_key}",
+                "office_worker_instance_identity_gate: invalid or duplicate instance_key")
+        seen_instances.add(instance_key)
+        dependencies = raw.get("dependency_roles", [])
+        if isinstance(dependencies, (list, tuple)):
+            roles = [str(item).strip().lower() for item in dependencies if str(item).strip()]
+            dependency_error = f"invalid dependency_roles for {role}"
+            if len(roles) != len(set(roles)):
+                add(prefix + "duplicate_dependency", dependency_error)
+            if role in roles:
+                add(prefix + "self_dependency", dependency_error)
+            for item in roles:
+                if item not in OFFICE_SPECS:
+                    add(prefix + f"invalid_dependency:{item}", dependency_error)
+    return violations
+
+
 def _validate_trusted_preload_manifest(
     entries: Sequence[dict[str, object]],
     trusted_preload_manifest: Mapping[str, Mapping[str, object]] | None,
@@ -378,7 +442,14 @@ def _validate_trusted_preload_manifest(
                 raise ValueError(
                     f"exact_preload_contract_gate: {field} does not match role manifest"
                 )
-        if case_reference(raw.get("case_ref")) != case_reference(trusted.get("case_ref")):
+        raw_ref, trusted_ref = raw.get("case_ref"), trusted.get("case_ref")
+        if not isinstance(raw_ref, Mapping) or not isinstance(trusted_ref, Mapping):
+            raise ValueError("exact_preload_contract_gate: case reference required")
+        try:
+            references_match = case_reference(raw_ref) == case_reference(trusted_ref)
+        except ValueError as exc:
+            raise ValueError("exact_preload_contract_gate: invalid case reference") from exc
+        if not references_match:
             raise ValueError("exact_preload_contract_gate: case reference mismatch")
         if raw.get("preload_ack") != "PASSED" or trusted.get("preload_ack") != "PASSED":
             raise ValueError("exact_preload_contract_gate: preload acknowledgement is not trusted")
@@ -400,6 +471,9 @@ def validate_dispatch_plan(
 ) -> DispatchPlan:
     if not entries:
         raise ValueError("dispatch plan must contain at least one useful role")
+    violations = dispatch_plan_structure_errors(entries)
+    if violations:
+        raise ValueError(violations[0].message)
     _validate_trusted_preload_manifest(entries, trusted_preload_manifest)
     execution = select_native_execution(authority=authority, behavior=behavior)
     role_counts: dict[str, int] = {}
@@ -407,38 +481,22 @@ def validate_dispatch_plan(
         if isinstance(raw, dict):
             role = str(raw.get("role") or "").strip().lower()
             role_counts[role] = role_counts.get(role, 0) + 1
-    seen_instances: set[str] = set()
     role_instances: dict[str, list[DispatchPlanItem]] = {}
     normalized: list[DispatchPlanItem] = []
-    for ordinal, raw in enumerate(entries, start=1):
-        if not isinstance(raw, dict):
-            raise ValueError("dispatch plan entries must be objects")
-        role = str(raw.get("role") or "").strip().lower()
-        if role not in OFFICE_SPECS:
-            raise ValueError(f"invalid role: {role}")
-        office_zh, expected_superior = OFFICE_SPECS[role]
-        if str(raw.get("office_zh") or "").strip() != office_zh:
-            raise ValueError(f"office_zh mismatch for {role}")
-        direct_superior = str(raw.get("direct_superior") or "").strip().lower()
-        if direct_superior != expected_superior:
-            raise ValueError(f"direct_superior mismatch for {role}")
-        duty = str(raw.get("duty") or "").strip()
-        evidence = str(raw.get("evidence_contract") or "").strip()
-        parallel_group = str(raw.get("parallel_group") or "").strip()
-        if not duty or not evidence or not parallel_group:
-            raise ValueError(f"duty, evidence_contract, and parallel_group are required for {role}")
-        dependencies = tuple(str(item).strip().lower() for item in raw.get("dependency_roles", []) if str(item).strip()) if isinstance(raw.get("dependency_roles", []), (list, tuple)) else ()
-        if role in dependencies or len(set(dependencies)) != len(dependencies) or any(item not in OFFICE_SPECS for item in dependencies):
-            raise ValueError(f"invalid dependency_roles for {role}")
-        visibility = str(raw.get("visibility") or "").strip().lower()
-        if visibility not in VISIBILITIES:
-            raise ValueError(f"invalid visibility for {role}")
-        if visibility != "non_visible":
-            raise ValueError("native dispatch must remain non-visible")
-        instance_key = str(raw.get("instance_key") or f"{role}#{ordinal:04d}").strip().lower()
-        if not re.fullmatch(rf"{re.escape(role)}#\d{{4}}", instance_key) or instance_key in seen_instances:
-            raise ValueError("office_worker_instance_identity_gate: invalid or duplicate instance_key")
-        seen_instances.add(instance_key)
+    for raw in entries:
+        role = str(raw["role"]).strip().lower()
+        office_zh, _ = OFFICE_SPECS[role]
+        direct_superior = str(raw["direct_superior"]).strip().lower()
+        duty = str(raw["duty"]).strip()
+        evidence = str(raw["evidence_contract"]).strip()
+        parallel_group = str(raw["parallel_group"]).strip()
+        dependency_values = raw.get("dependency_roles", ())
+        dependencies = (
+            tuple(str(item).strip().lower() for item in dependency_values if str(item).strip())
+            if isinstance(dependency_values, (list, tuple)) else ()
+        )
+        visibility = str(raw["visibility"]).strip().lower()
+        instance_key = str(raw["instance_key"]).strip().lower()
         canonical_authority = bool(raw.get("canonical_authority", role_counts.get(role, 0) == 1))
         global_integration_owner = bool(
             raw.get("global_integration_owner", role_counts.get(role, 0) == 1)

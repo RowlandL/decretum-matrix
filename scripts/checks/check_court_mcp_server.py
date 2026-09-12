@@ -1058,6 +1058,14 @@ def _compact_startup_checks() -> list[tuple[str, bool]]:
 
 
 def run() -> dict[str, object]:
+    probe = subprocess.run([sys.executable, "-B", "-c",
+        "import sys; sys.path.insert(0, 'scripts'); "
+        "sys.modules['court_runtime'] = None; sys.modules['query_shiguan_index'] = None; "
+        "import court_public_api as api; assert api.court_command_help()['exit_status'] == 0; "
+        "assert api.memory_scan()['stdout']['write_enabled'] is False; "
+        "assert api.shiguan_archive_dry_run()['stdout']['write_enabled'] is False"],
+        cwd=ROOT, capture_output=True, timeout=10)
+    assert probe.returncode == 0, probe.stderr.decode("utf-8", "replace")
     modern = _modern_session()
     legacy = _legacy_session()
     domain = _domain_probe_session()

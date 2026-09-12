@@ -360,6 +360,14 @@
       "condition": "always"
     },
     {
+      "name": "court_plan_artifacts",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/checks/check_court_plan_artifacts.py"],
+      "timeout": 180,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "court_agent_lifecycle",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_court_agent_lifecycle.py"],
@@ -371,6 +379,14 @@
       "name": "court_dispatch_policy",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_court_dispatch_policy.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
+      "name": "court_multi_instance_dispatch",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/checks/check_court_multi_instance_dispatch.py"],
       "timeout": 120,
       "allowed_returncodes": [0],
       "condition": "always"

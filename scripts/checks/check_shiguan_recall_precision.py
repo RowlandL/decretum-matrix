@@ -267,6 +267,13 @@ def evaluate() -> dict[str, Any]:
     if _query(["archive"], BASIC, mode="gbrain") != archive_uids:
         failures.append("recall_gbrain_fallback_diverged")
 
+    from shiguan_gbrain import build_recall_context
+    envelope = build_recall_context(BASIC, ["失败"], governance_id="three-departments-six-ministries",
+        current_decree_id="recall-fixture", as_of="2026-09-12T00:00:00+00:00")
+    scores = [item["score"] for item in envelope["matches"]]
+    if not scores or scores[0] <= 0 or scores != sorted(scores, reverse=True):
+        failures.append("public_recall_scores_do_not_explain_ranking")
+
     # --- A+D: assertion weights order affirmed > uncertain > hypothetical,
     # and a negated clause is a soft penalty (negative score), not exclusion ---
     idf_archive = recall.recall_idf([dict(entry) for entry in BASIC], ["archive"])

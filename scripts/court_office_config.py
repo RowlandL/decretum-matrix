@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ENTRY_PRELOAD_BUDGET_BYTES = 20 * 1024
 OFFICE_CONFIG_RELATIVE_PATH = "references/manifests/court-dispatch-hierarchy.v1.json"
 
 

@@ -158,7 +158,7 @@ def record_review(task: Mapping[str, Any], role: str, decision: str, plan_ref: o
     if task.get('state') != 'ThreeDepartments' or role not in allowed or decision not in allowed[role]:
         raise ValueError('case_plan_review_role_or_stage_invalid')
     plan = current_plan(task)
-    if plan is None:
+    if plan is None or not isinstance(plan_ref, Mapping):
         raise ValueError('case_plan_review_foreign_or_stale')
     from court_case_binding import plan_reference
     try:
@@ -175,8 +175,13 @@ def record_review(task: Mapping[str, Any], role: str, decision: str, plan_ref: o
     review = {'schema': 'court.plan_review.v1', 'role': role, 'decision': decision,
               'task_id': task['task_id'], 'court_code': task['court_code'],
               'charter_revision': task['charter_revision'],
-              'plan_revision': plan['revision'], 'review_id': 'REV-' + uuid.uuid4().hex.upper(),
+              'plan_revision': plan['revision'],
               'producer': author}
+    previous = task.get('case_reviews', {}).get(role)
+    if (isinstance(previous, dict) and isinstance(previous.get('review_id'), str)
+            and previous['review_id'] and all(previous.get(key) == value for key, value in review.items())):
+        return deepcopy(task)
+    review['review_id'] = 'REV-' + uuid.uuid4().hex.upper()
     updated = deepcopy(task)
     updated.setdefault('case_reviews', {})[role] = review
     return updated

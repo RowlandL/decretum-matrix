@@ -17,6 +17,8 @@ from typing import Sequence
 
 sys.dont_write_bytecode = True
 
+from court_office_config import ENTRY_PRELOAD_BUDGET_BYTES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "references" / "manifests" / "cli-command-surface.v1.json"
@@ -65,32 +67,12 @@ DAILY_HELP_COMMANDS: dict[str, tuple[str, ...]] = {
     "release": (),
     "check": ("all", "debug", "doctor"),
 }
-COURT_OPEN_GUIDANCE_MARKDOWN = """# Decretum Matrix court open
+COURT_OPEN_GUIDE = "references/court-normal-startup.md"
 
-1. Load `SKILL.md` and `references/court-normal-startup.md` once. Defer other
-   reference volumes, capability inventories, installation checks and closeout
-   material until the current operation actually needs them.
-2. If the latest user message does not select `approval`, `autonomous`, or `super`, ask for that choice and stop.
-3. Taizi intake first (受旨定性: intent inference, 历史线索初判, 建立结果章程;
-   flow state Taizi), then convene 三省会审 (中书拟旨/拆解, 门下封驳, 尚书评估)
-   before implementation. Semantic DISPATCHABLE is a P00 gate, never a
-   three-department office dispatch or reply.
-4. After the Taizi reply, Shangshu selects only the ministries that add evidence or execution value.
-5. Run machine admission immediately before a real host spawn; packets and admission checks are not spawn evidence.
 
-Optional preparation-only preflight:
-
-`decretum-matrix court open --fast --request-file <request.json>`
-
-Generate the request instead of reading implementation source:
-`decretum-matrix court open --fast --request-template --task-id <id> --authority <selected-authority> --behavior <selected-behavior> --worktree <worktree> --task-focus <focus>`
-Use `court intake-template --charter <exact-charter>` for fresh intake;
-`court intake-schema` describes the existing stateful CLI workflow.
-MCP `court.intake_validate`, `court.semantic_context_validate` and
-`court.dispatch_plan_validate` validate data without admitting or dispatching.
-MCP `shiguan.query` with `terms=[]`, `limit=1` queries the latest index entry.
-Pass `--trigger checkpoint` / `--trigger verify`; do not invent trigger names.
-"""
+def court_open_guidance_markdown() -> str:
+    """Read the installed startup guide; CLI and agent share the same prose."""
+    return (ROOT / COURT_OPEN_GUIDE).read_text(encoding="utf-8")
 
 
 def normal_startup_guidance() -> dict[str, object]:
@@ -100,8 +82,8 @@ def normal_startup_guidance() -> dict[str, object]:
     discover the supported entrypoints. The guide owns the human workflow.
     """
     return {
-        "guide": "references/court-normal-startup.md",
-        "entry_budget_bytes": 20 * 1024,
+        "guide": COURT_OPEN_GUIDE,
+        "entry_budget_bytes": ENTRY_PRELOAD_BUDGET_BYTES,
         "installation_checks": "installation_only",
         "fresh_intake": "court intake-template --charter <exact-charter>",
         "intake_contract": "court intake-schema",
@@ -572,7 +554,7 @@ def _capture_court_open(
                 "schema": "court.open.guidance.v1",
                 "ok": True,
                 "status": "GUIDANCE",
-                "markdown": COURT_OPEN_GUIDANCE_MARKDOWN,
+                "markdown": court_open_guidance_markdown(),
                 "startup": normal_startup_guidance(),
                 "progressive_loading": True,
                 "fastpath_executed": False,
@@ -582,7 +564,7 @@ def _capture_court_open(
             }
             stdout = json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n"
         else:
-            stdout = COURT_OPEN_GUIDANCE_MARKDOWN
+            stdout = court_open_guidance_markdown()
         return InvocationResult(
             returncode=0,
             stdout=stdout,

@@ -2,7 +2,7 @@
 
 P2-1 naming: GBrain is a *metadata enhancement layer*, not an independent
 recaller. All recall ranking flows through the single canonical scorer in
-``shiguan_entry_utils`` (``select_matches`` / ``score_entry_recall_breakdown``);
+``shiguan_entry_utils`` (``rank_matches`` / ``select_matches``);
 this module adds governance applicability, conflict preservation, memory-git
 provenance and full-record pointers on top of the same ranked entries.
 """
@@ -19,7 +19,8 @@ import zlib
 
 sys.dont_write_bytecode = True
 
-from shiguan_entry_utils import index_path, load_entries, score_entry, select_matches
+# Keep the legacy helper export; recall envelopes use rank_matches scores.
+from shiguan_entry_utils import index_path, load_entries, rank_matches, score_entry, select_matches
 from shiguan_paths import reference_path
 
 
@@ -303,9 +304,9 @@ def build_recall_context(
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("limit_invalid")
     normalized_terms = [term.strip() for term in terms if isinstance(term, str) and term.strip()]
-    selected = select_matches(entries, normalized_terms)[:limit]
+    selected = rank_matches(entries, normalized_terms)[:limit]
     matches: list[dict[str, object]] = []
-    for entry in selected:
+    for score, entry in selected:
         matches.append(
             {
                 "record_uid": _record_uid(entry),
@@ -320,7 +321,7 @@ def build_recall_context(
                     or ""
                 ),
                 "memory_decision": str(entry.get("memory_decision") or ""),
-                "score": score_entry(entry, normalized_terms),
+                "score": score,
                 "applicability": _applicability(entry, instant),
                 "conflict": _conflict(entry),
                 "full_record": full_record_pointer(entry),

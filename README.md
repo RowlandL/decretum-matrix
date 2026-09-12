@@ -14,6 +14,7 @@ skill 环境中运行。内置的分层治理实现是完整默认治理；GBrai
 | --- | --- |
 | 规范调用 | `$decretum-matrix` |
 | 当前发布线 | `beta1.1.2`（npm `1.1.2-beta.0`，`beta` dist-tag） |
+| 本地开发候选 | `beta1.1.3`（尚未更新活动安装或发布） |
 | 接口面 | 统一 CLI `decretum-matrix` + 只读 stdio MCP（13 个工具） |
 | 许可 | AGPL-3.0-only（商业许可需另行书面签署） |
 
@@ -211,9 +212,14 @@ receipt-bound CLI，真实派遣走宿主。
 
 ## 6. 版本
 
-当前源码活动版本为 `beta1.1.2`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
+当前源码活动版本为 `beta1.1.3`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
 安装/发布回执为准；分支名只是当前工作载体，tag、GitHub Release、npm 以及线上 Wiki
 的成功状态只由对应发布回读证明。
+
+本版收拢普通任务与事件的事务提交、公开接口依赖和派遣结构规则。写入中断时只读入口
+返回 `ledger_pair_recovery_required`；下一次合法写操作在取得原有运行锁后恢复未提交
+状态，再处理请求。若返回 `ledger_pair_recovery_conflict`，应保留现场检查外部写入，
+不能删除恢复记录或强行覆盖。该路径不计算文件摘要，也不加载安装检查。
 
 `beta1.1.2` 是当前发布版本；根 `package.json` 继续保持 version-neutral 的
 `0.0.0-private`，历史版本和历史发布说明继续保留。
@@ -240,3 +246,7 @@ skill 加载链。`beta1.0.5`、`beta1.0.4` 与更早 tag 保留为不可变历�
 artifact-specific evidence。
 
 维护者：[@RowlandL](https://github.com/RowlandL)（GitHub id `42199880`）
+
+## 文档导航
+
+[上下文](CONTEXT.md) · [文档目录](docs/INDEX.md) · [本版实施与验收记录](docs/plans/2026-09-12-beta1.1.3-rule-reuse.md)

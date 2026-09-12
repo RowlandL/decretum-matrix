@@ -6,8 +6,19 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.2",
+  "latest_tag": "beta1.1.3",
   "releases": [
+    {
+      "asset_note": "本条目为本地 beta1.1.3 候选说明；活动安装、真实宿主验收、tag、GitHub Release 和 npm 发布均须独立证据。",
+      "highlights": [
+        "普通任务与事件共用可恢复事务，避免事件写入失败留下半完成状态，不新增运行期哈希校验。",
+        "有限事件查询按需读取尾部，同名检查重跑保留原日志。",
+        "收拢派遣结构规则、公开接口依赖和召回分数，接入既有工程文档入口。"
+      ],
+      "summary": "beta1.1.3 聚焦长期维护和流程可靠性：修复普通写入事务、恢复有效测试，并减少重复规则与不必要的历史读取。",
+      "tag": "beta1.1.3",
+      "title": "Decretum Matrix beta1.1.3"
+    },
     {
       "asset_note": "beta1.1.2 发布资产、GitHub Release、npm beta 与活动安装分别以远端回读和安装回执为准；路径类安装证据优先记录相对路径。",
       "highlights": [

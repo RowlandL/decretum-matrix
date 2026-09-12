@@ -273,7 +273,7 @@ def _log_capture_root(step_name: str) -> Path:
     if configured:
         root = Path(configured)
         root.mkdir(parents=True, exist_ok=True)
-        return root
+        return Path(tempfile.mkdtemp(prefix=f"{step_name}-", dir=root))
     return Path(tempfile.mkdtemp(prefix=f"decretum-release-gate-{step_name}-"))
 
 
@@ -723,6 +723,9 @@ def run_log_capture_self_test() -> dict[str, bool]:
             assert isinstance(capture, dict)
             stdout_path = capture.get("stdout_path")
             assert isinstance(stdout_path, str)
+            repeated = run_step("long_output_fixture", [sys.executable, "-c", "print('second')"])
+            assert repeated["log_capture"]["stdout_path"] != stdout_path
+            assert Path(stdout_path).read_text(encoding="utf-8").strip() == "x" * 5001
             Path(stdout_path).unlink()
             missing_log_rejected = not log_evidence_is_complete(long_output)
 
@@ -744,6 +747,7 @@ def run_log_capture_self_test() -> dict[str, bool]:
                 "long_output_summary_truncated": True,
                 "long_output_log_complete": True,
                 "missing_log_rejected": missing_log_rejected,
+                "repeated_check_preserves_prior_logs": True,
                 "interrupted_failed": interrupted.get("status") == "FAILED",
                 "timeout_failed": timeout.get("status") == "FAILED",
             }

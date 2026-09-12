@@ -28,6 +28,8 @@ import sys
 import uuid
 
 sys.dont_write_bytecode = True
+
+from court_office_config import ENTRY_PRELOAD_BUDGET_BYTES
 from typing import Any, Mapping, Sequence
 
 from stdio_encoding import configure_stdio
@@ -76,6 +78,7 @@ from court_multi_agent_protocol import (
 )
 from court_codex_office_worker import validate_host_proof
 from court_operation_journal import (
+    ledger_pair_write, recover_ledger_pair, require_readable_ledgers,
     MARKER_SCHEMA,
     LEGACY_JOURNAL_SCHEMA,
     LEGACY_MARKER_SCHEMA,
@@ -642,6 +645,7 @@ def slugify(value: str) -> str:
 
 
 def _load_raw_tasks() -> dict[str, dict[str, Any]]:
+    require_readable_ledgers(runtime_root())
     path = tasks_path()
     if not path.exists():
         return {}
@@ -662,9 +666,7 @@ def load_tasks() -> dict[str, dict[str, Any]]:
     return {task_id: normalize_task(task) for task_id, task in _load_raw_tasks().items()}
 
 
-def write_tasks(tasks: dict[str, dict[str, Any]]) -> None:
-    ensure_runtime_root()
-    path = tasks_path()
+def _task_document(tasks: dict[str, dict[str, Any]]) -> str:
     raw_tasks = _load_raw_tasks()
     persisted_tasks: dict[str, dict[str, Any]] = {}
     for task_id, task in tasks.items():
@@ -679,16 +681,29 @@ def write_tasks(tasks: dict[str, dict[str, Any]]) -> None:
                 persisted_tasks[task_id] = raw_task
                 continue
         persisted_tasks[task_id] = incoming
-    atomic_write_text(
-        path,
-        json.dumps(persisted_tasks, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-    )
+    return json.dumps(persisted_tasks, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def write_tasks(tasks: dict[str, dict[str, Any]]) -> None:
+    ensure_runtime_root()
+    atomic_write_text(tasks_path(), _task_document(tasks))
+
+
+def _commit_task_event(tasks: dict[str, dict[str, Any]], event: dict[str, Any]) -> None:
+    line = json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
+    with ledger_pair_write(runtime_root(), _task_document(tasks), line):
+        write_tasks(tasks)
+        append_event(event)
 
 
 @contextmanager
-def runtime_lock(timeout: float = 10.0, poll: float = 0.05):
+def runtime_lock(timeout: float = 10.0, poll: float = 0.05, *, recover: bool = True):
     ensure_runtime_root()
     with file_lock(lock_path(), timeout=timeout, poll_interval=poll):
+        if recover:
+            recover_ledger_pair(runtime_root())
+        else:
+            require_readable_ledgers(runtime_root())
         yield
 
 
@@ -696,26 +711,46 @@ def append_event(event: dict[str, Any]) -> None:
     ensure_runtime_root()
     with events_path().open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _reverse_event_lines(handle):
+    """Read complete UTF-8 lines backwards without loading the event history."""
+    position = handle.seek(0, os.SEEK_END)
+    remainder = b""
+    while position:
+        size = min(position, 64 * 1024)
+        position -= size
+        handle.seek(position)
+        lines = (handle.read(size) + remainder).split(b"\n")
+        remainder = lines[0]
+        yield from reversed(lines[1:])
+    if remainder:
+        yield remainder
 
 
 def read_events(limit: int | None = 50, task_id: str = "") -> list[dict[str, Any]]:
+    require_readable_ledgers(runtime_root())
     path = events_path()
     if not path.exists():
         return []
     events: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if task_id and str(event.get("task_id")) != task_id:
-            continue
-        events.append(event)
-    if limit is None:
-        return events
-    return events[-max(1, limit) :]
+    with path.open("rb") as handle:
+        lines = handle if limit is None else _reverse_event_lines(handle)
+        for line in lines:
+            try:
+                event = json.loads(line.decode("utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or (task_id and str(event.get("task_id")) != task_id):
+                continue
+            events.append(event)
+            if limit is not None and len(events) >= max(1, limit):
+                break
+    if limit is not None:
+        events.reverse()
+    return events
 
 
 def events_for_task(
@@ -3335,6 +3370,10 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
         )
     else:
         semantic_binding = None
+        if invariant_capsule is not None and canonical_repo_relative_paths(
+            invariant_capsule.get("write_set", []), allow_empty=True
+        ) is None:
+            raise ValueError("standard_create_capsule_write_set_requires_relative_paths")
     result: TransitionResult | None = None
     with runtime_lock():
         tasks = load_tasks()
@@ -3362,8 +3401,6 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
                     raise ValueError("case_create_allocation_failed")
                 session_allocation = dict(issued)
                 semantic_binding = initial_semantic_binding(charter, invariant_capsule, court_code=str(session_allocation["court_code"]))
-                if canonical_repo_relative_paths(semantic_binding["invariant_capsule"].get("write_set", []), allow_empty=True) is None:
-                    raise ValueError("standard_create_capsule_write_set_requires_relative_paths")
             task = normalize_task({
                 "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
                 "task_id": task_id,
@@ -3406,7 +3443,6 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
                 task["case_bootstrap"] = bootstrap_artifact(task)
                 task["case_binding"] = build_case_binding(task, session_allocation)
             tasks[task_id] = task
-            write_tasks(tasks)
             event = make_event(task, "create", "", "Pending", args.owner, args.evidence, args.note)
             if session_allocation is not None:
                 event.update(
@@ -3414,7 +3450,7 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
                 court_code=task["court_code"],
                 case_ref=case_reference(task),
                 )
-            append_event(event)
+            _commit_task_event(tasks, event)
             result = TransitionResult(task, event)
     if result is None:
         raise ValueError("case_create_result_missing")
@@ -3765,7 +3801,7 @@ def _runtime_checkpoint_receipt(
 
 
 def record_shiguan_preflight(args: argparse.Namespace, *, include_residual_gaps: bool = False) -> dict[str, object]:
-    with runtime_lock():
+    with runtime_lock(recover=False):
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not isinstance(task, dict):
@@ -3815,8 +3851,6 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
     )
     producer_receipt_ref = producer_receipt["record_ref"]
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not isinstance(task, dict):
@@ -3939,13 +3973,7 @@ def record_shiguan_task(args: argparse.Namespace) -> TransitionResult:
                 case_ref=case_reference(case_binding),
             )
         tasks[args.task_id] = recorded
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return TransitionResult(recorded, event)
 
 
@@ -6326,8 +6354,6 @@ def revise_charter_task(args: argparse.Namespace) -> TransitionResult:
         "new invariant capsule",
     )
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -6370,13 +6396,7 @@ def revise_charter_task(args: argparse.Namespace) -> TransitionResult:
                 semantic_epoch=correction_receipt.get("semantic_epoch"),
                 semantic_verdict=correction_receipt.get("verdict"),
             )
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return TransitionResult(revised, event)
 
 
@@ -6580,8 +6600,6 @@ def semantic_checkpoint_task(args: argparse.Namespace) -> TransitionResult:
         raise ValueError("unknown_actor_office")
     context = _semantic_context_from_args(args)
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -6621,13 +6639,7 @@ def semantic_checkpoint_task(args: argparse.Namespace) -> TransitionResult:
             semantic_epoch=receipt["semantic_epoch"],
             semantic_verdict="VERIFIED",
         )
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return TransitionResult(task, event)
 
 
@@ -6638,8 +6650,6 @@ def semantic_verify_task(args: argparse.Namespace) -> TransitionResult:
     context = _semantic_context_from_args(args)
     drift_error = ""
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -6732,13 +6742,7 @@ def semantic_verify_task(args: argparse.Namespace) -> TransitionResult:
             semantic_verdict=verdict,
             reason_codes=list(receipt.get("reason_codes") or []),
         )
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     if drift_error:
         raise ValueError(drift_error)
     return TransitionResult(task, event)
@@ -6768,8 +6772,6 @@ def semantic_resume_task(args: argparse.Namespace) -> TransitionResult:
         raise ValueError("task_continuation_target_mismatch")
     context = _semantic_context_from_args(args)
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -6936,13 +6938,7 @@ def semantic_resume_task(args: argparse.Namespace) -> TransitionResult:
             authority_revision=normalized_context["authority_revision"],
             authority_changed=authority_changed,
         )
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return TransitionResult(task, event)
 
 
@@ -6958,8 +6954,6 @@ def semantic_quarantine_task(args: argparse.Namespace) -> TransitionResult:
     if any(not reason for reason in reason_codes):
         raise ValueError("semantic_quarantine_reason_required")
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -7022,13 +7016,7 @@ def semantic_quarantine_task(args: argparse.Namespace) -> TransitionResult:
             reason_codes=reason_codes,
             quarantine_sequence=metadata["sequence"],
         )
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return TransitionResult(task, event)
 
 
@@ -7039,8 +7027,6 @@ def semantic_reconcile_task(args: argparse.Namespace) -> TransitionResult:
     resolution_code = require_text(args.resolution_code, "resolution-code")
     context = _semantic_context_from_args(args)
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -7124,13 +7110,7 @@ def semantic_reconcile_task(args: argparse.Namespace) -> TransitionResult:
             resolution_code=resolution_code,
             reconciliation_sequence=metadata["sequence"],
         )
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return TransitionResult(task, event)
 
 
@@ -7144,8 +7124,6 @@ def bind_assessment_task(args: argparse.Namespace) -> TransitionResult:
         "outcome assessment",
     )
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -7192,13 +7170,7 @@ def bind_assessment_task(args: argparse.Namespace) -> TransitionResult:
         )
         event["assessment_ref"] = bound["assessment_binding"]["assessment_ref"]
         event["assessment_gate"] = bound["assessment_binding"]["gate"]
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return TransitionResult(bound, event)
 
 
@@ -7264,9 +7236,8 @@ def apply_transition(
         if extra_updates:
             task.update(extra_updates)
         tasks[args.task_id] = task
-        write_tasks(tasks)
         event = make_event(task, "transition", from_state, to_state, actor, args.evidence, args.note)
-        append_event(event)
+        _commit_task_event(tasks, event)
     return TransitionResult(task, event)
 
 
@@ -7384,8 +7355,6 @@ def cancel_task(args: argparse.Namespace) -> TransitionResult:
 def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
     evidence = require_text(args.evidence, "evidence")
     with runtime_lock():
-        task_preimage = tasks_path().read_bytes() if tasks_path().exists() else None
-        event_preimage = events_path().read_bytes() if events_path().exists() else None
         tasks = load_tasks()
         task = tasks.get(args.task_id)
         if not task:
@@ -7672,13 +7641,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         event["event_id"] = admission_record["admission_event_id"]
         result["event_id"] = event["event_id"]
         event.update({key: result[key] for key in AGENT_MESSAGE_BUDGET_FIELDS})
-        try:
-            write_tasks(tasks)
-            append_event(event)
-        except Exception:
-            _restore_ledger_preimage(tasks_path(), task_preimage)
-            _restore_ledger_preimage(events_path(), event_preimage)
-            raise
+        _commit_task_event(tasks, event)
     return result
 
 
@@ -7795,7 +7758,6 @@ def agent_reconcile(args: argparse.Namespace) -> dict[str, Any]:
         task["updated_at"] = now
         task["last_evidence"] = f"agent_reconcile {agent_id} {error_kind}: {evidence}"
         tasks[args.task_id] = task
-        write_tasks(tasks)
         event = make_event(
             task,
             "agent_reconcile",
@@ -7806,7 +7768,7 @@ def agent_reconcile(args: argparse.Namespace) -> dict[str, Any]:
             args.note,
         )
         event.update(agent_id=agent_id, agent_role=role, wave_id=wave_id, error_kind=error_kind)
-        append_event(event)
+        _commit_task_event(tasks, event)
     return {
         "kind": "court_agent_reconcile",
         "task_id": args.task_id,
@@ -8001,7 +7963,6 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
                 target_id=instance_id,
             )
         tasks[args.task_id] = task
-        write_tasks(tasks)
         event = make_event(
             task,
             "agent_spawn_failed",
@@ -8026,7 +7987,7 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
                     "receipt_sha256"
                 ),
             )
-        append_event(event)
+        _commit_task_event(tasks, event)
     return {
         "kind": "court_agent_spawn_failed",
         "task_id": args.task_id,
@@ -8803,8 +8764,7 @@ def consume_recovered_result(args: argparse.Namespace) -> dict[str, object]:
         tasks[str(task["task_id"])] = task
         event = make_event(task, "result_recovery_consume", str(task.get("state") or ""), str(task.get("state") or ""), actor, evidence_pointer, scrub_agent_provider_detail(str(getattr(args, "note", "") or "")))
         event.update(target_agent_id=target_id, recovery_receipt_ids=[receipt.get("receipt_id") for receipt in receipts], task_revision=task.get("task_revision"))
-        write_tasks(tasks)
-        append_event(event)
+        _commit_task_event(tasks, event)
         return {"status": "COMMITTED", "target_agent_id": target_id, "receipts": receipts, "event": event}
 
 
@@ -9261,7 +9221,6 @@ def agent_event(
                     task["updated_at"] = now
                     task["last_evidence"] = f"agent_result_quarantine {agent_id}: {evidence}"
                     tasks[args.task_id] = task
-                    write_tasks(tasks)
                     event = make_event(
                         task,
                         "agent_result_quarantine",
@@ -9286,7 +9245,7 @@ def agent_event(
                         task_revision=task.get("task_revision"),
                     )
                     event["event_id"] = quarantine_core["quarantine_event_id"]
-                    append_event(event)
+                    _commit_task_event(tasks, event)
                     return TransitionResult(task, event)
                 _validate_agent_semantic_args(args, existing_agent)
             else:
@@ -9462,7 +9421,6 @@ def agent_event(
         task["updated_at"] = now
         task["last_evidence"] = f"{lifecycle_action} {agent_id}: {evidence}"
         tasks[args.task_id] = task
-        write_tasks(tasks)
         event = make_event(task, lifecycle_action, status, str(task.get("state")), actor, evidence, args.note)
         event["agent_id"] = agent_id
         event["agent_role"] = role
@@ -9495,7 +9453,7 @@ def agent_event(
             event["recovery_consume_receipt_ids"] = [
                 receipt.get("receipt_id") for receipt in recovery_consumed_receipts
             ]
-        append_event(event)
+        _commit_task_event(tasks, event)
     return TransitionResult(task, event)
 
 
@@ -9753,7 +9711,6 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
         task["updated_at"] = now
         task["last_evidence"] = f"agent_preload_ack {agent_id}: {evidence}"
         tasks[args.task_id] = task
-        write_tasks(tasks)
         event = make_event(
             task,
             "agent_preload_ack",
@@ -9774,7 +9731,7 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
             event,
             str(current.get("office_instance_id") or agent_id),
         )
-        append_event(event)
+        _commit_task_event(tasks, event)
     if failure:
         raise ValueError(f"preload_contract_failed: {failure}")
     return {
@@ -10144,7 +10101,7 @@ def _native_bridge_bound_agent_type(
     raise ValueError("native_bridge:selected_protocol_invalid")
 
 
-NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES = 20 * 1024
+NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES = ENTRY_PRELOAD_BUDGET_BYTES
 
 
 def _native_bridge_preload_input_budget(
@@ -10490,7 +10447,6 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
         task["updated_at"] = now
         task["last_evidence"] = f"office_followup {internal_id}: {evidence}"
         tasks[str(args.task_id)] = task
-        write_tasks(tasks)
         status = str(current.get("status") or "running")
         event = make_event(
             task,
@@ -10514,7 +10470,7 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
             event,
             str(current.get("office_instance_id") or internal_id),
         )
-        append_event(event)
+        _commit_task_event(tasks, event)
     return _office_transition_payload(
         "followup",
         TransitionResult(task, event),
@@ -10602,9 +10558,8 @@ def update_heartbeat(args: argparse.Namespace) -> TransitionResult:
         task["updated_at"] = now_text()
         task["last_evidence"] = args.evidence
         tasks[args.task_id] = task
-        write_tasks(tasks)
         event = make_event(task, "heartbeat", previous, str(task.get("state")), actor, args.evidence, args.note)
-        append_event(event)
+        _commit_task_event(tasks, event)
     return TransitionResult(task, event)
 
 
@@ -10864,7 +10819,8 @@ def _case_plan_view(task: Mapping[str, Any]) -> dict[str, object]:
     return {"schema": "court.workflow_status.v1", "ok": True, "task_id": task.get("task_id"),
             "state": task.get("state"), "case_status": "BOUND" if binding else "NEEDS_REVIEW", "case_binding": binding,
             "plan_status": "REVIEWED" if reviewed else "DRAFTED" if plan else "BOOTSTRAP_UNPLANNED",
-            "plan": {k: plan[k] for k in ("schema", "plan_id", "revision", "plan_ref", "producer")} if plan else None,
+            "plan": {**{k: plan[k] for k in ("schema", "plan_id", "revision", "producer")},
+                     "plan_ref": plan_reference(plan)} if plan else None,
             "case_reviews": deepcopy(task.get("case_reviews", {})), "problems": problems,
             "next_operations": ["court plan --help", "court semantic-context-template --task-id " + str(task.get("task_id"))],
             "standard_workflow_ready": reviewed and binding is not None}
@@ -10929,7 +10885,7 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
                 "expected_plan_revision": plan.get("revision", 0),
                 "document": {"goal": "<goal>", "non_goals": [], "steps": [{"id": "step-1", "role": "gongbu", "action": "<action>"}], "acceptance": ["<acceptance>"], "write_set": []},
                 "producer": producer,
-                "review": {"role": "menxia", "decision": "approved", "plan_ref": plan_reference(plan), "producer":dict(producer)},
+                "review": {"role": "menxia", "decision": "approved", "plan_ref": plan_reference(plan) if plan else None, "producer":dict(producer)},
                 "notes": ["Template is not a plan or an office reply.", "Shangshu uses decision dispatchable|blocked; Menxia uses approved|rejected.", "serial_inline is allowed only for explicitly selected serial execution."]}
     request = _json_object_from_args(args, "request", "request_file", "plan request")
     expected = {"document", "producer", "expected_plan_revision"} if args.action == "submit" else {"role", "decision", "plan_ref", "producer"}
@@ -10964,8 +10920,9 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
         updated = (submit_plan(task, request["document"], request["producer"], history)
                    if args.action == "submit" else record_review(task, request["role"], request["decision"], request["plan_ref"], request["producer"], history))
         updated["case_binding"] = refresh_case_binding(updated)
+        view = _case_plan_view(updated)
         if updated == task:
-            return {"ok": True, "status": "REPLAYED", **_case_plan_view(task)}
+            return {"ok": True, "status": "REPLAYED", **view}
         actor = "zhongshu" if args.action == "submit" else request["role"]
         evidence = request["producer"]["evidence"]
         event = make_event(updated, "case_plan_" + args.action, task["state"], task["state"], actor, evidence, "bounded plan artifact")
@@ -10973,21 +10930,9 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
         event["case_ref"] = case_reference(updated)
         updated["last_evidence"] = evidence
         updated["updated_at"] = now_text()
-        originals = {path: path.read_bytes() if path.exists() else None for path in (tasks_path(), events_path())}
-        try:
-            tasks[args.task_id] = updated
-            write_tasks(tasks)
-            append_event(event)
-        except BaseException:
-            for path, payload in originals.items():
-                if (path.read_bytes() if path.exists() else None) == payload:
-                    continue
-                if payload is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    atomic_write_text(path, payload.decode("utf-8"))
-            raise
-        return {"ok": True, "status": "COMMITTED", "event": event, **_case_plan_view(updated)}
+        tasks[args.task_id] = updated
+        _commit_task_event(tasks, event)
+        return {"ok": True, "status": "COMMITTED", "event": event, **view}
 
 
 def public_intake_contract_payload() -> dict[str, object]:

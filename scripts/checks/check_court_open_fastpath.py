@@ -487,6 +487,24 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             concurrent_preload=concurrent_probes,
         )
         checks["success"] = first.get("ok") is True
+        derived = court_open_fastpath.prepare_fast_open(
+            {**request, "case_ref": None, "semantic_receipt_id": None, "plan_ref": None},
+            runtime_api=FakeRuntime(_task()), identity_loader=_identity,
+            concurrent_preload=concurrent_probes,
+        )
+        receipt = _task()["semantic_receipt"]
+        checks["current_references_derived"] = (
+            derived.get("ok") is True and derived.get("case_ref") == receipt["case_ref"]
+            and derived.get("semantic_receipt_id") == receipt["receipt_id"]
+            and derived.get("mutations") == [] and derived.get("dispatch_count") == 0
+        )
+        for field, reason in (("case_ref", "case_ref_drift"), ("plan_ref", "plan_drift")):
+            stale = court_open_fastpath.prepare_fast_open(
+                {**request, field: {**receipt[field], "charter_revision": 2}},
+                runtime_api=FakeRuntime(_task()), identity_loader=_identity,
+                concurrent_preload=concurrent_probes,
+            )
+            checks[reason] = stale.get("status") == "FAST_PATH_MISS:" + reason
         checks["runtime_loaded_once"] = runtime.load_calls == 1
         checks["single_process"] = first.get("python_child_processes") == 0
         checks["no_partial_mutation"] = first.get("mutations") == []

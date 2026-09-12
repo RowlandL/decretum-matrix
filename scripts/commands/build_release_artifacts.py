@@ -545,9 +545,9 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         "canonical_display_name_required": getattr(release_payload_manifest, "DISPLAY_NAME", None)
         == "Decretum Matrix（诏令矩阵）",
         "canonical_current_artifact_required": (
-            release_payload_manifest.RELEASE_LABEL == "beta1.1.2"
+            release_payload_manifest.RELEASE_LABEL == "beta1.1.3"
             and release_payload_manifest.ARTIFACT_NAME
-            == "decretum-matrix-beta1.1.2.zip"
+            == "decretum-matrix-beta1.1.3.zip"
         ),
         "major_release_label_supported": RELEASE_RE.fullmatch("beta1.0.6") is not None,
         "hotfix_release_label_supported": RELEASE_RE.fullmatch("beta1.0.0-hotfix-v2") is not None,
@@ -590,13 +590,13 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         git_text("commit", "-q", "-m", "fixture", root=tracked_fixture)
         (tracked_fixture / "preserved-untracked.md").write_text("preserve\n", encoding="utf-8")
         try:
-            untracked_identity = collect_candidate_source_identity("beta1.1.2", tracked_fixture)
+            untracked_identity = collect_candidate_source_identity("beta1.1.3", tracked_fixture)
             tests["candidate_allows_preserved_untracked"] = untracked_identity["worktree_clean"] is True
         except ArtifactBuildError:
             tests["candidate_allows_preserved_untracked"] = False
         (tracked_fixture / "tracked.txt").write_text("changed\n", encoding="utf-8")
         try:
-            collect_candidate_source_identity("beta1.1.2", tracked_fixture)
+            collect_candidate_source_identity("beta1.1.3", tracked_fixture)
         except ArtifactBuildError:
             tests["candidate_rejects_tracked_dirty"] = True
         else:

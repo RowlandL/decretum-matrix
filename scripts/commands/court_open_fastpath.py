@@ -28,13 +28,15 @@ import weakref
 
 sys.dont_write_bytecode = True
 
+from court_office_config import ENTRY_PRELOAD_BUDGET_BYTES
+
 from court_native_execution import AUTHORITIES, BEHAVIORS, select_native_execution
 
 
 ROOT = Path(__file__).resolve().parents[2]
 REQUEST_SCHEMA = "court.open.fast.request.v2"
 RECEIPT_SCHEMA = "court.open.fast.v2"
-MINIMAL_PRELOAD_BYTES = 20 * 1024
+MINIMAL_PRELOAD_BYTES = ENTRY_PRELOAD_BUDGET_BYTES
 DEFAULT_THREAD_CEILING = 16
 THREE_DEPARTMENTS = ("zhongshu", "menxia", "shangshu")
 SIX_MINISTRIES = ("libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu")

@@ -1,4 +1,4 @@
-"""Smoke-test court_runtime lockfile with concurrent CLI writers."""
+"""Exercise ledger recovery, bounded history reads, and concurrent CLI writers."""
 
 from __future__ import annotations
 
@@ -11,9 +11,7 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import json
 import os
-from pathlib import Path
 import subprocess
-import sys
 import tempfile
 
 sys.dont_write_bytecode = True
@@ -21,7 +19,113 @@ sys.dont_write_bytecode = True
 from court_intake_gate import minimal_request_understanding_example
 
 
+def check_transition_recovery() -> None:
+    from argparse import Namespace
+    from unittest.mock import patch
+    import court_runtime as runtime
+    from checks.check_court_runtime import create_args, formal_gate_fixture
+
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"COURT_RUNTIME_ROOT": directory}):
+        runtime.create_task(create_args("paired", intake_gate=formal_gate_fixture()))
+        paths = (runtime.tasks_path(), runtime.events_path())
+        with paths[1].open("ab") as stream:
+            stream.write(b"\xff\n")  # Preserve existing malformed history byte-for-byte.
+        before = tuple(path.read_bytes() for path in paths)
+        args = Namespace(task_id="paired", to_state="Taizi", actor="taizi", owner="",
+                         heartbeat="", evidence="transaction test", note="")
+
+        def partial_event(event):
+            line = (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode()
+            with runtime.events_path().open("ab") as stream:
+                stream.write(line[:13])
+            raise OSError("partial event")
+
+        for target, failure in (("write_tasks", OSError("task write")),
+                                ("append_event", OSError("event write")),
+                                ("append_event", partial_event)):
+            try:
+                with patch.object(runtime, target, side_effect=failure):
+                    runtime.apply_transition(args)
+            except OSError:
+                pass
+            else:
+                raise AssertionError("injected failure was ignored")
+            assert tuple(path.read_bytes() for path in paths) == before
+
+        for phase in ("task", "event"):
+            callback = "os._exit(77)" if phase == "task" else "(append(e),os._exit(77))"
+            code = (
+                "import os,sys;sys.path.insert(0,'scripts');import court_runtime as r;"
+                f"from argparse import Namespace;append=r.append_event;r.append_event=lambda e:{callback};"
+                "r.apply_transition(Namespace(task_id='paired',to_state='Taizi',actor='taizi',"
+                "owner='',heartbeat='',evidence='transaction test',note=''))"
+            )
+            crashed = subprocess.run([sys.executable, "-B", "-c", code],
+                                     cwd=Path(__file__).resolve().parents[2], timeout=15)
+            assert crashed.returncode == 77
+            interrupted = tuple(path.read_bytes() for path in paths)
+            for read in (runtime.load_tasks, runtime.read_events):
+                try:
+                    read()
+                except ValueError as exc:
+                    assert str(exc) == "ledger_pair_recovery_required"
+                else:
+                    raise AssertionError("partial state was exposed")
+            try:
+                with runtime.runtime_lock(recover=False):
+                    raise AssertionError("read-only recovery was accepted")
+            except ValueError as exc:
+                assert str(exc) == "ledger_pair_recovery_required"
+            assert tuple(path.read_bytes() for path in paths) == interrupted
+            paths[0].write_bytes(b'{"external":"edit"}')
+            try:
+                with runtime.runtime_lock():
+                    raise AssertionError("conflicting state was overwritten")
+            except ValueError as exc:
+                assert str(exc) == "ledger_pair_recovery_conflict"
+            assert paths[0].read_bytes() == b'{"external":"edit"}'
+            assert paths[1].read_bytes() == interrupted[1]
+            paths[0].write_bytes(interrupted[0])
+            with runtime.runtime_lock():
+                assert tuple(path.read_bytes() for path in paths) == before
+        runtime.apply_transition(args)
+        assert runtime.load_tasks()["paired"]["state"] == "Taizi"
+        assert len(runtime.read_events()) == 2
+
+
+def check_event_history() -> None:
+    from unittest.mock import patch
+    import court_runtime as runtime
+
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"COURT_RUNTIME_ROOT": directory}):
+        rows = [{"task_id": "old", "note": "中文" * 40000},
+                {"task_id": "old", "note": "line\u2028separator"}, {"task_id": "latest"}]
+        path = runtime.events_path()
+        path.write_bytes(b"\r\n".join(json.dumps(row, ensure_ascii=False).encode() for row in rows)
+                         + b"\nnull\n[]\ninvalid\n")
+        assert runtime.read_events(limit=None) == rows
+        assert runtime.read_events(limit=1) == rows[-1:]
+        assert runtime.read_events(limit=2, task_id="old") == rows[:2]
+        assert runtime.read_events(limit=0) == rows[-1:]
+        assert runtime.read_events(limit=20, task_id="missing") == []
+        # Finite queries must stop at the tail even when old history is large.
+        with path.open("rb") as handle:
+            from io import BytesIO
+            class CountingReader(BytesIO):
+                bytes_read = 0
+                def read(self, size=-1):
+                    value = super().read(size)
+                    self.bytes_read += len(value)
+                    return value
+            reader = CountingReader(handle.read())
+        with patch.object(Path, "open", return_value=reader):
+            assert runtime.read_events(limit=1) == rows[-1:]
+        assert reader.bytes_read <= 65536
+
+
 def main() -> int:
+    check_transition_recovery()
+    check_event_history()
     script = Path(__file__).resolve().parents[1] / "court_cli.py"
     with tempfile.TemporaryDirectory() as temp_dir:
         env = dict(os.environ)
@@ -120,6 +224,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
 

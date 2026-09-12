@@ -18,11 +18,9 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 from collections.abc import Callable, Mapping, Sequence
-import hashlib
 import json
 from pathlib import Path
 import sys
-from tempfile import TemporaryDirectory
 from typing import Any
 
 sys.dont_write_bytecode = True
@@ -42,34 +40,19 @@ OFFICES = {
     "xingbu": ("刑部", "shangshu"),
     "gongbu": ("工部", "shangshu"),
 }
-TRUSTED_PRELOAD_BY_ROLE: dict[str, dict[str, str]] = {}
+CASE_REF = {"court_code": "COURT-20260906-1-AAAA", "charter_revision": 1}
+TRUSTED_PRELOAD_BY_ROLE: dict[str, dict[str, object]] = {}
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _initialize_preload_fixture(root: Path) -> None:
+def _initialize_preload_fixture() -> None:
+    """Reference fixture; profile/skill file bodies are not policy inputs."""
     TRUSTED_PRELOAD_BY_ROLE.clear()
-    skill_path = root / "SKILL.md"
-    skill_path.write_text("fixture court skill\n", encoding="utf-8")
-    skill_hash = _sha256(skill_path)
     for role in OFFICES:
-        profile_rel = f"agents/standing-officials/{role}.toml"
-        dossier_rel = f"agents/office-dossiers/{role}/AGENTS.md"
-        profile_path = root / profile_rel
-        dossier_path = root / dossier_rel
-        profile_path.parent.mkdir(parents=True, exist_ok=True)
-        dossier_path.parent.mkdir(parents=True, exist_ok=True)
-        profile_path.write_text(f"role = {role!r}\n", encoding="utf-8")
-        dossier_path.write_text(f"# {role} fixture dossier\n", encoding="utf-8")
         TRUSTED_PRELOAD_BY_ROLE[role] = {
-            "profile_path": profile_rel,
-            "dossier_path": dossier_rel,
+            "case_ref": dict(CASE_REF),
+            "profile_path": f"agents/standing-officials/{role}.toml",
+            "dossier_path": f"agents/office-dossiers/{role}/AGENTS.md",
             "skill_path": "SKILL.md",
-            "profile_hash": _sha256(profile_path),
-            "dossier_hash": _sha256(dossier_path),
-            "court_skill_hash": skill_hash,
             "preload_ack": "PASSED",
         }
 
@@ -128,6 +111,7 @@ def dispatch_instance(
         "canonical_role_id": f"{role}#canonical",
         "office_instance_id": f"office-{instance_key}",
         "instance_key": instance_key,
+        "case_ref": dict(CASE_REF),
         "office_instance_kind": kind,
         "canonical_authority": canonical_authority,
         "global_integration_owner": global_integration_owner,
@@ -140,9 +124,6 @@ def dispatch_instance(
         "profile_path": preload["profile_path"],
         "dossier_path": preload["dossier_path"],
         "skill_path": preload["skill_path"],
-        "profile_hash": preload["profile_hash"],
-        "dossier_hash": preload["dossier_hash"],
-        "court_skill_hash": preload["court_skill_hash"],
         "preload_ack": preload["preload_ack"],
         "evidence_pointer": f"ledger://{instance_key}",
         "heartbeat_state": "ready",
@@ -175,7 +156,7 @@ def worker(role: str, number: int, shard_id: str, **overrides: object) -> dict[s
     return dispatch_instance(role, number, **values)  # type: ignore[arg-type]
 
 
-def trusted_manifest(entries: Sequence[dict[str, object]]) -> dict[str, dict[str, str]]:
+def trusted_manifest(entries: Sequence[dict[str, object]]) -> dict[str, dict[str, object]]:
     return {
         str(entry["instance_key"]): dict(TRUSTED_PRELOAD_BY_ROLE[str(entry["role"])])
         for entry in entries
@@ -378,18 +359,6 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
     duplicate_instance["instance_key"] = "gongbu#0002"
     missing_preload_ack = worker("gongbu", 2, "preload-missing")
     missing_preload_ack["preload_ack"] = ""
-    invalid_profile_hash = worker("gongbu", 2, "profile-hash-invalid")
-    invalid_profile_hash["profile_hash"] = "not-a-sha256"
-    missing_dossier_hash = worker("gongbu", 2, "dossier-hash-missing")
-    missing_dossier_hash["dossier_hash"] = ""
-    missing_court_skill_hash = worker("gongbu", 2, "court-skill-hash-missing")
-    missing_court_skill_hash["court_skill_hash"] = ""
-    random_profile_hash = worker("gongbu", 2, "profile-hash-random")
-    random_profile_hash["profile_hash"] = "0" * 64
-    random_dossier_hash = worker("gongbu", 2, "dossier-hash-random")
-    random_dossier_hash["dossier_hash"] = "f" * 64
-    random_court_skill_hash = worker("gongbu", 2, "court-skill-hash-random")
-    random_court_skill_hash["court_skill_hash"] = "a" * 64
     wrong_profile_path = worker("gongbu", 2, "profile-path-wrong")
     wrong_profile_path["profile_path"] = "agents/standing-officials/menxia.toml"
     wrong_dossier_path = worker("gongbu", 2, "dossier-path-wrong")
@@ -562,42 +531,6 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
             "super并行",
         ),
         (
-            "reject_invalid_profile_hash",
-            "exact_preload_contract_gate",
-            [canonical("gongbu"), invalid_profile_hash],
-            "super并行",
-        ),
-        (
-            "reject_missing_dossier_hash",
-            "exact_preload_contract_gate",
-            [canonical("gongbu"), missing_dossier_hash],
-            "super并行",
-        ),
-        (
-            "reject_missing_court_skill_hash",
-            "exact_preload_contract_gate",
-            [canonical("gongbu"), missing_court_skill_hash],
-            "super并行",
-        ),
-        (
-            "reject_random_profile_hash",
-            "exact_preload_contract_gate",
-            [canonical("gongbu"), random_profile_hash],
-            "super并行",
-        ),
-        (
-            "reject_random_dossier_hash",
-            "exact_preload_contract_gate",
-            [canonical("gongbu"), random_dossier_hash],
-            "super并行",
-        ),
-        (
-            "reject_random_court_skill_hash",
-            "exact_preload_contract_gate",
-            [canonical("gongbu"), random_court_skill_hash],
-            "super并行",
-        ),
-        (
             "reject_wrong_profile_path",
             "exact_preload_contract_gate",
             [canonical("gongbu"), wrong_profile_path],
@@ -616,6 +549,21 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
             "super并行",
         ),
     )
+    # beta1.1.1 replaced content identities with case references (3ad2e35).
+    for name, reference in (
+        ("missing_case_ref", None),
+        ("invalid_case_ref", "not-a-reference"),
+        ("wrong_case_code", {**CASE_REF, "court_code": "COURT-20260906-2-AAAA"}),
+        ("stale_case_revision", {**CASE_REF, "charter_revision": 2}),
+        ("missing_case_revision", {"court_code": CASE_REF["court_code"]}),
+        ("boolean_case_revision", {**CASE_REF, "charter_revision": True}),
+    ):
+        entry = worker("gongbu", 2, name)
+        entry.pop("case_ref")
+        if reference is not None:
+            entry["case_ref"] = reference
+        cases += (("reject_" + name, "exact_preload_contract_gate",
+                   [canonical("gongbu"), entry], "super并行"),)
     return tuple(
         (name, rejection_check(gate, entries))
         for name, gate, entries, _mode in cases
@@ -659,11 +607,9 @@ def _run_checks() -> int:
 
 
 def main() -> int:
-    with TemporaryDirectory(prefix="court-preload-fixture-") as temp_dir:
-        _initialize_preload_fixture(Path(temp_dir))
-        return _run_checks()
+    _initialize_preload_fixture()
+    return _run_checks()
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -2400,12 +2400,19 @@ def score_entry(entry: dict[str, object], terms: list[str]) -> int:
 
 
 def select_matches(
+    entries: list[dict[str, object]], terms: list[str], *, index: RecallIndex | None = None,
+) -> list[dict[str, object]]:
+    """Compatibility view of ranked entries without their relevance scores."""
+    return [entry for _, entry in rank_matches(entries, terms, index=index)]
+
+
+def rank_matches(
     entries: list[dict[str, object]],
     terms: list[str],
     *,
     index: RecallIndex | None = None,
-) -> list[dict[str, object]]:
-    """Rank entries by TF-IDF recall score with a minimum-score admission floor.
+) -> list[tuple[float, dict[str, object]]]:
+    """Return (score, entry) pairs; latest-first fallback uses zero scores.
 
     Terms are tokenized; ASCII matches are exact/separator-boundary tokens, CJK
     runs match by substring; IDF is computed over the passed corpus; entries
@@ -2415,7 +2422,7 @@ def select_matches(
     """
     query_tokens = _recall_query_tokens(terms)
     if not query_tokens:
-        return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
+        return [(0.0, entry) for entry in sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)]
     idf = recall_idf(entries, terms)
     has_structural = any(_is_structural_token(token) for token in query_tokens)
     if not any(idf.get(token, 0.0) >= RECALL_MIN_IDF for token in query_tokens) and not has_structural:
@@ -2425,7 +2432,7 @@ def select_matches(
         # (time descending), matching the "latest N" semantics (P2-3). A
         # structural token (lineage/segment/date/code prefix) instead routes to
         # the structured facets below (L0a/L0b).
-        return sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)
+        return [(0.0, entry) for entry in sorted(entries, key=lambda entry: str(entry.get("time", "")), reverse=True)]
     entry_pool: list[tuple[int, dict[str, object]]]
     if index is not None and not has_structural:
         entry_pool = [
@@ -2454,7 +2461,7 @@ def select_matches(
             continue
         seen.add(key)
         deduped.append((score, entry))
-    return [entry for _, entry in deduped]
+    return deduped
 
 
 def select_matches_rrf(

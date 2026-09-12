@@ -645,7 +645,7 @@ def main() -> int:
             if step.get("gate_class") == "source" and step.get("name") != "catalog_strict"
         ]
         candidate_names = {str(step["name"]) for step in candidate_steps}
-        if len(candidate_steps) != 44:
+        if len(candidate_steps) != 46:
             raise AssertionError(f"candidate pre-install step count drifted: {len(candidate_steps)}")
         if not {
             "npm_release_harness",
@@ -660,6 +660,8 @@ def main() -> int:
             "governance_framework",
             "court_agent_config",
             "court_codex_host_resolution",
+            "court_plan_artifacts",
+            "court_multi_instance_dispatch",
         }.issubset(
             candidate_names
         ):
@@ -739,5 +741,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
