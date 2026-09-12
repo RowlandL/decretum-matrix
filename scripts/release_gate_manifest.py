@@ -178,6 +178,7 @@ REQUIRED_STEP_CONTRACTS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
     ("court_agent_lifecycle", "source", ("$PYTHON", "scripts/check_court_agent_lifecycle.py"), "always"),
     ("court_dispatch_policy", "source", ("$PYTHON", "scripts/check_court_dispatch_policy.py"), "always"),
     ("court_multi_instance_dispatch", "source", ("$PYTHON", "scripts/checks/check_court_multi_instance_dispatch.py"), "always"),
+    ("court_native_bridge", "source", ("$PYTHON", "scripts/checks/check_court_native_bridge.py"), "always"),
     (
         "court_codex_office_worker",
         "source",

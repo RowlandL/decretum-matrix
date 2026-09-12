@@ -1749,6 +1749,8 @@ def _office_metadata_pointer(
 
 def _prepare_explicit_office_admission(args: argparse.Namespace) -> None:
     kind = _canonical_office_instance_kind(getattr(args, "office_instance_kind", None))
+    if not isinstance(getattr(args, "requested_roles", None), str):
+        raise ValueError("office_admit_requires_single_role_text_and_explicit_instance_binding")
     role = require_text(getattr(args, "requested_roles", ""), "requested-roles").strip().lower()
     if "," in role:
         raise ValueError("office_admit_requires_single_instance")
@@ -10046,6 +10048,8 @@ def _native_bridge_host_message_inputs(
     task: Mapping[str, object],
     admission: Mapping[str, object],
 ) -> tuple[dict[str, object], dict[str, object]]:
+    from court_native_execution import AUTHORITIES
+
     case_binding = task.get("case_binding")
     if not isinstance(case_binding, Mapping):
         raise ValueError("native_bridge:case_execution_required")
@@ -10056,7 +10060,8 @@ def _native_bridge_host_message_inputs(
         "authority": str(execution.get("authority") or "").strip().lower(),
         "behavior": str(execution.get("behavior") or "").strip().lower(),
     }
-    if normalized_execution != {"authority": "super", "behavior": "parallel"}:
+    if (normalized_execution["authority"] not in AUTHORITIES
+            or normalized_execution["behavior"] != "parallel"):
         raise ValueError("native_bridge:native_topology_required")
     return normalized_execution, public_dispatch_context_packet(
         task, str(admission.get("wave_id") or "")

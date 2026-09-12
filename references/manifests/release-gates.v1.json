@@ -392,6 +392,14 @@
       "condition": "always"
     },
     {
+      "name": "court_native_bridge",
+      "gate_class": "source",
+      "command": ["$PYTHON", "scripts/checks/check_court_native_bridge.py"],
+      "timeout": 120,
+      "allowed_returncodes": [0],
+      "condition": "always"
+    },
+    {
       "name": "court_codex_office_worker",
       "gate_class": "source",
       "command": ["$PYTHON", "scripts/check_court_codex_office_worker.py"],

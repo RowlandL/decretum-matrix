@@ -1007,8 +1007,6 @@ def _admission_request(
         "task_id": normalized["task_id"],
         "expected_semantic_epoch": receipt.get("semantic_epoch"),
         "case_ref": normalized["case_ref"],
-        "semantic_receipt_id": receipt.get("receipt_id"),
-        "plan_ref": receipt.get("plan_ref"),
         "expected_checkpoint_id": receipt.get("checkpoint_id"),
         "wave_id": wave_id,
         "execution_topology": "parallel",

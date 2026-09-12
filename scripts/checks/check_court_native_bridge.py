@@ -289,6 +289,18 @@ def _runtime_host_message_fixture() -> None:
     assert result["host_input_budget"]["status"] == "within_budget"
     assert result["host_input_budget"]["total_bytes"] <= 20 * 1024
     assert result["bound_agent_type"] is None
+    for authority in ("approval", "autonomous", "super"):
+        selected = {"authority": authority, "behavior": "parallel"}
+        bound = {**task, "case_binding": {**CASE_REF, "case_execution": selected}}
+        reply = court_runtime._native_bridge_request_result(bound, admission, binding, request)
+        assert json.loads(reply["host_message"])["execution"] == selected
+    for selected in ({"authority": "super", "behavior": "serial"},
+                     {"authority": "unknown", "behavior": "parallel"}):
+        _expect_rejected(lambda: court_runtime._native_bridge_host_message_inputs(
+            {**task, "case_binding": {**CASE_REF, "case_execution": selected}}, admission),
+            "invalid native dispatch selection")
+    _expect_rejected(lambda: court_runtime._prepare_explicit_office_admission(
+        Namespace(requested_roles=["gongbu"])), "office admission role type")
 
     # Exercise the capture's actual start-request generator, not a hand-filled
     # lifecycle request that could hide an empty required-skill list.

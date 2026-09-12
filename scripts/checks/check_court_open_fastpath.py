@@ -64,6 +64,9 @@ class FakeRuntime:
         task: dict[str, object],
         request: dict[str, object],
     ) -> dict[str, object]:
+        from court_runtime import build_parser, public_admission_request_argv
+
+        build_parser().parse_args(public_admission_request_argv(request))
         self.admission_calls += 1
         binding = request["requested_bindings"][0]
         return {
@@ -81,6 +84,7 @@ def _task() -> dict[str, object]:
         "semantic_state": "DISPATCHABLE",
         "semantic_receipt": {
             "receipt_id": "SR-FAST-OPEN",
+            "semantic_epoch": 3,
             "case_ref": {"court_code": "SREVIEW-20260906-1", "charter_revision": 3},
             "checkpoint_id": "SC-FAST-OPEN",
             "plan_ref": {"court_code": "SREVIEW-20260906-1", "charter_revision": 3, "plan_revision": 1},
@@ -487,6 +491,17 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             concurrent_preload=concurrent_probes,
         )
         checks["success"] = first.get("ok") is True
+        precheck_runtime = FakeRuntime(_task())
+        prechecked = court_open_fastpath.prepare_fast_open(
+            {**request, "admission_precheck_requested": True},
+            runtime_api=precheck_runtime, identity_loader=_identity,
+            concurrent_preload=concurrent_probes,
+        )
+        checks["admission_precheck_public_parser"] = (
+            prechecked.get("ok") is True and precheck_runtime.admission_calls == 3
+            and prechecked.get("admission_check_count") == 3
+            and prechecked.get("dispatch_count") == 0
+        )
         derived = court_open_fastpath.prepare_fast_open(
             {**request, "case_ref": None, "semantic_receipt_id": None, "plan_ref": None},
             runtime_api=FakeRuntime(_task()), identity_loader=_identity,

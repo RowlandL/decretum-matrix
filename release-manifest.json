@@ -579,8 +579,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/release-gates.v1.json",
-      "sha256": "c1c9e938de19808694adffbaf27a5613795d2cda46fdaf8f30298fa1db37a54d",
-      "size": 17912
+      "sha256": "aac1a58ea30ce20c4dfa726156fa83d055da08abdad66c1fcdbdf312eb6edcaa",
+      "size": 18153
     },
     {
       "mode": "100644",
@@ -1431,8 +1431,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_native_bridge.py",
-      "sha256": "30b244e11e9d47e6aa4a6d64b825282dcbaccb97307f1181b9a744191418df17",
-      "size": 35048
+      "sha256": "1200e7da6ccfcd85f9b497f0fe6b10b985ba8dc4bd562960f41905204a37379c",
+      "size": 35947
     },
     {
       "mode": "100644",
@@ -1455,8 +1455,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_open_fastpath.py",
-      "sha256": "235b2f41676bb9ceebad89d9dd0bab5611503f7558ccbb9b4ed8f23cbad892d9",
-      "size": 43471
+      "sha256": "fa7fcb703ef672088adc66c35fd5fda9fc50debc9aa7e2b726ad83bff2754443",
+      "size": 44220
     },
     {
       "mode": "100644",
@@ -1635,8 +1635,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_manifest.py",
-      "sha256": "08323f1a3b843c7681f4f54e833ed4c99328b336d201c121f4785622f9032c3f",
-      "size": 30220
+      "sha256": "c38c5501240a73557472ac6049baf594bca0f2312caa8070e7583324231831ea",
+      "size": 30254
     },
     {
       "mode": "100644",
@@ -1923,8 +1923,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/court_open_fastpath.py",
-      "sha256": "3d655d0b213d8351a82728f708719705b619b4f4e631ab9ee2da008cc8e71450",
-      "size": 67392
+      "sha256": "697ef3c6d46e3a6dc3ae24f9e9f63f77c0e2b6268ba4ed4af525f7b8bf837918",
+      "size": 67289
     },
     {
       "mode": "100644",
@@ -2355,8 +2355,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "a649e9190f2461872188eedd59a32fc335694b7b69b8ce763a9a34410f964979",
-      "size": 551917
+      "sha256": "eee8a19c804d46498044dc4bb06aa8ac3273554e45e1df20c729d1ba4f9c6768",
+      "size": 552180
     },
     {
       "mode": "100644",
@@ -2607,8 +2607,8 @@
     {
       "mode": "100644",
       "path": "scripts/release_gate_manifest.py",
-      "sha256": "d955c2ca10c4605feb2e39017730b2d5b0f3990855749d653c5b8af09975c44c",
-      "size": 23620
+      "sha256": "8b0c9c8e4dca169b1309426a8e1c24a6ee7e47b2ddbc9e3b854aaba08d64f6e8",
+      "size": 23729
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8621612,
+    "payload_bytes": 8623804,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "691889e5997452b75a886a4389be97ca0f679cb41737bf972dd9c63c354bed38",
+    "payload_index_sha256": "fb92253b5b34207db83c24763911711ae86a01ec9a7bc36a4efb16badd79793a",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 634
   },
