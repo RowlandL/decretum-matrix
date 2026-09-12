@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "45a29eaca27fda6f0284a38181dde52b4dc80a646aa9be7293a8f69c5d06efd4",
+      "sha256": "cd14a05778fcfe556e7948815adbfd4dc0e646ea26a3e22fd945d160aae6d80a",
       "size": 4689
     },
     {
@@ -633,8 +633,8 @@
     {
       "mode": "100644",
       "path": "references/sections/court-runtime-result-and-recruitment-contract.md",
-      "sha256": "8f40f0982a49efee5da65850e8b45cb56da52e9b4171ff219916f499dde7f9ca",
-      "size": 13114
+      "sha256": "f9820e8f003fa7fe2f55d2633178eeab33b20359d1a6d87cc4379ba9b7742ad4",
+      "size": 14558
     },
     {
       "mode": "100644",
@@ -1593,8 +1593,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_office_decree_startup.py",
-      "sha256": "d4ec468d966bf386bc9d4c7ad0391e956d4d629ce70461f9a206e89b00f834cf",
-      "size": 15146
+      "sha256": "5238e495ff04ff947daba9abd794cd29a778fa2a7765a3b6dd957ff90e00739f",
+      "size": 16821
     },
     {
       "mode": "100644",
@@ -2355,8 +2355,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "da5929d00b6f09aea5b3c6869e94808a08027f9aa710251ef93093bb708a2002",
-      "size": 555785
+      "sha256": "9f1b30f2a4abde92cf359546cf11d1b041fe5df89a8ea8d1e2b2d59c10a180ec",
+      "size": 557325
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8640362,
+    "payload_bytes": 8645021,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "09a9f5cd4eed192f15551857e86d37e39fd7ca13db33be6b5b896d05c9569b9a",
+    "payload_index_sha256": "85880dc555ca47ecb8be7797c39fa4716d42dc398fa9aeff85b928a5aa88e5cb",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 634
   },

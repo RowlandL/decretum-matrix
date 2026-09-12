@@ -41,12 +41,44 @@ rebased.
 
 ## Neutral Assessment Binding
 
-R5-RC only validates and binds an externally produced assessment envelope to the
-current task, charter revision, charter digest, evidence digest, and assessment
-digest. It preserves the source envelope, validates exact fields and gate/reason
-consistency, and makes identical replay idempotent while rejecting conflicts.
-It does not import, execute, inspect, reproduce, or claim acceptance of R4, and
-it does not independently evaluate the outcome.
+`bind-assessment` accepts `court.runtime_assessment_binding.v1`; a raw
+`court.outcome_assessment.v1` or an office result envelope is not this request.
+The existing `court intake-schema` / MCP public contract exposes
+`runtime_assessment_binding_contract` with the complete required field list.
+The agent supplies its actual judgment; the runtime validates and binds it,
+without executing a separate evaluator or substituting for Menxia review.
+
+Use this shape with values from the current task and actual review evidence:
+
+```json
+{
+  "schema": "court.runtime_assessment_binding.v1",
+  "task_id": "<current task id>",
+  "charter_revision": 1,
+  "case_ref": {"court_code": "<issued code>", "charter_revision": 1},
+  "assessment_ref": "<stable assessment document reference>",
+  "evidence_ref": "<actual review evidence reference>",
+  "gate": "PASSED_WITH_CONCERNS",
+  "reasons": ["<actual concern>"],
+  "completion_source": {
+    "schema": "court.completion_source.v1",
+    "task_id": "<same task id>",
+    "charter_revision": 1,
+    "case_ref": {"court_code": "<same issued code>", "charter_revision": 1},
+    "sources": [{"kind": "host_report", "role": "menxia", "pointer": "<exact agent-report evidence>", "event_id": "<actual report event id>"}]
+  },
+  "completion_source_ref": "<stable source reference>",
+  "residual_gaps": ["<one-line actual residual concern>"],
+  "assessed_at": "<actual ISO timestamp with timezone>"
+}
+```
+
+`residual_gaps` is a flat list of strings, not nested lists or objects.
+`PASSED` requires empty reasons/gaps; `PASSED_WITH_CONCERNS` requires both.
+Normal source items need no pointer hash. They bind a real, preloaded office's
+report by exact pointer and optional event ID; ambiguity or a missing Menxia
+report remains rejected. Existing digest-bearing records remain compatible.
+Identical replay is idempotent and conflicting assessment bindings are rejected.
 
 ## Checkpoint Receipt And Completion
 

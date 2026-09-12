@@ -203,6 +203,30 @@ class OfficeDecreeStartupTests(unittest.TestCase):
         self.assertEqual(schema['properties']['status']['enum'], ['completed', 'failed', 'cancelled'])
         self.assertNotIn('charter_sha256', schema['properties'])
 
+    def test_assessment_rejects_wrong_shape_before_deriving_references(self) -> None:
+        task = {**self.task, 'state': 'MenxiaReview'}
+        before = deepcopy(task)
+        with self.assertRaisesRegex(ValueError, 'assessment_unknown_fields'):
+            runtime.bind_assessment_record(task, {'schema':'court.outcome_assessment.v1', 'outcome':None})
+        self.assertEqual(task, before)
+
+    def test_completion_source_binds_actual_report_without_digest(self) -> None:
+        task = deepcopy(self.task)
+        task['agents'] = {'menxia-proof': {'role':'menxia', 'preload_status':'PASSED',
+                                         'office_execution_ready':True}}
+        event = {'action':'agent_report', 'agent_role':'menxia', 'agent_id':'menxia-proof',
+                 'evidence':'review.md', 'event_id':'review-event'}
+        source = {'schema':runtime.COMPLETION_SOURCE_SCHEMA, 'task_id':task['task_id'],
+                  'charter_revision':task['charter_revision'], 'case_ref':case_reference(task),
+                  'sources':[{'kind':'host_report', 'role':'menxia', 'pointer':'review.md',
+                              'event_id':'review-event'}]}
+        with patch.object(runtime, 'events_for_task', return_value=[event]), \
+                patch.object(runtime.hashlib, 'sha256', side_effect=AssertionError('unexpected digest')):
+            self.assertEqual(runtime._validated_completion_source(task, source), source)
+            changed = deepcopy(source); changed['sources'][0]['event_id'] = 'missing'
+            with self.assertRaisesRegex(ValueError, 'menxia_report_missing'):
+                runtime._validated_completion_source(task, changed)
+
     def test_libu_bootstrap_instructs_read_and_ack_only(self) -> None:
         task, admission = self._review_and_admit_libu()
         request = runtime.office_native_request(Namespace(

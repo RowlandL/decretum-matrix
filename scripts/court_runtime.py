@@ -3564,9 +3564,9 @@ def _validated_completion_source(
     if len(raw_sources) > COMPLETION_SOURCE_MAX_ITEMS:
         raise ValueError("completion_source_sources_exceed_limit")
     normalized_sources: list[dict[str, object]] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str, str]] = set()
     serial_roles: set[str] = set()
-    expected_source_fields = {"kind", "role", "pointer", "sha256"}
+    source_fields = {"kind", "role", "pointer"}
     raw_menxia_sources = [
         item
         for item in raw_sources
@@ -3581,7 +3581,8 @@ def _validated_completion_source(
         agents = {}
     verified_menxia_source = False
     for item in raw_sources:
-        if not isinstance(item, dict) or set(item) != expected_source_fields:
+        if (not isinstance(item, dict) or not source_fields.issubset(item)
+                or set(item) - source_fields - {"sha256", "event_id"}):
             raise ValueError("completion_source_item_fields_invalid")
         kind = str(item.get("kind") or "").strip()
         role = str(item.get("role") or "").strip().lower()
@@ -3593,19 +3594,26 @@ def _validated_completion_source(
             "kind": kind,
             "role": role,
             "pointer": _bounded_completion_pointer(item.get("pointer"), "pointer"),
-            "sha256": _canonical_sha256(
-                item.get("sha256"), "completion_source_sha256_invalid"
-            ),
         }
-        if normalized["sha256"] != hashlib.sha256(
-            str(normalized["pointer"]).encode("utf-8")
-        ).hexdigest():
-            raise ValueError("completion_source_report_sha256_mismatch")
-        identity = canonical_json_sha256(normalized)
+        if "sha256" in item:
+            normalized["sha256"] = _canonical_sha256(
+                item.get("sha256"), "completion_source_sha256_invalid"
+            )
+            if normalized["sha256"] != hashlib.sha256(
+                str(normalized["pointer"]).encode("utf-8")
+            ).hexdigest():
+                raise ValueError("completion_source_report_sha256_mismatch")
+        if "event_id" in item:
+            normalized["event_id"] = _bounded_completion_pointer(item["event_id"], "event_id")
+        identity = (kind, role, str(normalized["pointer"]))
         if identity in seen:
             raise ValueError("completion_source_duplicate")
         seen.add(identity)
         if kind == "serial_inline":
+            if "event_id" in item:
+                raise ValueError("completion_source_serial_event_forbidden")
+            if "sha256" not in item and (task.get("case_execution") or {}).get("behavior") != "serial":
+                raise ValueError("completion_source_serial_execution_required")
             if role in serial_roles:
                 raise ValueError("completion_source_serial_role_duplicate")
             serial_roles.add(role)
@@ -3619,6 +3627,7 @@ def _validated_completion_source(
                 and event.get("action") == "agent_report"
                 and event.get("agent_role") == role
                 and event.get("evidence") == normalized["pointer"]
+                and ("event_id" not in normalized or event.get("event_id") == normalized["event_id"])
             ]
             if len(matches) != 1:
                 raise ValueError("completion_source_menxia_report_missing")
@@ -4096,8 +4105,8 @@ def bind_assessment_record(
         raise ValueError("assessment_binding_requires_menxia_review")
     bound = deepcopy(task)
     source_envelope = deepcopy(assessment)
-    source_envelope_ref = _source_envelope_ref(source_envelope)
     validated = validate_runtime_assessment_binding(bound, source_envelope)
+    source_envelope_ref = _source_envelope_ref(source_envelope)
     existing = bound.get("assessment_binding")
     if isinstance(existing, dict) and existing:
         _revalidate_stored_assessment_binding(bound)
@@ -7159,8 +7168,8 @@ def bind_assessment_task(args: argparse.Namespace) -> TransitionResult:
             raise ValueError("stale_charter_case_reference")
         existing_binding = task.get("assessment_binding")
         source_envelope = deepcopy(assessment)
-        source_envelope_ref = _source_envelope_ref(source_envelope)
         validated = validate_runtime_assessment_binding(task, source_envelope)
+        source_envelope_ref = _source_envelope_ref(source_envelope)
         incoming_sha256 = validated["assessment_ref"]
         if isinstance(existing_binding, dict) and existing_binding:
             _revalidate_stored_assessment_binding(task)
@@ -10971,6 +10980,21 @@ def public_intake_contract_payload() -> dict[str, object]:
         "conversation_gate_schema": conversation_gate_json_schema(),
         "invariant_capsule_schema": invariant_capsule_json_schema(),
         "office_result_envelope_schema": office_result_envelope_json_schema(),
+        "runtime_assessment_binding_contract": {
+            "schema": RUNTIME_ASSESSMENT_BINDING_SCHEMA,
+            "required_fields": sorted(RUNTIME_ASSESSMENT_BINDING_FIELDS),
+            "gates": sorted(OUTCOME_ASSESSMENT_GATES),
+            "completion_source": {
+                "schema": COMPLETION_SOURCE_SCHEMA,
+                "required_fields": ["schema", "task_id", "charter_revision", "case_ref", "sources"],
+                "source_fields": ["kind", "role", "pointer"],
+                "optional_source_fields": ["event_id"],
+                "kinds": sorted(COMPLETION_SOURCE_KINDS),
+                "maximum_sources": COMPLETION_SOURCE_MAX_ITEMS,
+            },
+            "residual_gaps": "Unique nonempty one-line strings; required for PASSED_WITH_CONCERNS.",
+            "references": "Use stable document/event references, not caller-computed hashes.",
+        },
         "minimal_formal_task": minimal_formal_task_example(),
         "workflow": [
             {"step": 1, "command": "intake-template --charter <exact UTF-8 charter>"},
