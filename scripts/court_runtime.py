@@ -1862,12 +1862,17 @@ def _active_office_write_claims(task: dict[str, Any]) -> set[str]:
     for admission in admissions.values():
         if not isinstance(admission, dict) or admission.get("allowed") is not True:
             continue
+        if str(admission.get("status") or "").upper().startswith("INVALIDATED"):
+            continue
         consumed = admission.get("consumed_instances")
         consumed_map = consumed if isinstance(consumed, dict) else {}
+        failed = admission.get("failed_instances")
         for binding in admission.get("selected_bindings") or ():
             if not isinstance(binding, dict):
                 continue
             instance_id = str(binding.get("instance_id") or "")
+            if isinstance(failed, dict) and instance_id in failed:
+                continue
             agent_id = consumed_map.get(instance_id)
             if agent_id:
                 record = agent_records.get(str(agent_id))
@@ -10891,7 +10896,7 @@ def case_plan_operation(args: argparse.Namespace) -> dict[str, object]:
                 "document": {"goal": "<goal>", "non_goals": [], "steps": [{"id": "step-1", "role": "gongbu", "action": "<action>"}], "acceptance": ["<acceptance>"], "write_set": []},
                 "producer": producer,
                 "review": {"role": "menxia", "decision": "approved", "plan_ref": plan_reference(plan) if plan else None, "producer":dict(producer)},
-                "notes": ["Template is not a plan or an office reply.", "Shangshu uses decision dispatchable|blocked; Menxia uses approved|rejected.", "serial_inline is allowed only for explicitly selected serial execution."]}
+                "notes": ["Template is not a plan or an office reply.", "Shangshu uses decision dispatchable|blocked; Menxia uses approved|rejected.", "serial_inline is allowed only for explicitly selected serial execution.", "host_report may include event_id to select one actual report when an evidence pointer was reused."]}
     request = _json_object_from_args(args, "request", "request_file", "plan request")
     expected = {"document", "producer", "expected_plan_revision"} if args.action == "submit" else {"role", "decision", "plan_ref", "producer"}
     if request.get('schema') == 'court.plan_request_template.v1':

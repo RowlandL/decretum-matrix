@@ -132,6 +132,29 @@ class PlanArtifactTests(unittest.TestCase):
         result = plans.submit_plan(task, doc, producer, [])
         self.assertEqual(result['zhongshu_plan']['producer']['kind'], 'serial_inline')
 
+    def test_runtime_case_refs_and_explicit_report_event(self):
+        task, doc, producers, events = fixture()
+        agent = task['agents'][producers['zhongshu']['agent_id']]
+        reference = {'court_code': task['court_code'], 'charter_revision': 1}
+        agent['case_ref'] = dict(reference)
+        agent.pop('court_code')
+        events[0].update(case_ref=dict(reference), event_id='report-first')
+        events[0].pop('court_code')
+        plans.submit_plan(task, doc, producers['zhongshu'], events)
+        repeated = [*events, {**events[0], 'event_id': 'report-retry'}]
+        with self.assertRaises(ValueError):
+            plans.submit_plan(task, doc, producers['zhongshu'], repeated)
+        author = {**producers['zhongshu'], 'event_id': 'report-retry'}
+        selected = plans.submit_plan(task, doc, author, repeated)
+        self.assertEqual(selected['zhongshu_plan']['producer']['event_id'], 'report-retry')
+        with self.assertRaises(ValueError):
+            plans.submit_plan(task, doc, {**author, 'event_id': 'absent'}, repeated)
+        for bad in ({**reference, 'charter_revision': 2}, {**reference, 'charter_revision': True}, None):
+            with self.subTest(case_ref=bad), self.assertRaises(ValueError):
+                plans.submit_plan(task, doc, producers['zhongshu'], [{**events[0], 'case_ref': bad}])
+        with self.assertRaises(ValueError):
+            plans.submit_plan(task, doc, producers['zhongshu'], [{**events[0], 'court_code': 'CCR-20260906-1-EEEE'}])
+
 
 class RuntimePlanFlowTests(unittest.TestCase):
     # Reuse only isolated filesystem fixture setup, not a production substitute.

@@ -61,19 +61,30 @@ def validate_document(value: object) -> dict[str, Any]:
 
 def _current_charter(record: Mapping[str, Any], task: Mapping[str, Any]) -> bool:
     """Check the current case version without content-digest references."""
-    revision = record.get('charter_revision', record.get('semantic_epoch'))
+    from court_case_binding import case_reference
+    legacy = {'court_code': record.get('court_code'),
+              'charter_revision': record.get('charter_revision', record.get('semantic_epoch'))}
+    try:
+        reference = case_reference(record.get('case_ref', legacy))
+        expected = case_reference(task)
+    except (ValueError, TypeError, AttributeError):
+        return False
+    revision = record.get('charter_revision', reference['charter_revision'])
     epoch = record.get('semantic_epoch', revision)
     task_epoch = task.get('semantic_epoch', task.get('charter_revision'))
-    return (type(revision) is int and revision == task.get('charter_revision')
+    return (reference == expected and type(revision) is int and revision == task.get('charter_revision')
             and type(epoch) is int and type(task_epoch) is int and epoch == task_epoch == revision
-            and record.get('court_code') == task.get('court_code'))
+            and record.get('court_code', reference['court_code']) == expected['court_code'])
 
 
 def _producer(task: Mapping[str, Any], role: str, value: object, events: list[dict[str, Any]]) -> dict[str, str]:
-    if not isinstance(value, dict) or set(value) != {'kind', 'agent_id', 'evidence'}:
+    required = {'kind', 'agent_id', 'evidence'}
+    if not isinstance(value, dict) or not required.issubset(value) or set(value) - required - {'event_id'}:
         raise ValueError('case_plan_producer_fields_invalid')
     evidence = _text(value['evidence'], 'producer_evidence')
     if value['kind'] == 'serial_inline':
+        if 'event_id' in value:
+            raise ValueError('case_plan_serial_inline_event_forbidden')
         execution = task.get('case_execution', {})
         if execution.get('behavior') != 'serial' or value['agent_id']:
             raise ValueError('case_plan_serial_inline_not_selected')
@@ -87,13 +98,17 @@ def _producer(task: Mapping[str, Any], role: str, value: object, events: list[di
             or agent.get('preload_status') != 'PASSED' or agent.get('office_execution_ready') is not True
             or not _current_charter(agent, task)):
         raise ValueError('case_plan_current_office_report_required')
+    event_id = _text(value['event_id'], 'report_event_id', 256) if 'event_id' in value else None
     matching = [event for event in events if event.get('action') == 'agent_report'
                 and event.get('task_id') == task.get('task_id') and _current_charter(event, task)
                 and event.get('agent_role') == role and event.get('agent_id') == agent_id
-                and event.get('evidence') == evidence]
+                and event.get('evidence') == evidence
+                and (event_id is None or event.get('event_id') == event_id)]
     if len(matching) != 1:
         raise ValueError('case_plan_report_event_required')
     result = {'kind': 'host_report', 'role': role, 'agent_id': agent_id, 'evidence': evidence}
+    if event_id is not None:
+        result['event_id'] = event_id
     if isinstance(task.get('case_binding'), dict):
         receipt_id = agent.get('native_host_action_receipt_id')
         stored = task.get('native_host_action_receipts', {}).get(receipt_id, {})

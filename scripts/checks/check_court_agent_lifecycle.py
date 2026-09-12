@@ -3782,7 +3782,26 @@ def _run_native_host_lifecycle_contract(
     return failures, evidence
 
 
+def check_admission_write_claims() -> None:
+    binding = {"instance_id": "gongbu#pending", "write_set": ["result.json"]}
+    admission = {"allowed": True, "selected_bindings": [binding]}
+    task = {"agents": {}, "agent_admissions": {"wave": admission}}
+    assert court_runtime._active_office_write_claims(task) == {"result.json"}
+    admission["status"] = "INVALIDATED_BY_SEMANTIC_RESUME"
+    assert court_runtime._active_office_write_claims(task) == set()
+    # Invalidating an admission must not release a physically active writer.
+    task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
+    assert court_runtime._active_office_write_claims(task) == {"result.json"}
+    task["agents"] = {}
+    admission.pop("status")
+    admission["failed_instances"] = {"gongbu#pending": {"reason": "host refusal"}}
+    assert court_runtime._active_office_write_claims(task) == set()
+    task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
+    assert court_runtime._active_office_write_claims(task) == {"result.json"}
+
+
 def run_agent_lifecycle_checks() -> None:
+    check_admission_write_claims()
     global TASK_SPECIFIC_SKILL_PATH
     check_import_root_isolation()
     # The pure binding gate must pass before lifecycle persistence checks can run.

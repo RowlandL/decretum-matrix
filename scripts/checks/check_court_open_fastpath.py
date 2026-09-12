@@ -64,9 +64,17 @@ class FakeRuntime:
         task: dict[str, object],
         request: dict[str, object],
     ) -> dict[str, object]:
-        from court_runtime import build_parser, public_admission_request_argv
+        from court_runtime import (
+            _validate_canonical_admission_preloads, build_parser, public_admission_request_argv,
+        )
 
-        build_parser().parse_args(public_admission_request_argv(request))
+        parsed = build_parser().parse_args(public_admission_request_argv(request))
+        _validate_canonical_admission_preloads(parsed)
+        from court_agent_admission import _admission_lease_metadata_error
+        assert _admission_lease_metadata_error(
+            request["budget_lease"], calling_office=request["calling_office"],
+            direct_superior=request["direct_superior"], next_depth=request["next_depth"],
+        ) is None
         self.admission_calls += 1
         binding = request["requested_bindings"][0]
         return {

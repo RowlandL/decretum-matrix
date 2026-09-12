@@ -928,6 +928,9 @@ def _lease(
     write_set = list(normalized["write_sets"].get(role, []))  # type: ignore[union-attr]
     read_scope = ["SKILL.md", preload.dossier_path, preload.profile_path]
     access_mode = "read_write" if write_set else "read_only"
+    preload_sources = {"court_skill_path": preload.skill_path,
+                       "profile_source": preload.profile_path,
+                       "dossier_path": preload.dossier_path}
     binding = {
         "role": role,
         "instance_id": instance_id,
@@ -942,21 +945,23 @@ def _lease(
         "mutation_allowed": bool(write_set),
         "integration_authority": False,
         "case_ref": normalized["case_ref"],
+        "preload_sources": dict(preload_sources),
     }
     budget_id = f"budget:{task_id}:FAST-OPEN:{wave_id}"
+    parent = "user" if caller == "taizi" else "taizi"
     lease = {
         "schema": "court.agent.admission_lease.v2",
         "task_id": task_id,
         "budget_id": budget_id,
         "lease_id": f"{budget_id}:lease",
-        "parent_budget_id": f"{budget_id}:{caller}",
-        "parent_id": caller,
+        "parent_budget_id": f"{budget_id}:{parent}",
+        "parent_id": parent,
         "status": "ACTIVE",
         "authority": normalized["authority"],
         "grantee_role": caller,
         "calling_office": caller,
-        "direct_superior": "user" if caller == "taizi" else "taizi",
-        "approved_by": "user" if caller == "taizi" else "taizi",
+        "direct_superior": parent,
+        "approved_by": parent,
         "integration_domain": "court-open-fast",
         "lease_depth": 0 if caller == "taizi" else 1,
         "approved_next_depth": 1 if caller == "taizi" else 2,
@@ -964,6 +969,7 @@ def _lease(
         "approved_count": 1,
         "approved_roles": [role],
         "approved_instance_ids": [instance_id],
+        "approved_preload_sources": {instance_id: dict(preload_sources)},
         "approved_shards": [binding["shard_id"]],
         "approved_write_sets": {instance_id: write_set},
         "approved_access_contracts": {
