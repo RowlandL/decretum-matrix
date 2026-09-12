@@ -367,21 +367,109 @@ jobs:
     if: ${{ always() }}
     needs: [source-contracts]
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 15
     outputs:
       status: ${{ steps.candidate.outputs.status }}
       domain_ok: ${{ steps.candidate.outputs.domain_ok }}
     steps:
-      - name: Record candidate entrypoint as not configured
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Build same-source candidate and verify isolated entrypoint
         id: candidate
         shell: python
         run: |
-          import json, os
-          result = {"id": "package_entrypoint_isolated", "scope": "candidate/install", "status": "NOT_CONFIGURED", "domain_result": {"ok": False}, "reason": "工部尚未确认同来源候选与隔离安装入口"}
-          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          import json, os, subprocess, sys, uuid
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          from checks.check_release_gate import _required_check_result, validate_package
+          from release_gate_manifest import load_release_manifest
+
+          work_root = Path(os.environ["RUNNER_TEMP"]) / "decretum-ci-candidate"
+          evidence_root = work_root / "evidence"
+          evidence_root.mkdir(parents=True, exist_ok=True)
+          isolated_home = work_root / "home"
+          isolated_home.mkdir()
+          environment = dict(os.environ)
+          environment.update(
+              HOME=str(isolated_home), USERPROFILE=str(isolated_home),
+              XDG_DATA_HOME=str(isolated_home / ".local" / "share"),
+              npm_config_cache=str(work_root / "npm-cache"),
+              npm_config_prefix=str(work_root / "npm-prefix"),
+              DECRETUM_WORKSPACE_ROOT=str(work_root),
+          )
+
+          def keep(name, body):
+              destination = evidence_root / name
+              destination.write_bytes(body)
+              marker = "decretum_log_" + uuid.uuid4().hex
+              print("::stop-commands::" + marker)
+              sys.stdout.write(body.decode("utf-8", "replace"))
+              if body and not body.endswith(b"\n"):
+                  sys.stdout.write("\n")
+              print("::" + marker + "::")
+
+          def run_json(name, argv):
+              try:
+                  completed = subprocess.run(argv, capture_output=True, timeout=300, env=environment)
+              except subprocess.TimeoutExpired as exc:
+                  keep(name + ".stdout.log", exc.stdout or b"")
+                  keep(name + ".stderr.log", exc.stderr or b"")
+                  raise
+              keep(name + ".stdout.log", completed.stdout)
+              keep(name + ".stderr.log", completed.stderr)
+              keep(name + ".command.json", json.dumps({"argv": argv, "cwd": str(Path.cwd()), "exit_code": completed.returncode}).encode())
+              if completed.returncode != 0:
+                  raise RuntimeError(name + " process failed")
+              return json.loads(completed.stdout)
+
+          result = {"id": "package_entrypoint_isolated", "scope": "candidate/install", "status": "FAILED", "domain_result": {"ok": False}}
+          try:
+              candidate = run_json("candidate", [sys.executable, "-B", "scripts/build_release_artifacts.py", "--mode", "candidate", "--out-root", str(work_root / "release-staging" / "decretum-matrix"), "--json"])
+              if candidate.get("ok") is not True:
+                  raise RuntimeError("candidate builder did not return ok=true")
+              npm_candidate = run_json("npm-candidate", ["node", "scripts/build_npm_package.mjs", "--local-install-candidate", candidate["candidate_directory"]])
+              if npm_candidate.get("status") != "PASS":
+                  raise RuntimeError("local-install candidate did not pass")
+              evidence_path = Path(npm_candidate["candidate_evidence"]["path"])
+              evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+              evidence_paths = [evidence_path, *(Path(evidence[field]) for field in ("execution_ref", "receipt_ref", "candidate_receipt_ref"))]
+              for field in ("log_capture", "installer_log_capture"):
+                  evidence_paths.extend(Path(evidence[field][stream + "_path"]) for stream in ("stdout", "stderr"))
+              for path in evidence_paths:
+                  keep(path.name, path.read_bytes())
+              manifest = load_release_manifest()
+              check = next(row for row in manifest["required_checks"] if row["id"] == "package_entrypoint_isolated")
+              package_gate = validate_package(Path(candidate["candidate_directory"]) / ("decretum-matrix-" + candidate["release_label"] + ".zip"))
+              keep("package-validation.json", json.dumps(package_gate, ensure_ascii=False).encode("utf-8"))
+              result = _required_check_result(
+                  check, phase="candidate", step_results={}, manifest_self_test={},
+                  package_gate=package_gate, candidate_evidence=evidence,
+                  expected_provenance={"source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()},
+              )
+          except Exception as exc:
+              result = {"id": "package_entrypoint_isolated", "scope": "candidate/install", "status": "FAILED", "domain_result": {"ok": False}, "reason": str(exc)}
+          domain_ok = result.get("status") == "PASSED" and result.get("domain_result", {}).get("ok") is True
+          keep("candidate-entrypoint-result.json", json.dumps(result, ensure_ascii=False, sort_keys=True).encode("utf-8"))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("status=NOT_CONFIGURED\n")
-              output.write("domain_ok=false\n")
+              output.write("status=" + result["status"] + "\n")
+              output.write("domain_ok=" + str(domain_ok).lower() + "\n")
+          if not domain_ok:
+              raise SystemExit(1)
+      - name: Preserve candidate execution receipts and complete logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-entrypoint-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/decretum-ci-candidate/evidence/
+          if-no-files-found: error
+          retention-days: 14
 
   required-summary:
     if: ${{ always() }}
