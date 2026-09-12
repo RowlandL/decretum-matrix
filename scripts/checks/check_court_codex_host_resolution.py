@@ -51,6 +51,7 @@ def main() -> int:
             which_path=front,
         )
         assert report["healthy"] is True
+        assert report["ok"] is True
         assert report["same_file_identity"] is True
         assert report["native_sha256"] is None
         assert report["binary_identity_status"] == "UNAVAILABLE_NOT_REHASHED"
@@ -68,6 +69,7 @@ def main() -> int:
         assert stale["hash_equal"] is None
         assert stale["same_file_identity"] is False
         assert stale["healthy"] is False
+        assert stale["ok"] is False
 
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -94,4 +96,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

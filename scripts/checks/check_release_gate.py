@@ -975,6 +975,29 @@ def run_git_index_isolation_self_test() -> dict[str, object]:
         }
 
 
+def _package_bundle_provenance(path: Path, *, root: Path = ROOT) -> dict[str, str]:
+    from commands import build_release_artifacts as builder
+
+    manifest = builder.load_payload_manifest(root)
+    label = str(manifest["release_label"])
+    if path.with_name(str(manifest["attestation_name"])).is_file():
+        source = builder.collect_source_identity(label, root)
+        validate = builder.validate_candidate_artifacts
+    elif path.with_name(builder.expected_candidate_names(manifest)[2]).is_file():
+        source = builder.collect_candidate_source_identity(label, root)
+        validate = builder.validate_tagless_candidate_artifacts
+    else:
+        return {}
+    validate(builder.read_artifact_directory(path.parent), manifest=manifest, source=source, root=root)
+    head = str(source["head_commit"])
+    return {
+        "source_commit": head,
+        "artifact_ref": f"release/{manifest['artifact_name']}@{head}",
+        "build_id": f"{label}:{head}:{source['tree']}",
+        "release_label": label,
+    }
+
+
 def validate_package(path: Path) -> dict[str, object]:
     if not path.exists():
         return {
@@ -1006,6 +1029,11 @@ def validate_package(path: Path) -> dict[str, object]:
         if isinstance(embedded_manifest, dict)
         else {}
     )
+    if not problems:
+        try:
+            provenance.update(_package_bundle_provenance(path))
+        except Exception as exc:
+            problems.append(f"package_bundle_provenance_invalid:{exc}")
     return {
         "name": "package_validation",
         "status": "PASSED" if not problems else "FAILED",

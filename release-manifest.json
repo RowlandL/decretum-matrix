@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "cd14a05778fcfe556e7948815adbfd4dc0e646ea26a3e22fd945d160aae6d80a",
+      "sha256": "bf39f273c0567271646d684ce7852331c5fc1e3179a0fc9bfb3d6a3dea95b319",
       "size": 4689
     },
     {
@@ -1371,8 +1371,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_codex_host_resolution.py",
-      "sha256": "dc4f36663c5e6e066ca46f4e5ab8e190602768108f4eb1defe980a3c9b32c970",
-      "size": 3127
+      "sha256": "c546b777c13a5c5b51896067e7734bbb888ebda7c0dfb347b7158fdbcdc878ea",
+      "size": 3198
     },
     {
       "mode": "100644",
@@ -1623,8 +1623,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_gate.py",
-      "sha256": "004b70d772503c3ce861c50878509abd5473a1a206b29481277b07ee0e6c87ef",
-      "size": 99678
+      "sha256": "642e67c3be14ea4e544931bcd3b48f2a15794ad749513a24d7d90cf5c42a46db",
+      "size": 100905
     },
     {
       "mode": "100644",
@@ -1899,8 +1899,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/court_codex_host_resolution.py",
-      "sha256": "77b665ddb5582032c8b00913e71d26e5e6f0f802e10ad241d1473c8fc8bded83",
-      "size": 7870
+      "sha256": "11bf22f0b14017955a8ef1186f19e1d8995719e7a64beb5c429d321aed80b88d",
+      "size": 7915
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8646079,
+    "payload_bytes": 8647422,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "8e290c1bc8ba8a734e72d2557849926b8e77a5aa1f8f9f8cfcd69f6aecd10203",
+    "payload_index_sha256": "d0e033de58b0e437cdd5d39354e9a08a673a293acafe02f546c9a46364861e7c",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 634
   },

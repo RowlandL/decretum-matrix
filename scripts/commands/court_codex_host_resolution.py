@@ -102,9 +102,11 @@ def build_resolution_report(
     which_identity = bool(which_path and _same_file(native, Path(which_path)))
     hash_equal = bool(native_sha and front_sha == native_sha) if native_sha else None
     versions_equal = native_version == front_version == bare_version
+    healthy = same_identity and which_identity and versions_equal
     return {
         "schema": "court.codex_host_resolution.v1",
-        "healthy": same_identity and which_identity and versions_equal,
+        "ok": healthy,
+        "healthy": healthy,
         "health_basis": "same_file_identity_and_version",
         "binary_identity_status": identity_status,
         "native_path": str(native),
