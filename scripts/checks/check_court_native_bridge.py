@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import unittest
 import uuid
 from unittest.mock import patch
 from argparse import Namespace
@@ -911,6 +912,10 @@ def main() -> int:
             "missing request marker",
         )
 
+    from checks import check_native_opaque_capture
+    suite = unittest.defaultTestLoader.loadTestsFromModule(check_native_opaque_capture)
+    if not unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful():
+        return 1
     print("COURT_NATIVE_BRIDGE_OK")
     return 0
 

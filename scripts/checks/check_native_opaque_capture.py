@@ -208,6 +208,18 @@ class SkillOrderTests(unittest.TestCase):
             def verify(values):
                 return skill_read_order(values,paths,child_ack=ack,child_thread_id=CHILD)
             self.assertEqual(verify(rows)['child_acceptance_event'],'child-acceptance')
+            def with_ack(value):
+                detailed_event, detailed_output = copy.deepcopy(event), copy.deepcopy(output)
+                detailed_event['payload']['item']['content'][0]['text'] = json.dumps(value)
+                detailed_output['payload']['content'][0]['text'] = json.dumps(value)
+                return [skill, batch, detailed_event, detailed_output]
+            detailed = {**ack, 'note': 'Additional read details do not grant authority.'}
+            self.assertEqual(verify(with_ack(detailed))['child_acceptance_event'],'child-acceptance')
+            for changes in ({'task_id':'foreign'}, {'profile_loaded':False},
+                            {'request_ref':{**ack['request_ref'],'attempt':2}}):
+                with self.assertRaises(NativeEvidencePending): verify(with_ack({**detailed, **changes}))
+            missing = dict(detailed); missing.pop('skill_loaded')
+            with self.assertRaises(NativeEvidencePending): verify(with_ack(missing))
             for lookup in (
                 "rg -n -m 5 -A 8 -B 2 'decretum-matrix' CODE_CAPABILITY_INDEX.md",
                 "Get-Command decretum-matrix",

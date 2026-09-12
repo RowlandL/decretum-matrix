@@ -224,6 +224,13 @@ def _invokes_court_cli(command: str) -> bool:
     return False
 
 
+def _acceptance_matches(value: object, expected: Mapping[str, object]) -> bool:
+    """Require the binding and load flags; additional metadata grants no authority."""
+    return (isinstance(value, dict)
+            and all(key in value and value[key] == item for key, item in expected.items())
+            and all(value.get(key) is True for key in ('skill_loaded', 'profile_loaded', 'dossier_loaded')))
+
+
 def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[str]],
                      *, child_ack: Mapping[str, object] | None = None,
                      child_thread_id: str | None = None) -> dict[str, object]:
@@ -252,8 +259,7 @@ def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[
                 value = json.loads(text)
             except ValueError:
                 continue
-            if (value == dict(child_ack) and isinstance(value, dict)
-                    and all(value.get(key) is True for key in ('skill_loaded', 'profile_loaded', 'dossier_loaded'))):
+            if _acceptance_matches(value, child_ack):
                 candidate_outputs[str(item.get('id', ''))] = text
                 candidate_lines[str(item.get('id', ''))] = line
     assistant_outputs: dict[str, list[str]] = {}
@@ -289,8 +295,7 @@ def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[
                     value = json.loads(str(content[0].get('text', '')))
                 except (ValueError, TypeError):
                     value = None
-                if (value == dict(child_ack) and isinstance(value, dict)
-                        and all(value.get(key) is True for key in ('skill_loaded', 'profile_loaded', 'dossier_loaded'))):
+                if _acceptance_matches(value, child_ack):
                     acknowledgements.append((number, str(item.get('id', ''))))
         if item_type in {'mcptoolcall', 'mcp_tool_call'}:
             business.append(number)
