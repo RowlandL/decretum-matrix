@@ -196,6 +196,13 @@ class OfficeDecreeStartupTests(unittest.TestCase):
         self.assertEqual(admission['selected_roles'], ['libu'])
         self.assertTrue(admission['selected_bindings'][0]['instance_id'])
 
+    def test_public_contract_exposes_current_result_envelope(self) -> None:
+        schema = runtime.public_intake_contract_payload()['office_result_envelope_schema']
+        self.assertTrue({'agent_id', 'case_ref', 'plan_ref', 'summary', 'evidence', 'produced_at'}
+                        <= set(schema['required']))
+        self.assertEqual(schema['properties']['status']['enum'], ['completed', 'failed', 'cancelled'])
+        self.assertNotIn('charter_sha256', schema['properties'])
+
     def test_libu_bootstrap_instructs_read_and_ack_only(self) -> None:
         task, admission = self._review_and_admit_libu()
         request = runtime.office_native_request(Namespace(

@@ -103,6 +103,7 @@ from court_semantic_continuity import (
     normalize_consultation_refs,
     normalize_semantic_context,
     normalize_result_envelope,
+    office_result_envelope_json_schema,
     build_result_quarantine_core,
     build_result_recovery_binding,
     build_result_recovery_projection,
@@ -10969,6 +10970,7 @@ def public_intake_contract_payload() -> dict[str, object]:
         "schema": "court.runtime.public_contract.v1",
         "conversation_gate_schema": conversation_gate_json_schema(),
         "invariant_capsule_schema": invariant_capsule_json_schema(),
+        "office_result_envelope_schema": office_result_envelope_json_schema(),
         "minimal_formal_task": minimal_formal_task_example(),
         "workflow": [
             {"step": 1, "command": "intake-template --charter <exact UTF-8 charter>"},

@@ -1,8 +1,10 @@
 # Court Runtime Result And Recruitment Contract
 
-This governing reference joins the accepted intake, runtime, result-presentation,
-and bounded recruitment semantics for the purified R/C lane. It does not grant
-execution authority beyond the active decree.
+For ordinary native tasks, use the current SKILL, active decree, and public
+schemas; the current result-envelope contract is specified below. Historical R/C
+and sealed-program exclusions in this reference apply to those named programs,
+not automatically to unrelated tasks. Those program boundaries remain intact,
+and this reference grants no authority beyond the active decree.
 
 ## Conversation Intake
 
@@ -108,14 +110,27 @@ If required work crosses any remaining boundary, record
 
 ## RC2 Bound Result Envelope
 
-For a semantic-bound dispatch, admission, start, report, and finish all carry
-the same current checkpoint binding. Completion accepts only a structured
-`court.office.result.v1` envelope containing the task/epoch, charter and capsule
-hashes, checkpoint, dispatch uid, attempt, office instance, agent/role,
-hierarchy, worktree, write-set hash, status, summary, evidence, and produced
-time. Missing envelopes fail closed. A stale or conflicting envelope is stored
-only as bounded quarantine metadata plus payload hash and reason codes; it does
-not advance the agent or task.
+For a semantic-bound dispatch, admission, start, report, and finish carry the
+admitted checkpoint binding. The current `court.office.result.v1` contract is
+published as `office_result_envelope_schema` by `court intake-schema` and MCP
+`court.intake_schema`; both reuse the runtime's existing schema generator.
+Use that schema instead of probing one missing field at a time.
+
+Copy `task_id`, `semantic_epoch`, `case_ref`, `checkpoint_id`, `dispatch_uid`,
+`attempt`, `office_instance_id`, `agent_id`, `role`, `direct_superior`,
+`worktree`, and `write_set` from the admitted agent record. Carry the actual
+`plan_ref` for the work; null is allowed when no plan exists. If the record has
+`office_instance_kind` and `carrier_proof`, copy both without inventing host IDs.
+Supply the actual `status` (`completed`, `failed`, or `cancelled`), a nonempty
+`summary`, an array of evidence pointers, and `produced_at` as an ISO timestamp.
+The `schema` value is `court.office.result.v1`; `write_set` and `evidence` are
+arrays, not joined strings. Submit through the existing result-envelope argument
+of report/finish. A free-text `--result` does not replace this envelope.
+
+Ordinary result callers use `case_ref`, `plan_ref`, and `write_set`; do not add
+the charter/capsule/write-set hash fields mentioned in historical R/C descriptions.
+No caller-side file hashing is required. Missing or conflicting binding fields
+remain rejected or quarantined and cannot advance the agent or task.
 
 Legacy records and agents remain available for read-only diagnosis. They do not
 become recruitable or mutable because a schema-normalized projection supplied

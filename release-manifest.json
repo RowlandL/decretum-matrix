@@ -633,8 +633,8 @@
     {
       "mode": "100644",
       "path": "references/sections/court-runtime-result-and-recruitment-contract.md",
-      "sha256": "2e75b9132a4301be414c3cd33702315590df55da050ef23a102ab66095fb9087",
-      "size": 12044
+      "sha256": "8f40f0982a49efee5da65850e8b45cb56da52e9b4171ff219916f499dde7f9ca",
+      "size": 13114
     },
     {
       "mode": "100644",
@@ -1593,8 +1593,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_office_decree_startup.py",
-      "sha256": "892b06965a018da38952c4cf40a052cd228b5dec4a126a79a4ecaa19d1097bc9",
-      "size": 14659
+      "sha256": "d4ec468d966bf386bc9d4c7ad0391e956d4d629ce70461f9a206e89b00f834cf",
+      "size": 15146
     },
     {
       "mode": "100644",
@@ -2355,8 +2355,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "330ba7a5ff4426716f62d012fbe0f8fddba07e5ea22c66d407e27c46806c4278",
-      "size": 555666
+      "sha256": "da5929d00b6f09aea5b3c6869e94808a08027f9aa710251ef93093bb708a2002",
+      "size": 555785
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8638686,
+    "payload_bytes": 8640362,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "5313bd0da522e84140f471c38dd2d7af3434d1a628e60ba8d0fa69f4e0e8e878",
+    "payload_index_sha256": "09a9f5cd4eed192f15551857e86d37e39fd7ca13db33be6b5b896d05c9569b9a",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 634
   },
