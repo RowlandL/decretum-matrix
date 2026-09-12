@@ -30,6 +30,7 @@ from release_gate_manifest import (
 )
 
 INSTALL_RECEIPT_SCHEMA = "court.install_current_agent_copy.result.v1"
+RUNTIME_REQUIRED_PHASES = {"full", "native"}
 NATIVE_CAPTURE_RESULT_SCHEMA = "court.office.native_capture.result.v1"
 NATIVE_EVIDENCE_CONTRACT_PASSED = "NATIVE_EVIDENCE_CONTRACT_PASSED"
 NATIVE_EVIDENCE_AUTHORITY = "host_native_capture"
@@ -2049,7 +2050,7 @@ def main() -> int:
                 f"names={','.join(manifest_self_test_cases)}"
             )
         return 0 if result["ok"] else 2
-    runtime_skip = phase in {"full", "native"} and args.skip_runtime
+    runtime_skip = phase in RUNTIME_REQUIRED_PHASES and args.skip_runtime
     active_copies_skip = phase == "full" and args.skip_active_copies
     if runtime_skip or active_copies_skip:
         skip_reason = (
@@ -2116,7 +2117,7 @@ def main() -> int:
         manifest,
         include_active_copies=phase not in {"source", "candidate", "pre-install", "native"}
         and not args.skip_active_copies,
-        include_runtime=phase in {"post-install", "full", "native"} and not args.skip_runtime,
+        include_runtime=phase in RUNTIME_REQUIRED_PHASES and not args.skip_runtime,
     )
     if phase in {"source", "candidate", "pre-install"}:
         manifest_steps = [
@@ -2295,7 +2296,7 @@ def main() -> int:
             native_authority_problems.append("native_authoritative_binding_unavailable")
     native_problems = [*native_contract_problems, *native_authority_problems]
     native_result = "NOT_SELECTED"
-    if phase in {"post-install", "full", "native"}:
+    if phase in RUNTIME_REQUIRED_PHASES or (phase == "post-install" and native_evidence is not None):
         if native_evidence is None:
             native_result = "NOT_RUN"
         elif native_contract_problems:
@@ -2369,7 +2370,7 @@ def main() -> int:
     )
     runtime_gate = (
         "NOT_SELECTED"
-        if phase in {"source", "candidate", "pre-install"}
+        if phase not in RUNTIME_REQUIRED_PHASES
         else ("PASSED" if not runtime_failed else "FAILED")
     )
     full_result = "PASSED" if phase == "full" and not failed else "FAILED" if phase == "full" else "NOT_SELECTED"
@@ -2419,7 +2420,7 @@ def main() -> int:
             if phase in {"candidate", "pre-install"}
             else (
                 "runtime_not_selected"
-                if phase == "source"
+                if phase in {"source", "post-install"}
                 else ("runtime_skipped" if args.skip_runtime else "runtime_selected")
             )
         ),
