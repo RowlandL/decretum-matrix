@@ -459,8 +459,8 @@
     {
       "mode": "100644",
       "path": "references/court-normal-startup.md",
-      "sha256": "f91e66a46928307c0e58f7d4641c7b17a7f0109f78f55fbd5a7b35c509376461",
-      "size": 4121
+      "sha256": "8daa2af8821a69e9b77ea0735a42face891b21dd722601923f5fadd3959daec9",
+      "size": 4057
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8620854,
+    "payload_bytes": 8620790,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "f6c1f128f65a2d0e626967c88eb1b50c9669de5fbe1f54c75f6426cb811bc23b",
+    "payload_index_sha256": "b8a761b0f7c64ae48174021b8a29b18c022b1c018966de1534a379efeaff4570",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 634
   },
