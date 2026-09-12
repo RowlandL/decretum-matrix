@@ -817,6 +817,11 @@ def _install_candidate_npm(
                 **({"replacement_backup": replacement_backup} if replacement_backup else {}),
                 **details}
 
+    def reject_package_links(directory: str, names: list[str]) -> list[str]:
+        if any(_is_link_or_reparse(Path(directory) / name) for name in names):
+            raise RuntimeError("candidate_npm_stage_target_unsafe")
+        return []
+
     try:
         try:
             completed = subprocess.run(command, cwd=caller, env=environment,
@@ -846,7 +851,17 @@ def _install_candidate_npm(
                 raise RuntimeError("candidate_npm_stage_target_unsafe")
             target.parent.mkdir(parents=True, exist_ok=True)
             _physical_directory(target.parent, label="candidate_npm_parent")
-            shutil.move(str(staged_target), str(target))
+            if os.name == "nt":
+                # A same-volume move retains the private temporary directory ACL.
+                # Public npm files must inherit the configured destination ACL so
+                # ordinary/restricted user tokens can read the installed CLI.
+                if staged_target.is_dir():
+                    shutil.copytree(staged_target, target, symlinks=True,
+                                    ignore=reject_package_links)
+                else:
+                    shutil.copy2(staged_target, target, follow_symlinks=False)
+            else:
+                shutil.move(str(staged_target), str(target))
         if not package_root.is_dir() or _is_link_or_reparse(package_root):
             raise RuntimeError("candidate_npm_target_missing_after_stage")
         return {

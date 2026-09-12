@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,8 @@ class CandidateInstallTests(unittest.TestCase):
         package = stage / "node_modules" / "@rowlandl" / "decretum-matrix"
         package.mkdir(parents=True)
         (package / "cli.js").write_text("candidate-cli", encoding="utf-8")
+        if getattr(self, "internal_link", None):
+            (package / "outside").symlink_to(self.internal_link, target_is_directory=True)
         shim = stage / "node_modules" / ".bin" / "decretum-matrix"
         shim.parent.mkdir()
         if self.symlink_bin:
@@ -108,6 +111,34 @@ class CandidateInstallTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserved")
         self.assertTrue(self.rollback()["ok"])
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserved")
+
+    def test_publication_uses_destination_read_permissions(self):
+        if os.name == "nt":
+            subprocess.run(["icacls.exe", str(self.prefix), "/grant",
+                            "*S-1-5-32-545:(OI)(CI)RX"], check=True, capture_output=True)
+        self.assertTrue(self.install()["ok"])
+        files = {self.prefix / "node_modules/.bin/decretum-matrix": "candidate shim",
+                 self.prefix / "node_modules/@rowlandl/decretum-matrix/cli.js": "candidate-cli"}
+        for path, expected in files.items():
+            self.assertEqual(path.read_text(encoding="utf-8"), expected)
+            if os.name == "nt":
+                quoted = path.as_posix().replace("'", "''")
+                script = (f"$acl=Get-Acl -LiteralPath '{quoted}'; [bool]($acl.Access | Where-Object {{ "
+                          "$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value "
+                          "-eq 'S-1-5-32-545' -and $_.IsInherited -and $_.AccessControlType -eq 'Allow' })")
+                result = subprocess.run([shutil.which("pwsh") or "powershell.exe", "-NoProfile", "-Command", script],
+                                        check=True, capture_output=True, text=True)
+                self.assertEqual(result.stdout.strip(), "True", f"public read access lost: {path}")
+        if os.name == "nt":
+            self.internal_link = self.root / "foreign-package-body"
+            self.internal_link.mkdir()
+            sentinel = self.internal_link / "sentinel"
+            sentinel.write_text("preserved", encoding="utf-8")
+            self.prefix = self.root / "linked-prefix"
+            self.prefix.mkdir()
+            self.assertFalse(self.install()["ok"])
+            self.assertFalse((self.prefix / "node_modules/@rowlandl/decretum-matrix/outside").exists())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserved")
 
     def test_staged_bin_link_outside_package_is_rejected(self):
         self.bin_target = self.root / "foreign"
