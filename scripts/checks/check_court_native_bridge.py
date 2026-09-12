@@ -304,6 +304,9 @@ def _runtime_host_message_fixture() -> None:
 
     # Exercise the capture's actual start-request generator, not a hand-filled
     # lifecycle request that could hide an empty required-skill list.
+    admitted_pool = court_runtime.public_context_budget_pool(task, request['wave_id'])
+    admitted_pool['normalized_total_share'] = 100  # PowerShell JSON round trips 100.0 as 100.
+    admission['context_budget_pool_ref'] = json.loads(json.dumps(admitted_pool))
     with patch.object(court_runtime, '_native_bridge_model_inputs', return_value={
         'assignment':'fixture', 'task_focus':'fixture', 'complexity':'low',
         'risk':'low', 'ambiguity':'low', 'transport':'codex'}), patch.object(
@@ -318,6 +321,8 @@ def _runtime_host_message_fixture() -> None:
     assert required[0]['source'] == str((court_runtime.skill_root() / 'SKILL.md').resolve())
     assert set(required[0]) == {'name', 'source', 'purpose', 'ack_name'}
     assert required[0]['ack_name'] == 'decretum-matrix'
+    assert generated['context_budget_pool'] == admission['context_budget_pool_ref']
+    assert generated['context_budget_pool'] is not admission['context_budget_pool_ref']
 
     v1_admission = {
         **admission,

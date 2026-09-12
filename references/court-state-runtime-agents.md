@@ -864,8 +864,14 @@ capacity to the configured `max_threads`; validate every recursive proposal with
 `next_depth<=4`; capacity, occupancy, retained count, reclamation status, or
 depth unknown means fail closed. Retained nodes whose reclamation is not
 verified consume physical capacity. No mode defines a fixed office count.
-Dispatch defaults remain `fork_turns=none`, a 600-second deadline, and an
-eight-tool-call budget. Long context begins at 32,000 tokens and must not inherit
+Dispatch defaults to `fork_turns=none`. Execution time and tool-call limits are
+optional: omitted/null means no automatic 600-second or eight-call cutoff.
+Grant explicit limits with `admission-template` / `agent-admit`
+`--deadline-seconds` and `--tool-call-budget`; start inherits them and cannot
+increase them. The context budget pool carries these limits only when granted.
+Host capacity, memory/context/message budgets, lease expiry, authority and write
+scope still apply. Start reuses the admitted pool instead of rebuilding defaults.
+Long context begins at 32,000 tokens and must not inherit
 conversation turns; pass bounded dossier/path pointers and a compact assignment
 instead. A short task may explicitly inherit only the latest one to three turns.
 `fork_turns=all` is forbidden for ordinary court dispatch.

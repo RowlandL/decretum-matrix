@@ -569,8 +569,9 @@ clarification request and the user's answers as 实录 checkpoints.
   terminal-node count, reclamation evidence, explicit user budget, and provider
   launch budget; unknown retained/reclamation state fails closed, and
   non-reclaimed nodes consume capacity. Deferred roles remain recorded. Each
-  assignment carries a bounded dossier/context packet, deadline,
-  eight-tool-call budget, stop condition, evidence contract, and release rule.
+  assignment carries a bounded dossier/context packet, stop condition, evidence
+  contract, and release rule. Time/tool-call limits are optional explicit budgets;
+  unspecified limits do not impose a 600-second or eight-call cutoff.
   If admission passes but no host-native delivery is attempted, or the host
   rejects delivery, the affected roles are `runtime_degraded`/deferred rather
   than satisfied by additional CLI/script probes.

@@ -2710,8 +2710,6 @@ def check_extended_resource_contract_and_mandatory_caps() -> None:
         "memory_mb_max",
         "context_tokens_max",
         "message_chars_max",
-        "tool_calls_max",
-        "time_seconds_max",
         "retained_agents_max",
     ):
         missing = dict(HARD_LIMITS)
@@ -2721,6 +2719,11 @@ def check_extended_resource_contract_and_mandatory_caps() -> None:
             lambda missing=missing: normalize_with_limits(missing),
             "hard_limits_missing_mandatory_cap",
         )
+    optional = {key: value for key, value in HARD_LIMITS.items()
+                if key not in {"tool_calls_max", "time_seconds_max"}}
+    no_cutoff_pool = normalize_with_limits(optional)
+    assert no_cutoff_pool["hard_limits"] == optional
+    assert no_cutoff_pool["leases"]["taizi"]["hard_caps"] == optional
     case_rejected(
         "J-R2-HARD-CAP-COUNT-TYPE",
         lambda: normalize_with_limits({**HARD_LIMITS, "message_chars_max": 1.5}),
@@ -3619,8 +3622,8 @@ def check_context_economy_contract() -> None:
     pool = hierarchical_pool()
     base = {
         "pool": pool,
-        "semantic_receipt_hash": "a" * 64,
-        "invariant_capsule_hash": "b" * 64,
+        "semantic_receipt_id": "SEM-CONTEXT-CHECK",
+        "case_ref": {"court_code": "CFT-20260906-001-A001", "charter_revision": 3},
         "capsule_bytes": 2048,
         "fork_context": "minimal",
         "result_mode": "bounded_structured_receipt",
@@ -3631,11 +3634,11 @@ def check_context_economy_contract() -> None:
     approved = evaluator(**base)
     require(approved["decision"] == "APPROVED", "default context economy was rejected")
     require(approved["budget_id"] == pool["budget_id"], "context economy lost budget binding")
-    require(approved["semantic_receipt_hash"] == "a" * 64, "semantic receipt binding drifted")
-    require(approved["invariant_capsule_hash"] == "b" * 64, "capsule hash binding drifted")
+    require(approved["semantic_receipt_id"] == "SEM-CONTEXT-CHECK", "semantic receipt binding drifted")
+    require(approved["case_ref"] == base["case_ref"], "case reference binding drifted")
 
     rejected = (
-        ({"semantic_receipt_hash": None}, "semantic_receipt_hash_required"),
+        ({"semantic_receipt_id": None}, "semantic_receipt_id_required"),
         ({"capsule_bytes": 2049}, "context_capsule_budget_exceeded"),
         ({"fork_context": "all"}, "implicit_full_context_forbidden"),
         ({"result_mode": "free_text"}, "bounded_structured_receipt_required"),
@@ -3745,4 +3748,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

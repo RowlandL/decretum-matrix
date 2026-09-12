@@ -883,8 +883,8 @@ def main() -> int:
         assert bounded["allowed"] is True, bounded
         assert bounded["static_wave_cap"] is None
         assert bounded["wave_policy"] == "dynamic_by_duty_and_capacity"
-        assert bounded["deadline_seconds"] == 600
-        assert bounded["tool_call_budget"] == 8
+        assert bounded["deadline_seconds"] is None
+        assert bounded["tool_call_budget"] is None
         assert bounded["message_budget_status"] == "legacy_unmeasured"
 
         dynamic_message = admit(
@@ -1380,6 +1380,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 

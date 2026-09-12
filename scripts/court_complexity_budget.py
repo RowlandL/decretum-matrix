@@ -57,8 +57,6 @@ _MANDATORY_HARD_LIMITS = frozenset(
         "memory_mb_max",
         "context_tokens_max",
         "message_chars_max",
-        "tool_calls_max",
-        "time_seconds_max",
         "retained_agents_max",
     }
 )

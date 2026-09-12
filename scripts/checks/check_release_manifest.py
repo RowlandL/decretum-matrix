@@ -645,7 +645,7 @@ def main() -> int:
             if step.get("gate_class") == "source" and step.get("name") != "catalog_strict"
         ]
         candidate_names = {str(step["name"]) for step in candidate_steps}
-        if len(candidate_steps) != 47:
+        if len(candidate_steps) != 48:
             raise AssertionError(f"candidate pre-install step count drifted: {len(candidate_steps)}")
         if not {
             "npm_release_harness",
@@ -663,6 +663,7 @@ def main() -> int:
             "court_plan_artifacts",
             "court_multi_instance_dispatch",
             "court_native_bridge",
+            "court_complexity_budget",
         }.issubset(
             candidate_names
         ):

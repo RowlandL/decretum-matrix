@@ -568,6 +568,7 @@ def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object)
         "evidence": f"admit {role} for {wave_id}",
         "note": "lifecycle fixture",
     }
+    values.update(deadline_seconds=600, tool_call_budget=8)
     values.update(overrides)
     namespace = Namespace(**values)
     if return_namespace:
@@ -757,6 +758,54 @@ def set_task_field(task_id: str, mutate: Callable[[dict[str, object]], None]) ->
     tasks = court_runtime.load_tasks()
     mutate(tasks[task_id])
     court_runtime.write_tasks(tasks)
+
+
+def check_explicit_execution_budgets() -> None:
+    task_id = "explicit-execution-budgets"
+    create_task(task_id)
+    admission = admit(task_id, "custom", deadline_seconds=3600, tool_call_budget=64)
+    assert admission["deadline_seconds"] == 3600
+    assert admission["tool_call_budget"] == 64
+    for field, value in (("deadline_seconds", 3601), ("tool_call_budget", 65)):
+        reject_unchanged(task_id, lambda field=field, value=value: court_runtime.agent_start(
+            start_args(admission, task_id, "custom", "gongbu-over-budget", **{field: value})),
+            f"start exceeded explicit {field}")
+    started = court_runtime.agent_start(start_args(
+        admission, task_id, "custom", "gongbu-custom-budget",
+        deadline_seconds=3600, tool_call_budget=64))
+    assert started.task["agents"]["gongbu-custom-budget"]["deadline_seconds"] == 3600
+    assert started.task["agents"]["gongbu-custom-budget"]["tool_call_budget"] == 64
+    for field in ("deadline_seconds", "tool_call_budget"):
+        for value in (0, -1, True, 1.5):
+            reject_unchanged(task_id, lambda field=field, value=value: admit(
+                task_id, "invalid-budget", **{field: value}), f"invalid {field} accepted")
+
+    default_task = "unspecified-execution-budgets"
+    create_task(default_task)
+    unbounded = admit(default_task, "optional", deadline_seconds=None, tool_call_budget=None)
+    assert unbounded["deadline_seconds"] is None and unbounded["tool_call_budget"] is None
+
+    class ExpiredLeaseTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2100, 1, 1, tzinfo=timezone.utc).astimezone(tz)
+
+    with patch("court_agent_admission.datetime", ExpiredLeaseTime):
+        reject_unchanged(default_task, lambda: court_runtime.agent_start(start_args(
+            unbounded, default_task, "optional", "gongbu-expired-lease",
+            deadline_seconds=None, tool_call_budget=None)), "expired lease allowed start")
+
+    class TwentyMinutesLater(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return super().now(tz) + timedelta(minutes=20)
+
+    with patch.object(court_runtime, "datetime", TwentyMinutesLater):
+        started = court_runtime.agent_start(start_args(
+            unbounded, default_task, "optional", "gongbu-no-default-cutoff",
+            deadline_seconds=None, tool_call_budget=None))
+    record = started.task["agents"]["gongbu-no-default-cutoff"]
+    assert record["deadline_seconds"] is None and record["tool_call_budget"] is None
 
 
 def check_admission_binding() -> None:
@@ -3792,9 +3841,17 @@ def check_admission_write_claims() -> None:
     # Invalidating an admission must not release a physically active writer.
     task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
     assert court_runtime._active_office_write_claims(task) == {"result.json"}
+
     task["agents"] = {}
     admission.pop("status")
     admission["failed_instances"] = {"gongbu#pending": {"reason": "host refusal"}}
+    assert court_runtime._active_office_write_claims(task) == set()
+    task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
+    assert court_runtime._active_office_write_claims(task) == {"result.json"}
+    admission.pop("failed_instances")
+    admission["checkpoint_id"] = "SC-previous"
+    task["semantic_receipt"] = {"checkpoint_id": "SC-current"}
+    task["agents"] = {}
     assert court_runtime._active_office_write_claims(task) == set()
     task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
     assert court_runtime._active_office_write_claims(task) == {"result.json"}
@@ -3824,6 +3881,7 @@ def run_agent_lifecycle_checks() -> None:
             check_three_department_hierarchy_revalidated_before_start_write()
             check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write()
             check_admission_binding()
+            check_explicit_execution_budgets()
             check_runtime_generates_bounded_child_profile()
             check_caller_child_binding_digest_rejected_before_admission_write()
             check_child_profile_tamper_rejected_before_start_write()

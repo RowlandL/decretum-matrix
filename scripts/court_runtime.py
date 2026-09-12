@@ -292,8 +292,12 @@ WORKTREE_GIT_READ_ONLY_COMMANDS = (
 )
 AGENT_LONG_CONTEXT_TOKENS = 32_000
 AGENT_MAX_RECENT_FORK_TURNS = 3
-AGENT_DEFAULT_DEADLINE_SECONDS = 600
-AGENT_DEFAULT_TOOL_CALL_BUDGET = 8
+AGENT_DEFAULT_DEADLINE_SECONDS = None
+AGENT_DEFAULT_TOOL_CALL_BUDGET = None
+AGENT_EXECUTION_BUDGET_DEFAULTS = {
+    "deadline_seconds": AGENT_DEFAULT_DEADLINE_SECONDS,
+    "tool_call_budget": AGENT_DEFAULT_TOOL_CALL_BUDGET,
+}
 LEGACY_OPERATION_FILENAME_SCAN_LIMIT = 64
 AGENT_MESSAGE_BUDGET_SCHEMA = "court.agent.dispatch_message_budget.v1"
 AGENT_MESSAGE_BUDGET_FLOOR_CHARS = 6_000
@@ -324,8 +328,6 @@ PUBLIC_CONTEXT_HARD_LIMITS = {
     "memory_mb_max": 2_048,
     "context_tokens_max": 100_000,
     "message_chars_max": 12_000,
-    "tool_calls_max": 8,
-    "time_seconds_max": 600.0,
     "retained_agents_max": 15,
 }
 # Deprecated compatibility alias. New admission code uses the bounded V1 ceiling.
@@ -1315,7 +1317,18 @@ def _dispatch_hierarchy_evidence(
     }
 
 
+def _execution_budgets(values: Mapping[str, object]) -> dict[str, int | None]:
+    budgets = {}
+    for field, default in AGENT_EXECUTION_BUDGET_DEFAULTS.items():
+        value = values.get(field, default)
+        if value is not None and (type(value) is not int or value < 1):
+            raise ValueError(f"admission_{field}_must_be_positive_integer")
+        budgets[field] = value
+    return budgets
+
+
 def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    execution_budgets = _execution_budgets(vars(args))
     dispatch_requested_at = now_text()
     wave_id = str(getattr(args, "wave_id", "") or "wave-default")
     context_tokens = max(0, int(getattr(args, "context_tokens", 0) or 0))
@@ -1475,8 +1488,7 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
         "direct_superior": direct_superior,
         "requested_agents": requested_agents,
         "hierarchy_receipts": tuple(hierarchy_receipts),
-        "deadline_seconds": AGENT_DEFAULT_DEADLINE_SECONDS,
-        "tool_call_budget": AGENT_DEFAULT_TOOL_CALL_BUDGET,
+        **execution_budgets,
         "reuse_errored_agents": False,
         **message_budget,
     }
@@ -1859,10 +1871,16 @@ def _active_office_write_claims(task: dict[str, Any]) -> set[str]:
     admissions = task.get("agent_admissions")
     if not isinstance(admissions, dict):
         return claims
+    receipt = task.get("semantic_receipt")
+    checkpoint_id = receipt.get("checkpoint_id") if isinstance(receipt, dict) else None
     for admission in admissions.values():
         if not isinstance(admission, dict) or admission.get("allowed") is not True:
             continue
         if str(admission.get("status") or "").upper().startswith("INVALIDATED"):
+            continue
+        if (checkpoint_id and admission.get("checkpoint_id")
+                and admission["checkpoint_id"] != checkpoint_id):
+            # Stale reservations cannot start; live writers were counted above.
             continue
         consumed = admission.get("consumed_instances")
         consumed_map = consumed if isinstance(consumed, dict) else {}
@@ -2341,16 +2359,13 @@ def _generate_missing_child_office_profiles(
     changed = False
     generated_instance_ids: list[str] = []
     generated_time = datetime.fromisoformat(generated_at).astimezone(timezone.utc)
-    deadline_seconds = max(
-        1,
-        int(
-            getattr(args, "deadline_seconds", AGENT_DEFAULT_DEADLINE_SECONDS)
-            or AGENT_DEFAULT_DEADLINE_SECONDS
-        ),
-    )
-    expires_at_utc = (generated_time + timedelta(seconds=deadline_seconds)).isoformat(
-        timespec="seconds"
-    )
+    lease = _optional_json_object(getattr(args, "budget_lease_json", ""), "budget-lease-json")
+    expires_at_utc = normalize_optional_timestamp((lease or {}).get("expires_at_utc"), "lease expiry")
+    deadline_seconds = _execution_budgets(vars(args))["deadline_seconds"]
+    if deadline_seconds is not None:
+        deadline = (generated_time + timedelta(seconds=deadline_seconds)).isoformat(timespec="seconds")
+        if expires_at_utc is None or datetime.fromisoformat(deadline) < datetime.fromisoformat(expires_at_utc):
+            expires_at_utc = deadline
     for binding in bindings:
         role = str(binding.get("role") or "").strip().lower()
         instance_kind = str(
@@ -8884,6 +8899,14 @@ def agent_event(
                     "agent_start_budget_lease_access_contract_mismatch:"
                     f"{lease_access_error}"
                 )
+            from court_agent_admission import _admission_lease_metadata_error
+            lease = admission["budget_lease"]
+            lease_error = _admission_lease_metadata_error(
+                lease, calling_office=str(admission.get("calling_office") or ""),
+                direct_superior=str(admission.get("direct_superior") or ""),
+                next_depth=lease.get("approved_next_depth"))
+            if lease_error:
+                raise ValueError(f"agent_start_budget_lease_invalid:{lease_error}")
             _validate_admission_request_binding_anchors(
                 admission,
                 selected_bindings,
@@ -9040,12 +9063,8 @@ def agent_event(
                 raise ValueError("agent start dispatch_requested_at does not match admission")
             if admitted_generated_at is None:
                 raise ValueError("agent start admission is missing generated_at")
-            try:
-                admission_deadline_seconds = int(admission.get("deadline_seconds"))
-            except (TypeError, ValueError) as exc:
-                raise ValueError("agent start admission deadline is invalid") from exc
-            if admission_deadline_seconds < 1:
-                raise ValueError("agent start admission deadline is invalid")
+            admitted_budgets = _execution_budgets(admission)
+            admission_deadline_seconds = admitted_budgets["deadline_seconds"]
             current_time = datetime.now(timezone.utc)
             for timestamp_name, timestamp_value in (
                 ("dispatch_requested_at", admitted_dispatch_requested_at),
@@ -9055,7 +9074,7 @@ def agent_event(
                 timestamp_age = (current_time - timestamp_time).total_seconds()
                 if timestamp_age < -1:
                     raise ValueError(f"agent start admission {timestamp_name} is in the future")
-                if timestamp_age > admission_deadline_seconds:
+                if admission_deadline_seconds is not None and timestamp_age > admission_deadline_seconds:
                     raise ValueError(f"agent start admission {timestamp_name} has expired")
             route_inputs = admission.get("model_route_inputs")
             if not isinstance(route_inputs, dict):
@@ -9075,11 +9094,7 @@ def agent_event(
             start_fork_turns = str(getattr(args, "fork_turns", "none") or "none")
             if not isinstance(admitted_fork_turns, str) or start_fork_turns != admitted_fork_turns:
                 raise ValueError("agent start fork_turns does not match admission")
-            for field, minimum in (
-                ("context_tokens", 0),
-                ("deadline_seconds", 1),
-                ("tool_call_budget", 1),
-            ):
+            for field, minimum in (("context_tokens", 0),):
                 admitted_value = admission.get(field)
                 start_value = getattr(args, field, None)
                 if (
@@ -9091,6 +9106,13 @@ def agent_event(
                     raise ValueError(f"agent start {field} budget is invalid")
                 if start_value < minimum or start_value > admitted_value:
                     raise ValueError(f"agent start {field} exceeds admission")
+            for field, start_value in _execution_budgets(vars(args)).items():
+                admitted_value = admitted_budgets[field]
+                if start_value is None:
+                    start_value = admitted_value
+                if admitted_value is not None and start_value > admitted_value:
+                    raise ValueError(f"agent start {field} exceeds admission")
+                setattr(args, field, start_value)
             model_routes = admission.get("model_routes")
             model_route = (
                 model_routes.get(start_instance_id)
@@ -9344,12 +9366,7 @@ def agent_event(
             current["admission_instance_id"] = start_instance_id
             current["fork_turns"] = str(getattr(args, "fork_turns", "none") or "none")
             current["context_tokens"] = max(0, int(getattr(args, "context_tokens", 0) or 0))
-            current["deadline_seconds"] = max(
-                1, int(getattr(args, "deadline_seconds", AGENT_DEFAULT_DEADLINE_SECONDS) or AGENT_DEFAULT_DEADLINE_SECONDS)
-            )
-            current["tool_call_budget"] = max(
-                1, int(getattr(args, "tool_call_budget", AGENT_DEFAULT_TOOL_CALL_BUDGET) or AGENT_DEFAULT_TOOL_CALL_BUDGET)
-            )
+            current.update(_execution_budgets(vars(args)))
             current["preload_manifest"] = asdict(manifest)
             current["preload_contract_version"] = manifest.preload_ack_schema
             current["preload_ack_required"] = True
@@ -10153,7 +10170,7 @@ def _native_bridge_preload_input_budget(
     preload_bytes = sum(measured.values())
     total_bytes = preload_bytes + host_input_bytes
     if total_bytes > NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES:
-        raise ValueError("native_bridge:entry_preload_budget_exceeded")
+        raise ValueError(f"native_bridge:entry_preload_budget_exceeded:{total_bytes}>{NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES}")
     return {
         "schema": "court.native_host_input_budget.v1",
         "limit_bytes": NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES,
@@ -10242,7 +10259,9 @@ def _native_bridge_start_request(task: Mapping[str, object], admission: Mapping[
         'fork_turns': 'none',
         'context_tokens': admission.get('context_tokens', 0),
         'dispatch_context_packet': public_dispatch_context_packet(task, str(admission.get('wave_id') or '')),
-        'context_budget_pool': public_context_budget_pool(task, str(admission.get('wave_id') or '')),
+        'context_budget_pool': deepcopy(admission['context_budget_pool_ref'])
+            if isinstance(admission.get('context_budget_pool_ref'), Mapping)
+            else public_context_budget_pool(task, str(admission.get('wave_id') or '')),
         'context_result_mode': admission.get('context_result_mode', 'bounded_structured_receipt'),
         'context_tool_output_mode': admission.get('context_tool_output_mode', 'pointer'),
         'context_override_source': admission.get('context_override_source'),
@@ -10262,7 +10281,7 @@ def _native_bridge_start_request(task: Mapping[str, object], admission: Mapping[
     try:
         _revalidate_context_economy_start(dict(task), dict(admission), dict(binding), argparse.Namespace(**office_request), wave_id=str(admission.get('wave_id') or ''))
     except ValueError as exc:
-        raise ValueError('native_bridge:office_start_context_reconstruction_failed') from exc
+        raise ValueError(f'native_bridge:office_start_context_reconstruction_failed:{exc}') from exc
     return office_request
 
 
@@ -11133,15 +11152,22 @@ def public_dispatch_context_packet(task: Mapping[str, object], wave_id: str) -> 
 def public_context_budget_pool(
     task: Mapping[str, object],
     wave_id: str,
+    *,
+    execution_budgets: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     receipt = task.get("semantic_receipt")
     if not isinstance(receipt, Mapping):
         raise ValueError("semantic_receipt_missing")
+    limits = dict(PUBLIC_CONTEXT_HARD_LIMITS)
+    budgets = _execution_budgets(execution_budgets or {})
+    for field, cap in (("deadline_seconds", "time_seconds_max"), ("tool_call_budget", "tool_calls_max")):
+        if budgets[field] is not None:
+            limits[cap] = budgets[field]
     return normalize_budget_pool(
         total_share=100.0,
         root_id="taizi",
         reserve_share=10.0,
-        hard_limits=PUBLIC_CONTEXT_HARD_LIMITS,
+        hard_limits=limits,
         task_id=require_text(str(task.get("task_id") or ""), "task-id"),
         phase="P00-PUBLIC-ADMISSION",
         wave_id=require_text(wave_id, "wave-id"),
@@ -11198,6 +11224,8 @@ def public_admission_request_json_schema() -> dict[str, object]:
             properties[field] = {"type": ["string", "null"]}
         else:
             properties[field] = {"type": "string"}
+    for field, default in AGENT_EXECUTION_BUDGET_DEFAULTS.items():
+        properties[field] = {"type": ["integer", "null"], "minimum": 1, "default": default}
     properties["schema"] = {"type": "string", "const": "court.agent.admission_request.v1"}
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -11213,7 +11241,7 @@ def public_admission_request_argv(value: object) -> list[str]:
     if not isinstance(value, dict):
         raise ValueError("admission_request_must_be_object")
     missing = sorted(PUBLIC_ADMISSION_REQUEST_FIELDS - set(value))
-    unknown = sorted(set(value) - PUBLIC_ADMISSION_REQUEST_FIELDS)
+    unknown = sorted(set(value) - PUBLIC_ADMISSION_REQUEST_FIELDS - AGENT_EXECUTION_BUDGET_DEFAULTS.keys())
     if missing:
         raise ValueError("admission_request_fields_missing:" + ",".join(missing))
     if unknown:
@@ -11244,6 +11272,9 @@ def public_admission_request_argv(value: object) -> list[str]:
     argv = ["agent-admit", "--case-ref", json.dumps(value["case_ref"], ensure_ascii=False)]
     for field in scalar_fields:
         argv.extend((f"--{field.replace('_', '-')}", str(value[field])))
+    for field, budget in _execution_budgets(value).items():
+        if field in value and budget is not None:
+            argv.extend((f"--{field.replace('_', '-')}", str(budget)))
     argv.extend(("--requested-roles", ",".join(roles)))
     for field in (
         "budget_lease", "requested_bindings", "dispatch_context_packet",
@@ -11384,6 +11415,7 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
         "needs_parallel_tree": True,
         "requested_fork_turns": "none",
         "context_tokens": int(args.context_tokens),
+        **_execution_budgets(vars(args)),
         "message_chars": int(args.message_chars),
         "message_required_chars": int(args.message_chars),
         "message_optional_chars": 0,
@@ -11413,7 +11445,8 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
         "actor": calling_office,
         "evidence": require_text(args.evidence, "evidence"),
         "dispatch_context_packet": public_dispatch_context_packet(task, str(args.wave_id)),
-        "context_budget_pool": public_context_budget_pool(task, str(args.wave_id)),
+        "context_budget_pool": public_context_budget_pool(
+            task, str(args.wave_id), execution_budgets=_execution_budgets(vars(args))),
         "context_result_mode": "bounded_structured_receipt",
         "context_tool_output_mode": "pointer",
         "context_override_source": None,
@@ -11731,6 +11764,8 @@ def build_parser() -> argparse.ArgumentParser:
     admission_template.add_argument("--context-tokens", type=int, default=1000)
     admission_template.add_argument("--message-chars", type=int, default=256)
     admission_template.add_argument("--system-memory-percent", type=float, default=0.0)
+    for field, default in AGENT_EXECUTION_BUDGET_DEFAULTS.items():
+        admission_template.add_argument(f"--{field.replace('_', '-')}", type=int, default=default)
     for name in ("complexity", "risk", "ambiguity"):
         admission_template.add_argument(
             f"--{name}", required=True, choices=sorted(EVALUATION_LEVELS)
@@ -12096,6 +12131,8 @@ def build_parser() -> argparse.ArgumentParser:
     agent_admit_parser.add_argument("--needs-reasoning-effort-override", action="store_true")
     agent_admit_parser.add_argument("--requested-fork-turns", default="none")
     agent_admit_parser.add_argument("--context-tokens", type=int, default=0)
+    for field, default in AGENT_EXECUTION_BUDGET_DEFAULTS.items():
+        agent_admit_parser.add_argument(f"--{field.replace('_', '-')}", type=int, default=default)
     agent_admit_parser.add_argument(
         "--message-chars",
         type=int,
