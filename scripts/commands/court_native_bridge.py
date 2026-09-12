@@ -200,7 +200,7 @@ def canonical_host_message(
             "skill": "SKILL.md",
             "then_read": [f"agents/standing-officials/{normalized['role']}.toml",
                           f"agents/office-dossiers/{normalized['role']}/AGENTS.md"],
-            "then": "After required reads, output child_acceptance JSON in your own assistant commentary, then notify your direct superior. A send_message alone is not this observable receipt. Wait for superior CLI acceptance before business CLI/MCP. Reuse supplied case/capsule references; no root intake or preflight scripts.",
+            "then": "After required reads, output child_acceptance JSON in your own assistant commentary; a send_message alone is not this observable receipt. Notify your direct superior and wait for acceptance before business CLI/MCP. Reuse supplied case/capsule references without standalone preflight scripts or root intake.",
             "child_acceptance": {
                 "schema": "court.child_preload_acceptance.v1",
                 "task_id": normalized['task_id'], "role_key": normalized['role'],
