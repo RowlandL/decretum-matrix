@@ -1431,8 +1431,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_native_bridge.py",
-      "sha256": "0216ae8429eada6ff1695882cd39e2399a1ab23835dda6a8f75b6e05d32539e0",
-      "size": 84456
+      "sha256": "5d23223585934ceb7d7db2db0123d6e31154c39b68b5836d72e2a597780d852b",
+      "size": 84492
     },
     {
       "mode": "100644",
@@ -1455,8 +1455,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_open_fastpath.py",
-      "sha256": "b6165ec48d384c2580294b29d546568272ad131988a22c9b1b9f936184415de9",
-      "size": 46149
+      "sha256": "03b1c8b8b0dc880147652eaf6f0ff5e6dfb641ddeb07fbfb535fbc37d6b3d3b1",
+      "size": 46505
     },
     {
       "mode": "100644",
@@ -1923,8 +1923,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/court_open_fastpath.py",
-      "sha256": "8f2ae3e0bdb7fdfcb3d10ec95a45aba7b724b6fa0a31d244e55443ae52b5cfc1",
-      "size": 68349
+      "sha256": "6e590b97c947808c3f6688a7cec819eae33333fa7b52d00ba468dd902e2ceba2",
+      "size": 68200
     },
     {
       "mode": "100644",
@@ -2295,8 +2295,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_office_bootstrap.py",
-      "sha256": "c99340f62254299b9ad828a867c119c7f81901c4823071f856821b55c4e434f8",
-      "size": 21801
+      "sha256": "03dfeff2e4da2febe5f88ffee133d878adc9d7c9f59615554f6f65299fc11b06",
+      "size": 21939
     },
     {
       "mode": "100644",
@@ -2355,8 +2355,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "534c8950e952489490e471bdb49fa1d709aaac65342d9f1c32f4bf048c8eeab0",
-      "size": 587656
+      "sha256": "deaad10f9ec466cff5389f2b3ef7b8a4e06e9b2a8858ecfc7e6fd024f2cd4351",
+      "size": 587931
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8891738,
+    "payload_bytes": 8892394,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "f504bdb97e616b15c1e006b90bb32b8e54100912a5d74af584efa9c548e992d4",
+    "payload_index_sha256": "d272b26246e3ca5ca393d8b399a2e1f0c63ecdcc3263efcfa95636133886359b",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 634
   },

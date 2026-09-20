@@ -57,6 +57,7 @@ from court_office_bootstrap import (
     build_child_office_profile,
     build_office_assignment_binding,
     build_preload_manifest,
+    read_preload,
     validate_preload_ack,
 )
 from court_model_router import (
@@ -10524,6 +10525,13 @@ def _native_bridge_optional_capability(
 NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES = ENTRY_PRELOAD_BUDGET_BYTES
 
 
+def _native_bridge_preload_source_bytes(candidate: Path) -> int:
+    try:
+        return read_preload(candidate)[1]
+    except (OSError, UnicodeError) as exc:
+        raise ValueError("native_bridge:preload_source_invalid") from exc
+
+
 def _native_bridge_preload_input_budget(
     binding: Mapping[str, object],
     host_message: str,
@@ -10559,7 +10567,7 @@ def _native_bridge_preload_input_budget(
             raise ValueError("native_bridge:preload_path_outside_root") from exc
         if not candidate.is_file():
             raise ValueError("native_bridge:preload_source_invalid")
-        measured[label] = candidate.stat().st_size
+        measured[label] = _native_bridge_preload_source_bytes(candidate)
     host_input_bytes = len(host_message.encode("utf-8"))
     preload_bytes = sum(measured.values())
     total_bytes = preload_bytes + host_input_bytes

@@ -1414,11 +1414,12 @@ class NativeCapabilityContractTests(unittest.TestCase):
         )
         manifest = build_preload_manifest("gongbu")
         startup = "references/court-normal-startup.md"
+        measure = court_runtime._native_bridge_preload_source_bytes
         material_bytes = {
-            "court_skill_bytes": (OFFICE_ROOT / manifest.court_skill_path).stat().st_size,
-            "startup_guide_bytes": (OFFICE_ROOT / startup).stat().st_size,
-            "profile_bytes": (OFFICE_ROOT / manifest.profile_source).stat().st_size,
-            "dossier_bytes": (OFFICE_ROOT / manifest.dossier_path).stat().st_size,
+            "court_skill_bytes": measure(OFFICE_ROOT / manifest.court_skill_path),
+            "startup_guide_bytes": measure(OFFICE_ROOT / startup),
+            "profile_bytes": measure(OFFICE_ROOT / manifest.profile_source),
+            "dossier_bytes": measure(OFFICE_ROOT / manifest.dossier_path),
         }
         host_input_bytes = len(native["host_message"].encode("utf-8"))
         actual_total = sum(material_bytes.values()) + host_input_bytes

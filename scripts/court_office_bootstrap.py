@@ -70,6 +70,11 @@ class OfficePreloadManifest:
     preload_ack_schema: str = PRELOAD_ACK_SCHEMA
 
 
+def read_preload(path: Path) -> tuple[str, int]:
+    text = path.read_text(encoding="utf-8")
+    return text, len(text.encode("utf-8"))
+
+
 
 
 

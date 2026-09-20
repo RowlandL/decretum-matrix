@@ -458,10 +458,14 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         for relative in source_paths:
             target = source_fixture / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text((court_open_fastpath.ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
-        startup_bytes = (source_fixture / startup_path).stat().st_size
+            target.write_text((court_open_fastpath.ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8", newline="\r\n")
+        startup_bytes = len((source_fixture / startup_path).read_text(encoding="utf-8").encode("utf-8"))
         with patch.object(Path, "read_bytes", side_effect=AssertionError("fastpath file rehash")):
             source_preloads = court_open_fastpath.load_preloads(source_fixture, source_roles, concurrent=False)
+        (source_fixture / "SKILL.md").write_bytes(b"\xff")
+        try: court_open_fastpath.load_preloads(source_fixture, (), concurrent=False)
+        except court_open_fastpath.FastPathMiss as exc: assert exc.reason == "preload_unavailable"
+        else: raise AssertionError("invalid preload accepted")
     source_preload_bytes = {
         role: {
             "loaded_bytes": source_preloads[role].loaded_bytes,

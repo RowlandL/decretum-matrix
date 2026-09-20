@@ -29,6 +29,7 @@ import weakref
 sys.dont_write_bytecode = True
 
 from court_office_config import ENTRY_PRELOAD_BUDGET_BYTES
+from court_office_bootstrap import read_preload
 
 from court_native_execution import AUTHORITIES, BEHAVIORS, select_native_execution
 
@@ -736,12 +737,9 @@ def _role_preload(
     dossier_path = skill_root / dossier_relative
     startup_path = skill_root / startup_relative
     try:
-        profile_text = profile_path.read_text(encoding="utf-8")
-        dossier_text = dossier_path.read_text(encoding="utf-8")
-        startup_path.read_text(encoding="utf-8")
-        profile_bytes = profile_path.stat().st_size
-        dossier_bytes = dossier_path.stat().st_size
-        startup_bytes = startup_path.stat().st_size
+        profile_text, profile_bytes = read_preload(profile_path)
+        dossier_text, dossier_bytes = read_preload(dossier_path)
+        _, startup_bytes = read_preload(startup_path)
         profile = tomllib.loads(profile_text)
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
         raise FastPathMiss("preload_unavailable", f"{role}:{type(exc).__name__}:{exc}") from exc
@@ -836,14 +834,13 @@ def load_preloads(
             cached = _PRELOAD_CACHE.get(cache_key)
         if cached is not None:
             return dict(cached)
-        (skill_root / "SKILL.md").read_text(encoding="utf-8")
-        skill_bytes = (skill_root / "SKILL.md").stat().st_size
+        _, skill_bytes = read_preload(skill_root / "SKILL.md")
         hierarchy = json.loads(
             (skill_root / "references" / "manifests" / "court-dispatch-hierarchy.v1.json").read_text(
                 encoding="utf-8"
             )
         )
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise FastPathMiss("preload_unavailable", f"SKILL.md:{exc}") from exc
     if not isinstance(hierarchy, dict) or hierarchy.get("schema") != "court.dispatch_hierarchy.v1":
         raise FastPathMiss("hierarchy_incomplete", "manifest_schema")
