@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILE_ROOT = ROOT / "agents" / "standing-officials"
 ORDINARY_DOSSIER_ROOT = ROOT / "agents" / "office-dossiers"
 SKILL_PATH = ROOT / "SKILL.md"
+STARTUP_GUIDE_PATH = "references/court-normal-startup.md"
 ROLE_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 PRELOAD_ACK_SCHEMA = "court.office.preload_ack.v1"
 COURT_SKILL_NAME = "decretum-matrix"
@@ -64,6 +65,7 @@ class OfficePreloadManifest:
     dossier_path: str
     court_skill_name: str
     court_skill_path: str
+    startup_guide_path: str
     court_code: str | None = None
     preload_ack_schema: str = PRELOAD_ACK_SCHEMA
 
@@ -396,6 +398,7 @@ def build_preload_manifest(
         dossier_path=dossier_locator.as_posix(),
         court_skill_name=COURT_SKILL_NAME,
         court_skill_path="SKILL.md",
+        startup_guide_path=STARTUP_GUIDE_PATH,
         court_code=court_code,
     )
 
@@ -479,6 +482,8 @@ def validate_preload_ack(
         "profile_source": manifest.profile_source,
         "dossier_path": manifest.dossier_path,
         "court_skill_path": manifest.court_skill_path,
+        "startup_guide_path": manifest.startup_guide_path,
+        "startup_guide_loaded": "YES",
         "court_code": manifest.court_code,
         "agent_dossier_loaded": "YES",
     }

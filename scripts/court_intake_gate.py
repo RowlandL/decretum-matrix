@@ -20,6 +20,9 @@ UNDERSTANDING_DIMENSIONS = (
 )
 UNDERSTANDING_LEVELS = frozenset({"CLEAR", "PARTIAL", "MISSING"})
 UNDERSTANDING_ROUTES = frozenset({"DIRECT_EXECUTION", "RESTATE_CONFIRM", "SINGLE_QUESTION"})
+MODEL_REQUEST_REASONING_EFFORTS = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+)
 
 WORK_KINDS = frozenset(
     {
@@ -72,7 +75,7 @@ _REQUIRED_FIELDS = frozenset(
         "rationale",
     }
 )
-_OPTIONAL_FIELDS = frozenset({"target_task_id", "understanding"})
+_OPTIONAL_FIELDS = frozenset({"target_task_id", "understanding", "model_request"})
 _STRING_FIELDS = (
     "schema",
     "active_decree_state",
@@ -127,6 +130,51 @@ def request_understanding_json_schema() -> dict[str, object]:
             "confirmation_required": {"type": "boolean"},
         },
         "additionalProperties": False,
+    }
+
+
+def model_request_json_schema() -> dict[str, object]:
+    return {
+        "type": "object",
+        "required": ["model", "reasoning_effort"],
+        "properties": {
+            "model": {"type": ["string", "null"]},
+            "reasoning_effort": {
+                "type": ["string", "null"],
+                "enum": [None, *sorted(MODEL_REQUEST_REASONING_EFFORTS)],
+            },
+        },
+        "additionalProperties": False,
+    }
+
+
+def validate_model_request(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("model_request_type")
+    if set(value) != {"model", "reasoning_effort"}:
+        raise ValueError("model_request_fields")
+    model = value.get("model")
+    reasoning_effort = value.get("reasoning_effort")
+    if model is not None and not isinstance(model, str):
+        raise ValueError("model_request_model")
+    if reasoning_effort is not None and not isinstance(reasoning_effort, str):
+        raise ValueError("model_request_reasoning_effort")
+    normalized_model = (model.strip() or None) if isinstance(model, str) else None
+    normalized_effort = (
+        (reasoning_effort.strip() or None)
+        if isinstance(reasoning_effort, str)
+        else None
+    )
+    if normalized_model is None and normalized_effort is None:
+        raise ValueError("model_request_empty")
+    if (
+        normalized_effort is not None
+        and normalized_effort not in MODEL_REQUEST_REASONING_EFFORTS
+    ):
+        raise ValueError("model_request_reasoning_effort")
+    return {
+        "model": normalized_model,
+        "reasoning_effort": normalized_effort,
     }
 
 
@@ -239,12 +287,13 @@ def conversation_gate_json_schema() -> dict[str, object]:
     properties["next_route"]["enum"] = sorted(NEXT_ROUTES)
     properties["target_task_id"] = {"type": "string", "minLength": 1}
     properties["understanding"] = request_understanding_json_schema()
+    properties["model_request"] = model_request_json_schema()
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": INTAKE_SCHEMA,
         "type": "object",
         "required": sorted(_REQUIRED_FIELDS),
-        "optional": ["target_task_id", "understanding"],
+        "optional": ["target_task_id", "understanding", "model_request"],
         "properties": properties,
         "additionalProperties": False,
     }
@@ -304,6 +353,8 @@ def validate_conversation_gate_diagnostics(value: object) -> dict[str, object]:
         errors.append({"field": "target_task_id", "kind": "type", "code": "string_required"})
     if "understanding" in raw and not isinstance(raw["understanding"], dict):
         errors.append({"field": "understanding", "kind": "type", "code": "object_required"})
+    if "model_request" in raw and not isinstance(raw["model_request"], dict):
+        errors.append({"field": "model_request", "kind": "type", "code": "object_required"})
     enum_fields = {
         "schema": {INTAKE_SCHEMA},
         "message_class": MESSAGE_CLASSES,
@@ -384,6 +435,8 @@ def validate_conversation_gate(value: object) -> dict[str, object]:
         normalized["target_task_id"] = target_task_id
     if "understanding" in raw:
         normalized["understanding"] = validate_request_understanding(raw["understanding"])
+    if "model_request" in raw:
+        normalized["model_request"] = validate_model_request(raw["model_request"])
 
     schema = str(normalized["schema"])
     active_decree = bool(normalized["active_decree"])
@@ -398,6 +451,7 @@ def validate_conversation_gate(value: object) -> dict[str, object]:
     next_route = str(normalized["next_route"])
     question = str(normalized["question"])
     rationale = str(normalized["rationale"])
+    model_request = normalized.get("model_request")
 
     _require(schema == INTAKE_SCHEMA, "schema")
     _require(message_class in MESSAGE_CLASSES, "message_class")
@@ -407,6 +461,11 @@ def validate_conversation_gate(value: object) -> dict[str, object]:
     _require(consent in TASKIZATION_CONSENTS, "taskization_consent")
     _require(next_route in NEXT_ROUTES, "next_route")
     _require(bool(rationale), "rationale")
+    if model_request is not None:
+        _require(
+            message_class in {"FORMAL_TASK", "TASK_CORRECTION"},
+            "model_request_message_class",
+        )
     if active_decree:
         _require(active_state != "NONE", "active_decree_state_mismatch")
     else:

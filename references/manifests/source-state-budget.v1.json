@@ -102,7 +102,7 @@
   "hard_limits": {
     "portable_source": {
       "max_files": 545,
-      "max_bytes": 9365000
+      "max_bytes": 9590000
     },
     "source_lines": {
       "scripts/court_native_execution.py": 100,
@@ -120,7 +120,7 @@
       "scripts/court_agent_admission_contract.py": 300,
       "scripts/governance_framework.py": 420,
       "scripts/shiguan_gbrain.py": 500,
-      "scripts/court_intake_gate.py": 580,
+      "scripts/court_intake_gate.py": 620,
       "scripts/shiguan_pending_trust.py": 460,
       "scripts/obsidian_config_state.py": 220,
       "scripts/codex_runtime_probe_support.py": 300,
@@ -129,7 +129,7 @@
       "scripts/checks/check_court_codex_host_resolution.py": 140,
       "scripts/checks/check_shiguan_git_federation.py": 380,
       "scripts/checks/check_release_metadata.py": 140,
-      "scripts/checks/check_court_intake_gate.py": 620,
+      "scripts/checks/check_court_intake_gate.py": 730,
       "scripts/checks/check_governance_framework.py": 785,
       "scripts/commands/ensure_supercc_court.py": 5700,
       "scripts/services/ensure_shiguan_autosync.py": 650,

@@ -24,6 +24,7 @@ from court_native_host_dispatch import (
     select_native_host_action,
 )
 from court_native_identity import canonical_agent_path_identity
+from court_model_router import validate_current_codex_model_selection
 from court_native_trace import (bind_opaque_spawn, is_opaque_message, spawn_activity,
                                 skill_read_order, NativeEvidencePending)
 
@@ -64,34 +65,79 @@ def _text(value: object, field: str, *, maximum: int = 4096) -> str:
     return text
 
 
-def _input(value: object, *, schema: str, label: str) -> dict[str, str]:
-    if not isinstance(value, Mapping) or set(value) != {
+def _input(
+    value: object,
+    *,
+    schema: str,
+    label: str,
+    allow_model_capabilities: bool = False,
+) -> dict[str, str]:
+    required_fields = {
         "schema",
         "task_id",
         "wave_id",
         "instance_id",
-    }:
+    }
+    optional_fields = {"spawn_agent_type_field"}
+    if allow_model_capabilities:
+        optional_fields.update(
+            {"spawn_model_field", "spawn_reasoning_effort_field"}
+        )
+    if not isinstance(value, Mapping) or not (
+        required_fields <= set(value) <= required_fields | optional_fields
+    ):
         raise ValueError(f"native_bridge:{label}_fields_invalid")
     if value.get("schema") != schema:
         raise ValueError(f"native_bridge:{label}_schema_invalid")
-    return {
+    result = {
         "schema": schema,
         "task_id": _text(value.get("task_id"), f"{label}.task_id"),
         "wave_id": _text(value.get("wave_id"), f"{label}.wave_id"),
         "instance_id": _text(value.get("instance_id"), f"{label}.instance_id").lower(),
     }
+    if "spawn_agent_type_field" in value:
+        capability = _text(
+            value.get("spawn_agent_type_field"),
+            f"{label}.spawn_agent_type_field",
+            maximum=16,
+        ).lower()
+        if capability not in {"visible", "hidden"}:
+            raise ValueError(f"native_bridge:{label}_spawn_agent_type_field_invalid")
+        result["spawn_agent_type_field"] = capability
+    for field in ("spawn_model_field", "spawn_reasoning_effort_field"):
+        if field not in value:
+            continue
+        capability = _text(
+            value.get(field),
+            f"{label}.{field}",
+            maximum=16,
+        ).lower()
+        if capability not in {"visible", "hidden"}:
+            raise ValueError(f"native_bridge:{label}_{field}_invalid")
+        result[field] = capability
+    return result
 
 
 def normalize_native_request_input(value: object) -> dict[str, str]:
     """Accept only task/admission identity selectors for a request build."""
 
-    return _input(value, schema=NATIVE_REQUEST_INPUT_SCHEMA, label="native_request")
+    return _input(
+        value,
+        schema=NATIVE_REQUEST_INPUT_SCHEMA,
+        label="native_request",
+        allow_model_capabilities=True,
+    )
 
 
 def normalize_native_capture_input(value: object) -> dict[str, str]:
     """Reject caller-provided host results, ids, paths, and trace selectors."""
 
-    return _input(value, schema=NATIVE_CAPTURE_INPUT_SCHEMA, label="native_capture")
+    return _input(
+        value,
+        schema=NATIVE_CAPTURE_INPUT_SCHEMA,
+        label="native_capture",
+        allow_model_capabilities=True,
+    )
 
 
 def host_message_marker(request: object) -> str:
@@ -184,6 +230,8 @@ def canonical_host_message(
 
     normalized = normalize_native_host_dispatch_request(request)
     decision, action, _ = select_native_host_action(normalized)
+    if action == "followup" and agent_type is not None:
+        raise ValueError("native_bridge:spawn_agent_type_field_not_applicable")
     request_ref = native_request_reference(normalized)
     normalized_agent_type = None
     if agent_type is not None:
@@ -195,18 +243,20 @@ def canonical_host_message(
         "marker": host_message_marker(normalized),
         "request_ref": request_ref,
         "bootstrap": {
-            "first_action": "Fully read SKILL.md before any business CLI or MCP call.",
-            "skill_base": "Use the installed skill location declared by your role card; all paths below are relative to it.",
+            "first_action": "Read SKILL.md < startup < {profile,dossier}.",
+            "skill_base": "Installed root.",
             "skill": "SKILL.md",
-            "then_read": [f"agents/standing-officials/{normalized['role']}.toml",
+            "then_read": ["references/court-normal-startup.md",
+                          f"agents/standing-officials/{normalized['role']}.toml",
                           f"agents/office-dossiers/{normalized['role']}/AGENTS.md"],
-            "then": "After required reads, output child_acceptance JSON in your own assistant commentary; a send_message alone is not this observable receipt. Notify your direct superior and wait for acceptance before business CLI/MCP. Reuse supplied case/capsule references without standalone preflight scripts or root intake.",
+            "then": "Emit acceptance; notify superior; wait.",
             "child_acceptance": {
                 "schema": "court.child_preload_acceptance.v1",
                 "task_id": normalized['task_id'], "role_key": normalized['role'],
                 "office_instance_id": normalized['instance_id'],
                 "request_ref": request_ref,
-                "skill_loaded": True, "profile_loaded": True, "dossier_loaded": True,
+                "skill_loaded": True, "startup_guide_loaded": True,
+                "profile_loaded": True, "dossier_loaded": True,
             },
         },
         "task": {
@@ -241,6 +291,8 @@ def _host_invocation(
     *,
     message: str,
     agent_type: str | None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, object]:
     _decision, action, candidate = select_native_host_action(request)
     if action == "spawn":
@@ -256,6 +308,10 @@ def _host_invocation(
         }
         if agent_type is not None:
             arguments["agent_type"] = agent_type
+        if model is not None:
+            arguments["model"] = model
+        if reasoning_effort is not None:
+            arguments["reasoning_effort"] = reasoning_effort
         return {
             "tool_name": "spawn_agent",
             "arguments": arguments,
@@ -282,11 +338,15 @@ def native_request_result(
     execution: object,
     p00_context: object,
     agent_type: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, object]:
     """Expose the exact canonical host message and direct host invocation."""
 
     normalized = normalize_native_host_dispatch_request(request)
     decision, action, _ = select_native_host_action(normalized)
+    if action == "followup" and (model is not None or reasoning_effort is not None):
+        raise ValueError("native_bridge:model_effort_fields_not_applicable")
     request_ref = native_request_reference(normalized)
     message = canonical_host_message(
         normalized,
@@ -304,6 +364,8 @@ def native_request_result(
             normalized,
             message=message,
             agent_type=agent_type,
+            model=model,
+            reasoning_effort=reasoning_effort,
         ),
         "decision": decision,
         "expected_host_action": action,
@@ -453,6 +515,18 @@ def _exact_message(arguments: Mapping[str, object], expected: str) -> None:
         raise ValueError("native_bridge:host_message_mismatch")
 
 
+def _model_bound_message(
+    arguments: Mapping[str, object],
+    *,
+    expected: str,
+    request: Mapping[str, object],
+) -> None:
+    # Model authorization changes only the reserved host arguments; it never
+    # relaxes the bounded P00 message.  The exact request/capsule/context bytes
+    # must therefore match just as they do on the inheritance path.
+    _exact_message(arguments, expected)
+
+
 def _agent_type_guard(
     arguments: Mapping[str, object],
     request: Mapping[str, object],
@@ -477,6 +551,7 @@ def _exact_spawn_call(
     marker: str,
     invocation: Mapping[str, object],
     expected_agent_type: str | None,
+    allow_bound_dispatch_context: bool = False,
 ) -> tuple[str, str] | None:
     event_type = str(payload.get("type") or "").strip().lower()
     if event_type not in _CALL_TYPES:
@@ -497,7 +572,15 @@ def _exact_spawn_call(
     expected = invocation.get("arguments")
     if not isinstance(expected, Mapping):
         raise ValueError("native_bridge:host_invocation_invalid")
-    allowed = {"task_name", "fork_turns", "message", "prompt", "agent_type"}
+    allowed = {
+        "task_name",
+        "fork_turns",
+        "message",
+        "prompt",
+        "agent_type",
+        "model",
+        "reasoning_effort",
+    }
     if set(arguments) - allowed:
         raise ValueError("native_bridge:host_argument_override_rejected")
     if arguments.get("task_name") != expected.get("task_name"):
@@ -505,12 +588,24 @@ def _exact_spawn_call(
     if arguments.get("fork_turns") != "none":
         raise ValueError("native_bridge:host_fork_turns_mismatch")
     if not is_opaque_message(arguments.get('message')):
-        _exact_message(arguments, str(expected.get("message") or ""))
+        if allow_bound_dispatch_context:
+            _model_bound_message(
+                arguments,
+                expected=str(expected.get("message") or ""),
+                request=request,
+            )
+        else:
+            _exact_message(arguments, str(expected.get("message") or ""))
     _agent_type_guard(
         arguments,
         request,
         expected_agent_type=expected_agent_type,
     )
+    for field in ("model", "reasoning_effort"):
+        if (field in arguments) != (field in expected) or (
+            field in expected and arguments.get(field) != expected.get(field)
+        ):
+            raise ValueError(f"native_bridge:host_{field}_mismatch")
     return _call_id(payload), name
 
 
@@ -693,6 +788,73 @@ def _read_session_header(path: Path) -> dict[str, object]:
     return row['payload']
 
 
+def _observed_child_role_capability(
+    home: Path,
+    *,
+    child_thread_id: object,
+    root_session_id: str,
+    expected_agent_type: str | None,
+) -> dict[str, object]:
+    """Bind visible/hidden spawn capability to real child session metadata."""
+
+    capability = "visible" if expected_agent_type is not None else "hidden"
+    if not isinstance(child_thread_id, str):
+        if capability == "visible":
+            raise ValueError("native_bridge:visible_child_thread_id_invalid")
+        return {
+            "observed_spawn_agent_type_field": "hidden",
+            "observed_child_agent_role": None,
+        }
+    if _UUID_RE.fullmatch(child_thread_id) is None:
+        if capability == "visible":
+            try:
+                _session_metadata_path(home, child_thread_id.lower())
+            except ValueError:
+                return {
+                    "observed_spawn_agent_type_field": "unverified",
+                    "observed_child_agent_role": None,
+                }
+            raise ValueError("native_bridge:visible_child_thread_id_invalid")
+        return {
+            "observed_spawn_agent_type_field": "hidden",
+            "observed_child_agent_role": None,
+        }
+    child_id = child_thread_id.lower()
+    try:
+        meta = _read_session_header(_session_metadata_path(home, child_id))
+    except OSError as exc:
+        if capability == "visible":
+            raise ValueError("native_bridge:visible_child_session_metadata_missing") from exc
+        return {
+            "observed_spawn_agent_type_field": "hidden",
+            "observed_child_agent_role": None,
+        }
+    if (
+        str(meta.get("id") or "").lower() != child_id
+        or str(meta.get("session_id") or "").lower() != root_session_id
+    ):
+        raise ValueError("native_bridge:child_session_metadata_mismatch")
+    source = meta.get("source")
+    subagent = source.get("subagent") if isinstance(source, Mapping) else None
+    spawn = subagent.get("thread_spawn") if isinstance(subagent, Mapping) else None
+    if not isinstance(spawn, Mapping):
+        raise ValueError("native_bridge:child_session_agent_role_mismatch")
+    observed_role = spawn.get("agent_role")
+    if expected_agent_type is not None:
+        if (
+            not isinstance(observed_role, str)
+            or observed_role.strip().lower() != expected_agent_type
+        ):
+            raise ValueError("native_bridge:child_session_agent_role_mismatch")
+        observed_role = expected_agent_type
+    elif observed_role is not None:
+        raise ValueError("native_bridge:child_session_agent_role_mismatch")
+    return {
+        "observed_spawn_agent_type_field": capability,
+        "observed_child_agent_role": observed_role,
+    }
+
+
 def _root_thread_from_trace(home: Path, reader_thread: str, session: str) -> str:
     """Walk host-recorded ancestry; a session identifier is not a thread identifier."""
     seen = set()
@@ -749,7 +911,10 @@ def captured_child_read_order(record: Mapping[str, object], manifest: object,
     # Source trees and npm caches do not qualify by containing this module.
     for root in {Path.home() / '.agents/skills/decretum-matrix', home / 'skills/decretum-matrix'}:
         try:
-            for attr in ('court_skill_path', 'profile_source', 'dossier_path'):
+            for attr in (
+                'court_skill_path', 'startup_guide_path',
+                'profile_source', 'dossier_path',
+            ):
                 material = (root / str(getattr(manifest, attr))).resolve()
                 material.relative_to(root.resolve())
                 if not material.is_file():
@@ -760,12 +925,209 @@ def captured_child_read_order(record: Mapping[str, object], manifest: object,
     if not roots:
         raise NativeEvidencePending('native_bridge:active_install_identity_not_observed')
     required = {name: [str(r / str(getattr(manifest, attr))) for r in roots]
-                for name, attr in (('skill', 'court_skill_path'), ('profile', 'profile_source'), ('dossier', 'dossier_path'))}
+                for name, attr in (
+                    ('skill', 'court_skill_path'),
+                    ('startup', 'startup_guide_path'),
+                    ('profile', 'profile_source'),
+                    ('dossier', 'dossier_path'),
+                )}
     ack = {'schema': 'court.child_preload_acceptance.v1', 'task_id': task_id,
            'role_key': record.get('role'), 'office_instance_id': record.get('office_instance_id'),
            'request_ref': record.get('native_host_request_ref'),
-           'skill_loaded': True, 'profile_loaded': True, 'dossier_loaded': True}
+           'skill_loaded': True, 'startup_guide_loaded': True,
+           'profile_loaded': True, 'dossier_loaded': True}
     return skill_read_order(rows, required, child_ack=ack, child_thread_id=str(evidence['child_thread_id']))
+
+
+def _capture_model_selection(
+    value: object | None,
+    *,
+    request: Mapping[str, object],
+    spawn_model_field: str | None,
+    spawn_reasoning_effort_field: str | None,
+) -> dict[str, object] | None:
+    normalized_capabilities: dict[str, str | None] = {}
+    for field, capability in (
+        ("model", spawn_model_field),
+        ("reasoning_effort", spawn_reasoning_effort_field),
+    ):
+        if capability is None:
+            normalized_capabilities[field] = None
+            continue
+        normalized = _text(
+            capability,
+            f"spawn_{field}_field",
+            maximum=16,
+        ).lower()
+        if normalized not in {"visible", "hidden"}:
+            raise ValueError(f"native_bridge:spawn_{field}_field_invalid")
+        normalized_capabilities[field] = normalized
+    if value is None:
+        return None
+    try:
+        selection = validate_current_codex_model_selection(
+            value,
+            expected_case_ref=request["case_ref"],
+            expected_semantic_epoch=request["semantic_epoch"],
+        )
+    except (KeyError, ValueError) as exc:
+        raise ValueError("native_bridge:model_authorization_binding_invalid") from exc
+    for field, capability in normalized_capabilities.items():
+        if selection[field] is not None and capability != "visible":
+            raise ValueError(f"native_bridge:spawn_{field}_field_binding_mismatch")
+    return selection
+
+
+def _normalize_turn_context(
+    value: object,
+    *,
+    trace_line: int,
+    expected_thread_id: str,
+    expected_session_id: str,
+    label: str,
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"native_bridge:{label}_turn_context_invalid")
+    thread_id = value.get("thread_id")
+    session_id = value.get("session_id")
+    if (
+        not isinstance(thread_id, str)
+        or thread_id.strip().lower() != expected_thread_id.lower()
+        or not isinstance(session_id, str)
+        or session_id.strip().lower() != expected_session_id.lower()
+    ):
+        raise ValueError(f"native_bridge:{label}_turn_context_foreign")
+    return {
+        "model": _text(value.get("model"), f"{label}_turn_context.model"),
+        "effort": _text(value.get("effort"), f"{label}_turn_context.effort"),
+        "trace_line": trace_line,
+        "turn_id": _text(
+            value.get("turn_id"),
+            f"{label}_turn_context.turn_id",
+            maximum=512,
+        ),
+    }
+
+
+def _parent_model_turn_context(
+    rows: list[tuple[int, object]],
+    *,
+    spawn_line: int,
+    trace_thread_id: str,
+    session_id: str,
+) -> dict[str, object]:
+    before = [(line, value) for line, value in rows if line < spawn_line]
+    if not before:
+        raise ValueError("native_bridge:parent_turn_context_missing")
+    if any(line > spawn_line for line, _value in rows):
+        raise ValueError("native_bridge:parent_turn_context_late")
+    normalized = [
+        _normalize_turn_context(
+            value,
+            trace_line=line,
+            expected_thread_id=trace_thread_id,
+            expected_session_id=session_id,
+            label="parent",
+        )
+        for line, value in before
+    ]
+    turn_ids = [str(value["turn_id"]) for value in normalized]
+    if len(turn_ids) != len(set(turn_ids)):
+        raise ValueError("native_bridge:parent_turn_context_duplicate")
+    return normalized[-1]
+
+
+def _child_model_turn_context(
+    home: Path,
+    *,
+    child_thread_id: object,
+    session_id: str,
+) -> dict[str, object]:
+    if not isinstance(child_thread_id, str) or _UUID_RE.fullmatch(child_thread_id) is None:
+        raise ValueError("native_bridge:explicit_model_child_thread_id_invalid")
+    child_id = child_thread_id.lower()
+    path = _session_metadata_path(home, child_id)
+    try:
+        info = path.stat()
+    except OSError as exc:
+        raise NativeEvidencePending(
+            "native_bridge:child_turn_context_pending"
+        ) from exc
+    if info.st_size > TRACE_MAX_BYTES:
+        raise ValueError("native_bridge:child_trace_too_large")
+    trace_ids: set[str] = set()
+    session_values: set[str] = set()
+    first_context: tuple[int, object] | None = None
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if line_number > TRACE_MAX_LINES:
+                    raise ValueError("native_bridge:child_trace_too_many_lines")
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(item, Mapping):
+                    continue
+                if item.get("type") == "session_meta" and isinstance(
+                    item.get("payload"), Mapping
+                ):
+                    meta = item["payload"]
+                    trace_ids.add(str(meta.get("id") or "").lower())
+                    value = meta.get("session_id") or meta.get("id")
+                    if isinstance(value, str) and value.strip():
+                        session_values.add(value.strip().lower())
+                elif item.get("type") == "turn_context" and first_context is None:
+                    first_context = (line_number, item.get("payload"))
+    except OSError as exc:
+        raise NativeEvidencePending(
+            "native_bridge:child_turn_context_pending"
+        ) from exc
+    if trace_ids != {child_id} or session_values != {session_id.lower()}:
+        raise ValueError("native_bridge:child_turn_context_trace_mismatch")
+    if first_context is None:
+        raise NativeEvidencePending("native_bridge:child_turn_context_pending")
+    return _normalize_turn_context(
+        first_context[1],
+        trace_line=first_context[0],
+        expected_thread_id=child_id,
+        expected_session_id=session_id,
+        label="child",
+    )
+
+
+def _host_model_execution_binding(
+    selection: Mapping[str, object],
+    *,
+    parent_turn_context: Mapping[str, object],
+    child_turn_context: Mapping[str, object],
+) -> dict[str, object]:
+    applied_fields = [
+        field
+        for field in ("model", "reasoning_effort")
+        if selection.get(field) is not None
+    ]
+    selected_model = selection.get("model")
+    selected_effort = selection.get("reasoning_effort")
+    if child_turn_context.get("model") != (
+        selected_model if selected_model is not None else parent_turn_context["model"]
+    ):
+        raise ValueError("native_bridge:child_model_execution_mismatch")
+    if selected_effort is not None:
+        if child_turn_context.get("effort") != selected_effort:
+            raise ValueError("native_bridge:child_reasoning_effort_execution_mismatch")
+    elif selected_model is None and child_turn_context.get(
+        "effort"
+    ) != parent_turn_context["effort"]:
+        raise ValueError("native_bridge:child_reasoning_effort_execution_mismatch")
+    return {
+        "schema": "court.host_model_execution_binding.v1",
+        "selection_id": selection["selection_id"],
+        "applied_spawn_fields": applied_fields,
+        "parent_turn_context": deepcopy(dict(parent_turn_context)),
+        "child_turn_context": deepcopy(dict(child_turn_context)),
+        "status": "MATCHED",
+    }
 
 
 def capture_current_native_delivery(
@@ -774,6 +1136,9 @@ def capture_current_native_delivery(
     execution: object,
     p00_context: object,
     agent_type: str | None = None,
+    model_authorization_binding: object | None = None,
+    spawn_model_field: str | None = None,
+    spawn_reasoning_effort_field: str | None = None,
     identity_context: object | None = None,
     environment: Mapping[str, str] | None = None,
     codex_home: Path | None = None,
@@ -785,6 +1150,16 @@ def capture_current_native_delivery(
     """
 
     normalized = normalize_native_host_dispatch_request(request)
+    selection = _capture_model_selection(
+        model_authorization_binding,
+        request=normalized,
+        spawn_model_field=spawn_model_field,
+        spawn_reasoning_effort_field=spawn_reasoning_effort_field,
+    )
+    selected_model = selection.get("model") if selection is not None else None
+    selected_effort = (
+        selection.get("reasoning_effort") if selection is not None else None
+    )
     env, thread_id, session_id = _current_environment(environment)
     home = (codex_home or Path(env.get("CODEX_HOME") or (Path.home() / ".codex"))).expanduser()
     decision, expected_action, _ = select_native_host_action(normalized)
@@ -799,6 +1174,8 @@ def capture_current_native_delivery(
         normalized,
         message=expected_message,
         agent_type=agent_type,
+        model=selected_model if isinstance(selected_model, str) else None,
+        reasoning_effort=selected_effort if isinstance(selected_effort, str) else None,
     )
     # Capture may be requested by the coordinator, but evidence must come from
     # the actual permitted parent, never from the reader's identity by inference.
@@ -836,6 +1213,7 @@ def capture_current_native_delivery(
     opaque_calls: dict[str, tuple[int, str]] = {}
     spawn_calls: dict[str, tuple[int, str]] = {}
     trace_ids: set[str] = set()
+    parent_turn_context_rows: list[tuple[int, object]] = []
     try:
         with trace_path.open(encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, start=1):
@@ -846,6 +1224,11 @@ def capture_current_native_delivery(
                 except json.JSONDecodeError:
                     continue
                 if not isinstance(item, Mapping):
+                    continue
+                if item.get("type") == "turn_context":
+                    parent_turn_context_rows.append(
+                        (line_number, item.get("payload"))
+                    )
                     continue
                 if item.get("type") == "session_meta" and isinstance(item.get("payload"), Mapping):
                     trace_ids.add(str(item['payload'].get('id') or '').lower())
@@ -870,6 +1253,7 @@ def capture_current_native_delivery(
                         marker=marker,
                         invocation=invocation,
                         expected_agent_type=agent_type,
+                        allow_bound_dispatch_context=selection is not None,
                     )
                     if expected_action == "spawn"
                     else _exact_followup_call(
@@ -926,6 +1310,19 @@ def capture_current_native_delivery(
         expected_epoch=int(normalized["semantic_epoch"]),
     )
     matching = [activity for activity in activities if activity.get('call_id') == call_id]
+    observed_child_thread_id: object | None = None
+    if expected_action == "spawn":
+        observed_child_thread_id = host_result.get("host_thread_id")
+        if observed_child_thread_id is None and len(matching) == 1:
+            observed_child_thread_id = matching[0].get("child_thread_id")
+        host_result.update(
+            _observed_child_role_capability(
+                home,
+                child_thread_id=observed_child_thread_id,
+                root_session_id=session_id,
+                expected_agent_type=agent_type,
+            )
+        )
     if call_id in opaque_calls or (expected_action == 'spawn' and matching
                                    and host_result.get('host_identity_kind') == 'canonical_agent_path'):
         if host_result.get('host_identity_kind') != 'canonical_agent_path' or not isinstance(identity_context, Mapping):
@@ -948,6 +1345,30 @@ def capture_current_native_delivery(
             raise ValueError("native_bridge:thread_metadata_mismatch")
         if not thread_values and thread_id != session_id:
             raise ValueError("native_bridge:thread_session_binding_missing")
+    model_execution_binding: dict[str, object] | None = None
+    if selection is not None:
+        if expected_action != "spawn" or call_id not in spawn_calls:
+            raise ValueError("native_bridge:model_selection_spawn_required")
+        parent_turn_context = _parent_model_turn_context(
+            parent_turn_context_rows,
+            spawn_line=spawn_calls[call_id][0],
+            trace_thread_id=trace_id,
+            session_id=session_id,
+        )
+        child_turn_context = _child_model_turn_context(
+            home,
+            child_thread_id=observed_child_thread_id,
+            session_id=session_id,
+        )
+        model_execution_binding = _host_model_execution_binding(
+            selection,
+            parent_turn_context=parent_turn_context,
+            child_turn_context=child_turn_context,
+        )
+        host_result["model_authorization_binding"] = deepcopy(dict(selection))
+        host_result["host_model_execution_binding"] = deepcopy(
+            model_execution_binding
+        )
     host = _TraceVerifiedHost(normalized, host_result)
     collector = _ReceiptCollector()
     dispatched = dispatch_native_host_action(normalized, host=host, lifecycle=collector)
@@ -973,6 +1394,35 @@ def capture_current_native_delivery(
             "source": "host_managed_current_session_metadata",
         },
     }
+    for field in (
+        "observed_spawn_agent_type_field",
+        "observed_child_agent_role",
+    ):
+        if (field in receipt) != (field in host_result) or (
+            field in receipt and receipt.get(field) != host_result.get(field)
+        ):
+            raise ValueError("native_bridge:observed_capability_receipt_mismatch")
+        if field in receipt:
+            result[field] = deepcopy(receipt[field])
+    if model_execution_binding is not None:
+        if (
+            receipt.get("model_authorization_binding") != selection
+            or receipt.get("host_model_execution_binding")
+            != model_execution_binding
+            or not isinstance(receipt.get("host_result"), Mapping)
+            or receipt["host_result"].get("model_authorization_binding")
+            != selection
+            or receipt["host_result"].get("host_model_execution_binding")
+            != model_execution_binding
+        ):
+            raise ValueError("native_bridge:model_execution_receipt_mismatch")
+        result["host_model_execution_binding"] = deepcopy(
+            model_execution_binding
+        )
+        # Preserve the already validated admission authorization alongside the
+        # observed host fact so the office-start producer never has to
+        # reconstruct user authority from invocation arguments or child text.
+        result["model_authorization_binding"] = deepcopy(dict(selection))
     if 'host_spawn_evidence' in host_result:
         result['host_spawn_evidence'] = deepcopy(host_result['host_spawn_evidence'])
         result['capture_scope'] = 'HOST_SPAWN_ONLY_PRELOAD_PENDING'

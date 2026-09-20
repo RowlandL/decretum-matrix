@@ -68,6 +68,7 @@ class FakeRuntime:
             _validate_canonical_admission_preloads, build_parser, public_admission_request_argv,
         )
 
+        binding = request["requested_bindings"][0]
         parsed = build_parser().parse_args(public_admission_request_argv(request))
         _validate_canonical_admission_preloads(parsed)
         from court_agent_admission import _admission_lease_metadata_error
@@ -76,7 +77,6 @@ class FakeRuntime:
             direct_superior=request["direct_superior"], next_depth=request["next_depth"],
         ) is None
         self.admission_calls += 1
-        binding = request["requested_bindings"][0]
         return {
             "allowed": True,
             "decision": "admitted",
@@ -120,6 +120,9 @@ def _write_skill(root: Path, *, wrong_ministry: str | None = None, oversized: bo
     if oversized:
         skill += "x" * court_open_fastpath.MINIMAL_PRELOAD_BYTES
     (root / "SKILL.md").write_text(skill, encoding="utf-8")
+    startup = root / "references" / "court-normal-startup.md"
+    startup.parent.mkdir(parents=True, exist_ok=True)
+    startup.write_text("# Startup fixture\n", encoding="utf-8")
     hierarchy_path = root / "references" / "manifests" / "court-dispatch-hierarchy.v1.json"
     hierarchy_path.parent.mkdir(parents=True, exist_ok=True)
     hierarchy_path.write_text(
@@ -448,13 +451,15 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         <= court_open_fastpath.MINIMAL_PRELOAD_BYTES
     )
     source_roles = (*court_open_fastpath.THREE_DEPARTMENTS, *court_open_fastpath.SIX_MINISTRIES)
+    startup_path = "references/court-normal-startup.md"
     with tempfile.TemporaryDirectory() as temp:
         source_fixture = Path(temp)
-        source_paths = ["SKILL.md", "references/manifests/court-dispatch-hierarchy.v1.json", *[f"agents/{folder}/{role}{suffix}" for role in source_roles for folder, suffix in (("standing-officials", ".toml"), ("office-dossiers", "/AGENTS.md"))]]
+        source_paths = ["SKILL.md", "references/court-normal-startup.md", "references/manifests/court-dispatch-hierarchy.v1.json", *[f"agents/{folder}/{role}{suffix}" for role in source_roles for folder, suffix in (("standing-officials", ".toml"), ("office-dossiers", "/AGENTS.md"))]]
         for relative in source_paths:
             target = source_fixture / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text((court_open_fastpath.ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+        startup_bytes = (source_fixture / startup_path).stat().st_size
         with patch.object(Path, "read_bytes", side_effect=AssertionError("fastpath file rehash")):
             source_preloads = court_open_fastpath.load_preloads(source_fixture, source_roles, concurrent=False)
     source_preload_bytes = {
@@ -466,6 +471,30 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
         }
         for role in source_roles
     }
+    source_preload_payloads = {
+        role: court_open_fastpath._preload_payload(source_preloads[role])
+        for role in source_roles
+    }
+    checks["source_preload_startup_contract"] = all(
+        getattr(source_preloads[role], "startup_guide_path", None) == startup_path
+        and getattr(source_preloads[role], "startup_guide_bytes", None) == startup_bytes
+        and source_preloads[role].loaded_bytes
+        == (
+            source_preloads[role].skill_bytes
+            + startup_bytes
+            + source_preloads[role].dossier_bytes
+            + source_preloads[role].profile_bytes
+            + source_preloads[role].metadata_bytes
+        )
+        and source_preload_payloads[role].get("startup_guide_path") == startup_path
+        and source_preload_payloads[role].get("startup_guide_bytes") == startup_bytes
+        and startup_path in source_preload_payloads[role].get("verified_source_paths", [])
+        for role in source_roles
+    )
+    assert checks["source_preload_startup_contract"], (
+        "RolePreload/_role_preload/_preload_payload did not read, count, and verify "
+        "the real startup guide"
+    )
     checks["source_preload_target"] = (
         len(source_roles) == 9
         and set(source_preloads) == set(source_roles)

@@ -1,26 +1,36 @@
 # Court Office Model Routing And V1/V2 Schema Compatibility
 
-This volume governs task-aware model recommendations for ordinary Codex office
-agents while preserving the model-reserved Multi-Agent V2 tool schema. It does
-not turn a collaboration task path into an office identity and does not rewrite
-Claude Code or Hermes model configuration.
+This volume governs task-aware model recommendations and current host-capability
+binding for ordinary Codex office agents. It does not turn a collaboration task
+path into an office identity and does not rewrite Claude Code or Hermes model
+configuration.
 
 ## Scope
 
 - Applies to ordinary Codex V1 or V2 child spawns created for a named office.
 - A path such as `/root/xingbu_wave3` is only the collaboration address. It is
   never proof that the child loaded the 刑部 office dossier.
-- Current model-reserved `collaboration.spawn_agent` exposes only the compatible
-  task fields (`message`, `task_name`, and `fork_turns`). It hides
-  `agent_type`, `model`, `reasoning_effort`, and `service_tier`.
+- Current Codex role binding is capability-driven through
+  `spawn_agent_type_field=visible|hidden`: `visible` binds only the exact admitted role,
+  while `hidden` omits `agent_type`. Missing selector preserves the legacy V1/V2
+  compatibility default.
+- When neither field is selected, model/effort behavior is absence and inheritance. Only a create/revise
+  `current_user_explicit` selection bound to the current case, semantic epoch,
+  immutable admission and instance route may use
+  `spawn_model_field=visible|hidden` and
+  `spawn_reasoning_effort_field=visible|hidden`. The selection may be model-only,
+  effort-only, or both. A recommendation is not authorization.
+- `service_tier` is never supplied. A successful host call proves argument
+  delivery, not application; only the bound child `turn_context` can prove the
+  actual model and effort. Missing child context remains retryable pending, while
+  an observed mismatch fails closed.
 - The parent must put the explicit `role_key`, direct superior, assignment,
   expected result, and useful dossier/skill source pointers in the bounded task
   message. The child acknowledges the office identity from that assignment and
   reads the office dossier only when the current duty needs its detail.
 - Role files under `%CODEX_HOME%/agents/*.toml` remain model-neutral. They are
-  retained for native role discovery on compatible host-managed or legacy
-  paths, but current model-visible V2 spawn must not claim that `agent_type`
-  selected one of them.
+  retained for native role discovery; only a `visible` capability plus an exact
+  admitted-role argument may claim host-native `agent_type` binding.
 - Claude Code office copies receive no office-level model override and inherit
   the main Claude thread model.
 - Hermes receives no office-level model override in this phase, inherits the
@@ -58,12 +68,14 @@ model's real highest supported effort. `ultra` is not fabricated for Luna; its
 maximum is `max`.
 
 The recommendation is not a claim that a V1/V2 child applied an override.
-Both inherit the main thread model and effort. The verified fresh-session
-worker below may apply the recommendation at top level; it is not a child.
+Without a current-user selection, both inherit the main thread model and effort.
+An explicit selection overrides the recommendation only after the native child
+trace proves the requested fields and the host-owned result of omitted fields. The verified fresh-session
+worker below is a separate top-level transport, not authority for a child.
 
-## Compatible V2 Spawn Contract
+## Capability-Driven Codex Spawn Contract
 
-The model-visible call is limited to:
+Every ordinary model-visible call contains:
 
 ```text
 message = <bounded assignment plus role/dossier context pointers>
@@ -71,14 +83,35 @@ task_name = <unique collaboration task name>
 fork_turns = none
 ```
 
-The following fields must not be exposed in the model-visible reserved tool:
+When `spawn_agent_type_field=visible`, the adapter additionally supplies only:
 
 ```text
-agent_type
-model
-reasoning_effort
-service_tier
+agent_type = <exact admitted role>
 ```
+
+When the role capability is `hidden`, `agent_type` is omitted. Model and effort
+use two independent capability-only selectors:
+
+```text
+spawn_model_field=visible|hidden
+spawn_reasoning_effort_field=visible|hidden
+```
+
+Visibility describes host schema only; an unselected visible field stays absent
+from the invocation.
+
+Without an admission-bound explicit selection, both invocation fields remain
+absent even when visible. With a selection, each non-null authorized field must
+be visible and is supplied exactly; a hidden or missing required field blocks
+before host dispatch. The selector never carries the value. Effort-only proves
+the unspecified model inherited the parent value; pair selections prove both
+exact values. Current Codex model-only calls omit `reasoning_effort` but may use
+the selected model's host-default effort, so capture records that observed value
+without calling it inherited or user-selected. Capture binds the spawn arguments and
+parent/child `turn_context` in `court.host_model_execution_binding.v1` before
+formal preload ACK may report `model_override_applied=YES`. Followup never
+reconfigures an existing child. `service_tier` remains forbidden. None of these
+capabilities switches V1/V2 in a running session.
 
 The required host configuration is:
 
@@ -97,10 +130,10 @@ counts the root inside the 16-slot session ceiling and internally allows at
 most 15 child threads. A running session may require restart before a changed
 tool schema appears.
 
-## Verified V1 And Resume Limits On Codex 0.144.1
+## Historical V1 And Resume Limits On Codex 0.144.1
 
-Disposable loopback probes against native Codex 0.144.1 established the exact
-current boundary:
+Disposable loopback probes against native Codex 0.144.1 established this
+historical boundary; they are not current host-capability evidence:
 
 - A fresh V1 session exposes `agent_type`, `model`, `reasoning_effort`, and
   `service_tier`; `agent_type` was observed in the child request.
@@ -113,8 +146,8 @@ current boundary:
   preserved the initial `collaboration` namespace in all three phases. The
   current host cannot perform the proposed same-session protocol switch.
 
-Consequently, this Codex host treats V2 as the preferred compatible startup
-protocol. The former command-selectable or bidirectional V1/V2 switch is
+That historical host treated V2 as the preferred compatible startup protocol.
+The former command-selectable or bidirectional V1/V2 switch is
 deprecated; V1 code, fixtures, historical configuration, and immutable backups
 remain only as dormant recovery evidence and do not authorize production
 selection. The protocol launcher stays fail closed and must not stop the

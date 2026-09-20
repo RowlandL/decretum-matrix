@@ -1,19 +1,27 @@
-"""Deterministic task-aware model recommendations for court office agents.
+"""Task-aware recommendations plus validation of explicit Codex selections.
 
-Codex Multi-Agent V2 uses a model-reserved `collaboration.spawn_agent` schema.
-Its default compatible shape hides `agent_type`, `model`, and
-`reasoning_effort`, so the router records a task-aware recommendation but the
-model-visible spawn inherits its parent model and effort. Claude Code and
-Hermes likewise remain model-neutral and inherit their parent/main settings.
+Recommendations never authorize an override. Ordinary children inherit by
+default; only a current-user, case-bound selection and child turn-context proof
+can make the lifecycle acknowledge an applied model or effort. Claude Code and
+Hermes remain model-neutral and inherit their parent/main settings.
 """
 
 from __future__ import annotations
 
+from copy import deepcopy
+import re
+import sys
 from uuid import uuid4
 from typing import Mapping
 
+sys.dont_write_bytecode = True
+
+from court_intake_gate import MODEL_REQUEST_REASONING_EFFORTS
+
 
 MODEL_ROUTE_SCHEMA = "court.office.model_route.v2"
+CURRENT_CODEX_MODEL_SELECTION_SCHEMA = "court.codex.model_selection.v1"
+HOST_MODEL_EXECUTION_BINDING_SCHEMA = "court.host_model_execution_binding.v1"
 EVALUATION_LEVELS = frozenset({"low", "medium", "high", "critical"})
 TRANSPORTS = frozenset({"codex", "claude-code", "hermes"})
 MODEL_MAX_REASONING_EFFORT = {
@@ -89,6 +97,164 @@ def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
 
 def _route_id(payload: Mapping[str, object]) -> str:
     return f"cmr-{uuid4().hex[:8]}"
+
+
+def validate_current_codex_model_selection(
+    selection: object,
+    *,
+    expected_case_ref: Mapping[str, object],
+    expected_semantic_epoch: object,
+) -> dict[str, object]:
+    """Return an isolated exact current-user selection or fail closed."""
+
+    required = {
+        "schema",
+        "selection_id",
+        "source",
+        "case_ref",
+        "semantic_epoch",
+        "model",
+        "reasoning_effort",
+    }
+    if not isinstance(selection, Mapping) or set(selection) != required:
+        raise ValueError("current_codex_model_selection_invalid:fields")
+    if selection.get("schema") != CURRENT_CODEX_MODEL_SELECTION_SCHEMA:
+        raise ValueError("current_codex_model_selection_invalid:schema")
+    selection_id = selection.get("selection_id")
+    if not isinstance(selection_id, str) or re.fullmatch(
+        r"MEA-[0-9a-f]{32}", selection_id
+    ) is None:
+        raise ValueError("current_codex_model_selection_invalid:selection_id")
+    if selection.get("source") != "current_user_explicit":
+        raise ValueError("current_codex_model_selection_invalid:source")
+    case_ref = selection.get("case_ref")
+    if (
+        not isinstance(case_ref, Mapping)
+        or set(case_ref) != {"court_code", "charter_revision"}
+        or dict(case_ref) != dict(expected_case_ref)
+    ):
+        raise ValueError("current_codex_model_selection_invalid:case_ref")
+    semantic_epoch = selection.get("semantic_epoch")
+    if (
+        isinstance(semantic_epoch, bool)
+        or not isinstance(semantic_epoch, int)
+        or semantic_epoch != expected_semantic_epoch
+    ):
+        raise ValueError("current_codex_model_selection_invalid:semantic_epoch")
+    model = selection.get("model")
+    reasoning_effort = selection.get("reasoning_effort")
+    if model is not None and (
+        not isinstance(model, str) or not model.strip() or model != model.strip()
+    ):
+        raise ValueError("current_codex_model_selection_invalid:model")
+    if reasoning_effort is not None and (
+        not isinstance(reasoning_effort, str)
+        or not reasoning_effort.strip()
+        or reasoning_effort != reasoning_effort.strip()
+    ):
+        raise ValueError("current_codex_model_selection_invalid:reasoning_effort")
+    if model is None and reasoning_effort is None:
+        raise ValueError("current_codex_model_selection_invalid:empty")
+    if (
+        reasoning_effort is not None
+        and reasoning_effort not in MODEL_REQUEST_REASONING_EFFORTS
+    ):
+        raise ValueError("current_codex_model_selection_invalid:reasoning_effort")
+    return deepcopy(dict(selection))
+
+
+def validate_explicit_model_execution_binding(
+    selection: object,
+    binding: object,
+    *,
+    expected_case_ref: Mapping[str, object],
+    expected_semantic_epoch: object,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Bind one observed child context to one immutable user selection."""
+
+    normalized_selection = validate_current_codex_model_selection(
+        selection,
+        expected_case_ref=expected_case_ref,
+        expected_semantic_epoch=expected_semantic_epoch,
+    )
+    required = {
+        "schema",
+        "selection_id",
+        "applied_spawn_fields",
+        "parent_turn_context",
+        "child_turn_context",
+        "status",
+    }
+    if not isinstance(binding, Mapping) or set(binding) != required:
+        raise ValueError("model route explicit binding mismatch")
+    expected_fields = [
+        field
+        for field in ("model", "reasoning_effort")
+        if normalized_selection.get(field) is not None
+    ]
+    if (
+        binding.get("schema") != HOST_MODEL_EXECUTION_BINDING_SCHEMA
+        or binding.get("status") != "MATCHED"
+        or binding.get("selection_id")
+        != normalized_selection.get("selection_id")
+        or binding.get("applied_spawn_fields") != expected_fields
+    ):
+        raise ValueError("model route explicit binding mismatch")
+
+    contexts: dict[str, dict[str, object]] = {}
+    for label in ("parent_turn_context", "child_turn_context"):
+        context = binding.get(label)
+        if not isinstance(context, Mapping) or set(context) != {
+            "model",
+            "effort",
+            "trace_line",
+            "turn_id",
+        }:
+            raise ValueError("model route explicit binding mismatch")
+        model = context.get("model")
+        effort = context.get("effort")
+        trace_line = context.get("trace_line")
+        turn_id = context.get("turn_id")
+        if (
+            not isinstance(model, str)
+            or not model.strip()
+            or not isinstance(effort, str)
+            or not effort.strip()
+            or isinstance(trace_line, bool)
+            or not isinstance(trace_line, int)
+            or trace_line < 1
+            or not isinstance(turn_id, str)
+            or not turn_id.strip()
+        ):
+            raise ValueError("model route explicit binding mismatch")
+        contexts[label] = {
+            "model": model.strip(),
+            "effort": effort.strip(),
+            "trace_line": trace_line,
+            "turn_id": turn_id.strip(),
+        }
+
+    parent = contexts["parent_turn_context"]
+    child = contexts["child_turn_context"]
+    selected_model = normalized_selection.get("model")
+    selected_effort = normalized_selection.get("reasoning_effort")
+    if child["model"] != (
+        selected_model if selected_model is not None else parent["model"]
+    ):
+        raise ValueError("model route explicit binding mismatch")
+    if selected_effort is not None:
+        if child["effort"] != selected_effort:
+            raise ValueError("model route explicit binding mismatch")
+    elif selected_model is None and child["effort"] != parent["effort"]:
+        raise ValueError("model route explicit binding mismatch")
+    normalized_binding = {
+        "schema": HOST_MODEL_EXECUTION_BINDING_SCHEMA,
+        "selection_id": normalized_selection["selection_id"],
+        "applied_spawn_fields": expected_fields,
+        **contexts,
+        "status": "MATCHED",
+    }
+    return normalized_selection, normalized_binding
 
 
 def route_office_model(
@@ -240,10 +406,47 @@ def validate_model_route_ack(route: Mapping[str, object], ack: Mapping[str, obje
     transport = str(route.get("transport") or "")
     protocol = str(route.get("protocol") or "v2")
     if transport == "codex":
-        expected = {
-            "model_override_applied": False,
-            "inheritance_policy": route.get("inheritance_policy"),
-        }
+        selection = route.get("model_authorization_binding")
+        host_binding = route.get("host_model_execution_binding")
+        if selection is None and host_binding is None:
+            expected = {
+                "model_override_applied": False,
+                "inheritance_policy": route.get("inheritance_policy"),
+            }
+        else:
+            if not isinstance(selection, Mapping) or not isinstance(
+                host_binding, Mapping
+            ):
+                raise ValueError("model route explicit binding incomplete")
+            expected_case_ref = selection.get("case_ref")
+            if not isinstance(expected_case_ref, Mapping):
+                raise ValueError("model route explicit binding mismatch")
+            selection, host_binding = validate_explicit_model_execution_binding(
+                selection,
+                host_binding,
+                expected_case_ref=expected_case_ref,
+                expected_semantic_epoch=selection.get("semantic_epoch"),
+            )
+            expected_applied = host_binding["applied_spawn_fields"]
+            child_context = host_binding["child_turn_context"]
+            policy_by_fields = {
+                ("model",): "explicit_model_host_default_effort",
+                ("reasoning_effort",): "inherit_model_explicit_effort",
+                (
+                    "model",
+                    "reasoning_effort",
+                ): "explicit_model_and_effort",
+            }
+            policy = policy_by_fields.get(tuple(expected_applied))
+            if policy is None:
+                raise ValueError("model route explicit binding mismatch")
+            expected = {
+                "model_selection_id": selection.get("selection_id"),
+                "active_model": child_context.get("model"),
+                "active_reasoning_effort": child_context.get("effort"),
+                "model_override_applied": True,
+                "inheritance_policy": policy,
+            }
     elif transport in {"claude-code", "hermes"}:
         expected = {
             "model_override_applied": False,

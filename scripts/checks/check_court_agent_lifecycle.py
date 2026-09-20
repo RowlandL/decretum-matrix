@@ -100,6 +100,26 @@ FIXTURE_EXPLICIT_WRITE_SET = (
 NATIVE_HOST_LIFECYCLE_SCHEMA = "court.agent_lifecycle_check.v1"
 NATIVE_HOST_LIFECYCLE_CONTRACT = "COURT_NATIVE_HOST_LIFECYCLE"
 NATIVE_HOST_LIFECYCLE_SELECTION = "native-host-lifecycle"
+EXPLICIT_MODEL_SELECTION_CONTRACT = "COURT_EXPLICIT_MODEL_SELECTION_CREATE"
+EXPLICIT_MODEL_SELECTION_SELECTION = "explicit-model-selection-create"
+EXPLICIT_MODEL_SELECTION_REVISE_CLEAR_CONTRACT = (
+    "COURT_EXPLICIT_MODEL_SELECTION_REVISE_CLEAR"
+)
+EXPLICIT_MODEL_SELECTION_REVISE_CLEAR_SELECTION = (
+    "explicit-model-selection-revise-clear"
+)
+EXPLICIT_MODEL_SELECTION_REVISE_REPLACE_CONTRACT = (
+    "COURT_EXPLICIT_MODEL_SELECTION_REVISE_REPLACE"
+)
+EXPLICIT_MODEL_SELECTION_REVISE_REPLACE_SELECTION = (
+    "explicit-model-selection-revise-replace"
+)
+EXPLICIT_MODEL_SELECTION_ADMISSION_CONTRACT = (
+    "COURT_EXPLICIT_MODEL_SELECTION_ADMISSION"
+)
+EXPLICIT_MODEL_SELECTION_ADMISSION_SELECTION = (
+    "explicit-model-selection-admission"
+)
 NATIVE_HOST_LIFECYCLE_NOT_EVALUATED = [
     "office-assignment-binding-governing-reference",
 ]
@@ -270,7 +290,12 @@ def context_budget_pool(task_id: str, wave_id: str) -> dict[str, object]:
     return court_runtime.public_context_budget_pool(task, wave_id)
 
 
-def create_task(task_id: str, **create_overrides: object) -> None:
+def create_task(
+    task_id: str,
+    *,
+    intake_gate: dict[str, object] | None = None,
+    **create_overrides: object,
+) -> None:
     for key in tuple(_FIXTURE_WAVE_SLOTS):
         if key[0] == task_id:
             del _FIXTURE_WAVE_SLOTS[key]
@@ -300,7 +325,11 @@ def create_task(task_id: str, **create_overrides: object) -> None:
             evidence=f"create {task_id}",
             note="lifecycle fixture",
             work_kind="implementation",
-            intake_gate=formal_gate_fixture(),
+            intake_gate=(
+                deepcopy(intake_gate)
+                if intake_gate is not None
+                else formal_gate_fixture()
+            ),
             intake_file=None,
             invariant_capsule=invariant_capsule,
             invariant_capsule_file=None,
@@ -309,6 +338,474 @@ def create_task(task_id: str, **create_overrides: object) -> None:
     )
     court_runtime.semantic_checkpoint_task(semantic_args(task_id, "checkpoint"))
     court_runtime.semantic_verify_task(semantic_args(task_id, "verify"))
+
+
+def check_create_model_selection_contract() -> None:
+    inherited_task_id = "explicit-model-selection-create-inherit"
+    create_task(inherited_task_id)
+    inherited_task = court_runtime.load_tasks()[inherited_task_id]
+    assert inherited_task.get("current_codex_model_selection") is None
+
+    request = {"model": "gpt-6-astra", "reasoning_effort": "ultra"}
+    explicit_task_id = "explicit-model-selection-create-explicit"
+
+    def explicit_create_args(model_request: dict[str, object]) -> Namespace:
+        explicit_gate = formal_gate_fixture()
+        explicit_gate["model_request"] = deepcopy(model_request)
+        return Namespace(
+            title=explicit_task_id,
+            charter="bounded explicit model selection create fixture",
+            task_id=explicit_task_id,
+            owner="taizi",
+            report_tier="brief",
+            evidence=f"create {explicit_task_id}",
+            note="explicit model selection create fixture",
+            work_kind="implementation",
+            intake_gate=explicit_gate,
+            intake_file=None,
+            invariant_capsule=None,
+            invariant_capsule_file=None,
+            session_id="explicit-model-selection-create-session",
+            authority="super",
+            behavior="parallel",
+        )
+
+    first = court_runtime.create_task(explicit_create_args(request))
+    explicit_task = first.task
+    selection = explicit_task.get("current_codex_model_selection")
+    assert isinstance(selection, dict)
+    assert {
+        "selection_id",
+        "source",
+        "case_ref",
+        "semantic_epoch",
+        "model",
+        "reasoning_effort",
+    } <= set(selection)
+    assert isinstance(selection["selection_id"], str)
+    assert selection["selection_id"].startswith("MEA-")
+    assert selection["source"] == "current_user_explicit"
+    assert selection["case_ref"] == case_reference(explicit_task)
+    assert selection["semantic_epoch"] == explicit_task["semantic_epoch"]
+    assert selection["model"] == request["model"]
+    assert selection["reasoning_effort"] == request["reasoning_effort"]
+
+    before_tasks = court_runtime.tasks_path().read_bytes()
+    before_events = court_runtime.events_path().read_bytes()
+    replay = court_runtime.create_task(explicit_create_args(request))
+    repeated_selection = replay.task.get("current_codex_model_selection")
+    assert isinstance(repeated_selection, dict)
+    assert repeated_selection == selection
+    assert court_runtime.tasks_path().read_bytes() == before_tasks
+    assert court_runtime.events_path().read_bytes() == before_events
+
+    try:
+        court_runtime.create_task(
+            explicit_create_args(
+                {"model": "gpt-5.6-terra", "reasoning_effort": "ultra"}
+            )
+        )
+    except ValueError as exc:
+        assert str(exc) == "case_create_session_replay_conflict"
+    else:
+        raise AssertionError("create replay accepted a different model_request")
+    assert court_runtime.tasks_path().read_bytes() == before_tasks
+    assert court_runtime.events_path().read_bytes() == before_events
+
+
+def _explicit_model_gate(model_request: dict[str, object]) -> dict[str, object]:
+    value = formal_gate_fixture()
+    value["model_request"] = deepcopy(model_request)
+    return value
+
+
+def _create_explicit_model_task(
+    task_id: str,
+    model_request: dict[str, object],
+) -> dict[str, object]:
+    create_task(task_id, intake_gate=_explicit_model_gate(model_request))
+    task = court_runtime.load_tasks()[task_id]
+    selection = task.get("current_codex_model_selection")
+    assert isinstance(selection, dict)
+    return deepcopy(selection)
+
+
+def _model_selection_revision_args(
+    task_id: str,
+    *,
+    model_request: dict[str, object] | None,
+) -> Namespace:
+    from check_court_runtime_completion import revision_args
+
+    task = court_runtime.load_tasks()[task_id]
+    new_charter = str(task["charter"]) + " revised"
+    new_capsule = deepcopy(task["invariant_capsule"])
+    new_capsule.pop("case_ref", None)
+    new_capsule["latest_decree_anchor"] = new_charter
+    args = revision_args(
+        task_id,
+        expected_revision=int(task["charter_revision"]),
+        new_revision=int(task["charter_revision"]) + 1,
+        new_charter=new_charter,
+        new_invariant_capsule=new_capsule,
+    )
+    if model_request is not None:
+        args.correction_gate = deepcopy(args.correction_gate)
+        args.correction_gate["model_request"] = deepcopy(model_request)
+    return args
+
+
+def _assert_prior_model_selection_preserved(
+    revised: dict[str, object],
+    prior: dict[str, object],
+) -> None:
+    history = revised.get("codex_model_selection_history")
+    assert isinstance(history, list) and history
+    assert history[-1]["selection"] == prior
+    assert history[-1]["replacement_semantic_epoch"] == revised["semantic_epoch"]
+    invalidations = revised.get("semantic_invalidations")
+    assert isinstance(invalidations, list) and invalidations
+    assert invalidations[-1]["current_codex_model_selection"] == prior
+
+
+def check_revise_clears_explicit_model_selection() -> None:
+    task_id = "explicit-model-selection-revise-clear"
+    prior = _create_explicit_model_task(
+        task_id,
+        {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+    )
+    revised = court_runtime.revise_charter_task(
+        _model_selection_revision_args(task_id, model_request=None)
+    ).task
+    assert revised.get("current_codex_model_selection") is None
+    assert revised["semantic_epoch"] == 2
+    assert case_reference(revised)["charter_revision"] == 2
+    _assert_prior_model_selection_preserved(revised, prior)
+
+
+def check_revise_replaces_explicit_model_selection_and_pause_resume_preserves() -> None:
+    task_id = "explicit-model-selection-revise-replace"
+    prior = _create_explicit_model_task(
+        task_id,
+        {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+    )
+    replacement_request = {
+        "model": "gpt-5.6-terra",
+        "reasoning_effort": "high",
+    }
+    revised = court_runtime.revise_charter_task(
+        _model_selection_revision_args(
+            task_id,
+            model_request=replacement_request,
+        )
+    ).task
+    current = revised.get("current_codex_model_selection")
+    assert isinstance(current, dict)
+    assert current["selection_id"].startswith("MEA-")
+    assert current["selection_id"] != prior["selection_id"]
+    assert current["source"] == "current_user_explicit"
+    assert current["case_ref"] == case_reference(revised)
+    assert current["semantic_epoch"] == revised["semantic_epoch"] == 2
+    assert current["model"] == replacement_request["model"]
+    assert current["reasoning_effort"] == replacement_request["reasoning_effort"]
+    _assert_prior_model_selection_preserved(revised, prior)
+
+    paused = court_runtime.pause_task(
+        Namespace(
+            task_id=task_id,
+            actor="shangshu",
+            reason="bounded same-epoch pause",
+            evidence_preserved="current model selection fixture",
+            unsafe_remaining="none",
+            affected_scope="model selection lifecycle",
+            note="pause",
+        )
+    ).task
+    assert paused["current_codex_model_selection"] == current
+    resumed = court_runtime.resume_task(
+        Namespace(
+            task_id=task_id,
+            to_state="ThreeDepartments",
+            actor="shangshu",
+            resume_evidence="bounded pause cleared",
+            affected_scope="model selection lifecycle",
+            from_paused_state="ThreeDepartments",
+            note="resume",
+        )
+    ).task
+    assert resumed["semantic_epoch"] == 2
+    assert resumed["current_codex_model_selection"] == current
+
+
+def check_explicit_model_selection_admission_binding() -> None:
+    failures: list[str] = []
+    task_id = "explicit-model-selection-admission"
+    selection = _create_explicit_model_task(
+        task_id,
+        {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+    )
+    admission = admit(task_id, "explicit-selection-wave")
+    stored = court_runtime.load_tasks()[task_id]["agent_admissions"][
+        "explicit-selection-wave"
+    ]
+    for label, record in (("result", admission), ("stored", stored)):
+        if record.get("model_authorization_binding") != selection:
+            failures.append(f"{label}:top_level_model_authorization_binding_missing")
+        route_inputs = record.get("model_route_inputs")
+        if not isinstance(route_inputs, dict) or route_inputs.get(
+            "model_authorization_binding"
+        ) != selection:
+            failures.append(f"{label}:model_route_inputs_authorization_missing")
+        routes = record.get("model_routes")
+        if not isinstance(routes, dict) or not routes:
+            failures.append(f"{label}:model_routes_missing")
+        else:
+            for instance_id, route in routes.items():
+                if not isinstance(route, dict) or route.get(
+                    "model_authorization_binding"
+                ) != selection:
+                    failures.append(
+                        f"{label}:route_authorization_missing:{instance_id}"
+                    )
+
+    # The start consumer must preserve the immutable authorization together
+    # with the capture-proved execution fact.  Later ACK validation reads this
+    # persisted route; caller fields alone never establish APPLIED.
+    host_binding = {
+        "schema": "court.host_model_execution_binding.v1",
+        "selection_id": selection["selection_id"],
+        "applied_spawn_fields": ["model", "reasoning_effort"],
+        "parent_turn_context": {
+            "model": "gpt-5.6-sol", "effort": "ultra",
+            "trace_line": 2, "turn_id": "parent-turn-001",
+        },
+        "child_turn_context": {
+            "model": selection["model"],
+            "effort": selection["reasoning_effort"],
+            "trace_line": 2, "turn_id": "child-turn-001",
+        },
+        "status": "MATCHED",
+    }
+    start = start_args(
+        admission,
+        task_id,
+        "explicit-selection-wave",
+        "gongbu-explicit-selection-1",
+    )
+    start.model_authorization_binding = deepcopy(selection)
+    start.host_model_execution_binding = deepcopy(host_binding)
+    court_runtime.agent_start(start)
+    started = court_runtime.load_tasks()[task_id]["agents"][
+        "gongbu-explicit-selection-1"
+    ]
+    if started.get("model_authorization_binding") != selection:
+        failures.append("started_agent_authorization_missing")
+    if started.get("host_model_execution_binding") != host_binding:
+        failures.append("started_agent_host_model_binding_missing")
+    started_route = started.get("model_route")
+    if not isinstance(started_route, dict):
+        failures.append("started_agent_model_route_missing")
+    else:
+        if started_route.get("model_authorization_binding") != selection:
+            failures.append("started_route_authorization_missing")
+        if started_route.get("host_model_execution_binding") != host_binding:
+            failures.append("started_route_host_binding_missing")
+
+    explicit_ack = ack_args(
+        task_id,
+        "gongbu-explicit-selection-1",
+        active_model=str(host_binding["child_turn_context"]["model"]),
+        active_reasoning_effort=str(
+            host_binding["child_turn_context"]["effort"]
+        ),
+        model_override_applied="YES",
+        inheritance_policy="explicit_model_and_effort",
+    )
+    explicit_ack.model_selection_id = selection["selection_id"]
+    acknowledged = court_runtime.agent_preload_ack(explicit_ack)
+    explicit_receipt = court_runtime._office_lifecycle_receipt(
+        court_runtime.load_tasks()[task_id],
+        acknowledged["agent"],
+        action="preload_ack",
+        event_id=acknowledged["event"]["event_id"],
+    )
+    for surface_name, surface in (
+        ("office_state", acknowledged["agent"]),
+        ("event", acknowledged["event"]),
+        ("receipt", explicit_receipt),
+    ):
+        if surface.get("model_selection_id") != selection["selection_id"]:
+            failures.append(f"{surface_name}:model_selection_id_missing")
+        if surface.get("active_model") != host_binding["child_turn_context"]["model"]:
+            failures.append(f"{surface_name}:active_model_missing")
+        if surface.get("active_reasoning_effort") != host_binding["child_turn_context"]["effort"]:
+            failures.append(f"{surface_name}:active_reasoning_effort_missing")
+        if surface.get("model_override_applied") is not True:
+            failures.append(f"{surface_name}:model_override_applied_missing")
+        if surface.get("inheritance_policy") != "explicit_model_and_effort":
+            failures.append(f"{surface_name}:inheritance_policy_missing")
+        if surface.get("host_model_execution_binding") != host_binding:
+            failures.append(f"{surface_name}:host_model_execution_binding_missing")
+
+    # A receipt that is internally self-consistent must still be rejected when
+    # its authorization differs from the immutable admission selection.  The
+    # selection_id alone is not authority for a different model value.
+    from check_court_native_host_dispatch import load_bridge
+
+    forged_task_id = "explicit-model-selection-receipt-drift"
+    admitted_selection = _create_explicit_model_task(
+        forged_task_id,
+        {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+    )
+    forged_admission = admit(forged_task_id, "receipt-drift-wave")
+    selected_bindings = forged_admission.get("selected_bindings") or []
+    forged_instance_id = str(selected_bindings[0]["instance_id"])
+    forged_authorization = deepcopy(admitted_selection)
+    forged_authorization["model"] = "gpt-forged-model"
+    forged_host_binding = {
+        "schema": "court.host_model_execution_binding.v1",
+        "selection_id": admitted_selection["selection_id"],
+        "applied_spawn_fields": ["model", "reasoning_effort"],
+        "parent_turn_context": {
+            "model": "gpt-5.6-sol", "effort": "ultra",
+            "trace_line": 2, "turn_id": "parent-turn-forged",
+        },
+        "child_turn_context": {
+            "model": forged_authorization["model"],
+            "effort": forged_authorization["reasoning_effort"],
+            "trace_line": 2, "turn_id": "child-turn-forged",
+        },
+        "status": "MATCHED",
+    }
+    bridge, bridge_failures = load_bridge()
+    assert bridge is not None and not bridge_failures, bridge_failures
+    forged_request = _native_host_request(
+        forged_admission,
+        task_id=forged_task_id,
+        wave_id="receipt-drift-wave",
+        instance_id=forged_instance_id,
+    )
+    forged_receipt, mint_evidence = _mint_native_host_receipt(
+        bridge,
+        forged_request,
+        host_result={
+            "ok": True,
+            "host_task_id": "host-task-receipt-drift",
+            "host_thread_id": "host-thread-receipt-drift",
+            "host_instance_id": "host-instance-receipt-drift",
+            "host_action_id": "host-action-receipt-drift",
+            "model_authorization_binding": forged_authorization,
+            "host_model_execution_binding": forged_host_binding,
+        },
+    )
+    assert forged_receipt is not None, mint_evidence
+    forged_start = start_args(
+        forged_admission,
+        forged_task_id,
+        "receipt-drift-wave",
+        "gongbu-receipt-drift-1",
+        model_authorization_binding=deepcopy(admitted_selection),
+        host_model_execution_binding=deepcopy(forged_host_binding),
+        native_host_action_receipt=deepcopy(forged_receipt),
+    )
+    reject_runtime_bytes_unchanged(
+        lambda: court_runtime.agent_start(forged_start),
+        "start accepted a receipt authorized for a different model",
+        "native_host_action_receipt:model_authorization_admission_mismatch",
+    )
+
+    def tamper_active(task: dict[str, object]) -> None:
+        active = task["current_codex_model_selection"]
+        active["model"] = "tampered-after-admission"
+        active["selection_id"] = "MEA-tampered-after-admission"
+
+    set_task_field(task_id, tamper_active)
+    immutable = court_runtime.load_tasks()[task_id]["agent_admissions"][
+        "explicit-selection-wave"
+    ]
+    if immutable.get("model_authorization_binding") != selection:
+        failures.append("stored_admission_changed_after_task_selection_tamper")
+
+    tamper_cases: tuple[tuple[str, Callable[[dict[str, object]], None]], ...] = (
+        (
+            "stale_case_ref",
+            lambda task: task["current_codex_model_selection"]["case_ref"].update(
+                charter_revision=0
+            ),
+        ),
+        (
+            "stale_semantic_epoch",
+            lambda task: task["current_codex_model_selection"].update(
+                semantic_epoch=0
+            ),
+        ),
+        (
+            "foreign_selection_id",
+            lambda task: task["current_codex_model_selection"].update(
+                selection_id="MEA-foreign"
+            ),
+        ),
+        (
+            "foreign_source",
+            lambda task: task["current_codex_model_selection"].update(
+                source="host_managed_recommendation"
+            ),
+        ),
+    )
+    for label, tamper in tamper_cases:
+        tamper_task_id = f"explicit-model-selection-admission-{label}"
+        _create_explicit_model_task(
+            tamper_task_id,
+            {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+        )
+        request = admit(
+            tamper_task_id,
+            f"{label}-wave",
+            return_namespace=True,
+        )
+        set_task_field(tamper_task_id, tamper)
+        before_tasks = runtime_bytes(court_runtime.tasks_path())
+        before_events = runtime_bytes(court_runtime.events_path())
+        try:
+            court_runtime.agent_admit(request)  # type: ignore[arg-type]
+        except ValueError as exc:
+            if "current_codex_model_selection" not in str(exc):
+                failures.append(f"{label}:wrong_rejection:{exc}")
+        else:
+            failures.append(f"{label}:tampered_selection_admitted")
+        if runtime_bytes(court_runtime.tasks_path()) != before_tasks:
+            failures.append(f"{label}:tasks_bytes_changed")
+        if runtime_bytes(court_runtime.events_path()) != before_events:
+            failures.append(f"{label}:events_bytes_changed")
+
+    inherited_task_id = "explicit-model-selection-admission-inherit"
+    create_task(inherited_task_id)
+    inherited_admission = admit(
+        inherited_task_id,
+        "recommendation-only-wave",
+        host_managed_recommendation={
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "ultra",
+        },
+        needs_model_override=True,
+        needs_reasoning_effort_override=True,
+    )
+    inherited_task = court_runtime.load_tasks()[inherited_task_id]
+    if inherited_task.get("current_codex_model_selection") is not None:
+        failures.append("recommendation_or_needs_flags_created_task_selection")
+    if inherited_admission.get("model_authorization_binding") is not None:
+        failures.append("inherit_admission_created_top_level_authorization")
+    inherited_inputs = inherited_admission.get("model_route_inputs")
+    if isinstance(inherited_inputs, dict) and inherited_inputs.get(
+        "model_authorization_binding"
+    ) is not None:
+        failures.append("inherit_route_inputs_created_authorization")
+    for route in (inherited_admission.get("model_routes") or {}).values():
+        if isinstance(route, dict) and route.get("model_authorization_binding") is not None:
+            failures.append("inherit_model_route_created_authorization")
+
+    if failures:
+        raise AssertionError(";".join(failures))
 
 
 def admit(task_id: str, wave_id: str, role: str = "gongbu", **overrides: object) -> dict[str, object]:
@@ -644,6 +1141,8 @@ def ack_args(task_id: str, agent_id: str, role: str = "gongbu", **overrides: obj
         "profile_source": manifest["profile_source"],
         "dossier_path": manifest["dossier_path"],
         "court_skill_path": manifest["court_skill_path"],
+        "startup_guide_path": manifest["startup_guide_path"],
+        "startup_guide_loaded": "YES",
         "court_code": manifest["court_code"],
         "profile_loaded": "YES",
         "court_skill_loaded": "YES",
@@ -1540,6 +2039,10 @@ def check_terminal_and_identity() -> None:
             court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["dossier_path"],
             "--court-skill-path",
             court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["court_skill_path"],
+            "--startup-guide-path",
+            court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["startup_guide_path"],
+            "--startup-guide-loaded",
+            "YES",
             "--court-code",
             court_runtime.load_tasks()[identity_task]["agents"]["gongbu-identity-1"]["preload_manifest"]["court_code"],
             "--loaded-skills",
@@ -3145,10 +3648,79 @@ def check_office_lifecycle_json_cli() -> None:
     assert template["schema"] == "court.office.preload_ack.v1"
     assert template["loaded_skills"] == "decretum-matrix"
     assert template["native_request_ref"] == native_receipt["request_ref"]
-    for field in ("profile_source", "dossier_path", "court_skill_path"):
+    assert template["startup_guide_loaded"] == "YES"
+    for field in ("profile_source", "dossier_path", "court_skill_path", "startup_guide_path"):
         assert template[field] == started["office_instance"]["preload_manifest"][field]
     stored = court_runtime.load_tasks()[task_id]
     assert stored['agents'][agent_id]['charter_revision'] == stored['charter_revision']
+
+    legacy_public = {
+        key: value
+        for key, value in template.items()
+        if key not in {"startup_guide_path", "startup_guide_loaded"}
+    }
+    before_public_legacy = runtime_state_bytes()
+    status, stdout, stderr = raw_office_cli(
+        ["office", "preload-ack", "--request-json", json.dumps(legacy_public)]
+    )
+    public_legacy_payload = json.loads(stdout)
+    public_legacy_ok = (
+        status == 2
+        and public_legacy_payload.get("error")
+        == "preload_pending: startup_guide_evidence_required"
+        and runtime_state_bytes() == before_public_legacy
+    )
+
+    legacy_task_id = "legacy-startup-preload-ack"
+    create_task(legacy_task_id)
+    legacy_admission = admit(legacy_task_id, "legacy-startup-preload-wave")
+    legacy_agent_id = "gongbu-legacy-startup-ack-1"
+    court_runtime.agent_start(
+        start_args(
+            legacy_admission,
+            legacy_task_id,
+            "legacy-startup-preload-wave",
+            legacy_agent_id,
+        )
+    )
+    legacy_record = court_runtime.load_tasks()[legacy_task_id]["agents"][legacy_agent_id]
+    legacy_manifest = legacy_record["preload_manifest"]
+    legacy_argv = [
+        "agent-preload-ack",
+        "--task-id", legacy_task_id,
+        "--agent-id", legacy_agent_id,
+        "--role", "gongbu",
+        "--direct-superior", "shangshu",
+        "--profile-source", legacy_manifest["profile_source"],
+        "--dossier-path", legacy_manifest["dossier_path"],
+        "--court-skill-path", legacy_manifest["court_skill_path"],
+        "--court-code", legacy_manifest["court_code"],
+        "--loaded-skills", "decretum-matrix",
+        "--agent-dossier-loaded", "YES",
+        "--model-route-id", legacy_record["model_route"]["model_route_id"],
+        "--model-override-applied", "NO",
+        "--inheritance-policy", legacy_record["model_route"]["inheritance_policy"],
+        "--evidence", "legacy startup acknowledgement",
+    ]
+    legacy_args = court_runtime.build_parser().parse_args(legacy_argv)
+    before_legacy_argv = runtime_state_bytes()
+    try:
+        court_runtime.agent_preload_ack(legacy_args)
+    except ValueError as exc:
+        legacy_argv_error = str(exc)
+    else:
+        legacy_argv_error = ""
+    legacy_argv_ok = (
+        legacy_argv_error == "preload_pending: startup_guide_evidence_required"
+        and runtime_state_bytes() == before_legacy_argv
+    )
+    assert public_legacy_ok and legacy_argv_ok, (
+        public_legacy_payload,
+        stderr,
+        legacy_argv_error,
+        public_legacy_ok,
+        legacy_argv_ok,
+    )
 
     ack = ack_args(task_id, agent_id)
     ack.office_instance_kind = "child_agent"
@@ -3170,9 +3742,12 @@ def check_office_lifecycle_json_cli() -> None:
     root = home / "skills/decretum-matrix"
     root.mkdir(parents=True)
     write_skill(root)
+    startup = root / "references/court-normal-startup.md"
+    startup.parent.mkdir(parents=True, exist_ok=True)
+    startup.write_text("# Isolated startup fixture\n", encoding="utf-8")
     trace = next((home / "sessions").rglob(f"*{CHILD}.jsonl"))
     rows = [json.loads(trace.read_text(encoding="utf-8"))]
-    for field in ("court_skill_path", "profile_source", "dossier_path"):
+    for field in ("court_skill_path", "startup_guide_path", "profile_source", "dossier_path"):
         rows.append({"type": "event_msg", "payload": {
             "type": "item_completed", "thread_id": CHILD, "item": {
                 "type": "CommandExecution", "id": field, "status": "completed", "exit_code": 0,
@@ -3195,7 +3770,8 @@ def check_office_lifecycle_json_cli() -> None:
         assert record["preload_status"] == "PENDING" and record["office_execution_ready"] is False
         child_acceptance = {"schema": "court.child_preload_acceptance.v1", "task_id": task_id,
             "role_key": "gongbu", "office_instance_id": instance_id, "request_ref": template["native_request_ref"],
-            "skill_loaded": True, "profile_loaded": True, "dossier_loaded": True}
+            "skill_loaded": True, "startup_guide_loaded": True,
+            "profile_loaded": True, "dossier_loaded": True}
         text = json.dumps(child_acceptance)
         rows.extend([
             {"type": "event_msg", "payload": {"type": "item_completed", "thread_id": CHILD,
@@ -3205,7 +3781,15 @@ def check_office_lifecycle_json_cli() -> None:
                 "id": "ack", "content": [{"type": "output_text", "text": text}]}},
         ])
         trace.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
-        assert office_cli("preload-ack", Namespace(**template))["receipt"]["action"] == "preload_ack"
+        acknowledged = office_cli("preload-ack", Namespace(**template))
+        assert acknowledged["receipt"]["action"] == "preload_ack"
+        for surface_name, surface in (
+            ("office_state", acknowledged["office_instance"]),
+            ("transition", acknowledged["event"]),
+            ("receipt", acknowledged["receipt"]),
+        ):
+            assert surface["startup_guide_path"] == template["startup_guide_path"], surface_name
+            assert surface["startup_guide_loaded"] == "YES", surface_name
     ack.native_request_ref = template["native_request_ref"]
     # This test's host UUID strings are synthetic. Continue its downstream JSON
     # lifecycle contract with an explicit adapter fixture; this is not host acceptance.
@@ -4067,6 +4651,7 @@ def run_agent_lifecycle_checks() -> None:
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: fixture_root / "runtime"  # type: ignore[assignment]
         try:
+            check_create_model_selection_contract()
             check_office_name_identity_binding()
             check_assignment_binding_toctou_rejected()
             check_dispatch_hierarchy_revalidated_before_start_write()
@@ -4100,11 +4685,96 @@ def main(argv: list[str] | None = None) -> int:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
         "--only",
-        choices=(NATIVE_HOST_LIFECYCLE_SELECTION,),
+        choices=(
+            NATIVE_HOST_LIFECYCLE_SELECTION,
+            EXPLICIT_MODEL_SELECTION_SELECTION,
+            EXPLICIT_MODEL_SELECTION_REVISE_CLEAR_SELECTION,
+            EXPLICIT_MODEL_SELECTION_REVISE_REPLACE_SELECTION,
+            EXPLICIT_MODEL_SELECTION_ADMISSION_SELECTION,
+        ),
         help="run one isolated lifecycle contract instead of the legacy suite",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+
+    model_selection_checks: dict[
+        str, tuple[str, Callable[[], None]]
+    ] = {
+        EXPLICIT_MODEL_SELECTION_REVISE_CLEAR_SELECTION: (
+            EXPLICIT_MODEL_SELECTION_REVISE_CLEAR_CONTRACT,
+            check_revise_clears_explicit_model_selection,
+        ),
+        EXPLICIT_MODEL_SELECTION_REVISE_REPLACE_SELECTION: (
+            EXPLICIT_MODEL_SELECTION_REVISE_REPLACE_CONTRACT,
+            check_revise_replaces_explicit_model_selection_and_pause_resume_preserves,
+        ),
+        EXPLICIT_MODEL_SELECTION_ADMISSION_SELECTION: (
+            EXPLICIT_MODEL_SELECTION_ADMISSION_CONTRACT,
+            check_explicit_model_selection_admission_binding,
+        ),
+    }
+    if args.only in model_selection_checks:
+        global TASK_SPECIFIC_SKILL_PATH
+        contract, checker = model_selection_checks[args.only]
+        with installed_runtime_identity_fixture(), tempfile.TemporaryDirectory(
+            prefix="court-explicit-model-selection-red9b-"
+        ) as directory, patch.dict(
+            os.environ,
+            {"GIT_CEILING_DIRECTORIES": str(Path(directory).resolve())},
+        ):
+            original_runtime_root = court_runtime.runtime_root
+            court_runtime.runtime_root = lambda: Path(directory) / "runtime"  # type: ignore[assignment]
+            task_skill = (
+                Path(directory)
+                / "skills"
+                / "task-specific-model-selection"
+                / "SKILL.md"
+            )
+            task_skill.parent.mkdir(parents=True, exist_ok=True)
+            task_skill.write_text("# explicit model selection fixture\n", encoding="utf-8")
+            TASK_SPECIFIC_SKILL_PATH = task_skill
+            try:
+                checker()
+            finally:
+                court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+                TASK_SPECIFIC_SKILL_PATH = None
+        if args.json:
+            print(
+                json.dumps(
+                    {"contract": contract, "ok": True, "status": "PASS"},
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"{contract}=PASS")
+        return 0
+
+    if args.only == EXPLICIT_MODEL_SELECTION_SELECTION:
+        with tempfile.TemporaryDirectory(prefix="court-explicit-model-selection-") as directory:
+            original_runtime_root = court_runtime.runtime_root
+            court_runtime.runtime_root = lambda: Path(directory) / "runtime"  # type: ignore[assignment]
+            try:
+                check_create_model_selection_contract()
+            finally:
+                court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "contract": EXPLICIT_MODEL_SELECTION_CONTRACT,
+                        "ok": True,
+                        "status": "PASS",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(f"{EXPLICIT_MODEL_SELECTION_CONTRACT}=PASS")
+        return 0
 
     if args.only == NATIVE_HOST_LIFECYCLE_SELECTION:
         try:

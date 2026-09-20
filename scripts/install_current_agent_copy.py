@@ -538,6 +538,184 @@ def _validate_source_package_sha256(value: object | None) -> str | None:
     return value
 
 
+def _install_receipt_sha256(value: dict[str, object]) -> str:
+    body = deepcopy(value)
+    body.pop("receipt_sha256", None)
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def finalize_install_receipt(
+    *,
+    home_root: Path,
+    pending_receipt_path: Path,
+    source_package_sha256: str,
+    installation_binding: object,
+    current_tool: str,
+    current_tool_root: Path,
+) -> dict[str, object]:
+    """Promote one exact pending projection receipt after binding acceptance."""
+
+    home = Path(home_root).resolve(strict=False)
+    receipt_root = (
+        home / ".agents" / "install-receipts" / "decretum-matrix"
+    ).resolve(strict=False)
+    try:
+        pending_path = Path(pending_receipt_path).resolve(strict=True)
+    except OSError as exc:
+        return _failure(
+            "pending_install_receipt_missing", detail=f"{type(exc).__name__}:{exc}"
+        )
+    if (
+        _path_key(pending_path.parent) != _path_key(receipt_root)
+        or pending_path.suffix.casefold() != ".json"
+        or not pending_path.name.startswith("install-")
+        or pending_path.is_symlink()
+        or _is_junction(pending_path)
+    ):
+        return _failure("pending_install_receipt_path_invalid")
+    try:
+        package_sha256 = _validate_source_package_sha256(source_package_sha256)
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
+    if not isinstance(installation_binding, dict):
+        return _failure("installation_binding_missing_or_invalid")
+    if installation_binding.get("completion") != "COMMITTED":
+        return _failure("installation_binding_not_committed")
+    pending_shape = deepcopy(installation_binding)
+    pending_shape["completion"] = "PENDING_VALIDATION"
+    reason = _binding_shape_reason(pending_shape, home)
+    if reason is not None:
+        return _failure(reason)
+    try:
+        durable_binding = json.loads(
+            _installation_binding_path(home).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return _failure(
+            "installation_binding_missing_or_invalid",
+            detail=f"{type(exc).__name__}:{exc}",
+        )
+    if durable_binding != installation_binding:
+        return _failure("installation_binding_durable_mismatch")
+    try:
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return _failure(
+            "pending_install_receipt_invalid", detail=f"{type(exc).__name__}:{exc}"
+        )
+    pending_fields = {
+        "schema",
+        "ok",
+        "selection_policy",
+        "primary_root",
+        "current_tool",
+        "current_tool_root",
+        "current_tool_root_proof",
+        "status",
+        "explicit_extra_targets",
+        "selected_roots",
+        "authority",
+        "preload_identity_policy",
+        "source_package_sha256",
+        "installation_binding",
+        "receipt_sha256",
+    }
+    pending_digest = (
+        pending.get("receipt_sha256") if isinstance(pending, dict) else None
+    )
+    if (
+        not isinstance(pending, dict)
+        or set(pending) != pending_fields
+        or pending.get("schema") != RESULT_SCHEMA
+        or pending.get("ok") is not True
+        or pending.get("status") != "PENDING_VALIDATION"
+        or pending.get("source_package_sha256") != package_sha256
+        or pending.get("installation_binding") != pending_shape
+        or not isinstance(pending_digest, str)
+        or pending_digest != _install_receipt_sha256(pending)
+        or pending_path.name != f"install-{pending_digest[:16]}.json"
+    ):
+        return _failure("pending_install_receipt_binding_mismatch")
+    selected_roots = installation_binding.get("selected_roots")
+    canonical_root = installation_binding.get("canonical_root")
+    tool = _nonempty_text(current_tool)
+    tool_root = Path(current_tool_root).resolve(strict=False)
+    if (
+        not isinstance(selected_roots, list)
+        or not isinstance(canonical_root, str)
+        or tool is None
+        or not _within(tool_root, home)
+        or all(_path_key(Path(str(item))) != _path_key(tool_root) for item in selected_roots)
+        or _path_key(Path(canonical_root)) == _path_key(tool_root)
+    ):
+        return _failure("install_receipt_authority_binding_invalid")
+    explicit_extra_targets = [
+        str(item)
+        for item in selected_roots
+        if _path_key(Path(str(item)))
+        not in {_path_key(Path(canonical_root)), _path_key(tool_root)}
+    ]
+    if (
+        pending.get("selection_policy") != "receipt"
+        or pending.get("authority") != "installer"
+        or pending.get("current_tool_root_proof") != "install_applied"
+        or pending.get("preload_identity_policy")
+        != "court_number_with_observed_office_reads"
+        or pending.get("current_tool") != tool
+        or _path_key(Path(str(pending.get("primary_root"))))
+        != _path_key(Path(canonical_root))
+        or _path_key(Path(str(pending.get("current_tool_root"))))
+        != _path_key(tool_root)
+        or not _same_path_list(pending.get("selected_roots"), selected_roots)
+        or not _same_path_list(
+            pending.get("explicit_extra_targets"), explicit_extra_targets
+        )
+    ):
+        return _failure("pending_install_receipt_authority_mismatch")
+    final_receipt: dict[str, object] = {
+        "schema": RESULT_SCHEMA,
+        "ok": True,
+        "selection_policy": "receipt",
+        "primary_root": canonical_root,
+        "current_tool": tool,
+        "current_tool_root": str(tool_root),
+        "current_tool_root_proof": "install_applied",
+        "status": "INSTALLED",
+        "explicit_extra_targets": explicit_extra_targets,
+        "selected_roots": deepcopy(selected_roots),
+        "authority": "installer",
+        "preload_identity_policy": "court_number_with_observed_office_reads",
+        "source_package_sha256": package_sha256,
+        "installation_binding": deepcopy(installation_binding),
+    }
+    for field in (
+        "source_commit",
+        "artifact_ref",
+        "build_id",
+        "release_label",
+        "installation_id",
+        "transaction_id",
+    ):
+        final_receipt[field] = installation_binding[field]
+    final_receipt["receipt_sha256"] = _install_receipt_sha256(final_receipt)
+    final_path = receipt_root / f"install-{final_receipt['receipt_sha256'][:16]}.json"
+    try:
+        _write_json_atomic(final_path, final_receipt)
+    except OSError as exc:
+        return _failure(
+            "final_install_receipt_write_failed", detail=f"{type(exc).__name__}:{exc}"
+        )
+    return {
+        "schema": RESULT_SCHEMA,
+        "ok": True,
+        "status": "INSTALLED",
+        "install_receipt": final_receipt,
+        "install_receipt_path": str(final_path),
+    }
+
+
 def _safe_relative(value: object) -> bool:
     if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
         return False
@@ -2682,11 +2860,7 @@ def install_current_agent_copy(
             _receipt_body["source_package_sha256"] = validated_source_package_sha256
         if installation_binding is not None:
             _receipt_body["installation_binding"] = result["installation_binding"]
-        _receipt_body["receipt_sha256"] = hashlib.sha256(
-            json.dumps(_receipt_body, sort_keys=True, separators=(",", ":")).encode(
-                "utf-8"
-            )
-        ).hexdigest()
+        _receipt_body["receipt_sha256"] = _install_receipt_sha256(_receipt_body)
         result["install_receipt"] = _receipt_body
         _receipt_path = (
             home
@@ -2769,6 +2943,7 @@ __all__ = [
     "install_current_agent_copy",
     "rollback_install_backup",
     "commit_installation_binding",
+    "finalize_install_receipt",
     "INSTALLATION_ACCEPTANCE_SCHEMA",
     "INSTALLATION_BINDING_SCHEMA",
     "WindowsJunctionTransactionAdapter",

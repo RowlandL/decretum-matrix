@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 # A+B layering: real module lives in scripts/checks/; keep scripts root importable.
 import sys
 import tempfile
@@ -28,6 +30,11 @@ def require(condition: bool, message: str) -> None:
 
 def run_checks() -> int:
     manifest = build_preload_manifest("xingbu", court_code="COURT-FIXTURE-1")
+    require(
+        asdict(manifest).get("startup_guide_path")
+        == "references/court-normal-startup.md",
+        "preload manifest/asdict omitted exact portable startup guide path",
+    )
     require(manifest.role_key == "xingbu", "xingbu role identity missing")
     require(manifest.office_zh == "刑部", "xingbu Chinese office mismatch")
     require(manifest.direct_superior == "shangshu", "xingbu superior mismatch")
@@ -93,6 +100,8 @@ def run_checks() -> int:
         "profile_source": manifest.profile_source,
         "dossier_path": manifest.dossier_path,
         "court_skill_path": manifest.court_skill_path,
+        "startup_guide_path": manifest.startup_guide_path,
+        "startup_guide_loaded": "YES",
         "court_code": manifest.court_code,
         "agent_dossier_loaded": "YES",
         "loaded_skills": ["decretum-matrix"],
@@ -115,6 +124,24 @@ def run_checks() -> int:
         mismatch_rejected = True
     else:
         raise AssertionError("mismatched preload ack was accepted")
+    invalid_startup = {
+        "missing_path": {key: value for key, value in ack.items() if key != "startup_guide_path"},
+        "wrong_path": {**ack, "startup_guide_path": "references/wrong-startup.md"},
+        "missing_loaded": {key: value for key, value in ack.items() if key != "startup_guide_loaded"},
+        "loaded_no": {**ack, "startup_guide_loaded": "NO"},
+        "loaded_boolean": {**ack, "startup_guide_loaded": True},
+    }
+    accepted_invalid = []
+    for name, candidate in invalid_startup.items():
+        try:
+            validate_preload_ack(manifest, candidate, model_route=contract["model_route"])
+        except ValueError:
+            continue
+        accepted_invalid.append(name)
+    require(
+        not accepted_invalid,
+        "startup preload acknowledgement gaps accepted: " + ", ".join(accepted_invalid),
+    )
 
     print(
         json.dumps(
@@ -137,6 +164,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         write_skill(root)
+        startup = root / "references" / "court-normal-startup.md"
+        startup.parent.mkdir(parents=True, exist_ok=True)
+        startup.write_text("# Isolated startup fixture\n", encoding="utf-8")
         with patch.dict(build_preload_manifest.__kwdefaults__, skill_root=root), patch.object(Path, "read_bytes", side_effect=AssertionError("runtime file bytes read")), patch.object(hashlib, "sha256", side_effect=AssertionError("runtime identity calculation")):
             return run_checks()
 

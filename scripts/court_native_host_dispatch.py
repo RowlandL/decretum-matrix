@@ -22,6 +22,7 @@ from court_case_binding import case_reference
 
 HOST_DISPATCH_REQUEST_SCHEMA = "court.native_host_dispatch_request.v1"
 HOST_ACTION_RECEIPT_SCHEMA = "court.native_host_action_receipt.v1"
+HOST_MODEL_EXECUTION_BINDING_SCHEMA = "court.host_model_execution_binding.v1"
 ADMISSION_RECEIPT_SCHEMA = "court.agent.admission_receipt.v1"
 REUSE_CONTEXT_LIMIT = 0.80
 THREE_DEPARTMENTS = frozenset({"zhongshu", "menxia", "shangshu"})
@@ -60,6 +61,10 @@ CANONICAL_IDENTITY_RECEIPT_FIELDS = (
     "trace_session_id",
     "case_session_id",
     "trusted_parent_kind",
+)
+OBSERVED_CAPABILITY_FIELDS = (
+    "observed_spawn_agent_type_field",
+    "observed_child_agent_role",
 )
 CANONICAL_AGENT_PATH_RE = re.compile(r"^/root(?:/[a-z0-9_]+)+$")
 SESSION_ID_RE = re.compile(
@@ -127,7 +132,12 @@ def _normalize_role_ack(
             maximum=64,
         ).lower(),
         **{field: _text(value.get(field), f"role_ack.{field}")
-           for field in ("profile_source", "dossier_path", "court_skill_path")},
+           for field in (
+               "profile_source",
+               "dossier_path",
+               "court_skill_path",
+               "startup_guide_path",
+           )},
     }
     if normalized["role"] != role or normalized["direct_superior"] != direct_superior:
         raise ValueError("native_host_action_receipt:role_ack_binding_mismatch")
@@ -175,7 +185,12 @@ def _normalize_candidate(value: object) -> dict[str, object]:
             maximum=64,
         ).lower(),
         **{field: _text(role_ack.get(field), f"reuse.role_ack.{field}")
-           for field in ("profile_source", "dossier_path", "court_skill_path")},
+           for field in (
+               "profile_source",
+               "dossier_path",
+               "court_skill_path",
+               "startup_guide_path",
+           )},
     }
     return {
         "host_task_id": _text(value.get("host_task_id"), "reuse.host_task_id"),
@@ -297,10 +312,173 @@ def select_native_host_action(
     return "spawn", "spawn", None
 
 
+def _normalize_observed_capability(
+    value: Mapping[str, object],
+    *,
+    field_prefix: str,
+) -> dict[str, object] | None:
+    present = tuple(field in value for field in OBSERVED_CAPABILITY_FIELDS)
+    if not any(present):
+        return None
+    if not all(present):
+        raise ValueError(
+            f"native_host_action_receipt:{field_prefix}_observed_capability_incomplete"
+        )
+    capability = value.get("observed_spawn_agent_type_field")
+    observed_role = value.get("observed_child_agent_role")
+    if capability not in {"visible", "hidden", "unverified"}:
+        raise ValueError(
+            f"native_host_action_receipt:{field_prefix}_observed_capability_invalid"
+        )
+    if capability == "visible":
+        observed_role = _text(
+            observed_role,
+            f"{field_prefix}.observed_child_agent_role",
+            maximum=64,
+        ).lower()
+    elif observed_role is not None:
+        raise ValueError(
+            f"native_host_action_receipt:{field_prefix}_unproved_role_must_be_null"
+        )
+    return {
+        "observed_spawn_agent_type_field": capability,
+        "observed_child_agent_role": observed_role,
+    }
+
+
+def _normalize_model_turn_context(
+    value: object,
+    *,
+    field_prefix: str,
+) -> dict[str, object]:
+    required = {"model", "effort", "trace_line", "turn_id"}
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise ValueError(
+            f"native_host_action_receipt:{field_prefix}_invalid"
+        )
+    return {
+        "model": _text(value.get("model"), f"{field_prefix}.model"),
+        "effort": _text(value.get("effort"), f"{field_prefix}.effort"),
+        "trace_line": _positive_int(
+            value.get("trace_line"), f"{field_prefix}.trace_line"
+        ),
+        "turn_id": _text(
+            value.get("turn_id"), f"{field_prefix}.turn_id", maximum=512
+        ),
+    }
+
+
+def _normalize_host_model_execution_binding(value: object) -> dict[str, object]:
+    required = {
+        "schema",
+        "selection_id",
+        "applied_spawn_fields",
+        "parent_turn_context",
+        "child_turn_context",
+        "status",
+    }
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise ValueError(
+            "native_host_action_receipt:host_model_execution_binding_invalid"
+        )
+    if value.get("schema") != HOST_MODEL_EXECUTION_BINDING_SCHEMA:
+        raise ValueError(
+            "native_host_action_receipt:host_model_execution_binding_schema_invalid"
+        )
+    selection_id = value.get("selection_id")
+    if not isinstance(selection_id, str) or re.fullmatch(
+        r"MEA-[0-9a-f]{32}", selection_id
+    ) is None:
+        raise ValueError(
+            "native_host_action_receipt:host_model_execution_selection_id_invalid"
+        )
+    applied = value.get("applied_spawn_fields")
+    allowed_order = ("model", "reasoning_effort")
+    if (
+        not isinstance(applied, (list, tuple))
+        or not applied
+        or list(applied)
+        != [field for field in allowed_order if field in applied]
+    ):
+        raise ValueError(
+            "native_host_action_receipt:host_model_execution_fields_invalid"
+        )
+    if value.get("status") != "MATCHED":
+        raise ValueError(
+            "native_host_action_receipt:host_model_execution_status_invalid"
+        )
+    return {
+        "schema": HOST_MODEL_EXECUTION_BINDING_SCHEMA,
+        "selection_id": selection_id,
+        "applied_spawn_fields": list(applied),
+        "parent_turn_context": _normalize_model_turn_context(
+            value.get("parent_turn_context"),
+            field_prefix="parent_turn_context",
+        ),
+        "child_turn_context": _normalize_model_turn_context(
+            value.get("child_turn_context"),
+            field_prefix="child_turn_context",
+        ),
+        "status": "MATCHED",
+    }
+
+
+def _normalize_model_authorization_binding(
+    value: object,
+    *,
+    request: Mapping[str, object],
+) -> dict[str, object]:
+    from court_model_router import validate_current_codex_model_selection
+
+    try:
+        return validate_current_codex_model_selection(
+            value,
+            expected_case_ref=request["case_ref"],
+            expected_semantic_epoch=request["semantic_epoch"],
+        )
+    except (KeyError, ValueError) as exc:
+        raise ValueError(
+            "native_host_action_receipt:model_authorization_binding_invalid"
+        ) from exc
+
+
+def _validate_model_execution_authorization(
+    authorization: Mapping[str, object],
+    execution: Mapping[str, object],
+) -> None:
+    from court_model_router import validate_explicit_model_execution_binding
+
+    case_ref = authorization.get("case_ref")
+    if not isinstance(case_ref, Mapping):
+        raise ValueError(
+            "native_host_action_receipt:model_execution_authorization_mismatch"
+        )
+    try:
+        validate_explicit_model_execution_binding(
+            authorization,
+            execution,
+            expected_case_ref=case_ref,
+            expected_semantic_epoch=authorization.get("semantic_epoch"),
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "native_host_action_receipt:model_execution_authorization_mismatch"
+        ) from exc
+
+
 def _normalize_host_result(value: object) -> dict[str, object]:
     if not isinstance(value, Mapping) or not isinstance(value.get("ok"), bool):
         raise ValueError("native_host_action_receipt:host_result_invalid")
     result = deepcopy(dict(value))
+    observed = _normalize_observed_capability(result, field_prefix="host_result")
+    if observed is not None:
+        result.update(observed)
+    if "host_model_execution_binding" in result:
+        result["host_model_execution_binding"] = (
+            _normalize_host_model_execution_binding(
+                result["host_model_execution_binding"]
+            )
+        )
     if 'host_spawn_evidence' in result:
         from court_native_trace import validate_spawn_evidence
         result['host_spawn_evidence'] = validate_spawn_evidence(result['host_spawn_evidence'], result)
@@ -391,6 +569,23 @@ def _build_receipt(
         **{field: deepcopy(request[field]) for field in REQUEST_BINDING_FIELDS},
         **{field: host_result[field] for field in HOST_BINDING_FIELDS},
     }
+    observed = _normalize_observed_capability(
+        host_result,
+        field_prefix="host_result",
+    )
+    if observed is not None:
+        if host_action != "spawn" or outcome != "succeeded":
+            raise ValueError(
+                "native_host_action_receipt:observed_capability_action_mismatch"
+            )
+        if (
+            observed["observed_spawn_agent_type_field"] == "visible"
+            and observed["observed_child_agent_role"] != request.get("role")
+        ):
+            raise ValueError(
+                "native_host_action_receipt:observed_child_agent_role_mismatch"
+            )
+        receipt.update(observed)
     if host_result.get("host_identity_kind") == CANONICAL_AGENT_PATH_IDENTITY_KIND:
         receipt.update(
             {
@@ -402,6 +597,22 @@ def _build_receipt(
         if host_action != 'spawn' or outcome != 'succeeded':
             raise ValueError('native_host_action_receipt:spawn_evidence_action_mismatch')
         receipt['host_spawn_evidence'] = deepcopy(host_result['host_spawn_evidence'])
+    if "model_authorization_binding" in host_result:
+        if host_action != "spawn" or outcome != "succeeded":
+            raise ValueError(
+                "native_host_action_receipt:model_authorization_binding_action_mismatch"
+            )
+        receipt["model_authorization_binding"] = deepcopy(
+            host_result["model_authorization_binding"]
+        )
+    if "host_model_execution_binding" in host_result:
+        if host_action != "spawn" or outcome != "succeeded":
+            raise ValueError(
+                "native_host_action_receipt:model_execution_binding_action_mismatch"
+            )
+        receipt["host_model_execution_binding"] = deepcopy(
+            host_result["host_model_execution_binding"]
+        )
     receipt["receipt_id"] = "native-host-" + str(host_result["host_action_id"])
     return receipt
 
@@ -432,6 +643,88 @@ def validate_native_host_action_receipt(
                    for field in (*CANONICAL_IDENTITY_RECEIPT_FIELDS, "host_spawn_evidence"))
             or (outcome == "succeeded") != host_result["ok"]):
         raise ValueError("native_host_action_receipt:host_result_binding_mismatch")
+    receipt_observed = _normalize_observed_capability(
+        value,
+        field_prefix="receipt",
+    )
+    host_observed = _normalize_observed_capability(
+        host_result,
+        field_prefix="host_result",
+    )
+    if receipt_observed != host_observed:
+        raise ValueError(
+            "native_host_action_receipt:observed_capability_binding_mismatch"
+        )
+    if host_observed is not None:
+        if host_action != "spawn" or outcome != "succeeded":
+            raise ValueError(
+                "native_host_action_receipt:observed_capability_action_mismatch"
+            )
+        if (
+            host_observed["observed_spawn_agent_type_field"] == "visible"
+            and host_observed["observed_child_agent_role"] != request.get("role")
+        ):
+            raise ValueError(
+                "native_host_action_receipt:observed_child_agent_role_mismatch"
+            )
+    receipt_has_authorization = "model_authorization_binding" in value
+    host_has_authorization = "model_authorization_binding" in host_result
+    if receipt_has_authorization != host_has_authorization:
+        raise ValueError(
+            "native_host_action_receipt:model_authorization_binding_incomplete"
+        )
+    model_authorization: dict[str, object] | None = None
+    if host_has_authorization:
+        receipt_authorization = _normalize_model_authorization_binding(
+            value.get("model_authorization_binding"),
+            request=request,
+        )
+        host_authorization = _normalize_model_authorization_binding(
+            host_result.get("model_authorization_binding"),
+            request=request,
+        )
+        if receipt_authorization != host_authorization:
+            raise ValueError(
+                "native_host_action_receipt:model_authorization_binding_mismatch"
+            )
+        if host_action != "spawn" or outcome != "succeeded":
+            raise ValueError(
+                "native_host_action_receipt:model_authorization_binding_action_mismatch"
+            )
+        model_authorization = receipt_authorization
+    receipt_has_model_binding = "host_model_execution_binding" in value
+    host_has_model_binding = "host_model_execution_binding" in host_result
+    if receipt_has_model_binding != host_has_model_binding:
+        raise ValueError(
+            "native_host_action_receipt:model_execution_binding_incomplete"
+        )
+    if host_has_model_binding:
+        receipt_model_binding = _normalize_host_model_execution_binding(
+            value.get("host_model_execution_binding")
+        )
+        if (
+            receipt_model_binding
+            != host_result.get("host_model_execution_binding")
+        ):
+            raise ValueError(
+                "native_host_action_receipt:model_execution_binding_mismatch"
+            )
+        if host_action != "spawn" or outcome != "succeeded":
+            raise ValueError(
+                "native_host_action_receipt:model_execution_binding_action_mismatch"
+            )
+        if model_authorization is None:
+            raise ValueError(
+                "native_host_action_receipt:model_authorization_binding_required"
+            )
+        _validate_model_execution_authorization(
+            model_authorization,
+            receipt_model_binding,
+        )
+    elif model_authorization is not None:
+        raise ValueError(
+            "native_host_action_receipt:model_execution_binding_required"
+        )
     for field in REQUEST_BINDING_FIELDS:
         if value.get(field) != request.get(field):
             raise ValueError(f"native_host_action_receipt:{field}_mismatch")

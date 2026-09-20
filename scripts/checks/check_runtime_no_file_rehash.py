@@ -72,8 +72,8 @@ def main() -> int:
             assert not role_check.schema_errors(cards / name)
             manifest = bootstrap.build_preload_manifest(role, skill_root=root, court_code="COURT-FIXTURE-1")
             assert manifest.preload_ack_schema == "court.office.preload_ack.v1"
-            assert set(asdict(manifest)) == {"role_key", "carrier_kind", "office_zh", "direct_superior", "profile_source", "dossier_path", "court_skill_name", "court_skill_path", "court_code", "preload_ack_schema"}
-            ack = {"schema": manifest.preload_ack_schema, "preload_status": "PASSED", "role_key": role, "office_zh": manifest.office_zh, "direct_superior": manifest.direct_superior, "profile_source": manifest.profile_source, "dossier_path": manifest.dossier_path, "court_skill_path": manifest.court_skill_path, "court_code": manifest.court_code, "agent_dossier_loaded": "YES", "loaded_skills": ["decretum-matrix"]}
+            assert set(asdict(manifest)) == {"role_key", "carrier_kind", "office_zh", "direct_superior", "profile_source", "dossier_path", "court_skill_name", "court_skill_path", "startup_guide_path", "court_code", "preload_ack_schema"}
+            ack = {"schema": manifest.preload_ack_schema, "preload_status": "PASSED", "role_key": role, "office_zh": manifest.office_zh, "direct_superior": manifest.direct_superior, "profile_source": manifest.profile_source, "dossier_path": manifest.dossier_path, "court_skill_path": manifest.court_skill_path, "startup_guide_path": manifest.startup_guide_path, "startup_guide_loaded": "YES", "court_code": manifest.court_code, "agent_dossier_loaded": "YES", "loaded_skills": ["decretum-matrix"]}
             bootstrap.validate_preload_ack(manifest, ack)
             rejected(lambda: bootstrap.validate_preload_ack(manifest, {**ack, "court_code": "wrong-case"}), "court_code")
             rejected(lambda: bootstrap.validate_preload_ack(manifest, {**ack, "agent_dossier_loaded": "NO"}), "agent_dossier_loaded")

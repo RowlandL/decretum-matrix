@@ -50,7 +50,9 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
 import court_office_bootstrap
+import court_agent_admission_contract
 import court_runtime
+from commands import court_native_bridge
 from court_intake_gate import minimal_request_understanding_example
 import check_capability_index_gate
 from checks.installed_identity_fixture import write_skill
@@ -61,6 +63,7 @@ SKILL_PATH = ROOT / "SKILL.md"
 PROFILE_ROOT = ROOT / "agents" / "standing-officials"
 DOSSIER_ROOT = ROOT / "agents" / "office-dossiers"
 CAPABILITY_REGISTRY_PATH = ROOT / "references" / "court-capability-registry.md"
+OFFICE_DISPATCH_PATH = ROOT / "references" / "court-offices-dispatch.md"
 CAPABILITY_INDEX_GATE_PATH = ROOT / "scripts" / "checks" / "check_capability_index_gate.py"
 REFRESH_CAPABILITY_REGISTRY_PATH = ROOT / "scripts" / "commands" / "refresh_capability_registry.py"
 PRELOAD_FIXTURE_ROOT: Path | None = None
@@ -516,6 +519,72 @@ def check_pinned_initial_semantics() -> None:
         not missing,
         "short SKILL entry or governing-reference map is missing: " + ", ".join(missing),
     )
+
+
+def check_horizontal_delivery_default_contract() -> None:
+    skill_text = SKILL_PATH.read_text(encoding="utf-8")
+    dispatch_text = OFFICE_DISPATCH_PATH.read_text(encoding="utf-8")
+    linked_references = {
+        path.relative_to(ROOT).as_posix()
+        for path in direct_governing_reference_paths(skill_text)
+    }
+    require(
+        OFFICE_DISPATCH_PATH.relative_to(ROOT).as_posix() in linked_references,
+        "horizontal delivery contract reference is not linked from SKILL.md",
+    )
+    skill_markers = (
+        "Absent a newest explicit user ban",
+        "horizontal messages default to direct delivery to the canonical target",
+    )
+    dispatch_markers = (
+        "### Horizontal delivery default contract",
+        "messages, evidence, state, and heartbeat default to direct delivery",
+        "Only when the host is genuinely unreachable",
+        "direct delivery plus receiver read acknowledgement and evidence chain",
+        "transport-only relay",
+        "runtime_degraded/PARTIAL",
+        "never grants or changes dispatch, wake, reassign, or approval authority",
+        "canonical hierarchy remains unchanged",
+    )
+    missing = [
+        marker
+        for text, markers in (
+            (skill_text, skill_markers),
+            (dispatch_text, dispatch_markers),
+        )
+        for marker in markers
+        if marker not in " ".join(text.split())
+    ]
+    require(
+        not missing,
+        "horizontal delivery default contract missing: " + ", ".join(missing),
+    )
+
+
+def check_startup_exact_flow_contract() -> None:
+    guide = (ROOT / "references" / "court-normal-startup.md").read_text(
+        encoding="utf-8"
+    )
+    exact_markers = (
+        "`SKILL < startup < {profile,dossier}`",
+        "`admit → native-request → host_invocation → native-capture → returned office command/request → preload-ack`",
+        "[Path/ACK details](sections/court-office-name-profile-skill-binding.md)",
+    )
+    missing = [marker for marker in exact_markers if marker not in guide]
+    require(
+        not missing,
+        "normal startup exact flow contract missing: " + ", ".join(missing),
+    )
+
+    bootstrap_source = inspect.getsource(court_native_bridge.canonical_host_message)
+    for marker in (
+        '"skill": "SKILL.md"',
+        '"references/court-normal-startup.md"',
+        '"startup_guide_loaded": True',
+        '"profile_loaded": True',
+        '"dossier_loaded": True',
+    ):
+        require(marker in bootstrap_source, f"native bootstrap contract missing: {marker}")
 
 
 def check_pinned_capability_registry_contract() -> None:
@@ -1192,6 +1261,45 @@ def check_relative_persisted_preload_paths() -> None:
     require(not problems, "absolute persisted preload paths: " + "; ".join(problems))
 
 
+def check_exact_portable_admission_preload_sources() -> None:
+    fields = (
+        "profile_source",
+        "dossier_path",
+        "court_skill_path",
+        "startup_guide_path",
+    )
+    valid = {
+        "profile_source": "agents/standing-officials/gongbu.toml",
+        "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
+        "court_skill_path": "SKILL.md",
+        "startup_guide_path": "references/court-normal-startup.md",
+    }
+    require(
+        court_agent_admission_contract._normalized_preload_sources(valid)
+        == tuple(valid[field] for field in fields),
+        "admission preload sources did not preserve the exact four-field map",
+    )
+    invalid = (
+        {key: value for key, value in valid.items() if key != "startup_guide_path"},
+        {key: value for key, value in valid.items() if key != "profile_source"},
+        {
+            **{key: value for key, value in valid.items() if key != "dossier_path"},
+            "office_dossier_path": valid["dossier_path"],
+        },
+        {**valid, "extra": "unexpected"},
+        {**valid, "startup_guide_path": "C:/absolute/court-normal-startup.md"},
+        {**valid, "startup_guide_path": "/absolute/court-normal-startup.md"},
+        {**valid, "startup_guide_path": "references/../court-normal-startup.md"},
+    )
+    require(
+        all(
+            court_agent_admission_contract._normalized_preload_sources(value) is None
+            for value in invalid
+        ),
+        "admission preload sources accepted legacy, malformed, absolute, or traversal input",
+    )
+
+
 def check_preload_ack_rejections() -> None:
     manifest = court_office_bootstrap.build_preload_manifest(
         "libu",
@@ -1210,6 +1318,8 @@ def check_preload_ack_rejections() -> None:
         "profile_source": manifest.profile_source,
         "dossier_path": manifest.dossier_path,
         "court_skill_path": manifest.court_skill_path,
+        "startup_guide_path": manifest.startup_guide_path,
+        "startup_guide_loaded": "YES",
         "court_code": "COURT-20260906-1-AAAA",
         "agent_dossier_loaded": "YES",
         "loaded_skills": ["decretum-matrix"],
@@ -1222,6 +1332,16 @@ def check_preload_ack_rejections() -> None:
         "wrong_profile_source": {**valid, "profile_source": "agents/standing-officials/menxia.toml"},
         "wrong_role_dossier": {**valid, "dossier_path": other.dossier_path},
         "wrong_skill_path": {**valid, "court_skill_path": "references/SKILL.md"},
+        "missing_startup_guide_path": {
+            key: value for key, value in valid.items() if key != "startup_guide_path"
+        },
+        "wrong_startup_guide_path": {
+            **valid,
+            "startup_guide_path": "references/other-startup.md",
+        },
+        "missing_startup_guide_loaded": {
+            key: value for key, value in valid.items() if key != "startup_guide_loaded"
+        },
         "prompt_only_identity": {
             **valid,
             "agent_dossier_loaded": "NO",
@@ -1732,6 +1852,11 @@ CHECKS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("ordinary_runtime_probe_zero_load", check_ordinary_runtime_probe_zero_load),
     ("carrier_pointer_semantic_independence", check_carrier_pointer_semantic_independence),
     ("pinned_initial_semantics", check_pinned_initial_semantics),
+    (
+        "horizontal_delivery_default_contract",
+        check_horizontal_delivery_default_contract,
+    ),
+    ("startup_exact_flow_contract", check_startup_exact_flow_contract),
     ("amended_behavior_source_reachability", check_amended_behavior_source_reachability),
     (
         "pinned_capability_registry_contract",
@@ -1748,6 +1873,10 @@ CHECKS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("fourteen_office_dossier_profile_bindings", check_fourteen_office_dossier_profile_bindings),
     ("fourteen_office_manifest_hashes", check_fourteen_office_manifest_hashes),
     ("relative_persisted_preload_paths", check_relative_persisted_preload_paths),
+    (
+        "exact_portable_admission_preload_sources",
+        check_exact_portable_admission_preload_sources,
+    ),
     ("preload_ack_rejections", check_preload_ack_rejections),
     (
         "ministry_responsibility_guard",

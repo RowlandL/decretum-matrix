@@ -2096,7 +2096,8 @@ def _check_candidate_binding_provenance_cases(
     (package_root / "bin" / "decretum-matrix.py").write_text(
         "print('candidate')\n", encoding="utf-8"
     )
-    with zipfile.ZipFile(release_root / artifact_name, "w", compression=zipfile.ZIP_STORED) as archive:
+    artifact_path = release_root / artifact_name
+    with zipfile.ZipFile(artifact_path, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
             "decretum-matrix/release-manifest.json",
             json.dumps(
@@ -2105,6 +2106,7 @@ def _check_candidate_binding_provenance_cases(
             ),
         )
         archive.writestr("decretum-matrix/bin/decretum-matrix.py", "print('candidate')\n")
+    artifact_sha256 = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     candidate_receipt = {
         "schema": "court.release_candidate_receipt.v1",
         "state": "CANDIDATE_NOT_RELEASED",
@@ -2127,7 +2129,7 @@ def _check_candidate_binding_provenance_cases(
             "path": "release-manifest.json",
             "expected_final_tag": f"refs/tags/{release_label}",
         },
-        "artifacts": [{"name": artifact_name}],
+        "artifacts": [{"name": artifact_name, "sha256": artifact_sha256}],
     }
     candidate_receipt_path = release_root / receipt_name
     candidate_receipt_path.write_text(
@@ -2166,6 +2168,19 @@ def _check_candidate_binding_provenance_cases(
     else:
         errors.append(f"{name}:preserved_untracked:{untracked_result}")
     (source / "preserved-untracked.md").unlink()
+    try:
+        clean_metadata = fix._installation_binding_metadata(
+            source,
+            candidate_package_root=package_root,
+            candidate_receipt=candidate_receipt_path,
+            transaction_id="transaction-a",
+            installation_id="installation-a",
+        )
+    except Exception as exc:
+        errors.append(f"{name}:clean_metadata:{type(exc).__name__}:{exc}")
+    else:
+        if clean_metadata.get("source_package_sha256") != artifact_sha256:
+            errors.append(f"{name}:source_package_sha256_missing")
 
     mismatched_version = package_json(package_release_label="beta9.9.9")
     (package_root / "package.json").write_text(
@@ -2191,7 +2206,7 @@ def _check_candidate_binding_provenance_cases(
     (package_root / "package.json").write_text(
         json.dumps(valid_package, sort_keys=True) + "\n", encoding="utf-8"
     )
-    with zipfile.ZipFile(release_root / artifact_name, "w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(artifact_path, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(
             "decretum-matrix/release-manifest.json",
             json.dumps(
@@ -2200,6 +2215,12 @@ def _check_candidate_binding_provenance_cases(
             ),
         )
         archive.writestr("decretum-matrix/scripts/checks/forbidden.py", "print('source-only')\n")
+    candidate_receipt["artifacts"][0]["sha256"] = hashlib.sha256(
+        artifact_path.read_bytes()
+    ).hexdigest()
+    candidate_receipt_path.write_text(
+        json.dumps(candidate_receipt, sort_keys=True) + "\n", encoding="utf-8"
+    )
     payload_result = call_metadata()
     if "candidate_payload_checker_entries" in payload_result:
         passed += 1
@@ -3864,6 +3885,7 @@ def _check_cases(
             manifest,
             roots,
             write=True,
+            source_package_sha256="b" * 64,
             installation_binding=binding_metadata,
         ),
     )
@@ -4018,6 +4040,170 @@ def _check_cases(
                     ):
                         errors.append(f"{name}:external_acceptance_did_not_commit:{committed}")
                     else:
+                        finalize_receipt = install.__globals__.get(
+                            "finalize_install_receipt"
+                        )
+                        if not callable(finalize_receipt):
+                            errors.append(f"{name}:install_receipt_finalizer_missing")
+                            finalized = None
+                        else:
+                            pending_receipt_path = Path(
+                                str(binding_result["install_receipt_path"])
+                            )
+                            pending_receipt = json.loads(
+                                pending_receipt_path.read_text(encoding="utf-8")
+                            )
+                            tampered_receipt = deepcopy(pending_receipt)
+                            tampered_receipt["selected_roots"] = [
+                                str(home.parent / "forged-external-root")
+                            ]
+                            tampered_receipt["authority"] = "attacker"
+                            tampered_receipt["receipt_sha256"] = (
+                                "stale-and-not-recomputed"
+                            )
+                            tampered_path = pending_receipt_path.with_name(
+                                "install-forged-pending.json"
+                            )
+                            tampered_path.write_text(
+                                json.dumps(tampered_receipt, sort_keys=True) + "\n",
+                                encoding="utf-8",
+                            )
+                            tampered_result = finalize_receipt(
+                                home_root=home,
+                                pending_receipt_path=tampered_path,
+                                source_package_sha256="b" * 64,
+                                installation_binding=committed[
+                                    "installation_binding"
+                                ],
+                                current_tool="codex",
+                                current_tool_root=roots["codex"],
+                            )
+                            if isinstance(tampered_result, dict) and tampered_result.get(
+                                "ok"
+                            ) is True:
+                                errors.append(
+                                    f"{name}:tampered_pending_receipt_was_finalized"
+                                )
+                            forged_receipt = deepcopy(pending_receipt)
+                            forged_receipt["selected_roots"] = [
+                                str(home.parent / "forged-external-root")
+                            ]
+                            forged_receipt["authority"] = "attacker"
+                            forged_receipt["receipt_sha256"] = hashlib.sha256(
+                                json.dumps(
+                                    {
+                                        key: value
+                                        for key, value in forged_receipt.items()
+                                        if key != "receipt_sha256"
+                                    },
+                                    sort_keys=True,
+                                    separators=(",", ":"),
+                                ).encode("utf-8")
+                            ).hexdigest()
+                            forged_path = pending_receipt_path.with_name(
+                                "install-"
+                                + forged_receipt["receipt_sha256"][:16]
+                                + ".json"
+                            )
+                            forged_path.write_text(
+                                json.dumps(forged_receipt, sort_keys=True) + "\n",
+                                encoding="utf-8",
+                            )
+                            forged_result = finalize_receipt(
+                                home_root=home,
+                                pending_receipt_path=forged_path,
+                                source_package_sha256="b" * 64,
+                                installation_binding=committed[
+                                    "installation_binding"
+                                ],
+                                current_tool="codex",
+                                current_tool_root=roots["codex"],
+                            )
+                            if isinstance(forged_result, dict) and forged_result.get(
+                                "ok"
+                            ) is True:
+                                errors.append(
+                                    f"{name}:foreign_roots_and_authority_were_finalized"
+                                )
+                            durable_binding_path = Path(str(binding_path))
+                            hidden_binding_path = durable_binding_path.with_suffix(
+                                ".hidden"
+                            )
+                            durable_binding_path.replace(hidden_binding_path)
+                            try:
+                                missing_binding_result = finalize_receipt(
+                                    home_root=home,
+                                    pending_receipt_path=pending_receipt_path,
+                                    source_package_sha256="b" * 64,
+                                    installation_binding=committed[
+                                        "installation_binding"
+                                    ],
+                                    current_tool="codex",
+                                    current_tool_root=roots["codex"],
+                                )
+                            finally:
+                                hidden_binding_path.replace(durable_binding_path)
+                            if (
+                                isinstance(missing_binding_result, dict)
+                                and missing_binding_result.get("ok") is True
+                            ):
+                                errors.append(
+                                    f"{name}:missing_durable_binding_was_accepted"
+                                )
+                            finalized = finalize_receipt(
+                                home_root=home,
+                                pending_receipt_path=pending_receipt_path,
+                                source_package_sha256="b" * 64,
+                                installation_binding=committed[
+                                    "installation_binding"
+                                ],
+                                current_tool="codex",
+                                current_tool_root=roots["codex"],
+                            )
+                        if not isinstance(finalized, dict) or finalized.get(
+                            "ok"
+                        ) is not True:
+                            errors.append(
+                                f"{name}:install_receipt_not_finalized:{finalized}"
+                            )
+                        else:
+                            final_receipt = finalized.get("install_receipt")
+                            expected_provenance = {
+                                field: committed["installation_binding"][field]
+                                for field in (
+                                    "source_commit",
+                                    "artifact_ref",
+                                    "build_id",
+                                    "release_label",
+                                    "installation_id",
+                                    "transaction_id",
+                                )
+                            }
+                            if (
+                                not isinstance(final_receipt, dict)
+                                or final_receipt.get("status") != "INSTALLED"
+                                or final_receipt.get("source_package_sha256")
+                                != "b" * 64
+                                or final_receipt.get("authority") != "installer"
+                                or final_receipt.get("primary_root")
+                                != committed["installation_binding"][
+                                    "canonical_root"
+                                ]
+                                or final_receipt.get("selected_roots")
+                                != committed["installation_binding"][
+                                    "selected_roots"
+                                ]
+                                or any(
+                                    final_receipt.get(field) != value
+                                    for field, value in expected_provenance.items()
+                                )
+                                or not Path(
+                                    str(finalized.get("install_receipt_path"))
+                                ).is_file()
+                            ):
+                                errors.append(
+                                    f"{name}:final_install_receipt_contract_failed"
+                                )
                         persisted_binding = json.loads(
                             Path(binding_path).read_text(encoding="utf-8")
                         )

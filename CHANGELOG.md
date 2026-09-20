@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- 当前 Codex 宿主适配改为 capability-driven：`agent_type` 只从已准入官署派生并由 child session metadata/receipt 复核；未选择 model/effort 时继续继承，create/revise 的 `current_user_explicit` model-only、effort-only 或 pair 才能经可见宿主字段下沉。字段可见性只描述 schema，未选字段仍不进入 invocation。正式 receipt 同时绑定 admission 原始授权和 parent/child `turn_context`；effort-only 证明 model 继承，model-only 则省略 effort 并记录当前宿主实际默认值，不误称父级继承或用户选择。followup 只复用已证明选择，不重复发送 spawn override；空白模型名不构成显式选择。
+- `court-normal-startup.md` 进入 manifest、admission、fastpath、native message/trace、child acceptance、正式 ACK、state/event/receipt 与 20 KiB 预算同一链；普通三省六部另保留 768-byte 动态余量，旧 v1 ACK 缺新证据时保持可重试 pending。
+- NIUbash 仅增加可选的窄 literal-`cat` trace 兼容与 business-before-preload 检测；PowerShell 主路径保留，包装器只信任当前 fallback 路径，不安装或强依赖 NIUbash。
+- 横向 message/evidence/state/heartbeat 在无最新用户明确禁令时默认投递真实 canonical target；仅宿主不可达或无法留存 delivery/read-ack 证据链时才降级 root/太子 transport relay，且不改变 dispatch、wake、reassign、approval 或直属上级权限。
+- 候选安装在外部投影验收后生成最终 `INSTALLED` receipt：复用候选 receipt 校验的同一 ZIP 摘要，并把提交、artifact、build、installation 与 transaction 来源提升为 release gate 可直接消费的顶层字段；中间 `PENDING_VALIDATION` receipt 继续保留，不再被误作最终验收证据。
 - 本版维护：官署启动回执提供后续上级确认请求，复用本次 manifest、模型路由与宿主引用；公开 JSON 确认入口处理可选默认值并结构化拒绝错误类型。身份路径、真实子署证据和终态保护保持严格。
 - 本版维护：标准案件只有已提交的 decree-open 才能进入正式派遣；复用案件绑定校验，保留中断后的原样创建重放及暂停／取消。
 - 普通任务创建、状态转换、心跳、计划评审和官署生命周期共用任务／事件事务；异常与进程中断可回滚重试，冲突时保留现场。新增路径不计算文件摘要。
@@ -13,6 +18,8 @@
 
 ### Changed
 
+- 当前宿主能力不再由历史 Codex 0.144.1 或 `hide_spawn_agent_metadata` 配置单独推定；配置检查明确标注 config-only，native request/capture 使用当前工具 schema capability。内部 `task_name` 保持路由身份，禁止以通用 `set_thread_title` 修补官署身份。
+- 便携源码实测 9,589,322 bytes / 509 files；为容纳宿主调用、turn-context/receipt、启动顺序、安装 receipt 交接及危险语法正反例，将 byte 上限有界调整为 9,590,000，并仅将 intake source/check 行限调整为 620/730。文件数及其余模块行限不变。
 - 复用预载预算与派遣结构规则，保持授权、可信预载和独立测试边界。
 - 公共 API 按需加载后端；court open 帮助以现有启动说明为唯一正文，保留兼容导出与标题。
 - 有限事件查询从尾部按需读取，完整历史查询逐行解析；不新增索引或缓存服务。

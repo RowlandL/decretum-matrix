@@ -241,10 +241,15 @@ class OfficeDecreeStartupTests(unittest.TestCase):
         bootstrap = message['bootstrap']
         self.assertEqual(bootstrap['skill'], 'SKILL.md')
         self.assertEqual(bootstrap['then_read'], [
+            'references/court-normal-startup.md',
             'agents/standing-officials/libu.toml', 'agents/office-dossiers/libu/AGENTS.md',
         ])
-        self.assertIn('without standalone preflight scripts or root intake', bootstrap['then'])
-        self.assertIn('wait for acceptance before business CLI/MCP', bootstrap['then'])
+        self.assertEqual(
+            bootstrap['first_action'],
+            'Read SKILL.md < startup < {profile,dossier}.',
+        )
+        self.assertEqual(bootstrap['then'], 'Emit acceptance; notify superior; wait.')
+        self.assertTrue(bootstrap['child_acceptance']['startup_guide_loaded'])
         self.assertEqual(message['p00']['case_ref'], case_reference(task))
         self.assertEqual(message['p00']['office_capsule_ref'], request['office_capsule_ref'])
 

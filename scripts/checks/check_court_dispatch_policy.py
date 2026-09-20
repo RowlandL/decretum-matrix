@@ -20,8 +20,14 @@ from typing import Mapping, Sequence
 sys.dont_write_bytecode = True
 
 import court_agent_admission as _admission
+import court_runtime
 import court_multi_agent_protocol as _protocol
+from court_case_binding import office_capsule_reference
 from court_dispatch_policy import select_wave as _select_wave, validate_dispatch_plan
+from court_native_host_dispatch import (
+    normalize_native_host_dispatch_request,
+    select_native_host_action,
+)
 from court_native_execution import AUTHORITIES, BEHAVIORS, select_native_execution
 from court_multi_agent_protocol import admit_roles as _admit_roles
 from court_office_bootstrap import build_child_office_profile
@@ -49,6 +55,7 @@ BOUND_PRELOAD_SOURCES = {
     "profile_source": "agents/standing-officials/gongbu.toml",
     "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
     "court_skill_path": "SKILL.md",
+    "startup_guide_path": "references/court-normal-startup.md",
 }
 DISPATCH_CASE_REF = {
     "court_code": "COURT-20260906-1-AAAA",
@@ -90,6 +97,83 @@ def check_admission_facade() -> dict[str, object]:
         "hard_max_depth": _protocol.HARD_MAX_DEPTH,
         "default_high_parallel_threads": _protocol.DEFAULT_HIGH_PARALLEL_THREADS,
     }
+
+
+def check_native_role_ack_startup_roundtrip() -> dict[str, object]:
+    role_ack = {
+        "role": "gongbu",
+        "direct_superior": "shangshu",
+        **court_runtime._native_role_ack_sources(
+            court_runtime._semantic_preload_sources("gongbu")
+        ),
+    }
+    case_ref = {"court_code": "COURT-20260920-2-NDAA", "charter_revision": 3}
+    instance_id = "gongbu-startup-roundtrip-0001"
+    request = {
+        "schema": "court.native_host_dispatch_request.v1",
+        "task_id": "dispatch-policy-startup-roundtrip",
+        "wave_id": "dispatch-policy-startup-wave",
+        "dispatch_uid": "DSP-" + "1" * 32,
+        "attempt": 1,
+        "role": "gongbu",
+        "instance_id": instance_id,
+        "direct_superior": "shangshu",
+        "semantic_epoch": 3,
+        "case_ref": case_ref,
+        "office_capsule_ref": office_capsule_reference(
+            case_ref, "gongbu", instance_id, "2026-09-20T12:00:00+08:00"
+        ),
+        "lease_id": "dispatch-policy-startup-lease",
+        "assignment": "preserve exact startup source through native request reuse",
+        "duty_scope": ["scripts/checks/check_court_dispatch_policy.py"],
+        "write_set": ["scripts/checks/check_court_dispatch_policy.py"],
+        "role_ack": role_ack,
+        "admission_anchor": {
+            "schema": "court.agent.admission_receipt.v1",
+            "receipt_id": "EVT-DISPATCH-POLICY-STARTUP",
+        },
+        "compatible_live_instances": [],
+    }
+    candidate = {
+        "host_task_id": "gongbu-startup-task",
+        "host_thread_id": "gongbu-startup-thread",
+        "host_instance_id": "gongbu-startup-instance",
+        "task_id": request["task_id"],
+        "role": request["role"],
+        "direct_superior": request["direct_superior"],
+        "assignment": request["assignment"],
+        "duty_scope": request["duty_scope"],
+        "semantic_receipt": {"semantic_epoch": 3, "case_ref": case_ref},
+        "lease_id": request["lease_id"],
+        "write_set": request["write_set"],
+        "role_ack": deepcopy(role_ack),
+        "context_utilization": 0.42,
+        "status": "running",
+    }
+    request["compatible_live_instances"] = [candidate]
+    normalized = normalize_native_host_dispatch_request(request)
+    require(
+        normalized["role_ack"] == role_ack
+        and normalized["compatible_live_instances"][0]["role_ack"] == role_ack
+        and select_native_host_action(normalized)[:2] == ("reuse", "followup"),
+        "native request/reuse normalization lost the exact startup guide path",
+    )
+    missing = deepcopy(request)
+    missing["role_ack"].pop("startup_guide_path")
+    try:
+        normalize_native_host_dispatch_request(missing)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("native role_ack accepted a missing startup guide path")
+    wrong = deepcopy(request)
+    wrong["compatible_live_instances"][0]["role_ack"]["startup_guide_path"] += ".wrong"
+    wrong_normalized = normalize_native_host_dispatch_request(wrong)
+    require(
+        select_native_host_action(wrong_normalized)[:2] == ("spawn", "spawn"),
+        "native compatible reuse accepted a mismatched startup guide path",
+    )
+    return {"role_ack": role_ack, "reuse": "followup", "mismatch": "spawn"}
 
 
 def active_budget(
@@ -2008,6 +2092,7 @@ def check_admission_lease_authority_expiry_depth_scope_and_preload() -> dict[str
 def main() -> int:
     with TemporaryDirectory(prefix="court-dispatch-preload-") as temp_dir:
         _initialize_dispatch_preload(Path(temp_dir))
+        native_role_ack_startup = check_native_role_ack_startup_roundtrip()
         check_read_only_budget_admission()
         check_repository_relative_access_paths()
         check_same_role_instance_admission()
@@ -2026,6 +2111,7 @@ def main() -> int:
         result = {
             "ok": True,
             "admission_facade": check_admission_facade(),
+            "native_role_ack_startup": native_role_ack_startup,
             "mode_semantics": check_mode_semantics(),
             "dynamic_capacity": check_dynamic_capacity(),
             "dispatch_plan": check_dispatch_plan(),
@@ -2051,4 +2137,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

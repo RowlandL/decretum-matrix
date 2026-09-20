@@ -2,8 +2,10 @@
 
 ## beta1.1.3
 
+- 2026-09-20 当前宿主适配候选：实时 capability 驱动 exact 官署 `agent_type`；启动卷四材料机器链与 20 KiB/768-byte 余量；可选窄 NIUbash trace；默认 canonical 横向直投；以及 case-bound 用户显式 model/effort 经 admission-bound 双层 receipt、parent/child `turn_context`、start 与正式 ACK 复核。当前宿主的 model-only 会采用模型默认 effort，适配器记录实际值而不误称继承；followup 不重发 spawn override。
 - 2026-09-20 维护范围：上级接令确认的请求生产与 JSON 适配、未完成标准诏令的派遣阻断。保留路径／身份／宿主证据／终态与旧存储保护，不把调用错误归因为记忆污染。验证与本机更新证据按本次提交记录，未据此声明外部发布。
-- 状态：本地开发候选；完整证据与阶段边界见 `docs/plans/2026-09-12-beta1.1.3-rule-reuse.md`。未声明活动安装、真实多官署宿主验收或外部发布成功。
+- 2026-09-20 安装回执交接修复：最终投影验收后由既有安装器生成 `INSTALLED` receipt，绑定候选 ZIP 摘要和 installation provenance；保留中间 pending receipt，post-install 不再依赖手工改写证据。
+- 状态：本地开发候选；完整证据与阶段边界见 `docs/plans/2026-09-12-beta1.1.3-rule-reuse.md`。源码通过不等于活动安装、真实多官署宿主验收或外部发布成功，后三者仍分别由后续回执证明。
 - 普通任务／事件事务、有限历史查询与检查日志归属完成根因修复；共用现有锁和操作日志模块，没有新增运行期哈希校验脚本。
 - 公共 API、派遣规则与召回分数按职责收拢；既有 CONTEXT、工程配置和历史文档索引纳入本分支。上一发布线和原工作副本保留。
 

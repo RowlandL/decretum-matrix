@@ -105,8 +105,8 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "4b6b70e5a793901af3509375fda7951e0ae375cbade6e54fa25f44556b4e7147",
-      "size": 9618
+      "sha256": "bc43d39f5e13846cf89a1f7b39f740eef2136a9faaca881dc4c0d21635e4247b",
+      "size": 8858
     },
     {
       "mode": "100644",
@@ -459,20 +459,20 @@
     {
       "mode": "100644",
       "path": "references/court-normal-startup.md",
-      "sha256": "6eb775c4f0fcd03fe445813b965f2004143c1029e74f1a60d30c2334fe1ee0fb",
-      "size": 2938
+      "sha256": "704b01d679a69d2711e520cae2fdebd1b50f1bf393dfef47b34f5d6d235ccc58",
+      "size": 899
     },
     {
       "mode": "100644",
       "path": "references/court-office-model-routing.md",
-      "sha256": "73227a7041bcdd3893d7efec2811bfc8a6937840531e744873b5344baa839e87",
-      "size": 8183
+      "sha256": "b0e3fc30e345b86b50c6c3041588c64b3c36585195bcd147d9ac5b22763c082c",
+      "size": 10341
     },
     {
       "mode": "100644",
       "path": "references/court-offices-dispatch.md",
-      "sha256": "73ad7eaca403eb599eafa0d1b87cf1a91927512f1c8cc89e54a33d1bb4791dc3",
-      "size": 72126
+      "sha256": "7ff051ec733d839c5f26332f66a18f6e26aecd47c544824aaba2406eb8687eef",
+      "size": 73643
     },
     {
       "mode": "100644",
@@ -501,8 +501,8 @@
     {
       "mode": "100644",
       "path": "references/court-state-runtime-agents.md",
-      "sha256": "8e866f7d88b4f742e5fc9af6c2f6c410cf9c0e5e84619e5f40b54415945f0786",
-      "size": 81176
+      "sha256": "06af61832749bf553e4d880667080542a96f8dce06cb09bd088d7a88efdf68e3",
+      "size": 81448
     },
     {
       "mode": "100644",
@@ -585,13 +585,13 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "eac6b46e5ecf917613413995ff4e7e2446e1bd2ec560df074ad4616de06bb929",
+      "sha256": "eb4526218994f0a413d72be1cc50f78d3e57dd10c49f817f69c189bbf4cfff6b",
       "size": 1435
     },
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "a1fdaa1d04c5718793821d392415606a431cf1cba9fb919b20684a322db0ccaf",
+      "sha256": "9537bc1e09f124f05bf528f61c54e872f5383ffce39e60ee485341c01fd46dbf",
       "size": 4689
     },
     {
@@ -1329,8 +1329,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_codex_agent_roles.py",
-      "sha256": "211c52c554191ee760b1154d59288a8fa3ea8a61adb183cccaf788a9a6161bf1",
-      "size": 13989
+      "sha256": "6653ef1447f90f40ff32e0d1b394e8ad393f013ae884b1903e4de2b5238c635b",
+      "size": 14314
     },
     {
       "mode": "100644",
@@ -1341,14 +1341,14 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_agent_config.py",
-      "sha256": "8119b0fda9abb08b9c9efa40a3093004671c3fb4397e393356c6893459303105",
-      "size": 60412
+      "sha256": "fdfa9e8de6d1d3eab5f37f0c00d1aec01a6db06a675ee2067c41df7e56c959fc",
+      "size": 60671
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_agent_lifecycle.py",
-      "sha256": "73067d055266c717eddd0a3779b51c267ac49218cd144a14d4e8baf3357007e1",
-      "size": 170250
+      "sha256": "3e5a1975798b4c2537101e3f50386d5d9b20e50e3f9795ff5a4a06afdba0ba21",
+      "size": 198026
     },
     {
       "mode": "100644",
@@ -1395,20 +1395,20 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_dispatch_policy.py",
-      "sha256": "5a57f88242641319087a98beb60c8d53ef4f5ca1cfa31c438acb18acc27d4a82",
-      "size": 79186
+      "sha256": "f19c05d6216ebd74c5aaa0730f10108e3c4f62160d151e606b07576dee71b345",
+      "size": 82849
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_intake_gate.py",
-      "sha256": "07ebae60b379b60653c26156110a108a39f31b6ea1c0eb15493d79cbf3956567",
-      "size": 21330
+      "sha256": "aa273fb6042e0aaa9a9a1b0fd5b33c0d7442e9908668d9cbd5f35a81a84363dc",
+      "size": 25450
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_intervention_matrix.py",
-      "sha256": "e99dc17ccd43028822556f7cd49cbdb78bddf85c24b2f3197f723894228b9b3f",
-      "size": 52265
+      "sha256": "8392be74e284707da1221c71c74ab7fd626572cd5c3cac37f15a1e9b15b7daac",
+      "size": 52493
     },
     {
       "mode": "100644",
@@ -1419,8 +1419,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_model_router.py",
-      "sha256": "de2e37bc1d1b213acc385821d0a1a04f2fd9631afa63a447e6a3a576471b707d",
-      "size": 13331
+      "sha256": "98c92e4f91a55c27b28b8da1415d5d38ae175716ad3bbecc3c346cfce7ce520a",
+      "size": 20592
     },
     {
       "mode": "100644",
@@ -1431,14 +1431,14 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_native_bridge.py",
-      "sha256": "c0a4ea22c77d93eb6e8b6d85e37848df7a2c6db21de207a9630953b13e960b46",
-      "size": 36630
+      "sha256": "0216ae8429eada6ff1695882cd39e2399a1ab23835dda6a8f75b6e05d32539e0",
+      "size": 84456
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_native_host_dispatch.py",
-      "sha256": "1f09a209d9cdd25faacb4a7d506d9cbd28ffada215ed1ecd8968a07635b46af7",
-      "size": 35875
+      "sha256": "3bc54ebf7c71116a07e68092235fa6b04dac56331bdcf579571ea6349c042b02",
+      "size": 36027
     },
     {
       "mode": "100644",
@@ -1449,14 +1449,14 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_office_bootstrap.py",
-      "sha256": "3e81221485e1e9d49af5eb3e3344202eab6b56baa8f85b9634807c9fd3dc56f9",
-      "size": 5916
+      "sha256": "2f963d1d26a3b2873c68526103a5060e5b14acf1c64d24082d3f1a04efcc4f93",
+      "size": 7290
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_open_fastpath.py",
-      "sha256": "74c70f949f6a17a9e3760d1a706d7cc3cf9ddc6d6e479254bc6b0e3a012192a2",
-      "size": 44658
+      "sha256": "b6165ec48d384c2580294b29d546568272ad131988a22c9b1b9f936184415de9",
+      "size": 46149
     },
     {
       "mode": "100644",
@@ -1473,8 +1473,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_preload_semantics.py",
-      "sha256": "fb376a13f547cee24fb6d53e814effc3416d9e25c27d3edd69711b8264d40021",
-      "size": 75477
+      "sha256": "eadee3cd9be0ddee08f771b42553193c7c2ec00d08dd172ce388755f9266cf24",
+      "size": 80559
     },
     {
       "mode": "100644",
@@ -1485,8 +1485,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_runtime.py",
-      "sha256": "434d3b840aeb6bb21897504318c48b89c5f6fdb996a20cae3b2596711e3f478e",
-      "size": 109611
+      "sha256": "60caf22840763aa891118d15ce44f4f4a6c24410c30328adde63f8afa51ebf12",
+      "size": 109808
     },
     {
       "mode": "100644",
@@ -1551,8 +1551,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_current_agent_copy.py",
-      "sha256": "c757ff710b750617bac72e7bb53db6c90d64fe1fc8cd3483db771889f2b05f0a",
-      "size": 201735
+      "sha256": "b84e94895b08ce31e4dcad7d4ebbb6057d51c9ff92c02b6a1363dcf01dc8117f",
+      "size": 211802
     },
     {
       "mode": "100644",
@@ -1581,8 +1581,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_native_opaque_capture.py",
-      "sha256": "1f46d5bf032fc4115fa1faef305a69c1476d6fb75c71f63e1a95fe7a0389363e",
-      "size": 19952
+      "sha256": "124302de038c6a5a12b851840cc8fcd3dfaa2d3fcf1bcc92fb6989ef81096d0e",
+      "size": 54270
     },
     {
       "mode": "100644",
@@ -1593,8 +1593,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_office_decree_startup.py",
-      "sha256": "5238e495ff04ff947daba9abd794cd29a778fa2a7765a3b6dd957ff90e00739f",
-      "size": 16821
+      "sha256": "2a218a989c2ddb6cdd67f5276f60c0763960d842b7384508c95bd9e75088e9d6",
+      "size": 16988
     },
     {
       "mode": "100644",
@@ -1665,8 +1665,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_runtime_no_file_rehash.py",
-      "sha256": "06eafff432e76e8247baeed9575eb00539add0bdc5b7d8a682e967b3fa6d7e8a",
-      "size": 5255
+      "sha256": "fa77c60b20c73b9fd8eaa7805fd0801a1c88ab46c29787d95d9cf94b989afb02",
+      "size": 5359
     },
     {
       "mode": "100644",
@@ -1917,14 +1917,14 @@
     {
       "mode": "100644",
       "path": "scripts/commands/court_native_bridge.py",
-      "sha256": "9a1b5552501615bf7b7857646bfaa8ed2b955a20275782a08bd728cffd325e1f",
-      "size": 41989
+      "sha256": "7672469abe64ea205e5fe914c98e10ef4cf2c3fdcfb7beaeb5c4c0b9fdf3874f",
+      "size": 59147
     },
     {
       "mode": "100644",
       "path": "scripts/commands/court_open_fastpath.py",
-      "sha256": "917284505743dcf21b3565f08a4e64638184fc2ea883f1b1747645c7d1f5c11b",
-      "size": 67586
+      "sha256": "8f2ae3e0bdb7fdfcb3d10ec95a45aba7b724b6fa0a31d244e55443ae52b5cfc1",
+      "size": 68349
     },
     {
       "mode": "100644",
@@ -1983,8 +1983,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/fix_decretum_matrix.py",
-      "sha256": "2d63a8d37342697362308aae9c0338aaf56b7b83d577e595a52aea173532ea42",
-      "size": 77362
+      "sha256": "684efc180c9e20d8d3b100f315f33ac8ac77cc7fef3a675ac502c4d3048c9522",
+      "size": 80672
     },
     {
       "mode": "100644",
@@ -2163,8 +2163,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_agent_admission_contract.py",
-      "sha256": "8cda51dc2b949fb72c2e0dab8412027da6434bb7dbb00ab01d62434367260a45",
-      "size": 9693
+      "sha256": "bba311bef4fbfc061279ff2c252b296eea69ec118ee1f061a4f72817f7ebf470",
+      "size": 10077
     },
     {
       "mode": "100644",
@@ -2247,8 +2247,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_intake_gate.py",
-      "sha256": "b45d4861a2bed4423ec75d9b1ec40aa39ae697c0018a3889ffb35d3e8237b5b8",
-      "size": 23099
+      "sha256": "a9cd576ad41292d32ecc6f5b9f6ed74835025bb52296a9da06227c6d78dbc2bd",
+      "size": 25459
     },
     {
       "mode": "100644",
@@ -2259,8 +2259,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_model_router.py",
-      "sha256": "939c89a6fe22b3e4da9c43df86993fa8b95f2d5c189ffef460385fd971f5c687",
-      "size": 12810
+      "sha256": "73d0c986acbac8668fb1ea385856a7de6808022da6e711f86d1d855bf5539f20",
+      "size": 20948
     },
     {
       "mode": "100644",
@@ -2277,8 +2277,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_native_host_dispatch.py",
-      "sha256": "ea2e95256017fc7d751692b4e1b48f6ed547aeabddb15c6f4e195f9a38fc0ac8",
-      "size": 23184
+      "sha256": "f39efdc0e58dda4375b68feafd90b6a99316e30a1c12ada91af36eb11079e3f8",
+      "size": 34010
     },
     {
       "mode": "100644",
@@ -2289,20 +2289,20 @@
     {
       "mode": "100644",
       "path": "scripts/court_native_trace.py",
-      "sha256": "5195b0a0cc534ab256e86d04cae8cdf908f04336d830cae122ab819cface059a",
-      "size": 18270
+      "sha256": "47bce7dd08f1f55032dc98156e6ef3d81d60615e17dc43f63e278c891face90f",
+      "size": 21207
     },
     {
       "mode": "100644",
       "path": "scripts/court_office_bootstrap.py",
-      "sha256": "f4a08ed8c80bd49aa9edcbcce4f5c914e1726a4feab5f0a2210663684e48c61e",
-      "size": 21570
+      "sha256": "c99340f62254299b9ad828a867c119c7f81901c4823071f856821b55c4e434f8",
+      "size": 21801
     },
     {
       "mode": "100644",
       "path": "scripts/court_office_config.py",
-      "sha256": "b683f185e9810eaa8dfd6d0f7144afa56544ee142a21d56c8eefec9a3f091d0b",
-      "size": 904
+      "sha256": "8896f117900d64a47d0ca4c6d312e926a1805dd2bdec8f0e5c8bd03179df583b",
+      "size": 1115
     },
     {
       "mode": "100644",
@@ -2355,8 +2355,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "29a81e048145a04d38225f53657f08c108c52341d20e350d702b9a2c5f68b74d",
-      "size": 560489
+      "sha256": "534c8950e952489490e471bdb49fa1d709aaac65342d9f1c32f4bf048c8eeab0",
+      "size": 587656
     },
     {
       "mode": "100644",
@@ -2499,8 +2499,8 @@
     {
       "mode": "100644",
       "path": "scripts/install_current_agent_copy.py",
-      "sha256": "ebfcf38a6e159100671fa9b1cfaf8aeae12b86f24791cce6fb3fe7a0aff6dd37",
-      "size": 107178
+      "sha256": "415b8d6a0d44bf8fc5c3433cc5c85b1f02fd77fb38cdb0d912e045cd130328dc",
+      "size": 114004
     },
     {
       "mode": "100644",
@@ -2932,10 +2932,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8665869,
+    "payload_bytes": 8891738,
     "payload_file_count": 483,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "b179bbca51af1255981a396a502c87154b79583e044786fe9d4a66d7a69cabc8",
+    "payload_index_sha256": "f504bdb97e616b15c1e006b90bb32b8e54100912a5d74af584efa9c548e992d4",
     "source_packaged_tracked_file_count": 475,
     "source_tracked_file_count": 634
   },

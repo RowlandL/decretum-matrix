@@ -29,7 +29,11 @@ import uuid
 
 sys.dont_write_bytecode = True
 
-from court_office_config import ENTRY_PRELOAD_BUDGET_BYTES
+from court_office_config import (
+    ENTRY_PRELOAD_BUDGET_BYTES,
+    ORDINARY_NATIVE_HEADROOM_ROLES,
+    ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES,
+)
 from typing import Any, Mapping, Sequence
 
 from stdio_encoding import configure_stdio
@@ -56,16 +60,20 @@ from court_office_bootstrap import (
     validate_preload_ack,
 )
 from court_model_router import (
+    CURRENT_CODEX_MODEL_SELECTION_SCHEMA,
     EVALUATION_LEVELS,
     MODEL_MAX_REASONING_EFFORT,
     MODEL_ROUTE_SCHEMA,
     TRANSPORTS,
     route_office_model,
+    validate_current_codex_model_selection,
+    validate_explicit_model_execution_binding,
 )
 from court_native_host_dispatch import (
     normalize_native_host_dispatch_request,
     native_request_reference,
     native_task_suffix,
+    select_native_host_action,
     validate_native_host_action_receipt,
 )
 from court_case_binding import case_reference, plan_reference, office_capsule_reference, validate_task_case_binding
@@ -2013,6 +2021,19 @@ def _office_lifecycle_receipt(
         "office_instance_kind": record.get("office_instance_kind"),
         "role": record.get("role"),
         "direct_superior": record.get("direct_superior"),
+        "startup_guide_path": record.get("startup_guide_path"),
+        "startup_guide_loaded": record.get("startup_guide_loaded"),
+        "model_selection_id": record.get("model_selection_id"),
+        "active_model": record.get("active_model"),
+        "active_reasoning_effort": record.get("active_reasoning_effort"),
+        "model_override_applied": record.get("model_override_applied"),
+        "inheritance_policy": record.get("inheritance_policy"),
+        "model_authorization_binding": deepcopy(
+            record.get("model_authorization_binding")
+        ),
+        "host_model_execution_binding": deepcopy(
+            record.get("host_model_execution_binding")
+        ),
         "carrier_proof": deepcopy(record.get("carrier_proof")),
         "decree_id": record.get("decree_id"),
         "main_court_code": record.get("main_court_code"),
@@ -2077,7 +2098,12 @@ def _native_role_ack_sources(preload: Mapping[str, object]) -> dict[str, str]:
     from court_office_bootstrap import ROOT as office_root
     return {
         field: str((Path(office_root) / Path(str(preload[field]))).resolve())
-        for field in ("profile_source", "dossier_path", "court_skill_path")
+        for field in (
+            "profile_source",
+            "dossier_path",
+            "court_skill_path",
+            "startup_guide_path",
+        )
     }
 
 
@@ -2177,6 +2203,43 @@ def _validate_native_host_receipt_for_runtime(
         or receipt.get("outcome") != outcome
     ):
         raise ValueError("native_host_action_receipt:runtime_action_mismatch")
+    routes = admission.get("model_routes")
+    route = (
+        routes.get(str(binding.get("instance_id") or "").strip().lower())
+        if isinstance(routes, Mapping)
+        else None
+    )
+    if not isinstance(route, Mapping):
+        raise ValueError("native_host_action_receipt:model_route_missing")
+    admitted_authorization = route.get("model_authorization_binding")
+    receipt_authorization = receipt.get("model_authorization_binding")
+    receipt_execution = receipt.get("host_model_execution_binding")
+    if decision == "spawn":
+        if admitted_authorization is None:
+            if receipt_authorization is not None or receipt_execution is not None:
+                raise ValueError(
+                    "native_host_action_receipt:model_authorization_admission_mismatch"
+                )
+        else:
+            if (
+                admission.get("model_authorization_binding")
+                != admitted_authorization
+                or receipt_authorization != admitted_authorization
+            ):
+                raise ValueError(
+                    "native_host_action_receipt:model_authorization_admission_mismatch"
+                )
+            try:
+                validate_explicit_model_execution_binding(
+                    admitted_authorization,
+                    receipt_execution,
+                    expected_case_ref=admission.get("case_ref"),
+                    expected_semantic_epoch=admission.get("semantic_epoch"),
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "native_host_action_receipt:model_authorization_admission_mismatch"
+                ) from exc
     args._native_host_receipt_validated = True
     return receipt
 
@@ -2285,7 +2348,12 @@ def _expected_semantic_binding(task, args, *, require_dispatchable):
 
 def _semantic_preload_sources(role: str) -> dict[str, str]:
     manifest = build_preload_manifest(role)
-    return {"profile_source": manifest.profile_source, "dossier_path": manifest.dossier_path, "court_skill_path": manifest.court_skill_path}
+    return {
+        "profile_source": manifest.profile_source,
+        "dossier_path": manifest.dossier_path,
+        "court_skill_path": manifest.court_skill_path,
+        "startup_guide_path": manifest.startup_guide_path,
+    }
 
 
 def _validate_canonical_admission_preloads(args: argparse.Namespace) -> None:
@@ -3218,6 +3286,26 @@ def _case_create_selection(args: argparse.Namespace) -> dict[str, str] | None:
     }
 
 
+def _build_current_codex_model_selection(
+    task: Mapping[str, object],
+    model_request: Mapping[str, object],
+) -> dict[str, object]:
+    selection = {
+        "schema": CURRENT_CODEX_MODEL_SELECTION_SCHEMA,
+        "selection_id": f"MEA-{uuid.uuid4().hex}",
+        "source": "current_user_explicit",
+        "case_ref": deepcopy(case_reference(task)),
+        "semantic_epoch": task.get("semantic_epoch"),
+        "model": model_request.get("model"),
+        "reasoning_effort": model_request.get("reasoning_effort"),
+    }
+    return validate_current_codex_model_selection(
+        selection,
+        expected_case_ref=case_reference(task),
+        expected_semantic_epoch=task.get("semantic_epoch"),
+    )
+
+
 def _case_create_replay(
     tasks: Mapping[str, dict[str, Any]],
     selection: Mapping[str, str],
@@ -3226,6 +3314,7 @@ def _case_create_replay(
     title: str,
     charter: str,
     work_kind: str,
+    conversation_gate: Mapping[str, object],
 ) -> TransitionResult | None:
     """Return the one exact standard-session create replay, if present."""
 
@@ -3255,6 +3344,34 @@ def _case_create_replay(
         != {"authority": selection["authority"], "behavior": selection["behavior"]}
     ):
         raise ValueError("case_create_session_replay_conflict")
+    stored_gate = task.get("conversation_gate")
+    stored_request = (
+        stored_gate.get("model_request") if isinstance(stored_gate, dict) else None
+    )
+    requested_request = conversation_gate.get("model_request")
+    if stored_request != requested_request:
+        raise ValueError("case_create_session_replay_conflict")
+    current_selection = task.get("current_codex_model_selection")
+    if requested_request is None:
+        if current_selection is not None:
+            raise ValueError("case_create_session_replay_conflict")
+    else:
+        if not isinstance(requested_request, dict):
+            raise ValueError("case_create_session_replay_conflict")
+        try:
+            validated_selection = validate_current_codex_model_selection(
+                current_selection,
+                expected_case_ref=case_reference(task),
+                expected_semantic_epoch=task.get("semantic_epoch"),
+            )
+        except ValueError as exc:
+            raise ValueError("case_create_session_replay_conflict") from exc
+        if (
+            validated_selection["model"] != requested_request.get("model")
+            or validated_selection["reasoning_effort"]
+            != requested_request.get("reasoning_effort")
+        ):
+            raise ValueError("case_create_session_replay_conflict")
     events = [
         event
         for event in events_for_task(str(task.get("task_id") or ""), limit=None)
@@ -3409,6 +3526,7 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
                 title=args.title,
                 charter=charter,
                 work_kind=work_kind,
+                conversation_gate=gate,
             )
             if replay is not None:
                 result = replay
@@ -3460,6 +3578,11 @@ def create_task(args: argparse.Namespace) -> TransitionResult:
                     else {}
                 ),
             })
+            model_request = gate.get("model_request")
+            if isinstance(model_request, dict):
+                task["current_codex_model_selection"] = (
+                    _build_current_codex_model_selection(task, model_request)
+                )
             if session_allocation is not None:
                 from court_case_binding import build_case_binding
                 from court_plan_artifacts import bootstrap_artifact
@@ -6164,6 +6287,13 @@ def revise_charter_record(
             raise ValueError("stale_charter_revision")
         if new_revision != expected_revision + 1:
             raise ValueError("invalid_charter_revision_increment")
+    prior_model_selection: dict[str, object] | None = None
+    if revised.get("current_codex_model_selection") is not None:
+        prior_model_selection = validate_current_codex_model_selection(
+            revised.get("current_codex_model_selection"),
+            expected_case_ref=prior_case_ref,
+            expected_semantic_epoch=revised.get("semantic_epoch"),
+        )
     if legacy_prior and new_revision != 1:
         raise ValueError("invalid_charter_revision_increment")
     semantic_binding = semantic_binding_for_revision(
@@ -6211,6 +6341,7 @@ def revise_charter_record(
         "task_point_capsules": deepcopy(revised.get("task_point_capsules")),
         "zhongshu_plan": deepcopy(revised.get("zhongshu_plan")),
         "case_reviews": deepcopy(revised.get("case_reviews")),
+        "current_codex_model_selection": deepcopy(prior_model_selection),
     }
     invalidations = list(revised.get("semantic_invalidations") or [])
     invalidations.append(invalidation_snapshot)
@@ -6224,6 +6355,24 @@ def revise_charter_record(
         }
     )
     revised["charter_revision_history"] = history
+    selection_history = revised.get("codex_model_selection_history")
+    if selection_history is None:
+        selection_history = []
+    if not isinstance(selection_history, list):
+        raise ValueError("codex_model_selection_history_corrupt")
+    selection_history = deepcopy(selection_history)
+    if prior_model_selection is not None:
+        selection_history.append(
+            {
+                "selection": deepcopy(prior_model_selection),
+                "replacement_semantic_epoch": new_revision,
+                "invalidated_at": invalidated_at,
+                "actor": actor,
+                "evidence": evidence,
+            }
+        )
+    revised["codex_model_selection_history"] = selection_history
+    revised.pop("current_codex_model_selection", None)
     revised["charter"] = new_charter
     revised.update(semantic_binding)
     revised["semantic_receipts"] = deepcopy(prior_receipts)
@@ -6411,6 +6560,11 @@ def revise_charter_task(args: argparse.Namespace) -> TransitionResult:
             legacy_prior=legacy_bootstrap,
         )
         revised["conversation_gate"] = deepcopy(gate)
+        model_request = gate.get("model_request")
+        if isinstance(model_request, dict):
+            revised["current_codex_model_selection"] = (
+                _build_current_codex_model_selection(revised, model_request)
+            )
         revised["updated_at"] = now_text()
         revised["last_evidence"] = args.evidence
         tasks[args.task_id] = revised
@@ -7398,6 +7552,13 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(f"task not found: {args.task_id}")
         validate_task_case_binding(task, require_decree=True)
         require_semantic_mutation_binding(task)
+        model_authorization_binding: dict[str, object] | None = None
+        if task.get("current_codex_model_selection") is not None:
+            model_authorization_binding = validate_current_codex_model_selection(
+                task.get("current_codex_model_selection"),
+                expected_case_ref=case_reference(task),
+                expected_semantic_epoch=task.get("semantic_epoch"),
+            )
         wave_id = str(getattr(args, "wave_id", "") or "wave-default")
         existing_admissions = task.get("agent_admissions")
         if existing_admissions is not None and not isinstance(existing_admissions, dict):
@@ -7464,6 +7625,11 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             )
             for binding in result.get("selected_bindings", ())
         }
+        if model_authorization_binding is not None:
+            for route in model_routes.values():
+                route["model_authorization_binding"] = deepcopy(
+                    model_authorization_binding
+                )
         result["model_route_inputs"] = {
             "assignment": args.assignment,
             "task_focus": args.task_focus,
@@ -7474,6 +7640,13 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             "requested_protocol_mode": str(getattr(args, "protocol_mode", "auto") or "auto"),
             "selected_protocol": result.get("selected_protocol"),
         }
+        if model_authorization_binding is not None:
+            result["model_authorization_binding"] = deepcopy(
+                model_authorization_binding
+            )
+            result["model_route_inputs"]["model_authorization_binding"] = (
+                deepcopy(model_authorization_binding)
+            )
         result["model_routes"] = model_routes
         result["generated_at"] = now
         result["admission_bindings"] = {}
@@ -7627,6 +7800,10 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         }
         if "case_binding" in result:
             admission_record["case_binding"] = deepcopy(result["case_binding"])
+        if model_authorization_binding is not None:
+            admission_record["model_authorization_binding"] = deepcopy(
+                model_authorization_binding
+            )
         admission_record["admission_event_id"] = str(uuid.uuid4())
         result["admission_event_id"] = admission_record["admission_event_id"]
         task["last_agent_admission"] = admission_record
@@ -8892,6 +9069,8 @@ def agent_event(
         start_context_economy: dict[str, object] | None = None
         start_hierarchy_evidence: dict[str, object] | None = None
         start_native_host_receipt: dict[str, object] | None = None
+        start_model_authorization: dict[str, object] | None = None
+        start_host_model_binding: dict[str, object] | None = None
         captured_carrier: dict[str, object] | None = None
         if lifecycle_action == "agent_start":
             _reject_native_host_receipt_replay(task, args)
@@ -9163,6 +9342,77 @@ def agent_event(
             )
             start_admission = admission
             start_model_route = dict(model_route)
+            admitted_model_authorization = model_route.get(
+                "model_authorization_binding"
+            )
+            supplied_model_authorization = getattr(
+                args, "model_authorization_binding", None
+            )
+            supplied_host_model_binding = getattr(
+                args, "host_model_execution_binding", None
+            )
+            if admitted_model_authorization is None:
+                if (
+                    supplied_model_authorization is not None
+                    or supplied_host_model_binding is not None
+                ):
+                    raise ValueError("agent_start_model_execution_binding_unexpected")
+            else:
+                if not isinstance(admitted_model_authorization, Mapping):
+                    raise ValueError("agent_start_model_authorization_invalid")
+                if (
+                    admission.get("model_authorization_binding")
+                    != admitted_model_authorization
+                    or
+                    not isinstance(supplied_model_authorization, Mapping)
+                    or dict(supplied_model_authorization)
+                    != dict(admitted_model_authorization)
+                    or not isinstance(supplied_host_model_binding, Mapping)
+                ):
+                    raise ValueError("agent_start_model_execution_binding_mismatch")
+                try:
+                    normalized_authorization, normalized_host_binding = (
+                        validate_explicit_model_execution_binding(
+                            admitted_model_authorization,
+                            supplied_host_model_binding,
+                            expected_case_ref=admission.get("case_ref"),
+                            expected_semantic_epoch=admission.get(
+                                "semantic_epoch"
+                            ),
+                        )
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "agent_start_model_execution_binding_mismatch"
+                    ) from exc
+                if dict(supplied_model_authorization) != normalized_authorization:
+                    raise ValueError("agent_start_model_execution_binding_mismatch")
+                if (
+                    start_native_host_receipt is not None
+                    and (
+                        start_native_host_receipt.get(
+                            "model_authorization_binding"
+                        )
+                        != normalized_authorization
+                        or start_native_host_receipt.get(
+                            "host_model_execution_binding"
+                        )
+                        != normalized_host_binding
+                    )
+                ):
+                    raise ValueError("agent_start_model_execution_binding_mismatch")
+                start_model_authorization = deepcopy(
+                    normalized_authorization
+                )
+                start_host_model_binding = deepcopy(
+                    normalized_host_binding
+                )
+                start_model_route["model_authorization_binding"] = deepcopy(
+                    start_model_authorization
+                )
+                start_model_route["host_model_execution_binding"] = deepcopy(
+                    start_host_model_binding
+                )
         else:
             existing_agent = agents.get(agent_id)
             if not isinstance(existing_agent, dict):
@@ -9372,6 +9622,16 @@ def agent_event(
             }
             current["transport"] = model_route["transport"]
             current["model_route"] = model_route
+            if start_model_authorization is not None:
+                current["model_authorization_binding"] = deepcopy(
+                    start_model_authorization
+                )
+                current["host_model_execution_binding"] = deepcopy(
+                    start_host_model_binding
+                )
+                current["model_selection_id"] = start_model_authorization[
+                    "selection_id"
+                ]
             current["model_route_binding"] = {
                 "source": route_binding_source,
                 "wave_id": wave_id,
@@ -9633,6 +9893,14 @@ def agent_start(args: argparse.Namespace) -> TransitionResult:
 def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
     from commands.court_native_bridge import captured_child_read_order, NativeEvidencePending
     evidence = require_text(args.evidence, "evidence")
+    startup_guide_path = getattr(args, "startup_guide_path", None)
+    startup_guide_loaded = getattr(args, "startup_guide_loaded", None)
+    if (
+        not isinstance(startup_guide_path, str)
+        or not startup_guide_path.strip()
+        or startup_guide_loaded in (None, "")
+    ):
+        raise ValueError("preload_pending: startup_guide_evidence_required")
     if isinstance(getattr(args, "native_request_ref", None), str) and args.native_request_ref:
         args.native_request_ref = _required_context_object(args.native_request_ref, "native_request_ref_required")
     agent_id = require_text(args.agent_id, "agent-id")
@@ -9648,12 +9916,15 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
         "profile_source": getattr(args, "profile_source", None),
         "dossier_path": getattr(args, "dossier_path", None),
         "court_skill_path": getattr(args, "court_skill_path", None),
+        "startup_guide_path": getattr(args, "startup_guide_path", None),
+        "startup_guide_loaded": getattr(args, "startup_guide_loaded", None),
         "profile_loaded": getattr(args, "profile_loaded", None),
         "court_skill_loaded": getattr(args, "court_skill_loaded", None),
         "court_code": getattr(args, "court_code", None),
         "agent_dossier_loaded": args.agent_dossier_loaded,
         "loaded_skills": loaded_skills,
         "model_route_id": args.model_route_id,
+        "model_selection_id": getattr(args, "model_selection_id", "") or None,
         "active_model": args.active_model or None,
         "active_reasoning_effort": args.active_reasoning_effort or None,
         "model_override_applied": args.model_override_applied == "YES",
@@ -9738,11 +10009,14 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
                 profile_source=validated["profile_source"],
                 dossier_path=validated["dossier_path"],
                 court_skill_path=validated["court_skill_path"],
+                startup_guide_path=validated["startup_guide_path"],
+                startup_guide_loaded=validated["startup_guide_loaded"],
                 profile_loaded=validated["profile_loaded"],
                 court_skill_loaded=validated["court_skill_loaded"],
                 court_code=validated["court_code"],
                 agent_dossier_loaded=validated["agent_dossier_loaded"],
                 model_route_id=validated["model_route_id"],
+                model_selection_id=validated.get("model_selection_id"),
                 active_model=validated.get("active_model"),
                 active_reasoning_effort=validated.get("active_reasoning_effort"),
                 model_override_applied=validated["model_override_applied"],
@@ -9768,6 +10042,19 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
             preload_status=current["preload_status"],
             model_route_status=current["model_route_status"],
             model_route_id=current.get("model_route_id") or current.get("model_route", {}).get("model_route_id"),
+            model_selection_id=current.get("model_selection_id"),
+            active_model=current.get("active_model"),
+            active_reasoning_effort=current.get("active_reasoning_effort"),
+            model_override_applied=current.get("model_override_applied"),
+            inheritance_policy=current.get("inheritance_policy"),
+            model_authorization_binding=deepcopy(
+                current.get("model_authorization_binding")
+            ),
+            host_model_execution_binding=deepcopy(
+                current.get("host_model_execution_binding")
+            ),
+            startup_guide_path=current.get("startup_guide_path"),
+            startup_guide_loaded=current.get("startup_guide_loaded"),
         )
         event["event_id"] = _office_event_id(
             event,
@@ -9837,10 +10124,17 @@ def _native_bridge_selector(
         normalize_native_request_input,
     )
 
-    raw = {
+    raw: dict[str, object] = {
         field: getattr(args, field, None)
         for field in ("schema", "task_id", "wave_id", "instance_id")
     }
+    spawn_agent_type_field = getattr(args, "spawn_agent_type_field", None)
+    if spawn_agent_type_field is not None:
+        raw["spawn_agent_type_field"] = spawn_agent_type_field
+    for field in ("spawn_model_field", "spawn_reasoning_effort_field"):
+        capability = getattr(args, field, None)
+        if capability is not None:
+            raw[field] = capability
     return (
         normalize_native_capture_input(raw)
         if capture
@@ -10112,6 +10406,8 @@ def _native_bridge_host_message_inputs(
 def _native_bridge_bound_agent_type(
     admission: Mapping[str, object],
     binding: Mapping[str, object],
+    *,
+    spawn_agent_type_field: str | None = None,
 ) -> str | None:
     """Use the admitted model-route spawn contract; never accept free overrides."""
 
@@ -10131,11 +10427,26 @@ def _native_bridge_bound_agent_type(
     metadata = route.get("spawn_metadata")
     if not isinstance(metadata, Mapping):
         raise ValueError("native_bridge:spawn_metadata_missing")
-    if any(field in metadata for field in ("model", "reasoning_effort")):
+    if any(field in metadata for field in ("model", "reasoning_effort", "service_tier")):
         raise ValueError("native_bridge:model_override_rejected")
     if metadata.get("fork_turns") != "none":
         raise ValueError("native_bridge:spawn_fork_turns_mismatch")
     value = metadata.get("agent_type")
+    if spawn_agent_type_field is not None:
+        capability = str(spawn_agent_type_field).strip().lower()
+        if capability not in {"visible", "hidden"}:
+            raise ValueError("native_bridge:spawn_agent_type_field_invalid")
+        if capability == "hidden" and selected_protocol == "v1":
+            raise ValueError("native_bridge:spawn_agent_type_field_protocol_conflict")
+        if capability == "visible":
+            if value is not None and (
+                not isinstance(value, str) or value.strip().lower() != role
+            ):
+                raise ValueError("native_bridge:bound_agent_type_missing_or_mismatch")
+            return role
+        if value is not None:
+            raise ValueError("native_bridge:reserved_agent_type_override_rejected")
+        return None
     if selected_protocol == "v1":
         if not isinstance(value, str) or value.strip().lower() != role:
             raise ValueError("native_bridge:bound_agent_type_missing_or_mismatch")
@@ -10145,6 +10456,69 @@ def _native_bridge_bound_agent_type(
             raise ValueError("native_bridge:reserved_agent_type_override_rejected")
         return None
     raise ValueError("native_bridge:selected_protocol_invalid")
+
+
+def _native_bridge_model_authorization_binding(
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+    request: Mapping[str, object],
+) -> dict[str, object] | None:
+    # The model route is keyed by the admitted native dispatch instance.  The
+    # subsequent lifecycle carrier may already use its role-prefixed office
+    # slot, so the request (which is itself admission-bound) is authoritative
+    # for this lookup.
+    instance_id = str(request.get("instance_id") or "").strip().lower()
+    routes = admission.get("model_routes")
+    route = routes.get(instance_id) if isinstance(routes, Mapping) else None
+    if not isinstance(route, Mapping):
+        raise ValueError("native_bridge:model_route_binding_missing")
+    top_level = admission.get("model_authorization_binding")
+    route_level = route.get("model_authorization_binding")
+    if top_level is None and route_level is None:
+        return None
+    if (
+        not isinstance(top_level, Mapping)
+        or not isinstance(route_level, Mapping)
+        or dict(top_level) != dict(route_level)
+    ):
+        raise ValueError("native_bridge:model_authorization_binding_mismatch")
+    try:
+        return validate_current_codex_model_selection(
+            top_level,
+            expected_case_ref=request.get("case_ref")
+            if isinstance(request.get("case_ref"), Mapping)
+            else {},
+            expected_semantic_epoch=request.get("semantic_epoch"),
+        )
+    except ValueError as exc:
+        raise ValueError("native_bridge:model_authorization_binding_invalid") from exc
+
+
+def _native_bridge_capture_model_authorization_binding(
+    admission: Mapping[str, object],
+    binding: Mapping[str, object],
+    request: Mapping[str, object],
+) -> dict[str, object] | None:
+    authorization = _native_bridge_model_authorization_binding(
+        admission,
+        binding,
+        request,
+    )
+    if select_native_host_action(request)[1] == "followup":
+        return None
+    return authorization
+
+
+def _native_bridge_optional_capability(
+    value: str | None,
+    field: str,
+) -> str | None:
+    if value is None:
+        return None
+    capability = str(value).strip().lower()
+    if capability not in {"visible", "hidden"}:
+        raise ValueError(f"native_bridge:{field}_invalid")
+    return capability
 
 
 NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES = ENTRY_PRELOAD_BUDGET_BYTES
@@ -10171,6 +10545,7 @@ def _native_bridge_preload_input_budget(
         "profile_bytes": manifest.profile_source,
         "dossier_bytes": manifest.dossier_path,
         "court_skill_bytes": manifest.court_skill_path,
+        "startup_guide_bytes": manifest.startup_guide_path,
     }
     measured: dict[str, int] = {}
     for label, locator in relative_paths.items():
@@ -10188,8 +10563,17 @@ def _native_bridge_preload_input_budget(
     host_input_bytes = len(host_message.encode("utf-8"))
     preload_bytes = sum(measured.values())
     total_bytes = preload_bytes + host_input_bytes
+    headroom_bytes = NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES - total_bytes
     if total_bytes > NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES:
         raise ValueError(f"native_bridge:entry_preload_budget_exceeded:{total_bytes}>{NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES}")
+    if (
+        role in ORDINARY_NATIVE_HEADROOM_ROLES
+        and headroom_bytes < ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES
+    ):
+        raise ValueError(
+            "native_bridge:entry_preload_headroom_insufficient:"
+            f"{headroom_bytes}<{ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES}"
+        )
     return {
         "schema": "court.native_host_input_budget.v1",
         "limit_bytes": NATIVE_BRIDGE_ENTRY_PRELOAD_BUDGET_BYTES,
@@ -10197,6 +10581,12 @@ def _native_bridge_preload_input_budget(
         "preload_bytes": preload_bytes,
         "host_input_bytes": host_input_bytes,
         "total_bytes": total_bytes,
+        "headroom_bytes": headroom_bytes,
+        "required_headroom_bytes": (
+            ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES
+            if role in ORDINARY_NATIVE_HEADROOM_ROLES
+            else 0
+        ),
         "status": "within_budget",
     }
 
@@ -10206,16 +10596,88 @@ def _native_bridge_request_result(
     admission: Mapping[str, object],
     binding: Mapping[str, object],
     request: Mapping[str, object],
+    *,
+    spawn_agent_type_field: str | None = None,
+    spawn_model_field: str | None = None,
+    spawn_reasoning_effort_field: str | None = None,
 ) -> dict[str, object]:
     from commands.court_native_bridge import native_request_result
 
     execution, p00_context = _native_bridge_host_message_inputs(task, admission)
-    agent_type = _native_bridge_bound_agent_type(admission, binding)
+    action = select_native_host_action(request)[1]
+    if action == "followup":
+        if spawn_agent_type_field is not None:
+            raise ValueError("native_bridge:spawn_agent_type_field_not_applicable")
+        if spawn_model_field is not None:
+            raise ValueError("native_bridge:spawn_model_field_not_applicable")
+        if spawn_reasoning_effort_field is not None:
+            raise ValueError(
+                "native_bridge:spawn_reasoning_effort_field_not_applicable"
+            )
+    agent_type = _native_bridge_bound_agent_type(
+        admission,
+        binding,
+        spawn_agent_type_field=spawn_agent_type_field,
+    )
+    model_capability = _native_bridge_optional_capability(
+        spawn_model_field,
+        "spawn_model_field",
+    )
+    effort_capability = _native_bridge_optional_capability(
+        spawn_reasoning_effort_field,
+        "spawn_reasoning_effort_field",
+    )
+    model_authorization = _native_bridge_model_authorization_binding(
+        admission,
+        binding,
+        request,
+    )
+    model: str | None = None
+    reasoning_effort: str | None = None
+    if model_authorization is not None:
+        if action == "followup":
+            target = _native_bridge_target_record(task, binding)
+            host_binding = (
+                target.get("host_model_execution_binding")
+                if isinstance(target, Mapping)
+                else None
+            )
+            if (
+                not isinstance(target, Mapping)
+                or target.get("model_authorization_binding")
+                != model_authorization
+                or target.get("model_selection_id")
+                != model_authorization.get("selection_id")
+                or not isinstance(host_binding, Mapping)
+                or host_binding.get("schema")
+                != "court.host_model_execution_binding.v1"
+                or host_binding.get("status") != "MATCHED"
+                or host_binding.get("selection_id")
+                != model_authorization.get("selection_id")
+            ):
+                raise ValueError(
+                    "native_bridge:followup_model_authorization_mismatch"
+                )
+        else:
+            authorized_model = model_authorization.get("model")
+            authorized_effort = model_authorization.get("reasoning_effort")
+            if authorized_model is not None:
+                if model_capability != "visible":
+                    raise ValueError("native_bridge:explicit_model_field_unavailable")
+                model = str(authorized_model)
+            if authorized_effort is not None:
+                if effort_capability != "visible":
+                    raise ValueError(
+                        "native_bridge:explicit_reasoning_effort_field_unavailable"
+                    )
+                reasoning_effort = str(authorized_effort)
     result = native_request_result(
         request,
         execution=execution,
         p00_context=p00_context,
         agent_type=agent_type,
+        model=model,
+        reasoning_effort=reasoning_effort,
     )
     message = result.get("host_message")
     if not isinstance(message, str):
@@ -10225,6 +10687,17 @@ def _native_bridge_request_result(
         message,
     )
     result["bound_agent_type"] = agent_type
+    result["bound_model"] = model
+    result["bound_reasoning_effort"] = reasoning_effort
+    result["spawn_agent_type_field"] = (
+        spawn_agent_type_field
+        if spawn_agent_type_field is not None
+        else ("visible" if agent_type is not None else "hidden")
+    )
+    if spawn_model_field is not None:
+        result["spawn_model_field"] = model_capability
+    if spawn_reasoning_effort_field is not None:
+        result["spawn_reasoning_effort_field"] = effort_capability
     return result
 
 
@@ -10247,6 +10720,49 @@ def _native_bridge_start_request(task: Mapping[str, object], admission: Mapping[
     role = require_text(binding.get('role'), 'role').strip().lower()
     instance_id = require_text(binding.get('instance_id'), 'instance-id').strip().lower()
     inputs = _native_bridge_model_inputs(admission)
+    model_authorization = _native_bridge_model_authorization_binding(
+        admission,
+        binding,
+        request,
+    )
+    captured_authorization = capture.get("model_authorization_binding")
+    model_execution_binding = capture.get("host_model_execution_binding")
+    if model_authorization is None:
+        if captured_authorization is not None or model_execution_binding is not None:
+            raise ValueError("native_bridge:model_execution_binding_mismatch")
+    else:
+        if not isinstance(captured_authorization, Mapping) or not isinstance(
+            model_execution_binding, Mapping
+        ):
+            raise ValueError("native_bridge:model_execution_binding_required")
+        if dict(captured_authorization) != model_authorization:
+            raise ValueError("native_bridge:model_execution_binding_mismatch")
+        if (
+            model_execution_binding.get("selection_id")
+            != model_authorization.get("selection_id")
+            or model_execution_binding.get("schema")
+            != "court.host_model_execution_binding.v1"
+            or model_execution_binding.get("status") != "MATCHED"
+        ):
+            raise ValueError("native_bridge:model_execution_binding_mismatch")
+        native_receipt = capture.get("native_host_action_receipt")
+        if (
+            not isinstance(native_receipt, Mapping)
+            or native_receipt.get("model_authorization_binding")
+            != model_authorization
+            or native_receipt.get("host_model_execution_binding")
+            != model_execution_binding
+            or not isinstance(native_receipt.get("host_result"), Mapping)
+            or native_receipt["host_result"].get(
+                "model_authorization_binding"
+            )
+            != model_authorization
+            or native_receipt["host_result"].get(
+                "host_model_execution_binding"
+            )
+            != model_execution_binding
+        ):
+            raise ValueError("native_bridge:model_execution_binding_mismatch")
     agent_id = f'{role}-native-{suffix}'
     collaboration_task_name = f"{role.replace('-', '_')}_native_{suffix}"
     preload = build_preload_manifest(role)
@@ -10297,6 +10813,13 @@ def _native_bridge_start_request(task: Mapping[str, object], admission: Mapping[
         'evidence': 'native_host_capture request_ref=' + json.dumps(request_ref, sort_keys=True),
         'note': 'current-session native host capture',
     }
+    if model_authorization is not None:
+        office_request["model_authorization_binding"] = deepcopy(
+            model_authorization
+        )
+        office_request["host_model_execution_binding"] = deepcopy(
+            dict(model_execution_binding)
+        )
     try:
         _revalidate_context_economy_start(dict(task), dict(admission), dict(binding), argparse.Namespace(**office_request), wave_id=str(admission.get('wave_id') or ''))
     except ValueError as exc:
@@ -10338,7 +10861,19 @@ def office_native_request(args: argparse.Namespace) -> dict[str, object]:
     task, admission, binding = _native_bridge_task_binding(selector)
     _native_bridge_caller_guard(task, binding)
     request = _native_bridge_request(task, admission, binding)
-    return _native_bridge_request_result(task, admission, binding, request)
+    model_capabilities = {
+        field: selector[field]
+        for field in ("spawn_model_field", "spawn_reasoning_effort_field")
+        if field in selector
+    }
+    return _native_bridge_request_result(
+        task,
+        admission,
+        binding,
+        request,
+        spawn_agent_type_field=selector.get("spawn_agent_type_field"),
+        **model_capabilities,
+    )
 
 
 def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
@@ -10350,13 +10885,34 @@ def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
     task, admission, binding = _native_bridge_task_binding(selector)
     _native_bridge_caller_guard(task, binding)
     request = _native_bridge_request(task, admission, binding)
-    native_request = _native_bridge_request_result(task, admission, binding, request)
+    model_capabilities = {
+        field: selector[field]
+        for field in ("spawn_model_field", "spawn_reasoning_effort_field")
+        if field in selector
+    }
+    native_request = _native_bridge_request_result(
+        task,
+        admission,
+        binding,
+        request,
+        spawn_agent_type_field=selector.get("spawn_agent_type_field"),
+        **model_capabilities,
+    )
     execution, p00_context = _native_bridge_host_message_inputs(task, admission)
     captured = capture_current_native_delivery(
         request,
         execution=execution,
         p00_context=p00_context,
         agent_type=native_request.get("bound_agent_type"),
+        model_authorization_binding=_native_bridge_capture_model_authorization_binding(
+            admission,
+            binding,
+            request,
+        ),
+        spawn_model_field=native_request.get("spawn_model_field"),
+        spawn_reasoning_effort_field=native_request.get(
+            "spawn_reasoning_effort_field"
+        ),
         identity_context=_native_bridge_identity_context(task, binding),
     )
     command = captured.get("office_command")
@@ -10383,6 +10939,51 @@ def office_start(args: argparse.Namespace) -> dict[str, object]:
     payload = _office_transition_payload("start", result, str(args.agent_id))
     record = payload["office_instance"]
     manifest, route = record["preload_manifest"], record["model_route"]
+    model_ack_fields: dict[str, object] = {
+        "inheritance_policy": route["inheritance_policy"],
+        "model_override_applied": (
+            "YES" if route["model_override_applied"] else "NO"
+        ),
+    }
+    model_selection = route.get("model_authorization_binding")
+    host_model_binding = route.get("host_model_execution_binding")
+    if model_selection is not None or host_model_binding is not None:
+        if not isinstance(model_selection, Mapping) or not isinstance(
+            host_model_binding, Mapping
+        ):
+            raise ValueError("model_route_explicit_binding_incomplete")
+        selection_id = model_selection.get("selection_id")
+        applied_fields = host_model_binding.get("applied_spawn_fields")
+        child_context = host_model_binding.get("child_turn_context")
+        if (
+            host_model_binding.get("schema")
+            != "court.host_model_execution_binding.v1"
+            or host_model_binding.get("status") != "MATCHED"
+            or host_model_binding.get("selection_id") != selection_id
+            or not isinstance(applied_fields, list)
+            or not isinstance(child_context, Mapping)
+        ):
+            raise ValueError("model_route_explicit_binding_mismatch")
+        expected_fields = [
+            field
+            for field in ("model", "reasoning_effort")
+            if model_selection.get(field) is not None
+        ]
+        policy_by_fields = {
+            ("model",): "explicit_model_host_default_effort",
+            ("reasoning_effort",): "inherit_model_explicit_effort",
+            ("model", "reasoning_effort"): "explicit_model_and_effort",
+        }
+        policy = policy_by_fields.get(tuple(expected_fields))
+        if applied_fields != expected_fields or policy is None:
+            raise ValueError("model_route_explicit_binding_mismatch")
+        model_ack_fields = {
+            "model_selection_id": selection_id,
+            "active_model": child_context.get("model"),
+            "active_reasoning_effort": child_context.get("effort"),
+            "inheritance_policy": policy,
+            "model_override_applied": "YES",
+        }
     # A request template is not child acceptance; the consumer still checks trace.
     payload["preload_ack_request"] = {
         **{key: deepcopy(record[key]) for key in (
@@ -10391,15 +10992,15 @@ def office_start(args: argparse.Namespace) -> dict[str, object]:
         )},
         **{key: manifest[key] for key in (
             "office_zh", "direct_superior", "profile_source", "dossier_path",
-            "court_skill_path", "court_code",
+            "court_skill_path", "startup_guide_path", "court_code",
         )},
         "schema": manifest["preload_ack_schema"], "task_id": args.task_id,
         "native_request_ref": deepcopy(record.get("native_host_request_ref") or ""),
         "model_route_id": route["model_route_id"],
-        "inheritance_policy": route["inheritance_policy"],
-        "model_override_applied": "YES" if route["model_override_applied"] else "NO",
+        **model_ack_fields,
         "loaded_skills": manifest["court_skill_name"], "agent_dossier_loaded": "YES",
         "profile_loaded": "YES", "court_skill_loaded": "YES",
+        "startup_guide_loaded": "YES",
         "actor": args.actor,
         "evidence": f"preload acknowledgement request {record['office_instance_id']}",
     }
@@ -11659,18 +12260,28 @@ def office_request_namespace(args: argparse.Namespace) -> argparse.Namespace:
     )
     if args.office_command == "preload-ack":
         # Match agent-preload-ack defaults without accepting internal list values.
+        if (
+            not isinstance(request.get("startup_guide_path"), str)
+            or not str(request.get("startup_guide_path") or "").strip()
+            or request.get("startup_guide_loaded") in (None, "")
+        ):
+            raise ValueError("preload_pending: startup_guide_evidence_required")
         defaults = dict.fromkeys((
             "office_zh", "profile_loaded", "court_skill_loaded", "active_model",
-            "active_reasoning_effort", "inheritance_policy", "note",
+            "active_reasoning_effort", "model_selection_id",
+            "inheritance_policy", "note",
         ), "")
         defaults.update(schema="court.office.preload_ack.v1", preload_status="PASSED", actor="shangshu")
         request = {**defaults, **request}
         for field in (*defaults, "task_id", "role", "direct_superior", "profile_source",
-                      "dossier_path", "court_skill_path", "court_code", "loaded_skills",
-                      "agent_dossier_loaded", "model_route_id", "model_override_applied", "evidence"):
+                      "dossier_path", "court_skill_path", "startup_guide_path",
+                      "startup_guide_loaded", "court_code", "loaded_skills",
+                      "agent_dossier_loaded", "model_route_id", "model_selection_id",
+                      "model_override_applied", "evidence"):
             if not isinstance(request.get(field), str):
                 raise ValueError(f"office_preload_ack:{field}_must_be_string")
         for field, choices in (("agent_dossier_loaded", ("YES", "NO")),
+                               ("startup_guide_loaded", ("YES", "NO")),
                                ("model_override_applied", ("YES", "NO")),
                                ("preload_status", ("PASSED", "FAILED"))):
             if request[field] not in choices:
@@ -12315,6 +12926,12 @@ def build_parser() -> argparse.ArgumentParser:
     preload_parser.add_argument("--profile-source", required=True)
     preload_parser.add_argument("--dossier-path", required=True)
     preload_parser.add_argument("--court-skill-path", required=True)
+    preload_parser.add_argument("--startup-guide-path", default="")
+    preload_parser.add_argument(
+        "--startup-guide-loaded",
+        choices=["YES", "NO"],
+        default="",
+    )
     preload_parser.add_argument("--court-code", required=True)
     preload_parser.add_argument("--profile-loaded", default="")
     preload_parser.add_argument("--court-skill-loaded", default="")
@@ -12323,6 +12940,7 @@ def build_parser() -> argparse.ArgumentParser:
     preload_parser.add_argument("--loaded-skills", required=True)
     preload_parser.add_argument("--agent-dossier-loaded", choices=["YES", "NO"], required=True)
     preload_parser.add_argument("--model-route-id", required=True)
+    preload_parser.add_argument("--model-selection-id", default="")
     preload_parser.add_argument("--active-model", default="")
     preload_parser.add_argument("--active-reasoning-effort", default="")
     preload_parser.add_argument("--model-override-applied", choices=["YES", "NO"], required=True)

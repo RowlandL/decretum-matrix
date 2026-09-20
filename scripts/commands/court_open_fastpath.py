@@ -95,6 +95,8 @@ class RolePreload:
     office_zh: str
     skill_path: str
     skill_bytes: int
+    startup_guide_path: str
+    startup_guide_bytes: int
     dossier_path: str
     dossier_bytes: int
     profile_path: str
@@ -107,6 +109,7 @@ class RolePreload:
     def loaded_bytes(self) -> int:
         return (
             self.skill_bytes
+            + self.startup_guide_bytes
             + self.dossier_bytes
             + self.profile_bytes
             + self.metadata_bytes
@@ -728,13 +731,17 @@ def _role_preload(
 ) -> RolePreload:
     profile_relative = Path("agents") / "standing-officials" / f"{role}.toml"
     dossier_relative = Path("agents") / "office-dossiers" / role / "AGENTS.md"
+    startup_relative = Path("references") / "court-normal-startup.md"
     profile_path = skill_root / profile_relative
     dossier_path = skill_root / dossier_relative
+    startup_path = skill_root / startup_relative
     try:
         profile_text = profile_path.read_text(encoding="utf-8")
         dossier_text = dossier_path.read_text(encoding="utf-8")
+        startup_path.read_text(encoding="utf-8")
         profile_bytes = profile_path.stat().st_size
         dossier_bytes = dossier_path.stat().st_size
+        startup_bytes = startup_path.stat().st_size
         profile = tomllib.loads(profile_text)
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
         raise FastPathMiss("preload_unavailable", f"{role}:{type(exc).__name__}:{exc}") from exc
@@ -779,6 +786,8 @@ def _role_preload(
         office_zh=str(identity.get("office_zh") or role),
         skill_path="SKILL.md",
         skill_bytes=skill_bytes,
+        startup_guide_path=startup_relative.as_posix(),
+        startup_guide_bytes=startup_bytes,
         dossier_path=dossier_relative.as_posix(),
         dossier_bytes=dossier_bytes,
         profile_path=profile_relative.as_posix(),
@@ -795,6 +804,7 @@ def _role_preload(
 def _preload_cache_key(skill_root: Path, roles: Sequence[str]) -> tuple[object, ...]:
     paths = [
         Path("SKILL.md"),
+        Path("references") / "court-normal-startup.md",
         Path("references") / "manifests" / "court-dispatch-hierarchy.v1.json",
     ]
     for role in roles:
@@ -861,6 +871,8 @@ def _preload_payload(value: RolePreload) -> dict[str, object]:
         "direct_superior": value.direct_superior,
         "office_zh": value.office_zh,
         "court_skill_path": value.skill_path,
+        "startup_guide_path": value.startup_guide_path,
+        "startup_guide_bytes": value.startup_guide_bytes,
         "dossier_path": value.dossier_path,
         "profile_path": value.profile_path,
         "metadata_sources": list(value.metadata_sources),
@@ -868,6 +880,7 @@ def _preload_payload(value: RolePreload) -> dict[str, object]:
         "metadata_bytes": value.metadata_bytes,
         "verified_source_paths": [
             value.skill_path,
+            value.startup_guide_path,
             value.dossier_path,
             value.profile_path,
             *value.metadata_sources[1:],
@@ -926,11 +939,17 @@ def _lease(
     task_id = str(normalized["task_id"])
     instance_id = f"{role}#{operation_id[-12:]}"
     write_set = list(normalized["write_sets"].get(role, []))  # type: ignore[union-attr]
-    read_scope = ["SKILL.md", preload.dossier_path, preload.profile_path]
+    read_scope = [
+        "SKILL.md",
+        preload.startup_guide_path,
+        preload.dossier_path,
+        preload.profile_path,
+    ]
     access_mode = "read_write" if write_set else "read_only"
     preload_sources = {"court_skill_path": preload.skill_path,
                        "profile_source": preload.profile_path,
-                       "dossier_path": preload.dossier_path}
+                       "dossier_path": preload.dossier_path,
+                       "startup_guide_path": preload.startup_guide_path}
     binding = {
         "role": role,
         "instance_id": instance_id,

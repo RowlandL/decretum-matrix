@@ -24,12 +24,26 @@ current-session evidence chain that the host can actually provide: original
 office relay request, lawful direct child-to-child or parent-to-child delivery,
 receiver read acknowledgement, and superior/root receipt.
 
-When the host exposes no child-to-child messaging, the root thread or 太子 may
-act as the host relay surface. That relay is transport only: it must follow the
-court hierarchy, preserve the original sender/receiver roles, and never create a
-new authority edge. If the relay chain cannot be evidenced, report
-`runtime_degraded/PARTIAL` instead of presenting the wave as verified
-inter-office communication.
+### Horizontal delivery default contract
+
+- Absent a newest explicit user ban, lawful sibling/horizontal office messages,
+  evidence, state, and heartbeat default to direct delivery to the real
+  canonical target. This horizontal delivery is not hierarchical command.
+- Only when the host is genuinely unreachable, or cannot preserve an auditable
+  direct delivery plus receiver read acknowledgement and evidence chain, may the
+  root thread/太子 act as a transport-only relay. This fallback is explicitly
+  `runtime_degraded/PARTIAL`; convenience, topology display, or a root-collected
+  flat wave is not a relay trigger.
+- Direct delivery/transport never grants or changes dispatch, wake, reassign, or
+  approval authority; it never permits bypass or escalation of hierarchy. The
+  sender and receiver retain their direct-superior authority, and the canonical
+  hierarchy remains unchanged for dispatch, lifecycle, and approval actions.
+
+When that fallback gate is met, the root thread or 太子 may act only as the host
+relay surface. The relay must preserve the original sender/receiver roles and
+must never create a new authority edge. If its delivery/read evidence chain
+cannot be preserved, report `runtime_degraded/PARTIAL` instead of presenting
+the wave as verified inter-office communication.
 
 Source, profile, dossier, and governing-reference paths in prompts and documents
 should be skill-root relative, for example `SKILL.md`,
@@ -575,13 +589,22 @@ clarification request and the user's answers as 实录 checkpoints.
   If admission passes but no host-native delivery is attempted, or the host
   rejects delivery, the affected roles are `runtime_degraded`/deferred rather
   than satisfied by additional CLI/script probes.
-- For Codex hosts that expose the Multi-Agent V2 compatible spawn schema,
-  `/root/*` is only the collaboration address and the model-reserved spawn
-  schema must keep `agent_type/model/reasoning_effort` hidden. Admission and
-  start record assignment, task focus, complexity, risk, and ambiguity, then
-  calculate `court.office.model_route.v2`. Sol/Terra remain the `ultra`
-  recommendations and Luna remains the `max` recommendation, but the compatible
-  model-visible child inherits the main thread model/effort.
+- For Codex hosts, `/root/*` is only the collaboration address and current role
+  binding follows `spawn_agent_type_field=visible|hidden`. `visible` binds only
+  the exact admitted office role; `hidden` omits `agent_type`. A missing selector
+  preserves the legacy V1/V2 compatibility default; it does not enable a
+  same-session protocol switch. model/effort default to inheritance and their
+  invocation fields stay absent. Only a case- and epoch-bound
+  `current_user_explicit` create/revise selection may use the independent
+  `spawn_model_field=visible|hidden` and
+  `spawn_reasoning_effort_field=visible|hidden` capabilities. The selector never
+  carries values, recommendations never authorize an override, and `service_tier`
+  remains forbidden. Exact spawn arguments plus the bound child `turn_context`
+  must match before formal ACK reports application; followup cannot reconfigure
+  the child. Admission and start still record assignment,
+  task focus, complexity, risk, and ambiguity, then calculate
+  `court.office.model_route.v2`; Sol/Terra remain the `ultra` recommendations and
+  Luna remains the `max` recommendation.
   The bounded spawn message must carry the explicit `role_key`, matching office
   `AGENTS.md` dossier path when useful, governing skill name, and role
   acknowledgement contract. The child is running when its route-id, inheritance

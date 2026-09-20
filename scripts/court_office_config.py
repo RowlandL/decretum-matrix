@@ -7,6 +7,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRY_PRELOAD_BUDGET_BYTES = 20 * 1024
+ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES = 768
+ORDINARY_NATIVE_HEADROOM_ROLES = frozenset(
+    {
+        "zhongshu", "menxia", "shangshu",
+        "libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu",
+    }
+)
 OFFICE_CONFIG_RELATIVE_PATH = "references/manifests/court-dispatch-hierarchy.v1.json"
 
 

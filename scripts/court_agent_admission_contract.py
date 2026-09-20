@@ -70,19 +70,38 @@ _CHILD_PROFILE_OUTER_FIELDS = {
     "expires_at_utc": "expires_at_utc",
     "terminal_condition": "terminal_condition",
 }
-_PRELOAD_SOURCE_FIELDS = ("profile_source", "dossier_path", "court_skill_path")
+_PRELOAD_SOURCE_FIELDS = (
+    "profile_source",
+    "dossier_path",
+    "court_skill_path",
+    "startup_guide_path",
+)
 
 
-def _normalized_preload_sources(value: object) -> tuple[str, str, str] | None:
+def _normalized_preload_sources(
+    value: object,
+) -> tuple[str, str, str, str] | None:
     if not isinstance(value, Mapping) or set(value) != set(_PRELOAD_SOURCE_FIELDS):
         return None
-    sources = tuple(
-        str(value.get(field) or "").strip()
-        for field in _PRELOAD_SOURCE_FIELDS
-    )
-    if any(not source or "\x00" in source or ".." in PurePosixPath(source.replace("\\", "/")).parts for source in sources):
-        return None
-    return sources[0], sources[1], sources[2]
+    sources: list[str] = []
+    for field in _PRELOAD_SOURCE_FIELDS:
+        raw = value.get(field)
+        if not isinstance(raw, str):
+            return None
+        source = raw.strip()
+        portable = source.replace("\\", "/")
+        path = PurePosixPath(portable)
+        if (
+            not source
+            or "\x00" in source
+            or path.is_absolute()
+            or portable.startswith("//")
+            or re.match(r"^[A-Za-z]:", portable) is not None
+            or ".." in path.parts
+        ):
+            return None
+        sources.append(source)
+    return sources[0], sources[1], sources[2], sources[3]
 
 
 def _child_profile_scope_binding_error(

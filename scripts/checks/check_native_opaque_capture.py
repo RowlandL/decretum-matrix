@@ -8,18 +8,28 @@ import json
 import os
 import tempfile
 import unittest
+from types import MappingProxyType
 from unittest.mock import patch
 from commands import court_native_bridge as bridge
+import court_runtime
 from checks.check_court_native_bridge import _request, _execution, _p00_context
 from court_native_host_dispatch import validate_native_host_action_receipt
 from court_case_binding import office_capsule_reference
-from court_native_trace import skill_read_order, NativeEvidencePending, _invokes_court_cli, _command_text
+from court_native_trace import (
+    NativeEvidencePending,
+    _command_text,
+    _direct_niu_payload,
+    _invokes_court_cli,
+    _static_niu_cat_read,
+    skill_read_order,
+)
 from court_office_bootstrap import build_preload_manifest
 from checks.installed_identity_fixture import write_skill
 
 SESSION = '01a0743b-4c11-7021-b2ad-31f2dfe23df5'
 PARENT = '01a07440-9c7d-7b52-b53a-51edbd68e6da'
 CHILD = '01a0743f-9c12-7842-bfec-8620bf6942c4'
+_UNSET = object()
 
 
 def fixture(home: Path, *, ministry=False, root_distinct=False):
@@ -66,6 +76,187 @@ def fixture(home: Path, *, ministry=False, root_distinct=False):
             p00_context=_p00_context(request), identity_context=context,
             environment={'CODEX_THREAD_ID':parent,'CODEX_SESSION_ID':SESSION,'CODEX_HOME':str(home)}, codex_home=home)
     return rows, child_meta, context, save, capture
+
+
+def model_capture_fixture(
+    home: Path,
+    *,
+    model: str | None,
+    reasoning_effort: str | None,
+    request_model_field: str,
+    request_effort_field: str,
+    selection_digit: str,
+    parent_model: str = 'gpt-parent-inherited',
+    parent_effort: str = 'medium',
+):
+    request = _request()
+    selection = {
+        'schema': 'court.codex.model_selection.v1',
+        'selection_id': 'MEA-' + selection_digit * 32,
+        'source': 'current_user_explicit',
+        'case_ref': copy.deepcopy(request['case_ref']),
+        'semantic_epoch': request['semantic_epoch'],
+        'model': model,
+        'reasoning_effort': reasoning_effort,
+    }
+    route = {
+        'transport': 'codex',
+        'protocol': 'v2',
+        'role': request['role'],
+        'spawn_metadata': {'fork_turns': 'none'},
+        'model_authorization_binding': copy.deepcopy(selection),
+    }
+    admission = {
+        'wave_id': request['wave_id'],
+        'selected_protocol': 'v2',
+        'model_authorization_binding': copy.deepcopy(selection),
+        'model_routes': {request['instance_id']: route},
+    }
+    task = {
+        'task_id': request['task_id'],
+        **request['case_ref'],
+        'case_binding': MappingProxyType({
+            **request['case_ref'],
+            'case_execution': {'authority': 'super', 'behavior': 'parallel'},
+        }),
+        'semantic_receipt': {
+            'semantic_epoch': request['semantic_epoch'],
+            'case_ref': copy.deepcopy(request['case_ref']),
+            'receipt_id': 'SEM-MODEL-CAPTURE-01',
+            'plan_cursor': 'ThreeDepartments@3',
+        },
+    }
+    binding = {
+        'role': request['role'],
+        'instance_id': request['instance_id'],
+        'office_instance_kind': 'child_agent',
+        'preload_sources': court_runtime._semantic_preload_sources(str(request['role'])),
+    }
+    execution, p00_context = court_runtime._native_bridge_host_message_inputs(
+        task, admission
+    )
+    native = court_runtime._native_bridge_request_result(
+        task,
+        admission,
+        binding,
+        request,
+        spawn_model_field=request_model_field,
+        spawn_reasoning_effort_field=request_effort_field,
+    )
+    child_model = model if model is not None else parent_model
+    child_effort = (
+        reasoning_effort
+        if reasoning_effort is not None
+        else ("low" if model is not None else parent_effort)
+    )
+    parent_rows = [
+        {'type': 'session_meta', 'payload': {
+            'id': PARENT, 'session_id': SESSION, 'thread_id': PARENT,
+        }},
+        {'timestamp': '2026-09-06T01:05:19.900Z', 'type': 'turn_context', 'payload': {
+            'turn_id': 'parent-turn-001', 'thread_id': PARENT, 'session_id': SESSION,
+            'model': parent_model, 'effort': parent_effort,
+        }},
+        {'timestamp': '2026-09-06T01:05:20.100Z', 'type': 'response_item', 'payload': {
+            'type': 'function_call', 'name': native['host_invocation']['tool_name'],
+            'namespace': 'collaboration', 'call_id': 'call-model-capture',
+            'arguments': json.dumps(native['host_invocation']['arguments']),
+        }},
+        {'timestamp': '2026-09-06T01:05:20.500Z', 'type': 'response_item', 'payload': {
+            'type': 'function_call_output', 'call_id': 'call-model-capture',
+            'output': json.dumps({
+                'ok': True,
+                'agent_id': 'gongbu-model-capture-agent',
+                'thread_id': CHILD,
+                'task_id': 'gongbu-model-capture-task',
+            }),
+        }},
+    ]
+    child_rows = [
+        {'type': 'session_meta', 'payload': {
+            'id': CHILD, 'session_id': SESSION, 'thread_id': CHILD,
+            'parent_thread_id': PARENT, 'thread_source': 'subagent',
+            'source': {'subagent': {'thread_spawn': {
+                'parent_thread_id': PARENT, 'agent_role': None,
+            }}},
+        }},
+        {'timestamp': '2026-09-06T01:05:20.700Z', 'type': 'turn_context', 'payload': {
+            'turn_id': 'child-turn-001', 'thread_id': CHILD, 'session_id': SESSION,
+            'model': child_model, 'effort': child_effort,
+        }},
+    ]
+    sessions = home / 'sessions/2026/09/06'
+    sessions.mkdir(parents=True)
+    parent_file = sessions / f'rollout-{PARENT}.jsonl'
+    child_file = sessions / f'rollout-{CHILD}.jsonl'
+
+    def save():
+        parent_file.write_text(
+            '\n'.join(json.dumps(row) for row in parent_rows) + '\n',
+            encoding='utf-8',
+        )
+        child_file.write_text(
+            '\n'.join(json.dumps(row) for row in child_rows) + '\n',
+            encoding='utf-8',
+        )
+
+    save()
+    context = {
+        'case_session_id': SESSION,
+        'semantic_epoch': request['semantic_epoch'],
+        'trusted_parent_paths': [{
+            'path': '/root/shangshu_ready',
+            'kind': 'same_case_ready_shangshu',
+            'thread_id': PARENT,
+        }],
+    }
+
+    def capture(
+        *,
+        capture_model_field: object = _UNSET,
+        capture_effort_field: object = _UNSET,
+        selection_override: object = _UNSET,
+    ):
+        kwargs = {
+            'model_authorization_binding': (
+                selection
+                if selection_override is _UNSET
+                else selection_override
+            ),
+        }
+        if capture_model_field is not _UNSET:
+            kwargs['spawn_model_field'] = capture_model_field
+        if capture_effort_field is not _UNSET:
+            kwargs['spawn_reasoning_effort_field'] = capture_effort_field
+        return bridge.capture_current_native_delivery(
+            request,
+            execution=execution,
+            p00_context=p00_context,
+            identity_context=context,
+            environment={
+                'CODEX_THREAD_ID': PARENT,
+                'CODEX_SESSION_ID': SESSION,
+                'CODEX_HOME': str(home),
+            },
+            codex_home=home,
+            **kwargs,
+        )
+
+    return {
+        'request': request,
+        'selection': selection,
+        'native': native,
+        'request_model_field': request_model_field,
+        'request_effort_field': request_effort_field,
+        'parent_model': parent_model,
+        'parent_effort': parent_effort,
+        'child_model': child_model,
+        'child_effort': child_effort,
+        'parent_rows': parent_rows,
+        'child_rows': child_rows,
+        'save': save,
+        'capture': capture,
+    }
 
 
 class OpaqueCaptureTests(unittest.TestCase):
@@ -139,6 +330,289 @@ class OpaqueCaptureTests(unittest.TestCase):
         with self.assertRaises(NativeEvidencePending):
             bridge.captured_child_read_order({'native_host_action_receipt_id':'legacy-plaintext'}, object())
 
+    def test_explicit_model_capture_binds_parent_child_turn_contexts(self):
+        cases = (
+            ('pair', 'gpt-6-astra', 'ultra', 'visible', 'visible', '1'),
+            ('model-only', 'gpt-6-astra', None, 'visible', 'hidden', '2'),
+            ('effort-only', None, 'high', 'hidden', 'visible', '3'),
+        )
+        for label, model, effort, model_field, effort_field, digit in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                case = model_capture_fixture(
+                    Path(tmp),
+                    model=model,
+                    reasoning_effort=effort,
+                    request_model_field=model_field,
+                    request_effort_field=effort_field,
+                    selection_digit=digit,
+                )
+                result = case['capture'](
+                    capture_model_field=model_field,
+                    capture_effort_field=effort_field,
+                )
+                applied = []
+                if model is not None:
+                    applied.append('model')
+                if effort is not None:
+                    applied.append('reasoning_effort')
+                expected = {
+                    'schema': 'court.host_model_execution_binding.v1',
+                    'selection_id': case['selection']['selection_id'],
+                    'applied_spawn_fields': applied,
+                    'parent_turn_context': {
+                        'model': case['parent_model'],
+                        'effort': case['parent_effort'],
+                        'trace_line': 2,
+                        'turn_id': 'parent-turn-001',
+                    },
+                    'child_turn_context': {
+                        'model': case['child_model'],
+                        'effort': case['child_effort'],
+                        'trace_line': 2,
+                        'turn_id': 'child-turn-001',
+                    },
+                    'status': 'MATCHED',
+                }
+                self.assertEqual(result['host_model_execution_binding'], expected)
+                receipt = result['native_host_action_receipt']
+                self.assertEqual(receipt['host_model_execution_binding'], expected)
+                self.assertEqual(
+                    receipt['host_result']['host_model_execution_binding'],
+                    expected,
+                )
+                self.assertEqual(
+                    receipt['model_authorization_binding'],
+                    case['selection'],
+                )
+                self.assertEqual(
+                    receipt['host_result']['model_authorization_binding'],
+                    case['selection'],
+                )
+                validate_native_host_action_receipt(
+                    receipt,
+                    expected=receipt['request'],
+                    replay_guard=set(),
+                )
+
+    def test_capture_requires_selected_capabilities_but_allows_visible_unselected_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pair = model_capture_fixture(
+                Path(tmp),
+                model='gpt-6-astra',
+                reasoning_effort='ultra',
+                request_model_field='visible',
+                request_effort_field='visible',
+                selection_digit='4',
+            )
+            for field, kwargs in (
+                ('model-hidden', {'capture_model_field': 'hidden', 'capture_effort_field': 'visible'}),
+                ('model-missing', {'capture_effort_field': 'visible'}),
+                ('effort-hidden', {'capture_model_field': 'visible', 'capture_effort_field': 'hidden'}),
+                ('effort-missing', {'capture_model_field': 'visible'}),
+            ):
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    pair['capture'](**kwargs)
+        for label, model, effort, digit in (
+            ('model-only-all-visible', 'gpt-6-astra', None, '5'),
+            ('effort-only-all-visible', None, 'high', '6'),
+        ):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                case = model_capture_fixture(
+                    Path(tmp),
+                    model=model,
+                    reasoning_effort=effort,
+                    request_model_field='visible',
+                    request_effort_field='visible',
+                    selection_digit=digit,
+                )
+                result = case['capture'](
+                    capture_model_field='visible',
+                    capture_effort_field='visible',
+                )
+                expected_fields = [
+                    field
+                    for field, selected in (
+                        ('model', model),
+                        ('reasoning_effort', effort),
+                    )
+                    if selected is not None
+                ]
+                self.assertEqual(
+                    result['host_model_execution_binding'][
+                        'applied_spawn_fields'
+                    ],
+                    expected_fields,
+                )
+
+    def test_model_capture_turn_context_pending_and_fatal_matrix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = model_capture_fixture(
+                Path(tmp),
+                model='gpt-6-astra',
+                reasoning_effort='ultra',
+                request_model_field='visible',
+                request_effort_field='visible',
+                selection_digit='7',
+            )
+            case['child_rows'].pop(1)
+            case['save']()
+            with self.assertRaises(NativeEvidencePending):
+                case['capture'](
+                    capture_model_field='visible',
+                    capture_effort_field='visible',
+                )
+        for field in ('model', 'effort'):
+            with self.subTest(child_mismatch=field), tempfile.TemporaryDirectory() as tmp:
+                case = model_capture_fixture(
+                    Path(tmp),
+                    model='gpt-6-astra',
+                    reasoning_effort='ultra',
+                    request_model_field='visible',
+                    request_effort_field='visible',
+                    selection_digit='8',
+                )
+                case['child_rows'][1]['payload'][field] = 'foreign-' + field
+                case['save']()
+                with self.assertRaises(ValueError):
+                    case['capture'](
+                        capture_model_field='visible',
+                        capture_effort_field='visible',
+                    )
+        for mutation in ('missing', 'foreign', 'ambiguous', 'after-spawn'):
+            with self.subTest(parent=mutation), tempfile.TemporaryDirectory() as tmp:
+                case = model_capture_fixture(
+                    Path(tmp),
+                    model='gpt-6-astra',
+                    reasoning_effort='ultra',
+                    request_model_field='visible',
+                    request_effort_field='visible',
+                    selection_digit='9',
+                )
+                if mutation == 'missing':
+                    case['parent_rows'].pop(1)
+                elif mutation == 'foreign':
+                    case['parent_rows'][1]['payload']['thread_id'] = CHILD
+                elif mutation == 'ambiguous':
+                    duplicate = copy.deepcopy(case['parent_rows'][1])
+                    duplicate['payload']['model'] = 'ambiguous-parent-model'
+                    case['parent_rows'].insert(2, duplicate)
+                else:
+                    turn = case['parent_rows'].pop(1)
+                    case['parent_rows'].insert(2, turn)
+                case['save']()
+                with self.assertRaises(ValueError):
+                    case['capture'](
+                        capture_model_field='visible',
+                        capture_effort_field='visible',
+                    )
+        with tempfile.TemporaryDirectory() as tmp:
+            case = model_capture_fixture(
+                Path(tmp),
+                model='gpt-6-astra',
+                reasoning_effort='ultra',
+                request_model_field='visible',
+                request_effort_field='visible',
+                selection_digit='a',
+            )
+            output = json.loads(case['parent_rows'][3]['payload']['output'])
+            output['thread_id'] = 'explicit-child-not-a-uuid'
+            case['parent_rows'][3]['payload']['output'] = json.dumps(output)
+            case['save']()
+            with self.assertRaises(ValueError):
+                case['capture'](
+                    capture_model_field='visible',
+                    capture_effort_field='visible',
+                )
+
+    def test_model_execution_binding_receipt_layers_are_exact_and_tamper_evident(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = model_capture_fixture(
+                Path(tmp),
+                model='gpt-6-astra',
+                reasoning_effort='ultra',
+                request_model_field='visible',
+                request_effort_field='visible',
+                selection_digit='b',
+            )
+            result = case['capture'](
+                capture_model_field='visible',
+                capture_effort_field='visible',
+            )
+            receipt = result['native_host_action_receipt']
+            variants = []
+            missing_authorization_top = copy.deepcopy(receipt)
+            missing_authorization_top.pop('model_authorization_binding')
+            variants.append(('missing-authorization-top', missing_authorization_top))
+            missing_authorization_result = copy.deepcopy(receipt)
+            missing_authorization_result['host_result'].pop(
+                'model_authorization_binding'
+            )
+            variants.append((
+                'missing-authorization-host-result',
+                missing_authorization_result,
+            ))
+            missing_top = copy.deepcopy(receipt)
+            missing_top.pop('host_model_execution_binding')
+            variants.append(('missing-top', missing_top))
+            missing_result = copy.deepcopy(receipt)
+            missing_result['host_result'].pop('host_model_execution_binding')
+            variants.append(('missing-host-result', missing_result))
+            foreign_id = copy.deepcopy(receipt)
+            foreign_id['host_model_execution_binding']['selection_id'] = 'MEA-' + 'c' * 32
+            variants.append(('foreign-selection-id', foreign_id))
+            foreign_value = copy.deepcopy(receipt)
+            foreign_value['host_result']['host_model_execution_binding'][
+                'child_turn_context'
+            ]['model'] = 'foreign-child-model'
+            variants.append(('foreign-child-model', foreign_value))
+            foreign_status = copy.deepcopy(receipt)
+            foreign_status['host_model_execution_binding']['status'] = 'FOREIGN'
+            variants.append(('foreign-status', foreign_status))
+            coherently_forged_child = copy.deepcopy(receipt)
+            for layer in (
+                coherently_forged_child['host_model_execution_binding'],
+                coherently_forged_child['host_result'][
+                    'host_model_execution_binding'
+                ],
+            ):
+                layer['child_turn_context']['model'] = 'gpt-forged-model'
+            variants.append(('coherently-forged-child-model', coherently_forged_child))
+            for label, candidate in variants:
+                with self.subTest(label=label), self.assertRaises(ValueError):
+                    validate_native_host_action_receipt(
+                        candidate,
+                        expected=receipt['request'],
+                        replay_guard=set(),
+                    )
+
+    def test_explicit_model_capture_rejects_dispatch_context_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = model_capture_fixture(
+                Path(tmp),
+                model='gpt-6-astra',
+                reasoning_effort='ultra',
+                request_model_field='visible',
+                request_effort_field='visible',
+                selection_digit='d',
+            )
+            arguments = json.loads(case['parent_rows'][2]['payload']['arguments'])
+            message = json.loads(arguments['message'])
+            message['p00']['dispatch_context']['semantic_receipt_id'] = 'SEM-TAMPERED'
+            message['p00']['dispatch_context']['pointers'] = [{
+                'path': 'court-runtime:tasks/foreign/charter',
+                'case_ref': copy.deepcopy(message['p00']['case_ref']),
+            }]
+            arguments['message'] = json.dumps(
+                message, ensure_ascii=False, sort_keys=True, separators=(',', ':')
+            )
+            case['parent_rows'][2]['payload']['arguments'] = json.dumps(arguments)
+            case['save']()
+            with self.assertRaisesRegex(ValueError, 'host_message_mismatch'):
+                case['capture'](
+                    capture_model_field='visible',
+                    capture_effort_field='visible',
+                )
+
 
 class SkillOrderTests(unittest.TestCase):
     def test_shell_wrappers_preserve_executable_positions(self):
@@ -152,36 +626,308 @@ class SkillOrderTests(unittest.TestCase):
         self.assertFalse(_invokes_court_cli(_command_text(
             {'command': ['rg', '-c', 'decretum-matrix', 'scripts']})))
 
+    def test_startup_must_precede_both_office_materials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = {
+                kind: [str(Path(tmp) / name)]
+                for kind, name in (
+                    ('skill', 'SKILL.md'),
+                    ('startup', 'court-normal-startup.md'),
+                    ('profile', 'role.toml'),
+                    ('dossier', 'AGENTS.md'),
+                )
+            }
+
+            def read(kind):
+                path = paths[kind][0]
+                return {'type':'event_msg','payload':{'type':'item_completed','item':{
+                    'type':'CommandExecution','id':'read-'+kind,'status':'completed','exit_code':0,
+                    'command':['Get-Content',path],
+                    'parsed_cmd':[{'type':'read','path':path,'cmd':'Get-Content -Raw'}]}}}
+
+            valid = skill_read_order(
+                [read('skill'), read('startup'), read('dossier'), read('profile')],
+                paths,
+            )
+            self.assertEqual(set(valid['read_events']), set(paths))
+            with self.assertRaisesRegex(
+                ValueError,
+                'startup_must_load_before_office_materials',
+            ):
+                skill_read_order(
+                    [read('skill'), read('profile'), read('startup'), read('dossier')],
+                    paths,
+                )
+
+    def test_direct_niu_cat_observes_startup_between_skill_and_office_materials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = {
+                kind: [str(Path(tmp) / name)]
+                for kind, name in (
+                    ('skill', 'SKILL.md'),
+                    ('startup', 'court-normal-startup.md'),
+                    ('profile', 'role.toml'),
+                    ('dossier', 'AGENTS.md'),
+                )
+            }
+
+            def powershell_read(kind):
+                path = paths[kind][0]
+                return {'type':'event_msg','payload':{'type':'item_completed','item':{
+                    'type':'CommandExecution','id':'read-'+kind,'status':'completed','exit_code':0,
+                    'command':['Get-Content',path],
+                    'parsed_cmd':[{'type':'read','path':path,'cmd':'Get-Content -Raw'}]}}}
+
+            startup_path = paths['startup'][0]
+            niu_command = ['niu.exe', '-c', "cat '" + startup_path + "'"]
+            niu_startup = {'type':'event_msg','payload':{'type':'item_completed','item':{
+                'type':'CommandExecution','id':'read-startup','status':'completed','exit_code':0,
+                'command':niu_command,
+                'parsed_cmd':[{'type':'unknown','cmd':' '.join(niu_command)}]}}}
+            try:
+                result = skill_read_order(
+                    [powershell_read('skill'), niu_startup,
+                     powershell_read('profile'), powershell_read('dossier')],
+                    paths,
+                )
+            except NativeEvidencePending as exc:
+                self.fail(
+                    'a successful direct niu.exe -c cat of the exact startup path '
+                    f'must be observed as a full read: {exc}'
+                )
+            self.assertEqual(
+                tuple(result['read_events']),
+                ('skill', 'startup', 'profile', 'dossier'),
+            )
+
+    def test_direct_niu_court_cli_before_preload_is_business(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = {
+                kind: [str(Path(tmp) / name)]
+                for kind, name in (
+                    ('skill', 'SKILL.md'),
+                    ('startup', 'court-normal-startup.md'),
+                    ('profile', 'role.toml'),
+                    ('dossier', 'AGENTS.md'),
+                )
+            }
+
+            def powershell_read(kind):
+                path = paths[kind][0]
+                return {'type':'event_msg','payload':{'type':'item_completed','item':{
+                    'type':'CommandExecution','id':'read-'+kind,'status':'completed','exit_code':0,
+                    'command':['Get-Content',path],
+                    'parsed_cmd':[{'type':'read','path':path,'cmd':'Get-Content -Raw'}]}}}
+
+            niu_cli = {'type':'event_msg','payload':{'type':'item_completed','item':{
+                'type':'CommandExecution','id':'business-before-preload','status':'completed','exit_code':0,
+                'command':['niu', '-c', 'decretum-matrix court status'],
+                'parsed_cmd':[{'type':'unknown','cmd':'niu -c decretum-matrix court status'}]}}}
+            reads = [powershell_read(kind) for kind in ('skill', 'startup', 'profile', 'dossier')]
+            with self.assertRaisesRegex(ValueError, 'skill_must_load_before_cli_mcp'):
+                skill_read_order([niu_cli, *reads], paths)
+
+    def test_powershell_wrapped_exact_niu_read_and_business_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = {
+                kind: [str(Path(tmp) / name)]
+                for kind, name in (
+                    ('skill', 'SKILL.md'),
+                    ('startup', 'court-normal-startup.md'),
+                    ('profile', 'role.toml'),
+                    ('dossier', 'AGENTS.md'),
+                )
+            }
+
+            def powershell_read(kind):
+                path = paths[kind][0]
+                return {'type':'event_msg','payload':{'type':'item_completed','item':{
+                    'type':'CommandExecution','id':'read-'+kind,'status':'completed','exit_code':0,
+                    'command':['Get-Content',path],
+                    'parsed_cmd':[{'type':'read','path':path,'cmd':'Get-Content -Raw'}]}}}
+
+            niu_path = r'C:\TOOLS\NIUBASH\NIU.EXE'
+
+            def quote(value):
+                return "'" + value.replace("'", "''") + "'"
+
+            def wrapped(payload, event_id):
+                outer = '& ' + quote(niu_path) + ' -c ' + quote(payload)
+                return {'type':'event_msg','payload':{'type':'item_completed','item':{
+                    'type':'CommandExecution','id':event_id,'status':'completed','exit_code':0,
+                    'command':['pwsh', '-Command', outer],
+                    'parsed_cmd':[{'type':'unknown','cmd':outer}]}}}
+
+            startup_payload = 'cat ' + quote(paths['startup'][0])
+            with self.subTest(kind='full-read'):
+                try:
+                    result = skill_read_order(
+                        [powershell_read('skill'), wrapped(startup_payload, 'read-startup'),
+                         powershell_read('profile'), powershell_read('dossier')],
+                        paths,
+                    )
+                except NativeEvidencePending as exc:
+                    self.fail(
+                        'the exact PowerShell argv wrapper around literal NIU cat '
+                        f'must be observed as a full startup read: {exc}'
+                    )
+                self.assertEqual(result['read_events']['startup'], 'read-startup')
+
+            for business_payload in (
+                'decretum-matrix court status',
+                'python -B scripts/court_cli.py court status',
+            ):
+                with self.subTest(kind='business-order', payload=business_payload):
+                    reads = [
+                        powershell_read(kind)
+                        for kind in ('skill', 'startup', 'profile', 'dossier')
+                    ]
+                    with self.assertRaisesRegex(ValueError, 'skill_must_load_before_cli_mcp'):
+                        skill_read_order(
+                            [wrapped(business_payload, 'business-before-preload'), *reads],
+                            paths,
+                        )
+
+    def test_powershell_wrapped_niu_dangerous_grammar_is_never_a_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            startup = str((Path(tmp) / 'court-normal-startup.md').resolve())
+            other = str((Path(tmp) / 'other.md').resolve())
+            marker = Path(tmp) / 'PARSER_MUST_NOT_EXECUTE'
+            niu_path = r'C:\tools\niubash\niu.exe'
+
+            def quote(value):
+                return "'" + value.replace("'", "''") + "'"
+
+            def item(payload, *, switch='-c', dynamic_executable=False):
+                executable = '$niu' if dynamic_executable else quote(niu_path)
+                outer = '& ' + executable + ' ' + switch + ' ' + quote(payload)
+                return {
+                    'command': ['pwsh', '-Command', outer],
+                    'parsed_cmd': [{'type':'unknown','cmd':outer}],
+                }
+
+            cases = (
+                ('dollar-variable', "cat '$STARTUP'", '-c', False),
+                ('braced-variable', "cat '${STARTUP}'", '-c', False),
+                ('percent-variable', "cat '%STARTUP%'", '-c', False),
+                ('command-substitution', "cat '$(Get-Content x)'", '-c', False),
+                ('backtick', "cat '`pwd`/court-normal-startup.md'", '-c', False),
+                ('tilde', "cat '~/court-normal-startup.md'", '-c', False),
+                ('brace-expansion', "cat '/tmp/{a,b}.md'", '-c', False),
+                ('glob-star', "cat '/tmp/*.md'", '-c', False),
+                ('glob-question', "cat '/tmp/?.md'", '-c', False),
+                ('glob-bracket', "cat '/tmp/[ab].md'", '-c', False),
+                ('traversal', "cat '/tmp/../court-normal-startup.md'", '-c', False),
+                ('pipe', 'cat ' + quote(startup) + ' | head -n 1', '-c', False),
+                ('redirect-out', 'cat ' + quote(startup) + ' > out.txt', '-c', False),
+                ('redirect-in', 'cat < ' + quote(startup), '-c', False),
+                ('semicolon', 'cat ' + quote(startup) + '; echo bad', '-c', False),
+                ('newline', 'cat ' + quote(startup) + '\necho bad', '-c', False),
+                ('multi-command', 'cat ' + quote(startup) + ' && cat ' + quote(other), '-c', False),
+                ('multi-path', 'cat ' + quote(startup) + ' ' + quote(other), '-c', False),
+                ('cat-option', 'cat -n ' + quote(startup), '-c', False),
+                ('cat-double-dash', 'cat -- ' + quote(startup), '-c', False),
+                ('head', 'head -n 1 ' + quote(startup), '-c', False),
+                ('tail', 'tail -n 1 ' + quote(startup), '-c', False),
+                ('sed', 'sed -n 1p ' + quote(startup), '-c', False),
+                ('awk', 'awk 1 ' + quote(startup), '-c', False),
+                ('cut', 'cut -c 1-2 ' + quote(startup), '-c', False),
+                ('less', 'less ' + quote(startup), '-c', False),
+                ('more', 'more ' + quote(startup), '-c', False),
+                ('non-exact-lc', 'cat ' + quote(startup), '-lc', False),
+                ('non-exact-ic', 'cat ' + quote(startup), '-ic', False),
+                ('nested-shell', 'bash -lc "cat ' + quote(startup) + '"', '-c', False),
+                ('dynamic-executable', 'cat ' + quote(startup), '-c', True),
+                ('no-execution', 'cat ' + quote(startup) + '; touch ' + quote(str(marker)), '-c', False),
+            )
+            for label, payload, switch, dynamic in cases:
+                with self.subTest(label=label):
+                    observed_payload = _direct_niu_payload(
+                        item(payload, switch=switch, dynamic_executable=dynamic)
+                    )
+                    observed_read = (
+                        _static_niu_cat_read(observed_payload)
+                        if observed_payload is not None
+                        else None
+                    )
+                    self.assertIsNone(
+                        observed_read,
+                        f'{label} must remain unobserved as a full read',
+                    )
+            untrusted_niu = str((Path(tmp) / 'other-tools' / 'niu.exe').resolve())
+            untrusted_outer = '& ' + quote(untrusted_niu) + ' -c ' + quote(
+                'cat ' + quote(startup)
+            )
+            self.assertIsNone(
+                _direct_niu_payload({
+                    'command': ['pwsh', '-Command', untrusted_outer],
+                    'parsed_cmd': [{'type': 'unknown', 'cmd': untrusted_outer}],
+                }),
+                'PowerShell wrapper trusted an arbitrary absolute niu.exe path',
+            )
+            self.assertFalse(marker.exists(), 'static parsing executed shell text')
+
     def test_captured_ack_requires_active_install_and_child_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             rows, meta, context, save, capture = fixture(home)
             captured = capture()['host_spawn_evidence']
             root = home/'skills/decretum-matrix'; root.mkdir(parents=True); write_skill(root)
+            startup = root/'references/court-normal-startup.md'
+            startup.parent.mkdir(parents=True, exist_ok=True)
+            startup.write_text('# Isolated startup fixture\n', encoding='utf-8')
             manifest = build_preload_manifest('zhongshu', skill_root=root)
             record = {'native_host_spawn_evidence':captured,'role':'zhongshu','office_instance_id':'instance',
                       'native_host_request_ref':{'court_code':'ZL-20260906-0001-TEST','office_instance_id':'instance','dispatch_uid':'DSP-test','attempt':1}}
             trace = next((home/'sessions').rglob(f'*{CHILD}.jsonl'))
             header = json.loads(trace.read_text(encoding='utf-8'))
             reads = []
-            for kind, path in [('skill',manifest.court_skill_path),('profile',manifest.profile_source),('dossier',manifest.dossier_path)]:
+            for kind, path in [('skill',manifest.court_skill_path),('startup',manifest.startup_guide_path),
+                               ('profile',manifest.profile_source),('dossier',manifest.dossier_path)]:
                 reads.append({'type':'event_msg','payload':{'type':'item_completed','thread_id':CHILD,
                     'item':{'type':'CommandExecution','id':'read-'+kind,'status':'completed','exit_code':0,
                     'command':['Get-Content -Raw'],'parsed_cmd':[{'type':'read','cmd':'Get-Content -Raw','path':str(root/path)}]}}})
             ack = {'schema':'court.child_preload_acceptance.v1','task_id':'test','role_key':'zhongshu',
                 'office_instance_id':'instance','request_ref':{'court_code':'ZL-20260906-0001-TEST','office_instance_id':'instance','dispatch_uid':'DSP-test','attempt':1},
-                'skill_loaded':True,'profile_loaded':True,'dossier_loaded':True}
+                'skill_loaded':True,'startup_guide_loaded':True,
+                'profile_loaded':True,'dossier_loaded':True}
             event = {'type':'event_msg','payload':{'type':'item_completed','thread_id':CHILD,
                 'item':{'type':'AgentMessage','phase':'commentary','id':'ack','content':[{'type':'Text','text':json.dumps(ack)}]}}}
             output = {'type':'response_item','payload':{'type':'message','role':'assistant','phase':'commentary',
                 'id':'ack','content':[{'type':'output_text','text':json.dumps(ack)}]}}
             def write(values):trace.write_text('\n'.join(json.dumps(row) for row in [header,*values])+'\n',encoding='utf-8')
+            def acceptance_rows(value):
+                detailed_event, detailed_output = copy.deepcopy(event), copy.deepcopy(output)
+                text = json.dumps(value)
+                detailed_event['payload']['item']['content'][0]['text'] = text
+                detailed_output['payload']['content'][0]['text'] = text
+                return [detailed_event, detailed_output]
             with patch.dict(os.environ,{'CODEX_HOME':str(home),'CODEX_THREAD_ID':SESSION,'CODEX_SESSION_ID':SESSION}):
                 write(reads)
                 with self.assertRaisesRegex(NativeEvidencePending,'child_acceptance_not_observed'):
                     bridge.captured_child_read_order(record,manifest,task_id='test')
                 write([*reads,event,output])
-                self.assertEqual(bridge.captured_child_read_order(record,manifest,task_id='test')['child_acceptance_event'],'ack')
+                with self.subTest(case='complete'):
+                    complete = bridge.captured_child_read_order(record,manifest,task_id='test')
+                    self.assertEqual(complete['child_acceptance_event'],'ack')
+                    self.assertEqual(complete['read_events'].get('startup'), 'read-startup')
+                without_startup = [row for row in reads if row['payload']['item']['id'] != 'read-startup']
+                with self.subTest(case='missing-startup-read'), self.assertRaises(NativeEvidencePending):
+                    write([*without_startup, event, output])
+                    bridge.captured_child_read_order(record,manifest,task_id='test')
+                wrong_startup = copy.deepcopy(reads)
+                wrong_startup[1]['payload']['item']['parsed_cmd'][0]['path'] = str(root/'references/wrong.md')
+                with self.subTest(case='wrong-startup-read'), self.assertRaises(NativeEvidencePending):
+                    write([*wrong_startup, event, output])
+                    bridge.captured_child_read_order(record,manifest,task_id='test')
+                for label, changed_ack in (
+                    ('missing-startup-loaded', {key:value for key,value in ack.items()
+                                                if key != 'startup_guide_loaded'}),
+                    ('startup-loaded-false', {**ack, 'startup_guide_loaded':False}),
+                ):
+                    with self.subTest(case=label), self.assertRaises(NativeEvidencePending):
+                        write([*reads, *acceptance_rows(changed_ack)])
+                        bridge.captured_child_read_order(record,manifest,task_id='test')
                 source_reads = copy.deepcopy(reads)
                 source_reads[0]['payload']['item']['parsed_cmd'][0]['path']=str(home/'source/SKILL.md')
                 write([*source_reads,event,output])

@@ -218,6 +218,7 @@ def _public_admission_fixture(
                 "profile_source": f"agents/standing-officials/{role}.toml",
                 "dossier_path": f"agents/office-dossiers/{role}/AGENTS.md",
                 "court_skill_path": "SKILL.md",
+                "startup_guide_path": "references/court-normal-startup.md",
             }
         binding: dict[str, object] = {
             "role": role,
@@ -1349,7 +1350,9 @@ def check_public_create_help_contract() -> None:
         capsule_schema = contract["invariant_capsule_schema"]
         assert gate_schema["additionalProperties"] is False
         assert capsule_schema["additionalProperties"] is False
-        assert gate_schema["optional"] == ["target_task_id", "understanding"]
+        assert set(gate_schema["optional"]) == {
+            "target_task_id", "understanding", "model_request",
+        }
         assert capsule_schema["optional"] == ["case_ref"]
         assert contract["minimal_formal_task"]["message_class"] == "FORMAL_TASK"
         assert contract["minimal_formal_task"]["understanding"]["score"] >= 95
@@ -1551,6 +1554,7 @@ def _main() -> int:
                 "profile_source": f"agents/standing-officials/{role}.toml",
                 "dossier_path": f"agents/office-dossiers/{role}/AGENTS.md",
                 "court_skill_path": "SKILL.md",
+                "startup_guide_path": "references/court-normal-startup.md",
             },
         }
         for index, role in enumerate(capacity_roles)

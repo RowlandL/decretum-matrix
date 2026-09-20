@@ -841,6 +841,9 @@ max_threads = 16
         assert valid["effective_child_thread_limit"] == 15
         assert valid["spawn_agent_metadata_hidden"] is True
         assert valid["reserved_spawn_schema_compatible"] is True
+        assert valid["spawn_agent_metadata_claim_scope"] == "CONFIG_ONLY_NOT_RUNTIME_SCHEMA"
+        assert valid["runtime_spawn_schema_visibility"] == "LIVE_TOOL_CAPABILITY_REQUIRED"
+        assert valid["runtime_spawn_schema_inferred_from_config"] is False
 
         config_path.write_text(v1_text, encoding="utf-8")
         valid_v1 = validate_codex_multi_agent_config(config_path)

@@ -292,6 +292,7 @@ def role_budget_args(
                     "profile_source": preload.profile_source,
                     "dossier_path": preload.dossier_path,
                     "court_skill_path": preload.court_skill_path,
+                    "startup_guide_path": preload.startup_guide_path,
                 },
             }
         )
@@ -496,7 +497,10 @@ def native_spawn_receipt(
 
     role_ack_sources = {
         field: str((Path(office_root) / Path(str(preload[field]))).resolve())
-        for field in ("profile_source", "dossier_path", "court_skill_path")
+        for field in (
+            "profile_source", "dossier_path", "court_skill_path",
+            "startup_guide_path",
+        )
     }
     model_inputs = admission.get("model_route_inputs")
     if not isinstance(model_inputs, dict):
@@ -682,6 +686,8 @@ def preload_ack(cli: Path, env: dict[str, str], task_id: str, agent_id: str, rol
         "--profile-source", manifest.profile_source,
         "--dossier-path", manifest.dossier_path,
         "--court-skill-path", manifest.court_skill_path,
+        "--startup-guide-path", manifest.startup_guide_path,
+        "--startup-guide-loaded", "YES",
         "--court-code", manifest.court_code,
         "--loaded-skills", "decretum-matrix",
         "--agent-dossier-loaded", "YES",
@@ -1380,5 +1386,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 

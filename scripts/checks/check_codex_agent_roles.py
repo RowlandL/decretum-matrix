@@ -131,6 +131,9 @@ def validate_codex_multi_agent_config(
         "inactive_v2_config_preserved": contract.get("inactive_v2_config_preserved"),
         "spawn_agent_metadata_visible": multi_agent.get("hide_spawn_agent_metadata") is False,
         "spawn_agent_metadata_hidden": spawn_agent_metadata_hidden,
+        "spawn_agent_metadata_claim_scope": "CONFIG_ONLY_NOT_RUNTIME_SCHEMA",
+        "runtime_spawn_schema_visibility": "LIVE_TOOL_CAPABILITY_REQUIRED",
+        "runtime_spawn_schema_inferred_from_config": False,
         "reserved_spawn_schema_compatible": bool(
             multi_agent.get("enabled") is True and spawn_agent_metadata_hidden
         ),
@@ -305,7 +308,8 @@ def main() -> int:
             "CODEX_AGENT_ROLES_OK "
             f"installed_count={result['installed_count']} required_count={result['required_count']} "
             f"malformed_count={result['malformed_count']} unsynced_count={result['unsynced_count']} "
-            f"reserved_spawn_schema_compatible={result['config_contract']['reserved_spawn_schema_compatible']}"
+            f"reserved_spawn_schema_compatible={result['config_contract']['reserved_spawn_schema_compatible']} "
+            f"runtime_spawn_schema_visibility={result['config_contract']['runtime_spawn_schema_visibility']}"
         )
     else:
         print(

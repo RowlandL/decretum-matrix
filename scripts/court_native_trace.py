@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlsplit
 SCHEMA = 'court.host_spawn_evidence.v1'
 _UUID = re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$', re.I)
 _OPAQUE = re.compile(r'^gAAAAA[A-Za-z0-9_=-]{90,}$')
+_TRUSTED_NIUBASH_WRAPPER = 'c:/tools/niubash/niu.exe'
 
 
 def is_opaque_message(value: object) -> bool:
@@ -183,7 +184,75 @@ def _static_powershell_reads(command: str) -> list[str]:
     return reads
 
 
+def _direct_niu_payload(item: Mapping[str, object]) -> str | None:
+    """Return one exact NIUbash payload; never infer or execute shell text."""
+
+    command = item.get('command')
+    if not isinstance(command, (list, tuple)) or len(command) != 3:
+        return None
+    executable = str(command[0]).replace('\\', '/').rsplit('/', 1)[-1].casefold()
+    payload = command[2]
+    if (
+        executable in {'niu', 'niu.exe'}
+        and command[1] == '-c'
+        and isinstance(payload, str)
+        and payload
+        and payload == payload.strip()
+        and '\x00' not in payload
+    ):
+        return payload
+    if (
+        executable not in {'pwsh', 'pwsh.exe', 'powershell', 'powershell.exe'}
+        or command[1] != '-Command'
+        or not isinstance(payload, str)
+    ):
+        return None
+    match = re.fullmatch(
+        r"&[ \t]+'((?:[^']|'')*)'[ \t]+-c[ \t]+'((?:[^']|'')*)'",
+        payload,
+    )
+    if match is None:
+        return None
+    niu_executable = match.group(1).replace("''", "'")
+    inner = match.group(2).replace("''", "'")
+    niu_name = niu_executable.replace('\\', '/').rsplit('/', 1)[-1].casefold()
+    normalized_niu = niu_executable.replace('\\', '/').casefold()
+    if (
+        niu_name != 'niu.exe'
+        or normalized_niu != _TRUSTED_NIUBASH_WRAPPER
+        or not Path(niu_executable).is_absolute()
+        or not inner
+        or inner != inner.strip()
+        or any(character in niu_executable for character in ('\x00', '\r', '\n', '`', '$'))
+        or any(character in inner for character in ('\x00', '\r', '\n'))
+    ):
+        return None
+    return inner
+
+
+def _static_niu_cat_read(payload: str) -> str | None:
+    """Recognize only ``cat <one literal path>`` as a completed full read."""
+
+    if any(character in payload for character in ('\r', '\n', ';', '|', '&', '<', '>', '`', '$', '(', ')')):
+        return None
+    match = re.fullmatch(r"cat[ \t]+(?:'([^']+)'|\"([^\"]+)\"|([^\s]+))", payload)
+    if match is None:
+        return None
+    path = next(value for value in match.groups() if value is not None)
+    if (
+        not path
+        or path.startswith('-')
+        or any(character in path for character in ('*', '?', '[', ']', '%', '~', '{', '}'))
+        or '..' in re.split(r'[\\\\/]', path)
+    ):
+        return None
+    return path
+
+
 def _command_text(item: Mapping[str, object]) -> str:
+    niu_payload = _direct_niu_payload(item)
+    if niu_payload is not None:
+        return niu_payload
     command = item.get('command', [])
     if isinstance(command, str):
         return command
@@ -307,6 +376,11 @@ def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[
         if payload.get('type') != 'item_completed' or item.get('exit_code') != 0 or item.get('status') != 'completed':
             continue
         observed = []
+        niu_payload = _direct_niu_payload(item)
+        if niu_payload is not None:
+            niu_read = _static_niu_cat_read(niu_payload)
+            if niu_read is not None:
+                observed.append(niu_read)
         for parsed in item.get('parsed_cmd', []):
             if not isinstance(parsed, Mapping):
                 continue
@@ -328,6 +402,12 @@ def skill_read_order(rows: list[dict[str, object]], required: Mapping[str, list[
         raise NativeEvidencePending('native_trace:child_required_reads_not_observed')
     if any(reads['skill'][:2] > position[:2] for kind, position in reads.items() if kind != 'skill'):
         raise ValueError('native_trace:skill_must_load_before_office_materials')
+    if 'startup' in reads and any(
+        reads['startup'][:2] > reads[kind][:2]
+        for kind in ('profile', 'dossier')
+        if kind in reads
+    ):
+        raise ValueError('native_trace:startup_must_load_before_office_materials')
     if business and min(business) <= reads['skill'][0]:
         raise ValueError('native_trace:skill_must_load_before_cli_mcp')
     if business and min(business) <= max(position[0] for position in reads.values()):

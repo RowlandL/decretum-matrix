@@ -424,11 +424,26 @@ def _candidate_binding_metadata(
     ):
         raise RuntimeError("candidate_receipt_manifest_mismatch")
     artifacts = receipt.get("artifacts")
-    if not isinstance(artifacts, list) or not any(
-        isinstance(item, dict) and item.get("name") == artifact_name
-        for item in artifacts
-    ):
+    package_artifact = next(
+        (
+            item
+            for item in artifacts
+            if isinstance(item, dict) and item.get("name") == artifact_name
+        ),
+        None,
+    ) if isinstance(artifacts, list) else None
+    if not isinstance(package_artifact, dict):
         raise RuntimeError("candidate_receipt_artifact_missing")
+    declared_package_sha256 = package_artifact.get("sha256")
+    if (
+        not isinstance(declared_package_sha256, str)
+        or len(declared_package_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in declared_package_sha256
+        )
+    ):
+        raise RuntimeError("candidate_receipt_artifact_sha256_invalid")
     artifact_path = _safe_candidate_file(
         package_root,
         f"release/{artifact_name}",
@@ -437,6 +452,11 @@ def _candidate_binding_metadata(
     if not artifact_path.is_file() or _is_link_or_reparse(artifact_path):
         raise RuntimeError("candidate_artifact_missing")
     _validate_candidate_zip_payload(artifact_path)
+    from commands.release_payload_manifest import sha256_bytes
+
+    actual_package_sha256 = sha256_bytes(artifact_path.read_bytes())
+    if actual_package_sha256 != declared_package_sha256:
+        raise RuntimeError("candidate_receipt_artifact_sha256_mismatch")
     receipt_ref = f"candidate:{_relative_posix(receipt_path, package_root, reason='candidate_receipt_outside_package')}@{source_commit}"
     return {
         "source_commit": source_commit,
@@ -449,6 +469,7 @@ def _candidate_binding_metadata(
         "provenance_receipt_ref": receipt_ref,
         "candidate_package_root": str(package_root),
         "candidate_receipt_ref": receipt_ref,
+        "source_package_sha256": actual_package_sha256,
     }
 
 
@@ -1518,6 +1539,9 @@ def _install_update(
             "status": "BLOCKED",
             "reason": str(exc),
         })
+    candidate_source_package_sha256 = binding_metadata.get(
+        "source_package_sha256"
+    )
     module = importlib.import_module("install_current_agent_copy")
     result = module.install_current_agent_copy(
         source_root=Path(selected),
@@ -1528,6 +1552,11 @@ def _install_update(
         projection_manifest=Path(selected) / PROJECTION_PATH,
         write=write,
         fanout=False,
+        source_package_sha256=(
+            str(candidate_source_package_sha256)
+            if isinstance(candidate_source_package_sha256, str)
+            else None
+        ),
         installation_binding=binding_metadata,
     )
     if not isinstance(result, dict) or result.get("ok") is not True:
@@ -1601,6 +1630,16 @@ def _install_update(
         result["post_projection_acceptance"] = acceptance
         result["candidate_package_root"] = binding_metadata.get("candidate_package_root")
         if acceptance.get("ok") is not True:
+            if acceptance.get("status") == "RECOVERY_REQUIRED":
+                result.update(
+                    {
+                        "ok": False,
+                        "status": "RECOVERY_REQUIRED",
+                        "reason": acceptance.get("reason"),
+                        "recovery_required": True,
+                    }
+                )
+                return result
             compensation = _compensate_projection(
                 installer_module=module,
                 home=home,
@@ -1661,6 +1700,49 @@ def _install_update(
                 }
             )
             return attach_npm_compensation(result)
+        if isinstance(candidate_source_package_sha256, str):
+            finalizer = getattr(module, "finalize_install_receipt", None)
+            if not callable(finalizer):
+                result.update(
+                    {
+                        "ok": False,
+                        "status": "RECOVERY_REQUIRED",
+                        "reason": "final_install_receipt_producer_missing",
+                        "recovery_required": True,
+                    }
+                )
+                return result
+            finalized_receipt = finalizer(
+                home_root=home,
+                pending_receipt_path=Path(
+                    str(result.get("install_receipt_path") or "")
+                ),
+                source_package_sha256=candidate_source_package_sha256,
+                installation_binding=committed_binding,
+                current_tool="codex",
+                current_tool_root=home / ".codex" / "skills" / NAME,
+            )
+            if (
+                not isinstance(finalized_receipt, dict)
+                or finalized_receipt.get("ok") is not True
+            ):
+                result.update(
+                    {
+                        "ok": False,
+                        "status": "RECOVERY_REQUIRED",
+                        "reason": "final_install_receipt_production_failed",
+                        "final_install_receipt": finalized_receipt,
+                        "recovery_required": True,
+                    }
+                )
+                return result
+            result["final_install_receipt"] = finalized_receipt
+            result["install_receipt"] = finalized_receipt.get(
+                "install_receipt"
+            )
+            result["install_receipt_path"] = finalized_receipt.get(
+                "install_receipt_path"
+            )
     if npm_install_result is not None:
         result["npm_candidate_install"] = npm_install_result
     return result

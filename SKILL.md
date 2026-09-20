@@ -20,9 +20,9 @@ metadata:
 
 ## Codex/Claude Hierarchical Relay Evidence
 
-Codex/Claude-style recursive hosts need current-session delivery evidence before claiming 三省会审/尚书统合六部。主线程/太子可作中枢转发，但不得改变官署层级；`direct_superior=...`、计划图或 flat OK wave 不足以证明互联互通。缺证据标 `runtime_degraded/PARTIAL`。仅适用于 Codex/Claude 类递归子代理宿主；DeepSeek Harness、EAC/DSH、MCP-only、CLI/script 等非递归 runtime 按其宿主规则。
+Recursive Codex/Claude court claims need current-session delivery/read evidence; otherwise mark `runtime_degraded/PARTIAL`.
 
-Ref: relay/parallel claims load [court-offices-dispatch.md](references/court-offices-dispatch.md).
+Absent a newest explicit user ban, lawful horizontal messages default to direct delivery to the canonical target; details: [court-offices-dispatch.md](references/court-offices-dispatch.md).
 
 ## Unified Dynamic Dispatch Semantics
 
@@ -30,7 +30,7 @@ Ref: relay/parallel claims load [court-offices-dispatch.md](references/court-off
 2. 默认 whole-tree 上限 16（含 root），`max_depth=4`；只有最新用户明确给出更大数量或 `unlimited/解限` 才可提高 ceiling。预算、宿主容量/拒绝、资源压力、层级、写集、preload 与实例追溯仍须有效。
 3. `execution_authority=approval|autonomous|super` 与 `behavior=serial|parallel` 独立。缺哪项分别询问；不得从记忆、旧会话、sandbox、安装意图或运行权限推定。
 4. `super并行` = super + parallel + native。superCC 是独立 runtime/入口，不是第四权；native/superCC 互斥，不探测候选、不切换、不回退。
-5. 普通生产路由优先使用宿主已证实兼容的层级子官署协议；`subagent`/`Multi-Agent V2` 只作兼容选项，不是强制字段或字样。若宿主无工具或证据链，则使用 serial 或中枢转发并标注 `runtime_degraded`；不得强设 model-reserved override fields。
+5. 普通生产路由优先使用宿主已证实兼容的层级子官署协议；`subagent`/`Multi-Agent V2` 只作兼容选项。宿主无工具/证据链则 serial/降级转发；model/effort 均缺席才继承，仅当前用户显式、case-bound 选择可经 visible capability 覆盖。model-only 省略 effort 并记录宿主默认值；effort-only 证明 model 继承。
 6. serial 禁止物理 child 并发，保留 `serial_inline` 官署责任与证据；parallel 使用真实宿主派遣。共享/外部写串行；拒绝、限流或语义漂移即停当前 wave。
 
 ## Normal Startup Entry / Loading Procedure
@@ -63,9 +63,7 @@ Legal state: `Pending → Taizi → ThreeDepartments → ThreeDepartmentsPetitio
 
 ## Public Transport Contract
 
-CLI (`scripts/court_cli.py` → `court_cli_registry.py`) 与 MCP 共用 `scripts/court_public_api.py`，命令权威为 [cli-command-surface.v1.json](references/manifests/cli-command-surface.v1.json)。MCP 不 spawn CLI、不解析 stdout；lifecycle/Git hooks 已撤回，.codex-plugin 仅兼容 metadata。
-
-只读校验、状态和史馆检索优先调用对应 MCP；不可只调 help 后翻源码重写。生产和验收使用公开 `decretum-matrix` CLI；PATH 缺失时解析当前 npm prefix 下的命令入口，不降为内部 Python 业务脚本。状态变更走 receipt-bound CLI，真实派遣走宿主；检查 domain success，不凑调用次数。
+CLI/MCP 共用公共 API/[命令清单](references/manifests/cli-command-surface.v1.json)；MCP 只读。变更用 receipt-bound CLI（npm-prefix 入口，禁内部 Python），派遣走宿主。
 
 ## Progressive Loading Map
 
@@ -73,9 +71,7 @@ CLI (`scripts/court_cli.py` → `court_cli_registry.py`) 与 MCP 共用 `scripts
 
 ## Shiguan, Pending, And Memory
 
-`shiguan_paths.py` resolves shared authority；史馆 GBrain 与 query/index/Git/Obsidian 都是 advisory/preserve-only，无执行权。普通 startup 不运行重型 Git。
-
-pending/private 仅允许 metadata governance；没有不可伪造主机授权不得读取、移动、删除或标记正文。不得保存 secrets、原始私密日志、瞬态输出、猜测或未获批个人数据。
+史馆 GBrain/query/index/Git/Obsidian 仅 advisory/preserve，无执行权；普通 startup 不跑重型 Git。pending/private 无不可伪造主机授权只治理 metadata；禁读取/移动/删除正文及保存 secrets、私密原日志、瞬态输出或未批数据。
 
 ## Closeout Skeleton
 

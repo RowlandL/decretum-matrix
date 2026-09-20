@@ -93,6 +93,7 @@ def _request(*, role: str = "gongbu", suffix: str = "01") -> dict[str, object]:
             "profile_source": "agents/standing-officials/gongbu.toml",
             "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
             "court_skill_path": "SKILL.md",
+            "startup_guide_path": "references/court-normal-startup.md",
         },
         "admission_anchor": {
             "schema": "court.agent.admission_receipt.v1",
@@ -348,7 +349,8 @@ def _check_receipt_contract(
                 "direct_superior": "taizi",
                 "profile_source": "agents/standing-officials/gongbu.toml",
                 "dossier_path": "agents/office-dossiers/gongbu/AGENTS.md",
-            "court_skill_path": "SKILL.md",
+                "court_skill_path": "SKILL.md",
+                "startup_guide_path": "references/court-normal-startup.md",
             },
         ),
         ("decision", "reuse" if decision == "spawn" else "spawn"),

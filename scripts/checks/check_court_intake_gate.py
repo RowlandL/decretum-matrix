@@ -62,6 +62,7 @@ def gate(
     question: str = "",
     target_task_id: str | None = None,
     understanding: dict[str, object] | None = None,
+    model_request: dict[str, object] | None = None,
 ) -> dict[str, object]:
     value: dict[str, object] = {
         "schema": INTAKE_SCHEMA,
@@ -82,6 +83,8 @@ def gate(
         value["target_task_id"] = target_task_id
     if understanding is not None:
         value["understanding"] = understanding
+    if model_request is not None:
+        value["model_request"] = model_request
     return value
 
 
@@ -105,6 +108,48 @@ PASS_CASES: list[tuple[str, dict[str, object]]] = [
             understanding=deepcopy(
                 court_intake_gate.minimal_formal_task_example()["understanding"]
             ),
+        ),
+    ),
+    (
+        "formal_task_model_only",
+        gate(
+            "FORMAL_TASK",
+            relation="NEW_TASK",
+            consent="EXPLICIT",
+            requires_tools=True,
+            next_route="THREE_DEPARTMENTS",
+            understanding=deepcopy(
+                court_intake_gate.minimal_formal_task_example()["understanding"]
+            ),
+            model_request={"model": "gpt-6-astra", "reasoning_effort": None},
+        ),
+    ),
+    (
+        "formal_task_effort_only",
+        gate(
+            "FORMAL_TASK",
+            relation="NEW_TASK",
+            consent="EXPLICIT",
+            requires_tools=True,
+            next_route="THREE_DEPARTMENTS",
+            understanding=deepcopy(
+                court_intake_gate.minimal_formal_task_example()["understanding"]
+            ),
+            model_request={"model": None, "reasoning_effort": "ultra"},
+        ),
+    ),
+    (
+        "formal_task_model_and_effort",
+        gate(
+            "FORMAL_TASK",
+            relation="NEW_TASK",
+            consent="EXPLICIT",
+            requires_tools=True,
+            next_route="THREE_DEPARTMENTS",
+            understanding=deepcopy(
+                court_intake_gate.minimal_formal_task_example()["understanding"]
+            ),
+            model_request={"model": "gpt-6-astra", "reasoning_effort": "ultra"},
         ),
     ),
     (
@@ -317,6 +362,55 @@ FAIL_CASES: list[tuple[str, dict[str, object], str]] = [
     ("unknown_message_class", changed("formal_task", message_class="UNKNOWN"), "message_class"),
     ("boolean_as_integer", changed("formal_task", active_decree=0), "active_decree_type"),
     ("empty_rationale", changed("formal_task", rationale="   "), "rationale"),
+    (
+        "model_request_missing_key",
+        changed("formal_task", model_request={"model": "gpt-6-astra"}),
+        "model_request_fields",
+    ),
+    (
+        "model_request_extra_key",
+        changed(
+            "formal_task",
+            model_request={
+                "model": "gpt-6-astra",
+                "reasoning_effort": "ultra",
+                "source": "caller-forged",
+            },
+        ),
+        "model_request_fields",
+    ),
+    (
+        "model_request_both_null",
+        changed(
+            "formal_task",
+            model_request={"model": None, "reasoning_effort": None},
+        ),
+        "model_request_empty",
+    ),
+    (
+        "model_request_whitespace_model_only",
+        changed(
+            "formal_task",
+            model_request={"model": "   ", "reasoning_effort": None},
+        ),
+        "model_request_empty",
+    ),
+    (
+        "model_request_invalid_effort",
+        changed(
+            "formal_task",
+            model_request={"model": None, "reasoning_effort": "extreme"},
+        ),
+        "model_request_reasoning_effort",
+    ),
+    (
+        "continuation_with_model_request",
+        changed(
+            "task_continuation",
+            model_request={"model": "gpt-6-astra", "reasoning_effort": None},
+        ),
+        "model_request_message_class",
+    ),
 ]
 
 
@@ -515,11 +609,11 @@ def check_public_intake_contract() -> None:
     )
     require(isinstance(properties, dict), "public intake schema properties missing")
     require(
-        set(properties) == required | {"target_task_id", "understanding"},
+        set(properties) == required | {"target_task_id", "understanding", "model_request"},
         "public intake optional fields drifted",
     )
     require(
-        schema.get("optional") == ["target_task_id", "understanding"],
+        set(schema.get("optional", [])) == {"target_task_id", "understanding", "model_request"},
         "public intake optional field list missing",
     )
     require(properties["schema"].get("const") == INTAKE_SCHEMA, "public intake schema id drifted")
@@ -539,6 +633,34 @@ def check_public_intake_contract() -> None:
     require(
         properties["understanding"].get("$id") == "court.request_understanding.v1",
         "public understanding schema id drifted",
+    )
+    model_request_schema = properties["model_request"]
+    require(model_request_schema.get("type") == "object", "public model_request schema is not object-shaped")
+    require(
+        set(model_request_schema.get("required", [])) == {"model", "reasoning_effort"},
+        "public model_request required fields drifted",
+    )
+    require(
+        set(model_request_schema.get("properties", {})) == {"model", "reasoning_effort"},
+        "public model_request properties drifted",
+    )
+    require(
+        model_request_schema.get("additionalProperties") is False,
+        "public model_request schema is not closed-world",
+    )
+    request_properties = model_request_schema["properties"]
+    require(
+        set(request_properties["model"].get("type", [])) == {"string", "null"},
+        "public model_request model type drifted",
+    )
+    require(
+        set(request_properties["reasoning_effort"].get("type", [])) == {"string", "null"},
+        "public model_request reasoning_effort type drifted",
+    )
+    require(
+        set(request_properties["reasoning_effort"].get("enum", []))
+        == {None, "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"},
+        "public model_request reasoning_effort enum drifted",
     )
 
     example = example_factory()
@@ -602,5 +724,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

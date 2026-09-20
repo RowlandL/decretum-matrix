@@ -900,15 +900,19 @@ authority, evidence, and stop-condition fields are never silently discarded.
 
 Every ordinary Codex office admission also carries the task-aware
 `court.office.model_route.v2` assessment. It records a Sol/Terra/Luna
-recommendation at that model's real highest supported effort, but the current
-model-visible V2 spawn inherits the main thread model and effort because the
-reserved schema hides `agent_type/model/reasoning_effort`. The spawn message
-must instead carry the explicit `role_key`, direct superior, office dossier path
-when useful, and role acknowledgement contract; `/root/*` remains only a collaboration address.
-`agent-start` records the route and `agent-role-ack` must match
-`model_route_id`, `model_override_applied=NO`, the reserved-schema inheritance
-policy, role identity, and direct superior before status changes to running. Claude
-Code and Hermes likewise acknowledge main-thread/main-profile inheritance.
+recommendation at that model's real highest supported effort. A recommendation
+is not authorization: model/effort default to main-thread inheritance and their
+spawn fields stay absent. Only a current-user-explicit selection bound by
+create/revise to the current case and semantic epoch may flow through immutable
+admission routes and visible host capabilities. Exact spawn arguments plus the
+bound child `turn_context` must match before preload ACK can record
+`model_override_applied=YES`; effort-only proves model inheritance, while model-only
+omits the effort argument and records the child host-default effort without claiming
+parent inheritance or user selection. `/root/*` remains only a collaboration
+address, `service_tier` stays forbidden, and followup cannot reconfigure a child.
+Without an explicit selection, ACK continues to require the route id, `NO`, and
+the route's inheritance policy. Claude Code and Hermes likewise acknowledge
+main-thread/main-profile inheritance.
 When actual model application is required, the separate fresh-session leaf
 worker may apply a proved top-level route only with an exact native binary,
 host-proof path evidence, matching dossier cwd, disabled multi-agent features, and
