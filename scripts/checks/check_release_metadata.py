@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 META = "references/manifests/github-release-metadata.v1.json"
 ICON = "assets/brand/decretum-matrix-icon.svg"
-TARGET = "beta1.1.3"
+TARGET = "beta1.1.4"
 PRIVATE = "0.0.0-private"
 def read(root: Path, path: str) -> str:
     return (root / path).read_text(encoding="utf-8")

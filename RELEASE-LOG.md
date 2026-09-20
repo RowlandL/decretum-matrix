@@ -1,5 +1,11 @@
 # Release Log
 
+## beta1.1.4
+
+- 发布当前 Codex 调用适配、默认横向直投、显式 model/effort 兼容、已提交诏令门禁和跨平台预载预算根因修复。
+- 入口预算仍为 20 KiB，普通三省六部仍须保留 768 bytes；无效 UTF-8 继续结构化拒绝，NIUbash 仍为非必选兼容项。
+- 新 tag、GitHub Release 五项资产、本机候选、全局 npm 载体、`.agents`、`.codex` 和安装 binding 必须绑定同一最终提交与 ZIP 摘要；成功状态以实际发布和安装回读为准。
+
 ## beta1.1.3
 
 - 2026-09-20 当前宿主适配候选：实时 capability 驱动 exact 官署 `agent_type`；启动卷四材料机器链与 20 KiB/768-byte 余量；可选窄 NIUbash trace；默认 canonical 横向直投；以及 case-bound 用户显式 model/effort 经 admission-bound 双层 receipt、parent/child `turn_context`、start 与正式 ACK 复核。当前宿主的 model-only 会采用模型默认 effort，适配器记录实际值而不误称继承；followup 不重发 spawn override。

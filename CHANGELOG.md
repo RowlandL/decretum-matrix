@@ -1,5 +1,20 @@
 # Changelog
 
+## beta1.1.4 - 2026-09-20
+
+### Fixed
+
+- 当前 Codex 宿主按实时 capability 传递精确官署角色和用户显式 model/effort；未指定字段保持继承或宿主默认，followup 不重复发送 spawn override。
+- 横向消息在用户未禁止时默认直投 canonical target；只有宿主不可达或无法形成 delivery/read-ack 证据时才降级为太子中转。
+- 官署启动、上级 ACK 与正式派遣要求已提交诏令和同一预载材料链，避免中途中断后把半完成状态当成可继续执行。
+- Windows CRLF checkout 不再挤占预载预算：四份必读 UTF-8 文本按逻辑换行计量，无效文本 fail-closed；20 KiB 与 768-byte 门槛不变。
+
+### Changed
+
+- NIUbash 保持可选兼容，不成为 Windows、PowerShell 或现有工作流的安装前提。
+- 最终安装收据绑定同一候选 ZIP、提交、artifact、installation 和 transaction；GitHub 发布、本机资产与安装态分别由远端回读和安装回执证明。
+- 为容纳本版版本化说明与发布元数据，便携源码 byte 上限从 9,590,000 有界调整为 9,593,000；文件数和所有模块行限不变。
+
 ## beta1.1.3 - 2026-09-12
 
 ### Fixed

@@ -6,8 +6,20 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.3",
+  "latest_tag": "beta1.1.4",
   "releases": [
+    {
+      "asset_note": "beta1.1.4 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
+      "highlights": [
+        "当前宿主按实时 capability 传递官署角色与用户显式 model/effort，未指定字段保持继承或宿主默认。",
+        "横向消息默认直投 canonical target；仅不可达或无 delivery/read-ack 证据时降级太子中转。",
+        "官署启动与上级 ACK 绑定已提交诏令，拒绝半完成状态继续派遣。",
+        "预载文本按规范化 UTF-8 计量，修复 Windows CRLF 假性超预算而不放宽 20 KiB/768-byte 门槛。"
+      ],
+      "summary": "beta1.1.4 发布当前 Codex 调用链、官署生命周期与跨平台预载预算修复，并保持 NIUbash 非必选、安装和发布证据分离。",
+      "tag": "beta1.1.4",
+      "title": "Decretum Matrix beta1.1.4"
+    },
     {
       "asset_note": "本条目为本地 beta1.1.3 候选说明；活动安装、真实宿主验收、tag、GitHub Release 和 npm 发布均须独立证据。",
       "highlights": [

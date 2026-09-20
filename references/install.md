@@ -4,10 +4,10 @@ This reference governs local installation of `decretum-matrix` into the active
 agent skill roots. It is runtime-focused; release packaging and publication
 checks stay in the source tree and are not startup prerequisites.
 
-The current beta1.1.3 source is an unreleased local development version.
-The commands and target details below do not authorize installing beta1.1.3;
-its installation requires a later explicit external installation transaction
-and a matching receipt.
+Until external publication readback exists, the current beta1.1.4 source
+checkout is treated as an unreleased candidate. Repository text does not
+authorize or prove an active installation; installation requires an explicit
+external transaction and a matching receipt.
 
 ## Targets
 
@@ -33,8 +33,8 @@ physical authority; otherwise report the conflict and stop before writing.
 
 ## Runtime Surface
 
-For the unreleased beta1.1.3 development version, no installed runtime surface
-is being claimed. A later explicitly authorized installation transaction may
+No installed runtime surface is claimed from source text alone. An explicitly
+authorized installation transaction may
 project the bounded skill, governing references, office materials, and runtime
 helpers described by the manifest; projection, synchronization, release, and
 package tools remain outside that runtime. Startup, preload, and ordinary
@@ -113,7 +113,7 @@ handler may be installed for the seven-group CLI without becoming a startup
 dependency. Commands that require Git/tag authority return a typed
 `SOURCE_CHECKOUT_REQUIRED` or other blocked receipt outside a source checkout.
 
-The unreleased beta1.1.3 development version does not promise automatic
+The beta1.1.4 release does not promise automatic
 installation or reuse of `zellij`, `squad`, or any other extra dependency.
 Any such dependency must be handled by a later explicitly authorized external
 installation transaction with its own receipt; the exact command is not
@@ -121,8 +121,8 @@ defined in this development reference.
 
 ## External Installation Transaction
 
-Beta1.1.2 is not released, so this reference does not prescribe an installed-root
-command. When T09 supplies a later explicitly authorized external installation
+This reference does not prescribe an unauthenticated installed-root command.
+When an explicitly authorized external installation
 transaction, that transaction must bind the source, artifact, installation
 revision, selected roots, and rollback information; project each approved target;
 run one existing verifier outside the active runtime after all projections finish;
