@@ -102,7 +102,7 @@
   "hard_limits": {
     "portable_source": {
       "max_files": 545,
-      "max_bytes": 9345000
+      "max_bytes": 9365000
     },
     "source_lines": {
       "scripts/court_native_execution.py": 100,

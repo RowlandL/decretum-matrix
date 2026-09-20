@@ -62,6 +62,17 @@ current host trace; never supply invented host IDs or results.
 Opaque messages use call/activity/child metadata; capture proves spawn only.
 Child reads installed SKILL, then profile/dossier, emits `child_acceptance` as
 JSON-only commentary and waits for superior CLI ack before business tools.
+The superior saves `office start`'s `preload_ack_request` and submits it with
+`office preload-ack --request-file <ack.json>` after the child acceptance arrives.
+On CLI success, the direct superior sends the acceptance to the child, which
+then begins business work; the CLI does not notify the waiting child.
+This request uses `office_instance.preload_manifest` identity values: keep
+`court_skill_path`, `profile_source`, and `dossier_path` skill-relative, rather
+than copying the absolute read locations from `native_request.role_ack`.
+Public request `loaded_skills` is a comma/semicolon-separated string (normally
+`"decretum-matrix"`); the internal validated ack uses an array. Neither object
+replaces the child's `child_acceptance`. The generated request is a template,
+not proof: current child trace and the matching request ID remain required.
 Ack echoes the supplied request ID. Missing evidence stays retryable PENDING;
 parent declarations and saved-trace replays cannot prove fresh acceptance.
 Deliver admission once. Children perform assigned duty without root intake.

@@ -68,7 +68,7 @@ from court_native_host_dispatch import (
     native_task_suffix,
     validate_native_host_action_receipt,
 )
-from court_case_binding import case_reference, plan_reference, office_capsule_reference
+from court_case_binding import case_reference, plan_reference, office_capsule_reference, validate_task_case_binding
 from court_file_lock import atomic_write_text, file_lock
 from court_multi_agent_protocol import (
     ProtocolRequirements,
@@ -7396,6 +7396,7 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         task = tasks.get(args.task_id)
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
+        validate_task_case_binding(task, require_decree=True)
         require_semantic_mutation_binding(task)
         wave_id = str(getattr(args, "wave_id", "") or "wave-default")
         existing_admissions = task.get("agent_admissions")
@@ -8855,6 +8856,8 @@ def agent_event(
         task = tasks.get(args.task_id)
         if not task:
             raise ValueError(f"task not found: {args.task_id}")
+        if lifecycle_action == "agent_start":
+            validate_task_case_binding(task, require_decree=True)
         require_semantic_mutation_binding(task)
         if (
             lifecycle_action in {"agent_start", "agent_report", "agent_finish"}
@@ -9854,6 +9857,7 @@ def _native_bridge_task_binding(
     task = load_tasks().get(task_id)
     if not isinstance(task, dict):
         raise ValueError(f"task not found: {task_id}")
+    validate_task_case_binding(task, require_decree=True)
     require_semantic_mutation_binding(task)
     admissions = task.get("agent_admissions")
     admission = admissions.get(wave_id) if isinstance(admissions, Mapping) else None
@@ -10376,7 +10380,30 @@ def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
 def office_start(args: argparse.Namespace) -> dict[str, object]:
     _prepare_office_start_args(args)
     result = agent_start(args)
-    return _office_transition_payload("start", result, str(args.agent_id))
+    payload = _office_transition_payload("start", result, str(args.agent_id))
+    record = payload["office_instance"]
+    manifest, route = record["preload_manifest"], record["model_route"]
+    # A request template is not child acceptance; the consumer still checks trace.
+    payload["preload_ack_request"] = {
+        **{key: deepcopy(record[key]) for key in (
+            "semantic_epoch", "case_ref", "checkpoint_id", "dispatch_uid", "attempt",
+            "role", "office_instance_kind", "office_instance_id", "carrier_proof",
+        )},
+        **{key: manifest[key] for key in (
+            "office_zh", "direct_superior", "profile_source", "dossier_path",
+            "court_skill_path", "court_code",
+        )},
+        "schema": manifest["preload_ack_schema"], "task_id": args.task_id,
+        "native_request_ref": deepcopy(record.get("native_host_request_ref") or ""),
+        "model_route_id": route["model_route_id"],
+        "inheritance_policy": route["inheritance_policy"],
+        "model_override_applied": "YES" if route["model_override_applied"] else "NO",
+        "loaded_skills": manifest["court_skill_name"], "agent_dossier_loaded": "YES",
+        "profile_loaded": "YES", "court_skill_loaded": "YES",
+        "actor": args.actor,
+        "evidence": f"preload acknowledgement request {record['office_instance_id']}",
+    }
+    return payload
 
 
 def office_followup(args: argparse.Namespace) -> dict[str, object]:
@@ -10389,6 +10416,7 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
         task = tasks.get(str(args.task_id))
         if not isinstance(task, dict):
             raise ValueError(f"task not found: {args.task_id}")
+        validate_task_case_binding(task, require_decree=True)
         require_semantic_mutation_binding(task)
         _reject_native_host_receipt_replay(task, args)
         if args.actor not in OFFICES:
@@ -11629,6 +11657,24 @@ def office_request_namespace(args: argparse.Namespace) -> argparse.Namespace:
         "request_file",
         "office lifecycle request",
     )
+    if args.office_command == "preload-ack":
+        # Match agent-preload-ack defaults without accepting internal list values.
+        defaults = dict.fromkeys((
+            "office_zh", "profile_loaded", "court_skill_loaded", "active_model",
+            "active_reasoning_effort", "inheritance_policy", "note",
+        ), "")
+        defaults.update(schema="court.office.preload_ack.v1", preload_status="PASSED", actor="shangshu")
+        request = {**defaults, **request}
+        for field in (*defaults, "task_id", "role", "direct_superior", "profile_source",
+                      "dossier_path", "court_skill_path", "court_code", "loaded_skills",
+                      "agent_dossier_loaded", "model_route_id", "model_override_applied", "evidence"):
+            if not isinstance(request.get(field), str):
+                raise ValueError(f"office_preload_ack:{field}_must_be_string")
+        for field, choices in (("agent_dossier_loaded", ("YES", "NO")),
+                               ("model_override_applied", ("YES", "NO")),
+                               ("preload_status", ("PASSED", "FAILED"))):
+            if request[field] not in choices:
+                raise ValueError(f"office_preload_ack:{field}_invalid")
     for field in tuple(request):
         if field.endswith("_file") and request[field]:
             request[field] = Path(str(request[field]))

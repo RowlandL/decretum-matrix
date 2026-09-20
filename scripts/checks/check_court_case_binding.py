@@ -371,6 +371,10 @@ class StandardCaseRuntimeTests(unittest.TestCase):
         self.assertEqual(interrupted["main_court_code"], allocation_before["court_code"])
         operation = next(iter(interrupted["operations"].values()))
         self.assertEqual(operation["status"], "ALLOCATED")
+        before = court_runtime.tasks_path().read_bytes(), court_runtime.events_path().read_bytes()
+        with self.assertRaisesRegex(ValueError, "case_binding_decree_missing_or_foreign"):
+            validate_case_binding(interrupted["case_binding"], interrupted, require_decree=True)
+        self.assertEqual(before, (court_runtime.tasks_path().read_bytes(), court_runtime.events_path().read_bytes()))
 
         recovered = court_runtime.create_task(
             standard_create_args("case-crash", "case-crash-session")
@@ -380,6 +384,7 @@ class StandardCaseRuntimeTests(unittest.TestCase):
         self.assertEqual(recovered.task["court_code"], allocation_before["court_code"])
         recovered_operation = next(iter(recovered.task["operations"].values()))
         self.assertEqual(recovered_operation["status"], "COMMITTED")
+        validate_case_binding(recovered.task["case_binding"], recovered.task, require_decree=True)
         decree_events = [
             event for event in court_runtime.events_for_task("case-crash", limit=None)
             if event.get("action") == "decree_open"

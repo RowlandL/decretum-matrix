@@ -345,6 +345,8 @@ def validate_case_binding(
 
 
 def _require_bound_decree(task: Mapping[str, object], binding: Mapping[str, object]) -> None:
+    from court_operation_journal import normalize_operation_binding
+
     if (
         not isinstance(task.get("decree_id"), str)
         or not task.get("decree_id")
@@ -357,16 +359,30 @@ def _require_bound_decree(task: Mapping[str, object], binding: Mapping[str, obje
         raise ValueError("case_binding_decree_missing_or_foreign")
     matching = []
     for operation in operations.values():
-        if not isinstance(operation, Mapping) or operation.get("kind") != "decree_open":
+        if (not isinstance(operation, Mapping) or operation.get("kind") != "decree_open"
+                or operation.get("status") != "COMMITTED"):
             continue
         receipt = operation.get("receipt")
         if not isinstance(receipt, Mapping):
             continue
+        try:
+            origin = normalize_operation_binding(operation.get("operation_binding"), operation_id=operation.get("operation_id"))
+        except ValueError:
+            continue
+        revision = receipt.get("charter_revision")
+        if type(revision) is not int or not 0 < revision <= binding["charter_revision"]:
+            continue
+        original_ref = {"court_code": binding["court_code"], "charter_revision": revision}
         if (
             receipt.get("task_id") == binding["task_id"]
+            and receipt.get("decree_id") == task["decree_id"]
             and receipt.get("court_code") == binding["court_code"]
             and receipt.get("session_id") == binding["session_id"]
-            and receipt.get("charter_revision") == binding["charter_revision"]
+            # The creation receipt binds its original revision, not later corrections.
+            and receipt.get("case_ref") == original_ref == origin["case_ref"]
+            and origin["task_id"] == binding["task_id"]
+            and origin["operation_kind"] == "decree_open"
+            and receipt.get("operation_id") == origin["operation_id"]
         ):
             matching.append(receipt)
     if len(matching) != 1:

@@ -270,7 +270,7 @@ def context_budget_pool(task_id: str, wave_id: str) -> dict[str, object]:
     return court_runtime.public_context_budget_pool(task, wave_id)
 
 
-def create_task(task_id: str) -> None:
+def create_task(task_id: str, **create_overrides: object) -> None:
     for key in tuple(_FIXTURE_WAVE_SLOTS):
         if key[0] == task_id:
             del _FIXTURE_WAVE_SLOTS[key]
@@ -304,6 +304,7 @@ def create_task(task_id: str) -> None:
             intake_file=None,
             invariant_capsule=invariant_capsule,
             invariant_capsule_file=None,
+            **create_overrides,
         )
     )
     court_runtime.semantic_checkpoint_task(semantic_args(task_id, "checkpoint"))
@@ -2964,8 +2965,107 @@ def check_office_cli_error_contract() -> None:
         assert "usage:" not in stderr.lower(), (argv, stderr)
 
 
+def check_standard_case_decree_dispatch_guards() -> None:
+    from check_court_native_host_dispatch import load_bridge
+    task_id, wave, instance = "standard-decree-dispatch", "decree-wave", "zhongshu#0001"
+    proof = {"agent_id": "zhongshu-decree-01"}
+    create_task(task_id, session_id=task_id, authority="super", behavior="parallel")
+    for state in ("Taizi", "ThreeDepartments"):
+        court_runtime.transition_task(Namespace(task_id=task_id, to_state=state, actor="taizi",
+            owner="", heartbeat="", evidence="decree guard fixture", note=""))
+    request = admit(task_id, wave, role="zhongshu", actor="taizi", office_api=True,
+        return_namespace=True, office_instance_kind="child_agent", office_instance_id=instance,
+        collaboration_task_name="zhongshu_decree_01", carrier_proof=proof)
+
+    def reject_incomplete(command: str, request: Namespace) -> None:
+        original = deepcopy(court_runtime.load_tasks()[task_id])
+        for state in ("ALLOCATED", "missing"):
+            changed = deepcopy(original)
+            if state == "missing":
+                changed.update(decree_id=None, operations={})
+            else:
+                next(iter(changed["operations"].values()))["status"] = state
+            set_task_field(task_id, lambda task: task.update(changed))
+            if command == "admit":
+                reject_runtime_bytes_unchanged(lambda: court_runtime.agent_admit(deepcopy(request)),
+                    "direct admission accepted an incomplete decree", "case_binding_decree_missing_or_foreign")
+            before = runtime_bytes(court_runtime.tasks_path()), runtime_bytes(court_runtime.events_path())
+            status, stdout, stderr = raw_office_cli(
+                ["office", command, "--request-json", json.dumps(vars(request))])
+            payload = json.loads(stdout) if stdout.strip() else {}
+            assert status == 2 and payload.get("fail_closed") is True, (state, command, status, payload.get("ok"), stderr)
+            assert payload["error"] in ("case_binding_decree_missing_or_foreign", "office_frozen_lineage_missing"), payload
+            assert before == (runtime_bytes(court_runtime.tasks_path()), runtime_bytes(court_runtime.events_path()))
+            set_task_field(task_id, lambda task: task.update(deepcopy(original)))
+
+    reject_incomplete("admit", request)
+    admission = office_cli("admit", request)
+    selector = Namespace(schema="court.office.native_request.v1", task_id=task_id, wave_id=wave, instance_id=instance)
+    reject_incomplete("native-request", selector)
+    with patch("commands.court_native_bridge.current_host_identity", return_value={"thread_id": task_id, "session_id": task_id}):
+        native_request = office_cli("native-request", selector)["request"]
+    start = start_args(admission, task_id, wave, instance, role="zhongshu", actor="taizi",
+        instance_id=instance, collaboration_task_name="zhongshu_decree_01", office_instance_kind="child_agent",
+        office_instance_id=instance, carrier_proof=proof)
+    bridge, failures = load_bridge()
+    assert bridge is not None and not failures, failures
+    host_result = {"ok": True, **{field: f"{field}-decree" for field in
+        ("host_task_id", "host_thread_id", "host_instance_id", "host_action_id")}}
+    receipt, evidence = _mint_native_host_receipt(bridge, native_request, host_result=host_result)
+    assert receipt is not None, evidence
+    start.native_host_action_receipt = receipt
+    reject_incomplete("start", start)
+    office_cli("start", start)
+    followup = event_args(task_id, proof["agent_id"], role="zhongshu", actor="taizi",
+        office_instance_kind="child_agent", office_instance_id=instance, carrier_proof=proof)
+    reject_incomplete("followup", followup)
+    candidate = {**host_result, **{field: deepcopy(native_request[field]) for field in
+        ("task_id", "role", "direct_superior", "assignment", "duty_scope", "lease_id", "write_set", "role_ack")},
+        "semantic_receipt": {field: native_request[field] for field in ("semantic_epoch", "case_ref")},
+        "status": "running", "context_utilization": 0.42}
+    reuse = {**native_request, "compatible_live_instances": [candidate]}
+    followup.native_host_action_receipt, evidence = _mint_native_host_receipt(bridge, reuse,
+        host_result={**host_result, "host_action_id": "host-action-decree-followup"})
+    assert followup.native_host_action_receipt is not None, evidence
+    followup.assignment, followup.duty_scope = reuse["assignment"], reuse["duty_scope"]
+    assert office_cli("followup", followup)["receipt"]["action"] == "followup"
+    from check_court_runtime_completion import revision_args
+    task = court_runtime.load_tasks()[task_id]
+    original_operations = deepcopy(task["operations"])
+    charter = task["charter"] + " revised"
+    capsule = deepcopy(task["invariant_capsule"])
+    capsule.pop("case_ref")
+    capsule["latest_decree_anchor"] = charter
+    court_runtime.revise_charter_task(revision_args(task_id, expected_revision=1, new_revision=2,
+        new_charter=charter, new_invariant_capsule=capsule))
+    court_runtime.semantic_checkpoint_task(semantic_args(task_id, "checkpoint"))
+    court_runtime.semantic_verify_task(semantic_args(task_id, "verify"))
+    request = admit(task_id, "recharter-wave", role="zhongshu", actor="taizi", office_api=True,
+        return_namespace=True, office_instance_kind="child_agent", office_instance_id="zhongshu#0002",
+        collaboration_task_name="zhongshu_recharter_02", carrier_proof={"agent_id": "zhongshu-recharter-02"})
+    revised = deepcopy(court_runtime.load_tasks()[task_id])
+    for field, value in (("operation_binding", None), ("case_ref", {}), ("charter_revision", 2)):
+        changed = deepcopy(revised)
+        operation = next(iter(changed["operations"].values()))
+        (operation if field == "operation_binding" else operation["receipt"])[field] = value
+        set_task_field(task_id, lambda task: task.update(changed))
+        before = runtime_bytes(court_runtime.tasks_path()), runtime_bytes(court_runtime.events_path())
+        status, stdout, stderr = raw_office_cli(["office", "admit", "--request-json", json.dumps(vars(request))])
+        assert status == 2 and "case_binding_decree_missing_or_foreign" in json.loads(stdout)["error"], (stdout, stderr)
+        assert before == (runtime_bytes(court_runtime.tasks_path()), runtime_bytes(court_runtime.events_path()))
+        set_task_field(task_id, lambda task: task.update(deepcopy(revised)))
+    set_task_field(task_id, lambda task: task.update(semantic_epoch=1))
+    reject_runtime_bytes_unchanged(lambda: court_runtime.agent_admit(deepcopy(request)),
+        "recharter admitted stale semantic binding", "semantic")
+    set_task_field(task_id, lambda task: task.update(deepcopy(revised)))
+    assert office_cli("admit", request)["allowed"] is True
+    assert court_runtime.load_tasks()[task_id]["operations"] == original_operations
+
+
 def check_office_lifecycle_json_cli() -> None:
     from check_court_native_host_dispatch import load_bridge
+    def runtime_state_bytes():
+        return runtime_bytes(court_runtime.tasks_path()), runtime_bytes(court_runtime.events_path())
 
     for role in ("zhongshu", "menxia", "shangshu", "libu-hr"):
         numbered = f"{role}#0001"
@@ -3039,7 +3139,14 @@ def check_office_lifecycle_json_cli() -> None:
     )
     assert native_receipt is not None, mint_evidence
     start.native_host_action_receipt = deepcopy(native_receipt)
-    assert office_cli("start", start)["receipt"]["action"] == "start"
+    started = office_cli("start", start)
+    assert started["receipt"]["action"] == "start"
+    template = started["preload_ack_request"]
+    assert template["schema"] == "court.office.preload_ack.v1"
+    assert template["loaded_skills"] == "decretum-matrix"
+    assert template["native_request_ref"] == native_receipt["request_ref"]
+    for field in ("profile_source", "dossier_path", "court_skill_path"):
+        assert template[field] == started["office_instance"]["preload_manifest"][field]
     stored = court_runtime.load_tasks()[task_id]
     assert stored['agents'][agent_id]['charter_revision'] == stored['charter_revision']
 
@@ -3052,9 +3159,82 @@ def check_office_lifecycle_json_cli() -> None:
         "legacy native receipt without child trace must remain pending",
         "preload_pending",
     )
+    # Reuse opaque host trace data in this isolated runtime; no live host claim.
+    from checks.check_native_opaque_capture import CHILD, SESSION, fixture as trace_fixture
+    home = court_runtime.runtime_root() / "preload-host"
+    _, _, _, _, capture = trace_fixture(home, ministry=True)
+    captured = capture()["host_spawn_evidence"]
+    set_task_field(task_id, lambda task: task["agents"][agent_id].update(
+        native_host_spawn_evidence=captured,
+    ))
+    root = home / "skills/decretum-matrix"
+    root.mkdir(parents=True)
+    write_skill(root)
+    trace = next((home / "sessions").rglob(f"*{CHILD}.jsonl"))
+    rows = [json.loads(trace.read_text(encoding="utf-8"))]
+    for field in ("court_skill_path", "profile_source", "dossier_path"):
+        rows.append({"type": "event_msg", "payload": {
+            "type": "item_completed", "thread_id": CHILD, "item": {
+                "type": "CommandExecution", "id": field, "status": "completed", "exit_code": 0,
+                "command": ["Get-Content -Raw"], "parsed_cmd": [{
+                    "type": "read", "cmd": "Get-Content -Raw", "path": str(root / template[field]),
+                }],
+            },
+        }})
+    trace.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    template_file = home / "preload-ack-request.json"
+    template_file.write_text(json.dumps(template), encoding="utf-8")
+    with patch.dict(os.environ, {"CODEX_HOME": str(home), "CODEX_THREAD_ID": SESSION, "CODEX_SESSION_ID": SESSION}):
+        before = runtime_state_bytes()
+        status, stdout, stderr = raw_office_cli(["office", "preload-ack", "--request-file", str(template_file)])
+        pending = json.loads(stdout)
+        assert status == 2 and pending["fail_closed"] is True, (status, stdout, stderr)
+        assert "child_acceptance_not_observed" in pending["error"], pending
+        assert runtime_state_bytes() == before
+        record = court_runtime.load_tasks()[task_id]["agents"][agent_id]
+        assert record["preload_status"] == "PENDING" and record["office_execution_ready"] is False
+        child_acceptance = {"schema": "court.child_preload_acceptance.v1", "task_id": task_id,
+            "role_key": "gongbu", "office_instance_id": instance_id, "request_ref": template["native_request_ref"],
+            "skill_loaded": True, "profile_loaded": True, "dossier_loaded": True}
+        text = json.dumps(child_acceptance)
+        rows.extend([
+            {"type": "event_msg", "payload": {"type": "item_completed", "thread_id": CHILD,
+                "item": {"type": "AgentMessage", "phase": "commentary", "id": "ack",
+                         "content": [{"type": "Text", "text": text}]}}},
+            {"type": "response_item", "payload": {"type": "message", "role": "assistant", "phase": "commentary",
+                "id": "ack", "content": [{"type": "output_text", "text": text}]}},
+        ])
+        trace.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+        assert office_cli("preload-ack", Namespace(**template))["receipt"]["action"] == "preload_ack"
+    ack.native_request_ref = template["native_request_ref"]
     # This test's host UUID strings are synthetic. Continue its downstream JSON
     # lifecycle contract with an explicit adapter fixture; this is not host acceptance.
     with patch('commands.court_native_bridge.captured_child_read_order', return_value=None):
+        seam_failures = []
+        for omitted, invalid in (
+            *((field, None) for field in ("active_model", "active_reasoning_effort", "preload_status", "note", "office_zh", "schema")),
+            *((None, value) for value in (["decretum-matrix"], None, {}, True, 1)),
+        ):
+            request = vars(ack).copy()
+            if omitted:
+                request.pop(omitted)
+            else:
+                request["loaded_skills"] = invalid
+            before = runtime_state_bytes()
+            status, stdout, stderr = raw_office_cli(
+                ["office", "preload-ack", "--request-json", json.dumps(request)]
+            )
+            payload = json.loads(stdout) if stdout.strip() else {}
+            expected = status == 0 if omitted else (
+                status == 2 and payload.get("fail_closed") is True
+            )
+            if not expected:
+                seam_failures.append((omitted or "loaded_skills array", status, stdout, stderr))
+            if not omitted:
+                assert runtime_state_bytes() == before
+                assert payload.get("error") == "office_preload_ack:loaded_skills_must_be_string", payload
+        assert not seam_failures, seam_failures
+        ack.loaded_skills = "decretum-matrix;tdd"
         assert office_cli("preload-ack", ack)["receipt"]["action"] == "preload_ack"
 
     report = event_args(task_id, agent_id)
@@ -3076,6 +3256,18 @@ def check_office_lifecycle_json_cli() -> None:
     close.office_instance_id = instance_id
     close.carrier_proof = proof
     assert office_cli("close", close)["receipt"]["action"] == "close"
+    # Reset only this synthetic instance to exercise each terminal identity failure.
+    for path in ("D:/foreign/SKILL.md", "../SKILL.md"):
+        set_task_field(task_id, lambda task: task["agents"].update({agent_id: deepcopy(stored["agents"][agent_id])}))
+        invalid = {**template, "court_skill_path": path}
+        status, stdout, stderr = raw_office_cli(["office", "preload-ack", "--request-json", json.dumps(invalid)])
+        assert status == 2 and "court_skill_path" in json.loads(stdout)["error"], (stdout, stderr)
+        failed = court_runtime.load_tasks()[task_id]["agents"][agent_id]
+        assert (failed["status"], failed["final_status"], failed["release_status"]) == ("failed", "failed", "closed")
+        before = runtime_state_bytes()
+        status, stdout, stderr = raw_office_cli(["office", "preload-ack", "--request-json", json.dumps(template)])
+        assert status == 2 and "terminal agent" in json.loads(stdout)["error"], (stdout, stderr)
+        assert runtime_state_bytes() == before
     supported = court_runtime.probe_payload()["supported_commands"]
     assert "office admit|start|followup|preload-ack|report|finish|close" in supported
     assert all(
@@ -3896,6 +4088,7 @@ def run_agent_lifecycle_checks() -> None:
             check_office_lifecycle_authority_guards()
             check_same_second_office_report_event_ids_are_unique()
             check_office_lifecycle_json_cli()
+            check_standard_case_decree_dispatch_guards()
             check_office_cli_error_contract()
             check_malformed_sibling_blocks_lifecycle_write()
         finally:
