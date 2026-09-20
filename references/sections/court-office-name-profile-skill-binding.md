@@ -109,6 +109,44 @@ and `loaded_skills` when a skill was actually loaded. The assignment packet and
 first reply are complementary; neither may be inferred from a successful spawn
 call.
 
+## Native request details
+
+Template `--worktree .` is cwd-relative; request-file worktree is relative to
+the request file. Documents are skill-relative. Host evidence may record
+resolved paths and bases. Keep parent `shangshu/` and child
+`ministries/<role>/` writes as disjoint siblings; directory ownership includes
+descendants, and read scope is separate.
+
+For `plan review`, fill `template.review.producer`, role and decision. Submit
+the `review` object or whole template; the submitted plan reference is prefilled.
+The compact CLI status fallback is `court status --view compact --limit 1`.
+
+After `office admit`, call `office native-request --request-file <selector.json>`
+with schema `court.office.native_request.v1`, task_id, wave_id and instance_id.
+Execute the exact returned host_invocation, then call `office native-capture`
+with the same selector and schema `court.office.native_capture.v1`. Submit its
+office_request through the returned office_command. Current host trace provides
+the receipts; never supply invented host IDs or results. Opaque messages use
+call/activity/child metadata; capture proves spawn only.
+
+## Superior preload ACK
+
+After the child's `child_acceptance` arrives, the direct superior saves
+`office start`'s `preload_ack_request` and submits it with
+`office preload-ack --request-file <ack.json>`. On CLI success, the superior
+sends the acceptance to the child; only then may the child begin business work.
+The CLI does not notify the waiting child. Host capture proves delivery only.
+
+The request uses `office_instance.preload_manifest` identity values: keep
+`court_skill_path`, `profile_source`, and `dossier_path` skill-relative, rather
+than copying the absolute read locations from `native_request.role_ack`.
+Public request `loaded_skills` is a comma/semicolon-separated string (normally
+`"decretum-matrix"`); the internal validated ack uses an array. Neither object
+replaces the child's `child_acceptance`. The generated request is a template,
+not proof: current child trace and the matching request ID remain required.
+Missing evidence stays retryable PENDING; parent declarations and saved-trace
+replays cannot prove fresh acceptance.
+
 For ordinary carriers, `office_instance_kind=child_agent|worktree_thread` uses
 one admission and lifecycle contract. The instance id and first-spawn
 `task_name` must be role-prefixed; a bound `task_name` may be reused only by the

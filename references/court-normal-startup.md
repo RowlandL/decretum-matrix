@@ -1,83 +1,59 @@
 # Decretum Matrix court open
 
-## Required reads by phase
+## Reads
 
-| Phase | Read in full once | Defer |
-| --- | --- | --- |
-| Intake | Installed SKILL.md, this guide | Index, other volumes, source checks |
-| Own duty | Own `agents/office-dossiers/<role>/AGENTS.md`, `agents/standing-officials/<role>.toml`, bounded packet | Other offices |
-| Operation/dispute | Relevant SKILL.md volume | Unrelated volumes |
-| Closeout | Closeout volume, memorial shard, Menxia result, archive receipt | Startup closeout services |
-
-Reuse unchanged reads; apply the entry/preload budget in SKILL.md.
+Read installed SKILL.md and this guide fully; then own
+`agents/office-dossiers/<role>/AGENTS.md`,
+`agents/standing-officials/<role>.toml` and bounded packet.
+Reuse unchanged reads; load phase volumes on demand. Defer other offices/indexes
+and closeout services. Closeout needs its volume, memorial shard, Menxia result
+and archive receipt. Obey SKILL.md's preload budget.
 
 Preload/ack use installation declarations; never rehash.
-Fresh acceptance reads no past tasks/memory. No source scans or installation
-checks at startup; load help only for the next command.
+Fresh acceptance reads no past tasks/memory.
+Startup: no source scans/install checks; next-command help only.
 
-## Required tool routes
+## Tools
 
-Validate intake/capsule/context/plan via MCP `court.intake_validate`,
-`court.capsule_validate`, `court.semantic_context_validate`,
-`court.dispatch_plan_validate`. If status is needed, use
-`court.status(view="compact",limit=1)` or `court status --view compact --limit 1`.
-For a known task use `court.workflow_status`; query history only when requested.
-Closeout uses `court.closeout_checklist`. Use CLI when MCP is unavailable.
-Mutation uses CLI; delivery uses the host. Check domain success, not just help.
+Validate via MCP `court.intake_validate`, `court.capsule_validate`,
+`court.semantic_context_validate`, `court.dispatch_plan_validate`.
+Status: `court.status(view="compact",limit=1)`; known task: `court.workflow_status`.
+History only on request; closeout: `court.closeout_checklist`.
+CLI fallback for MCP; CLI mutates, host delivers. Require domain success.
 
-## Operational sequence
+## Flow
 
-Use current task and user authority/behavior; ask if absent.
+Bind current task, authority and behavior independently; ask if absent.
+Use `decretum-matrix`; stale PATH uses `npm prefix -g`'s
+`decretum-matrix.cmd`, never internal Python.
+write_set is worktree-relative; absolute/traversal fails.
+Keep parent/child writes disjoint, including descendants; separate read scope.
 
-Use `decretum-matrix`; stale PATH uses `npm prefix -g`'s `decretum-matrix.cmd`,
-never internal Python. write_set is worktree-relative; absolute/traversal fails.
-Template `--worktree .` is cwd-relative, request-file worktree file-relative,
-documents skill-relative. Host evidence may record resolved paths and bases.
-Within a task, keep parent `shangshu/` and child `ministries/<role>/` writes
-disjoint; directory ownership includes descendants. Read scope is separate.
-New cases use `court create --session-id <host-id> --authority <authority>
---behavior <behavior>` plus intake fields to issue/reuse the official number
-and decree transaction. Enter Taizi then ThreeDepartments before semantic
-checkpoint/verify, open preparation and admission.
+`court create` with `--session-id`, `--authority`, `--behavior` and intake
+fields issues/reuses the official number and decree transaction.
+Enter Taizi, then ThreeDepartments before checkpoint/verify, open or admit.
+After real reports: Zhongshu `court plan template` / `submit`, then
+Menxia/Shangshu `review`. Changes invalidate reviews; ministries need reviewed
+plan and TaiziReply. `plan show` resolves it; no capsule substitute.
 
-After real reports, use `court plan template` / `submit` for Zhongshu's document,
-then Menxia/Shangshu each `review`.
-Changes invalidate reviews. Ministries require reviewed plan and TaiziReply.
-`plan show` resolves the document; capsules cannot replace it.
-For `plan review`, fill `template.review.producer`, role and decision. Submit the
-`review` object or whole template; the submitted plan reference is prefilled.
+After changes: `court semantic-context-template`; validate payload.context.
+Checkpoint/verify bind current task/context/actor/evidence; use
+`--trigger checkpoint` / `--trigger verify`.
 
-Generate context after state changes with `court semantic-context-template`;
-validate payload.context. Checkpoint/verify require matching `--trigger
-checkpoint` / `--trigger verify`, task id, context, actor and evidence.
-
-Use `court open` / MCP request-template with actual authority/offices/host
-facts; submit `--request-file <request.json>`.
-Submit admission JSON with `office admit`, then `office native-request --request-file <selector.json>`
-using schema `court.office.native_request.v1`, task_id, wave_id and instance_id.
-Execute the exact returned host_invocation, then call `office native-capture`
-with the same selector (schema `court.office.native_capture.v1`). Submit its
-office_request through the returned office_command. Receipts come from the
-current host trace; never supply invented host IDs or results.
-Opaque messages use call/activity/child metadata; capture proves spawn only.
-Child reads installed SKILL, then profile/dossier, emits `child_acceptance` as
-JSON-only commentary and waits for superior CLI ack before business tools.
-The superior saves `office start`'s `preload_ack_request` and submits it with
-`office preload-ack --request-file <ack.json>` after the child acceptance arrives.
-On CLI success, the direct superior sends the acceptance to the child, which
-then begins business work; the CLI does not notify the waiting child.
-This request uses `office_instance.preload_manifest` identity values: keep
-`court_skill_path`, `profile_source`, and `dossier_path` skill-relative, rather
-than copying the absolute read locations from `native_request.role_ack`.
-Public request `loaded_skills` is a comma/semicolon-separated string (normally
-`"decretum-matrix"`); the internal validated ack uses an array. Neither object
-replaces the child's `child_acceptance`. The generated request is a template,
-not proof: current child trace and the matching request ID remain required.
-Ack echoes the supplied request ID. Missing evidence stays retryable PENDING;
-parent declarations and saved-trace replays cannot prove fresh acceptance.
-Deliver admission once. Children perform assigned duty without root intake.
-
-Record real office lifecycle via CLI before plan/review; only Shangshu dispatches
-ministries. For closeout load the SKILL phase reference and use archive-runtime-task.
-
-Write UTF-8 JSON without BOM. Fresh acceptance uses CLI/MCP and no old memory.
+`court open` / MCP request-template uses actual authority/offices/host;
+submit `--request-file`.
+`office admit` precedes `office native-request`; execute the exact host_invocation,
+then `office native-capture` and its returned office_command/office_request.
+Use current host trace, never invented IDs/results. Opaque messages:
+call/activity/child metadata; capture proves spawn only.
+Child reads installed SKILL before profile/dossier; emits JSON-only commentary
+`child_acceptance` and waits. Submit `office start`'s `preload_ack_request` via
+`office preload-ack --request-file`. Direct superior must relay CLI success
+before child business tools run; CLI does not notify children.
+[Path/ACK details](sections/court-office-name-profile-skill-binding.md).
+Echo the request ID. Missing evidence stays retryable PENDING;
+parent claims/replays are not acceptance.
+Deliver admission once; no child root intake.
+Record CLI lifecycle before plan/review; only Shangshu dispatches ministries.
+Closeout: `archive-runtime-task`.
+Write UTF-8 JSON without BOM.
