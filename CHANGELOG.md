@@ -4,7 +4,8 @@
 
 ### Fixed
 
-- 史馆守护/服务日志不再无界追加：新增 `scripts/shiguan_service_log.py`（8 MiB 上限、单份 `.1` 归档、独立 `"<path>.lock"`、轮转降级不阻断服务启动），并接入 `ensure_shiguan_autosync.py`、`ensure_shiguan_service_daemon.py`、`ensure_shiguan_web.py` 三处 stdout 重定向。历史事故：`court-shiguan-autosync.log` 曾达 31.3 GB。
+- 史馆守护/服务日志新增上限与轮转：新增 `scripts/shiguan_service_log.py`（8 MiB 上限、单份 `.1` 归档、独立 `"<path>.lock"`、轮转降级不阻断服务启动），并接入 `ensure_shiguan_autosync.py`、`ensure_shiguan_service_daemon.py`、`ensure_shiguan_web.py` 三处 stdout 重定向。历史事故：`court-shiguan-autosync.log` 曾达 31.3 GB。
+  **范围与限界（beta1.1.5 三省会审结论）**：上限在每次服务启动 / `ensure_*` 调用时生效；长驻守护在**单次存活期内**的写入尚不受上限约束，降级动作亦无运行期遥测落点。运行期封顶、降级可观测（`<log>.rotation.json`）、以及 `ROTATED_INPLACE` 截断后可能出现的旧偏移空洞，均列为下一阶段差遣项，不得据本版宣称该故障已根治。
 - 守护进程持有日志句柄致 `os.replace` 失败时，改为原地回收（保留 256 KiB 尾部到 `.1` 后截断 live 文件），并以 `ROTATED_INPLACE` / `ROTATION_BLOCKED` 显式区分，不再静默降级为 `SKIPPED_LOCKED`。
 - 新增独立校验 `scripts/checks/check_shiguan_service_log_bounds.py`（`SHIGUAN_LOG_BOUNDS=PASS`），含 live-handle 回退断言与反向对照。
 
