@@ -31,7 +31,9 @@ MODULE_NAME = "shiguan_service_log"
 CONTRACT = "SHIGUAN_LOG_BOUNDS"
 SCHEMA = "court.shiguan_service_log_bounds_check.v1"
 EXPECTED_MAX_BYTES = 8 * 1024 * 1024
-EXPECTED_ACTIONS = frozenset({"KEPT", "ROTATED", "SKIPPED_LOCKED"})
+EXPECTED_ACTIONS = frozenset(
+    {"KEPT", "ROTATED", "ROTATED_INPLACE", "ROTATION_BLOCKED", "SKIPPED_LOCKED"}
+)
 RESULT_FIELDS = frozenset({"action", "size_bytes", "archive"})
 FIXTURE_PREFIX = "fixture-"
 FOREIGN_LOCK_NAME = "shiguan-write.lock"
@@ -316,8 +318,47 @@ def evaluate() -> dict[str, Any]:
             "first-session\nsecond-session\n"
         )
 
+        # 5) Live-holder fallback (R1): a detached child keeps the log handle
+        #    open, so os.replace fails exactly when rotation matters most. The
+        #    implementation must reclaim space in place (bounded tail archived,
+        #    live file truncated) and report ROTATED_INPLACE; a reclaim that is
+        #    itself blocked must not degrade into a silent lock skip.
+        pinned_path = open_dir / (FIXTURE_PREFIX + "pinned.log")
+        pinned_path.write_bytes(b"p" * (max_bytes * 2))
+        real_replace = module.os.replace
+
+        def _blocked_replace(*_args: Any, **_kwargs: Any) -> None:
+            raise PermissionError("fixture_live_handle_blocks_replace")
+
+        try:
+            module.os.replace = _blocked_replace
+            pinned = module.rotate_service_log(pinned_path, max_bytes=max_bytes)
+        finally:
+            module.os.replace = real_replace
+        _result_shape(pinned, "live-handle", failures)
+        pinned_archive = Path(str(pinned_path) + ".1")
+        if pinned.get("action") != "ROTATED_INPLACE":
+            failures.append("live_handle_action_not_inplace")
+        if _size(pinned_path) != 0:
+            failures.append("live_handle_live_file_not_reclaimed")
+        if not pinned_archive.is_file():
+            failures.append("live_handle_tail_not_archived")
+        elif _size(pinned_archive) > module.TAIL_KEEP_BYTES:
+            failures.append("live_handle_tail_exceeds_bound")
+        evidence["live_handle_fallback"] = {
+            "action": pinned.get("action"),
+            "live_bytes_after": _size(pinned_path),
+            "tail_bytes": _size(pinned_archive),
+            "tail_bound": module.TAIL_KEEP_BYTES,
+        }
+        evidence["live_handle_reclaims_in_place"] = (
+            pinned.get("action") == "ROTATED_INPLACE"
+            and _size(pinned_path) == 0
+            and _size(pinned_archive) <= module.TAIL_KEEP_BYTES
+        )
+
         # Fixture isolation guard: every write stays inside the temp fixture.
-        fixtures = (kept_path, rotated_path, cycle_path, open_path)
+        fixtures = (kept_path, rotated_path, cycle_path, open_path, pinned_path)
         if any(not item.name.startswith(FIXTURE_PREFIX) for item in fixtures):
             failures.append("fixture_isolation_violation")
         if any(temp not in item.parents for item in fixtures):
