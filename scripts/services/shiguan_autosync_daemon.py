@@ -37,6 +37,11 @@ from shiguan_paths import (
 )
 from court_file_lock import atomic_write_text, file_lock
 from obsidian_config_state import config_lock_path, read_config_snapshot
+from shiguan_service_log import (
+    AUTOSYNC_LOG_NAME,
+    maintain_service_log,
+    service_log_path,
+)
 
 
 TEXT_SUFFIXES = {".md", ".txt"}
@@ -905,6 +910,12 @@ def daemon_loop(interval: int) -> int:
             },
         )
         try:
+            # The launcher exits right after spawning, so this long-lived loop
+            # bounds the stdout log it inherits: idempotent below the cap (one
+            # stat), in place reclaim above it, no extra thread or process.
+            maintain_service_log(
+                service_log_path(AUTOSYNC_LOG_NAME), live_stream=sys.stdout
+            )
             report = run_once(force_sync=False, publish_status=False)
             report["mode"] = "daemon"
             report["phase"] = "idle"

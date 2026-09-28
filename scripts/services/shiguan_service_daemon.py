@@ -24,6 +24,11 @@ sys.dont_write_bytecode = True
 import time
 
 from shiguan_paths import ensure_shared_seed, reference_path, references_root
+from shiguan_service_log import (
+    SERVICE_DAEMON_LOG_NAME,
+    maintain_service_log,
+    service_log_path,
+)
 
 
 DEFAULT_BIND_HOST = "127.0.0.1"
@@ -87,6 +92,12 @@ def daemon_loop(interval: int) -> int:
     ensure_shared_seed()
     while True:
         try:
+            # Launcher-time rotation cannot bound a daemon that outlives it, so
+            # the live stdout log is reclaimed in place every cycle: idempotent
+            # below the cap (one stat), no extra thread, no extra process.
+            maintain_service_log(
+                service_log_path(SERVICE_DAEMON_LOG_NAME), live_stream=sys.stdout
+            )
             run_once(interval)
         except Exception as exc:
             write_json(

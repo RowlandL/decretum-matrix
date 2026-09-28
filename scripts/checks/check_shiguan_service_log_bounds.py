@@ -1,16 +1,20 @@
 """Independent bounds/rotation contract check for the Shiguan service log.
 
 Verifies ``scripts/shiguan_service_log.py`` (``service_log_path`` /
-``rotate_service_log`` / ``open_service_log``, single ``"<path>.1"`` archive,
-independent ``"<path>.lock"``) plus the three daemon/WebUI call sites that
-redirect stdout, entirely against isolated temp-directory fixtures: no real
-%TEMP% service log, no repository data and no Shiguan runtime path is written.
+``rotate_service_log`` / ``open_service_log`` / ``maintain_service_log`` /
+``record_rotation``, single ``"<path>.1"`` archive, independent ``"<path>.lock"``,
+bounded ``"<path>.rotation.json"`` action journal) plus the three daemon/WebUI
+call sites that redirect stdout and the two long-lived daemon loops that must
+keep bounding the log they inherit. Everything runs against isolated
+temp-directory fixtures: no real %TEMP% service log, no repository data and no
+Shiguan runtime path is written.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib
+import io
 import json
 import re
 import sys
@@ -42,6 +46,18 @@ CALL_SITES = (
     "scripts/services/ensure_shiguan_service_daemon.py",
     "scripts/commands/ensure_shiguan_web.py",
 )
+# A launcher can only bound the log at start time; these loops outlive it and
+# must keep reclaiming the live file they inherit for their whole lifetime.
+DAEMON_LOOPS = (
+    "scripts/services/shiguan_autosync_daemon.py",
+    "scripts/services/shiguan_service_daemon.py",
+)
+ROTATION_CALLS = ("maintain_service_log(", "rotate_service_log(", "rotate_held_service_log(")
+RECORDED_ACTIONS = frozenset(
+    {"ROTATED", "ROTATED_INPLACE", "ROTATION_BLOCKED", "SKIPPED_LOCKED"}
+)
+JOURNAL_SUFFIX = ".rotation.json"
+JOURNAL_MAX_BYTES = 1024
 BARE_APPEND_OPEN = re.compile(r"""open\(\s*["']a""")
 
 
@@ -74,6 +90,58 @@ def _result_shape(result: Any, label: str, failures: list[str]) -> bool:
     if not valid:
         failures.append(f"rotate_result_shape_invalid:{label}")
     return valid
+
+
+def _journal(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _close(handle: Any) -> None:
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
+def _function_body(text: str, name: str) -> str:
+    """Slice one top-level ``def`` body (enough for the two daemon loops)."""
+
+    marker = f"\ndef {name}("
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    start += 1
+    end = text.find("\ndef ", start + 1)
+    return text[start:] if end < 0 else text[start:end]
+
+
+def _check_daemon_loops(failures: list[str], evidence: dict[str, Any]) -> None:
+    """The long-lived loops must bound the log they inherit, not just start it."""
+
+    observed: dict[str, Any] = {}
+    for relative in DAEMON_LOOPS:
+        source = ROOT / relative
+        if not source.is_file():
+            failures.append(f"daemon_loop_module_missing:{relative}")
+            continue
+        body = _function_body(source.read_text(encoding="utf-8"), "daemon_loop")
+        loop = body.split("while True", 1)[1] if "while True" in body else ""
+        calls = [name for name in ROTATION_CALLS if name in loop]
+        if not loop:
+            failures.append(f"daemon_loop_missing_while_true:{relative}")
+        elif not calls:
+            failures.append(f"daemon_loop_missing_runtime_rotation:{relative}")
+        observed[relative] = {
+            "daemon_loop": bool(body),
+            "while_true": bool(loop),
+            "runtime_rotation_calls": calls,
+            "journals_action": "record_rotation(" in loop or "maintain_service_log(" in loop,
+        }
+    evidence["daemon_loops"] = observed
 
 
 def _check_call_sites(failures: list[str], evidence: dict[str, Any]) -> None:
@@ -123,7 +191,15 @@ def evaluate() -> dict[str, Any]:
     }
     if getattr(module, "DEFAULT_MAX_BYTES", None) != EXPECTED_MAX_BYTES:
         failures.append("default_max_bytes_not_8MiB")
-    for name in ("service_log_path", "rotate_service_log", "open_service_log"):
+    for name in (
+        "service_log_path",
+        "rotate_service_log",
+        "rotate_held_service_log",
+        "maintain_service_log",
+        "record_rotation",
+        "rotation_journal_path",
+        "open_service_log",
+    ):
         if not callable(getattr(module, name, None)):
             failures.append(f"contract_callable_missing:{name}")
     if failures:
@@ -357,15 +433,265 @@ def evaluate() -> dict[str, Any]:
             and _size(pinned_archive) <= module.TAIL_KEEP_BYTES
         )
 
+        # 6) Rotation journal: the action the launcher used to drop must land in
+        #    a bounded "<log>.rotation.json" that is atomically rewritten, never
+        #    appended, so a degraded reclaim stays observable at runtime.
+        journal_dir = temp / "journal"
+        locked_dir = temp / "locked"
+        held_dir = temp / "held"
+        blocked_dir = temp / "blocked"
+        for directory in (journal_dir, locked_dir, held_dir, blocked_dir):
+            directory.mkdir()
+
+        journal_path = journal_dir / (FIXTURE_PREFIX + "journal.log")
+        journal_path.write_bytes(b"j" * 7000)
+        _close(module.open_service_log(journal_path, max_bytes=max_bytes))
+        journal = module.rotation_journal_path(journal_path)
+        if journal.name != journal_path.name + JOURNAL_SUFFIX:
+            failures.append("rotation_journal_path_invalid")
+        first_record = _journal(journal)
+        if not journal.is_file():
+            failures.append("rotation_journal_missing")
+        elif _size(journal) > JOURNAL_MAX_BYTES:
+            failures.append("rotation_journal_exceeds_bound")
+        if first_record.get("action") not in RECORDED_ACTIONS:
+            failures.append("rotation_journal_action_not_recorded")
+        first_journal_bytes = _size(journal)
+        journal_path.write_bytes(b"j" * 7000)
+        _close(module.open_service_log(journal_path, max_bytes=max_bytes))
+        second_journal_bytes = _size(journal)
+        if (
+            second_journal_bytes > JOURNAL_MAX_BYTES
+            or second_journal_bytes > first_journal_bytes + 256
+        ):
+            failures.append("rotation_journal_grew")
+        if sorted(item.name for item in journal_dir.glob(".*.tmp")):
+            failures.append("rotation_journal_temp_residue")
+        evidence["rotation_journal"] = {
+            "path": journal.name,
+            "action": first_record.get("action"),
+            "bytes": first_journal_bytes,
+            "bytes_after_repeat": second_journal_bytes,
+            "bound_bytes": JOURNAL_MAX_BYTES,
+        }
+        evidence["rotation_journal_bounded"] = (
+            journal.is_file()
+            and first_record.get("action") in RECORDED_ACTIONS
+            and 0 < first_journal_bytes <= JOURNAL_MAX_BYTES
+            and second_journal_bytes <= first_journal_bytes + 256
+        )
+
+        # 7) A lock skip is a degradation, not a silent no-op: it must be
+        #    journalled as SKIPPED_LOCKED for the running service.
+        locked_path = locked_dir / (FIXTURE_PREFIX + "locked.log")
+        locked_path.write_bytes(b"k" * 7000)
+        real_lock = module.file_lock
+
+        class _RaisingLock:
+            def __enter__(self) -> None:
+                raise TimeoutError("fixture_lock_holder")
+
+            def __exit__(self, *_exc: Any) -> bool:
+                return False
+
+        def _blocked_lock(*_args: Any, **_kwargs: Any) -> Any:
+            return _RaisingLock()
+
+        try:
+            module.file_lock = _blocked_lock
+            _close(module.open_service_log(locked_path, max_bytes=max_bytes))
+        finally:
+            module.file_lock = real_lock
+        locked_record = _journal(module.rotation_journal_path(locked_path))
+        if locked_record.get("action") != "SKIPPED_LOCKED":
+            failures.append("skipped_locked_not_journalled")
+        evidence["degraded_lock_skip_journalled"] = (
+            locked_record.get("action") == "SKIPPED_LOCKED"
+        )
+
+        # 8) The daemon-held path: a long-lived writer reclaims its own log in
+        #    place, rewinds its handle to zero and journals the action. The write
+        #    that follows must land at offset 0, because truncation does not move
+        #    a file offset: a stale offset would punch a zero-filled hole into the
+        #    freshly reclaimed log (the R1 live-writer caveat). A stream that is
+        #    not provably the log must fail closed instead of truncating it.
+        held_path = held_dir / (FIXTURE_PREFIX + "held.log")
+        held_path.write_bytes(b"h" * (max_bytes * 2))
+        held_journal = module.rotation_journal_path(held_path)
+        held = {}
+        held_record: dict[str, Any] = {}
+        held_stream = held_path.open("a", encoding="utf-8")
+        try:
+            held = module.maintain_service_log(
+                held_path, max_bytes=max_bytes, live_stream=held_stream
+            )
+            _result_shape(held, "maintain", failures)
+            held_record = _journal(held_journal)
+            held_stream.write("held-after-reclaim\n")
+            held_stream.flush()
+        finally:
+            held_stream.close()
+        held_archive = Path(str(held_path) + ".1")
+        held_after = held_path.read_bytes()
+        held_text = held_path.read_text(encoding="utf-8")
+        held_journal_bytes = held_journal.read_bytes() if held_journal.is_file() else b""
+        if held.get("action") != "ROTATED_INPLACE":
+            failures.append("maintain_action_not_inplace")
+        if held_record.get("action") != "ROTATED_INPLACE":
+            failures.append("inplace_not_journalled")
+        if _size(held_archive) == 0 or _size(held_archive) > module.TAIL_KEEP_BYTES:
+            failures.append("maintain_tail_not_bounded")
+        if held_after.count(b"\x00") or not held_after.startswith(b"held-after-reclaim"):
+            failures.append("held_handle_stale_offset_hole")
+        if held_text != "held-after-reclaim\n" or _size(held_path) > 64:
+            failures.append("maintain_live_file_not_reclaimed")
+
+        # Idempotent once back under the cap, and a foreign stream (not this log)
+        # must not truncate a file it does not own.
+        repeat = module.maintain_service_log(
+            held_path, max_bytes=max_bytes, live_stream=io.StringIO()
+        )
+        _result_shape(repeat, "maintain-repeat", failures)
+        if repeat.get("action") != "KEPT":
+            failures.append("maintain_repeat_not_kept")
+        if not held_journal_bytes or held_journal.read_bytes() != held_journal_bytes:
+            failures.append("maintain_rewrote_journal_when_kept")
+        foreign_path = held_dir / (FIXTURE_PREFIX + "foreign.log")
+        foreign_path.write_bytes(b"f" * (max_bytes * 2))
+        foreign_before = foreign_path.read_bytes()
+        foreign = module.maintain_service_log(
+            foreign_path, max_bytes=max_bytes, live_stream=io.StringIO()
+        )
+        _result_shape(foreign, "maintain-foreign", failures)
+        if foreign.get("action") != "ROTATION_BLOCKED":
+            failures.append("foreign_stream_not_fail_closed")
+        if foreign_path.read_bytes() != foreign_before:
+            failures.append("foreign_stream_mutated_log")
+        evidence["held_handle_maintenance"] = {
+            "action": held.get("action"),
+            "live_bytes_after": _size(held_path),
+            "tail_bytes": _size(held_archive),
+            "journal_action": held_record.get("action"),
+            "repeat_action": repeat.get("action"),
+            "nul_bytes_after_reclaim": held_after.count(b"\x00"),
+            "foreign_stream_action": foreign.get("action"),
+        }
+        evidence["held_handle_reclaims_in_place"] = (
+            held.get("action") == "ROTATED_INPLACE"
+            and held_text == "held-after-reclaim\n"
+            and held_record.get("action") == "ROTATED_INPLACE"
+            and repeat.get("action") == "KEPT"
+        )
+        evidence["held_handle_rewound_no_hole"] = bool(
+            held_after.startswith(b"held-after-reclaim") and not held_after.count(b"\x00")
+        )
+        evidence["foreign_stream_fails_closed"] = bool(
+            foreign.get("action") == "ROTATION_BLOCKED"
+            and foreign_path.read_bytes() == foreign_before
+        )
+
+        # 9) P3: an unwritable log target degrades to a usable sink instead of
+        #    raising out of the launcher and blocking service start.
+        blocker = blocked_dir / (FIXTURE_PREFIX + "blocker")
+        blocker.write_text("not a directory", encoding="utf-8")
+        blocked_path = blocker / (FIXTURE_PREFIX + "unwritable.log")
+        degraded: Any = None
+        degraded_error = ""
+        failed_open = True
+        try:
+            degraded = module.open_service_log(blocked_path, max_bytes=max_bytes)
+            degraded.write("degraded-degraded\n")
+            degraded.flush()
+        except OSError as exc:
+            degraded_error = f"{type(exc).__name__}:{exc}"
+        else:
+            failed_open = callable(getattr(degraded, "fileno", None))
+        finally:
+            if degraded is not None:
+                _close(degraded)
+        if degraded_error:
+            failures.append("unwritable_log_blocked_start:" + degraded_error)
+        if blocked_path.exists():
+            failures.append("unwritable_log_target_created")
+        sink = module.DegradedLogSink()
+        if sink.write("x") != 1:
+            failures.append("degraded_sink_write_invalid")
+        sink.close()
+        evidence["unwritable_log_degrades"] = {
+            "error": degraded_error,
+            "usable_handle": bool(not degraded_error and failed_open),
+            "target_created": blocked_path.exists(),
+        }
+        evidence["startup_not_blocked_by_unwritable_log"] = bool(
+            not degraded_error and not blocked_path.exists()
+        )
+
+        # 10) D1 fail-closed: when the bounded tail cannot be archived (here
+        #     "<log>.1" is a directory), the reclaim must report ROTATION_BLOCKED
+        #     and must not truncate, and the launcher must still journal that
+        #     decision instead of reporting a successful ROTATED_INPLACE.
+        noarchive_dir = temp / "noarchive"
+        noarchive_dir.mkdir()
+        noarchive_bytes = b"n" * 7000
+        noarchive_path = noarchive_dir / (FIXTURE_PREFIX + "noarchive.log")
+        noarchive_path.write_bytes(noarchive_bytes)
+        (noarchive_dir / (FIXTURE_PREFIX + "noarchive.log.1")).mkdir()
+        noarchive = module.rotate_service_log(noarchive_path, max_bytes=max_bytes)
+        _result_shape(noarchive, "noarchive", failures)
+        if noarchive.get("action") != "ROTATION_BLOCKED":
+            failures.append("archive_failure_not_blocked")
+        if noarchive.get("archive") is not None:
+            failures.append("archive_failure_claimed_archive")
+        if noarchive_path.read_bytes() != noarchive_bytes:
+            failures.append("archive_failure_lost_bytes")
+        journaled_path = noarchive_dir / (FIXTURE_PREFIX + "noarchive-open.log")
+        journaled_path.write_bytes(noarchive_bytes)
+        (noarchive_dir / (FIXTURE_PREFIX + "noarchive-open.log.1")).mkdir()
+        _close(module.open_service_log(journaled_path, max_bytes=max_bytes))
+        journaled_after = journaled_path.read_bytes()
+        if journaled_after != noarchive_bytes:
+            failures.append("journaled_archive_failure_lost_bytes")
+        noarchive_record = _journal(module.rotation_journal_path(journaled_path))
+        if noarchive_record.get("action") != "ROTATION_BLOCKED":
+            failures.append("archive_failure_not_journalled")
+        evidence["archive_failure_fails_closed"] = {
+            "action": noarchive.get("action"),
+            "archive_field": noarchive.get("archive"),
+            "direct_bytes_unchanged": noarchive_path.read_bytes() == noarchive_bytes,
+            "journal_action": noarchive_record.get("action"),
+            "journaled_bytes_unchanged": journaled_after == noarchive_bytes,
+        }
+        evidence["archive_failure_keeps_bytes_and_journals"] = bool(
+            noarchive.get("action") == "ROTATION_BLOCKED"
+            and noarchive_path.read_bytes() == noarchive_bytes
+            and noarchive_record.get("action") == "ROTATION_BLOCKED"
+            and journaled_after == noarchive_bytes
+        )
+
         # Fixture isolation guard: every write stays inside the temp fixture.
-        fixtures = (kept_path, rotated_path, cycle_path, open_path, pinned_path)
+        fixtures = (
+            kept_path,
+            rotated_path,
+            cycle_path,
+            open_path,
+            pinned_path,
+            journal_path,
+            locked_path,
+            held_path,
+            foreign_path,
+            blocked_path,
+            noarchive_path,
+            journaled_path,
+        )
         if any(not item.name.startswith(FIXTURE_PREFIX) for item in fixtures):
             failures.append("fixture_isolation_violation")
         if any(temp not in item.parents for item in fixtures):
             failures.append("fixture_escaped_temp_root")
 
-    # 5) Static wiring of the three production call sites.
+    # 6) Static wiring: the three production call sites stay on the shared
+    #    opener, and both long-lived daemon loops keep bounding the live log.
     _check_call_sites(failures, evidence)
+    _check_daemon_loops(failures, evidence)
 
     failures = list(dict.fromkeys(failures))
     return {

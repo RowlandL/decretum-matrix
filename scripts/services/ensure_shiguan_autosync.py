@@ -27,7 +27,7 @@ sys.dont_write_bytecode = True
 from court_platform import user_data_base
 from shiguan_paths import ensure_shared_seed, reference_path, references_root, runtime_code_root
 from court_file_lock import atomic_write_text, file_lock
-from shiguan_service_log import open_service_log, service_log_path
+from shiguan_service_log import AUTOSYNC_LOG_NAME, open_service_log, service_log_path
 
 
 PROCESS_DISCOVERY_MULTIPLE = -1
@@ -81,7 +81,7 @@ def ensure_lock_path() -> Path:
 
 
 def log_path() -> Path:
-    return service_log_path("court-shiguan-autosync.log")
+    return service_log_path(AUTOSYNC_LOG_NAME)
 
 
 def read_json(path: Path, default: object) -> object:

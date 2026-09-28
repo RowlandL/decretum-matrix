@@ -32,7 +32,11 @@ from shiguan_paths import (
     references_root,
     runtime_code_root,
 )
-from shiguan_service_log import open_service_log, service_log_path
+from shiguan_service_log import (
+    SERVICE_DAEMON_LOG_NAME,
+    open_service_log,
+    service_log_path,
+)
 
 
 TASK_NAME = "CourtShiguanDaemon"
@@ -47,7 +51,7 @@ def status_path() -> Path:
 
 
 def log_path() -> Path:
-    return service_log_path("court-shiguan-service-daemon.log")
+    return service_log_path(SERVICE_DAEMON_LOG_NAME)
 
 
 def wrapper_path() -> Path:
