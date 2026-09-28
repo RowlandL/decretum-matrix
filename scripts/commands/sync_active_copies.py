@@ -2248,7 +2248,7 @@ def main() -> int:
         print(
             "ACTIVE_COPY_SYNC_{} source_files={} copied={} removed={}".format(
                 "APPLIED" if args.write else "PLAN",
-                len(source_files),
+                source_file_count,
                 sum(int(item["copied_count"]) for item in results),
                 sum(int(item["removed_count"]) for item in results),
             )
