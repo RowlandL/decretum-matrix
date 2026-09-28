@@ -1,5 +1,17 @@
 # Changelog
 
+## beta1.1.5 - 2026-09-28
+
+### Fixed
+
+- 史馆守护/服务日志不再无界追加：新增 `scripts/shiguan_service_log.py`（8 MiB 上限、单份 `.1` 归档、独立 `"<path>.lock"`、轮转降级不阻断服务启动），并接入 `ensure_shiguan_autosync.py`、`ensure_shiguan_service_daemon.py`、`ensure_shiguan_web.py` 三处 stdout 重定向。历史事故：`court-shiguan-autosync.log` 曾达 31.3 GB。
+- 守护进程持有日志句柄致 `os.replace` 失败时，改为原地回收（保留 256 KiB 尾部到 `.1` 后截断 live 文件），并以 `ROTATED_INPLACE` / `ROTATION_BLOCKED` 显式区分，不再静默降级为 `SKIPPED_LOCKED`。
+- 新增独立校验 `scripts/checks/check_shiguan_service_log_bounds.py`（`SHIGUAN_LOG_BOUNDS=PASS`），含 live-handle 回退断言与反向对照。
+
+### Changed
+
+- 版本由 beta1.1.4 推进到 beta1.1.5。
+
 ## beta1.1.4 - 2026-09-20
 
 ### Fixed
