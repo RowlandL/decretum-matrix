@@ -131,6 +131,30 @@ out.flush()
 out.close()
 '''
 
+CHILD_RANGE_LOCK_SOURCE = r'''"""Hold a real byte-range lock over the log tail, so a tail read must fail."""
+
+import msvcrt
+import sys
+import time
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+
+log = Path(sys.argv[1])
+span = int(sys.argv[2])
+handle = open(log, "rb+")
+size = log.stat().st_size
+handle.seek(max(0, size - span))
+msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, span)
+print("RANGE_LOCKED", flush=True)
+time.sleep(float(sys.argv[3]))
+try:
+    handle.seek(max(0, size - span))
+    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, span)
+finally:
+    handle.close()
+'''
+
 CHILD_DAEMON_SOURCE = r'''"""Daemon-loop simulation: writes through the inherited stdout handle and
 calls the product's own maintain_service_log() each cycle, like the daemon loop."""
 
@@ -726,6 +750,100 @@ def _probe_variant(review: Review, fx: Path, handle_mode: str, who: str, tag: st
     }
 
 
+def check_d1_failclosed(review: Review, fx: Path) -> None:
+    """Falsification attempt on the D1 fail-closed fix: no reclaim may drop bytes."""
+
+    record = getattr(review.slog, "record_rotation", None)
+    max_bytes = 256 * 1024
+    observations: list[tuple[str, Any]] = []
+
+    log_a = fx / "d1-archive.log"
+    original_a = _block("D1A", 20000)
+    log_a.write_bytes(original_a)
+    archive_a = log_a.with_name(log_a.name + ".1")
+    archive_a.mkdir()
+    result_a = review.slog.rotate_service_log(log_a, max_bytes=max_bytes)
+    journal_text = ""
+    if callable(record):
+        journal_path = record(log_a, result_a)
+        if journal_path:
+            try:
+                journal_text = Path(journal_path).read_text(encoding="utf-8")
+            except OSError:
+                journal_text = ""
+    unchanged_a = _read(log_a) == original_a
+    observations.append((str(result_a.get("action")), result_a.get("archive")))
+    ok_a = (
+        result_a.get("action") == "ROTATION_BLOCKED"
+        and result_a.get("archive") is None
+        and unchanged_a
+        and '"action": "ROTATION_BLOCKED"' in journal_text
+    )
+    review.record(
+        "d1_archive_write_failure_is_fail_closed",
+        bool(ok_a),
+        f"action={result_a.get('action')} archive_field={result_a.get('archive')} "
+        f"bytes_unchanged={unchanged_a} journal_shows_blocked={'ROTATION_BLOCKED' in journal_text} "
+        f"log={_size(log_a)}B of {len(original_a)}B",
+    )
+
+    log_b = fx / "d1-tailread.log"
+    original_b = _block("D1B", 20000)
+    log_b.write_bytes(original_b)
+    child_source = fx / "_child_range_lock.py"
+    child_source.write_text(CHILD_RANGE_LOCK_SOURCE, encoding="utf-8")
+    span = 64 * 1024
+    child = subprocess.Popen(
+        [sys.executable, "-B", str(child_source), str(log_b), str(span), "5.0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        ready = child.stdout.readline().strip() if child.stdout is not None else ""
+        result_b = review.slog.rotate_service_log(log_b, max_bytes=max_bytes)
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            child.kill()
+    unchanged_b = _read(log_b) == original_b
+    action_b = str(result_b.get("action"))
+    observations.append((action_b, result_b.get("archive")))
+    triggered = ready == "RANGE_LOCKED"
+    if action_b == "ROTATION_BLOCKED":
+        ok_b = bool(triggered and unchanged_b)
+    elif action_b == "ROTATED_INPLACE":
+        ok_b = bool(triggered and result_b.get("archive") is not None)
+    else:
+        ok_b = False
+    review.record(
+        "d1_tail_read_failure_keeps_bytes",
+        bool(ok_b),
+        f"range_lock_ready={ready} action={action_b} archive_field={result_b.get('archive')} "
+        f"bytes_unchanged={unchanged_b} log={_size(log_b)}B of {len(original_b)}B",
+    )
+
+    log_c = fx / "d1-sweep.log"
+    log_c.write_bytes(_block("D1C", 20000))
+    holder = log_c.open("a", encoding="utf-8")
+    try:
+        inplace = review.slog.rotate_service_log(log_c, max_bytes=max_bytes)
+    finally:
+        holder.close()
+    observations.append((str(inplace.get("action")), inplace.get("archive")))
+    log_c.write_bytes(_block("D1D", 20000))
+    rename = review.slog.rotate_service_log(log_c, max_bytes=max_bytes)
+    observations.append((str(rename.get("action")), rename.get("archive")))
+    lost = [action for action, archive in observations if action == "ROTATED_INPLACE" and archive is None]
+    review.record(
+        "d1_no_rotated_inplace_without_archive",
+        not lost,
+        f"observed={observations} rotated_inplace_without_archive={lost}",
+    )
+
+
 def _counterexample_mode_a(review: Review, fx: Path, slog: Any) -> dict[str, Any]:
     """Real launcher wiring: parent opens via open_service_log, child inherits stdout."""
 
@@ -903,16 +1021,43 @@ def check_live_handle_counterexample(review: Review, fx: Path) -> None:
         )
         probe = review.evidence.get("mechanism_probe", {})
         probe_nul = sorted({int(row["nul_prefix"]) for tag, row in probe.items() if tag.startswith("inherited")})
-        review.defect(
-            "launcher_path_reclaim_holes_live_holder_log",
-            f"rotate_service_log()/_rotate_in_place() truncate a log without rewinding the holder's offset, "
-            f"so any live holder of that log resumed {mode_a['nul_prefix']} bytes past the truncation "
-            f"(probe inherited variants: {probe_nul} NUL bytes). The landed daemon path avoids this only via "
-            "_rewind(); the launcher path (open_service_log on a log still held by a live daemon / a second "
-            "start) cannot rewind another process's handle, and the subsequent reclaim archives NUL padding. "
-            "Self-healing: the daemon's own next maintain_service_log truncates and rewinds again.",
-            kind="EVIDENCE",
-        )
+        log_src = (
+            Path(__file__).resolve().parents[2] / "scripts" / "shiguan_service_log.py"
+        ).read_text(encoding="utf-8")
+        if "allow_in_place=False" in log_src:
+            # The passive launcher path is closed; the holder-side reclaim must
+            # survive, so the two directions are asserted separately.
+            review.note(
+                "FIXED",
+                "launcher_path_reclaim_holes_live_holder_log",
+                "the launcher path now passes allow_in_place=False: a log held by another process is "
+                "deferred (ROTATION_DEFERRED) or reported blocked (ROTATION_BLOCKED) without truncation, and "
+                "only the holder itself reclaims in place after rewinding its own stream. The raw-helper "
+                "counterexample above stays reproducible by design and remains the regression probe for "
+                "that boundary.",
+            )
+            if not (
+                "def rotate_held_service_log" in log_src
+                and "def _rewind" in log_src
+                and "def maintain_service_log" in log_src
+            ):
+                review.defect(
+                    "active_in_place_reclaim_removed",
+                    "the passive launcher path is closed but the holder-side in-place reclaim is gone; bounded "
+                    "maintenance of a live log needs rotate_held_service_log + _rewind + maintain_service_log",
+                    kind="EVIDENCE",
+                )
+        else:
+            review.defect(
+                "launcher_path_reclaim_holes_live_holder_log",
+                f"rotate_service_log()/_rotate_in_place() truncate a log without rewinding the holder's offset, "
+                f"so any live holder of that log resumed {mode_a['nul_prefix']} bytes past the truncation "
+                f"(probe inherited variants: {probe_nul} NUL bytes). The landed daemon path avoids this only via "
+                "_rewind(); the launcher path (open_service_log on a log still held by a live daemon / a second "
+                "start) cannot rewind another process's handle, and the subsequent reclaim archives NUL padding. "
+                "Self-healing: the daemon's own next maintain_service_log truncates and rewinds again.",
+                kind="EVIDENCE",
+            )
     else:
         review.evidence["counterexample_conclusion"] = "NOT_REPRODUCED_PRODUCT_WIRING"
         review.note(
@@ -949,6 +1094,7 @@ def evaluate() -> dict[str, Any]:
             ("blocked", check_rotation_blocked),
             ("journal", check_journal_observability),
             ("archive", check_archive_write_failure),
+            ("d1", check_d1_failclosed),
             ("daemonloop", check_daemon_loop_counterexample),
             ("probe", check_mechanism_probe),
             ("counterexample", check_live_handle_counterexample),

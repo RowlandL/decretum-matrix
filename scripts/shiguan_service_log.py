@@ -29,9 +29,11 @@ JOURNAL_SCHEMA = "court.shiguan_service_log_rotation.v1"
 # Below the cap nothing happened, so a KEPT result is not journalled: rewriting
 # it every daemon cycle would add no diagnosis and only churn the sidecar.
 RECORDED_ACTIONS = frozenset(
-    {"ROTATED", "ROTATED_INPLACE", "ROTATION_BLOCKED", "SKIPPED_LOCKED"}
+    {"ROTATED", "ROTATED_INPLACE", "ROTATION_BLOCKED", "ROTATION_DEFERRED", "SKIPPED_LOCKED"}
 )
-DEGRADED_ACTIONS = frozenset({"ROTATED_INPLACE", "ROTATION_BLOCKED", "SKIPPED_LOCKED"})
+DEGRADED_ACTIONS = frozenset(
+    {"ROTATED_INPLACE", "ROTATION_BLOCKED", "ROTATION_DEFERRED", "SKIPPED_LOCKED"}
+)
 
 
 def service_log_path(name: str) -> Path:
@@ -58,7 +60,12 @@ def _skipped_locked(size: int) -> dict[str, object]:
     return {"action": "SKIPPED_LOCKED", "size_bytes": size, "archive": None}
 
 
-def rotate_service_log(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> dict[str, object]:
+def rotate_service_log(
+    path: Path,
+    *,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    allow_in_place: bool = True,
+) -> dict[str, object]:
     target = Path(path)
     size = _file_size(target)
     if size is None:
@@ -76,6 +83,24 @@ def rotate_service_log(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> dic
             try:
                 os.replace(target, archive)
             except OSError:
+                if not allow_in_place:
+                    # A failed rename has two causes that must not be conflated:
+                    # another process holding the log open, or an unusable
+                    # archive target. Archive the tail without ever truncating --
+                    # a launcher cannot rewind another holder's file offset, so an
+                    # in-place reclaim here would punch a zero hole under its next
+                    # write -- and only defer when that archive really happened.
+                    if _archive_tail(target, locked_size, archive):
+                        return {
+                            "action": "ROTATION_DEFERRED",
+                            "size_bytes": locked_size,
+                            "archive": str(archive),
+                        }
+                    return {
+                        "action": "ROTATION_BLOCKED",
+                        "size_bytes": locked_size,
+                        "archive": None,
+                    }
                 return _rotate_in_place(target, locked_size, archive)
             return {"action": "ROTATED", "size_bytes": locked_size, "archive": str(archive)}
     except (TimeoutError, OSError):
@@ -171,6 +196,24 @@ def rotate_held_service_log(
             return result
     except (TimeoutError, OSError):
         return _skipped_locked(size)
+
+
+def _archive_tail(target: Path, size: int, archive: Path) -> bool:
+    """Best-effort bounded tail archive that never touches the live file."""
+
+    try:
+        with target.open("rb") as handle:
+            handle.seek(max(0, size - TAIL_KEEP_BYTES))
+            tail = handle.read(TAIL_KEEP_BYTES)
+    except OSError:
+        return False
+    if not tail:
+        return False
+    try:
+        archive.write_bytes(tail)
+    except OSError:
+        return False
+    return True
 
 
 def _rotate_in_place(target: Path, size: int, archive: Path) -> dict[str, object]:
@@ -288,7 +331,9 @@ def open_service_log(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> IO[st
     """
 
     target = Path(path)
-    record_rotation(target, rotate_service_log(target, max_bytes=max_bytes))
+    record_rotation(
+        target, rotate_service_log(target, max_bytes=max_bytes, allow_in_place=False)
+    )
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         return target.open("a", encoding="utf-8")

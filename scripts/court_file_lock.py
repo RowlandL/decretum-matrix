@@ -61,13 +61,14 @@ def _prepare_lock_file(handle: BinaryIO) -> None:
     handle.seek(0)
 
 
-def _try_os_lock(handle: BinaryIO) -> bool:
+def _try_os_lock(handle: BinaryIO, *, shared: bool = False) -> bool:
     handle.seek(0)
     if os.name == "nt":
         import msvcrt
 
+        mode = msvcrt.LK_NBRLCK if shared else msvcrt.LK_NBLCK
         try:
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            msvcrt.locking(handle.fileno(), mode, 1)
         except OSError as exc:
             if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK, errno.EPERM}:
                 return False
@@ -76,8 +77,9 @@ def _try_os_lock(handle: BinaryIO) -> bool:
 
     import fcntl
 
+    mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
     try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(handle.fileno(), mode | fcntl.LOCK_NB)
     except OSError as exc:
         if exc.errno in {errno.EACCES, errno.EAGAIN}:
             return False
@@ -103,8 +105,18 @@ def file_lock(
     path: Path,
     timeout: float = 30.0,
     poll_interval: float = 0.05,
+    *,
+    shared: bool = False,
 ) -> Iterator[None]:
-    """Acquire an exclusive per-path thread and process lock.
+    """Acquire a per-path thread and process lock.
+
+    ``shared=False`` (the default) takes the exclusive byte lock and serializes
+    every holder. ``shared=True`` takes the shared byte lock instead, so any
+    number of holders may hold the same path at once: use it for idempotent
+    seed/maintenance writes whose correctness does not depend on being the only
+    writer, and keep the exclusive form for read-modify-write transitions. The
+    two forms exclude each other in both directions even though shared holders
+    do not exclude one another.
 
     ``TimeoutError`` is raised if either layer cannot be acquired before the
     common deadline. The lock file is persistent; ownership is the OS byte lock,
@@ -138,7 +150,7 @@ def file_lock(
         handle = target.open("a+b", buffering=0)
         _prepare_lock_file(handle)
         while True:
-            if _try_os_lock(handle):
+            if _try_os_lock(handle, shared=shared):
                 os_locked = True
                 depths[key] = 1
                 break

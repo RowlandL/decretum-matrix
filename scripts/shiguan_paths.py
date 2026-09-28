@@ -1400,7 +1400,11 @@ def ensure_shared_seed() -> Path:
         directory.mkdir(parents=True, exist_ok=True)
 
     write_lock = refs / "court-runtime" / "shiguan-write.lock"
-    with file_lock(write_lock):
+    # Idempotent seed writing: several writers may hold this lock at once, so a
+    # second launcher is not serialized behind the first. The atomic per-file
+    # replace below keeps each seeded file consistent; the lock only excludes the
+    # read-modify-write transitions that still take the exclusive form.
+    with file_lock(write_lock, shared=True):
         readmes = {
             refs / "README.md": "# Shared Court Shiguan\n\nThis directory is the local shared Shiguan database used by Codex, Agent Skills, and Hermes Decretum Matrix（诏令矩阵） installations.\n",
             refs / "plan-archives" / "README.md": "# Shiguan Plan Archives\n\nLocal court checkpoints are written here.\n",
