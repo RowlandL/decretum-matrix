@@ -32,6 +32,7 @@ from shiguan_paths import (
     references_root,
     runtime_code_root,
 )
+from shiguan_service_log import open_service_log, service_log_path
 
 
 TASK_NAME = "CourtShiguanDaemon"
@@ -46,7 +47,7 @@ def status_path() -> Path:
 
 
 def log_path() -> Path:
-    return Path(tempfile.gettempdir()) / "court-shiguan-service-daemon.log"
+    return service_log_path("court-shiguan-service-daemon.log")
 
 
 def wrapper_path() -> Path:
@@ -355,8 +356,7 @@ def unregister_task() -> dict[str, object]:
 
 
 def start_direct(interval: int) -> int:
-    log_path().parent.mkdir(parents=True, exist_ok=True)
-    handle = log_path().open("a", encoding="utf-8")
+    handle = open_service_log(log_path())
     env = os.environ.copy()
     env["COURT_DISABLE_AGENT_PRESENCE"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"

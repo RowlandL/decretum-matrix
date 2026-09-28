@@ -19,7 +19,6 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
-import tempfile
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -29,6 +28,7 @@ from shiguan_paths import (
     references_root as shared_references_root,
     runtime_code_root,
 )
+from shiguan_service_log import open_service_log, service_log_path
 
 
 DEFAULT_BIND_HOST = "127.0.0.1"
@@ -146,8 +146,8 @@ def probe_service(host: str, port: int, timeout: float) -> tuple[str, dict[str, 
 def start_service(host: str, port: int) -> Path:
     if port_accepts_connection(host, port, 1.0):
         raise RuntimeError(f"port {port} already accepts connections; refusing to start a duplicate Shiguan WebUI")
-    log_path = Path(tempfile.gettempdir()) / f"court-shiguan-tree-{port}.log"
-    handle = log_path.open("a", encoding="utf-8")
+    log_path = service_log_path(f"court-shiguan-tree-{port}.log")
+    handle = open_service_log(log_path)
     args = [background_python(), "-B", str(serve_script()), "--host", host, "--port", str(port)]
     env = os.environ.copy()
     env["COURT_DISABLE_AGENT_PRESENCE"] = "1"

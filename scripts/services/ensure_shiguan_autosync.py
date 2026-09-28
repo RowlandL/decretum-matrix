@@ -23,11 +23,11 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
-import tempfile
 
 from court_platform import user_data_base
 from shiguan_paths import ensure_shared_seed, reference_path, references_root, runtime_code_root
 from court_file_lock import atomic_write_text, file_lock
+from shiguan_service_log import open_service_log, service_log_path
 
 
 PROCESS_DISCOVERY_MULTIPLE = -1
@@ -81,7 +81,7 @@ def ensure_lock_path() -> Path:
 
 
 def log_path() -> Path:
-    return Path(tempfile.gettempdir()) / "court-shiguan-autosync.log"
+    return service_log_path("court-shiguan-autosync.log")
 
 
 def read_json(path: Path, default: object) -> object:
@@ -456,8 +456,7 @@ def find_running_daemon_pid() -> int:
 
 
 def start_daemon(interval: int) -> int:
-    log_path().parent.mkdir(parents=True, exist_ok=True)
-    handle = log_path().open("a", encoding="utf-8")
+    handle = open_service_log(log_path())
     args = [background_python(), "-B", str(daemon_script()), "--interval", str(interval)]
     env = os.environ.copy()
     env["COURT_DISABLE_AGENT_PRESENCE"] = "1"
