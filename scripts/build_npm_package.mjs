@@ -3022,6 +3022,7 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
         artifact_ref: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,
         build_id: `${contract.releaseLabel}:${contract.sourceCommit}:${contract.sourceTree}`,
       },
+      candidateReceipt: `release/decretum-matrix-${contract.releaseLabel}.candidate-receipt.json`,
       source: {
         commit: contract.sourceCommit,
         tree: contract.sourceTree,
@@ -3338,6 +3339,31 @@ export async function validateReleaseAssets() {
     "release attestation",
   );
   validateAttestation(attestation, validatedAssets);
+
+  // 发布包额外携带候选回执：驱动的 installation binding 由包身份导出（spec D4），
+  // 回执提供 candidate 状态与 source/tree 绑定，使包可在无源码检出的主机上完成安装。
+  const candidateReceiptName = `decretum-matrix-${LIVE_IDENTITY.releaseLabel}.candidate-receipt.json`;
+  const candidateReceiptSource = path.join(
+    WORKSPACE_ROOT,
+    "release-staging",
+    "decretum-matrix",
+    LIVE_IDENTITY.releaseLabel,
+    SOURCE_COMMIT,
+    candidateReceiptName,
+  );
+  const candidateReceiptStat = await lstat(candidateReceiptSource);
+  assert(
+    candidateReceiptStat.isFile(),
+    `candidate receipt is not a regular file: ${candidateReceiptName}`,
+  );
+  validatedAssets.push(
+    Object.freeze({
+      name: candidateReceiptName,
+      path: `release/${candidateReceiptName}`,
+      sha256: await hashFile(candidateReceiptSource),
+      size: candidateReceiptStat.size,
+    }),
+  );
 
   const sbom = await readJson(
     path.join(RELEASE_ASSET_DIR, "SBOM.spdx.json"),
