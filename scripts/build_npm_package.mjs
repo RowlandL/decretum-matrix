@@ -3360,6 +3360,7 @@ export async function validateReleaseAssets() {
     Object.freeze({
       name: candidateReceiptName,
       path: `release/${candidateReceiptName}`,
+      sourcePath: candidateReceiptSource,
       sha256: await hashFile(candidateReceiptSource),
       size: candidateReceiptStat.size,
     }),
@@ -4483,7 +4484,8 @@ async function stagePackage(packageRoot, contract, releaseAssets) {
   }
 
   for (const asset of releaseAssets) {
-    const sourcePath = path.join(contract.releaseAssetDir, asset.name);
+    const sourcePath =
+      asset.sourcePath || path.join(contract.releaseAssetDir, asset.name);
     const destinationPath = path.join(releaseRoot, asset.name);
     await copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL);
     await chmod(destinationPath, 0o644);
