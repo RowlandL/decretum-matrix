@@ -1204,6 +1204,41 @@ def _restore_codex_roles(
     }
 
 
+def _restore_binding_after_failure(
+    *,
+    installer_module: object,
+    home: Path,
+    result: dict[str, object],
+) -> dict[str, object]:
+    """Undo this run's binding write so a rolled-back install cannot poison the CLI."""
+
+    preimage = result.get("binding_preimage")
+    if not isinstance(preimage, dict):
+        return {"ok": True, "status": "NOT_REQUIRED"}
+    restore = getattr(installer_module, "restore_installation_binding_preimage", None)
+    if restore is None:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": "binding_preimage_restore_unavailable",
+        }
+    try:
+        outcome = restore(home_root=home, preimage=preimage)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": f"binding_preimage_restore_failed:{type(exc).__name__}:{exc}",
+        }
+    if isinstance(outcome, dict):
+        return outcome
+    return {
+        "ok": False,
+        "status": "RECOVERY_REQUIRED",
+        "reason": "binding_preimage_restore_invalid",
+    }
+
+
 def _compensate_projection(
     *,
     installer_module: object,
@@ -1211,19 +1246,27 @@ def _compensate_projection(
     result: dict[str, object],
     role_snapshot: dict[str, tuple[bytes, int]] | None = None,
 ) -> dict[str, object]:
+    binding = _restore_binding_after_failure(
+        installer_module=installer_module,
+        home=home,
+        result=result,
+    )
     backup = result.get("backup")
     if not isinstance(backup, dict) or not backup.get("backup_root"):
         projection = {
-            "ok": True,
+            "ok": binding.get("ok") is True,
             "status": "NOT_REQUIRED",
             "reason": "no_projection_backup",
+            "binding": binding,
         }
         if role_snapshot is not None:
             roles = _restore_codex_roles(home, role_snapshot)
             projection["roles"] = roles
-            projection["ok"] = roles.get("ok") is True
+            projection["ok"] = projection["ok"] is True and roles.get("ok") is True
             if projection["ok"] is not True:
                 projection["status"] = "RECOVERY_REQUIRED"
+        elif projection["ok"] is not True:
+            projection["status"] = "RECOVERY_REQUIRED"
         return projection
     try:
         rollback = installer_module.rollback_install_backup(
@@ -1235,18 +1278,21 @@ def _compensate_projection(
             "ok": False,
             "status": "RECOVERY_REQUIRED",
             "reason": f"projection_rollback_failed:{type(exc).__name__}:{exc}",
+            "binding": binding,
         }
     projection = rollback if isinstance(rollback, dict) else {
         "ok": False,
         "status": "RECOVERY_REQUIRED",
         "reason": "projection_rollback_invalid",
     }
+    projection["binding"] = binding
+    projection["ok"] = projection.get("ok") is True and binding.get("ok") is True
     if role_snapshot is not None:
         roles = _restore_codex_roles(home, role_snapshot)
         projection["roles"] = roles
         projection["ok"] = projection.get("ok") is True and roles.get("ok") is True
-        if projection["ok"] is not True:
-            projection["status"] = "RECOVERY_REQUIRED"
+    if projection["ok"] is not True:
+        projection["status"] = "RECOVERY_REQUIRED"
     return projection
 
 

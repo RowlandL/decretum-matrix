@@ -308,9 +308,23 @@ const LEGAL_PATHS = Object.freeze([
   "PRIVACY.md",
 ]);
 
+// 安装源载荷（.scratch/install-from-published-artifact/spec.md D1）：已发布的包必须自带
+// 安装驱动，才能不依赖本地源码检出完成安装。这些模块是安装工具，不在 install-projection
+// 的显式允许清单内，因此不会被投影进已安装副本（references/validation-packaging.md:3）。
+// court_diagnostics / release_payload_manifest 不在此列——它们属于活动投影，随包内
+// release/*.zip 分发。
+const INSTALL_SOURCE_PATHS = Object.freeze([
+  "scripts/install_current_agent_copy.py",
+  "scripts/install_projection_renderer.py",
+  "scripts/fix_decretum_matrix.py",
+  "scripts/commands/fix_decretum_matrix.py",
+]);
+
 const CLI_RUNTIME_PATHS = Object.freeze([
   "bin/decretum-matrix.js",
   "bin/decretum-matrix.py",
+  "bin/install-runtime.py",
+  ...INSTALL_SOURCE_PATHS,
 ]);
 
 export const LEGAL_SOURCE_FILES = Object.freeze(

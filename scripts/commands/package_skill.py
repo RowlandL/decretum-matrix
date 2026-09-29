@@ -309,6 +309,13 @@ PACKAGE_EXTRA_FILES = frozenset(
         "trademarks.md",
         "bin/decretum-matrix.js",
         "bin/decretum-matrix.py",
+        "bin/install-runtime.py",
+        # 安装源载荷（.scratch/install-from-published-artifact/spec.md D1）：让已发布的包自带安装驱动。
+        # 它们不在 install-projection 的显式允许清单内，因此不会被投影进已安装副本。
+        "scripts/install_current_agent_copy.py",
+        "scripts/install_projection_renderer.py",
+        "scripts/fix_decretum_matrix.py",
+        "scripts/commands/fix_decretum_matrix.py",
         *BRAND_ASSET_PATHS,
     }
 )

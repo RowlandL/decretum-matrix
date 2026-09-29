@@ -141,6 +141,8 @@ PROTECTED_SHARED_AGENT_PATHS = {
     "references/shiguan-tree/capability-index/_index.md",
 }
 BACKUP_SCHEMA = "court.install_projection_backup.v1"
+BINDING_PREIMAGE_SCHEMA = "court.install_binding_preimage.v1"
+BINDING_PREIMAGE_RELATIVE = "binding-preimage/installation-binding-v2.json"
 BACKUP_DIRECTORY_PARTS = (".agents", "install-backups", "decretum-matrix")
 
 _MISSING = object()
@@ -1135,6 +1137,7 @@ def _installed_projection_files(
             "installed_projection_manifest_invalid", "projections_missing"
         )
     entries: list[PurePosixPath] = []
+    prior_projection_members: list[PurePosixPath] = []
     for name in (projection_name, "cli_public"):
         values = projections.get(name)
         if not isinstance(values, list) or any(not _safe_relative(value) for value in values):
@@ -1142,7 +1145,10 @@ def _installed_projection_files(
                 "installed_projection_manifest_invalid",
                 f"projection_invalid:{name}",
             )
-        entries.extend(PurePosixPath(str(value)) for value in values)
+        parsed = [PurePosixPath(str(value)) for value in values]
+        entries.extend(parsed)
+        if name == projection_name:
+            prior_projection_members.extend(parsed)
     repository_only = projections.get("repository_only")
     if not isinstance(repository_only, list) or any(
         not _safe_relative(value) for value in repository_only
@@ -1230,6 +1236,26 @@ def _installed_projection_files(
             continue
         if candidate.is_file():
             consider(relative)
+            continue
+        if candidate.is_dir():
+            walk_directory(candidate, relative)
+
+    # 显式 prune 旧投影残留（references/validation-packaging.md:7）：本根自身投影
+    # 上一版声明过、而本次渲染不再需要的成员，是删除候选。删除与否仍由调用方按
+    # 当前 desired 集合判定；此处只负责把「曾由本投影写入的文件」纳入候选。
+    # cli_public 不在此列——它含本根投影之外的公开文件，仍走下方排除规则。
+    for relative in prior_projection_members:
+        candidate = inspection_root / Path(relative.as_posix())
+        if not _within(candidate, inspection_root):
+            raise _InstallContractError(
+                "installed_projection_manifest_invalid",
+                f"path_escape:{relative.as_posix()}",
+            )
+        if candidate.is_symlink() or _is_junction(candidate):
+            candidates.add(relative)
+            continue
+        if candidate.is_file():
+            candidates.add(relative)
             continue
         if candidate.is_dir():
             walk_directory(candidate, relative)
@@ -1623,6 +1649,87 @@ def _backup_projection_writes(
         "rollback_supported": True,
         "rollback_scope": "managed_files_and_atomic_legacy_locator_restore",
     }
+
+
+def _stage_binding_preimage(
+    *,
+    binding_path: Path,
+    home_root: Path,
+    backup_root: Path | None,
+) -> dict[str, object]:
+    """Persist the prior installation binding before this run overwrites it.
+
+    references/validation-packaging.md:7 requires a per-file SHA256 persistent
+    backup plus a working rollback.  The installation binding is a managed
+    artifact, so it must sit inside that scope: a failed install whose files are
+    rolled back must not leave a binding that describes the reverted state.
+    """
+
+    if not binding_path.is_file():
+        return {
+            "schema": BINDING_PREIMAGE_SCHEMA,
+            "status": "ABSENT",
+            "prior_existed": False,
+        }
+    previous = binding_path.read_bytes()
+    root = Path(backup_root) if backup_root is not None else None
+    if root is None:
+        root = (
+            home_root.joinpath(*BACKUP_DIRECTORY_PARTS)
+            / f"binding-{uuid.uuid4().hex}"
+        )
+        root.mkdir(parents=True, exist_ok=False)
+    preimage_path = root / Path(BINDING_PREIMAGE_RELATIVE)
+    preimage_path.parent.mkdir(parents=True, exist_ok=True)
+    if not preimage_path.exists():
+        _atomic_create(preimage_path, previous)
+    return {
+        "schema": BINDING_PREIMAGE_SCHEMA,
+        "status": "STAGED",
+        "prior_existed": True,
+        "backup_root": str(root),
+        "backup_path": BINDING_PREIMAGE_RELATIVE,
+        "previous_sha256": hashlib.sha256(previous).hexdigest(),
+        "previous_size": len(previous),
+    }
+
+
+def restore_installation_binding_preimage(
+    *,
+    home_root: Path,
+    preimage: dict[str, object],
+) -> dict[str, object]:
+    """Undo the binding write of a failed install.
+
+    A projection that rolled back must not keep the binding written for the
+    reverted state: the launcher validates the binding against the package and
+    would fail closed, leaving the public CLI unusable.
+    """
+
+    home = Path(home_root).resolve(strict=False)
+    binding_path = _installation_binding_path(home)
+    status = preimage.get("status") if isinstance(preimage, dict) else None
+    if status == "STAGED":
+        root = Path(str(preimage.get("backup_root"))).resolve(strict=False)
+        backup_base = home.joinpath(*BACKUP_DIRECTORY_PARTS)
+        if root == backup_base or not _within(root, backup_base):
+            return _failure("binding_preimage_root_invalid")
+        source = root / Path(str(preimage.get("backup_path")))
+        if not _within(source, root) or source.is_symlink() or not source.is_file():
+            return _failure("binding_preimage_invalid")
+        previous = source.read_bytes()
+        if hashlib.sha256(previous).hexdigest() != preimage.get("previous_sha256"):
+            return _failure("binding_preimage_drift")
+        restored = _read_json(source, reason="binding_preimage_not_json")
+        if restored.get("schema") != INSTALLATION_BINDING_SCHEMA:
+            return _failure("binding_preimage_schema_mismatch")
+        _write_json_atomic(binding_path, restored)
+        return {"ok": True, "status": "RESTORED", "path": str(binding_path)}
+    if status == "ABSENT":
+        if binding_path.is_file() and not binding_path.is_symlink():
+            binding_path.unlink()
+        return {"ok": True, "status": "REMOVED_NO_PRIOR", "path": str(binding_path)}
+    return {"ok": True, "status": "NOT_REQUIRED"}
 
 
 def rollback_install_backup(
@@ -2813,6 +2920,16 @@ def install_current_agent_copy(
             )
             binding_path = _installation_binding_path(home)
             if write:
+                result["binding_preimage"] = _stage_binding_preimage(
+                    binding_path=binding_path,
+                    home_root=home,
+                    backup_root=(
+                        Path(str(backup_receipt["backup_root"]))
+                        if isinstance(backup_receipt, dict)
+                        and backup_receipt.get("backup_root")
+                        else None
+                    ),
+                )
                 _write_json_atomic(binding_path, binding)
             result["installation_binding"] = binding
             result["installation_binding_path"] = str(binding_path)

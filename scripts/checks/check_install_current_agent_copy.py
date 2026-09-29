@@ -2859,6 +2859,143 @@ def _check_candidate_public_shim_mismatch(
     return 1
 
 
+def _check_prune_and_binding_cases(
+    install: Installer,
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """beta1.1.6 regression cases for projection pruning and binding rollback.
+
+    ``references/validation-packaging.md:7`` requires an explicit prune of stale
+    projection leftovers, a per-file SHA256 persistent backup, and a working
+    rollback.  All three fail against the pre-beta1.1.6 implementation: a member
+    dropped from the projection never became a delete candidate, and the
+    installation binding sat outside both the backup and the rollback scope, so a
+    failed install left a binding that described the reverted state.
+    """
+
+    passed = 0
+    module = _load_production(errors)
+    source, home, manifest, roots = _case_fixture(temp_root, "codex-default")
+    _prime_roots(home, roots)
+    arguments = {
+        "source_root": source,
+        "home_root": home,
+        "current_tool": "codex",
+        "explicit_tools": [],
+        "tool_roots": roots,
+        "projection_manifest": manifest,
+    }
+    seed, rejection = _invoke(install, **arguments, write=True)
+    if seed is None or rejection is not None or seed.get("ok") is not True:
+        errors.append(f"projection_prune_removed_member:seed_failed:{rejection or seed}")
+        return passed
+
+    agents_root = _agents_root(home)
+    installed_manifest = (
+        agents_root / "references" / "manifests" / "install-projection.v1.json"
+    )
+    stale_relative = "training/prune-probe/removed.md"
+    second: Payload | None = None
+    if not installed_manifest.is_file():
+        errors.append("projection_prune_removed_member:installed_manifest_missing")
+    else:
+        payload = json.loads(installed_manifest.read_text(encoding="utf-8"))
+        projections = payload.get("projections")
+        listed = (
+            projections.get("shared_agents") if isinstance(projections, dict) else None
+        )
+        if not isinstance(listed, list):
+            errors.append("projection_prune_removed_member:installed_manifest_invalid")
+        else:
+            projections["shared_agents"] = sorted({*listed, stale_relative})
+            installed_manifest.write_text(json.dumps(payload), encoding="utf-8")
+            stale_path = agents_root / stale_relative
+            stale_path.parent.mkdir(parents=True, exist_ok=True)
+            stale_path.write_bytes(b"stale projection member\n")
+            second, second_rejection = _invoke(install, **arguments, write=True)
+            if (
+                second is None
+                or second_rejection is not None
+                or second.get("ok") is not True
+            ):
+                errors.append(
+                    f"projection_prune_removed_member:install_failed:"
+                    f"{second_rejection or second}"
+                )
+            elif stale_path.exists():
+                errors.append("projection_prune_removed_member:stale_member_survived")
+            else:
+                passed += 1
+
+    # B2/B3 are function-level: the fixture install does not carry candidate
+    # binding metadata, so they exercise the new scoped helpers directly.
+    stage = getattr(module, "_stage_binding_preimage", None)
+    restore = getattr(module, "restore_installation_binding_preimage", None)
+    atomic_write = getattr(module, "_write_json_atomic", None)
+    binding_path = (
+        home
+        / ".agents"
+        / "install-receipts"
+        / "decretum-matrix"
+        / "installation-binding-v2.json"
+    )
+    if not all(callable(item) for item in (stage, restore, atomic_write)):
+        errors.append("installation_binding_preimage:helpers_missing")
+        return passed
+    binding_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(
+        binding_path,
+        {
+            "schema": "court.installation_binding.v2",
+            "release_label": "beta1.1.4",
+            "completion": "COMMITTED",
+        },
+    )
+    prior_bytes = binding_path.read_bytes()
+    preimage = stage(binding_path=binding_path, home_root=home, backup_root=None)
+    if isinstance(preimage, dict) and preimage.get("status") == "STAGED":
+        prior_root = Path(str(preimage.get("backup_root"))).resolve(strict=False)
+        if (
+            not isinstance(preimage.get("previous_sha256"), str)
+            or prior_root.name == binding_path.parent.name
+            or not (prior_root / Path(str(preimage.get("backup_path")))).is_file()
+        ):
+            errors.append(f"installation_binding_preimage:invalid_receipt:{preimage}")
+        else:
+            passed += 1
+    else:
+        errors.append(f"installation_binding_preimage:not_staged:{preimage}")
+    absent = stage(
+        binding_path=binding_path.with_name("absent-binding.json"),
+        home_root=home,
+        backup_root=None,
+    )
+    if not isinstance(absent, dict) or absent.get("status") != "ABSENT":
+        errors.append(f"installation_binding_preimage:absent_not_detected:{absent}")
+
+    if isinstance(preimage, dict) and preimage.get("status") == "STAGED":
+        drift = restore(
+            home_root=home,
+            preimage={**preimage, "previous_sha256": "0" * 64},
+        )
+        if drift.get("ok") is not False:
+            errors.append(f"installation_binding_restore:drift_not_rejected:{drift}")
+        atomic_write(
+            binding_path,
+            {
+                "schema": "court.installation_binding.v2",
+                "completion": "PENDING_VALIDATION",
+            },
+        )
+        outcome = restore(home_root=home, preimage=preimage)
+        if outcome.get("ok") is not True or binding_path.read_bytes() != prior_bytes:
+            errors.append(f"installation_binding_restore:failed:{outcome}")
+        else:
+            passed += 1
+    return passed
+
+
 def _check_cases(
     install: Installer,
     temp_root: Path,
@@ -5155,6 +5292,14 @@ def evaluate() -> Payload:
             ) as temp_dir:
                 passed = _check_cases(target, Path(temp_dir), errors)
             with tempfile.TemporaryDirectory(
+                prefix="cpb-"
+            ) as temp_dir:
+                passed += _check_prune_and_binding_cases(
+                    target,
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
                 prefix="ctg-"
             ) as temp_dir:
                 passed += _check_source_only_registry_gate(
@@ -5246,7 +5391,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 58,
+        "declared_cases": 61,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,
