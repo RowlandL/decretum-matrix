@@ -5040,41 +5040,60 @@ export async function createVerifiedPackage({
   };
 
   try {
+    // 运行时追加的资产（候选回执）也必须进入 expectedPackFiles：该清单在契约构造时
+    // 即被冻结，而 stagePackage 打包的是运行时资产列表，两者必须同源。
+    const stagedContract = Object.freeze({
+      ...contract,
+      releaseAssets: Object.freeze([...releaseValidation.assets]),
+      expectedPackFiles: Object.freeze(
+        [
+          ...contract.expectedPackFiles,
+          ...releaseValidation.assets
+            .filter(
+              (asset) =>
+                !contract.releaseAssets.some(
+                  (base) => base.path === asset.path,
+                ),
+            )
+            .map((asset) => asset.path),
+        ].sort(),
+      ),
+    });
     const packageRoot = path.join(operationRoot, "package");
     await mkdir(packageRoot, { recursive: false });
     const { packageText, publishPackage, readmeText } =
-      await stagePackage(packageRoot, contract, releaseValidation.assets);
+      await stagePackage(packageRoot, stagedContract, releaseValidation.assets);
     const npmState = await prepareNpmState(operationRoot);
     const expectedUnpackedSize =
       Buffer.byteLength(packageText, "utf8") +
       Buffer.byteLength(readmeText, "utf8") +
-      contract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
-      (contract.installerFiles || []).reduce(
+      stagedContract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
+      (stagedContract.installerFiles || []).reduce(
         (total, file) => total + file.size,
         0,
       ) +
       releaseValidation.assets.reduce((total, asset) => total + asset.size, 0) +
-      contract.legalFiles.reduce((total, file) => total + file.size, 0);
+      stagedContract.legalFiles.reduce((total, file) => total + file.size, 0);
 
     const dryRun = await npmPackDryRun(
       packageRoot,
       npmState,
       expectedUnpackedSize,
-      contract,
+      stagedContract,
     );
     const firstPack = await npmPackOnce(
       packageRoot,
       path.join(operationRoot, "pack-a"),
       npmState,
       expectedUnpackedSize,
-      contract,
+      stagedContract,
     );
     const secondPack = await npmPackOnce(
       packageRoot,
       path.join(operationRoot, "pack-b"),
       npmState,
       expectedUnpackedSize,
-      contract,
+      stagedContract,
     );
     assert(
       firstPack.sha256 === secondPack.sha256 &&
@@ -5089,7 +5108,7 @@ export async function createVerifiedPackage({
           npmState,
           publishPackage,
           releaseValidation.assets,
-          contract,
+          stagedContract,
         )
       : "NOT_RUN";
 
