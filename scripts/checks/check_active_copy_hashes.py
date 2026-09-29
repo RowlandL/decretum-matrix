@@ -54,6 +54,12 @@ INSTALL_RECEIPT_REQUIRED_FIELDS = (
 )
 INSTALL_RECEIPTS_RELATIVE = Path("install-receipts") / "decretum-matrix"
 
+# Runtime-populated install assets: fetched and verified at install time by
+# scripts/ensure_shiguan_model.py (pinned revision + size + SHA-256). They are
+# intentionally absent from the projection manifest, so they must not be
+# reported as unexpected install-state files. See THIRD_PARTY_NOTICES.md.
+RUNTIME_POPULATED_PREFIXES = ("training/laya-shiguan/models/",)
+
 
 def default_roots() -> list[Path]:
     home = Path.home()
@@ -478,7 +484,11 @@ def check(
         }
         installed_names = set(installed)
         expected_names = set(expected)
-        root_extras = sorted(installed_names - expected_names)
+        root_extras = sorted(
+            name
+            for name in installed_names - expected_names
+            if not name.startswith(RUNTIME_POPULATED_PREFIXES)
+        )
         for relative_text in root_extras:
             extra_files.append({"root": str(root), "file": relative_text})
         if CHECKER_RELATIVE.as_posix() in installed_names:

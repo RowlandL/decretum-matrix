@@ -1574,6 +1574,19 @@
       "side_effect": "bounded_mutation"
     },
     {
+      "authority_source": "scripts/commands/ensure_shiguan_model.py",
+      "command": "ensure-shiguan-model",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/commands/ensure_shiguan_model.py",
+      "id": "shiguan.ensure-shiguan-model",
+      "legacy_path": "scripts/commands/ensure_shiguan_model.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
       "authority_source": "scripts/commands/ensure_shiguan_web.py",
       "command": "ensure-shiguan-web",
       "compatibility_state": "unified_compatibility_adapter",
