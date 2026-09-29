@@ -51,3 +51,24 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+## convaiinnovations/laya-multilingual
+
+- Repository: https://huggingface.co/convaiinnovations/laya-multilingual
+- Pinned revision: recorded in `PROVENANCE.md`; the install step fetches exactly that revision and verifies the SHA-256 of every downloaded file
+- License: Apache-2.0
+- Copyright: Convai Innovations
+- Role: 史馆对照决策检索（`shiguan-recall`）的本地判定模型（322M）
+- Upstream backbone: `jhu-clsp/mmBERT-base` (next section)
+
+**Not redistributed by this repository.** The package does not ship the model weights. They are obtained at install time from the pinned upstream revision and verified by SHA-256. The downloaded copy remains under Apache-2.0 and carries its own upstream license file. Anyone who redistributes those weights must retain the upstream notices and license text.
+
+## jhu-clsp/mmBERT-base
+
+- Repository: https://huggingface.co/jhu-clsp/mmBERT-base
+- License: MIT
+- Copyright: Johns Hopkins University (CLSP)
+- Role: backbone encoder of `laya-multilingual`, declared upstream in `rl_agent_config.json` → `encoder` (ModernBertForMaskedLM, 256k vocab, 768 hidden, 22 layers)
+
+**Not redistributed by this repository**, for the same reason as above.
+
+Apache-2.0 and MIT are permissive licenses that permit redistribution and commercial use. Neither relicenses, supersedes, revokes nor narrows the repository-level `AGPL-3.0-only` designation, and that designation does not relicense the downloaded model weights. The model is consumed as an **advisory, read-only** component: it produces reference decisions and holds no execution authority.

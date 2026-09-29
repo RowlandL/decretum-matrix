@@ -1,5 +1,13 @@
 # Release Log
 
+## beta1.1.5
+
+- 引入史馆对照决策检索（只读、advisory）：在 1129 条历史实录上做最近邻召回，返回同谱系先例及其记忆裁定与等级，仅作对照参考。
+- 经仓库自带 CLI（`query-shiguan-recall`）与只读 MCP 工具（`shiguan.recall` / `shiguan.recall_stats`）暴露；命令面标记 `read_only`，不新增执行权威。
+- 模型权重不在包内分发：安装按固定 revision 获取并校验 SHA-256，落为真实文件；未就绪时 CLI/MCP fail-closed 并给出提示。
+- 版本元数据统一至 `beta1.1.5`；补齐第三方许可与 SBOM（Laya Apache-2.0 / mmBERT-base MIT）。
+- 状态：本地开发候选；外部发布与本机安装分别以远端回读与安装回执为准。
+
 ## beta1.1.4
 
 - 发布当前 Codex 调用适配、默认横向直投、显式 model/effort 兼容、已提交诏令门禁和跨平台预载预算根因修复。

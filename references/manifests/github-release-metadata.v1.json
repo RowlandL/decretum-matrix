@@ -6,8 +6,20 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.4",
+  "latest_tag": "beta1.1.5",
   "releases": [
+    {
+      "asset_note": "beta1.1.5 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
+      "highlights": [
+        "新增史馆对照决策检索：在 1129 条历史实录上做最近邻召回，返回同谱系先例及其记忆裁定与等级，仅作对照参考。",
+        "经仓库自带 CLI（query-shiguan-recall）与只读 MCP 工具（shiguan.recall / shiguan.recall_stats）暴露，命令面标记 read_only，不新增执行权威。",
+        "模型权重不在包内分发：安装按固定 revision 获取并校验 SHA-256，落为真实文件；未就绪时 CLI/MCP fail-closed 并给出提示。",
+        "补齐第三方许可与 SBOM：记录 Laya（Apache-2.0）与 mmBERT-base（MIT）的来源、许可与用途，发布版本元数据统一至 beta1.1.5。"
+      ],
+      "summary": "beta1.1.5 引入史馆对照决策检索（只读、advisory），把历史实录的最近邻先例接入既有 CLI 与 MCP 面；同时统一发布版本元数据与第三方许可记录。",
+      "tag": "beta1.1.5",
+      "title": "Decretum Matrix beta1.1.5"
+    },
     {
       "asset_note": "beta1.1.4 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
       "highlights": [

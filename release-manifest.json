@@ -1,7 +1,7 @@
 {
   "archive_root": "decretum-matrix/",
-  "artifact_name": "decretum-matrix-beta1.1.4.zip",
-  "attestation_name": "decretum-matrix-beta1.1.4.release-attestation.json",
+  "artifact_name": "decretum-matrix-beta1.1.5.zip",
+  "attestation_name": "decretum-matrix-beta1.1.5.release-attestation.json",
   "authors": "AUTHORS.md",
   "build": {
     "atomic_publish": "same_directory_hard_link_no_replace",
@@ -16,7 +16,7 @@
   "contributing": "CONTRIBUTING.md",
   "contributor_license_agreement": "CLA.md",
   "display_name": "Decretum Matrix（诏令矩阵）",
-  "expected_final_tag": "refs/tags/beta1.1.4",
+  "expected_final_tag": "refs/tags/beta1.1.5",
   "files": [
     {
       "mode": "100644",
@@ -2947,7 +2947,7 @@
   "package_name": "decretum-matrix",
   "privacy_policy": "PRIVACY.md",
   "provenance": "PROVENANCE.md",
-  "release_label": "beta1.1.4",
+  "release_label": "beta1.1.5",
   "repository_only_files": [
     ".github/CODEOWNERS",
     ".github/test-support/candidate-attempt-regression.mjs",
@@ -3112,7 +3112,7 @@
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
   "security_policy": "SECURITY.md",
-  "sidecar_name": "decretum-matrix-beta1.1.4.zip.sha256",
+  "sidecar_name": "decretum-matrix-beta1.1.5.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
   "version_core": "1.1.4"
