@@ -348,6 +348,26 @@ export const LEGAL_SOURCE_FILES = Object.freeze(
   }),
 );
 
+// 安装期专用文件：随包分发（install-runtime 会把它们复制进安装源），但不是运行时
+// 载荷成员——既不必与 ZIP 内嵌清单一致，也因此绝不进入 ZIP
+// （references/validation-packaging.md:3、source-only-checker-in-runtime-payload）。
+const INSTALLER_ONLY_PATHS = Object.freeze([
+  "scripts/check_active_copy_hashes.py",
+  "scripts/checks/check_active_copy_hashes.py",
+  "scripts/checks/check_codex_agent_roles.py",
+]);
+
+export const INSTALLER_ONLY_FILES = Object.freeze(
+  INSTALLER_ONLY_PATHS.map((installerPath) => {
+    const bytes = readFileSync(path.join(REPO_ROOT, installerPath));
+    return Object.freeze({
+      path: installerPath,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      size: bytes.length,
+    });
+  }),
+);
+
 export const CLI_RUNTIME_FILES = Object.freeze(
   CLI_RUNTIME_PATHS.map((runtimePath) => {
     const bytes = readFileSync(path.join(REPO_ROOT, runtimePath));
@@ -446,6 +466,7 @@ function createPackageContract(options) {
     releaseManifestSha256: options.releaseManifestSha256,
     legalFiles: Object.freeze([...options.legalFiles]),
     runtimeFiles: Object.freeze([...options.runtimeFiles]),
+    installerFiles: Object.freeze([...(options.installerFiles || [])]),
     releaseAssets: Object.freeze([...options.releaseAssets]),
     outputRelative: options.outputRelative,
     authorityReceiptId: options.authorityReceiptId,
@@ -458,6 +479,7 @@ function createPackageContract(options) {
       "package.json",
       "README.md",
       ...contract.runtimeFiles.map((file) => file.path),
+      ...contract.installerFiles.map((file) => file.path),
       ...contract.legalFiles.map((file) => file.path),
       ...contract.releaseAssets.map((asset) => asset.path),
     ].sort(),
@@ -474,6 +496,7 @@ const LIVE_PACKAGE_CONTRACT = createPackageContract({
   repository: LIVE_REPOSITORY,
   repoRoot: REPO_ROOT,
   releaseAssetDir: RELEASE_ASSET_DIR,
+  installerFiles: INSTALLER_ONLY_FILES,
   sourceCommit: SOURCE_COMMIT,
   sourceTree: SOURCE_TREE,
   releaseManifestSha256: RELEASE_MANIFEST_SHA256,
@@ -4348,7 +4371,10 @@ async function stagePackage(packageRoot, contract, releaseAssets) {
   });
   await utimes(readmePath, FIXED_MTIME, FIXED_MTIME);
 
-  for (const runtimeFile of contract.runtimeFiles) {
+  for (const runtimeFile of [
+    ...contract.runtimeFiles,
+    ...contract.installerFiles,
+  ]) {
     const sourcePath = path.join(contract.repoRoot, runtimeFile.path);
     const destinationPath = path.join(packageRoot, runtimeFile.path);
     // 运行时载荷不再限于 bin/ 下的扁平路径：安装源载荷带嵌套子目录
