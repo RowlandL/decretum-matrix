@@ -6,8 +6,20 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.5",
+  "latest_tag": "beta1.1.6",
   "releases": [
+    {
+      "asset_note": "beta1.1.6 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
+      "highlights": [
+        "已发布产物自带安装驱动：ZIP 以 install_source 载荷交付安装入口与驱动模块，无源码检出的主机也能完成安装。",
+        "启动器在缺少有效 installation binding 时给出可执行的安装入口，任意真实子命令仍 fail-closed。",
+        "安装以已发布包为源；新增守卫拒绝用本地候选替换已发布 npm 身份，失败回滚覆盖 installation binding。",
+        "修复包校验的载荷类型推断：install_source 不再被误判为开发源码，消除发布门禁的假缺失。"
+      ],
+      "summary": "beta1.1.6 让发布等于可安装、可验收：已发布产物自带安装驱动并可独立安装，安装身份与发布身份统一，失败回滚不留悬挂态。",
+      "tag": "beta1.1.6",
+      "title": "Decretum Matrix beta1.1.6"
+    },
     {
       "asset_note": "beta1.1.5 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
       "highlights": [

@@ -1,5 +1,20 @@
 # Changelog
 
+## beta1.1.6 - 2026-09-30
+
+### Added
+
+- 已发布产物自带安装驱动：发布 ZIP 以 `install_source` 载荷交付 `bin/install-runtime.py`、`install_current_agent_copy.py`、`install_projection_renderer.py` 与 `fix_decretum_matrix.py`，无需源码检出即可完成安装。
+- 启动器在没有有效 installation binding 时给出可执行的安装入口；任意真实子命令仍 fail-closed。
+
+### Fixed
+
+- 包校验按 ZIP 内嵌清单声明的 `payload_kind` 判定载荷类型：`install_source` 不再被误判为开发源码，消除发布门禁把安装驱动当作「缺失的仓库专属文件」的假失败。
+- 安装守卫：拒绝用 `publication: FORBIDDEN` 的本地候选替换已发布 npm 身份。
+
+### Changed
+
+- 版本由 beta1.1.5 推进到 beta1.1.6。
 ## beta1.1.5 - 2026-09-28
 
 ### Fixed
