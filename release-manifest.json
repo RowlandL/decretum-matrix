@@ -543,8 +543,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "be8b86e1ffb3b5b9a098d4acdb7b3eb4d5073ccca4a8677c4682590ff833e121",
-      "size": 109234
+      "sha256": "c5f340ed3c39222edcfd2922227230e10f8a8104f0ab2ed8a317c399de57c263",
+      "size": 109820
     },
     {
       "mode": "100644",
@@ -573,8 +573,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "c24d8b3d63e9cdeb2f1d30b126b3605726a400eabdaa2a3d0f84577bf304847c",
-      "size": 55018
+      "sha256": "828ed1c4e9d31863d39ebe368869ec1ef94a6085b5717c606281913ad7bfd6d8",
+      "size": 55290
     },
     {
       "mode": "100644",
@@ -749,6 +749,12 @@
       "path": "scripts/archive_runtime_task.py",
       "sha256": "4452a3d02f66ef43e88cb669defcf45eb0a0e043dbdc1feec5862484fb0a304a",
       "size": 856
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/authorize_capability_refresh.py",
+      "sha256": "31937784e0bbecd49748b98c83626f82083d3d6562fd8bf2c801f841f8329d65",
+      "size": 816
     },
     {
       "mode": "100644",
@@ -1281,8 +1287,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "2bfec52062d74e1c3f860dded138d2b9c74573f8c7dcf548ec3e0a8fdf85dd13",
-      "size": 88527
+      "sha256": "67e755738e625e148af6b5a8ed5b5c909191575989d9a49fa9fbe5ffa8b05c0e",
+      "size": 88669
     },
     {
       "mode": "100644",
@@ -1898,6 +1904,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/commands/authorize_capability_refresh.py",
+      "sha256": "14dd1357f3bc44e29b4e2783ceb9a85c8fce772fc4c8fbd996583b5a7f7d6956",
+      "size": 7431
+    },
+    {
+      "mode": "100644",
       "path": "scripts/commands/build_release_artifacts.py",
       "sha256": "af842ee4b2f03044816a28d5fcfc50e69d2b3b628dac768c53936e1630a35d5f",
       "size": 39063
@@ -2115,8 +2127,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/refresh_capability_registry.py",
-      "sha256": "a4e47209494556109cd3ca340dd547e9330a5b38fe0b701a968b7f5bdb0bcf11",
-      "size": 81180
+      "sha256": "5545b19ccd37726db6fb9474dc4cb1f753fdb6e65b5b7017030137d421c1294e",
+      "size": 82796
     },
     {
       "mode": "100644",
@@ -3076,12 +3088,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9136213,
-    "payload_file_count": 507,
+    "payload_bytes": 9147076,
+    "payload_file_count": 509,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "ea9d4cd8444f1989b9d6911b9f0175d6e84eea55cc3075c3c2c58ba58ea6c1b9",
-    "source_packaged_tracked_file_count": 499,
-    "source_tracked_file_count": 664
+    "payload_index_sha256": "b7156fff3f06a4f5fe955822dea011582cc08b9b93a90960a2beb8c8ad9bd577",
+    "source_packaged_tracked_file_count": 501,
+    "source_tracked_file_count": 666
   },
   "license": {
     "declared": "AGPL-3.0-only",

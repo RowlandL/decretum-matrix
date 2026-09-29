@@ -130,6 +130,7 @@ RETIRED_COMPATIBILITY_ENTRYPOINTS = frozenset(
         "scripts/ensure_shiguan_service_daemon.py",
         "scripts/ensure_shiguan_web.py",
         "scripts/ensure_shiguan_model.py",
+        "scripts/authorize_capability_refresh.py",
         "scripts/export_shiguan_obsidian.py",
         "scripts/serve_shiguan_tree.py",
         "scripts/services/court_heartbeat_watch.py",
@@ -271,6 +272,7 @@ COMPATIBILITY_SHELL_ENTRYPOINTS = frozenset(
         "scripts/ensure_shiguan_service_daemon.py",
         "scripts/ensure_shiguan_web.py",
         "scripts/ensure_shiguan_model.py",
+        "scripts/authorize_capability_refresh.py",
         "scripts/ensure_supercc_court.py",
         "scripts/export_shiguan_obsidian.py",
         "scripts/fix_decretum_matrix.py",
@@ -348,6 +350,7 @@ def _domain_for(path: str) -> str:
         "ensure_codex_yolo_startup_task",
         "ensure_portable_court_bootstrap",
         "refresh_capability_registry",
+        "authorize_capability_refresh",
     }:
         return "install"
     if "agent" in name or "office" in name:

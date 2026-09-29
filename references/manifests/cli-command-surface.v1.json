@@ -1392,6 +1392,19 @@
       "side_effect": "bounded_mutation"
     },
     {
+      "authority_source": "scripts/commands/authorize_capability_refresh.py",
+      "command": "authorize-capability-refresh",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "install",
+      "group": "install",
+      "handler": "isolated_subprocess:scripts/commands/authorize_capability_refresh.py",
+      "id": "install.authorize-capability-refresh",
+      "legacy_path": "scripts/commands/authorize_capability_refresh.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "bounded_mutation"
+    },
+    {
       "authority_source": "scripts/commands/build_release_artifacts.py",
       "command": "build-release-artifacts",
       "compatibility_state": "unified_compatibility_adapter",

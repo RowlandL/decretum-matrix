@@ -957,7 +957,7 @@ def _require_committed_reference(
         }
     )
     errors = registry_reference_errors(
-        registry_reference, source_paths=source_paths, for_commit=True
+        registry_reference, source_paths=source_paths, for_commit=True, home_root=Path.home()
     )
     if errors:
         raise PermissionError("refresh_reference_invalid:" + ",".join(errors))
@@ -1457,6 +1457,37 @@ def _load_reference_file(
     return value if isinstance(value, dict) and value.get("schema") == schema else None
 
 
+def collect_records(home: Path) -> list[dict[str, object]]:
+    """Collect and normalize every capability record for one registry generation.
+
+    Shared by the refresh itself and by the authorization pass (see
+    scripts/commands/authorize_capability_refresh.py) so both sides derive the
+    same ``source_paths`` list; a transaction whose source paths drift from the
+    live scan is rejected by refresh_transaction_errors.
+    """
+
+    records: list[dict[str, object]] = []
+    records.extend(collect_skills(home / "skills", "codex_skills"))
+    records.extend(collect_skills(Path.home() / ".agents" / "skills", "agent_fallback_skills"))
+    records.extend(collect_agents(home / "agents"))
+    records.extend(collect_mcp_state())
+    records.extend(collect_plugins(home / "config.toml", (home / "plugins" / "cache",)))
+    records.extend(collect_cli_state())
+    return normalize_records(records)
+
+
+def source_paths_of(records: list[dict[str, object]]) -> list[str]:
+    """The exact sorted source-path set a refresh transaction must declare."""
+
+    return sorted(
+        {
+            str(record.get("source_path") or record.get("path") or "").strip()
+            for record in records
+            if str(record.get("source_path") or record.get("path") or "").strip()
+        }
+    )
+
+
 def refresh(
     *,
     installation_binding: dict[str, object] | None = None,
@@ -1465,25 +1496,23 @@ def refresh(
     authorized: bool = False,
 ) -> tuple[int, list[Path]]:
     home = codex_home()
-    records: list[dict[str, object]] = []
-    records.extend(collect_skills(home / "skills", "codex_skills"))
-    records.extend(collect_skills(Path.home() / ".agents" / "skills", "agent_fallback_skills"))
-    records.extend(collect_agents(home / "agents"))
-    records.extend(collect_mcp_state())
-    records.extend(collect_plugins(home / "config.toml", (home / "plugins" / "cache",)))
-    records.extend(collect_cli_state())
-    records = normalize_records(records)
+    # installation_binding_errors resolves the binding against the *user* home
+    # (<home>/.agents/skills/decretum-matrix). codex_home() is only the skill/agent
+    # scan root; passing it as home_root made every binding fail
+    # INSTALLATION_BINDING_CANONICAL_ROOT_INVALID, so the refresh could never commit.
+    user_home = Path.home()
+    records = collect_records(home)
     registry_reference = build_registry_reference(
         records,
         installation_binding=installation_binding,
         refresh_transaction=refresh_transaction,
         registry_generation=registry_generation,
         registry_path="references/installed-capabilities-manifest.json",
-        home_root=home,
+        home_root=user_home,
     )
     source_paths = list(registry_reference.get("source_paths", []))
     if not authorized or registry_reference_errors(
-        registry_reference, source_paths=source_paths, for_commit=False, home_root=home
+        registry_reference, source_paths=source_paths, for_commit=False, home_root=user_home
     ):
         return len(records), []
     committed_transaction = dict(registry_reference["refresh_transaction"])
@@ -1496,10 +1525,10 @@ def refresh(
         refresh_transaction=committed_transaction,
         registry_generation=str(registry_reference.get("registry_generation") or ""),
         registry_path="references/installed-capabilities-manifest.json",
-        home_root=home,
+        home_root=user_home,
     )
     committed_errors = registry_reference_errors(
-        registry_reference, source_paths=source_paths, for_commit=True, home_root=home
+        registry_reference, source_paths=source_paths, for_commit=True, home_root=user_home
     )
     if committed_errors:
         return len(records), []
@@ -1787,7 +1816,15 @@ def main() -> int:
         INSTALLATION_BINDING_SCHEMA,
         expected_path=managed_binding_path,
     )
-    refresh_transaction = _load_reference_file(args.refresh_transaction, REFRESH_TRANSACTION_SCHEMA)
+    # The transaction path is caller-supplied rather than a managed location, so the
+    # path guard is bound to itself: this still rejects links/reparse points and
+    # non-regular files. Without expected_path the loader returned None unconditionally,
+    # which made every --apply run BLOCKED.
+    refresh_transaction = _load_reference_file(
+        args.refresh_transaction,
+        REFRESH_TRANSACTION_SCHEMA,
+        expected_path=args.refresh_transaction,
+    )
     if installation_binding is None or refresh_transaction is None:
         payload = {
             "schema": "court.capability.registry_refresh.result.v1",
