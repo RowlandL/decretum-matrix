@@ -14,6 +14,7 @@ if _SCRIPTS_ROOT not in sys.path:
 
 
 import argparse
+import atexit
 from copy import deepcopy
 from datetime import datetime, timezone
 import importlib
@@ -1492,6 +1493,45 @@ def _run_public_shim_probe(
     }
 
 
+def _published_package_source_root(package_root: Path) -> Path | None:
+    """Materialize the install source a published package embeds.
+
+    A published package carries the runtime payload as ``release/*.zip`` plus
+    the install driver, so it is a self-sufficient install source
+    (``.scratch/install-from-published-artifact/spec.md`` D1). Returns ``None``
+    when the package is not a published package; raises when it claims to be one
+    but is malformed.
+    """
+
+    try:
+        package = _read_json_object(
+            package_root / "package.json", label="candidate_package"
+        )
+    except (OSError, RuntimeError, ValueError):
+        return None
+    identity = package.get("decretumMatrix")
+    if not isinstance(identity, dict):
+        return None
+    if identity.get("schema") != PUBLISHED_PACKAGE_SCHEMA:
+        return None
+    archives = sorted((package_root / "release").glob("*.zip"))
+    if len(archives) != 1:
+        raise RuntimeError("published_package_archive_ambiguous")
+    staging = Path(tempfile.mkdtemp(prefix="decretum-package-source-"))
+    atexit.register(shutil.rmtree, staging, True)
+    try:
+        with zipfile.ZipFile(archives[0]) as archive:
+            archive.extractall(staging)
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RuntimeError(
+            f"published_package_archive_unreadable:{type(exc).__name__}"
+        ) from exc
+    roots = sorted(item for item in staging.iterdir() if item.is_dir())
+    if len(roots) != 1:
+        raise RuntimeError("published_package_archive_layout_invalid")
+    return roots[0]
+
+
 def _install_update(
     source_selection: dict[str, object],
     home: Path,
@@ -2021,18 +2061,33 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
         if args.caller_cwd
         else None
     )
-    source_selection = (
-        {
+    if args.operation == "commit-binding":
+        source_selection = {
             "selected_root": None,
             "status": "NOT_REQUIRED",
             "reason": "installation_binding_commit_uses_existing_home_binding",
         }
-        if args.operation == "commit-binding"
-        else select_source(
+    else:
+        source_selection = select_source(
             source_root=args.source_root,
             mapped_root=args.mapped_root,
         )
-    )
+        if (
+            args.operation == "update"
+            and not isinstance(source_selection.get("selected_root"), str)
+            and candidate_package_root is not None
+        ):
+            # 已发布包自带安装源：没有源码检出时从中解出 source_root
+            # （.scratch/install-from-published-artifact/）。
+            derived = _published_package_source_root(candidate_package_root)
+            if derived is not None:
+                source_selection = {
+                    "selected_root": str(derived),
+                    "requested_root": str(derived),
+                    "mapped_root": None,
+                    "status": "PUBLISHED_PACKAGE_SOURCE",
+                    "reason": "published_package_install_source",
+                }
     backup = resolve_user_path(args.backup_root, default=home) if args.backup_root else None
     try:
         if args.operation == "update":
