@@ -355,11 +355,36 @@ def runtime_identity_probe(
     return binding
 
 
+INSTALL_COMMAND = "install"
+
+
+def _dispatch_install(package_root: Path, forwarded: list[str]) -> int:
+    """Run the install driver bundled with this package.
+
+    This is the only launcher entry that works without a valid installation
+    binding, because it is the operation that creates one. Every other command
+    keeps failing closed when the binding is missing or invalid.
+    """
+
+    entry = package_root / "bin" / "install-runtime.py"
+    if not entry.is_file():
+        raise LauncherError("install_payload_missing")
+    scripts_root = package_root / "scripts"
+    for candidate in (entry.parent, scripts_root):
+        if str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+    sys.argv = [str(entry), *forwarded]
+    runpy.run_path(str(entry), run_name="__main__")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     package_root = Path(__file__).resolve().parents[1]
     effective_argv = sys.argv[1:] if argv is None else argv
     if effective_argv == ["--npm-postinstall"]:
         raise LauncherError("npm_postinstall_disabled")
+    if effective_argv[:1] == [INSTALL_COMMAND]:
+        return _dispatch_install(package_root, effective_argv[1:])
     runtime_root, runtime_binding = _select_runtime(package_root)
     if effective_argv == ["--runtime-identity"]:
         print(json.dumps(runtime_binding, ensure_ascii=False, sort_keys=True))
