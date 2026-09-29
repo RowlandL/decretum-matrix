@@ -42,7 +42,6 @@ INSTALL_PAYLOAD_SCRIPTS_MEMBERS = (
     "scripts/check_active_copy_hashes.py",
     "scripts/checks/check_active_copy_hashes.py",
     "scripts/checks/check_codex_agent_roles.py",
-    "references/manifests/install-projection.v1.json",
 )
 
 INSTALL_PAYLOAD_MEMBERS = (
@@ -93,6 +92,8 @@ def _driver_argv(forwarded: list[str], source_root: Path) -> list[str]:
         str(Path.cwd()),
         "--source-root",
         str(source_root),
+        # è¯¥æºç±åå ZIP è§£åºï¼å·²æ¯æ¸²æåçæå½±ã
+        "--source-is-rendered",
     ]
     if release_label:
         argv += ["--transaction-id", f"{release_label}-package-install-{stamp}"]

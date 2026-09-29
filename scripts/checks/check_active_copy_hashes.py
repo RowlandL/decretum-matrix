@@ -31,6 +31,7 @@ sys.dont_write_bytecode = True
 from court_platform import user_data_base
 from install_projection_renderer import (
     ActiveProjectionRenderError,
+    materialize_rendered_projection,
     render_active_projection,
 )
 
@@ -333,6 +334,7 @@ def check(
     receipt_roots: list[Path] | None = None,
     shard_assertions: list[dict[str, Any]] | None = None,
     verify_codex_agent_roles: bool = True,
+    source_is_rendered: bool = False,
 ) -> dict[str, Any]:
     source = _assert_safe_root(source, allow_missing=False, label="source root")
     # M2 迁移子门 GREEN（R-M4）：shard 断言必须有 consumer 与 evidence 成对支撑（计划书 L188）。
@@ -367,10 +369,19 @@ def check(
     expected_by_class: dict[str, dict[str, str]] = {}
     for target_class in ("shared_agents", "portable_current_tool"):
         try:
-            rendered = render_active_projection(
-                source_root=source,
-                target_class=target_class,
-            )
+                    # å·²æ¸²ææºï¼æ¸²æå¨éè¦ active_render ç­ç¥ï¼èè¿è¡æ¶è½½è·ç¦æ­¢æºå¸¦å®ï¼
+                    # å¯¹å·²æ¸²ææºèè¨ render(manifest) æç­äº manifest.projectionsï¼
+                    # å æ­¤vç´æ¥éç¨å¶å£°æçææç¶æï¼æ£æ¥ååº¦ä¸åã
+                    if source_is_rendered:
+                        rendered = materialize_rendered_projection(
+                            source_root=source,
+                            target_class=target_class,
+                        )
+                    else:
+                        rendered = render_active_projection(
+                            source_root=source,
+                            target_class=target_class,
+                        )
         except ActiveProjectionRenderError as exc:
             raise ValueError(f"active_projection_render_failed:{exc}") from exc
         expected_by_class[target_class] = {
@@ -1149,6 +1160,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--source", type=Path, default=ROOT)
     parser.add_argument(
+        "--source-is-rendered",
+        action="store_true",
+        help=(
+            "the source root already carries the rendered active projection "
+            "(no active_render policy); compare against its declared state"
+        ),
+    )
+    parser.add_argument(
         "--root",
         action="append",
         type=Path,
@@ -1249,6 +1268,7 @@ def main(argv: list[str] | None = None) -> int:
                                     roots=roots,
                                     projection=args.projection,
                                     receipt_roots=receipt_roots,
+                                    source_is_rendered=args.source_is_rendered,
                                 )
                             except (OSError, ValueError, json.JSONDecodeError) as exc:
                                 result = {
@@ -1267,6 +1287,7 @@ def main(argv: list[str] | None = None) -> int:
                     source=args.source,
                     roots=roots,
                     projection=args.projection,
+                    source_is_rendered=args.source_is_rendered,
                 )
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 result = {

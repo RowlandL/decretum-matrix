@@ -507,7 +507,86 @@ def render_active_projection(
     )
 
 
+def materialize_rendered_projection(
+    *,
+    source_root: Path,
+    target_class: str,
+) -> RenderedActiveProjection:
+    """Return the byte map of a source that is *already* the active projection.
+
+    A published artifact ships the projection after active rendering: its manifest
+    carries no ``active_render`` policy (the package gate forbids it) and its
+    ``projections`` list already equals the files present. Re-rendering is both
+    impossible and unnecessary, so the declared state is read directly.
+
+    Fail-closed: a manifest that still carries ``active_render`` is a *source*
+    manifest, not a rendered one, and is refused rather than silently trusted.
+    """
+
+    if target_class not in TARGET_PROJECTION_NAMES:
+        raise ActiveProjectionRenderError(f"target_class_invalid:{target_class}")
+    root = Path(source_root).resolve(strict=False)
+    manifest_path = _safe_source_path(root, PROJECTION_MANIFEST_RELATIVE)
+    cli_path = _safe_source_path(root, CLI_SURFACE_RELATIVE)
+    manifest, manifest_bytes = _read_json(manifest_path, label="projection_manifest")
+    cli_surface, cli_bytes = _read_json(cli_path, label="cli_surface")
+    if not isinstance(manifest, dict):
+        raise ActiveProjectionRenderError("projection_manifest_projections_missing")
+    if "active_render" in manifest:
+        raise ActiveProjectionRenderError("rendered_source_has_active_render")
+    raw_projections = manifest.get("projections")
+    if not isinstance(raw_projections, dict):
+        raise ActiveProjectionRenderError("projection_manifest_projections_missing")
+    if raw_projections.get("repository_only") != []:
+        raise ActiveProjectionRenderError("rendered_source_repository_only_present")
+    projections = _projection_lists(manifest)
+    identity_relative_value = manifest.get("identity_manifest")
+    if not _safe_relative(identity_relative_value):
+        raise ActiveProjectionRenderError("identity_manifest_relative_invalid")
+    identity_relative = PurePosixPath(str(identity_relative_value))
+    entries = [
+        *list(projections[target_class]),
+        *list(projections["cli_public"]),
+    ]
+    entries = [
+        entry
+        for entry in entries
+        if entry != PRELOAD_IDENTITY_RELATIVE.as_posix()
+    ]
+    for entry in entries:
+        if _lstat(_safe_source_path(root, PurePosixPath(entry))) is None:
+            raise ActiveProjectionRenderError(
+                f"rendered_source_projection_path_missing:{entry}"
+            )
+    files = _expand_projected_files(root, entries, [])
+    if (
+        PROJECTION_MANIFEST_RELATIVE not in files
+        or CLI_SURFACE_RELATIVE not in files
+        or identity_relative not in files
+    ):
+        raise ActiveProjectionRenderError("active_projection_manifests_not_projected")
+    files[PROJECTION_MANIFEST_RELATIVE] = manifest_bytes
+    files[CLI_SURFACE_RELATIVE] = cli_bytes
+    identity_path = _safe_source_path(root, identity_relative)
+    identity_status = _lstat(identity_path)
+    if identity_status is None or not stat.S_ISREG(identity_status.st_mode):
+        raise ActiveProjectionRenderError("identity_manifest_missing")
+    files[identity_relative] = identity_path.read_bytes()
+
+    return RenderedActiveProjection(
+        target_class=target_class,
+        projection_manifest=manifest,
+        cli_surface=cli_surface,
+        files=dict(sorted(files.items(), key=lambda item: item[0].as_posix())),
+        # 清单已是渲染产物，没有需要再排除的条目。
+        excluded_path_globs=(),
+        source_projection_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        source_cli_surface_sha256=hashlib.sha256(cli_bytes).hexdigest(),
+    )
+
+
 __all__ = [
+    "materialize_rendered_projection",
     "ACTIVE_RENDER_SCHEMA",
     "ActiveProjectionRenderError",
     "RenderedActiveProjection",

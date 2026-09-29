@@ -1061,6 +1061,7 @@ def _run_post_projection_acceptance(
     binding: dict[str, object],
     candidate: dict[str, object],
     installer_module: object,
+    source_is_rendered: bool = False,
 ) -> dict[str, object]:
     """Run the existing repository-only checker once after all projections."""
 
@@ -1085,6 +1086,9 @@ def _run_post_projection_acceptance(
         "--projection",
         "shared_agents",
     ]
+    if source_is_rendered:
+        # å·²åå¸äº§ç©çæå½±å·²æ¯æ¸²æäº§ç©ï¼æ£æ¥å¨æå¶å£°æçææç¶ææ¯å¯¹ã
+        command.append("--source-is-rendered")
     try:
         completed = subprocess.run(
             command,
@@ -1690,6 +1694,9 @@ def _install_update(
         explicit_tools=[],
         tool_roots={"codex": home / ".codex" / "skills" / NAME},
         projection_manifest=Path(selected) / PROJECTION_PATH,
+        # 安装源来自已发布包时，其投影清单已是渲染产物（运行时载荷禁止携带
+        # active_render），因此按已渲染源物化，而不是重新渲染。
+        source_is_rendered=bool(source_selection.get("source_is_rendered")),
         write=write,
         fanout=False,
         source_package_sha256=(
@@ -1761,6 +1768,7 @@ def _install_update(
                 ),
             })
         acceptance = _run_post_projection_acceptance(
+        source_is_rendered=bool(source_selection.get("source_is_rendered")),
             source=Path(selected),
             home=home,
             binding=binding,
@@ -2030,6 +2038,14 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
     )
     parser.add_argument("--apply", action="store_true", help="Apply the requested repair. Default is a read-only plan.")
     parser.add_argument("--source-root")
+    parser.add_argument(
+        "--source-is-rendered",
+        action="store_true",
+        help=(
+            "the source root already carries the rendered active projection "
+            "(no active_render policy); materialize it instead of re-rendering"
+        ),
+    )
     parser.add_argument("--mapped-root")
     parser.add_argument("--home-root")
     parser.add_argument("--root", action="append", default=[])
@@ -2124,6 +2140,11 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                     "status": "PUBLISHED_PACKAGE_SOURCE",
                     "reason": "published_package_install_source",
                 }
+    # å·²æ¸²ææºçå¤æ®ï¼æ¾å¼å¼å³ï¼ææ¥æºæ¯ååè§£åºçå®è£æºã
+    source_selection["source_is_rendered"] = bool(
+        args.source_is_rendered
+        or source_selection.get("status") == "PUBLISHED_PACKAGE_SOURCE"
+    )
     backup = resolve_user_path(args.backup_root, default=home) if args.backup_root else None
     try:
         if args.operation == "update":

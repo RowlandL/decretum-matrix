@@ -30,6 +30,7 @@ from install_projection_renderer import (
     ActiveProjectionRenderError,
     RenderedActiveProjection,
     active_path_is_excluded,
+    materialize_rendered_projection,
     render_active_projection,
 )
 
@@ -1296,6 +1297,7 @@ def _plan_projection_writes(
     selected: list[tuple[str, Path, str]],
     source_repository_only: tuple[PurePosixPath, ...],
     migration_sources: dict[Path, Path] | None = None,
+    source_is_rendered: bool = False,
 ) -> tuple[list[tuple[Path, bytes | None, bytes | None]], dict[str, int]]:
     rendered: dict[str, RenderedActiveProjection] = {}
     operations: list[tuple[Path, bytes | None, bytes | None]] = []
@@ -1308,10 +1310,18 @@ def _plan_projection_writes(
         inspection_root = migration_source or target
         if projection_name not in rendered:
             try:
-                rendered[projection_name] = render_active_projection(
-                    source_root=source_root,
-                    target_class=projection_name,
-                )
+                # 已发布产物携带的是渲染后的投影：直接采用其声明的状态，
+                # 不再重新渲染（渲染需要 active_render，而运行时载荷禁止携带它）。
+                if source_is_rendered:
+                    rendered[projection_name] = materialize_rendered_projection(
+                        source_root=source_root,
+                        target_class=projection_name,
+                    )
+                else:
+                    rendered[projection_name] = render_active_projection(
+                        source_root=source_root,
+                        target_class=projection_name,
+                    )
             except ActiveProjectionRenderError as exc:
                 raise _InstallContractError(
                     "active_projection_render_failed", str(exc)
@@ -2767,6 +2777,7 @@ def install_current_agent_copy(
     backup_root: Path | None = None,
     installation_binding: dict[str, object] | None = None,
     external_install_validation: dict[str, object] | None = None,
+    source_is_rendered: bool = False,
 ) -> dict[str, object]:
     """Plan or apply the manifest projection without real host discovery."""
 
@@ -2823,6 +2834,7 @@ def install_current_agent_copy(
                 for item in manifest["projections"]["repository_only"]
                 if isinstance(item, str)
             ),
+            source_is_rendered=source_is_rendered,
             migration_sources={
                 Path(str(item["canonical_root"])).resolve(strict=False): Path(
                     str(item["source_root"])
