@@ -73,9 +73,8 @@ def evaluate(root: Path = ROOT) -> dict[str, Any]:
             errors.append(f"active_version:SBOM.spdx.json documentNamespace:expected_prefix:{prefix}:got:{namespace}")
         core = one(read(root, "scripts/commands/release_payload_manifest.py"), r'(?m)^VERSION_CORE\s*=\s*"([^"]+)"', "generator_core")
         values["release_payload_manifest.py VERSION_CORE"] = core
-        # hotfix 标签延用基础版本号：发布标签可带 -hotfix-vN 后缀。
-        expected_core = TARGET.removeprefix("beta").split("-hotfix-v")[0]
-        if core != expected_core:
+        # hotfix 标签延用基础版本号
+        if core != TARGET.removeprefix("beta").split("-hotfix-v")[0]:
             errors.append(f"active_version:release_payload_manifest.py VERSION_CORE:expected:{TARGET.removeprefix('beta')}:got:{core}")
     except (AssertionError, FileNotFoundError, json.JSONDecodeError, TypeError, ValueError, KeyError, AttributeError) as exc:
         errors.append(f"active_version:derived:{exc}")
