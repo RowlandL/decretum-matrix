@@ -36,7 +36,13 @@ python -B scripts/commands/refresh_capability_registry.py --apply --yes
 | `installation_binding` | `court.installation_binding.v2` | ✅ 已有：`~/.agents/install-receipts/decretum-matrix/installation-binding-v2.json` |
 | **`refresh_transaction`** | `court.capability.refresh_transaction.v1` | ❌ **缺** |
 
-**`refresh_transaction` 的产生者**：`scripts/court_capability_recruitment.py`（吏部/户部能力招募 registry pass，全仓 27 处引用该 schema）。
+**`refresh_transaction` 的产生者**：**在交付物中不存在**（2026-09-29 核实）。
+
+- `scripts/court_capability_recruitment.py` 共 45 个函数，其中**只有 `_refresh_transaction_errors`** 与本 schema 相关 —— 它是**纯校验器**，无构造器、无写盘。
+- 该模块**没有任何 CLI/entrypoint**，只被两个检查器导入：`check_capability_index_gate.py`、`check_court_capability_recruitment.py`。
+- 命令面 162 条里与本主题相关的仅 4 条，其中 3 条为 `read_only` 检查器，唯一可写的是 `refresh-capability-registry`（即消费者本身）。
+- 全机扫描：**没有任何文件包含 `capability.refresh_transaction` 这一 schema** —— 该事务在本机从未被产出过。
+- ⚠️ 本文件早先版本曾写"产生者是 `court_capability_recruitment.py`"，那是**未经验证的推断，已证伪并更正**。
 
 ## 四、执行步骤（须由 court 派遣，不得由训练任务代办）
 
@@ -57,8 +63,17 @@ python -B scripts/commands/refresh_capability_registry.py --apply --yes
 ## 五、硬边界
 
 - ⛔ **不得伪造 `refresh_transaction`**。手工构造该回执等于伪造治理证据，会使 registry pass 失去可追溯性。
+- 之所以不能"顺手造一个"：校验器要求 `registry_generation`、`source_paths`（必须**精确等于** 818 条记录源路径的排序列表）、`installation_id` 三者同时精确匹配（`refresh_capability_registry.py:768-777`）。这是**设计上的循环绑定**——事务只能由一次**真实已提交**的招募事务产出，而该产出流程不在交付物内。
 - 本能力为 **advisory / read_only / `execution_authority=false`**：刷新只决定它能否被检索到，不授予任何执行权威。
 - 刷新不改动 `CONTENT_TAXONOMY`，不写史馆记录。
+
+## 五点五、这意味着什么
+
+| 事实 | 影响 |
+| --- | --- |
+| 能力**已可用**：CLI `query-shiguan-recall` + MCP `shiguan.recall` / `shiguan.recall_stats` 均已注册并通过 CI | 未登记**不影响调用** |
+| 未登记于 `installed-capabilities-manifest.json`（577 条）| 仅影响**能力索引/开朝/派遣检索的可发现性** |
+| 写入路径在本版本**结构不可达** | 需求方需二选一：**实现产出者**（bounded 产品变更）或**接受不登记** |
 
 ## 六、附带说明（供派遣时知情）
 
