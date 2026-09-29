@@ -1363,12 +1363,10 @@ def _infer_payload_kind(path: Path) -> str:
             )
     except (OSError, KeyError, UnicodeError, json.JSONDecodeError, zipfile.BadZipFile):
         return PAYLOAD_KIND_SOURCE
-    return (
-        PAYLOAD_KIND_RUNTIME
-        if isinstance(manifest, dict)
-        and manifest.get("payload_kind") == PAYLOAD_KIND_RUNTIME
-        else PAYLOAD_KIND_SOURCE
-    )
+    declared = manifest.get("payload_kind") if isinstance(manifest, dict) else None
+    if declared in RUNTIME_LIKE_PAYLOAD_KINDS or declared == PAYLOAD_KIND_SOURCE:
+        return str(declared)
+    return PAYLOAD_KIND_SOURCE
 
 
 def validate_zip(
