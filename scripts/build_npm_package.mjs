@@ -2067,6 +2067,10 @@ export async function runSyntheticSelfTest() {
       Buffer.byteLength(packageText, "utf8") +
       Buffer.byteLength(readmeText, "utf8") +
       fixtureContract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
+      (fixtureContract.installerFiles || []).reduce(
+        (total, file) => total + file.size,
+        0,
+      ) +
       fixtureContract.legalFiles.reduce((total, file) => total + file.size, 0) +
       syntheticAssets.reduce((total, asset) => total + asset.size, 0);
     const npmState = await prepareNpmState(root);
@@ -3855,6 +3859,10 @@ async function createLocalInstallCandidatePackage({
       Buffer.byteLength(packageText, "utf8") +
       Buffer.byteLength(readmeText, "utf8") +
       localContract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
+      (localContract.installerFiles || []).reduce(
+        (total, file) => total + file.size,
+        0,
+      ) +
       candidate.assets.reduce((total, asset) => total + asset.size, 0) +
       localContract.legalFiles.reduce((total, file) => total + file.size, 0);
     const dryRun = await npmPackDryRun(
@@ -5000,6 +5008,10 @@ export async function createVerifiedPackage({
       Buffer.byteLength(packageText, "utf8") +
       Buffer.byteLength(readmeText, "utf8") +
       contract.runtimeFiles.reduce((total, file) => total + file.size, 0) +
+      (contract.installerFiles || []).reduce(
+        (total, file) => total + file.size,
+        0,
+      ) +
       releaseValidation.assets.reduce((total, asset) => total + asset.size, 0) +
       contract.legalFiles.reduce((total, file) => total + file.size, 0);
 
