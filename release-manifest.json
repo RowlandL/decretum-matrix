@@ -573,8 +573,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "828ed1c4e9d31863d39ebe368869ec1ef94a6085b5717c606281913ad7bfd6d8",
-      "size": 55290
+      "sha256": "936ccc471b9256d6396b589deb94fd89aa146bdc9dc56fa1b3b44530b0d97f9c",
+      "size": 55036
     },
     {
       "mode": "100644",
@@ -1611,7 +1611,7 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_package_privacy.py",
-      "sha256": "fc3350e392403c5dd700e0d84dd1fd2df387651219bf05e91a80e2de046a1a00",
+      "sha256": "b6126763ed8218c9a10cf91e279aa303309073a79502291768f3bf294e8b2f98",
       "size": 71747
     },
     {
@@ -1667,6 +1667,12 @@
       "path": "scripts/checks/check_runtime_identity_contract.py",
       "sha256": "8686c2fa827a1e7842042d87d134bdd210f3f3bb2cc549b6517207ae980251a3",
       "size": 13977
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_runtime_no_file_rehash.py",
+      "sha256": "fa77c60b20c73b9fd8eaa7805fd0801a1c88ab46c29787d95d9cf94b989afb02",
+      "size": 5359
     },
     {
       "mode": "100644",
@@ -3088,11 +3094,11 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9147076,
-    "payload_file_count": 509,
+    "payload_bytes": 9152181,
+    "payload_file_count": 510,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "b7156fff3f06a4f5fe955822dea011582cc08b9b93a90960a2beb8c8ad9bd577",
-    "source_packaged_tracked_file_count": 501,
+    "payload_index_sha256": "a3380710a74223ef0989469388ee200a67b2530918ee9c7205e4756a65aabdac",
+    "source_packaged_tracked_file_count": 502,
     "source_tracked_file_count": 666
   },
   "license": {
@@ -3263,7 +3269,6 @@
     "scripts/build_npm_package.mjs",
     "scripts/check_npm_package.mjs",
     "scripts/checks/check_active_copy_hashes.py",
-    "scripts/checks/check_runtime_no_file_rehash.py",
     "scripts/checks/installed_identity_fixture.py",
     "training/laya-shiguan/.gitignore",
     "training/laya-shiguan/docs/model-provenance.md",
