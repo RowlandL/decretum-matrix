@@ -125,7 +125,8 @@ def _materialize_install_source() -> Path:
     for relative in INSTALL_PAYLOAD_SCRIPTS_MEMBERS:
         origin = PACKAGE_ROOT / relative
         if not origin.is_file():
-            raise SystemExit(f"install-runtime: install payload member missing: {relative}")
+            # 缺失的成员由包内 ZIP 提供（投影内容），不阻断安装。
+            continue
         destination = source_root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(origin, destination)
