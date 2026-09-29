@@ -2031,8 +2031,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/fix_decretum_matrix.py",
-      "sha256": "392311660eeac1a42e1407c3d8759468f9ee060db65b0d4fbc4a2d55c9404d6c",
-      "size": 85467
+      "sha256": "1a64e6c7c5f85e03496a75fd876c6c45a598e4460b9ebcd5cd04e3e4d568fbf2",
+      "size": 86186
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9173699,
+    "payload_bytes": 9174418,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "17a90bf4a95b5afecd8481667fd7a009e6c1706ebaa3833c017b827b617e51ba",
+    "payload_index_sha256": "f30c46bbc7e34a47f37afc254a8b440265c4ea6b46634d6a0b16cc65827f6079",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 668
   },

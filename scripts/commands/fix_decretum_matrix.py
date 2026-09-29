@@ -303,11 +303,27 @@ def _candidate_binding_metadata(
         if _nonempty(value) is None or any(char in value for char in "/\\\x00"):
             raise RuntimeError(f"{label}_invalid")
 
-    status = _git_output(source, "status", "--porcelain", "--untracked-files=no")
-    if status:
-        raise RuntimeError("candidate_source_tracked_worktree_dirty")
-    source_commit = _git_output(source, "rev-parse", "HEAD")
-    source_tree = _git_output(source, "rev-parse", "HEAD^{tree}")
+    package = _read_json_object(package_root / "package.json", label="candidate_package")
+    package_identity = package.get("decretumMatrix")
+    if not isinstance(package_identity, dict):
+        raise RuntimeError("candidate_package_metadata_missing")
+    schema = package_identity.get("schema")
+    if schema == PUBLISHED_PACKAGE_SCHEMA:
+        # 已发布包解出的安装源不是 git 仓库：提交/树取自包声明的身份，并在下面用解出树
+        # 的 VERSION 与 release-manifest.json（artifactRef / buildId）交叉校验。
+        identity_source = package_identity.get("source")
+        if not isinstance(identity_source, dict):
+            raise RuntimeError("candidate_package_source_identity_missing")
+        source_commit = _nonempty(identity_source.get("commit"))
+        source_tree = _nonempty(identity_source.get("tree"))
+        if not source_commit or not source_tree:
+            raise RuntimeError("candidate_package_source_identity_missing")
+    else:
+        status = _git_output(source, "status", "--porcelain", "--untracked-files=no")
+        if status:
+            raise RuntimeError("candidate_source_tracked_worktree_dirty")
+        source_commit = _git_output(source, "rev-parse", "HEAD")
+        source_tree = _git_output(source, "rev-parse", "HEAD^{tree}")
     try:
         release_label = (source / "VERSION").read_text(encoding="utf-8").strip()
         source_manifest = _read_json_object(
@@ -329,11 +345,6 @@ def _candidate_binding_metadata(
     expected_artifact_ref = f"release/{artifact_name}@{source_commit}"
     expected_build_id = f"{release_label}:{source_commit}:{source_tree}"
 
-    package = _read_json_object(package_root / "package.json", label="candidate_package")
-    package_identity = package.get("decretumMatrix")
-    if not isinstance(package_identity, dict):
-        raise RuntimeError("candidate_package_metadata_missing")
-    schema = package_identity.get("schema")
     payload_kind = package_identity.get("payloadKind")
     if schema == CANDIDATE_PACKAGE_SCHEMA:
         if payload_kind not in ("runtime", "install_source"):
