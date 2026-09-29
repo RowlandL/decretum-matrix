@@ -313,11 +313,19 @@ const LEGAL_PATHS = Object.freeze([
 // 的显式允许清单内，因此不会被投影进已安装副本（references/validation-packaging.md:3）。
 // court_diagnostics / release_payload_manifest 不在此列——它们属于活动投影，随包内
 // release/*.zip 分发。
+// 包内负载清单必须与 bin/install-runtime.py 的 INSTALL_PAYLOAD_SCRIPTS_MEMBERS
+// 逐项一致（缺一即拒绝安装）。其中五个同时随 ZIP 分发，故可列为运行时文件；
+// 另外三个是 source-only checker，只能留在包内（见 INSTALLER_ONLY_PATHS）。
 const INSTALL_SOURCE_PATHS = Object.freeze([
   "scripts/install_current_agent_copy.py",
   "scripts/install_projection_renderer.py",
   "scripts/fix_decretum_matrix.py",
   "scripts/commands/fix_decretum_matrix.py",
+  "scripts/court_diagnostics.py",
+  "scripts/commands/package_skill.py",
+  "scripts/commands/release_payload_manifest.py",
+  "scripts/package_skill.py",
+  "scripts/release_payload_manifest.py",
 ]);
 
 const CLI_RUNTIME_PATHS = Object.freeze([
@@ -1375,8 +1383,13 @@ export async function runSyntheticSelfTest() {
         Object.freeze({ path: legalPath, sha256, size }),
       ),
     );
+    const fixtureCopiedPaths = new Set([
+      ...CLI_RUNTIME_PATHS,
+      "VERSION",
+      "release-manifest.json",
+    ]);
     for (const relativePath of CRITICAL_HEAD_BOUND_PATHS.filter(
-      (item) => !["VERSION", "release-manifest.json"].includes(item),
+      (item) => !fixtureCopiedPaths.has(item),
     )) {
       await copyFile(
         path.join(REPO_ROOT, ...relativePath.split("/")),
