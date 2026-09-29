@@ -2877,7 +2877,7 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
       decretumMatrix: {
         schema: "decretum.npm_local_install_candidate.v1",
         candidate: "local-install",
-        payloadKind: "runtime",
+        payloadKind: "install_source",
         private: true,
         publication: "FORBIDDEN",
         releaseLabel: contract.releaseLabel,
@@ -2970,7 +2970,7 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
     decretumMatrix: {
       schema: "decretum.npm_release.v2",
       candidate: "legal-v2",
-      payloadKind: "runtime",
+      payloadKind: "install_source",
       distTag: contract.distTag,
       releaseLabel: contract.releaseLabel,
       artifactRef: `release/${contract.identity.artifactName}@${contract.sourceCommit}`,

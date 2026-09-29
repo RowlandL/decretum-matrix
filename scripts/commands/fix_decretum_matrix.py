@@ -43,6 +43,8 @@ from court_diagnostics import (
 SCHEMA = "decretum.fix.v1"
 CANDIDATE_RECEIPT_SCHEMA = "court.release_candidate_receipt.v1"
 CANDIDATE_PACKAGE_SCHEMA = "decretum.npm_local_install_candidate.v1"
+# 已发布包也是合法安装源（.scratch/install-from-published-artifact/spec.md D1）。
+PUBLISHED_PACKAGE_SCHEMA = "decretum.npm_release.v2"
 CANDIDATE_STATE = "CANDIDATE_NOT_RELEASED"
 INSTALLATION_ACCEPTANCE_SCHEMA = "court.installation_acceptance.v1"
 POST_PROJECTION_PRODUCER_SCHEMA = "court.active_copy_hashes.v2"
@@ -330,14 +332,30 @@ def _candidate_binding_metadata(
     package_identity = package.get("decretumMatrix")
     if not isinstance(package_identity, dict):
         raise RuntimeError("candidate_package_metadata_missing")
-    if package_identity.get("schema") != CANDIDATE_PACKAGE_SCHEMA:
+    schema = package_identity.get("schema")
+    payload_kind = package_identity.get("payloadKind")
+    if schema == CANDIDATE_PACKAGE_SCHEMA:
+        if payload_kind not in ("runtime", "install_source"):
+            raise RuntimeError("candidate_package_payload_kind_mismatch")
+        if (
+            package_identity.get("candidate") != "local-install"
+            or package_identity.get("private") is not True
+        ):
+            raise RuntimeError("candidate_package_not_private_local")
+        if package_identity.get("publication") != "FORBIDDEN":
+            raise RuntimeError("candidate_package_publication_not_forbidden")
+    elif schema == PUBLISHED_PACKAGE_SCHEMA:
+        # 已发布包必须声明 install_source 载荷，且不得伪装成私有候选。
+        if payload_kind != "install_source":
+            raise RuntimeError("candidate_package_payload_kind_mismatch")
+        if (
+            package_identity.get("candidate") == "local-install"
+            or package_identity.get("private") is True
+            or package_identity.get("publication") == "FORBIDDEN"
+        ):
+            raise RuntimeError("candidate_package_identity_conflict")
+    else:
         raise RuntimeError("candidate_package_schema_mismatch")
-    if package_identity.get("payloadKind") != "runtime":
-        raise RuntimeError("candidate_package_payload_kind_mismatch")
-    if package_identity.get("candidate") != "local-install" or package_identity.get("private") is not True:
-        raise RuntimeError("candidate_package_not_private_local")
-    if package_identity.get("publication") != "FORBIDDEN":
-        raise RuntimeError("candidate_package_publication_not_forbidden")
     package_label = _nonempty(package_identity.get("releaseLabel"))
     package_artifact_ref = _nonempty(package_identity.get("artifactRef"))
     package_build_id = _nonempty(package_identity.get("buildId"))
