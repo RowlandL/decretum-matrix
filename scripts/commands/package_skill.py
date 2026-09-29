@@ -862,7 +862,12 @@ def copy_runtime_projection(
         _write_stage_file(destination, relative_text, payload)
 
 
-def _write_runtime_release_manifest(stage: Path, source_root: Path) -> None:
+def _write_runtime_release_manifest(
+    stage: Path,
+    source_root: Path,
+    *,
+    payload_kind: str = PAYLOAD_KIND_RUNTIME,
+) -> None:
     """Write a manifest for the materialized runtime payload using existing inventory helpers."""
 
     try:
@@ -888,7 +893,7 @@ def _write_runtime_release_manifest(stage: Path, source_root: Path) -> None:
         entries.append(inventory_entry(relative, data))
     entries.sort(key=lambda entry: str(entry["path"]).encode("utf-8"))
     manifest = dict(source_manifest)
-    manifest["payload_kind"] = PAYLOAD_KIND_RUNTIME
+    manifest["payload_kind"] = payload_kind
     manifest["files"] = entries
     integrity = dict(manifest.get("integrity") or {})
     index = payload_index(entries)
@@ -1697,7 +1702,7 @@ def build(
         try:
             write_core_shiguan_files(stage, source_root=src)
             if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS:
-                _write_runtime_release_manifest(stage, src)
+                _write_runtime_release_manifest(stage, src, payload_kind=payload_kind)
             stage_problems = run_stage_validation(
                 stage,
                 payload_kind=payload_kind,
