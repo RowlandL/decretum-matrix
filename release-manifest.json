@@ -2979,8 +2979,8 @@
     {
       "mode": "100644",
       "path": "training/laya-shiguan/scripts/build_corpus.py",
-      "sha256": "d37bca8f10c86e130b268a349a0bb237aece9af5716dab43ad45f37cdd94667e",
-      "size": 20273
+      "sha256": "63d384a8f86ba1f4b03723ac788dfb38ba1894273090a2414f5459c9a787e6f6",
+      "size": 20254
     },
     {
       "mode": "100644",
@@ -3076,10 +3076,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9136232,
+    "payload_bytes": 9136213,
     "payload_file_count": 507,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "d164466e8b11b13b24a191ff37239442b0247066533c18d8178e6a784275bc2f",
+    "payload_index_sha256": "ea9d4cd8444f1989b9d6911b9f0175d6e84eea55cc3075c3c2c58ba58ea6c1b9",
     "source_packaged_tracked_file_count": 499,
     "source_tracked_file_count": 664
   },
