@@ -57,8 +57,8 @@
     {
       "mode": "100644",
       "path": "INSTALL-README-AI.md",
-      "sha256": "13eb81c0e4fd7a751be128589551376223727f71203723b534a46ea1c1745598",
-      "size": 10022
+      "sha256": "124ca7a2b6a0d518938b12794e680a084363b899170a776c8ff2bbfa01784728",
+      "size": 10725
     },
     {
       "mode": "100644",
@@ -447,8 +447,8 @@
     {
       "mode": "100644",
       "path": "references/court-closeout-validation.md",
-      "sha256": "944eebd03c966fe25a9771d7df75a52d16db8f38ea30b38f3d59370453928e25",
-      "size": 44731
+      "sha256": "c1c785cd0ae0a5b38f55d0f2ab0b61393ecb16d9a137052b13f55c7716fe5b9a",
+      "size": 45076
     },
     {
       "mode": "100644",
@@ -537,8 +537,8 @@
     {
       "mode": "100644",
       "path": "references/install.md",
-      "sha256": "db572c155d53e3fb8abb6a5209bd00015cc42cf81e4aff583c46a24f18ec2566",
-      "size": 10378
+      "sha256": "0dffa4af5a972bdc5a6e168325fac9eabc28774a8b956ae6a1b95856a5c6a819",
+      "size": 10668
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9183646,
+    "payload_bytes": 9184984,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "003ab123899ecd3dabc1ae609540069f4f6330723c558c9dfe539f397220f50d",
+    "payload_index_sha256": "73b96cda0cda6f3abe2b9d4762e6762ffb0754565a8e293c5f88c1d595dc3c69",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 668
   },

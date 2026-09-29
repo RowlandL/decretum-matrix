@@ -13,6 +13,21 @@ separate from `INSTALL-PROMPT.md`, which is the human-oriented offline prompt.
 - `court-capability-router` is deprecated and may only resolve to the same
   physical authority after a receipt-bound migration probe.
 
+## Install Sources
+
+An installation may be driven from either source:
+
+1. A source checkout, whose projection manifest still carries the
+   `active_render` policy; the projection is rendered from it at install time.
+2. A published artifact (the npm package or its release ZIP), whose projection
+   manifest is already the rendered result. Installation compares against that
+   declared state; `render(manifest)` equals `manifest.projections` there, so
+   the expected byte set is identical to a fresh render.
+
+The two sources are equivalent. A source that declares itself rendered while
+still carrying `active_render` is refused. Runtime payloads never carry
+`active_render` -- that gate is unchanged.
+
 ## Installation Targets
 
 Default Windows targets are:

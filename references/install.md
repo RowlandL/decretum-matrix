@@ -59,8 +59,12 @@ receipts: it is a read-only plan by default and requires `--apply` for any
 write. Every invocation emits a `workspace.operation_event.v1` intent/result
 pair under the git-mirror `.repo-control/events/decretum-matrix/` path.
 
-During beta development the default source authority is the local checkout.
-The intended post-publication default is a pinned GitHub release of
+During beta development the default source authority is the local checkout, and
+a published artifact is also a lawful install source: it carries the install
+driver and its projection manifest already in rendered form, so installation
+compares against that declared state instead of re-rendering. Runtime payloads
+never carry `active_render`; that gate is unchanged. The intended
+post-publication default is a pinned GitHub release of
 `RowlandL/decretum-matrix`; network fetching is deliberately disabled in the
 beta implementation until a release tag, commit, and artifact SHA are bound.
 If a UNC checkout is not usable by a host subprocess, pass both roots. The

@@ -451,9 +451,14 @@ and final drift checks.
 For an installed standard task, use `decretum-matrix shiguan archive-runtime-task`
 and verify its producer/runtime receipts; query the same case through CLI/MCP.
 Follow `validation-packaging.md` for the boundary between runtime operations and
-source maintenance. Installation/package validators require a source checkout;
-their absence from the active skill is deliberate and never a startup repair
-trigger. Package-ready still requires source gate receipts, and packaging needs
+source maintenance. Installation/package validators require an install source:
+a source checkout, or a published artifact whose projection manifest is already
+the rendered result. Both are equivalent -- for a rendered source
+`render(manifest)` equals `manifest.projections`, so the expected byte set is
+identical to a fresh render, and a source that declares itself rendered while
+still carrying `active_render` is refused. Their absence from the active skill
+is deliberate and never a startup repair trigger. Package-ready still requires
+source gate receipts, and packaging needs
 the current user's authority. Do not manufacture a successful receipt from a
 missing checker or from unrelated past checks.
 
