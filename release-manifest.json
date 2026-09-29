@@ -93,8 +93,8 @@
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "5c2e9ff585e638082fb35f854d90eb61ee36f202757f1d016f5e1f5d19d0463e",
-      "size": 2314
+      "sha256": "f12f2e5294d436fb8977d3b375eb10bd1d9147a06f6af1c57d00860756b8e124",
+      "size": 875
     },
     {
       "mode": "100644",
@@ -3094,10 +3094,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9152267,
+    "payload_bytes": 9150828,
     "payload_file_count": 510,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "36a3e2e064db37f06ad888c4020a147d2430ee259477f8eb4e3d521b6b4f1263",
+    "payload_index_sha256": "5cf590f2cead4acecebba248040f6cdd8282ac6b9dbdc60276dab549558e6a18",
     "source_packaged_tracked_file_count": 502,
     "source_tracked_file_count": 666
   },
