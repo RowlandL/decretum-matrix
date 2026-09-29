@@ -1,5 +1,17 @@
 # Changelog
 
+## beta1.1.6-hotfix-v1 - 2026-09-30
+
+### Fixed
+
+- 发布形态 npm 包缺少安装负载成员（12 项里只有 7 项），在无源码检出的主机上 `install` 直接失败。
+- 发布包未携带候选回执、`decretumMatrix` 未声明 `candidateReceipt`，驱动无法从包身份派生 installation binding。
+- 打包白名单 `expectedPackFiles` 与运行时资产列表不同源，候选回执被判为清单外文件。
+
+### Added
+
+- 新增「包内 installer-only」类别：source-only checker 只随包分发，不进入运行时载荷。
+
 ## beta1.1.6 - 2026-09-30
 
 ### Added

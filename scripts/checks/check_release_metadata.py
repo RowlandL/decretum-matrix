@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 META = "references/manifests/github-release-metadata.v1.json"
 ICON = "assets/brand/decretum-matrix-icon.svg"
-TARGET = "beta1.1.6"
+TARGET = "beta1.1.6-hotfix-v1"
 PRIVATE = "0.0.0-private"
 def read(root: Path, path: str) -> str:
     return (root / path).read_text(encoding="utf-8")
@@ -73,7 +73,9 @@ def evaluate(root: Path = ROOT) -> dict[str, Any]:
             errors.append(f"active_version:SBOM.spdx.json documentNamespace:expected_prefix:{prefix}:got:{namespace}")
         core = one(read(root, "scripts/commands/release_payload_manifest.py"), r'(?m)^VERSION_CORE\s*=\s*"([^"]+)"', "generator_core")
         values["release_payload_manifest.py VERSION_CORE"] = core
-        if core != TARGET.removeprefix("beta"):
+        # hotfix 标签延用基础版本号：发布标签可带 -hotfix-vN 后缀。
+        expected_core = TARGET.removeprefix("beta").split("-hotfix-v")[0]
+        if core != expected_core:
             errors.append(f"active_version:release_payload_manifest.py VERSION_CORE:expected:{TARGET.removeprefix('beta')}:got:{core}")
     except (AssertionError, FileNotFoundError, json.JSONDecodeError, TypeError, ValueError, KeyError, AttributeError) as exc:
         errors.append(f"active_version:derived:{exc}")

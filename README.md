@@ -13,7 +13,7 @@ skill 环境中运行。内置的分层治理实现是完整默认治理；GBrai
 | 项目 | 值 |
 | --- | --- |
 | 规范调用 | `$decretum-matrix` |
-| 当前 GitHub 发布线 | `beta1.1.6` |
+| 当前 GitHub 发布线 | `beta1.1.6-hotfix-v1` |
 | npm beta 渠道 | `1.1.2-beta.0`（独立发布通道，以远端回读为准） |
 | 接口面 | 统一 CLI `decretum-matrix` + 只读 stdio MCP（13 个工具） |
 | 许可 | AGPL-3.0-only（商业许可需另行书面签署） |
@@ -68,7 +68,7 @@ authority 的受控兼容 locator；不能保留第二份可写副本。
 
 已发行版本的安装、回滚与安装前检查由对应的外置安装事务和独立回执确认。安装后的
 skill 根不保留 release manifest、release gate、hash checker 或其他发布校验 helper。
-`beta1.1.6` 不承诺自动安装或复用 `zellij`、`squad` 或其他额外依赖；任何额外依赖
+`beta1.1.6-hotfix-v1` 不承诺自动安装或复用 `zellij`、`squad` 或其他额外依赖；任何额外依赖
 都必须由明确授权的外置安装事务处理，并以独立回执确认。
 
 ### 1.4 安装后验证
@@ -212,7 +212,7 @@ receipt-bound CLI，真实派遣走宿主。
 
 ## 6. 版本
 
-当前源码活动版本为 `beta1.1.6`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
+当前源码活动版本为 `beta1.1.6-hotfix-v1`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
 安装/发布回执为准；分支名只是当前工作载体，tag、GitHub Release、npm 以及线上 Wiki
 的成功状态只由对应发布回读证明。
 
@@ -220,7 +220,7 @@ receipt-bound CLI，真实派遣走宿主。
 跨平台预载预算修复。必读 UTF-8 文本按逻辑换行计量，20 KiB 总预算与普通官署
 768-byte 余量均未放宽；NIUbash 继续只是可选兼容入口。
 
-`beta1.1.6` 是当前 GitHub 发布版本；npm beta 是独立发布通道。根 `package.json`
+`beta1.1.6-hotfix-v1` 是当前 GitHub 发布版本；npm beta 是独立发布通道。根 `package.json`
 继续保持 version-neutral 的 `0.0.0-private`，历史版本和历史发布说明继续保留。
 
 - `beta1.0.8` 曾完成发布阶段全量门禁与收据/锚点同步（领域化账册、统一编号、谱系防

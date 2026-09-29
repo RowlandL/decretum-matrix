@@ -6,8 +6,19 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.6",
+  "latest_tag": "beta1.1.6-hotfix-v1",
   "releases": [
+    {
+      "asset_note": "beta1.1.6-hotfix-v1 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
+      "highlights": [
+        "修复发布包缺少安装负载成员的问题：发布形态包现在自带 install-runtime 要求的全部 12 项成员。",
+        "发布包携带候选回执并声明 candidateReceipt，使无源码检出的主机可凭包身份派生 installation binding 并完成安装。",
+        "对齐打包白名单与运行时资产列表，消除候选回执被漏出包清单的校验断点。"
+      ],
+      "summary": "beta1.1.6-hotfix-v1 让已发布包真正可独立安装：负载成员、候选回执与打包白名单三处对齐。",
+      "tag": "beta1.1.6-hotfix-v1",
+      "title": "Decretum Matrix beta1.1.6-hotfix-v1"
+    },
     {
       "asset_note": "beta1.1.6 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
       "highlights": [
