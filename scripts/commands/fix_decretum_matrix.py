@@ -278,6 +278,25 @@ def _validate_candidate_zip_payload(path: Path) -> None:
         )
 
 
+def _published_identity_probe(package_root: Path) -> dict[str, object] | None:
+    """Return the declared identity when this package is a published package.
+
+    Tolerant on purpose: a missing or unreadable package.json is not this
+    function's error to raise, so the original diagnostics stay in charge.
+    """
+
+    try:
+        package = _read_json_object(
+            package_root / "package.json", label="candidate_package"
+        )
+    except (OSError, RuntimeError, ValueError):
+        return None
+    identity = package.get("decretumMatrix")
+    if not isinstance(identity, dict) or identity.get("schema") != PUBLISHED_PACKAGE_SCHEMA:
+        return None
+    return identity
+
+
 def _candidate_binding_metadata(
     source: Path,
     *,
@@ -303,15 +322,11 @@ def _candidate_binding_metadata(
         if _nonempty(value) is None or any(char in value for char in "/\\\x00"):
             raise RuntimeError(f"{label}_invalid")
 
-    package = _read_json_object(package_root / "package.json", label="candidate_package")
-    package_identity = package.get("decretumMatrix")
-    if not isinstance(package_identity, dict):
-        raise RuntimeError("candidate_package_metadata_missing")
-    schema = package_identity.get("schema")
-    if schema == PUBLISHED_PACKAGE_SCHEMA:
+    published_identity = _published_identity_probe(package_root)
+    if published_identity is not None:
         # 已发布包解出的安装源不是 git 仓库：提交/树取自包声明的身份，并在下面用解出树
         # 的 VERSION 与 release-manifest.json（artifactRef / buildId）交叉校验。
-        identity_source = package_identity.get("source")
+        identity_source = published_identity.get("source")
         if not isinstance(identity_source, dict):
             raise RuntimeError("candidate_package_source_identity_missing")
         source_commit = _nonempty(identity_source.get("commit"))
@@ -345,6 +360,11 @@ def _candidate_binding_metadata(
     expected_artifact_ref = f"release/{artifact_name}@{source_commit}"
     expected_build_id = f"{release_label}:{source_commit}:{source_tree}"
 
+    package = _read_json_object(package_root / "package.json", label="candidate_package")
+    package_identity = package.get("decretumMatrix")
+    if not isinstance(package_identity, dict):
+        raise RuntimeError("candidate_package_metadata_missing")
+    schema = package_identity.get("schema")
     payload_kind = package_identity.get("payloadKind")
     if schema == CANDIDATE_PACKAGE_SCHEMA:
         if payload_kind not in ("runtime", "install_source"):
