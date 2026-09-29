@@ -345,6 +345,7 @@ PACKAGE_INSTALL_VALIDATION_FILES = frozenset(
 EXCLUDE_DIRS = {
     "__pycache__",
     ".repo-control",
+    ".scratch",
     ".github",
     ".pytest_cache",
     ".mypy_cache",

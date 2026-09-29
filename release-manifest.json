@@ -422,6 +422,12 @@
     },
     {
       "mode": "100644",
+      "path": "bin/install-runtime.py",
+      "sha256": "7736f3b258fb349769ac71f16d170fbb0e4c44c6c61dbf721059bc2529d6856f",
+      "size": 2464
+    },
+    {
+      "mode": "100644",
       "path": "references/README.md",
       "sha256": "6c9ddea44e9d69c18af40532ba2b90799f7e1da89c1057bd3dcfb304052bd7cc",
       "size": 5309
@@ -1557,8 +1563,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_current_agent_copy.py",
-      "sha256": "b84e94895b08ce31e4dcad7d4ebbb6057d51c9ff92c02b6a1363dcf01dc8117f",
-      "size": 211802
+      "sha256": "7e3459d8d8923e574381fc222aad8b41e223e00cf6d79eef85cf2dc8339c4e86",
+      "size": 217830
     },
     {
       "mode": "100644",
@@ -2025,8 +2031,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/fix_decretum_matrix.py",
-      "sha256": "684efc180c9e20d8d3b100f315f33ac8ac77cc7fef3a675ac502c4d3048c9522",
-      "size": 80672
+      "sha256": "c3946bcd60da65962876146a13ec95f453740b2d51732d202e29cfee513a9a9f",
+      "size": 82242
     },
     {
       "mode": "100644",
@@ -2085,8 +2091,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/package_skill.py",
-      "sha256": "1d077765add850d5ad43160cabd8ef08458eb0156e8678f996bb9224ecbe6579",
-      "size": 65785
+      "sha256": "8bea6b7b008986cf939d7df74245b8b92807ae3379499fe58fc48c1f257ecdeb",
+      "size": 66264
     },
     {
       "mode": "100644",
@@ -2559,8 +2565,8 @@
     {
       "mode": "100644",
       "path": "scripts/install_current_agent_copy.py",
-      "sha256": "415b8d6a0d44bf8fc5c3433cc5c85b1f02fd77fb38cdb0d912e045cd130328dc",
-      "size": 114004
+      "sha256": "1623433bfb5f958e9f2d8bfb47c7b89453560647f1bb3ee1f98741f6f4602289",
+      "size": 119178
     },
     {
       "mode": "100644",
@@ -3094,12 +3100,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9150828,
-    "payload_file_count": 510,
+    "payload_bytes": 9166543,
+    "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "5cf590f2cead4acecebba248040f6cdd8282ac6b9dbdc60276dab549558e6a18",
-    "source_packaged_tracked_file_count": 502,
-    "source_tracked_file_count": 666
+    "payload_index_sha256": "61bc029c3acfab439b3a0ee395a28d57f63d7bda53350a5e441ffd7c7528cdbc",
+    "source_packaged_tracked_file_count": 503,
+    "source_tracked_file_count": 668
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -3196,6 +3202,7 @@
     "docs/plans/2026-09-05-beta1.1.0-robustness-plan.md",
     "docs/plans/2026-09-05-beta1.1.0-robustness-task-book.md",
     "docs/plans/2026-09-12-beta1.1.3-rule-reuse.md",
+    "docs/plans/2026-09-29-beta1.1.6-acceptance.md",
     "docs/plans/beta1.0.8/contracts/cli-command-surface-projection-draft.json",
     "docs/plans/beta1.0.8/contracts/contract-a-iku-candidates.md",
     "docs/plans/beta1.0.8/contracts/contract-b-lineage-taxonomy.md",

@@ -2861,6 +2861,8 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
       files: [
         "README.md",
         "bin/",
+        // 安装源载荷不再限于 bin/：驱动模块位于 scripts/ 与 scripts/commands/
+        "scripts/",
         ...contract.legalFiles.map((file) => file.path),
         "release/",
       ],
@@ -2947,6 +2949,8 @@ function expectedPublishedPackageJson(contract = LIVE_PACKAGE_CONTRACT) {
     files: [
       "README.md",
       "bin/",
+      // 安装源载荷不再限于 bin/：驱动模块位于 scripts/ 与 scripts/commands/
+      "scripts/",
       ...contract.legalFiles.map((file) => file.path),
       "release/",
     ],
@@ -3492,8 +3496,11 @@ try:
                 "embedded_manifest_source_only_checker_entries:"
                 + ",".join(sorted(set(source_only_checker_entries)))
             )
+        runtime_paths = expected.get("runtime_paths")
+        if not isinstance(runtime_paths, list) or not runtime_paths:
+            fail("embedded_runtime_paths_missing")
         runtime_files = {}
-        for relative in ("bin/decretum-matrix.js", "bin/decretum-matrix.py"):
+        for relative in runtime_paths:
             matches = [entry for entry in entries if isinstance(entry, dict) and entry.get("path") == relative]
             if len(matches) != 1:
                 fail("embedded_runtime_entry_invalid:" + relative)
@@ -3630,6 +3637,9 @@ async function validateLocalInstallCandidate({
         release_label: contract.releaseLabel,
         source_commit: contract.sourceCommit,
         source_tree: contract.sourceTree,
+        // 运行时载荷不再固定为两个启动器：安装源载荷（bin/install-runtime.py 与
+        // scripts/ 下的驱动模块）同样随 ZIP 分发，校验器必须按同一清单逐项校验。
+        runtime_paths: contract.runtimeFiles.map((file) => file.path),
       }),
       REPO_ROOT,
     ],
@@ -4341,6 +4351,9 @@ async function stagePackage(packageRoot, contract, releaseAssets) {
   for (const runtimeFile of contract.runtimeFiles) {
     const sourcePath = path.join(contract.repoRoot, runtimeFile.path);
     const destinationPath = path.join(packageRoot, runtimeFile.path);
+    // 运行时载荷不再限于 bin/ 下的扁平路径：安装源载荷带嵌套子目录
+    // （scripts/、scripts/commands/），必须按路径创建目标目录。
+    await mkdir(path.dirname(destinationPath), { recursive: true });
     if (contract.mode === "local-install-candidate") {
       const payload = normalizedRuntimePayload(
         await readFile(sourcePath),
