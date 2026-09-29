@@ -451,14 +451,6 @@ INSTALL_SOURCE_MEMBERS = frozenset(
         "scripts/install_projection_renderer.py",
         "scripts/fix_decretum_matrix.py",
         "scripts/commands/fix_decretum_matrix.py",
-        # The install source must be able to run its own driver without a
-        # source checkout, so the driver dependency closure travels with it.
-        # These members stay excluded from the active runtime projection.
-        "scripts/commands/package_skill.py",
-        "scripts/commands/release_payload_manifest.py",
-        "scripts/court_diagnostics.py",
-        "scripts/package_skill.py",
-        "scripts/release_payload_manifest.py",
     }
 )
 def _forbidden_repository_only_members(payload_kind: str) -> frozenset[str]:
