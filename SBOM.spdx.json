@@ -19,28 +19,6 @@
       "licenseDeclared": "AGPL-3.0-only",
       "name": "decretum-matrix",
       "versionInfo": "beta1.1.5"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-laya-multilingual",
-      "comment": "Advisory decision model for 史馆对照决策检索. Not redistributed by this repository; fetched at install time from the pinned upstream revision and verified by SHA-256. Holds no execution authority.",
-      "copyrightText": "Copyright Convai Innovations",
-      "downloadLocation": "https://huggingface.co/convaiinnovations/laya-multilingual",
-      "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0",
-      "licenseDeclared": "Apache-2.0",
-      "name": "laya-multilingual",
-      "versionInfo": "NOASSERTION"
-    },
-    {
-      "SPDXID": "SPDXRef-Package-mmBERT-base",
-      "comment": "Backbone encoder of laya-multilingual, declared upstream in rl_agent_config.json. Not redistributed by this repository.",
-      "copyrightText": "Copyright Johns Hopkins University (CLSP)",
-      "downloadLocation": "https://huggingface.co/jhu-clsp/mmBERT-base",
-      "filesAnalyzed": false,
-      "licenseConcluded": "MIT",
-      "licenseDeclared": "MIT",
-      "name": "mmBERT-base",
-      "versionInfo": "NOASSERTION"
     }
   ],
   "relationships": [
@@ -48,16 +26,6 @@
       "relatedSpdxElement": "SPDXRef-Package",
       "relationshipType": "DESCRIBES",
       "spdxElementId": "SPDXRef-DOCUMENT"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-laya-multilingual",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-Package"
-    },
-    {
-      "relatedSpdxElement": "SPDXRef-Package-mmBERT-base",
-      "relationshipType": "CONTAINS",
-      "spdxElementId": "SPDXRef-Package-laya-multilingual"
     }
   ],
   "spdxVersion": "SPDX-2.3"
