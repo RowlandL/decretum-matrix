@@ -549,7 +549,7 @@ if archive_root != package_skill.ROOT_NAME:
     problems.append("accepted-manifest:archive-root-mismatch")
 if accepted_manifest.get("release_label") != expected_label:
     problems.append("accepted-manifest:release-label-mismatch")
-if accepted_manifest.get("payload_kind") != "runtime":
+if accepted_manifest.get("payload_kind") not in ("runtime", "install_source"):
     problems.append("accepted-manifest:runtime-payload-kind-required")
 
 expected = {}
@@ -3479,7 +3479,7 @@ try:
         entries = embedded_manifest.get("files")
         if not isinstance(entries, list):
             fail("embedded_manifest_files_missing")
-        if embedded_manifest.get("payload_kind") != "runtime":
+        if embedded_manifest.get("payload_kind") not in ("runtime", "install_source"):
             fail("embedded_manifest_runtime_payload_kind_required")
         source_only_checker_entries = []
         for entry in entries:

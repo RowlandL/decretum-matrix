@@ -442,6 +442,33 @@ FROZEN_REFERENCE_REQUIRED_MEMBERS = {
 }
 PAYLOAD_KIND_SOURCE = "development_source"
 PAYLOAD_KIND_RUNTIME = "runtime"
+PAYLOAD_KIND_INSTALL_SOURCE = "install_source"
+RUNTIME_LIKE_PAYLOAD_KINDS = (PAYLOAD_KIND_RUNTIME, PAYLOAD_KIND_INSTALL_SOURCE)
+INSTALL_SOURCE_MEMBERS = frozenset(
+    {
+        "bin/install-runtime.py",
+        "scripts/install_current_agent_copy.py",
+        "scripts/install_projection_renderer.py",
+        "scripts/fix_decretum_matrix.py",
+        "scripts/commands/fix_decretum_matrix.py",
+    }
+)
+def _forbidden_repository_only_members(payload_kind: str) -> frozenset[str]:
+    """Repository-only members a runtime-like payload must not carry.
+
+    The published artifact is an install source, so it may carry the install
+    driver; the remaining fence members stay forbidden for every kind.
+    """
+
+    if payload_kind == PAYLOAD_KIND_INSTALL_SOURCE:
+        return frozenset(
+            member
+            for member in RUNTIME_REPOSITORY_ONLY_MEMBERS
+            if member not in INSTALL_SOURCE_MEMBERS
+        )
+    return RUNTIME_REPOSITORY_ONLY_MEMBERS
+
+
 RUNTIME_REPOSITORY_ONLY_MEMBERS = frozenset(
     {
         "scripts/install_current_agent_copy.py",
@@ -792,6 +819,7 @@ def copy_runtime_projection(
     dst: Path,
     *,
     target_class: str = "shared_agents",
+    include_install_source: bool = False,
 ) -> None:
     """Materialize the active renderer output as a checker-free runtime stage."""
 
@@ -818,7 +846,13 @@ def copy_runtime_projection(
         if relative_text in RUNTIME_REPOSITORY_ONLY_MEMBERS:
             continue
         _write_stage_file(destination, relative_text, payload)
-    for relative_text in ("bin/decretum-matrix.js", "bin/decretum-matrix.py"):
+    payload_members = [
+        "bin/decretum-matrix.js",
+        "bin/decretum-matrix.py",
+    ]
+    if include_install_source:
+        payload_members.extend(sorted(INSTALL_SOURCE_MEMBERS))
+    for relative_text in payload_members:
         source_path = source_root / Path(relative_text)
         payload = read_source_file_stable(
             source_path,
@@ -1338,7 +1372,10 @@ def validate_zip(
     payload_kind: str | None = None,
 ) -> tuple[int, list[str]]:
     payload_kind = payload_kind or _infer_payload_kind(path)
-    if payload_kind not in {PAYLOAD_KIND_SOURCE, PAYLOAD_KIND_RUNTIME}:
+    if payload_kind not in {
+        PAYLOAD_KIND_SOURCE,
+        *RUNTIME_LIKE_PAYLOAD_KINDS,
+    }:
         raise PackagePolicyError(f"payload-kind-invalid:{payload_kind}")
     forbidden: list[str] = []
     required = {
@@ -1404,7 +1441,7 @@ def validate_zip(
             )
         }
     )
-    if payload_kind == PAYLOAD_KIND_RUNTIME:
+    if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS:
         required.difference_update(
             {
                 f"{ROOT_NAME}/{relative}"
@@ -1436,14 +1473,14 @@ def validate_zip(
                     continue
 
                 relative_name = normalized.split("/", 1)[1]
-                if payload_kind == PAYLOAD_KIND_RUNTIME and is_source_only_checker_path(
+                if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS and is_source_only_checker_path(
                     relative_name
                 ):
                     forbidden.append(
                         f"{normalized}:runtime-source-only-checker"
                     )
-                if payload_kind == PAYLOAD_KIND_RUNTIME and relative_name in {
-                    path.casefold() for path in RUNTIME_REPOSITORY_ONLY_MEMBERS
+                if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS and relative_name in {
+                    path.casefold() for path in _forbidden_repository_only_members(payload_kind)
                 }:
                     forbidden.append(
                         f"{normalized}:runtime-repository-only-file"
@@ -1511,7 +1548,7 @@ def validate_zip(
                     forbidden.append(f"{normalized}:unsupported-binary:not-utf8")
                     continue
                 data_by_name[normalized] = data
-                if payload_kind == PAYLOAD_KIND_RUNTIME and normalized == (
+                if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS and normalized == (
                     f"{ROOT_NAME}/references/manifests/install-projection.v1.json"
                 ):
                     try:
@@ -1590,7 +1627,7 @@ def run_stage_validation(
             problems.append(f"stage:references/README.md:missing:{term}")
 
     for script, args in (("quick_validate.py", []),):
-        if payload_kind == PAYLOAD_KIND_RUNTIME and not (
+        if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS and not (
             stage / "scripts" / script
         ).is_file():
             continue
@@ -1625,7 +1662,10 @@ def build(
     payload_kind: str = PAYLOAD_KIND_SOURCE,
     target_class: str = "shared_agents",
 ) -> tuple[int, int, list[str]]:
-    if payload_kind not in {PAYLOAD_KIND_SOURCE, PAYLOAD_KIND_RUNTIME}:
+    if payload_kind not in {
+        PAYLOAD_KIND_SOURCE,
+        *RUNTIME_LIKE_PAYLOAD_KINDS,
+    }:
         return 0, 0, [f"payload-kind-invalid:{payload_kind}"]
     if out.exists():
         return 0, 0, [f"output-already-exists:{out}"]
@@ -1641,15 +1681,22 @@ def build(
         stage = tmp / ROOT_NAME
         candidate = candidate_path_for(out)
         try:
-            if payload_kind == PAYLOAD_KIND_RUNTIME:
-                copy_runtime_projection(src, stage, target_class=target_class)
+            if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS:
+                copy_runtime_projection(
+                    src,
+                    stage,
+                    target_class=target_class,
+                    include_install_source=(
+                        payload_kind == PAYLOAD_KIND_INSTALL_SOURCE
+                    ),
+                )
             else:
                 copy_portable_tree(src, stage)
         except PackagePolicyError as exc:
             return 0, 0, [f"source-policy:{exc}"]
         try:
             write_core_shiguan_files(stage, source_root=src)
-            if payload_kind == PAYLOAD_KIND_RUNTIME:
+            if payload_kind in RUNTIME_LIKE_PAYLOAD_KINDS:
                 _write_runtime_release_manifest(stage, src)
             stage_problems = run_stage_validation(
                 stage,

@@ -224,7 +224,7 @@ def expected_candidate_names(
 def build_candidate_zip(path: Path) -> bytes:
     entry_count, zip_count, problems = package_skill.build(
         path,
-        payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+        payload_kind=package_skill.PAYLOAD_KIND_INSTALL_SOURCE,
     )
     if problems:
         raise ArtifactBuildError("candidate package failed: " + ",".join(problems[:20]))
@@ -421,7 +421,7 @@ def validate_tagless_candidate_artifacts(
         archive_path.write_bytes(zip_bytes)
         _, package_problems = package_skill.validate_zip(
             archive_path,
-            payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+            payload_kind=package_skill.PAYLOAD_KIND_INSTALL_SOURCE,
         )
         payload_problems = release_payload_manifest.validate_zip_payload(archive_path)
     if package_problems or payload_problems:
@@ -472,7 +472,7 @@ def validate_candidate_artifacts(
         archive_path.write_bytes(zip_bytes)
         _, package_problems = package_skill.validate_zip(
             archive_path,
-            payload_kind=package_skill.PAYLOAD_KIND_RUNTIME,
+            payload_kind=package_skill.PAYLOAD_KIND_INSTALL_SOURCE,
         )
         payload_problems = release_payload_manifest.validate_zip_payload(archive_path)
     if package_problems or payload_problems:
@@ -624,7 +624,8 @@ def run_self_tests(root: Path = ROOT) -> dict[str, bool]:
         )
         tests["runtime_manifest_marks_runtime_payload"] = (
             isinstance(runtime_manifest, dict)
-            and runtime_manifest.get("payload_kind") == package_skill.PAYLOAD_KIND_RUNTIME
+            and runtime_manifest.get("payload_kind")
+            == package_skill.PAYLOAD_KIND_INSTALL_SOURCE
             and runtime_manifest.get("repository_only_files") == []
         )
 
@@ -849,7 +850,7 @@ def build_candidate(out_root: Path, root: Path = ROOT) -> dict[str, object]:
         return {
             "ok": True,
             "kind": "candidate",
-            "payload_kind": package_skill.PAYLOAD_KIND_RUNTIME,
+            "payload_kind": package_skill.PAYLOAD_KIND_INSTALL_SOURCE,
             "state": "CANDIDATE_NOT_RELEASED",
             "reused": True,
             "release_label": release_label,
@@ -881,7 +882,7 @@ def build_candidate(out_root: Path, root: Path = ROOT) -> dict[str, object]:
     return {
         "ok": True,
         "kind": "candidate",
-        "payload_kind": package_skill.PAYLOAD_KIND_RUNTIME,
+        "payload_kind": package_skill.PAYLOAD_KIND_INSTALL_SOURCE,
         "state": "CANDIDATE_NOT_RELEASED",
         "reused": False,
         "release_label": release_label,
@@ -930,7 +931,7 @@ def build_release(
     return {
         "ok": True,
         "kind": "release",
-        "payload_kind": package_skill.PAYLOAD_KIND_RUNTIME,
+        "payload_kind": package_skill.PAYLOAD_KIND_INSTALL_SOURCE,
         "release_label": release_label,
         "final_directory": str(final),
         "artifacts": [
