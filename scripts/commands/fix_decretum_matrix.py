@@ -1605,6 +1605,24 @@ def _install_update(
     npm_mutation_attempted = False
     npm_install_failed = False
     if candidate_tgz is not None:
+        # å·²åå¸åçå¨å± npm åä¸ registry ååèº«ä»½æ¯éªæ¶è¦æ±ï¼
+        # è¥åç¨æ¬å°åéåæ¿æ¢å®ï¼å°±ä¼æåèº«ä»½æ¢æ
+        # private/local-install åä½ï¼publication=FORBIDDENï¼ãæ­¤å¤ fail-closedã
+        published_identity = (
+            _package_install_source_identity(candidate_package_root)
+            if candidate_package_root is not None
+            else None
+        )
+        if (
+            published_identity is not None
+            and published_identity.get("schema") == PUBLISHED_PACKAGE_SCHEMA
+        ):
+            return {
+                "schema": SCHEMA,
+                "ok": False,
+                "status": "BLOCKED",
+                "reason": "published_package_cannot_replace_npm",
+            }
         if not write:
             return {
                 "schema": SCHEMA,
