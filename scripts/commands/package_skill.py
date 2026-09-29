@@ -181,6 +181,18 @@ SOURCE_REGENERATED_DIRS = {
     "references/shiguan-tree",
     "references/startup-tasks",
 }
+# Local-only runtime assets under training/: never packaged and never installed
+# from the repository. The recall model is provisioned into the install state by
+# scripts/ensure_shiguan_model.py (pinned revision + size + SHA-256); the corpus
+# and runs directories are developer-local derivatives.
+SOURCE_LOCAL_ONLY_DIRS = {
+    "training/laya-shiguan/.venv",
+    "training/laya-shiguan/.uv",
+    "training/laya-shiguan/models",
+    "training/laya-shiguan/runs",
+    "training/laya-shiguan/corpus",
+    "training/laya-shiguan/raw",
+}
 BRAND_ASSET_PATHS = frozenset(
     {
         "assets/brand/decretum-matrix-icon.svg",
@@ -516,6 +528,13 @@ def is_regenerated_source_path(relative: Path) -> bool:
     return any(key == prefix or key.startswith(prefix + "/") for prefix in SOURCE_REGENERATED_DIRS)
 
 
+def is_local_only_source_path(relative: Path) -> bool:
+    """Local-only runtime assets that must never enter a package."""
+
+    key = relative_key(relative)
+    return any(key == prefix or key.startswith(prefix + "/") for prefix in SOURCE_LOCAL_ONLY_DIRS)
+
+
 def is_link_or_reparse(path: Path) -> bool:
     if path.is_symlink():
         return True
@@ -556,6 +575,8 @@ def should_skip(relative: Path, is_dir: bool) -> bool:
     if lower_name in SECRET_BEARING_NAMES:
         return True
     if is_regenerated_source_path(relative):
+        return True
+    if is_local_only_source_path(relative):
         return True
     if any(part.casefold().startswith("references.imported-") for part in relative.parts):
         return True

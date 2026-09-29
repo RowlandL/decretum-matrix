@@ -21,7 +21,7 @@
     {
       "mode": "100644",
       "path": ".codex-plugin/plugin.json",
-      "sha256": "97c0c98dcbe0613bd89d00ac9241e7d024273e436fcfb6aad059807836608301",
+      "sha256": "0b0da5dbfc72dfa130db3337239970bd816e6324dc816e472f4bf53505e9d2fe",
       "size": 730
     },
     {
@@ -87,14 +87,14 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "369076a3b82c0df80e97e73bbc5e353a702b312a52c4b9b66e8a5fe89cbc90da",
+      "sha256": "4461dd6897f12cf968bed1a8cc08cf4321adaf42e6586b375c198718844a7483",
       "size": 11175
     },
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "c0ccee4b15c12c63b67f96d4ad3d3ebccd0af335e58aedc16a082b028d85cb07",
-      "size": 875
+      "sha256": "5c2e9ff585e638082fb35f854d90eb61ee36f202757f1d016f5e1f5d19d0463e",
+      "size": 2314
     },
     {
       "mode": "100644",
@@ -105,14 +105,14 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "3bf4776f11cec31233bcc3c9947fc833f2ed4b25521a6c70c939063b7442968c",
+      "sha256": "ad165fefcdefa57a221bc7eb778438440ee1f3525c27e3c8ed5b7fe5371c4771",
       "size": 8858
     },
     {
       "mode": "100644",
       "path": "THIRD_PARTY_NOTICES.md",
-      "sha256": "ebae409be9f88629475f978d07712dc8f53db00e7342ee416a7f41a36b5d4153",
-      "size": 2685
+      "sha256": "81631d10c17d7305941e076f7aae9b43e241662d9df8c18dce49f958d4693288",
+      "size": 4276
     },
     {
       "mode": "100644",
@@ -123,7 +123,7 @@
     {
       "mode": "100644",
       "path": "VERSION",
-      "sha256": "c03085159b28ef613d84a379393cab07a8b3dd518a7bf38e3f911edfeb8f95d0",
+      "sha256": "e26f2b282615848e93831875732c0ecac75ccc3f7f270e1edff5bf9d295ec3e5",
       "size": 10
     },
     {
@@ -531,7 +531,7 @@
     {
       "mode": "100644",
       "path": "references/install.md",
-      "sha256": "d34dbdfe556dcdda62690262fcee3235391b0993130f9b31c414e19e575f1ece",
+      "sha256": "db572c155d53e3fb8abb6a5209bd00015cc42cf81e4aff583c46a24f18ec2566",
       "size": 10378
     },
     {
@@ -543,8 +543,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "d6e82e1bedf8f65cb11690c89e19d117f7cc92c008a0ad2e6c088f678b2d785d",
-      "size": 104061
+      "sha256": "be8b86e1ffb3b5b9a098d4acdb7b3eb4d5073ccca4a8677c4682590ff833e121",
+      "size": 109234
     },
     {
       "mode": "100644",
@@ -561,8 +561,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/github-release-metadata.v1.json",
-      "sha256": "716859b6c4f1163aefd676085eab63aac6ad9a797bf2cddf688587bee4f6d5e6",
-      "size": 16986
+      "sha256": "74d0506b7d06740aef963e77c46288f174311dc799e178064af644d35d9b9218",
+      "size": 18149
     },
     {
       "mode": "100644",
@@ -573,8 +573,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "203640b94c222cc08c683d6910ea3a821644a18cd0dda4c9f8165daf5eddec33",
-      "size": 51736
+      "sha256": "c24d8b3d63e9cdeb2f1d30b126b3605726a400eabdaa2a3d0f84577bf304847c",
+      "size": 55018
     },
     {
       "mode": "100644",
@@ -1281,8 +1281,8 @@
     {
       "mode": "100644",
       "path": "scripts/check_unified_cli.py",
-      "sha256": "67ec8071521e3ab5b71ad98b02265f63467dd87fd34d424330b5e3635d5ea5e6",
-      "size": 88398
+      "sha256": "2bfec52062d74e1c3f860dded138d2b9c74573f8c7dcf548ec3e0a8fdf85dd13",
+      "size": 88527
     },
     {
       "mode": "100644",
@@ -1629,7 +1629,7 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_legal.py",
-      "sha256": "30ded61138b4535ce93e716abf72221f7d0e0e8deee74551140b47f69755ae83",
+      "sha256": "128af29fff9a60806307af41842facbd8292941bb1e287f643af359cbac5f440",
       "size": 24140
     },
     {
@@ -1641,7 +1641,7 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_metadata.py",
-      "sha256": "9675c266d180b92830ecee9869e910493f954e1b99af6ab6aa1bc4e32d6f3cd5",
+      "sha256": "e0f18704f50f35cf4c90c1af9a476fb7c621c6bcc090ce3c89107f90f7ff92ed",
       "size": 9278
     },
     {
@@ -1661,12 +1661,6 @@
       "path": "scripts/checks/check_runtime_identity_contract.py",
       "sha256": "8686c2fa827a1e7842042d87d134bdd210f3f3bb2cc549b6517207ae980251a3",
       "size": 13977
-    },
-    {
-      "mode": "100644",
-      "path": "scripts/checks/check_runtime_no_file_rehash.py",
-      "sha256": "fa77c60b20c73b9fd8eaa7805fd0801a1c88ab46c29787d95d9cf94b989afb02",
-      "size": 5359
     },
     {
       "mode": "100644",
@@ -1757,6 +1751,30 @@
       "path": "scripts/checks/check_shiguan_recall_precision.py",
       "sha256": "622c461b740c4c1b68a2a6647e46f53ba5855287cae00f9b0bce7520c25d440e",
       "size": 15147
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_shiguan_resource_observation.py",
+      "sha256": "30cbe4c091d318366d0d78793bf653792a0bd47b32588dbac653350e5a4267d9",
+      "size": 22352
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_shiguan_service_log_bounds.py",
+      "sha256": "c12745e73bfb91833a4930deb0b7c836552f1689cae4c918067ac6731142dad6",
+      "size": 32600
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_shiguan_service_log_r1_review.py",
+      "sha256": "1b59b4698ee10ebf66c5d2d5402ee1c082809194accc622dd2efc617952bd169",
+      "size": 47041
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_shiguan_shared_write_lock.py",
+      "sha256": "4715f6d3fd40dd9683897b82ba46dde09f0b7f82a3db91b284d2716a6a6063c3",
+      "size": 4962
     },
     {
       "mode": "100644",
@@ -1881,7 +1899,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/build_release_artifacts.py",
-      "sha256": "44300adb32ab783c73f8d1a06b95b36aac1ae862584166c56bb76e73e77e6d0f",
+      "sha256": "af842ee4b2f03044816a28d5fcfc50e69d2b3b628dac768c53936e1630a35d5f",
       "size": 39063
     },
     {
@@ -1970,9 +1988,15 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/commands/ensure_shiguan_model.py",
+      "sha256": "28e8a7aab528346b8bb766ec8903f2c58a9b3ecdd5435cb2fe41e18431cfb379",
+      "size": 6532
+    },
+    {
+      "mode": "100644",
       "path": "scripts/commands/ensure_shiguan_web.py",
-      "sha256": "a9c22fc34afcb2e3ec75ad00e2b73787fabd1d77697824d4311adf828e8e1941",
-      "size": 10544
+      "sha256": "26e1a835df61bddf93cdea1c4cd9ecceb1d327fa50889021cecd7f6bc5b78556",
+      "size": 10573
     },
     {
       "mode": "100644",
@@ -2043,8 +2067,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/package_skill.py",
-      "sha256": "71def8616d6f71813d136e80af9c70883e9a88390aabcbc422e2566f8461c86d",
-      "size": 64928
+      "sha256": "1d077765add850d5ad43160cabd8ef08458eb0156e8678f996bb9224ecbe6579",
+      "size": 65785
     },
     {
       "mode": "100644",
@@ -2063,6 +2087,12 @@
       "path": "scripts/commands/query_shiguan_index.py",
       "sha256": "428e69eb905eb3d6101614b408548208c7f9ab48ba424f95662822d9800217a5",
       "size": 4833
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/commands/query_shiguan_recall.py",
+      "sha256": "40f24d59a3027012c328be38d5c7bc6b175cad1da370403ba3d75bf1006e4def",
+      "size": 3814
     },
     {
       "mode": "100644",
@@ -2097,7 +2127,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/release_payload_manifest.py",
-      "sha256": "2489f1866b771c27738abc434e717079f9e48460f87c9d082ca18e2ed5580987",
+      "sha256": "a40158a00a544d4f1cdc55e2085146c38d700654ee6caf8188916f6c7f253201",
       "size": 30105
     },
     {
@@ -2139,7 +2169,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/sync_active_copies.py",
-      "sha256": "540ca1b1f9e0d886d9d5121b804318f80e0fb9de186da438584afcda156cfdc6",
+      "sha256": "fb4246c1d882df9d9cef72e901bf61a3a02341966d8f569bdb106bd88c564854",
       "size": 92755
     },
     {
@@ -2235,8 +2265,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_file_lock.py",
-      "sha256": "3b04ab285f0b1ce5c52630dda8d1b772277dec2dd36728c89e43e8a36b97fb2e",
-      "size": 7383
+      "sha256": "c72604120e7ac755e82e7b99c7c18cc2562987929186b25a126d297b2ae830ce",
+      "size": 8046
     },
     {
       "mode": "100644",
@@ -2337,8 +2367,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_public_api.py",
-      "sha256": "0bb4c03a31d6c37dbfc4973651466f2f67773fe4ea6d46277b0f2f6da6f8b156",
-      "size": 13974
+      "sha256": "2769204abfde2af3c58904fafddbcacb1c0bd0ba024799683b0433d17d59d229",
+      "size": 14636
     },
     {
       "mode": "100644",
@@ -2387,6 +2417,12 @@
       "path": "scripts/court_session_numbering.py",
       "sha256": "433d22cc1900bf66a14676f869f432f613b091b8d82b285afabc850d92095c64",
       "size": 868
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/court_shiguan_recall_client.py",
+      "sha256": "fb7840668294cc73e8e292268ef08b05d6f875cdd89ee3421d6daf3812e505b7",
+      "size": 3394
     },
     {
       "mode": "100644",
@@ -2441,6 +2477,12 @@
       "path": "scripts/ensure_shiguan_autosync.py",
       "sha256": "fb87ab8bf815847badec419c014fd0591802f9b965e370291764371b3b1048a6",
       "size": 868
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/ensure_shiguan_model.py",
+      "sha256": "973262028da7fbb889dc1470d5167e449cad5bdadb101d9058eabc0bd9623393",
+      "size": 761
     },
     {
       "mode": "100644",
@@ -2576,6 +2618,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/query_shiguan_recall.py",
+      "sha256": "cd56c7340d32c59243417082edc700cb17a60bf980ae9dd3535bc64c990253f4",
+      "size": 755
+    },
+    {
+      "mode": "100644",
       "path": "scripts/quick_validate.py",
       "sha256": "fc8bd41ae10bbd272877c572fff70733793ef89d7d61d589ac04e674ea5090d3",
       "size": 832
@@ -2649,14 +2697,14 @@
     {
       "mode": "100644",
       "path": "scripts/services/ensure_shiguan_autosync.py",
-      "sha256": "9a7b195180f85916fb3a003c3323a8a9a08574ec8530ca511d8dc7c99c1fe453",
-      "size": 23871
+      "sha256": "70df3a7c70c762772a2d8c1d1523e35faddfdc43730a32f75d8028db6a2d4c6a",
+      "size": 23851
     },
     {
       "mode": "100644",
       "path": "scripts/services/ensure_shiguan_service_daemon.py",
-      "sha256": "1d4281eb7c0ae2e6e863e699f87f5bf9438cbd857ece0abde8b2e9cb9bd35e92",
-      "size": 14650
+      "sha256": "5c0cd8e9d7bc9765e568761f843256a5d2e7f150e3d0518b5c82355f170e0116",
+      "size": 14669
     },
     {
       "mode": "100644",
@@ -2673,8 +2721,8 @@
     {
       "mode": "100644",
       "path": "scripts/services/shiguan_autosync_daemon.py",
-      "sha256": "d558e2eb6be1d4ad650560b76b0faabb2c60c7ab0187c13c2b41366374ff7c44",
-      "size": 36256
+      "sha256": "b5f3a3dcc21f246b131525bf88a18a61c49d5d891502bf6a98599560f661ee99",
+      "size": 36721
     },
     {
       "mode": "100644",
@@ -2691,8 +2739,8 @@
     {
       "mode": "100644",
       "path": "scripts/services/shiguan_service_daemon.py",
-      "sha256": "3decc7ca87752482add3388d75abb3e29cbde77d6bbc98bde5ac9330874eae4e",
-      "size": 3362
+      "sha256": "fd52d09863c663db1743e9c9236183c25e5e81435326ce23fa2464b92b530841",
+      "size": 3840
     },
     {
       "mode": "100644",
@@ -2745,8 +2793,8 @@
     {
       "mode": "100644",
       "path": "scripts/shiguan_paths.py",
-      "sha256": "6c4c957821d40e240d62bae132898ba4992dd5a4e41989eed9c148c86bac99db",
-      "size": 59327
+      "sha256": "d302376eb6220d12381dc01e753316894fc1c3f315ae28d8ce356543fdc45e4e",
+      "size": 59652
     },
     {
       "mode": "100644",
@@ -2789,6 +2837,12 @@
       "path": "scripts/shiguan_service_daemon.py",
       "sha256": "59b26d0baa0f0d52ef4e1f643fe9d59a75926d344f6ba93665ec9970f731d18b",
       "size": 864
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/shiguan_service_log.py",
+      "sha256": "0df119f7c6ae78d2b43954d7327c3a4c45cf8a83a54be748d4b00911c05fd259",
+      "size": 13263
     },
     {
       "mode": "100644",
@@ -2894,6 +2948,96 @@
     },
     {
       "mode": "100644",
+      "path": "training/laya-shiguan/SKILL.md",
+      "sha256": "99db83f031408ef6ab4ebb9f92f2b67d1a1534a8805445fee508da977cf8ed0f",
+      "size": 3837
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/schema/model-manifest.json",
+      "sha256": "bcc804ae6fcc0a52dac26b9bfd7b2c9f7badad188d065ffc0ee088799d42542b",
+      "size": 1129
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/schema/questions.json",
+      "sha256": "5beb1a118800d43cb99d55bc0227a57b9eebdc3f4f6b4d10368b58364eec8abc",
+      "size": 1561
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/_shiguan_paths.py",
+      "sha256": "2dacdff4319bf733941b0174721b0642bb7ea3b572ea04b09ebcd1e50f12e09b",
+      "size": 2135
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/audit_misclassification.py",
+      "sha256": "7e7bf530c597ccb99c4c5d45026105908d7798c9146b9176cc780e4855726aa3",
+      "size": 5916
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/build_corpus.py",
+      "sha256": "d37bca8f10c86e130b268a349a0bb237aece9af5716dab43ad45f37cdd94667e",
+      "size": 20273
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/build_corrections.py",
+      "sha256": "5554fbf6ad0040999949bcdbae796ec208b17083ecd724aff1b136cf0aebc526",
+      "size": 5283
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/knn_baseline.py",
+      "sha256": "17f5e9301b3fa0a5bc374e10f326c6e3675f72152c513a4f1ba9fec47b9cf0d1",
+      "size": 4199
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/knn_baseline_v2.py",
+      "sha256": "4963870630019a343f7c0e5e919ea51a76a9db2eab717f92cc55561e923edfe2",
+      "size": 6299
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/official_train_ddp.py",
+      "sha256": "b119044c6f566a602a29a64b2f951fafa8df5848303fcbab4e07e487c5835f0d",
+      "size": 12000
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/scripts/train_head.py",
+      "sha256": "72f41bdc58c8849e97d3e5fbb4390e812cd13dee453533825294970e9a818067",
+      "size": 10057
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/service/README.md",
+      "sha256": "674a051ef90d4dc3797a111732a1d0df1cfe28821a6c9f4709005acb89d0742e",
+      "size": 3944
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/service/mcp_server.py",
+      "sha256": "f3109eafdc09cced6488b1b69e539fb4c0e32f71840e75e60dcd35bf9ba4be77",
+      "size": 4564
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/service/serve_http.py",
+      "sha256": "a937a8fe4c2f201c271a99324a3dcac6ee74f7c82f11e39c92bd4c94e3e690f4",
+      "size": 2885
+    },
+    {
+      "mode": "100644",
+      "path": "training/laya-shiguan/service/shiguan_recall.py",
+      "sha256": "42d4819aca25b2219ad2ee827eb37167fb22f961fbd8106cdfecd1e1100555fb",
+      "size": 12669
+    },
+    {
+      "mode": "100644",
       "path": "web/shiguan-tree/api.js",
       "sha256": "c9045bf74e58c70a4b40a22a824f79b3856489d1008210a06b4353e37f0362b6",
       "size": 1693
@@ -2932,12 +3076,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 8893111,
-    "payload_file_count": 483,
+    "payload_bytes": 9136232,
+    "payload_file_count": 507,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "1f4f0e0d105d4753e5c459b3acbe752b0cf5d1b15252af2cebe0d058f829308c",
-    "source_packaged_tracked_file_count": 475,
-    "source_tracked_file_count": 634
+    "payload_index_sha256": "d164466e8b11b13b24a191ff37239442b0247066533c18d8178e6a784275bc2f",
+    "source_packaged_tracked_file_count": 499,
+    "source_tracked_file_count": 664
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -3107,7 +3251,13 @@
     "scripts/build_npm_package.mjs",
     "scripts/check_npm_package.mjs",
     "scripts/checks/check_active_copy_hashes.py",
-    "scripts/checks/installed_identity_fixture.py"
+    "scripts/checks/check_runtime_no_file_rehash.py",
+    "scripts/checks/installed_identity_fixture.py",
+    "training/laya-shiguan/.gitignore",
+    "training/laya-shiguan/docs/model-provenance.md",
+    "training/laya-shiguan/docs/new-class-rule.md",
+    "training/laya-shiguan/docs/registry-refresh-dispatch.md",
+    "training/laya-shiguan/docs/release-plan-beta1.1.5.md"
   ],
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
@@ -3115,5 +3265,5 @@
   "sidecar_name": "decretum-matrix-beta1.1.5.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
-  "version_core": "1.1.4"
+  "version_core": "1.1.5"
 }
