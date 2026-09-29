@@ -1381,7 +1381,7 @@ class PackageBuildTests(unittest.TestCase):
             or item.startswith("scripts/check_")
             or item.startswith("scripts/checks/")
         ]
-        self.assertEqual(len(source_checkers), 181)
+        self.assertEqual(len(source_checkers), 185)
         self.assertFalse(
             package_skill.should_skip(
                 Path("scripts/checks/check_runtime_no_file_rehash.py"),
