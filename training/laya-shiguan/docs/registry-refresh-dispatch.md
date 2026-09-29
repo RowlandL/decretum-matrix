@@ -83,3 +83,35 @@ python -B scripts/commands/refresh_capability_registry.py --apply --yes
 | 模型与 venv **不入安装投影** | 换机器需本地 bootstrap，否则服务无法启动（会明确报错，不静默降级）|
 | 相似度绝对值不可作阈值 | mmBERT 句向量各向异性，不相关文本余弦亦达 0.93+；只使用 Top-k 相对排序 |
 | 实测质量 | 参照集 901 条 / 查询集 126 行：同谱系命中 @1 0.444、@3 0.706、@5 0.810 |
+
+## 七、已解决（2026-09-29）
+
+产出者已补齐并实跑通过；前文第三、五、五点五节描述的阻塞**已不再成立**，保留作变更记录。
+
+**新增产出者**：`scripts/authorize_capability_refresh.py`（命令 `authorize-capability-refresh`）
+发 `court.capability.refresh_transaction.v1`，`status: AUTHORIZED`，绑定 managed installation binding
+与实时扫描的精确 `source_paths`；**它不写注册表**。
+
+**消费侧同时修掉三个缺陷**（否则即使回执完全正确也永远无法提交）：
+
+| # | 缺陷 | 影响 |
+| --- | --- | --- |
+| 1 | `refresh()` 把 `codex_home()`（`~/.codex`）当 binding 的 `home_root` | 任何绑定都报 `CANONICAL_ROOT_INVALID` |
+| 2 | 事务加载未传 `expected_path`，而该参数实为必填 | 恒返回 `None`，`--apply` 永久 `BLOCKED` |
+| 3 | 写字路径校验未传 `home_root` | 恒抛 `PermissionError: HOME_ROOT_REQUIRED` |
+
+**实跑结果**（本机）：
+
+```
+authorize-capability-refresh --apply            -> AUTHORIZED, 818 records, 446 source_paths
+refresh-capability-registry --apply --yes ...   -> COMMITTED, 818 records, 5 产物
+installed-capabilities-manifest.json            -> 含 shiguan-recall x2
+check-capability-index-gate --query ...         -> 命中 shiguan-recall,
+                                                   court_units ["Shiguan"],
+                                                   fit_status STRONG_LOCAL_FIT,
+                                                   dispatchable false   ← advisory 能力正确不可派遣
+```
+
+**职责分离仍然成立**：授权命令只发回执、不写注册表；刷新命令只消费回执，并在落盘前把回执升格为
+`COMMITTED`。两者是不同命令、不同职责，任一方都不自证。
+
