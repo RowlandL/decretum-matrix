@@ -887,26 +887,26 @@
     {
       "authority_source": "scripts/checks/check_runtime_identity_contract.py",
       "command": "check-runtime-identity-contract",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "check",
       "group": "check",
       "handler": "isolated_subprocess:scripts/checks/check_runtime_identity_contract.py",
       "id": "check.check-runtime-identity-contract",
       "legacy_path": "scripts/checks/check_runtime_identity_contract.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
     },
     {
       "authority_source": "scripts/checks/check_runtime_no_file_rehash.py",
       "command": "check-runtime-no-file-rehash",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "check",
       "group": "check",
       "handler": "isolated_subprocess:scripts/checks/check_runtime_no_file_rehash.py",
       "id": "check.check-runtime-no-file-rehash",
       "legacy_path": "scripts/checks/check_runtime_no_file_rehash.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
     },
@@ -1106,6 +1106,58 @@
       "side_effect": "read_only"
     },
     {
+      "authority_source": "scripts/checks/check_shiguan_resource_observation.py",
+      "command": "check-shiguan-resource-observation",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_shiguan_resource_observation.py",
+      "id": "check.check-shiguan-resource-observation",
+      "legacy_path": "scripts/checks/check_shiguan_resource_observation.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_shiguan_service_log_bounds.py",
+      "command": "check-shiguan-service-log-bounds",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_shiguan_service_log_bounds.py",
+      "id": "check.check-shiguan-service-log-bounds",
+      "legacy_path": "scripts/checks/check_shiguan_service_log_bounds.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_shiguan_service_log_r1_review.py",
+      "command": "check-shiguan-service-log-r1-review",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_shiguan_service_log_r1_review.py",
+      "id": "check.check-shiguan-service-log-r1-review",
+      "legacy_path": "scripts/checks/check_shiguan_service_log_r1_review.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/checks/check_shiguan_shared_write_lock.py",
+      "command": "check-shiguan-shared-write-lock",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "check",
+      "group": "check",
+      "handler": "isolated_subprocess:scripts/checks/check_shiguan_shared_write_lock.py",
+      "id": "check.check-shiguan-shared-write-lock",
+      "legacy_path": "scripts/checks/check_shiguan_shared_write_lock.py",
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
       "authority_source": "scripts/checks/check_skill_identity.py",
       "command": "check-skill-identity",
       "compatibility_state": "unified_compatibility_adapter",
@@ -1199,13 +1251,13 @@
     {
       "authority_source": "scripts/checks/check_supercc_functional.py",
       "command": "check-supercc-functional",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "check",
       "group": "check",
       "handler": "isolated_subprocess:scripts/checks/check_supercc_functional.py",
       "id": "check.check-supercc-functional",
       "legacy_path": "scripts/checks/check_supercc_functional.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
     },
@@ -1290,13 +1342,13 @@
     {
       "authority_source": "scripts/checks/check_supercc_truth_gates.py",
       "command": "check-supercc-truth-gates",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "check",
       "group": "check",
       "handler": "isolated_subprocess:scripts/checks/check_supercc_truth_gates.py",
       "id": "check.check-supercc-truth-gates",
       "legacy_path": "scripts/checks/check_supercc_truth_gates.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "read_only"
     },
@@ -1550,13 +1602,13 @@
     {
       "authority_source": "scripts/commands/fix_decretum_matrix.py",
       "command": "fix-decretum-matrix",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "install",
       "group": "install",
       "handler": "isolated_subprocess:scripts/commands/fix_decretum_matrix.py",
       "id": "install.fix-decretum-matrix",
       "legacy_path": "scripts/commands/fix_decretum_matrix.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },
@@ -1667,13 +1719,13 @@
     {
       "authority_source": "scripts/commands/migrate_legacy_skill_locator.py",
       "command": "migrate-legacy-skill-locator",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "install",
       "group": "install",
       "handler": "isolated_subprocess:scripts/commands/migrate_legacy_skill_locator.py",
       "id": "install.migrate-legacy-skill-locator",
       "legacy_path": "scripts/commands/migrate_legacy_skill_locator.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },
@@ -1793,6 +1845,68 @@
           },
           "name": "shiguan.entries_query",
           "public_api": "public_shiguan_entries_query",
+          "side_effect": "read_only"
+        }
+      ],
+      "public": true,
+      "receipt_schema": "legacy.entrypoint.result.v1",
+      "side_effect": "read_only"
+    },
+    {
+      "authority_source": "scripts/commands/query_shiguan_recall.py",
+      "command": "query-shiguan-recall",
+      "compatibility_state": "unified_compatibility_adapter",
+      "domain": "shiguan",
+      "group": "shiguan",
+      "handler": "isolated_subprocess:scripts/commands/query_shiguan_recall.py",
+      "id": "shiguan.query-shiguan-recall",
+      "legacy_path": "scripts/commands/query_shiguan_recall.py",
+      "mcp": [
+        {
+          "description": "Advisory Shiguan recall: return the k most similar historical Shiguan records (court code, five-segment lineage, memory decision, grades) for a pending record text. Read-only precedent lookup; no execution authority.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "k": {
+                "default": 5,
+                "description": "Number of matches, 1..20.",
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "same_topic": {
+                "default": false,
+                "description": "Restrict matches to the same topic.",
+                "type": "boolean"
+              },
+              "state": {
+                "description": "Pending record text (topic/phase/summary/key actions).",
+                "maxLength": 8000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          "name": "shiguan.recall",
+          "public_api": "shiguan_recall",
+          "side_effect": "read_only"
+        },
+        {
+          "description": "Advisory: return the Shiguan recall service and index statistics (record count, lineages, model).",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "name": "shiguan.recall_stats",
+          "public_api": "shiguan_recall_stats",
           "side_effect": "read_only"
         }
       ],
@@ -1987,13 +2101,13 @@
     {
       "authority_source": "scripts/commands/sync_active_copies.py",
       "command": "sync-active-copies",
-      "compatibility_state": "unified_compatibility_adapter",
+      "compatibility_state": "source_only_entrypoint",
       "domain": "install",
       "group": "install",
       "handler": "isolated_subprocess:scripts/commands/sync_active_copies.py",
       "id": "install.sync-active-copies",
       "legacy_path": "scripts/commands/sync_active_copies.py",
-      "public": true,
+      "public": false,
       "receipt_schema": "legacy.entrypoint.result.v1",
       "side_effect": "bounded_mutation"
     },

@@ -411,3 +411,23 @@ def public_iku_candidates(scope: str = "plan-archives", limit: int = 20) -> dict
         "candidates": [_public_iku_candidate(candidate) for candidate in candidates],
         "count": len(candidates),
     }
+
+
+def shiguan_recall(state: str, k: int = 5, same_topic: bool = False) -> dict[str, object]:
+    """Advisory: return the k most similar historical Shiguan records.
+
+    Read-only proxy to the local laya-recall service. Never writes Shiguan data
+    and never mutates the taxonomy; results are advisory only.
+    """
+
+    from court_shiguan_recall_client import recall as _recall
+
+    return _api_result(_recall(state, k=k, same_topic=same_topic))
+
+
+def shiguan_recall_stats() -> dict[str, object]:
+    """Advisory: return laya-recall service and index statistics."""
+
+    from court_shiguan_recall_client import stats as _stats
+
+    return _api_result(_stats())

@@ -1,0 +1,50 @@
+{
+  "memory_decision": {
+    "type": "choice",
+    "instructions": "该史馆实录的长期记忆裁定应为哪一种？",
+    "criteria": {
+      "WRITE": "已获门下封驳批准，应写入durable memory的稳定规则、用户偏好或能力变更",
+      "PROPOSE": "有候选价值但尚未获门下批准，仅提出候选",
+      "SKIP": "纯证据、只读诊断、例行验证或瞬时状态，无可沉淀内容",
+      "DEFERRED": "有价值但当前不宜裁定，留待后续裁决"
+    }
+  },
+  "risk_level": {
+    "type": "score",
+    "instructions": "该记录的风险等级（0 最低，3 最高）",
+    "criteria": [
+      "低（D/E/F 级）",
+      "中（C 级）",
+      "较高（B 级）",
+      "高（S/A 级）"
+    ]
+  },
+  "knowledge_value": {
+    "type": "score",
+    "instructions": "该记录的知识库价值等级（0 最低，3 最高）",
+    "criteria": [
+      "低（D/E/F 级）",
+      "中（C 级）",
+      "较高（B 级）",
+      "高（S/A 级）"
+    ]
+  },
+  "priority_level": {
+    "type": "score",
+    "instructions": "该记录的优先级等级（0 最低，3 最高）",
+    "criteria": [
+      "低（D/E/F 级）",
+      "中（C 级）",
+      "较高（B 级）",
+      "高（S/A 级）"
+    ]
+  },
+  "abstain": {
+    "type": "noul",
+    "instructions": "该记录的内容证据是否不足以可靠归类（应转待审）？"
+  },
+  "should_new_class": {
+    "type": "noul",
+    "instructions": "该记录是否应开启一个新的史馆一级分类（而非归入既有分类）？"
+  }
+}

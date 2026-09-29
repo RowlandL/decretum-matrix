@@ -285,6 +285,7 @@ COMPATIBILITY_SHELL_ENTRYPOINTS = frozenset(
         "scripts/plan_shiguan_pending_quarantine.py",
         "scripts/probe_court_mcp_modern_wire.py",
         "scripts/query_shiguan_index.py",
+        "scripts/query_shiguan_recall.py",
         "scripts/quick_validate.py",
         "scripts/rebuild_shiguan_index.py",
         "scripts/reevaluate_memory_decisions.py",

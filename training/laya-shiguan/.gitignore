@@ -1,0 +1,14 @@
+# ===== 本地资产（不入库，按用户拍板 2026-09-29）=====
+# 语料留本地：含 summary 摘要，属史馆派生数据
+corpus/
+raw/
+# 基座权重与训练产物
+models/
+runs/
+*.safetensors
+*.gguf
+*.pt
+__pycache__/
+
+.venv/
+.uv/
