@@ -4643,6 +4643,20 @@ function validatePackReport(report, expectedUnpackedSize, label, contract) {
   );
   assert(Array.isArray(report.files), `${label} file list missing`);
   const actualPaths = report.files.map((entry) => entry.path).sort();
+  if (JSON.stringify(actualPaths) !== JSON.stringify(contract.expectedPackFiles)) {
+    const onlyActual = actualPaths.filter(
+      (entry) => !contract.expectedPackFiles.includes(entry),
+    );
+    const onlyExpected = contract.expectedPackFiles.filter(
+      (entry) => !actualPaths.includes(entry),
+    );
+    console.error(
+      "PACK_ALLOWLIST_DIFF onlyActual="
+        + JSON.stringify(onlyActual)
+        + " onlyExpected="
+        + JSON.stringify(onlyExpected),
+    );
+  }
   assertDeepEqual(actualPaths, contract.expectedPackFiles, `${label} file allowlist`);
   assertSafePackPaths(actualPaths);
   assert(
