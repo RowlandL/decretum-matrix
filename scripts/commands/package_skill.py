@@ -451,6 +451,14 @@ INSTALL_SOURCE_MEMBERS = frozenset(
         "scripts/install_projection_renderer.py",
         "scripts/fix_decretum_matrix.py",
         "scripts/commands/fix_decretum_matrix.py",
+        "scripts/court_diagnostics.py",
+        "scripts/commands/release_payload_manifest.py",
+        "scripts/release_payload_manifest.py",
+        "scripts/commands/package_skill.py",
+        "scripts/package_skill.py",
+        "scripts/check_active_copy_hashes.py",
+        "scripts/checks/check_active_copy_hashes.py",
+        "scripts/checks/check_codex_agent_roles.py",
     }
 )
 def _forbidden_repository_only_members(payload_kind: str) -> frozenset[str]:

@@ -278,11 +278,13 @@ def _validate_candidate_zip_payload(path: Path) -> None:
         )
 
 
-def _published_identity_probe(package_root: Path) -> dict[str, object] | None:
-    """Return the declared identity when this package is a published package.
+def _package_install_source_identity(package_root: Path) -> dict[str, object] | None:
+    """Return the declared identity when this package carries the install-source payload.
 
-    Tolerant on purpose: a missing or unreadable package.json is not this
-    function's error to raise, so the original diagnostics stay in charge.
+    The criterion is the payload kind, not the publication status: a private
+    candidate and a published package embed the same ZIP. Tolerant on purpose:
+    a missing or unreadable package.json is not this function's error to raise,
+    so the original diagnostics stay in charge.
     """
 
     try:
@@ -292,7 +294,7 @@ def _published_identity_probe(package_root: Path) -> dict[str, object] | None:
     except (OSError, RuntimeError, ValueError):
         return None
     identity = package.get("decretumMatrix")
-    if not isinstance(identity, dict) or identity.get("schema") != PUBLISHED_PACKAGE_SCHEMA:
+    if not isinstance(identity, dict) or identity.get("payloadKind") != "install_source":
         return None
     return identity
 
@@ -322,11 +324,12 @@ def _candidate_binding_metadata(
         if _nonempty(value) is None or any(char in value for char in "/\\\x00"):
             raise RuntimeError(f"{label}_invalid")
 
-    published_identity = _published_identity_probe(package_root)
-    if published_identity is not None:
-        # 已发布包解出的安装源不是 git 仓库：提交/树取自包声明的身份，并在下面用解出树
-        # 的 VERSION 与 release-manifest.json（artifactRef / buildId）交叉校验。
-        identity_source = published_identity.get("source")
+    install_source_identity = _package_install_source_identity(package_root)
+    source_is_repo = (source / ".git").exists()
+    if install_source_identity is not None and not source_is_repo:
+        # 包内解出的安装源不是 git 仓库：提交/树取自包声明的身份，并在下面用解出树的
+        # VERSION 与 release-manifest.json（artifactRef / buildId）交叉校验。
+        identity_source = install_source_identity.get("source")
         if not isinstance(identity_source, dict):
             raise RuntimeError("candidate_package_source_identity_missing")
         source_commit = _nonempty(identity_source.get("commit"))
@@ -1543,7 +1546,9 @@ def _published_package_source_root(package_root: Path) -> Path | None:
     identity = package.get("decretumMatrix")
     if not isinstance(identity, dict):
         return None
-    if identity.get("schema") != PUBLISHED_PACKAGE_SCHEMA:
+    # 判据是"这个包有没有携带安装源载荷"，而不是它的发布状态：私有候选与已发布包
+    # 内嵌同一份 ZIP，类别门由 _candidate_binding_metadata 负责。
+    if identity.get("payloadKind") != "install_source":
         return None
     archives = sorted((package_root / "release").glob("*.zip"))
     if len(archives) != 1:
