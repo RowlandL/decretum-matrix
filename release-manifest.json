@@ -591,8 +591,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/source-state-budget.v1.json",
-      "sha256": "3092d994281d706245d80ec5eb2f72b3bdbaa0ed0b428f8f2a8e074886d0705e",
-      "size": 4689
+      "sha256": "62851ad68b74cd40a9e12fe9d0f000482344899b92934be90212478b06f0b6b1",
+      "size": 4726
     },
     {
       "mode": "100644",
@@ -3094,10 +3094,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9152181,
+    "payload_bytes": 9152218,
     "payload_file_count": 510,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "a3380710a74223ef0989469388ee200a67b2530918ee9c7205e4756a65aabdac",
+    "payload_index_sha256": "93714880810eff532e6d0afa17ce15e4fbbee5d19bd67a1a6f85e9d26bc870eb",
     "source_packaged_tracked_file_count": 502,
     "source_tracked_file_count": 666
   },
