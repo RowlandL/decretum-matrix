@@ -10,7 +10,9 @@
     "repository_only_path_prefixes": [
       ".github/",
       "docs/",
+      "scripts/check_",
       "scripts/check_active_copy_hashes.py",
+      "scripts/checks/",
       "training/laya-shiguan/docs/"
     ],
     "generated_dir_names": [
