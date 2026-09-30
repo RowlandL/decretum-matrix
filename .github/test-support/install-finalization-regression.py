@@ -62,7 +62,7 @@ class InstallFinalizationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="ifn-")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.source, self.home = self.root / "source", self.root / "home"
         self.home.mkdir()
         self.manifest = fixtures._write_fixture_source(self.source)
@@ -117,7 +117,7 @@ class InstallFinalizationTests(unittest.TestCase):
                     result = self.install(self.metadata)
             else:
                 result = self.install(self.metadata)
-        self.assertTrue(fired, "fixture failed to reach the metadata write")
+        self.assertTrue(fired, f"fixture failed to reach the metadata write: {result}")
         return result
 
     def assert_restored(self, result):
