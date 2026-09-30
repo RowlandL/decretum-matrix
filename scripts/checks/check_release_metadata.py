@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 META = "references/manifests/github-release-metadata.v1.json"
 ICON = "assets/brand/decretum-matrix-icon.svg"
-TARGET = "beta1.1.6-hotfix-v1"
+TARGET = "beta1.1.7"
 PRIVATE = "0.0.0-private"
 def read(root: Path, path: str) -> str:
     return (root / path).read_text(encoding="utf-8")
@@ -64,6 +64,7 @@ def evaluate(root: Path = ROOT) -> dict[str, Any]:
     check("github release metadata first release tag", lambda: json.loads(read(root, META))["releases"][0]["tag"])
     check("github release metadata first release title", lambda: json.loads(read(root, META))["releases"][0]["title"], f"Decretum Matrix {TARGET}")
     check("release_payload_manifest.py RELEASE_LABEL", lambda: one(read(root, "scripts/commands/release_payload_manifest.py"), r'(?m)^RELEASE_LABEL\s*=\s*"([^"]+)"', "generator_label"))
+    check("package_skill.py RELEASE_LABEL", lambda: one(read(root, "scripts/commands/package_skill.py"), r'(?m)^RELEASE_LABEL\s*=\s*"([^"]+)"', "packager_label"))
     check("check_release_legal.py EXPECTED_RELEASE", lambda: one(read(root, "scripts/checks/check_release_legal.py"), r'(?m)^EXPECTED_RELEASE\s*=\s*"([^"]+)"', "legal_release"))
     try:
         namespace = sbom()["documentNamespace"]
@@ -73,7 +74,6 @@ def evaluate(root: Path = ROOT) -> dict[str, Any]:
             errors.append(f"active_version:SBOM.spdx.json documentNamespace:expected_prefix:{prefix}:got:{namespace}")
         core = one(read(root, "scripts/commands/release_payload_manifest.py"), r'(?m)^VERSION_CORE\s*=\s*"([^"]+)"', "generator_core")
         values["release_payload_manifest.py VERSION_CORE"] = core
-        # hotfix 标签延用基础版本号
         if core != TARGET.removeprefix("beta").split("-hotfix-v")[0]:
             errors.append(f"active_version:release_payload_manifest.py VERSION_CORE:expected:{TARGET.removeprefix('beta')}:got:{core}")
     except (AssertionError, FileNotFoundError, json.JSONDecodeError, TypeError, ValueError, KeyError, AttributeError) as exc:

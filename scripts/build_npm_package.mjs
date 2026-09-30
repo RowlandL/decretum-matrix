@@ -2266,7 +2266,7 @@ export async function runSyntheticSelfTest() {
     );
     const localCandidateRuntimeFiles = Object.freeze(
       await Promise.all(
-        CLI_RUNTIME_PATHS.map(async (runtimePath) => {
+        [...CLI_RUNTIME_PATHS, ...INSTALLER_ONLY_PATHS].map(async (runtimePath) => {
           const filePath = path.join(localCandidateAuthority, ...runtimePath.split("/"));
           const metadata = await stat(filePath);
           return Object.freeze({
@@ -2309,7 +2309,8 @@ export async function runSyntheticSelfTest() {
       sourceCommit: localCandidateHead,
       sourceTree: localCandidateTree,
       legalFiles: localCandidateLegalFiles,
-      runtimeFiles: localCandidateRuntimeFiles,
+      runtimeFiles: localCandidateRuntimeFiles.filter((file) => CLI_RUNTIME_PATHS.includes(file.path)),
+      installerFiles: localCandidateRuntimeFiles.filter((file) => INSTALLER_ONLY_PATHS.includes(file.path)),
       releaseAssets: Object.freeze([]),
       outputRelative: "synthetic/local-install",
       authorityReceiptId: `npm-local-${localCandidateHead.slice(0, 8)}`,
@@ -2458,6 +2459,12 @@ export async function runSyntheticSelfTest() {
     );
     await verifyCandidateAttempts({
       assert,
+      gateEvidence: localCandidateGateEvidence,
+      buildIncompleteCandidate: (outputDirectory) => buildLocalInstallCandidate({
+        candidateDirectory: localCandidateDirectory, candidateRoot: localCandidateRoot,
+        contract: { ...localCandidateContract, installerFiles: [] },
+        installedSmoke: true, outputDirectory, sourceRoot: localCandidateAuthority,
+      }),
       buildCandidate: (options) =>
         buildLocalInstallCandidate({
           candidateDirectory: localCandidateDirectory,
@@ -3845,6 +3852,7 @@ function createLocalInstallCandidateContract({
     sourceCommit: baseContract.sourceCommit,
     sourceTree: baseContract.sourceTree,
     legalFiles: baseContract.legalFiles,
+    installerFiles: baseContract.installerFiles,
     runtimeFiles,
     releaseAssets: candidate.assets,
     outputRelative: `release-staging/decretum-matrix/npm-local/${baseContract.releaseLabel}/${candidate.source.head_commit}`,
@@ -3936,7 +3944,7 @@ async function createLocalInstallCandidatePackage({
           tarballPath: firstPack.tarballPath,
           npmState,
           candidate,
-          sourceRoot,
+          packageRoot,
         })
       : {
           status: "NOT_RUN",
@@ -4428,7 +4436,7 @@ async function stagePackage(packageRoot, contract, releaseAssets) {
     // 运行时载荷不再限于 bin/ 下的扁平路径：安装源载荷带嵌套子目录
     // （scripts/、scripts/commands/），必须按路径创建目标目录。
     await mkdir(path.dirname(destinationPath), { recursive: true });
-    if (contract.mode === "local-install-candidate") {
+    if (contract.mode === "local-install-candidate" && contract.runtimeFiles.includes(runtimeFile)) {
       const payload = normalizedRuntimePayload(
         await readFile(sourcePath),
         runtimeFile.path,
@@ -4900,7 +4908,7 @@ async function runIsolatedCandidateSmoke({
   tarballPath,
   npmState,
   candidate,
-  sourceRoot,
+  packageRoot,
 }) {
   const smokeRoot = path.join(operationRoot, "installed-smoke");
   const installHome = path.join(smokeRoot, "install-home");
@@ -4922,11 +4930,9 @@ async function runIsolatedCandidateSmoke({
     DECRETUM_MATRIX_PYTHON_PREFIX_JSON: JSON.stringify(python.prefixArgs),
   };
   const installerArgs = [
-    path.join(sourceRoot, "scripts", "commands", "fix_decretum_matrix.py"),
+    path.join(packageRoot, "bin", "install-runtime.py"),
     "update",
     "--apply",
-    "--source-root",
-    sourceRoot,
     "--home-root",
     installHome,
     "--candidate-tgz",

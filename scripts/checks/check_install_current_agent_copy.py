@@ -5364,6 +5364,7 @@ def evaluate() -> Payload:
                     errors,
                 )
             passed += runpy.run_path(str(ROOT / ".github/test-support/candidate-install-regression.py"))["verify"](errors)
+            passed += runpy.run_path(str(ROOT / ".github/test-support/install-finalization-regression.py"))["verify"](errors)
             with tempfile.TemporaryDirectory(
                 prefix="cps-"
             ) as temp_dir:
@@ -5391,7 +5392,7 @@ def evaluate() -> Payload:
         "identity_manifest": str(IDENTITY_MANIFEST_PATH),
         "canonical_loaded_identity": dict(LOADED_IDENTITY_EXPECTED),
         "preserved_locator_policy": dict(LOCATOR_POLICY_EXPECTED),
-        "declared_cases": 61,
+        "declared_cases": 74,
         "passed_cases": passed,
         "declared_configuration_cases": 31,
         "passed_configuration_cases": configuration_passed,

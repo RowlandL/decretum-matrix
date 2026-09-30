@@ -4,7 +4,7 @@ This reference governs local installation of `decretum-matrix` into the active
 agent skill roots. It is runtime-focused; release packaging and publication
 checks stay in the source tree and are not startup prerequisites.
 
-Until external publication readback exists, the current beta1.1.6-hotfix-v1 source
+Until external publication readback exists, the current beta1.1.7 source
 checkout is treated as an unreleased candidate. Repository text does not
 authorize or prove an active installation; installation requires an explicit
 external transaction and a matching receipt.
@@ -117,7 +117,7 @@ handler may be installed for the seven-group CLI without becoming a startup
 dependency. Commands that require Git/tag authority return a typed
 `SOURCE_CHECKOUT_REQUIRED` or other blocked receipt outside a source checkout.
 
-The beta1.1.6-hotfix-v1 release does not promise automatic
+The beta1.1.7 release does not promise automatic
 installation or reuse of `zellij`, `squad`, or any other extra dependency.
 Any such dependency must be handled by a later explicitly authorized external
 installation transaction with its own receipt; the exact command is not

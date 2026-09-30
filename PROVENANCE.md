@@ -113,3 +113,15 @@ no registered status or third-party source is claimed. Gate:
 ## No-affiliation boundary
 
 Decretum Matrix（诏令矩阵） is not affiliated with or endorsed by cft0808/edict, openclaw-sansheng-liubu contributors, GNU, the Apache Software Foundation or OpenAI. Necessary source descriptions and license notices do not imply sponsorship.
+
+## beta1.1.7 directed engineering changes (2026-09-30)
+
+The install-finalization recovery changes, bounded minimal-host frontmatter
+parser, package-entrypoint regression wiring, associated tests and review notes
+are AI-assisted local work produced under the repository maintainer's direction.
+They reuse this repository's installation backup and atomic JSON writers; no
+third-party code, new runtime dependency or model weights were copied or added.
+Agent Skills format constraints and Python filesystem/mock API documentation
+were consulted as technical references, not imported implementations. Existing
+license and attribution requirements remain unchanged; this entry is not a CLA
+acceptance or a legal-title determination.

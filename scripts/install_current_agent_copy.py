@@ -2759,6 +2759,44 @@ def _portability_evidence(
     }
 
 
+def _compensate_install_metadata(
+    *, home_root: Path, result: dict[str, object], error: Exception,
+) -> dict[str, object]:
+    """Restore an applied projection when its binding/receipt cannot be persisted.
+
+    Reuse the installation backups. Attempt both restorations even when one fails;
+    ordinary in-process I/O failure must not escape as an unexplained partial install.
+    """
+    outcomes: dict[str, object] = {}
+    backup = result.get("backup", {})
+    preimage = result.get("binding_preimage")
+    for phase in ("projection", "binding"):
+        try:
+            if phase == "projection" and isinstance(backup, dict) and backup.get("backup_root"):
+                outcome = rollback_install_backup(
+                    home_root=home_root, backup_root=Path(str(backup["backup_root"])))
+            elif phase == "binding" and isinstance(preimage, dict):
+                outcome = restore_installation_binding_preimage(home_root=home_root, preimage=preimage)
+            else:
+                outcome = {"ok": True, "status": "NOT_REQUIRED"}
+            if not isinstance(outcome, dict):
+                outcome = {"ok": False, "status": "RECOVERY_REQUIRED", "reason": "invalid_rollback_result"}
+        except Exception as exc:
+            outcome = {"ok": False, "status": "RECOVERY_REQUIRED", "reason": f"{type(exc).__name__}:{exc}"}
+        outcomes[phase] = outcome
+    restored = all(value.get("ok") is True for value in outcomes.values())
+    for field in ("install_receipt", "install_receipt_path", "installation_binding"):
+        result.pop(field, None)
+    return {
+        **result, "ok": False,
+        "status": "ROLLED_BACK" if restored else "RECOVERY_REQUIRED",
+        "reason": getattr(error, "reason", "install_metadata_failed"),
+        "detail": f"{type(error).__name__}:{error}",
+        "compensation": {"ok": restored, **outcomes},
+        "recovery_required": not restored,
+    }
+
+
 def install_current_agent_copy(
     *,
     source_root: Path,
@@ -2921,8 +2959,8 @@ def install_current_agent_copy(
     if portability is not None:
         result["portability_evidence"] = portability
 
-    if installation_binding is not None:
-        try:
+    try:
+        if installation_binding is not None:
             binding = _build_installation_binding(
                 metadata=installation_binding,
                 home_root=home,
@@ -2948,62 +2986,60 @@ def install_current_agent_copy(
             if binding["completion"] != "COMMITTED":
                 result["status"] = "PENDING_VALIDATION"
                 result["reason"] = "projection_applied_pending_external_validation"
-        except _InstallContractError as exc:
-            return _failure(exc.reason, detail=exc.detail)
 
-    # M3 GREEN（R-I1）：APPLY 成功（write=True）时生成 §4.4 install receipt
-    # （计划书 §4.4 第 4 条：selection_policy/primary_root/current_tool/current_tool_root/
-    # current_tool_root_proof/status/explicit_extra_targets/selected_roots/authority/receipt_sha256），
-    # 作为 checker（check_active_copy_hashes INSTALL_RECEIPT_REQUIRED_FIELDS）的消费凭证；
-    # receipt_sha256 为 receipt 主体（除自身字段外）的规范序列化哈希。
-    if write:
-        _selected_roots = [str(target) for _label, target, _kind in selected]
-        _primary_root = str(home / ".agents" / "skills" / "decretum-matrix")
-        _current_tool_root = str(
-            Path(tool_roots[current_tool]).resolve(strict=False)
-        )
-        _explicit_extra_targets = [
-            str(target)
-            for tool, target, _kind in selected
-            if tool != "shared_agents" and tool != current_tool
-        ]
-        _receipt_body: dict[str, object] = {
-            "schema": RESULT_SCHEMA,
-            "ok": True,
-            "selection_policy": "receipt",
-            "primary_root": _primary_root,
-            "current_tool": current_tool,
-            "current_tool_root": _current_tool_root,
-            "current_tool_root_proof": "install_applied",
-            "status": (
-                "INSTALLED"
-                if result.get("status") == "INSTALLED"
-                else "PENDING_VALIDATION"
-            ),
-            "explicit_extra_targets": _explicit_extra_targets,
-            "selected_roots": _selected_roots,
-            "authority": "installer",
-            "preload_identity_policy": "court_number_with_observed_office_reads",
-        }
-        if validated_source_package_sha256 is not None:
-            _receipt_body["source_package_sha256"] = validated_source_package_sha256
-        if installation_binding is not None:
-            _receipt_body["installation_binding"] = result["installation_binding"]
-        _receipt_body["receipt_sha256"] = _install_receipt_sha256(_receipt_body)
-        result["install_receipt"] = _receipt_body
-        _receipt_path = (
-            home
-            / ".agents"
-            / "install-receipts"
-            / "decretum-matrix"
-            / f"install-{_receipt_body['receipt_sha256'][:16]}.json"
-        )
-        _receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        _receipt_path.write_text(
-            json.dumps(_receipt_body, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        result["install_receipt_path"] = str(_receipt_path)
+        # M3 GREEN（R-I1）：APPLY 成功（write=True）时生成 §4.4 install receipt
+        # （计划书 §4.4 第 4 条：selection_policy/primary_root/current_tool/current_tool_root/
+        # current_tool_root_proof/status/explicit_extra_targets/selected_roots/authority/receipt_sha256），
+        # 作为 checker（check_active_copy_hashes INSTALL_RECEIPT_REQUIRED_FIELDS）的消费凭证；
+        # receipt_sha256 为 receipt 主体（除自身字段外）的规范序列化哈希。
+        if write:
+            _selected_roots = [str(target) for _label, target, _kind in selected]
+            _primary_root = str(home / ".agents" / "skills" / "decretum-matrix")
+            _current_tool_root = str(
+                Path(tool_roots[current_tool]).resolve(strict=False)
+            )
+            _explicit_extra_targets = [
+                str(target)
+                for tool, target, _kind in selected
+                if tool != "shared_agents" and tool != current_tool
+            ]
+            _receipt_body: dict[str, object] = {
+                "schema": RESULT_SCHEMA,
+                "ok": True,
+                "selection_policy": "receipt",
+                "primary_root": _primary_root,
+                "current_tool": current_tool,
+                "current_tool_root": _current_tool_root,
+                "current_tool_root_proof": "install_applied",
+                "status": (
+                    "INSTALLED"
+                    if result.get("status") == "INSTALLED"
+                    else "PENDING_VALIDATION"
+                ),
+                "explicit_extra_targets": _explicit_extra_targets,
+                "selected_roots": _selected_roots,
+                "authority": "installer",
+                "preload_identity_policy": "court_number_with_observed_office_reads",
+            }
+            if validated_source_package_sha256 is not None:
+                _receipt_body["source_package_sha256"] = validated_source_package_sha256
+            if installation_binding is not None:
+                _receipt_body["installation_binding"] = result["installation_binding"]
+            _receipt_body["receipt_sha256"] = _install_receipt_sha256(_receipt_body)
+            result["install_receipt"] = _receipt_body
+            _receipt_path = (
+                home
+                / ".agents"
+                / "install-receipts"
+                / "decretum-matrix"
+                / f"install-{_receipt_body['receipt_sha256'][:16]}.json"
+            )
+            _write_json_atomic(_receipt_path, _receipt_body)
+            result["install_receipt_path"] = str(_receipt_path)
+    except Exception as exc:
+        if not write:
+            return _failure(getattr(exc, "reason", "install_metadata_failed"), detail=str(exc))
+        return _compensate_install_metadata(home_root=home, result=result, error=exc)
 
     if blank_host_configuration is not None:
         if configuration_adapter is None:

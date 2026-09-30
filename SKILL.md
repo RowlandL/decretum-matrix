@@ -3,7 +3,7 @@ name: decretum-matrix
 description: Decretum Matrix（诏令矩阵） routes /court and $decretum-matrix work through 三省六部, P00, explicit authority, CLI/MCP and Codex/Hermes host receipts. superCC is a separate runtime.
 license: AGPL-3.0
 metadata:
-  version: beta1.1.6-hotfix-v1
+  version: beta1.1.7
   author: RowlandL
 ---
 

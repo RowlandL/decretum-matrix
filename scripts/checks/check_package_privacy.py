@@ -881,7 +881,7 @@ class CommonSafeFilesystemTests(unittest.TestCase):
             number_of_links=2,
         )
         with (
-            mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+            mock.patch.object(court_safe_fs_windows, "os", SimpleNamespace(**(vars(os) | {"name": "nt"}))),
             mock.patch.object(court_safe_fs_windows, "platform_handle_from_fd", return_value=63),
             mock.patch.object(
                 court_safe_fs_windows,
@@ -912,7 +912,7 @@ class CommonSafeFilesystemTests(unittest.TestCase):
             number_of_links=1,
         )
         with (
-            mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+            mock.patch.object(court_safe_fs_windows, "os", SimpleNamespace(**(vars(os) | {"name": "nt"}))),
             mock.patch.object(court_safe_fs_windows, "_verify_windows_parent_chain"),
             mock.patch.object(court_safe_fs_windows, "_create_file_handle", return_value=61) as create_mock,
             mock.patch.object(court_safe_fs_windows, "_descriptor_from_handle", return_value=62),
@@ -957,7 +957,7 @@ class CommonSafeFilesystemTests(unittest.TestCase):
             number_of_links=1,
         )
         with (
-            mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+            mock.patch.object(court_safe_fs_windows, "os", SimpleNamespace(**(vars(os) | {"name": "nt"}))),
             mock.patch.object(court_safe_fs_windows, "platform_handle_from_fd", return_value=63),
             mock.patch.object(
                 court_safe_fs_windows,
@@ -999,7 +999,7 @@ class CommonSafeFilesystemTests(unittest.TestCase):
         ):
             with self.subTest(detail=detail):
                 with (
-                    mock.patch.object(court_safe_fs_windows.os, "name", "nt"),
+                    mock.patch.object(court_safe_fs_windows, "os", SimpleNamespace(**(vars(os) | {"name": "nt"}))),
                     mock.patch.object(
                         court_safe_fs_windows,
                         "platform_handle_from_fd",
@@ -1136,7 +1136,9 @@ class SourceTreePrivacyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     package_skill.copy_portable_tree(src, dst)
             finally:
-                if link.exists() or link.is_symlink():
+                if link.is_symlink():
+                    link.unlink()
+                elif link.exists():
                     os.rmdir(link)
 
     def test_portable_seed_does_not_create_obsidian_workspace(self) -> None:

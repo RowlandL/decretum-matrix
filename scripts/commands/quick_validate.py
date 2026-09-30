@@ -14,6 +14,7 @@ if _SCRIPTS_ROOT not in sys.path:
 
 
 import argparse
+import json
 from pathlib import Path
 import re
 import sys
@@ -31,6 +32,7 @@ ALLOWED_FRONTMATTER_KEYS = {
     "name",
     "description",
     "license",
+    "compatibility",
     "allowed-tools",
     "metadata",
 }
@@ -40,7 +42,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, object] | None, str | None]:
     if not text.startswith("---"):
         return None, "No YAML frontmatter found"
 
-    match = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.DOTALL)
+    match = re.match(r"^---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text, re.DOTALL)
     if not match:
         return None, "Invalid frontmatter format"
 
@@ -54,15 +56,62 @@ def parse_frontmatter(text: str) -> tuple[dict[str, object] | None, str | None]:
             return None, "Frontmatter must be a YAML dictionary"
         return frontmatter, None
 
-    frontmatter: dict[str, object] = {}
-    for line in frontmatter_text.splitlines():
+    return _parse_simple_frontmatter(frontmatter_text)
+
+
+def _parse_simple_frontmatter(text: str) -> tuple[dict[str, object] | None, str | None]:
+    """Parse the portable scalar/metadata subset, never flatten nested YAML.
+
+    Rich YAML requires PyYAML; ambiguous syntax fails closed on minimal hosts.
+    """
+    result: dict[str, object] = {}
+    metadata: dict[str, object] | None = None
+    metadata_indent: int | None = None
+    for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        key, sep, value = line.partition(":")
-        if not sep:
-            return None, "Invalid frontmatter line without ':'"
-        frontmatter[key.strip()] = value.strip().strip("'\"")
-    return frontmatter, None
+        if "\t" in line[:len(line) - len(line.lstrip())]:
+            return None, "Tabs are not valid YAML indentation"
+        indent = len(line) - len(line.lstrip(" "))
+        key, separator, raw = line.strip().partition(":")
+        if not separator or not re.fullmatch(r"[A-Za-z0-9_-]+", key):
+            return None, "Unsupported YAML frontmatter; install PyYAML for rich YAML"
+        value = raw.strip()
+        target = result
+        if indent:
+            if metadata is None or (metadata_indent is not None and indent != metadata_indent):
+                return None, "Invalid frontmatter indentation"
+            metadata_indent = indent
+            target = metadata
+        else:
+            metadata = None
+            metadata_indent = None
+        if key in target:
+            return None, f"Duplicate frontmatter key: {key}"
+        if not indent and key == "metadata" and (not value or value.startswith("#")):
+            metadata = {}
+            result[key] = metadata
+            continue
+        if value.startswith('"'):
+            try:
+                scalar, consumed = json.JSONDecoder().raw_decode(value)
+            except ValueError:
+                return None, "Invalid quoted frontmatter scalar"
+            if not isinstance(scalar, str) or value[consumed:].strip().split("#", 1)[0]:
+                return None, "Invalid quoted frontmatter scalar"
+        elif value.startswith("'"):
+            match = re.fullmatch(r"'((?:[^']|'')*)'(?:\s+#.*)?", value)
+            if not match:
+                return None, "Invalid quoted frontmatter scalar"
+            scalar = match.group(1).replace("''", "'")
+        else:
+            scalar = re.split(r"\s+#", value, maxsplit=1)[0].rstrip()
+            if (not scalar or scalar[0] in "[{&*!>|@`%" or ": " in scalar
+                    or scalar.casefold() in {"null", "~", "true", "false", "yes", "no", "on", "off"}
+                    or re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", scalar)):
+                return None, "Unsupported YAML scalar; quote strings or install PyYAML"
+        target[key] = scalar
+    return result, None
 
 
 def validate_skill(skill_path: Path) -> tuple[bool, str]:
@@ -113,6 +162,8 @@ def validate_skill(skill_path: Path) -> tuple[bool, str]:
     if not isinstance(description, str):
         return False, f"Description must be a string, got {type(description).__name__}"
     description = description.strip()
+    if not description:
+        return False, "Description must not be empty"
     if "<" in description or ">" in description:
         return False, "Description cannot contain angle brackets (< or >)"
     if len(description) > 1024:
@@ -121,6 +172,17 @@ def validate_skill(skill_path: Path) -> tuple[bool, str]:
             f"Description is too long ({len(description)} characters). Maximum is 1024 characters.",
         )
 
+    if "metadata" in frontmatter:
+        metadata = frontmatter["metadata"]
+        if not isinstance(metadata, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in metadata.items()
+        ):
+            return False, "Metadata must be a string-to-string mapping"
+    if "compatibility" in frontmatter:
+        compatibility = frontmatter["compatibility"]
+        if not isinstance(compatibility, str) or not 1 <= len(compatibility.strip()) <= 500:
+            return False, "Compatibility must be a non-empty string of at most 500 characters"
     return True, "Skill is valid!"
 
 

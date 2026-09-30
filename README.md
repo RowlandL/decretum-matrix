@@ -14,7 +14,7 @@ skill 环境中运行。内置的分层治理实现是完整默认治理；GBrai
 | --- | --- |
 | 规范调用 | `$decretum-matrix` |
 | 当前 GitHub 发布线 | `beta1.1.6-hotfix-v1` |
-| npm beta 渠道 | `1.1.2-beta.0`（独立发布通道，以远端回读为准） |
+| npm beta 渠道 | 独立发布通道，以远端回读为准 |
 | 接口面 | 统一 CLI `decretum-matrix` + 只读 stdio MCP（13 个工具） |
 | 许可 | AGPL-3.0-only（商业许可需另行书面签署） |
 
@@ -212,7 +212,7 @@ receipt-bound CLI，真实派遣走宿主。
 
 ## 6. 版本
 
-当前源码活动版本为 `beta1.1.6-hotfix-v1`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
+当前源码活动版本为 `beta1.1.7`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
 安装/发布回执为准；分支名只是当前工作载体，tag、GitHub Release、npm 以及线上 Wiki
 的成功状态只由对应发布回读证明。
 

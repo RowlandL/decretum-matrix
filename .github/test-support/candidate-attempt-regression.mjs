@@ -1,5 +1,7 @@
 export async function verifyCandidateAttempts({
   assert,
+  gateEvidence,
+  buildIncompleteCandidate,
   buildCandidate,
   commandExecution,
   outputDirectory,
@@ -9,6 +11,22 @@ export async function verifyCandidateAttempts({
   runFixtureCommand,
   snapshotOutputDirectory,
 }) {
+  const installerArgv = gateEvidence.installer_execution.argv;
+  assert(
+    installerArgv.some((value) => value.replaceAll("\\", "/").endsWith("/bin/install-runtime.py")) &&
+      !installerArgv.includes("--source-root"),
+    "candidate smoke must execute the packaged entrypoint, not borrow a source checkout",
+  );
+  let missingPayloadFailure = null;
+  try {
+    await buildIncompleteCandidate(path.join(root, "incomplete-install-payload"));
+  } catch (error) {
+    missingPayloadFailure = error;
+  }
+  assert(
+    missingPayloadFailure?.code === "BLOCKED_LOCAL_INSTALL_CANDIDATE_SMOKE",
+    "candidate missing install-only members incorrectly passed package-only smoke",
+  );
   for (const result of [
     { status: null, signal: "SIGTERM", stdout: "partial", stderr: "err" },
     { status: null, signal: "SIGKILL", stdout: "partial", stderr: "err" },

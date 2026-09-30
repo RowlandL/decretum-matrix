@@ -6,8 +6,19 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.6-hotfix-v1",
+  "latest_tag": "beta1.1.7",
   "releases": [
+    {
+      "tag": "beta1.1.7",
+      "title": "Decretum Matrix beta1.1.7",
+      "summary": "beta1.1.7 开发候选：修复安装失败恢复和精简 Python 解析，并让候选烟测直接经过包内入口。",
+      "highlights": [
+        "绑定或回执写入异常复用原备份恢复；恢复失败明确保留 RECOVERY_REQUIRED。",
+        "metadata 保持映射结构，支持有界 compatibility，精简 Python 不再误拒绝仓库技能。",
+        "本地候选保留安装专用文件，增加缺失负载拒绝测试，禁止源码安装器为包兜底。"
+      ],
+      "asset_note": "本条目不是已发布或已安装声明；tag、GitHub Release、npm 通道和活动安装分别以外部回读及安装回执为准。"
+    },
     {
       "asset_note": "beta1.1.6-hotfix-v1 的 tag、GitHub Release 资产与本机安装分别以远端回读和安装回执为准；本条目不替代这些证据。",
       "highlights": [

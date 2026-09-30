@@ -34,6 +34,8 @@
 
 ## 报告与证据
 
+- [beta1.1.7 源码审查与修复](reports/2026-09-30-beta117-review.md)
+
 - [CHANGELOG.md](<../CHANGELOG.md>)
 - [RELEASE-LOG.md](<../RELEASE-LOG.md>)
 - [docs/logs/2026-07-19-beta0.5.13.md](<logs/2026-07-19-beta0.5.13.md>)

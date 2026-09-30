@@ -1,5 +1,19 @@
 # Changelog
 
+## beta1.1.7 - 2026-09-30 (candidate)
+
+### Fixed
+
+- 安装投影已写入后，绑定生成、前像保存、绑定落盘或回执写入失败时，复用既有备份恢复投影和旧绑定；任一恢复失败明确返回 `RECOVERY_REQUIRED`，保留恢复路径，不能伪称 `ROLLED_BACK`。
+- 安装回执复用原有原子 JSON 写入器，避免普通写入异常留下截断回执。
+- 精简 Python 环境保留 `metadata` 映射，不再把 `author/version` 误判为顶层字段；拒绝重复键、错误缩进、空描述及非法 metadata，接受有界 `compatibility`。复杂 YAML 仍需 PyYAML。
+- 本地 npm 候选继承安装专用文件，烟测改从包内 `bin/install-runtime.py` 启动，不能借用源码树补全安装负载。
+
+### Validation boundary
+
+- 新增 13 项隔离文件系统回归，接入三平台现有安装门禁；候选烟测增加缺安装专用负载的拒绝用例。
+- 本条目是开发候选，不证明 GitHub Release、npm 渠道更新、活动安装或原生官署宿主验收。普通进程内异常恢复不等于断电恢复或并发安装串行化。
+
 ## beta1.1.6-hotfix-v1 - 2026-09-30
 
 ### Fixed
