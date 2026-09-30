@@ -1,0 +1,36 @@
+name: Beta source review snapshot
+
+on:
+  push:
+    branches: ["release/beta1.1.7"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-review"
+          git archive --format=zip --output="$RUNNER_TEMP/source-review/source.zip" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/source-review/source-commit.txt"
+      - name: Preserve reproducible review source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-review-${{ github.sha }}
+          path: ${{ runner.temp }}/source-review/
+          if-no-files-found: error
+          retention-days: 7
