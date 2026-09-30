@@ -2474,6 +2474,7 @@ export async function runSyntheticSelfTest() {
           ...options,
         }),
       commandExecution,
+      isolatedProcessEnvironment,
       outputDirectory: localCandidateBuild.output.directory,
       path,
       pathExists,
@@ -4557,6 +4558,7 @@ function isolatedProcessEnvironment(homeRoot, cacheRoot, npmState, platform) {
   const environment = {
     ...sanitizedNpmEnvironment(state),
     HOME: homeRoot,
+    CODEX_HOME: path.join(homeRoot, ".codex"),
     USERPROFILE: homeRoot,
     APPDATA: path.join(homeRoot, "AppData", "Roaming"),
     LOCALAPPDATA: path.join(homeRoot, "AppData", "Local"),

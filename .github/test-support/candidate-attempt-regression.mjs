@@ -4,6 +4,7 @@ export async function verifyCandidateAttempts({
   buildIncompleteCandidate,
   buildCandidate,
   commandExecution,
+  isolatedProcessEnvironment,
   outputDirectory,
   path,
   pathExists,
@@ -11,6 +12,18 @@ export async function verifyCandidateAttempts({
   runFixtureCommand,
   snapshotOutputDirectory,
 }) {
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = path.join(root, "foreign-codex-home");
+  try {
+    const home = path.join(root, "isolated-home");
+    assert(
+      isolatedProcessEnvironment(home, path.join(root, "cache"), null, null).CODEX_HOME === path.join(home, ".codex"),
+      "isolated candidate inherited another Codex configuration home",
+    );
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+  }
   const installerArgv = gateEvidence.installer_execution.argv;
   assert(
     installerArgv.some((value) => value.replaceAll("\\", "/").endsWith("/bin/install-runtime.py")) &&
