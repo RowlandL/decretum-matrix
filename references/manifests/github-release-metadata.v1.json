@@ -6,8 +6,20 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.7",
+  "latest_tag": "beta1.1.8",
   "releases": [
+    {
+      "tag": "beta1.1.8",
+      "title": "Decretum Matrix beta1.1.8",
+      "summary": "beta1.1.8 开发候选：修复派遣链两处 HEAD 级 result-recovery schema 漂移，按用户口径把 ACK 换成隐式完成加可选补录，并修复 heartbeat 状态回退。",
+      "highlights": [
+        "handoff 目标绑定字段集对齐权威 24 键（补 case_ref/plan_ref，write_set_sha256 改回 write_set）；recovery receipt 键改为 evidence_sha256。",
+        "ACK 轻量替代：放开 8 处 ACK 门禁，保留层级、scope、write_set、容量与身份终态校验；followup 证据集合移除 send_input。",
+        "heartbeat 状态降级按 preload_phase 序表判定，仅覆盖未推进的 record；heartbeat/report 回填 native_host_context_utilization。",
+        "入口预载预算 20480 调整为 20992 字节（+512 B），headroom 要求 768 字节不变。"
+      ],
+      "asset_note": "本条目不是已发布或已安装声明；tag、GitHub Release、npm 通道和活动安装分别以外部回读及安装回执为准。F22/F23 真实验收仍为 PARTIAL。"
+    },
     {
       "tag": "beta1.1.7",
       "title": "Decretum Matrix beta1.1.7",

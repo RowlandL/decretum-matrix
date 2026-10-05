@@ -1,5 +1,12 @@
 # Release Log
 
+## beta1.1.8
+
+- 修复两处 HEAD 级 result-recovery schema 漂移：handoff 目标绑定对齐权威 24 键（补 `case_ref`/`plan_ref`，`write_set_sha256` 改回 `write_set`）、recovery receipt 键改为 `evidence_sha256`。
+- ACK 轻量替代：放开 8 处 ACK 门禁，保留层级、scope、write_set、容量与身份终态校验；followup 证据集合移除 `send_input`。
+- 修复 heartbeat 状态回退（按 `preload_phase` 序表判定）并回填 `native_host_context_utilization`；入口预载预算 20480 → 20992 字节。
+- 状态：开发候选；F22/F23 真实验收为 PARTIAL，提交、CI、发布与生产安装必须分别由真实证据证明。
+
 ## beta1.1.7
 
 - 修复安装末段 I/O 异常的补偿边界，区分恢复成功与需要人工恢复；回执采用已有原子写入能力。
