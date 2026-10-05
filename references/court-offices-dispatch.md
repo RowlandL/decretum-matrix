@@ -729,7 +729,8 @@ clarification request and the user's answers as 实录 checkpoints.
   repository authority.
 - Ordinary office `start`, formal `report`, and `finish` require the task's
   current semantic state to be `DISPATCHABLE`; every other state fails before
-  task/event mutation. Formal `report` additionally requires `preload_status=PASSED`.
+  task/event mutation. Preload completion is implicit (`preload_phase`), so no
+  `preload_status` acknowledgement is required for a formal `report`.
   `close` and terminal `reconcile` remain bounded release operations and cannot
   restore dispatchability. Each appended lifecycle event receives a distinct
   event id even when two valid reports share the same timestamp second.

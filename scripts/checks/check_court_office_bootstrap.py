@@ -85,7 +85,9 @@ def run_checks() -> int:
         evidence_contract="return file/line evidence",
         stop_conditions=["scope change"],
     )
-    require(contract["preload_ack_required"] is True, "spawn contract did not require preload ack")
+    # 2026-10-06 ACK-lightweight (P2): preload completion is implicit; the spawn
+    # contract must not require a preload acknowledgement any more.
+    require(contract["preload_ack_required"] is False, "spawn contract still requires preload ack")
     require(contract["role_key"] == "xingbu", "spawn contract lost explicit role identity")
     require(contract["model_route"]["recommended_model"] == "gpt-5.6-sol", "spawn contract lost model recommendation")
     require(contract["model_route"]["recommended_reasoning_effort"] == "ultra", "spawn contract lost highest supported effort recommendation")

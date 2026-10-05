@@ -6,7 +6,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRY_PRELOAD_BUDGET_BYTES = 20 * 1024
+# 2026-10-05 F22: one bounded business block in the native host message needs 52
+# bytes more than the old ceiling; +512 keeps the fixed ceiling while leaving the
+# business assignment room to describe the bounded scope (no unbounded growth).
+ENTRY_PRELOAD_BUDGET_BYTES = 20 * 1024 + 512
 ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES = 768
 ORDINARY_NATIVE_HEADROOM_ROLES = frozenset(
     {

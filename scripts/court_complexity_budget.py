@@ -473,15 +473,15 @@ def _validate_budget_pool(pool: Mapping[str, object]) -> None:
             "approved_at",
             "start_condition",
             "expiry_condition",
-            "preload_ack",
             "shard_id",
             "integration_domain",
             "owner_id",
         )
+        # 2026-10-06 ACK-lightweight (P3): preload_ack stays on the lease as legacy
+        # evidence; it is no longer a required, PASSED-only invariant.
         if (
             value.get("schema") != "court.budget.lease.v1"
             or any(not _nonempty_text(value.get(field)) for field in required_text)
-            or value.get("preload_ack") != "PASSED"
         ):
             _reject("budget_pool_invariant_violation")
         try:
@@ -1191,8 +1191,8 @@ def allocate_budget_lease(
     if approved_by != allocator_id:
         _reject("approver_mismatch")
     _aware_timestamp(approved_at, "approval_timestamp_invalid")
-    if preload_ack != "PASSED":
-        _reject("preload_required")
+    # 2026-10-06 ACK-lightweight (P3): a missing legacy preload_ack no longer rejects
+    # the lease; capacity facts and the rest of the contract stay enforced.
     if not _nonempty_text(child_id) or not _nonempty_text(instance_key):
         _reject("instance_key_required")
     existing = _lease_by_child(pool, child_id)

@@ -85,8 +85,7 @@ class OfficeDecreeStartupTests(unittest.TestCase):
 
     def test_inactive_or_foreign_parent_still_rejected(self) -> None:
         original = deepcopy(self.parent)
-        for changes in ({'preload_status': 'PENDING'}, {'office_execution_ready': False},
-                        {'status': 'closed'}, {'release_status': 'cancel_requested'},
+        for changes in ({'status': 'closed'}, {'release_status': 'cancel_requested'},
                         {'invalidated_at': '2026-09-06T12:00:00+00:00'},
                         {'assignment_invalidated_by_semantic_resume': True},
                         {'semantic_epoch': self.task['semantic_epoch'] + 1},
@@ -96,6 +95,15 @@ class OfficeDecreeStartupTests(unittest.TestCase):
                 self.parent.clear(); self.parent.update(deepcopy(original)); self.parent.update(changes)
                 with self.assertRaisesRegex(ValueError, 'caller_native_actor_required'):
                     runtime._native_bridge_caller_guard(self.task, self.binding)
+
+    def test_pending_ack_or_unready_parent_does_not_block_caller(self) -> None:
+        # 2026-10-05 F22: host acknowledgement/readiness is no longer a caller
+        # gate; identity, receipt, case, lineage and lifecycle guards stay.
+        original = deepcopy(self.parent)
+        for changes in ({'preload_status': 'PENDING'}, {'office_execution_ready': False}):
+            with self.subTest(changes=changes):
+                self.parent.clear(); self.parent.update(deepcopy(original)); self.parent.update(changes)
+                runtime._native_bridge_caller_guard(self.task, self.binding)
 
     def test_capsule_suffix_uses_recorded_24_hour_time(self) -> None:
         reference = case_reference(self.task)

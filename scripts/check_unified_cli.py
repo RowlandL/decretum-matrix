@@ -1089,12 +1089,14 @@ def evaluate_public_open_command() -> dict[str, object]:
             problems.append("normal_startup_actionable_guide_missing")
             startup = {}
         else:
+            from court_office_config import ENTRY_PRELOAD_BUDGET_BYTES
+
             guide_path = ROOT / str(startup["guide"])
             entry_paths = [ROOT / "SKILL.md", guide_path, ROOT / "agents/office-dossiers/taizi/AGENTS.md", ROOT / "agents/standing-officials/taizi.toml"]
             if not all(path.is_file() for path in entry_paths):
                 problems.append("normal_startup_entry_missing")
-            elif sum(path.stat().st_size for path in entry_paths) > 20 * 1024:
-                problems.append("normal_startup_entry_exceeds_20kib")
+            elif sum(path.stat().st_size for path in entry_paths) > ENTRY_PRELOAD_BUDGET_BYTES:
+                problems.append("normal_startup_entry_exceeds_budget")
         from court_public_api import court_command_help
         mcp_help = court_command_help().get("stdout", {})
         if not startup or mcp_help.get("startup") != startup:

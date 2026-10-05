@@ -10,8 +10,8 @@ This per-office `AGENTS.md` is the long standing mandate for terminal-visible su
 - lineage: BLB
 - direct_superior: 尚书省
 - preload_contract_version: court.office.preload_ack.v1
-- preload_ack: first report must include preload_status=PASSED, role_key=libu, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix.
-- light_bootstrap_policy: all office transports use per-office AGENTS.md dossiers as the long standing mandate; prompts carry an explicit role plus profile/dossier/SKILL source manifest, and the office must return a preload ack before running.
+- preload_ack: optional legacy back-fill only; preload completion is implicit (preload_phase). When used it reports role_key=libu, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix; no acknowledgement gates the first report.
+- light_bootstrap_policy: all office transports use per-office AGENTS.md dossiers as the long standing mandate; prompts carry an explicit role plus profile/dossier/SKILL source manifest, preload completion is implicit and no acknowledgement is required before running.
 
 ## Standing Mandate
 
@@ -48,7 +48,7 @@ Shell contract:
 
 ## Fast Dispatch Protocol
 
-1. Before duty work, load this dossier, the referenced standing profile, and Decretum Matrix（诏令矩阵） `SKILL.md`; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
+1. Before duty work, load this dossier, the referenced standing profile, and Decretum Matrix（诏令矩阵） `SKILL.md`; preload completion is implicit; do not claim running from task_name or `/root/*` alone.
 2. Your squad identity has already been joined by the launcher. Do not run squad join again unless Taizi explicitly sends REPAIR_IDENTITY.
 3. On wake, run exactly one non-blocking inbox check. Use the receive command from Shell Contract that matches your active shell and this role. Use `--wait` only when your direct superior explicitly asks you to wait.
 4. If a structured task exists, ack it first through the same wrapper, do only the bounded task, preserve evidence, then complete it through the same wrapper.
@@ -78,8 +78,8 @@ Office profile:
 - capacity_admission_policy: Clamp the whole tree to 16 live threads including root and depth 4; unknown capacity, occupancy, depth, or request budget fails closed.
 - runtime_visibility_policy: superCC visible core is Taizi plus Three Departments only and is not an active-office cap; useful ministries may run non-visible under Shangshu dispatch.
 - ordinary_parallel_policy: Ordinary parallel uses no superCC panes or choreography and adds zero presentation delay.
-- startup_latency_contract: Record dispatch_requested_at, host_session_started_at, preload_ack_at, first_office_report_at, and finished_at; missing timestamps remain unavailable.
-- codex_model_routing_policy: Codex recommends Sol/Terra ultra or Luna max from task/risk. V1 injects agent_type only; V2 hides reserved spawn metadata. Both inherit the main model/effort and require route-id plus preload acknowledgement.
+- startup_latency_contract: Record dispatch_requested_at, host_session_started_at, preload_ack_at, preload_completed_at, first_office_report_at, and finished_at; missing timestamps remain unavailable.
+- codex_model_routing_policy: Codex recommends Sol/Terra ultra or Luna max from task/risk. V1 injects agent_type only; V2 hides reserved spawn metadata. Both inherit the main model/effort and bind the route-id at admission/start.
 - claude_model_inheritance_policy: Claude Code receives no office override and must inherit the main thread model.
 - hermes_model_inheritance_policy: Hermes inherits the main profile model; detailed profile-model design remains deferred.
 

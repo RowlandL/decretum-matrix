@@ -65,8 +65,12 @@ def main() -> int:
             template = root / "agents" / "standing-officials" / name
             rendered = roles.render_agent_toml(template)
             assert not re.search(r"hash|digest|sha256|摘要", rendered, re.IGNORECASE)
-            assert "court.office.preload_ack.v1" in rendered and "PENDING" in rendered and "court_code" in rendered
-            order = [rendered.index(value) for value in ("1. installed_skill_full_read", "2. own_profile_dossier_full_read", "3. child_preload_acceptance_returned", "4. parent_preload_ack_accepted", "5. business_cli_mcp")]
+            # 2026-10-06 ACK-lightweight (P2): the legacy PENDING/ACK ordering block was
+            # replaced by implicit preload completion; the schema token stays for readers
+            # of old records and no new hash/digest reference is introduced.
+            assert "court.office.preload_ack.v1" in rendered and "court_code" in rendered
+            assert "implicit" in rendered
+            order = [rendered.index(value) for value in ("1. installed_skill_full_read", "2. own_profile_dossier_full_read", "3. implicit_preload_completion", "4. business_cli_mcp")]
             assert order == sorted(order)
             (cards / name).write_text(rendered, encoding="utf-8")
             assert not role_check.schema_errors(cards / name)

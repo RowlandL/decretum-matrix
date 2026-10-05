@@ -931,18 +931,24 @@ def _lease(
     caller: str,
     preload: RolePreload,
     wave_id: str,
+    instance_id: str,
 ) -> tuple[dict[str, object], dict[str, object]]:
     operation_id = str(normalized["operation_id"])
     task_id = str(normalized["task_id"])
-    instance_id = f"{role}#{operation_id[-12:]}"
     write_set = list(normalized["write_sets"].get(role, []))  # type: ignore[union-attr]
-    read_scope = [
+    # The first admission already carries the bounded business scope; the four
+    # preload sources are its phase 0, not a replacement for the business reads.
+    read_scope = list(dict.fromkeys([
         "SKILL.md",
         preload.startup_guide_path,
         preload.dossier_path,
         preload.profile_path,
-    ]
+        *write_set,
+    ]))
     access_mode = "read_write" if write_set else "read_only"
+    task_focus = str(normalized.get("task_focus") or "").strip()
+    plan_ref = normalized.get("plan_ref")
+    expected_result = task_focus if not plan_ref else f"{task_focus} (plan_ref: {plan_ref})"
     preload_sources = {"court_skill_path": preload.skill_path,
                        "profile_source": preload.profile_path,
                        "dossier_path": preload.dossier_path,
@@ -962,6 +968,12 @@ def _lease(
         "integration_authority": False,
         "case_ref": normalized["case_ref"],
         "preload_sources": dict(preload_sources),
+        "dispatch_phase": "preload_then_business" if write_set else "preload_only",
+        "bounded_mandate": task_focus,
+        "expected_result": expected_result,
+        "terminal_condition": (
+            f"Deliver the bounded {role} result to {caller} and stop on acceptance or rejection."
+        ),
     }
     budget_id = f"budget:{task_id}:FAST-OPEN:{wave_id}"
     parent = "user" if caller == "taizi" else "taizi"
@@ -1023,7 +1035,16 @@ def _admission_request(
     if not isinstance(receipt, Mapping):
         raise FastPathMiss("semantic_receipt_missing")
     wave_id = f"{normalized['operation_id']}:{ordinal:02d}:{role}"
-    lease, binding = _lease(normalized, role, caller, preload, wave_id)
+    from court_runtime import office_instance_id_from_suffix
+    try:
+        # Same producer/consumer contract as the lifecycle validator: an issued
+        # instance id must already satisfy the admission/spawn consumer check.
+        instance_id = office_instance_id_from_suffix(
+            role, str(normalized["operation_id"])[-12:]
+        )
+    except ValueError as exc:
+        raise FastPathInvalid("fast_open_instance_id_invalid") from exc
+    lease, binding = _lease(normalized, role, caller, preload, wave_id, instance_id)
     return {
         "schema": "court.agent.admission_request.v1",
         "task_id": normalized["task_id"],
@@ -1057,7 +1078,7 @@ def _admission_request(
         "authority": normalized["authority"],
         "calling_office": caller,
         "direct_superior": "user" if caller == "taizi" else "taizi",
-        "assignment": f"Fast court-open preparation for {role}",
+        "assignment": f"Execute the bounded {role} duty for: {str(normalized['task_focus']).strip()}",
         "task_focus": "complete bounded dispatch packet",
         "complexity": "high" if role == "shangshu" else "medium",
         "risk": "medium",

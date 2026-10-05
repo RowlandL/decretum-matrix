@@ -23,14 +23,55 @@ TIMESTAMP_FIELDS = (
     "dispatch_requested_at",
     "host_session_started_at",
     "preload_ack_at",
+    "preload_completed_at",
+    "first_office_report_at",
+    "first_office_report_after_ack_at",
+    "finished_at",
+)
+
+
+def _preload_end(record: dict[str, Any]) -> dt.datetime | None:
+    """Implicit completion wins; the legacy ACK timestamp is the fallback.
+
+    2026-10-06 ACK-lightweight: preload ends implicitly (native capture / first
+    business action). A later legacy back-fill must never push the segment start
+    past the first report, so the earlier of the two timestamps is used and a
+    missing pair stays ``unavailable`` instead of being zero-filled.
+    """
+
+    candidates = [
+        value
+        for value in (
+            parse_timestamp(record.get("preload_ack_at")),
+            parse_timestamp(record.get("preload_completed_at")),
+        )
+        if value is not None
+    ]
+    return min(candidates) if candidates else None
+
+
+_PSEUDO_FIELDS = {"preload_end": _preload_end}
+
+# 2026-10-06 ACK-lightweight: the implicit and the legacy timestamps are optional
+# individually (at least one preload end must resolve); malformed present values
+# still count as missing so nothing is silently accepted.
+REQUIRED_TIMESTAMP_FIELDS = (
+    "dispatch_requested_at",
+    "host_session_started_at",
     "first_office_report_at",
     "finished_at",
 )
+OPTIONAL_TIMESTAMP_FIELDS = (
+    "preload_ack_at",
+    "preload_completed_at",
+    "first_office_report_after_ack_at",
+)
+
 SEGMENT_FIELDS = {
     "host_spawn_queue_ms": ("dispatch_requested_at", "host_session_started_at"),
-    "preload_ms": ("host_session_started_at", "preload_ack_at"),
-    "first_report_ms": ("preload_ack_at", "first_office_report_at"),
-    "execution_ms": ("preload_ack_at", "finished_at"),
+    "preload_ms": ("host_session_started_at", "preload_end"),
+    "first_report_ms": ("preload_end", "first_office_report_at"),
+    "execution_ms": ("preload_end", "finished_at"),
 }
 HIGH_THRESHOLDS_MS = {
     "host_spawn_queue_ms": 10_000,
@@ -66,8 +107,16 @@ def parse_timestamp(value: object) -> dt.datetime | None:
 
 
 def segment_milliseconds(record: dict[str, Any], start_field: str, end_field: str) -> int | str:
-    start = parse_timestamp(record.get(start_field))
-    end = parse_timestamp(record.get(end_field))
+    start = (
+        _PSEUDO_FIELDS[start_field](record)
+        if start_field in _PSEUDO_FIELDS
+        else parse_timestamp(record.get(start_field))
+    )
+    end = (
+        _PSEUDO_FIELDS[end_field](record)
+        if end_field in _PSEUDO_FIELDS
+        else parse_timestamp(record.get(end_field))
+    )
     if start is None or end is None:
         return "unavailable"
     milliseconds = round((end - start).total_seconds() * 1000)
@@ -115,7 +164,17 @@ def build_agent_latency_report(record: dict[str, Any]) -> dict[str, Any]:
         name: segment_milliseconds(record, start_field, end_field)
         for name, (start_field, end_field) in SEGMENT_FIELDS.items()
     }
-    missing = [field for field in TIMESTAMP_FIELDS if parse_timestamp(record.get(field)) is None]
+    # 2026-10-06 ACK-lightweight: preload ends implicitly (preload_completed_at) or,
+    # for legacy records, at the optional back-fill (preload_ack_at). Both are
+    # optional individually, but at least one must resolve for a COMPLETE report.
+    missing = [field for field in REQUIRED_TIMESTAMP_FIELDS if parse_timestamp(record.get(field)) is None]
+    if _preload_end(record) is None:
+        missing.append("preload_completed_at|preload_ack_at")
+    missing += [
+        field
+        for field in OPTIONAL_TIMESTAMP_FIELDS
+        if record.get(field) and parse_timestamp(record.get(field)) is None
+    ]
     invalid_segments = [name for name, value in segments.items() if value == "invalid"]
     status = "COMPLETE" if not missing and not invalid_segments else "PARTIAL"
     return {

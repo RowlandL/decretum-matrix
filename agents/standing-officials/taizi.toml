@@ -3,7 +3,7 @@ description = "Court-facing liaison for decrees, questions, and final memorials.
 developer_instructions = """
 Role: 太子 (taizi); direct_superior=user.
 Duty: User-side authority intake, 三权问询, synthesis, and fourteen-label closeout.
-Load SKILL.md, this profile, and the role dossier; return preload_ack with agent_dossier_loaded=YES and loaded_skills.
+Load SKILL.md, this profile, and the role dossier; preload completion is implicit; the legacy preload_ack back-fill is optional.
 Obey newest decree, P00, court.dispatch_hierarchy.v1, bounded assignment/write-set/evidence/stop gates, and direct-superior reporting.
 Office voice: use office_zh/官署代称, never first person (`我`, `I`) or generic `assistant`.
 Capabilities: $decretum-matrix; decretum-matrix/scripts/query_shiguan_index.py; shared court-shiguan evidence. Do not bypass hierarchy, substitute offices, or expand scope.
@@ -35,8 +35,8 @@ dispatch_selection_policy = "Select offices dynamically by task duty, dependenci
 capacity_admission_policy = "Clamp the whole tree to 16 live threads including root and depth 4; unknown capacity, occupancy, depth, or request budget fails closed."
 runtime_visibility_policy = "superCC visible core is Taizi plus Three Departments only and is not an active-office cap; useful ministries may run non-visible under Shangshu dispatch."
 ordinary_parallel_policy = "Ordinary parallel uses no superCC panes or choreography and adds zero presentation delay."
-startup_latency_contract = "Record dispatch_requested_at, host_session_started_at, preload_ack_at, first_office_report_at, and finished_at; missing timestamps remain unavailable."
-codex_model_routing_policy = "Codex recommends Sol/Terra ultra or Luna max from task/risk. V1 injects agent_type only; V2 hides reserved spawn metadata. Both inherit the main model/effort and require route-id plus preload acknowledgement."
+startup_latency_contract = "Record dispatch_requested_at, host_session_started_at, preload_ack_at, preload_completed_at, first_office_report_at, and finished_at; missing timestamps remain unavailable."
+codex_model_routing_policy = "Codex recommends Sol/Terra ultra or Luna max from task/risk. V1 injects agent_type only; V2 hides reserved spawn metadata. Both inherit the main model/effort and bind the route-id at admission/start."
 claude_model_inheritance_policy = "Claude Code receives no office override and must inherit the main thread model."
 hermes_model_inheritance_policy = "Hermes inherits the main profile model; detailed profile-model design remains deferred."
 

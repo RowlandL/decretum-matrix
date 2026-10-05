@@ -40,7 +40,7 @@ decretum-matrix [--format text|json] <group> <command> [args...]
 | 组 | 用途 | 日常面（默认帮助展示） |
 | --- | --- | --- |
 | `court` | 开朝、受理、语义门禁、计划复核、状态、结诏 | `open` `status` `plan` `intake-template` `workflow-status` `closeout-session` |
-| `office` | 官署生命周期与原生派遣 | `start` `admit` `preload-ack` `native-request` `native-capture` `report` `finish` `close` |
+| `office` | 官署生命周期与原生派遣 | `start` `admit` `native-request` `native-capture` `report` `finish` `close`（`preload-ack` 为可选 legacy 补录，不在日常面） |
 | `shiguan` | 史馆归档、索引、记忆裁定 | `archive-runtime-task` `archive-checkpoint` `query-shiguan-index` `memory-decision` `grow-shiguan-tree` `tidy-shiguan-records` |
 | `supercc` | 独立 superCC runtime | `supercc-squad` |
 | `install` | 安装、迁移、更新、修复 | `update` `migrate` `rollback` `fix` |

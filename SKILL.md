@@ -27,7 +27,7 @@ Absent a newest explicit user ban, lawful horizontal messages default to direct 
 ## Unified Dynamic Dispatch Semantics
 
 1. 官署按职责、依赖、风险和证据价值选择，不为填满容量派生。
-2. 默认 whole-tree 上限 16（含 root），`max_depth=4`；只有最新用户明确给出更大数量或 `unlimited/解限` 才可提高 ceiling。预算、宿主容量/拒绝、资源压力、层级、写集、preload 与实例追溯仍须有效。
+2. 默认 whole-tree 上限 16（含 root），`max_depth=4`；只有最新用户明确给出更大数量或 `unlimited/解限` 才可提高 ceiling。预算、宿主容量/拒绝、资源压力、层级、写集与实例追溯仍须有效；预载完成为隐式判定（`preload_phase`），不再要求 ACK 回执。
 3. `execution_authority=approval|autonomous|super` 与 `behavior=serial|parallel` 独立。缺哪项分别询问；不得从记忆、旧会话、sandbox、安装意图或运行权限推定。
 4. `super并行` = super + parallel + native。superCC 是独立 runtime/入口，不是第四权；native/superCC 互斥，不探测候选、不切换、不回退。
 5. 普通生产路由优先使用宿主已证实兼容的层级子官署协议；`subagent`/`Multi-Agent V2` 只作兼容选项。宿主无工具/证据链则 serial/降级转发；model/effort 均缺席才继承，仅当前用户显式、case-bound 选择可经 visible capability 覆盖。model-only 省略 effort 并记录宿主默认值；effort-only 证明 model 继承。

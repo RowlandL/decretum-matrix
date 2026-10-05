@@ -23,9 +23,10 @@ from court_native_host_dispatch import (
     normalize_native_host_dispatch_request,
     select_native_host_action,
 )
-from court_native_identity import canonical_agent_path_identity
+from court_native_identity import canonical_agent_path, canonical_agent_path_identity
 from court_model_router import validate_current_codex_model_selection
-from court_native_trace import (bind_opaque_spawn, is_opaque_message, spawn_activity,
+from court_native_trace import (bind_followup_activity, bind_opaque_spawn, interacted_activity,
+                                is_opaque_message, spawn_activity,
                                 skill_read_order, NativeEvidencePending)
 
 
@@ -42,12 +43,14 @@ _UUID_RE = re.compile(
     re.IGNORECASE,
 )
 _SPAWN_TOOL_NAMES = frozenset({"spawn_agent", "collaboration.spawn_agent"})
+# 2026-10-06 C1: only wake-capable follow-up carriers belong here.  The host
+# records an interacted activity for delivery-only tools such as send_input as
+# well, so admitting them would let a non-waking delegation masquerade as reuse
+# evidence.  followup_task is the sole real carrier proven by acceptance.
 _FOLLOWUP_TOOL_NAMES = frozenset(
     {
         "followup_task",
-        "send_input",
         "collaboration.followup_task",
-        "collaboration.send_input",
     }
 )
 _CALL_TYPES = frozenset({"function_call", "tool_call", "custom_tool_call"})
@@ -242,22 +245,10 @@ def canonical_host_message(
         "schema": HOST_MESSAGE_SCHEMA,
         "marker": host_message_marker(normalized),
         "request_ref": request_ref,
-        "bootstrap": {
-            "first_action": "Read SKILL.md < startup < {profile,dossier}.",
-            "skill_base": "Installed root.",
-            "skill": "SKILL.md",
-            "then_read": ["references/court-normal-startup.md",
-                          f"agents/standing-officials/{normalized['role']}.toml",
-                          f"agents/office-dossiers/{normalized['role']}/AGENTS.md"],
-            "then": "Emit acceptance; notify superior; wait.",
-            "child_acceptance": {
-                "schema": "court.child_preload_acceptance.v1",
-                "task_id": normalized['task_id'], "role_key": normalized['role'],
-                "office_instance_id": normalized['instance_id'],
-                "request_ref": request_ref,
-                "skill_loaded": True, "startup_guide_loaded": True,
-                "profile_loaded": True, "dossier_loaded": True,
-            },
+        "phase": "preload" if action == "spawn" else "business",
+        "business": {
+            "phase": "preload" if action == "spawn" else "business",
+            "assignment": normalized["assignment"],
         },
         "task": {
             "task_id": normalized["task_id"],
@@ -283,6 +274,35 @@ def canonical_host_message(
         "host_agent_type": normalized_agent_type,
         "stop": "Reject scope, role, task, superior, admission, or host-evidence drift; report only through the direct superior.",
     }
+    # The spawn message is phase 0 (bounded preload); a followup of an
+    # acknowledged child resumes the bound business and must not re-read the
+    # preload sources or ask the child to wait again.
+    if action == "spawn":
+        message["bootstrap"] = {
+            "first_action": "Read SKILL.md < startup < {profile,dossier}.",
+            "skill_base": "Installed root.",
+            "skill": "SKILL.md",
+            "then_read": ["references/court-normal-startup.md",
+                          f"agents/standing-officials/{normalized['role']}.toml",
+                          f"agents/office-dossiers/{normalized['role']}/AGENTS.md"],
+            "then": "Emit acceptance; notify superior; wait.",
+            "child_acceptance": {
+                "schema": "court.child_preload_acceptance.v1",
+                "task_id": normalized['task_id'], "role_key": normalized['role'],
+                "office_instance_id": normalized['instance_id'],
+                "request_ref": request_ref,
+                "skill_loaded": True, "startup_guide_loaded": True,
+                "profile_loaded": True, "dossier_loaded": True,
+            },
+        }
+    else:
+        message["resume"] = {
+            "first_action": (
+                "Execute the bound business inside duty_scope/write_set; "
+                "submit the bounded result to the direct superior."
+            ),
+            "then": "Stop after the direct superior accepts or rejects the bounded result.",
+        }
     return json.dumps(message, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
@@ -318,17 +338,28 @@ def _host_invocation(
         }
     if candidate is None:
         raise ValueError("native_bridge:followup_candidate_missing")
+    identifiers = [
+        candidate.get(field)
+        for field in ("host_task_id", "host_thread_id", "host_instance_id")
+    ]
+    target_candidates = list(dict.fromkeys(
+        value for value in identifiers
+        if isinstance(value, str) and value.strip()
+    ))
+    if candidate.get("host_identity_kind") == "canonical_agent_path":
+        # The observed host accepted the bare leaf for an existing canonical child.
+        target = str(candidate["host_task_id"]).rsplit("/", 1)[-1]
+        if target not in target_candidates:
+            target_candidates.insert(0, target)
+    else:
+        target = str(candidate["host_task_id"])
     return {
         "tool_name": "followup_task",
         "arguments": {
-            "target": candidate["host_task_id"],
+            "target": target,
             "message": message,
         },
-        "target_candidates": [
-            candidate["host_task_id"],
-            candidate["host_thread_id"],
-            candidate["host_instance_id"],
-        ],
+        "target_candidates": target_candidates,
     }
 
 
@@ -620,8 +651,21 @@ def _exact_followup_call(
     if event_type not in _CALL_TYPES:
         return None
     name = str(payload.get("name") or "").strip().lower()
+    opaque = False
     if not _marker_present(payload, marker):
-        return None
+        # A plaintext marker is authoritative: its call may never be skipped.
+        # Collaboration messages are stored opaque, so the only admissible
+        # binding for them is the exact candidate target; anything else stays
+        # unmatched and cannot be silently accepted.
+        if name not in _FOLLOWUP_TOOL_NAMES:
+            return None
+        try:
+            arguments = _call_arguments(payload)
+        except ValueError:
+            return None
+        if not is_opaque_message(arguments.get("message")):
+            return None
+        opaque = True
     if name not in _FOLLOWUP_TOOL_NAMES:
         raise ValueError("native_bridge:unknown_host_tool_shape")
     arguments = _call_arguments(payload)
@@ -648,8 +692,11 @@ def _exact_followup_call(
         if field in arguments
     ]
     if len(target_fields) != 1 or arguments.get(target_fields[0]) not in candidates:
+        if opaque:
+            return None
         raise ValueError("native_bridge:followup_target_mismatch")
-    _exact_message(arguments, str(expected.get("message") or ""))
+    if not opaque:
+        _exact_message(arguments, str(expected.get("message") or ""))
     _agent_type_guard(arguments, request, expected_agent_type=None)
     return _call_id(payload), name
 
@@ -735,6 +782,129 @@ def _host_result_from_output(
         "host_instance_id": agent_id,
         "host_action_id": call_id,
     }
+
+
+def _empty_tool_output(payload: Mapping[str, object]) -> bool:
+    """A host followup records no textual output; only that empty shape is allowed."""
+    for key in ("output", "result"):
+        if key in payload:
+            value = payload[key]
+            return value is None or (isinstance(value, str) and not value.strip())
+    return True
+
+
+def _child_context_utilization(home: Path, child_thread_id: str) -> float | None:
+    """Read the latest host-observed context usage for one canonical child.
+
+    The only source is the host rollout metadata: the last ``token_count``
+    event's ``last_token_usage.total_tokens`` over its own
+    ``model_context_window``.  Unobservable evidence returns ``None``; this
+    never fabricates a default or an estimate.
+    """
+    try:
+        path = _session_metadata_path(home, child_thread_id.lower())
+        info = path.stat()
+    except (OSError, ValueError):
+        return None
+    if info.st_size > TRACE_MAX_BYTES:
+        return None
+    last: tuple[int, int] | None = None
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if line_number > TRACE_MAX_LINES:
+                    return None
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(item, Mapping) or item.get("type") != "event_msg":
+                    continue
+                payload = item.get("payload")
+                if not isinstance(payload, Mapping) or payload.get("type") != "token_count":
+                    continue
+                usage_info = payload.get("info")
+                if not isinstance(usage_info, Mapping):
+                    continue
+                usage = usage_info.get("last_token_usage")
+                window = usage_info.get("model_context_window")
+                if not isinstance(usage, Mapping):
+                    continue
+                total = usage.get("total_tokens")
+                if isinstance(total, bool) or not isinstance(total, int) or total <= 0:
+                    continue
+                if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
+                    continue
+                last = (total, window)
+    except OSError:
+        return None
+    if last is None:
+        return None
+    return last[0] / last[1]
+
+
+def _canonical_followup_host_result(
+    *,
+    candidate: Mapping[str, object],
+    call_id: str,
+    call_line: int,
+    call_time: str,
+    interactions: list[dict[str, object]],
+    identity_context: object,
+    expected_epoch: int,
+    trace_reader_thread_id: object,
+    trace_thread_id: str,
+    trace_session_id: object,
+    home: Path,
+) -> dict[str, object]:
+    """Prove a canonical reuse from the host activity, never from child output.
+
+    The host returns an empty output for ``followup_task``; delivery is the
+    ``SubAgentActivity(kind=interacted)`` row that repeats the same call id,
+    candidate path, and the spawn-evidenced child thread.
+    """
+    if not isinstance(identity_context, Mapping):
+        raise ValueError("native_bridge:canonical_followup_identity_context_required")
+    path = canonical_agent_path(candidate.get("host_instance_id"), "host_instance_id")
+    child_thread = _text(candidate.get("host_thread_id"), "host_thread_id", maximum=64).lower()
+    if _UUID_RE.fullmatch(child_thread) is None:
+        raise ValueError("native_bridge:canonical_followup_child_thread_invalid")
+    matching = [
+        activity
+        for activity in interactions
+        if activity.get("call_id") == call_id
+        and activity.get("child_agent_path") == path
+        and isinstance(activity.get("child_thread_id"), str)
+        and str(activity.get("child_thread_id")).lower() == child_thread
+    ]
+    if len(matching) != 1:
+        raise ValueError("native_bridge:canonical_followup_activity_missing_or_ambiguous")
+    bind_followup_activity(
+        call_id=call_id,
+        call_line=call_line,
+        call_time=call_time,
+        activity=matching[0],
+        expected_path=path,
+        expected_child_thread_id=child_thread,
+        trace_thread_id=trace_thread_id,
+    )
+    host_result: dict[str, object] = {
+        "ok": True,
+        **canonical_agent_path_identity(
+            path,
+            expected_leaf=path.rsplit("/", 1)[-1],
+            context=identity_context,
+            expected_epoch=expected_epoch,
+            trace_reader_thread_id=trace_reader_thread_id,
+            trace_session_id=trace_session_id,
+            host_action_id=call_id,
+        ),
+        "followup_child_thread_id": child_thread,
+    }
+    utilization = _child_context_utilization(home, child_thread)
+    if utilization is not None:
+        host_result["context_utilization"] = utilization
+    return host_result
 
 
 class _TraceVerifiedHost:
@@ -1162,7 +1332,12 @@ def capture_current_native_delivery(
     )
     env, thread_id, session_id = _current_environment(environment)
     home = (codex_home or Path(env.get("CODEX_HOME") or (Path.home() / ".codex"))).expanduser()
-    decision, expected_action, _ = select_native_host_action(normalized)
+    decision, expected_action, candidate = select_native_host_action(normalized)
+    canonical_followup = (
+        expected_action == "followup"
+        and isinstance(candidate, Mapping)
+        and candidate.get("host_identity_kind") == "canonical_agent_path"
+    )
     expected_message = canonical_host_message(
         normalized,
         execution=execution,
@@ -1210,8 +1385,10 @@ def capture_current_native_delivery(
     marked_calls: list[tuple[str, str]] = []
     outputs: dict[str, dict[str, object]] = {}
     activities: list[dict[str, object]] = []
+    interactions: list[dict[str, object]] = []
     opaque_calls: dict[str, tuple[int, str]] = {}
     spawn_calls: dict[str, tuple[int, str]] = {}
+    followup_calls: dict[str, tuple[int, str]] = {}
     trace_ids: set[str] = set()
     parent_turn_context_rows: list[tuple[int, object]] = []
     try:
@@ -1243,6 +1420,9 @@ def capture_current_native_delivery(
                 activity = spawn_activity(item, line_number)
                 if activity is not None:
                     activities.append(activity)
+                interaction = interacted_activity(item, line_number)
+                if interaction is not None:
+                    interactions.append(interaction)
                 payload = _payload(item)
                 if payload is None:
                     continue
@@ -1267,6 +1447,8 @@ def capture_current_native_delivery(
                     marked_calls.append(marked)
                     if expected_action == 'spawn':
                         spawn_calls[marked[0]] = (line_number, str(item.get('timestamp') or ''))
+                    else:
+                        followup_calls[marked[0]] = (line_number, str(item.get('timestamp') or ''))
                     if expected_action == 'spawn' and is_opaque_message(_call_arguments(payload).get('message')):
                         opaque_calls[marked[0]] = (line_number, str(item.get('timestamp') or ''))
                     continue
@@ -1274,6 +1456,8 @@ def capture_current_native_delivery(
                 if event_type in _OUTPUT_TYPES:
                     call_id = _call_id(payload)
                     if any(marked_call_id == call_id for marked_call_id, _name in marked_calls):
+                        if canonical_followup and _empty_tool_output(payload):
+                            continue
                         output = _output_record(payload)
                         if output is None:
                             raise ValueError("native_bridge:matching_host_output_missing")
@@ -1292,23 +1476,38 @@ def capture_current_native_delivery(
         raise ValueError("native_bridge:marked_host_action_missing_or_ambiguous")
     call_id, tool_name = marked_calls[0]
     output = outputs.get(call_id)
-    if output is None:
+    if output is None and not canonical_followup:
         raise ValueError("native_bridge:matching_host_output_missing")
-    expected_arguments = invocation.get("arguments")
-    expected_leaf = (
-        expected_arguments.get("task_name")
-        if expected_action == "spawn" and isinstance(expected_arguments, Mapping)
-        else None
-    )
-    host_result = _host_result_from_output(
-        output,
-        call_id=call_id,
-        identity_context=identity_context if expected_action == "spawn" else None,
-        expected_leaf=expected_leaf,
-        trace_reader_thread_id=thread_id,
-        trace_session_id=session_id,
-        expected_epoch=int(normalized["semantic_epoch"]),
-    )
+    if canonical_followup:
+        host_result = _canonical_followup_host_result(
+            candidate=candidate,
+            call_id=call_id,
+            call_line=followup_calls[call_id][0],
+            call_time=followup_calls[call_id][1],
+            interactions=interactions,
+            identity_context=identity_context,
+            expected_epoch=int(normalized["semantic_epoch"]),
+            trace_reader_thread_id=thread_id,
+            trace_thread_id=trace_id,
+            trace_session_id=session_id,
+            home=home,
+        )
+    else:
+        expected_arguments = invocation.get("arguments")
+        expected_leaf = (
+            expected_arguments.get("task_name")
+            if expected_action == "spawn" and isinstance(expected_arguments, Mapping)
+            else None
+        )
+        host_result = _host_result_from_output(
+            output,
+            call_id=call_id,
+            identity_context=identity_context if expected_action == "spawn" else None,
+            expected_leaf=expected_leaf,
+            trace_reader_thread_id=thread_id,
+            trace_session_id=session_id,
+            expected_epoch=int(normalized["semantic_epoch"]),
+        )
     matching = [activity for activity in activities if activity.get('call_id') == call_id]
     observed_child_thread_id: object | None = None
     if expected_action == "spawn":
@@ -1323,6 +1522,13 @@ def capture_current_native_delivery(
                 expected_agent_type=agent_type,
             )
         )
+        if (
+            host_result.get("host_identity_kind") == "canonical_agent_path"
+            and isinstance(observed_child_thread_id, str)
+        ):
+            utilization = _child_context_utilization(home, observed_child_thread_id)
+            if utilization is not None:
+                host_result["context_utilization"] = utilization
     if call_id in opaque_calls or (expected_action == 'spawn' and matching
                                    and host_result.get('host_identity_kind') == 'canonical_agent_path'):
         if host_result.get('host_identity_kind') != 'canonical_agent_path' or not isinstance(identity_context, Mapping):

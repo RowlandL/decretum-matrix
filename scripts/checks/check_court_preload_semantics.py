@@ -54,6 +54,7 @@ import court_agent_admission_contract
 import court_runtime
 from commands import court_native_bridge
 from court_intake_gate import minimal_request_understanding_example
+from court_office_config import ENTRY_PRELOAD_BUDGET_BYTES
 import check_capability_index_gate
 from checks.installed_identity_fixture import write_skill
 
@@ -483,7 +484,7 @@ def check_pinned_initial_semantics() -> None:
     pinned = SKILL_PATH.read_text(encoding="utf-8")
     missing: list[str] = []
 
-    if len(pinned.encode("utf-8")) > 20 * 1024:
+    if len(pinned.encode("utf-8")) > ENTRY_PRELOAD_BUDGET_BYTES:
         missing.append("short_entry_budget")
     for heading in (
         "## P00 Highest-Priority Semantic Dispatch And Resume Contract",
@@ -562,18 +563,27 @@ def check_horizontal_delivery_default_contract() -> None:
 
 
 def check_startup_exact_flow_contract() -> None:
+    """2026-10-06 ACK-lightweight: the startup guide now states the implicit flow.
+
+    Original contract (kept in history, docs/receipts/2026-08-27-beta1.0.7-source-final-receipt.json
+    references this checker): ``SKILL < startup < {profile,dossier}`` and a terminal
+    ``preload-ack`` step. New contract: the legacy read order / read shape /
+    commentary-acceptance requirements are gone and preload completes implicitly.
+    """
     guide = (ROOT / "references" / "court-normal-startup.md").read_text(
         encoding="utf-8"
     )
     exact_markers = (
-        "`SKILL < startup < {profile,dossier}`",
-        "`admit → native-request → host_invocation → native-capture → returned office command/request → preload-ack`",
-        "[Path/ACK details](sections/court-office-name-profile-skill-binding.md)",
+        "Read `SKILL` and the current startup guide before role materials",
+        "`admit → native-request → host_invocation → native-capture → returned office command/request → start`",
+        "Preload completion is implicit",
+        "`agent-preload-ack` remain an optional legacy back-fill",
+        "[Path details](sections/court-office-name-profile-skill-binding.md)",
     )
     missing = [marker for marker in exact_markers if marker not in guide]
     require(
         not missing,
-        "normal startup exact flow contract missing: " + ", ".join(missing),
+        "normal startup implicit flow contract missing: " + ", ".join(missing),
     )
 
     bootstrap_source = inspect.getsource(court_native_bridge.canonical_host_message)
@@ -1301,6 +1311,16 @@ def check_exact_portable_admission_preload_sources() -> None:
 
 
 def check_preload_ack_rejections() -> None:
+    """Legacy-only matrix (2026-10-06 ACK-lightweight, P2).
+
+    ``court_office_bootstrap.validate_preload_ack`` now only guards the optional
+    legacy back-fill record: a rejected ack is a read-only diagnostic and must not
+    fail, close, or gate an office. This matrix keeps the historical checker name
+    because ``docs/receipts/2026-08-27-beta1.0.7-source-final-receipt.json`` cites
+    ``preload_ack_rejections``; it verifies record-shape rejection only, never a
+    lifecycle gate.
+    """
+
     manifest = court_office_bootstrap.build_preload_manifest(
         "libu",
         court_code="COURT-20260906-1-AAAA",

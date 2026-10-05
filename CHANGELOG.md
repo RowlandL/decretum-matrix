@@ -1,5 +1,26 @@
 # Changelog
 
+## beta1.1.8 - 2026-10-06 (candidate)
+
+### Fixed
+
+- 修复两处 HEAD 级 result-recovery schema 漂移：handoff 目标绑定字段集由 22 键对齐权威 24 键（补 `case_ref`/`plan_ref`，`write_set_sha256` 改回 `write_set`），recovery receipt 键 `evidence_ref` 改为 `evidence_sha256`。修复前经 `_validate_target_binding` 与 `_validate_recovery_receipt` 的 review、handoff、consume 路径均不可校验。
+- `_target_binding_from_record` 在 record 缺 `case_ref`/`plan_ref` 时回退到 task 侧构造：`case_ref` 要求非空 `court_code`（格式 `^[A-Z0-9]+-\d{8}-[0-9A-Z]+-[A-Z0-9]{4}$`）与正整数 `charter_revision`，`plan_ref` 取 `zhongshu_plan.revision` 且须为正整数；历史或非常规结构 fail-closed，错误码可读。
+- 修复 heartbeat 状态回退：降级为 `starting` 的条件收敛为「无 legacy PASSED 且 `preload_phase` 序表 order == 0」，已推进（`IMPLICIT_AFTER_CAPTURE` / `LEGACY_ACK_RECORDED` / `COMPLETED_IMPLICIT`）的 record 不再降级，避免 reuse 候选被挤出白名单而退化为 spawn。
+- `agent_heartbeat` / `agent_report` 回填缺失的 `native_host_context_utilization`（复用 capture 侧生产者，rollout 不可观测时不写入，reuse 门禁保持 fail-closed）。
+
+### Changed
+
+- ACK 轻量替代（P1–P5）：按用户 2026-10-05 口径放开 8 处 ACK 门禁（preload ack 硬门、`_native_bridge_caller_guard`、identity context、followup/reuse 判定、plan producer、agent_report、agent_finish、completion_source 与 handoff），ACK 仅保留 legacy 记录与诊断用途；followup 证据集合移除 `send_input`，只计唤醒型载体 `followup_task`（C1）。
+- 入口预载预算 `ENTRY_PRELOAD_BUDGET_BYTES` 由 20480 调整为 20992 字节（+512 B，+2.5%），用于容纳业务块；`ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES` 保持 768 字节。
+- 版本由 beta1.1.7 推进到 beta1.1.8。
+
+### Validation boundary
+
+- 未整体放宽校验：层级（hierarchy gate / edge class）、scope 与 write_set 同一性、容量事实、身份与终态校验，以及 `exact_preload_contract_gate` 的路径 / case_ref / profile / dossier / skill 同一性均保留。
+- F22、F23 真实验收仍为 PARTIAL：离线证据只覆盖工作树进程内断言与子检查退出码，缺真实宿主的 trace / rollout 证据；`check_stage3_recovery_chain` 与 `check_semantic_continuity` 为 HEAD 预存在红灯。
+- 本条目是开发候选，不证明 GitHub Release、npm 渠道更新、活动安装或三宿主安装验收；真实宿主 heartbeat 分支未复验。
+
 ## beta1.1.7 - 2026-09-30 (candidate)
 
 ### Fixed

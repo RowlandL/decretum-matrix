@@ -85,17 +85,16 @@ ORDINARY_PRELOAD_ANCHOR = "\n".join((
     "ORDINARY_PRELOAD_ANCHOR",
     "1. installed_skill_full_read: read the exact installed court_skill_path in full.",
     "2. own_profile_dossier_full_read: read this office's bound profile_source and agent_dossier_path in full.",
-    "3. child_preload_acceptance_returned: return court.office.preload_ack.v1 to the direct superior with the dispatched court_code, actual source paths, agent_dossier_loaded and loaded_skills after completing the required reads.",
-    "4. parent_preload_ack_accepted: the parent preload ack must be accepted. Remain PENDING until both child preload acceptance has returned and parent preload ack has been accepted.",
-    "5. business_cli_mcp: only then enter running and invoke business CLI/MCP within the assigned scope.",
+    "3. implicit_preload_completion: preload completion is implicit. Read the bound skill/profile/dossier, then proceed; no child acceptance message or parent ACK is required.",
+    "4. business_cli_mcp: invoke business CLI/MCP within the assigned scope as soon as the office is started; a successful native capture advances preload_phase to IMPLICIT_AFTER_CAPTURE and the first business action completes it as COMPLETED_IMPLICIT.",
     "Use the dispatched court_code to bind this office's identity materials and the existing case. Keep the issued role, instance, host identity and scope.",
 ))
 AGENT_DOSSIER_POLICY = (
     "Installed .codex/agents TOML files are native auto-discovered role files and must remain "
     "one-file-per-agent and model-neutral. Use the referenced ordinary AGENTS.md dossier as the "
     "long role mandate for child-agent and worktree-thread carriers. If it cannot be read and "
-    "acknowledged as agent_dossier_loaded=YES, preload fails and the office "
-    "must not enter running."
+    "acknowledged, the office still proceeds; the legacy acknowledgement is an "
+    "optional back-fill and never a gate."
 )
 OFFICE_VOICE_POLICY = (
     "Office voice: act autonomously only inside this office mandate; report "
@@ -163,13 +162,13 @@ def render_agent_dossier_block(role: str) -> list[str]:
         "- carrier_kind: child_agent",
         f"- agent_dossier_path: {path}",
         f"- court_skill_path: {skill}",
-        "- preload_ack: child preload acceptance and accepted parent preload ack are both required before leaving PENDING or invoking business CLI/MCP.",
+        "- preload_ack: optional legacy back-fill only; preload completion is implicit and no acknowledgement is required before invoking business CLI/MCP.",
         "- agent_dossier_loaded: report exactly YES or NO; YES requires the full bound dossier read, with the actual role and source paths confirmed.",
-        "- court_code: supplied by the parent dispatch; include it in the preload acknowledgement after reading the bound materials.",
-        "- loaded_skills: must include decretum-matrix in the preload ack.",
+        "- court_code: supplied by the parent dispatch and used to bind the case; no preload acknowledgement step is required.",
+        "- loaded_skills: when the optional legacy back-fill is used, include decretum-matrix.",
         f"- ordinary_carrier_dossier_policy: {AGENT_DOSSIER_POLICY}",
         f"- office_voice_policy: {OFFICE_VOICE_POLICY}",
-        "- `/root/*` is only a collaboration thread address. The parent must dispatch an explicit role_key plus this dossier/profile/skill manifest and require the first preload ack.",
+        "- `/root/*` is only a collaboration thread address. The parent must dispatch an explicit role_key plus this dossier/profile/skill manifest; preload completion is implicit.",
         "- Codex model route: V1 binds agent_type only; V2 hides reserved metadata; both inherit the main model/effort and keep this role file model-neutral.",
         "- Claude Code model route: no office override; inherit the main thread model.",
         "- Hermes model route: no office override in this phase; inherit the main profile model and defer detailed profile design.",

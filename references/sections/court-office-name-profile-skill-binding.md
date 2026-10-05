@@ -129,23 +129,30 @@ office_request through the returned office_command. Current host trace provides
 the receipts; never supply invented host IDs or results. Opaque messages use
 call/activity/child metadata; capture proves spawn only.
 
-## Superior preload ACK
+## Implicit preload completion (legacy ACK optional)
 
-After the child's `child_acceptance` arrives, the direct superior saves
-`office start`'s `preload_ack_request` and submits it with
-`office preload-ack --request-file <ack.json>`. On CLI success, the superior
-sends the acceptance to the child; only then may the child begin business work.
-The CLI does not notify the waiting child. Host capture proves delivery only.
+Preload completion is implicit. The office begins business work as soon as its
+lifecycle is started; a successful native capture advances `preload_phase` to
+`IMPLICIT_AFTER_CAPTURE`, and the first business lifecycle action completes it as
+`COMPLETED_IMPLICIT` (`preload_completed_at`). No material order, read shape,
+child-acceptance message, or tribute round-trip is required to proceed.
 
-The request uses `office_instance.preload_manifest` identity values: keep
-`court_skill_path`, `profile_source`, and `dossier_path` skill-relative, rather
-than copying the absolute read locations from `native_request.role_ack`.
+`office start` still returns `preload_ack_request` (the legacy back-fill
+request template, which carries no `legacy_optional` key of its own); the
+`legacy_optional=true` marker is returned by the `office preload-ack` /
+`agent_preload_ack` command results. `office preload-ack --request-file <ack.json>` /
+`agent-preload-ack` remain available as an optional legacy back-fill. A
+successful back-fill records `preload_status=PASSED`, `preload_ack_at`, and the
+identity values below for old readers; it no longer changes lifecycle status,
+execution readiness, or any gate, and a rejected back-fill is reported as a
+read-only diagnostic instead of failing the office.
+
+The back-fill request uses `office_instance.preload_manifest` identity values:
+keep `court_skill_path`, `profile_source`, and `dossier_path` skill-relative
+rather than copying absolute read locations from `native_request.role_ack`.
 Public request `loaded_skills` is a comma/semicolon-separated string (normally
-`"decretum-matrix"`); the internal validated ack uses an array. Neither object
-replaces the child's `child_acceptance`. The generated request is a template,
-not proof: current child trace and the matching request ID remain required.
-Missing evidence stays retryable PENDING; parent declarations and saved-trace
-replays cannot prove fresh acceptance.
+`"decretum-matrix"`); the internal validated record uses an array. Old PASSED /
+PENDING / FAILED records stay readable and never block a new lifecycle.
 
 For ordinary carriers, `office_instance_kind=child_agent|worktree_thread` uses
 one admission and lifecycle contract. The instance id and first-spawn

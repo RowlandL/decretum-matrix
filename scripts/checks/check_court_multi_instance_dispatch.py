@@ -525,12 +525,6 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
             "superCC",
         ),
         (
-            "reject_missing_preload_ack",
-            "exact_preload_contract_gate",
-            [canonical("gongbu"), missing_preload_ack],
-            "super并行",
-        ),
-        (
             "reject_wrong_profile_path",
             "exact_preload_contract_gate",
             [canonical("gongbu"), wrong_profile_path],
@@ -564,10 +558,15 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
             entry["case_ref"] = reference
         cases += (("reject_" + name, "exact_preload_contract_gate",
                    [canonical("gongbu"), entry], "super并行"),)
-    return tuple(
-        (name, rejection_check(gate, entries))
-        for name, gate, entries, _mode in cases
-    )
+    def accept_missing_preload_ack() -> None:
+        # 2026-10-06 ACK-lightweight (P3): exact_preload_contract_gate keeps the
+        # path/case_ref/profile/dossier/skill identity checks but must no longer
+        # reject a plan only because the legacy preload_ack evidence is absent.
+        validate([canonical("gongbu"), missing_preload_ack])
+
+    checks = [(name, rejection_check(gate, entries)) for name, gate, entries, _mode in cases]
+    checks.append(("accept_missing_preload_ack", accept_missing_preload_ack))
+    return tuple(checks)
 
 
 def run_case(name: str, check: Callable[[], None]) -> dict[str, object]:

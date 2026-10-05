@@ -1999,24 +1999,37 @@ def check_terminal_and_identity() -> None:
     admission = admit(task_id, "terminal-wave")
     start = start_args(admission, task_id, "terminal-wave", "gongbu-terminal-1")
     court_runtime.agent_start(start)
-    try:
-        court_runtime.agent_preload_ack(ack_args(task_id, "gongbu-terminal-1", profile_source="invalid"))
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("invalid preload acknowledgement passed")
-    terminal = court_runtime.load_tasks()[task_id]["agents"]["gongbu-terminal-1"]
-    assert terminal["status"] == "failed"
-    assert terminal["final_status"] == "failed"
-    assert terminal["release_status"] == "closed"
+    # 2026-10-06 ACK-lightweight (P2): an invalid legacy acknowledgement is a
+    # read-only, retryable diagnostic; it must not fail or close the office.
+    invalid = court_runtime.agent_preload_ack(
+        ack_args(task_id, "gongbu-terminal-1", profile_source="invalid")
+    )
+    assert invalid["recorded"] is False and invalid["error"]
+    diagnostic = court_runtime.load_tasks()[task_id]["agents"]["gongbu-terminal-1"]
+    assert diagnostic["status"] == "starting"
+    assert diagnostic["legacy_preload_ack_last_error"]
+    assert diagnostic.get("final_status") not in {"failed"}
+    assert diagnostic.get("release_status") != "closed"
+    corrected = court_runtime.agent_preload_ack(ack_args(task_id, "gongbu-terminal-1"))
+    assert corrected["recorded"] is True
+    assert court_runtime.load_tasks()[task_id]["agents"]["gongbu-terminal-1"]["preload_status"] == "PASSED"
+
+    # Terminal agents still refuse every lifecycle mutation, including the back-fill.
+    closed_task = "terminal-agent-closed"
+    create_task(closed_task)
+    closed_admission = admit(closed_task, "terminal-wave-closed")
+    court_runtime.agent_start(
+        start_args(closed_admission, closed_task, "terminal-wave-closed", "gongbu-terminal-2")
+    )
+    court_runtime.agent_finish(finish_args(closed_task, "gongbu-terminal-2"))
+    court_runtime.agent_close(event_args(closed_task, "gongbu-terminal-2"))
     for action in (
-        lambda: court_runtime.agent_heartbeat(event_args(task_id, "gongbu-terminal-1")),
-        lambda: court_runtime.agent_report(event_args(task_id, "gongbu-terminal-1")),
-        lambda: court_runtime.agent_finish(finish_args(task_id, "gongbu-terminal-1")),
-        lambda: court_runtime.agent_start(start),
-        lambda: court_runtime.agent_preload_ack(ack_args(task_id, "gongbu-terminal-1")),
+        lambda: court_runtime.agent_heartbeat(event_args(closed_task, "gongbu-terminal-2")),
+        lambda: court_runtime.agent_report(event_args(closed_task, "gongbu-terminal-2")),
+        lambda: court_runtime.agent_finish(finish_args(closed_task, "gongbu-terminal-2")),
+        lambda: court_runtime.agent_preload_ack(ack_args(closed_task, "gongbu-terminal-2")),
     ):
-        reject_unchanged(task_id, action, "terminal agent was mutated")
+        reject_unchanged(closed_task, action, "terminal agent was mutated")
 
     identity_task = "manifest-identity"
     create_task(identity_task)
@@ -2073,13 +2086,16 @@ def check_terminal_and_identity() -> None:
 
     mojibake = admit(identity_task, "mojibake-wave")
     court_runtime.agent_start(start_args(mojibake, identity_task, "mojibake-wave", "gongbu-mojibake-1"))
-    try:
-        court_runtime.agent_preload_ack(ack_args(identity_task, "gongbu-mojibake-1", office_zh="å·¥éƒ¨"))
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("inconsistent explicit office_zh passed")
-    assert court_runtime.load_tasks()[identity_task]["agents"]["gongbu-mojibake-1"]["status"] == "failed"
+    mismatched = court_runtime.agent_preload_ack(
+        ack_args(identity_task, "gongbu-mojibake-1", office_zh="å·¥éƒ¨")
+    )
+    # 2026-10-06 ACK-lightweight (P2): mismatch stays a diagnostic, not a failure.
+    assert mismatched["recorded"] is False
+    assert "office_zh" in mismatched["error"]
+    assert (
+        court_runtime.load_tasks()[identity_task]["agents"]["gongbu-mojibake-1"]["status"]
+        == "starting"
+    )
 
     uppercase_task = "uppercase-digest-identity"
     create_task(uppercase_task)
@@ -2089,23 +2105,22 @@ def check_terminal_and_identity() -> None:
     )
     uppercase_record = court_runtime.load_tasks()[uppercase_task]["agents"]["gongbu-uppercase-1"]
     uppercase_manifest = uppercase_record["preload_manifest"]
-    try:
-        court_runtime.agent_preload_ack(
-            ack_args(
-                uppercase_task,
-                "gongbu-uppercase-1",
-                profile_source=str(uppercase_manifest["profile_source"]).upper(),
-                dossier_path=str(uppercase_manifest["dossier_path"]).upper(),
-                court_skill_path=str(uppercase_manifest["court_skill_path"]).upper(),
-            )
+    uppercase = court_runtime.agent_preload_ack(
+        ack_args(
+            uppercase_task,
+            "gongbu-uppercase-1",
+            profile_source=str(uppercase_manifest["profile_source"]).upper(),
+            dossier_path=str(uppercase_manifest["dossier_path"]).upper(),
+            court_skill_path=str(uppercase_manifest["court_skill_path"]).upper(),
         )
-    except ValueError as exc:
-        assert "preload ack mismatch" in str(exc)
-    else:
-        raise AssertionError("uppercase source ref bypassed exact binding")
+    )
+    # 2026-10-06 ACK-lightweight (P2): exact binding is still validated for the legacy
+    # record, but a mismatch is a diagnostic instead of a forced terminal failure.
+    assert uppercase["recorded"] is False
+    assert "mismatch" in uppercase["error"] or "preload ack" in uppercase["error"]
     uppercase_record = court_runtime.load_tasks()[uppercase_task]["agents"]["gongbu-uppercase-1"]
-    assert uppercase_record["status"] == "failed"
-    assert uppercase_record["final_status"] == "failed"
+    assert uppercase_record["status"] == "starting"
+    assert uppercase_record.get("final_status") not in {"failed"}
 
     v1_task = "v1-inherited-model-lifecycle"
     create_task(v1_task)
@@ -2119,7 +2134,12 @@ def check_terminal_and_identity() -> None:
     assert v1_admission["selected_protocol"] == "v1"
     court_runtime.agent_start(start_args(v1_admission, v1_task, "v1-wave", "gongbu-v1-agent"))
     v1_ack = court_runtime.agent_preload_ack(ack_args(v1_task, "gongbu-v1-agent"))
-    assert v1_ack["agent"]["status"] == "running"
+    # 2026-10-06 ACK-lightweight (P2): the back-fill records evidence without changing
+    # the lifecycle status (implicit completion owns that transition).
+    assert v1_ack["recorded"] is True
+    assert v1_ack["agent"]["status"] == "starting"
+    assert v1_ack["agent"]["preload_status"] == "PASSED"
+    assert v1_ack["agent"]["preload_phase"] in {"LEGACY_ACK_RECORDED", "COMPLETED_IMPLICIT"}
     assert v1_ack["agent"]["model_override_applied"] is False
     assert v1_ack["agent"]["inheritance_policy"] == "inherit_main_thread_model_v1_agent_type"
 
@@ -2269,7 +2289,12 @@ def check_office_name_identity_binding() -> None:
         ack_args(persistence_task, "libu-hr-worker-1", role="libu-hr")
     )
     persisted = court_runtime.load_tasks()[persistence_task]["agents"]["libu-hr-worker-1"]
-    assert persisted["office_execution_ready"] is True
+    # 2026-10-06 ACK-lightweight (P2): the legacy back-fill records evidence and the
+    # implicit preload phase, but execution readiness is decided by admission, not ACK.
+    assert persisted["preload_status"] == "PASSED"
+    assert persisted["legacy_preload_ack"] is True
+    assert persisted["preload_phase"] in {"LEGACY_ACK_RECORDED", "COMPLETED_IMPLICIT"}
+    assert persisted["office_execution_ready"] is False
 
     legacy_task = "legacy-assignment-read"
     create_task(legacy_task)
@@ -3080,7 +3105,15 @@ def check_office_task_name_and_readiness_binding() -> None:
     ack.office_instance_id = "gongbu-address-01"
     ack.carrier_proof = proof_one
     acknowledged = court_runtime.office_preload_ack(ack)
-    assert acknowledged["office_instance"]["office_execution_ready"] is True
+    # 2026-10-06 ACK-lightweight (P2): the legacy back-fill records evidence and the
+    # implicit phase, but readiness is owned by admission, not by the ACK.
+    assert acknowledged["recorded"] is True
+    assert acknowledged["office_instance"]["preload_status"] == "PASSED"
+    assert acknowledged["office_instance"]["preload_phase"] in {
+        "LEGACY_ACK_RECORDED",
+        "COMPLETED_IMPLICIT",
+    }
+    assert acknowledged["office_instance"]["office_execution_ready"] is False
 
     proof_two = {"agent_id": "gongbu-address-02"}
     second = admit(
@@ -3308,11 +3341,9 @@ def check_office_lifecycle_authority_guards() -> None:
     pending_report.office_instance_kind = "child_agent"
     pending_report.office_instance_id = pending_instance
     pending_report.carrier_proof = pending_proof
-    reject_runtime_bytes_unchanged(
-        lambda: court_runtime.office_report(pending_report),
-        "preload-pending office report mutated the runtime",
-        "office_preload_not_passed",
-    )
+    # 2026-10-05 F22: host acknowledgement no longer gates an office report;
+    # the QUARANTINED / semantic-mutation guards below stay enforced.
+    court_runtime.office_report(pending_report)
 
     _, guarded_instance, guarded_proof, _ = launch(
         "office-semantic-action-guard",
@@ -3726,11 +3757,17 @@ def check_office_lifecycle_json_cli() -> None:
     ack.office_instance_kind = "child_agent"
     ack.office_instance_id = instance_id
     ack.carrier_proof = proof
-    reject_runtime_bytes_unchanged(
-        lambda: court_runtime.agent_preload_ack(ack),
-        "legacy native receipt without child trace must remain pending",
-        "preload_pending",
-    )
+    # 2026-10-06 ACK-lightweight (P2): an unobserved child trace is a read-only
+    # diagnostic. The optional legacy record still writes and never stays PENDING.
+    without_trace = court_runtime.agent_preload_ack(ack)
+    assert without_trace["recorded"] is True, without_trace
+    assert without_trace["agent"]["preload_status"] == "PASSED"
+    assert without_trace["agent"]["preload_phase"] in {
+        "IMPLICIT_AFTER_CAPTURE",
+        "LEGACY_ACK_RECORDED",
+        "COMPLETED_IMPLICIT",
+    }
+    assert without_trace["agent"].get("child_skill_read_order") is None
     # Reuse opaque host trace data in this isolated runtime; no live host claim.
     from checks.check_native_opaque_capture import CHILD, SESSION, fixture as trace_fixture
     home = court_runtime.runtime_root() / "preload-host"
@@ -3760,29 +3797,12 @@ def check_office_lifecycle_json_cli() -> None:
     template_file = home / "preload-ack-request.json"
     template_file.write_text(json.dumps(template), encoding="utf-8")
     with patch.dict(os.environ, {"CODEX_HOME": str(home), "CODEX_THREAD_ID": SESSION, "CODEX_SESSION_ID": SESSION}):
-        before = runtime_state_bytes()
-        status, stdout, stderr = raw_office_cli(["office", "preload-ack", "--request-file", str(template_file)])
-        pending = json.loads(stdout)
-        assert status == 2 and pending["fail_closed"] is True, (status, stdout, stderr)
-        assert "child_acceptance_not_observed" in pending["error"], pending
-        assert runtime_state_bytes() == before
-        record = court_runtime.load_tasks()[task_id]["agents"][agent_id]
-        assert record["preload_status"] == "PENDING" and record["office_execution_ready"] is False
-        child_acceptance = {"schema": "court.child_preload_acceptance.v1", "task_id": task_id,
-            "role_key": "gongbu", "office_instance_id": instance_id, "request_ref": template["native_request_ref"],
-            "skill_loaded": True, "startup_guide_loaded": True,
-            "profile_loaded": True, "dossier_loaded": True}
-        text = json.dumps(child_acceptance)
-        rows.extend([
-            {"type": "event_msg", "payload": {"type": "item_completed", "thread_id": CHILD,
-                "item": {"type": "AgentMessage", "phase": "commentary", "id": "ack",
-                         "content": [{"type": "Text", "text": text}]}}},
-            {"type": "response_item", "payload": {"type": "message", "role": "assistant", "phase": "commentary",
-                "id": "ack", "content": [{"type": "output_text", "text": text}]}},
-        ])
-        trace.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+        # 2026-10-06 ACK-lightweight (P2): the public legacy back-fill records evidence
+        # without a child trace or commentary acceptance contract; it never blocks.
         acknowledged = office_cli("preload-ack", Namespace(**template))
         assert acknowledged["receipt"]["action"] == "preload_ack"
+        assert acknowledged["recorded"] is True
+        assert acknowledged["legacy_optional"] is True
         for surface_name, surface in (
             ("office_state", acknowledged["office_instance"]),
             ("transition", acknowledged["event"]),
@@ -3790,6 +3810,13 @@ def check_office_lifecycle_json_cli() -> None:
         ):
             assert surface["startup_guide_path"] == template["startup_guide_path"], surface_name
             assert surface["startup_guide_loaded"] == "YES", surface_name
+        record = court_runtime.load_tasks()[task_id]["agents"][agent_id]
+        assert record["preload_status"] == "PASSED"
+        assert record["preload_phase"] in {
+            "IMPLICIT_AFTER_CAPTURE",
+            "LEGACY_ACK_RECORDED",
+            "COMPLETED_IMPLICIT",
+        }
     ack.native_request_ref = template["native_request_ref"]
     # This test's host UUID strings are synthetic. Continue its downstream JSON
     # lifecycle contract with an explicit adapter fixture; this is not host acceptance.
@@ -3840,20 +3867,26 @@ def check_office_lifecycle_json_cli() -> None:
     close.office_instance_id = instance_id
     close.carrier_proof = proof
     assert office_cli("close", close)["receipt"]["action"] == "close"
-    # Reset only this synthetic instance to exercise each terminal identity failure.
+    # Reset only this synthetic instance to exercise the read-only legacy diagnostics.
     for path in ("D:/foreign/SKILL.md", "../SKILL.md"):
         set_task_field(task_id, lambda task: task["agents"].update({agent_id: deepcopy(stored["agents"][agent_id])}))
         invalid = {**template, "court_skill_path": path}
+        # 2026-10-06 ACK-lightweight (P2): a path mismatch is rejected for the legacy
+        # record and reported as a diagnostic; the office is neither failed nor closed.
         status, stdout, stderr = raw_office_cli(["office", "preload-ack", "--request-json", json.dumps(invalid)])
-        assert status == 2 and "court_skill_path" in json.loads(stdout)["error"], (stdout, stderr)
-        failed = court_runtime.load_tasks()[task_id]["agents"][agent_id]
-        assert (failed["status"], failed["final_status"], failed["release_status"]) == ("failed", "failed", "closed")
-        before = runtime_state_bytes()
-        status, stdout, stderr = raw_office_cli(["office", "preload-ack", "--request-json", json.dumps(template)])
-        assert status == 2 and "terminal agent" in json.loads(stdout)["error"], (stdout, stderr)
-        assert runtime_state_bytes() == before
+        payload = json.loads(stdout)
+        assert status == 0 and payload["result"]["recorded"] is False, (stdout, stderr)
+        assert "court_skill_path" in payload["result"]["record_error"], payload
+        unchanged = court_runtime.load_tasks()[task_id]["agents"][agent_id]
+        assert (
+            unchanged["status"], unchanged.get("final_status"), unchanged.get("release_status")
+        ) != ("failed", "failed", "closed")
+        assert unchanged["status"] == "starting"
     supported = court_runtime.probe_payload()["supported_commands"]
-    assert "office admit|start|followup|preload-ack|report|finish|close" in supported
+    # 2026-10-06 ACK-lightweight (P2): the legacy back-fill is no longer part of the
+    # default office/day-to-day surface.
+    assert "office admit|start|followup|report|finish|close" in supported
+    assert "office preload-ack (legacy optional backfill; never a gate)" in supported
     assert all(
         alias in supported
         for alias in (

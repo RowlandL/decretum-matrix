@@ -1338,6 +1338,44 @@ def _execution_budgets(values: Mapping[str, object]) -> dict[str, int | None]:
     return budgets
 
 
+def _capacity_reuse_candidates(
+    agents: Mapping[str, object],
+    roles: Sequence[str],
+) -> list[dict[str, object]]:
+    """List acknowledged live instances that replace a new admission."""
+
+    wanted = {str(role).strip().lower() for role in roles if str(role).strip()}
+    candidates: list[dict[str, object]] = []
+    for agent_id, record in agents.items():
+        if not isinstance(record, Mapping):
+            continue
+        if str(record.get('role') or '').strip().lower() not in wanted:
+            continue
+        if str(record.get('status') or '').strip().lower() in TERMINAL_AGENT_STATUSES:
+            continue
+        # Minimal reuse condition: a live instance carrying a host identity.
+        # Host acknowledgement is intentionally not required (2026-10-05 F22).
+        if not any(
+            record.get(field)
+            for field in (
+                'native_host_identity_kind',
+                'native_host_instance_id',
+                'native_host_task_id',
+                'native_host_thread_id',
+            )
+        ):
+            continue
+        candidates.append({
+            'agent_id': str(agent_id),
+            'role': record.get('role'),
+            'office_instance_id': record.get('office_instance_id'),
+            'status': record.get('status'),
+            'preload_status': record.get('preload_status'),
+            'native_host_identity_kind': record.get('native_host_identity_kind'),
+        })
+    return candidates
+
+
 def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     execution_budgets = _execution_budgets(vars(args))
     dispatch_requested_at = now_text()
@@ -1566,7 +1604,17 @@ def evaluate_agent_admission(task: dict[str, Any], args: argparse.Namespace) -> 
         result["invalid_roles"] = invalid_roles
         return deny("invalid_requested_role")
     if not wave.selected_roles:
-        return deny(wave.reason if wave.reason.endswith(("unknown", "invalid", "exceeded")) else f"{wave.reason}_exhausted")
+        decision = wave.reason if wave.reason.endswith(("unknown", "invalid", "exceeded")) else f"{wave.reason}_exhausted"
+        if wave.reason == "runtime_capacity":
+            result.update(
+                next_step=(
+                    "Reuse an admitted live instance through office native-request -> "
+                    "followup_task; do not admit the same role again."
+                ),
+                reuse_candidates=_capacity_reuse_candidates(task_agents, requested_roles),
+                wave_block_hint="agent-reconcile --error-kind capacity",
+            )
+        return deny(decision)
     return result
 
 
@@ -1600,6 +1648,17 @@ def _require_role_prefixed(value: object, role: str, field: str) -> str:
     ):
         raise ValueError(f"{field}_not_role_prefixed")
     return text
+
+
+def office_instance_id_from_suffix(role: object, suffix: object) -> str:
+    """Issue an office instance id in the existing ``role-<suffix>`` form.
+
+    Producers reuse the consumer validator, so an issued id is acceptable to
+    ``_require_role_prefixed`` instead of a second hand-written format.
+    """
+    text = str(role or "").strip().lower()
+    tail = str(suffix or "").strip().lower()
+    return _require_role_prefixed(f"{text}-{tail}", text, "office_instance_id")
 
 
 def _portable_host_path_key(path: Path) -> str:
@@ -2138,7 +2197,7 @@ def _native_host_request_binding_problems(request: Mapping[str, object], *, task
         'lease_id': binding.get('lease_id'),
         'assignment': expected_assignment,
         'duty_scope': expected_scope,
-        'write_set': list(binding.get('write_set') or binding.get('read_scope') or []),
+        'write_set': list(binding.get('write_set') or []),
         'role_ack': expected_role_ack,
         'admission_anchor': {
             'schema': 'court.agent.admission_receipt.v1',
@@ -2157,7 +2216,24 @@ def _native_host_request_binding_problems(request: Mapping[str, object], *, task
         if not isinstance(candidate, Mapping):
             problems.append('native_host_action_receipt:reuse_candidate_invalid')
         else:
-            for request_field, record_field in (('host_task_id', 'native_host_task_id'), ('host_thread_id', 'native_host_thread_id'), ('host_instance_id', 'native_host_instance_id')):
+            canonical_reuse = (
+                record.get('native_host_identity_kind') == 'canonical_agent_path'
+            )
+            candidate_canonical = (
+                candidate.get('host_identity_kind') == 'canonical_agent_path'
+            )
+            if canonical_reuse != candidate_canonical:
+                problems.append('native_host_action_receipt:reuse_host_identity_mismatch')
+            # A canonical record proves its child thread through the host spawn
+            # evidence, not through the null canonical host thread field.
+            thread_record_field = (
+                'native_child_thread_id' if canonical_reuse else 'native_host_thread_id'
+            )
+            for request_field, record_field in (
+                ('host_task_id', 'native_host_task_id'),
+                ('host_thread_id', thread_record_field),
+                ('host_instance_id', 'native_host_instance_id'),
+            ):
                 if candidate.get(request_field) != record.get(record_field):
                     problems.append(f'native_host_action_receipt:reuse_{request_field}_mismatch')
     return problems
@@ -2263,6 +2339,18 @@ def _record_native_host_receipt(task: dict[str, Any], receipt: Mapping[str, obje
     }
 
 
+def _receipt_context_utilization(receipt: Mapping[str, object]) -> float | None:
+    """Project the host-observed context usage carried by a canonical receipt."""
+    host_result = receipt.get('host_result')
+    value = host_result.get('context_utilization') if isinstance(host_result, Mapping) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    ratio = float(value)
+    if ratio != ratio or ratio <= 0:
+        return None
+    return ratio
+
+
 def _native_host_receipt_record_fields(receipt: Mapping[str, object]) -> dict[str, object]:
     return {
         'native_host_action_receipt': deepcopy(dict(receipt)),
@@ -2278,6 +2366,7 @@ def _native_host_receipt_record_fields(receipt: Mapping[str, object]) -> dict[st
         'native_host_action_id': receipt.get('host_action_id'),
         'native_host_spawn_evidence': deepcopy(receipt.get('host_spawn_evidence')),
         'native_child_thread_id': (receipt.get('host_spawn_evidence') or {}).get('child_thread_id'),
+        'native_host_context_utilization': _receipt_context_utilization(receipt),
     }
 
 
@@ -3758,12 +3847,7 @@ def _validated_completion_source(
                 raise ValueError("completion_source_menxia_report_missing")
             agent_id = str(matches[0].get("agent_id") or "")
             agent = agents.get(agent_id)
-            if (
-                not isinstance(agent, dict)
-                or agent.get("role") != role
-                or agent.get("preload_status") != "PASSED"
-                or agent.get("office_execution_ready") is not True
-            ):
+            if not isinstance(agent, dict) or agent.get("role") != role:
                 raise ValueError("completion_source_menxia_report_missing")
             if role == "menxia":
                 verified_menxia_source = True
@@ -7544,6 +7628,72 @@ def cancel_task(args: argparse.Namespace) -> TransitionResult:
     )
 
 
+def _apply_capacity_refusal_limit(
+    task: dict[str, Any],
+    tasks: dict[str, dict[str, Any]],
+    args: argparse.Namespace,
+    result: dict[str, Any],
+    *,
+    wave_id: str,
+    evidence: str,
+) -> None:
+    """Keep capacity refusals as evidence and stop unbounded re-spawn attempts."""
+
+    if result.get("decision") != "runtime_capacity_exhausted":
+        return
+    refusals = task.get("agent_capacity_refusals")
+    if not isinstance(refusals, dict):
+        refusals = {}
+    previous = refusals.get(wave_id)
+    count = previous if isinstance(previous, int) and not isinstance(previous, bool) else 0
+    refusals[wave_id] = count + 1
+    task["agent_capacity_refusals"] = refusals
+    result["capacity_refusal_count"] = count + 1
+    # Reaching the limit is diagnostic, not a hard stop: the orchestrator can
+    # record an explicit continue (evidence carries the ack marker) or reuse an
+    # admitted instance instead of re-spawning the same role again.
+    explicit_continue = "capacity-refusal-ack" in evidence.casefold()
+    if count >= 1 and not explicit_continue:
+        result["decision"] = "capacity_refusal_limit_reached"
+        result["next_step"] = (
+            "reuse an admitted instance via office native-request -> followup_task, "
+            "or record an explicit continue with evidence containing capacity-refusal-ack"
+        )
+    elif explicit_continue:
+        result["capacity_refusal_explicit_continue"] = True
+        result["next_step"] = (
+            "explicit capacity-refusal-ack recorded; re-plan the wave or reuse an "
+            "admitted instance instead of an unbounded re-spawn"
+        )
+    elif not result.get("next_step"):
+        result["next_step"] = (
+            "Reuse an admitted live instance through office native-request -> "
+            "followup_task; do not admit the same role again."
+        )
+    task["updated_at"] = now_text()
+    task["last_evidence"] = f"agent_admit {result['decision']}: {evidence}"
+    tasks[str(args.task_id)] = task
+    event = make_event(
+        task,
+        "agent_admit",
+        str(task.get("state")),
+        str(task.get("state")),
+        args.actor,
+        evidence,
+        getattr(args, "note", "") or "",
+    )
+    event.update(
+        wave_id=wave_id,
+        allowed=False,
+        decision=result["decision"],
+        selection_basis=result.get("selection_basis"),
+        deferred_roles=list(result.get("deferred_roles") or []),
+        capacity_refusal_count=result["capacity_refusal_count"],
+        next_step=result.get("next_step"),
+    )
+    _commit_task_event(tasks, event)
+
+
 def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
     evidence = require_text(args.evidence, "evidence")
     with runtime_lock():
@@ -7652,6 +7802,14 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
         result["generated_at"] = now
         result["admission_bindings"] = {}
         if result.get("allowed") is not True:
+            _apply_capacity_refusal_limit(
+                task,
+                tasks,
+                args,
+                result,
+                wave_id=wave_id,
+                evidence=evidence,
+            )
             return result
         if isinstance(task.get("case_binding"), dict):
             from court_case_binding import refresh_case_binding
@@ -7865,7 +8023,17 @@ def office_admit(args: argparse.Namespace) -> dict[str, Any]:
     if not hasattr(args, "note") or getattr(args, "note") is None:
         args.note = ""
     _prepare_explicit_office_admission(args)
-    result = agent_admit(args)
+    try:
+        result = agent_admit(args)
+    except ValueError as exc:
+        if "office_instance_already_admitted" in str(exc):
+            raise ValueError(
+                "office_instance_already_admitted:continue the existing instance via "
+                "office native-request -> followup_task for an additional bounded "
+                "business scope, or admit a distinct instance_id for a parallel "
+                "writer; a second initialization of the same instance is not allowed"
+            ) from exc
+        raise
     if result.get("allowed") is not True:
         return result
     selected = result.get("selected_bindings")
@@ -8309,7 +8477,7 @@ def _build_recovery_receipt(
         "previous_head_sha256": previous_head_sha256,
         "reason_codes": list(reason_codes),
         "evidence_pointer": evidence_pointer,
-        "evidence_ref": evidence_sha256,
+        "evidence_sha256": evidence_sha256,
         "actor": actor,
         timestamp_field: timestamp,
         "event_id": event_id,
@@ -8428,7 +8596,7 @@ def _validate_recovery_receipt(
         raise ValueError("result_recovery_receipt_schema_mismatch")
     if expected_actor is not None and str(value.get("actor") or "").strip().lower() != expected_actor:
         raise ValueError("result_recovery_receipt_actor_mismatch")
-    for field in ("evidence_ref", "receipt_sha256"):
+    for field in ("evidence_sha256", "receipt_sha256"):
         digest = value.get(field)
         if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError("result_recovery_receipt_digest_invalid")
@@ -8442,10 +8610,30 @@ def _validate_recovery_receipt(
     return dict(value)
 
 
+# ACK 状态字段在 handoff 冻结后合法变化（PENDING/False -> PASSED/True）；
+# 它们不参与身份比对，也不进入 target_binding_sha256，避免 ACK 转正制造假 mismatch。
+RESULT_RECOVERY_TARGET_ACK_FIELDS = frozenset({"preload_status", "office_execution_ready"})
+# 终态/进度字段本就随目标推进变化，与 ACK 字段共用 consume 豁免集。
+RESULT_RECOVERY_TARGET_VOLATILE_FIELDS = frozenset(
+    {"status", "final_status", "release_status", "result_state"}
+) | RESULT_RECOVERY_TARGET_ACK_FIELDS
+
+
 def _target_binding_from_record(task: Mapping[str, object], record: Mapping[str, object]) -> dict[str, object]:
+    case_ref = record.get("case_ref")
+    if not isinstance(case_ref, Mapping):
+        case_ref = task.get("case_ref")
+    if not isinstance(case_ref, Mapping) and str(task.get("court_code") or "").strip():
+        case_ref = case_reference(task)
+    plan_ref = record.get("plan_ref")
+    if not isinstance(plan_ref, Mapping):
+        plan = task.get("zhongshu_plan")
+        plan_ref = plan_reference(plan) if isinstance(plan, Mapping) else None
     binding: dict[str, object] = {
         "task_id": task.get("task_id"),
         "semantic_epoch": record.get("semantic_epoch"),
+        "case_ref": deepcopy(case_ref),
+        "plan_ref": deepcopy(plan_ref),
         "checkpoint_id": record.get("checkpoint_id"),
         "dispatch_uid": record.get("dispatch_uid"),
         "attempt": record.get("attempt"),
@@ -8456,7 +8644,7 @@ def _target_binding_from_record(task: Mapping[str, object], record: Mapping[str,
         "role": record.get("role"),
         "direct_superior": record.get("direct_superior"),
         "worktree": record.get("worktree"),
-        "write_set_sha256": canonical_json_sha256(record.get("write_set", [])),
+        "write_set": deepcopy(record.get("write_set")),
         "hierarchy_schema": record.get("hierarchy_schema"),
         "hierarchy_gate": record.get("hierarchy_gate"),
         "hierarchy_edge_class": record.get("hierarchy_edge_class"),
@@ -8473,7 +8661,12 @@ def _target_binding_from_record(task: Mapping[str, object], record: Mapping[str,
 
 
 def _target_binding_sha256(binding: Mapping[str, object]) -> str:
-    return canonical_json_sha256(dict(binding))
+    stable = {
+        key: value
+        for key, value in binding.items()
+        if key not in RESULT_RECOVERY_TARGET_ACK_FIELDS
+    }
+    return canonical_json_sha256(stable)
 
 
 def _validate_target_binding(
@@ -8483,8 +8676,14 @@ def _validate_target_binding(
 ) -> tuple[dict[str, object], str]:
     binding = _target_binding_from_record(task, record)
     digest = _target_binding_sha256(binding)
-    if supplied is not None and (not isinstance(supplied, Mapping) or dict(supplied) != binding):
-        raise ValueError("result_recovery_target_mismatch")
+    if supplied is not None:
+        if not isinstance(supplied, Mapping) or set(supplied) != set(binding):
+            raise ValueError("result_recovery_target_mismatch")
+        for field in result_recovery_target_binding_fields():
+            if field in RESULT_RECOVERY_TARGET_VOLATILE_FIELDS:
+                continue
+            if supplied.get(field) != binding.get(field):
+                raise ValueError("result_recovery_target_mismatch")
     return binding, digest
 
 
@@ -8721,8 +8920,6 @@ def handoff_recovered_result(args: argparse.Namespace) -> dict[str, object]:
         if (
             task.get("semantic_state") != "DISPATCHABLE"
             or target.get("hierarchy_gate") != "PASSED"
-            or target.get("preload_status") != "PASSED"
-            or target.get("office_execution_ready") is not True
             or str(target.get("status") or "") in TERMINAL_AGENT_STATUSES
             or str(target.get("final_status") or "") in TERMINAL_AGENT_STATUSES
             or target.get("release_status") == "closed"
@@ -8851,7 +9048,7 @@ def _consume_recovery_for_finish_locked(
         target_binding_sha256 = _target_binding_sha256(target_binding)
         current_identity = _target_binding_from_record(task, target)
         for field in result_recovery_target_binding_fields():
-            if field in {"status", "final_status", "release_status", "result_state"}:
+            if field in RESULT_RECOVERY_TARGET_VOLATILE_FIELDS:
                 continue
             if current_identity.get(field) != target_binding.get(field):
                 raise ValueError("result_recovery_target_mismatch")
@@ -9566,22 +9763,25 @@ def agent_event(
                 or str(existing_agent.get("result_state") or "") == "QUARANTINED"
             ):
                 raise ValueError("terminal agent cannot accept lifecycle events")
-            if (
-                lifecycle_action == "agent_report"
-                and existing_agent.get("preload_status") != "PASSED"
-            ):
-                raise ValueError("office_preload_not_passed")
+            # 2026-10-05 F22: host acknowledgement is no longer a report gate;
+            # the terminal/quarantine guards above stay enforced.
         now = now_text()
         current = dict(agents.get(agent_id, {})) if isinstance(agents.get(agent_id), dict) else {}
         recovery_consumed_receipts: list[dict[str, object]] = []
         recovery_finish_event_id = ""
         previous_status = str(current.get("final_status") or current.get("status") or "")
-        if lifecycle_action == "agent_heartbeat" and current.get("preload_status") != "PASSED":
+        # 2026-10-06 F22 heartbeat-status regression: preload completion is implicit
+        # (preload_phase) and the legacy acknowledgement is optional, so a heartbeat
+        # must never demote a record that already advanced past STARTED. Only a record
+        # with neither implicit progress nor a legacy PASSED stays at starting.
+        if (
+            lifecycle_action == "agent_heartbeat"
+            and current.get("preload_status") != "PASSED"
+            and _PRELOAD_PHASE_ORDER.get(str(current.get("preload_phase") or "STARTED"), 0) == 0
+        ):
             status = "starting"
-        if lifecycle_action == "agent_finish" and current.get("preload_status") != "PASSED":
-            status = "failed"
-            current["failure_kind"] = "preload_ack_missing"
-            current["office_identity_evidence"] = "FAILED"
+        # 2026-10-05 F22: a finish without host acknowledgement is no longer
+        # forced to failed; the lifecycle result contract decides the outcome.
         current.update(
             {
                 "agent_id": agent_id,
@@ -9640,7 +9840,10 @@ def agent_event(
                 "instance_id": start_instance_id,
                 "model_route_id": model_route["model_route_id"],
             }
-            current["model_route_status"] = "PENDING"
+            # 2026-10-06 ACK-lightweight (P1/P2): admission/start already validates the
+            # identity binding and the case-bound model route, so neither parks behind the
+            # now-optional legacy preload acknowledgement.
+            current["model_route_status"] = "PASSED"
             current["wave_id"] = wave_id
             current["admission_instance_id"] = start_instance_id
             current["fork_turns"] = str(getattr(args, "fork_turns", "none") or "none")
@@ -9648,9 +9851,13 @@ def agent_event(
             current.update(_execution_budgets(vars(args)))
             current["preload_manifest"] = asdict(manifest)
             current["preload_contract_version"] = manifest.preload_ack_schema
-            current["preload_ack_required"] = True
+            current["preload_ack_required"] = False
+            current["preload_ack_legacy_optional"] = True
             current["preload_status"] = "PENDING"
-            current["office_identity_evidence"] = "PENDING"
+            current["preload_phase"] = (
+                "IMPLICIT_AFTER_CAPTURE" if start_native_host_receipt is not None else "STARTED"
+            )
+            current["office_identity_evidence"] = "PASSED"
             assignment_binding = getattr(args, "_office_assignment_binding", None)
             if not isinstance(assignment_binding, dict):
                 raise ValueError("agent start assignment binding was not validated")
@@ -9674,11 +9881,25 @@ def agent_event(
             if start_instance_id is None:
                 raise ValueError("agent start instance binding was not validated")
             consumed_instances[start_instance_id] = agent_id
-        if lifecycle_action == "agent_report" and current.get("preload_status") == "PASSED":
+        if lifecycle_action == "agent_report":
+            # 2026-10-06 ACK-lightweight (P1): the first office report is recorded
+            # regardless of the (now optional) legacy acknowledgement, so an ACK
+            # back-filled later can never produce a negative first_report segment.
+            # The old ACK-relative timestamp stays available as a distinct legacy
+            # field for the latency report's compatibility segment.
             current.setdefault("first_office_report_at", now)
+            if current.get("preload_status") == "PASSED":
+                current.setdefault("first_office_report_after_ack_at", now)
+            _advance_preload_phase(current, now, "COMPLETED_IMPLICIT")
+        if (
+            lifecycle_action in {"agent_heartbeat", "agent_report"}
+            and current.get("native_host_context_utilization") is None
+        ):
+            _refresh_native_host_context_utilization(current)
         if lifecycle_action == "agent_report" and consultation_refs is not None:
             current["consultation_refs"] = deepcopy(consultation_refs)
         if lifecycle_action == "agent_finish":
+            _advance_preload_phase(current, now, "COMPLETED_IMPLICIT")
             current["finished_at"] = now
             result_envelope = getattr(args, "_result_envelope", None)
             if isinstance(result_envelope, dict):
@@ -9709,8 +9930,14 @@ def agent_event(
             current.setdefault("finished_at", now)
             current["closed_at"] = now
             current["release_status"] = "closed"
+            # 2026-10-06 ACK-lightweight (P1): closing no longer rewrites identity
+            # evidence because of a missing optional preload acknowledgement; the
+            # legacy state is kept as a read-only diagnostic instead.
             if current.get("preload_status") != "PASSED":
-                current["office_identity_evidence"] = "FAILED"
+                current.setdefault(
+                    "legacy_preload_state_at_close",
+                    str(current.get("preload_status") or "UNRECORDED"),
+                )
             current["final_status"] = previous_status if previous_status not in {"", "starting", "running"} else "closed"
             current["result"] = args.result
         if lifecycle_action == "agent_start" and start_native_host_receipt is not None:
@@ -9858,6 +10085,58 @@ def _office_transition_payload(
     }
 
 
+_PRELOAD_PHASE_ORDER = {
+    "STARTED": 0,
+    "IMPLICIT_AFTER_CAPTURE": 1,
+    "LEGACY_ACK_RECORDED": 1,
+    "COMPLETED_IMPLICIT": 2,
+}
+
+
+def _advance_preload_phase(record: dict[str, Any], now: str, phase: str) -> None:
+    """Advance the implicit preload-completion phase; never reopen a finished phase.
+
+    2026-10-06 ACK-lightweight (P2): preload completion is implicit. A successful
+    native capture advances to IMPLICIT_AFTER_CAPTURE and the first business
+    lifecycle action advances to COMPLETED_IMPLICIT with ``preload_completed_at``.
+    The optional legacy acknowledgement records LEGACY_ACK_RECORDED without
+    suppressing a later implicit completion.
+    """
+
+    if phase == "LEGACY_ACK_RECORDED":
+        record["legacy_preload_ack_recorded_at"] = now
+    current = str(record.get("preload_phase") or "STARTED")
+    if _PRELOAD_PHASE_ORDER.get(phase, 0) <= _PRELOAD_PHASE_ORDER.get(current, 0):
+        return
+    record["preload_phase"] = phase
+    if phase == "COMPLETED_IMPLICIT":
+        record.setdefault("preload_completed_at", now)
+
+
+def _refresh_native_host_context_utilization(record: dict[str, Any]) -> None:
+    """Back-fill a missing host-observed context usage from the child rollout.
+
+    Reuses the capture-side producer (_child_context_utilization) and never
+    fabricates a value; an unobservable rollout leaves the record untouched so
+    the reuse gate stays fail-closed.
+    """
+
+    child_thread_id = str(record.get("native_child_thread_id") or "").strip().lower()
+    if not child_thread_id:
+        return
+    try:
+        from commands.court_native_bridge import _child_context_utilization
+
+        home = Path(
+            os.environ.get("CODEX_HOME") or (Path.home() / ".codex")
+        ).expanduser()
+        utilization = _child_context_utilization(home, child_thread_id)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return
+    if utilization is not None:
+        record["native_host_context_utilization"] = utilization
+
+
 def agent_start(args: argparse.Namespace) -> TransitionResult:
     require_text(args.scope, "scope")
     collaboration_task_name = require_text(
@@ -9954,6 +10233,10 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
         ):
             raise ValueError("terminal agent cannot accept a preload acknowledgement")
         now = now_text()
+        recorded = False
+        read_order = None
+        native_request_ref_mismatch = ""
+        supplied_ref = getattr(args, "native_request_ref", None)
         try:
             manifest = build_preload_manifest(
                 role,
@@ -9969,43 +10252,32 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
             if not isinstance(model_route, dict):
                 raise ValueError("started agent is missing model route")
             validated = validate_preload_ack(manifest, ack, model_route=model_route)
-            if isinstance(current.get('native_host_spawn_evidence'), dict):
-                if not getattr(args, 'native_request_ref', None):
-                    raise NativeEvidencePending('native_spawn_child_request_acknowledgement_missing')
-                if (getattr(args, 'native_request_ref', None)
-                        != current.get('native_host_request_ref')):
-                    raise ValueError('native_spawn_requires_child_request_acknowledgement')
-            read_order = captured_child_read_order(current, manifest, task_id=args.task_id)
-        except NativeEvidencePending as exc:
-            # An incomplete host trace is retryable; it does not close the office
-            # or credit a parent-supplied declaration as child acceptance.
-            raise ValueError(f'preload_pending: {exc}') from exc
         except ValueError as exc:
+            # 2026-10-06 ACK-lightweight (P2): a legacy back-fill that does not
+            # validate is recorded as a read-only diagnostic. It never closes the
+            # office, never flips readiness, and never becomes a delivery gate.
             failure = str(exc)
-            current.update(
-                status="failed",
-                final_status="failed",
-                release_status="closed",
-                preload_status="FAILED",
-                model_route_status="FAILED",
-                failure_kind="preload_contract_failed",
-                office_identity_evidence="FAILED",
-                office_execution_ready=False,
-                finished_at=now,
-                closed_at=now,
-            )
         else:
-            if read_order is not None:
-                current['child_skill_read_order'] = read_order
-                current['native_request_delivery'] = 'PRELOAD_ACKNOWLEDGED'
-                current['preload_ack_request_ref'] = args.native_request_ref
+            recorded = True
+            # Host trace and request-ref evidence stay read-only diagnostics here:
+            # they are recorded when available but no longer block the legacy record.
+            try:
+                read_order = captured_child_read_order(current, manifest, task_id=args.task_id)
+            except (NativeEvidencePending, ValueError):
+                read_order = None
+            if (
+                isinstance(current.get("native_host_spawn_evidence"), dict)
+                and supplied_ref
+                and supplied_ref != current.get("native_host_request_ref")
+            ):
+                native_request_ref_mismatch = (
+                    "native_spawn_requires_child_request_acknowledgement"
+                )
+        if recorded:
             current.update(
-                status="running",
                 preload_status="PASSED",
-                model_route_status="PASSED",
                 preload_ack_at=now,
-                office_identity_evidence="PASSED",
-                office_execution_ready=True,
+                legacy_preload_ack=True,
                 loaded_skills=validated["loaded_skills"],
                 profile_source=validated["profile_source"],
                 dossier_path=validated["dossier_path"],
@@ -10023,6 +10295,19 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
                 model_override_applied=validated["model_override_applied"],
                 inheritance_policy=validated.get("inheritance_policy"),
             )
+            if read_order is not None:
+                current["child_skill_read_order"] = read_order
+                current["native_request_delivery"] = "PRELOAD_ACKNOWLEDGED"
+            if supplied_ref:
+                current["preload_ack_request_ref"] = supplied_ref
+            if native_request_ref_mismatch:
+                current["legacy_preload_ack_diagnostic"] = native_request_ref_mismatch
+            _advance_preload_phase(current, now, "LEGACY_ACK_RECORDED")
+        else:
+            current.update(
+                legacy_preload_ack_attempt_at=now,
+                legacy_preload_ack_last_error=failure,
+            )
         current.update(last_heartbeat=now, last_evidence=evidence, updated_at=now)
         agents[agent_id] = current
         task["updated_at"] = now
@@ -10031,8 +10316,8 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
         event = make_event(
             task,
             "agent_preload_ack",
-            "starting",
-            "failed" if failure else "running",
+            current_status or "starting",
+            current_status or "starting",
             args.actor,
             evidence,
             args.note,
@@ -10040,7 +10325,10 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
         event.update(
             agent_id=agent_id,
             agent_role=role,
-            preload_status=current["preload_status"],
+            legacy_preload_ack_recorded=recorded,
+            legacy_preload_ack_error=failure,
+            preload_phase=current.get("preload_phase"),
+            preload_status=current.get("preload_status"),
             model_route_status=current["model_route_status"],
             model_route_id=current.get("model_route_id") or current.get("model_route", {}).get("model_route_id"),
             model_selection_id=current.get("model_selection_id"),
@@ -10062,13 +10350,14 @@ def agent_preload_ack(args: argparse.Namespace) -> dict[str, Any]:
             str(current.get("office_instance_id") or agent_id),
         )
         _commit_task_event(tasks, event)
-    if failure:
-        raise ValueError(f"preload_contract_failed: {failure}")
     return {
         "kind": "court_agent_preload_ack",
         "task_id": args.task_id,
         "agent": current,
         "ack": ack,
+        "recorded": recorded,
+        "legacy_optional": True,
+        "error": failure,
         "event": event,
     }
 
@@ -10209,8 +10498,6 @@ def _native_bridge_identity_context(
                     and record.get("native_trace_session_id") == identity["session_id"]
                     and record.get("semantic_epoch") == task.get("semantic_epoch")
                     and record.get("case_ref") == case_reference(task)
-                    and record.get("preload_status") == "PASSED"
-                    and record.get("office_execution_ready") is True
                     and record.get("status") not in TERMINAL_AGENT_STATUSES
                     and record.get("release_status") not in {"closed", "cancel_requested"}
                     and not any(str(record.get(field) or "").upper().startswith("INVALIDATED")
@@ -10273,10 +10560,8 @@ def _native_bridge_caller_guard(
             continue
         if not str(record.get("native_host_action_receipt_id") or "").strip():
             continue
-        if record.get("preload_status") != "PASSED" or record.get(
-            "office_execution_ready"
-        ) is not True:
-            continue
+        # Host acknowledgement/readiness is intentionally not a caller gate
+        # (2026-10-05 F22 decision); identity and receipt evidence stay required.
         if str(record.get("status") or "").strip().lower() in TERMINAL_AGENT_STATUSES:
             continue
         return
@@ -10313,8 +10598,12 @@ def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, o
     if not isinstance(preload, Mapping) or not isinstance(model_inputs, Mapping) or (not admission_event_id):
         raise ValueError('native_bridge:admission_facts_incomplete')
     assignment = require_text(model_inputs.get('assignment'), 'assignment')
-    read_scope = binding.get('read_scope') or binding.get('write_set')
-    write_set = binding.get('write_set') or binding.get('read_scope')
+    # A missing field is a contract error; an explicitly empty write_set is a
+    # legal read-only binding and must not be refilled from the read scope.
+    if 'write_set' not in binding:
+        raise ValueError('native_bridge:binding_write_set_missing')
+    write_set = binding['write_set']
+    read_scope = binding['read_scope'] if 'read_scope' in binding else write_set
     if not isinstance(read_scope, (list, tuple)) or not isinstance(write_set, (list, tuple)):
         raise ValueError('native_bridge:binding_scope_invalid')
     request: dict[str, object] = {
@@ -10346,20 +10635,49 @@ def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, o
     }
     target = _native_bridge_target_record(task, binding)
     if target is not None:
-        if target.get('native_host_identity_kind') == 'canonical_agent_path':
-            raise ValueError('native_bridge:canonical_followup_issuer_unavailable')
+        # A followup is lawful when the admitted binding carries a bounded
+        # business scope; a preload-only binding stays preload-only. Host
+        # acknowledgement is intentionally not a gate (2026-10-05 F22 decision).
+        if (
+            str(binding.get('dispatch_phase') or '').strip().lower() == 'preload_only'
+            or not str(binding.get('bounded_mandate') or '').strip()
+            or not str(binding.get('expected_result') or '').strip()
+        ):
+            raise ValueError(
+                'native_bridge:business_scope_not_admitted'
+                '; next_step=admit a bounded business scope (bounded_mandate, '
+                'expected_result, preload_then_business) for this instance, then retry '
+                'the followup; keep it preload-only until then'
+            )
         if str(target.get('status') or '').strip().lower() in TERMINAL_AGENT_STATUSES:
             raise ValueError('native_bridge:target_native_actor_terminal')
         raw_ratio = target.get('native_host_context_utilization')
         if isinstance(raw_ratio, bool) or not isinstance(raw_ratio, (int, float)):
             raise ValueError('native_bridge:reuse_context_unavailable')
-        host_fields = {
-            'host_task_id': target.get('native_host_task_id'),
-            'host_thread_id': target.get('native_host_thread_id'),
-            'host_instance_id': target.get('native_host_instance_id'),
-        }
-        if not all((isinstance(value, str) and value.strip() for value in host_fields.values())):
-            raise ValueError('native_bridge:target_host_identity_missing')
+        if target.get('native_host_identity_kind') == 'canonical_agent_path':
+            from court_native_host_dispatch import SESSION_ID_RE
+            from court_native_identity import canonical_agent_path
+
+            host_path = canonical_agent_path(
+                target.get('native_host_instance_id'), 'native_host_instance_id'
+            )
+            child_thread_id = str(target.get('native_child_thread_id') or '').strip().lower()
+            if SESSION_ID_RE.fullmatch(child_thread_id) is None:
+                raise ValueError('native_bridge:target_child_thread_missing')
+            host_fields = {
+                'host_task_id': host_path,
+                'host_thread_id': child_thread_id,
+                'host_instance_id': host_path,
+                'host_identity_kind': 'canonical_agent_path',
+            }
+        else:
+            host_fields = {
+                'host_task_id': target.get('native_host_task_id'),
+                'host_thread_id': target.get('native_host_thread_id'),
+                'host_instance_id': target.get('native_host_instance_id'),
+            }
+            if not all((isinstance(value, str) and value.strip() for value in host_fields.values())):
+                raise ValueError('native_bridge:target_host_identity_missing')
         request['compatible_live_instances'] = [{
             **host_fields,
             'task_id': request['task_id'],
@@ -10992,7 +11310,9 @@ def office_start(args: argparse.Namespace) -> dict[str, object]:
             "inheritance_policy": policy,
             "model_override_applied": "YES",
         }
-    # A request template is not child acceptance; the consumer still checks trace.
+    # 2026-10-06 ACK-lightweight (P2): this request template only feeds the
+    # optional legacy back-fill. Preload completion is implicit; nothing waits
+    # on this ACK and no trace/order/shape evidence is required to proceed.
     payload["preload_ack_request"] = {
         **{key: deepcopy(record[key]) for key in (
             "semantic_epoch", "case_ref", "checkpoint_id", "dispatch_uid", "attempt",
@@ -11115,6 +11435,11 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
             }
         )
         current["native_host_followups"] = followups
+        # Refresh the reuse observation only with a real host reading; a missing
+        # observation never overwrites an earlier one.
+        utilization = _receipt_context_utilization(native_host_receipt)
+        if utilization is not None:
+            current["native_host_context_utilization"] = utilization
         current["last_heartbeat"] = now
         current["last_evidence"] = evidence
         current["updated_at"] = now
@@ -11160,6 +11485,8 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
 
 
 def office_preload_ack(args: argparse.Namespace) -> dict[str, object]:
+    """Optional legacy back-fill of a preload acknowledgement; never a gate."""
+
     _, _, internal_id = _prepare_office_action_args(args)
     result = agent_preload_ack(args)
     task = load_tasks()[str(args.task_id)]
@@ -11174,6 +11501,9 @@ def office_preload_ack(args: argparse.Namespace) -> dict[str, object]:
         "schema": "court.office.cli.v1",
         "ok": True,
         "command": "preload_ack",
+        "legacy_optional": True,
+        "recorded": bool(result.get("recorded")),
+        "record_error": str(result.get("error") or ""),
         "receipt": _office_lifecycle_receipt(
             task,
             record,
@@ -11387,8 +11717,9 @@ def probe_payload() -> dict[str, Any]:
             "pause",
             "resume",
             "cancel",
-            "office admit|start|followup|preload-ack|report|finish|close",
+            "office admit|start|followup|report|finish|close",
             "office native-request|native-capture",
+            "office preload-ack (legacy optional backfill; never a gate)",
             "agent-admit",
             "agent-spawn",
             "agent-start",
@@ -12007,6 +12338,7 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
     instance_id = f"{role}#0001"
     shard_id = f"{role}-shard-0001"
     preload_sources = _semantic_preload_sources(role)
+    task_focus = require_text(args.task_focus, "task-focus")
     binding = {
         "role": role,
         "instance_id": instance_id,
@@ -12021,6 +12353,13 @@ def public_admission_template_payload(args: argparse.Namespace) -> dict[str, obj
         "mutation_allowed": True,
         "integration_authority": False,
         "preload_sources": preload_sources,
+        "dispatch_phase": "preload_then_business",
+        "bounded_mandate": task_focus,
+        "expected_result": f"{task_focus} (write_path: {write_path})",
+        "terminal_condition": (
+            f"Deliver the bounded {role} result under {write_path} to {calling_office} "
+            "and stop on acceptance or rejection."
+        ),
     }
     _validate_admission_capsule_write_scope(task, [binding])
     next_depth = int(args.next_depth)
@@ -12259,6 +12598,41 @@ def _office_cli_error_payload(
     }
 
 
+OFFICE_NATIVE_SELECTOR_FIELDS = frozenset({
+    "schema",
+    "task_id",
+    "wave_id",
+    "instance_id",
+    "spawn_agent_type_field",
+    "spawn_model_field",
+    "spawn_reasoning_effort_field",
+})
+OFFICE_NATIVE_CASE_BOUND_FIELDS = frozenset({"model_request", "model", "reasoning_effort"})
+
+
+def _office_native_selector_raw_key_error(
+    request: Mapping[str, object],
+    *,
+    label: str,
+) -> str | None:
+    """Reject raw keys before the Namespace projection can silently drop them."""
+
+    unknown = sorted(str(field) for field in set(request) - OFFICE_NATIVE_SELECTOR_FIELDS)
+    if not unknown:
+        return None
+    details = []
+    for field in unknown:
+        if field in OFFICE_NATIVE_CASE_BOUND_FIELDS:
+            details.append(
+                f"{field} is case-bound: set model selection on the conversation gate "
+                "model_request (court.conversation_gate.v1 via --intake-file/--intake-gate), "
+                "not on the office native selector"
+            )
+        else:
+            details.append(f"{field} is not a native selector field")
+    return f"native_bridge:{label}_fields_invalid: " + "; ".join(details)
+
+
 def office_request_namespace(args: argparse.Namespace) -> argparse.Namespace:
     request = _json_object_from_args(
         args,
@@ -12266,6 +12640,11 @@ def office_request_namespace(args: argparse.Namespace) -> argparse.Namespace:
         "request_file",
         "office lifecycle request",
     )
+    if args.office_command in ("native-request", "native-capture"):
+        label = "native_capture" if args.office_command == "native-capture" else "native_request"
+        error = _office_native_selector_raw_key_error(request, label=label)
+        if error:
+            raise ValueError(error)
     if args.office_command == "preload-ack":
         # Match agent-preload-ack defaults without accepting internal list values.
         if (
@@ -12805,7 +13184,14 @@ def build_parser() -> argparse.ArgumentParser:
     office_parser.set_defaults(format="json")
     office_sub = office_parser.add_subparsers(dest="office_command", required=True)
     for office_command_name in OFFICE_CLI_COMMANDS:
-        office_command_parser = office_sub.add_parser(office_command_name)
+        office_command_parser = office_sub.add_parser(
+            office_command_name,
+            help=(
+                "legacy optional preload-acknowledgement backfill; preload is implicit and never gated"
+                if office_command_name == "preload-ack"
+                else None
+            ),
+        )
         request_group = office_command_parser.add_mutually_exclusive_group(required=True)
         request_group.add_argument("--request-json", type=json_object_argument)
         request_group.add_argument("--request-file", type=Path)
@@ -12919,7 +13305,7 @@ def build_parser() -> argparse.ArgumentParser:
         agent_start_parser.add_argument("--evidence", required=True)
         agent_start_parser.add_argument("--note", default="")
 
-    preload_parser = sub.add_parser("agent-preload-ack", help="validate office profile/dossier/skill preload acknowledgement")
+    preload_parser = sub.add_parser("agent-preload-ack", help="[legacy optional] backfill a preload acknowledgement record; preload completion is now implicit and never gated")
     accept_format_after_command(preload_parser)
     preload_parser.add_argument("--task-id", required=True)
     add_agent_semantic_binding(preload_parser)

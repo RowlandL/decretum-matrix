@@ -56,7 +56,7 @@
 | --- | --- |
 | `office start` | 启动官署生命周期记录 |
 | `office admit` | 派遣准入：校验直接上级、写集、预算与层级 |
-| `office preload-ack` | 预载确认（身份预载回执） |
+| `office preload-ack` | 可选 legacy 补录：记录旧 `preload_status` 证据；预载完成已改为隐式（`preload_phase`），该命令不再参与任何门禁 |
 | `office native-request` | 生成宿主原生派遣请求（`--request-file`） |
 | `office native-capture` | 捕获宿主原生执行证据 |
 | `office report` | 官署回奏 |

@@ -918,11 +918,12 @@ def enter_dispatch(args: argparse.Namespace) -> dict[str, Any]:
     ack_gate = preflight_entry.get("active_office_preload_ack_gate") or {}
     state_record = {
         **build_mode_records((role,), default_mode=state_mode, reason=state_reason)[role],
+        # 2026-10-06 ACK-lightweight (P3): preload completion is implicit. The legacy
+        # acknowledgement is recorded as evidence (below) but never gates this record.
         "preload_status": (
-            "PASSED"
-            if ack_gate.get("gate") == "PASSED"
-            else "NOT_APPLICABLE_NO_ACTIVE_IDENTITY"
+            "IMPLICIT_COMPLETE" if ack_gate.get("ok") else "NOT_APPLICABLE_NO_ACTIVE_IDENTITY"
         ),
+        "preload_phase": "COMPLETED_IMPLICIT" if ack_gate.get("ok") else "STARTED",
         "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
         "identity_id": (ack_gate.get("identity") or {}).get("identity_id"),
         "identity_generation": (ack_gate.get("identity") or {}).get(

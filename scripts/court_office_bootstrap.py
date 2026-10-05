@@ -462,7 +462,10 @@ def build_spawn_contract(
         forbidden_actions=[str(item).strip() for item in forbidden_actions if str(item).strip()],
         evidence_contract=str(evidence_contract).strip(),
         stop_conditions=[str(item).strip() for item in stop_conditions if str(item).strip()],
-        preload_ack_required=True,
+        # 2026-10-06 ACK-lightweight (P2): preload completion is implicit, so the
+        # spawn contract no longer requires a preload acknowledgement. The legacy
+        # acknowledgement remains available as an optional, non-gating back-fill.
+        preload_ack_required=False,
     )
     if not contract["allowed_actions"] or not contract["forbidden_actions"] or not contract["stop_conditions"]:
         raise ValueError("allowed_actions, forbidden_actions, and stop_conditions are required")

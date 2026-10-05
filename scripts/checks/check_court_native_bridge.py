@@ -358,7 +358,7 @@ def _runtime_host_message_fixture() -> None:
     assert message["execution"] == {"authority": "super", "behavior": "parallel"}
     assert message["p00"]["dispatch_context"]["fork_context"] == "none"
     assert result["host_input_budget"]["status"] == "within_budget"
-    assert result["host_input_budget"]["total_bytes"] <= 20 * 1024
+    assert result["host_input_budget"]["total_bytes"] <= ENTRY_PRELOAD_BUDGET_BYTES
     assert result["bound_agent_type"] is None
     for authority in ("approval", "autonomous", "super"):
         selected = {"authority": authority, "behavior": "parallel"}
@@ -1423,7 +1423,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
         }
         host_input_bytes = len(native["host_message"].encode("utf-8"))
         actual_total = sum(material_bytes.values()) + host_input_bytes
-        self.assertEqual(ENTRY_PRELOAD_BUDGET_BYTES, 20 * 1024)
+        self.assertEqual(ENTRY_PRELOAD_BUDGET_BYTES, 20 * 1024 + 512)
         self.assertLessEqual(
             actual_total,
             ENTRY_PRELOAD_BUDGET_BYTES,
@@ -1445,7 +1445,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
         self.assertEqual(measured["startup_guide_bytes"], material_bytes["startup_guide_bytes"])
         self.assertEqual(measured["host_input_bytes"], host_input_bytes)
         self.assertEqual(measured["total_bytes"], actual_total)
-        self.assertEqual(measured["limit_bytes"], 20 * 1024)
+        self.assertEqual(measured["limit_bytes"], 20 * 1024 + 512)
 
     def test_native_role_ack_sources_include_exact_installed_startup(self):
         preload = court_runtime._semantic_preload_sources("gongbu")
@@ -1461,7 +1461,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
 
     def test_all_fourteen_roles_fit_real_startup_inclusive_native_budget(self):
         self.assertEqual(len(OFFICE_ASSIGNMENT_IDENTITIES), 14)
-        self.assertEqual(ENTRY_PRELOAD_BUDGET_BYTES, 20 * 1024)
+        self.assertEqual(ENTRY_PRELOAD_BUDGET_BYTES, 20 * 1024 + 512)
         ordinary_roles = {
             "zhongshu", "menxia", "shangshu",
             "libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu",
@@ -1526,7 +1526,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
                             ORDINARY_NATIVE_REQUIRED_HEADROOM_BYTES,
                             json.dumps(table[role][capability], ensure_ascii=False, sort_keys=True),
                         )
-                    self.assertEqual(measured["limit_bytes"], 20 * 1024)
+                    self.assertEqual(measured["limit_bytes"], 20 * 1024 + 512)
         self.assertEqual(set(table), set(OFFICE_ASSIGNMENT_IDENTITIES))
 
 
@@ -1922,28 +1922,59 @@ def main() -> int:
         assert followed_up["office_command"] == "followup"
         assert followed_up["native_host_action_receipt"]["host_action"] == "followup"
 
-    with tempfile.TemporaryDirectory(prefix="court-native-bridge-send-input-") as temp_dir:
-        home = Path(temp_dir)
-        _write_trace(
-            home,
-            session_id=session_id,
-            marker=str(reuse_marker),
-            invocation={
-                **reuse_result["host_invocation"],
-                "tool_name": "send_input",
-            },
-            host_agent_id="gongbu-host-agent-02",
-            host_thread_id="gongbu-host-thread-02",
-            host_task_id="gongbu-host-task-02",
-        )
-        sent = bridge.capture_current_native_delivery(
-            reuse,
-            execution=execution,
-            p00_context=reuse_p00_context,
-            environment=environment,
-            codex_home=home,
-        )
-        assert sent["office_command"] == "followup"
+    # C1 (2026-10-06 real acceptance): send_input only delivers a message without
+    # waking the child, yet the host still records an interacted activity for it.
+    # It must never turn into a reuse receipt, with or without the request marker.
+    for delivery_only_tool in ("send_input", "collaboration.send_input"):
+        with tempfile.TemporaryDirectory(prefix="court-native-bridge-send-input-") as temp_dir:
+            home = Path(temp_dir)
+            _write_trace(
+                home,
+                session_id=session_id,
+                marker=str(reuse_marker),
+                invocation={
+                    **reuse_result["host_invocation"],
+                    "tool_name": delivery_only_tool,
+                },
+                host_agent_id="gongbu-host-agent-02",
+                host_thread_id="gongbu-host-thread-02",
+                host_task_id="gongbu-host-task-02",
+            )
+            _expect_rejected(
+                lambda: bridge.capture_current_native_delivery(
+                    reuse,
+                    execution=execution,
+                    p00_context=reuse_p00_context,
+                    environment=environment,
+                    codex_home=home,
+                ),
+                f"{delivery_only_tool} must not produce a reuse receipt",
+            )
+        with tempfile.TemporaryDirectory(prefix="court-native-bridge-send-input-") as temp_dir:
+            home = Path(temp_dir)
+            _write_trace(
+                home,
+                session_id=session_id,
+                marker=str(reuse_marker),
+                invocation={
+                    **reuse_result["host_invocation"],
+                    "tool_name": delivery_only_tool,
+                },
+                include_marker=False,
+                host_agent_id="gongbu-host-agent-02",
+                host_thread_id="gongbu-host-thread-02",
+                host_task_id="gongbu-host-task-02",
+            )
+            _expect_rejected(
+                lambda: bridge.capture_current_native_delivery(
+                    reuse,
+                    execution=execution,
+                    p00_context=reuse_p00_context,
+                    environment=environment,
+                    codex_home=home,
+                ),
+                f"{delivery_only_tool} without a marker must not produce a reuse receipt",
+            )
 
     with tempfile.TemporaryDirectory(prefix="court-native-bridge-reject-") as temp_dir:
         home = Path(temp_dir)
@@ -1968,27 +1999,204 @@ def main() -> int:
             "same marker different followup target",
         )
 
-    with tempfile.TemporaryDirectory(prefix="court-native-bridge-followup-no-issuer-") as temp_dir:
+    # F23 canonical followup: the host records an empty output for
+    # followup_task; delivery is proven by SubAgentActivity(kind=interacted).
+    # The previous negative case here asserted that an output-only canonical
+    # reuse must be refused (native_bridge:host_identity_unavailable), which
+    # froze the missing-producer defect.  The same host shape must now pass
+    # when the interacted activity is present, and stay refused when the
+    # activity evidence is missing or names a foreign child.
+    canonical_leaf = "gongbu_followup_handle"
+    canonical_path = "/root/" + canonical_leaf
+    canonical_child_thread = "01a07440-9c7d-7b52-b53a-51edbd68e6da"
+    canonical_reuse = _request()
+    canonical_reuse["compatible_live_instances"] = [
+        {
+            "host_task_id": canonical_path,
+            "host_thread_id": canonical_child_thread,
+            "host_instance_id": canonical_path,
+            "host_identity_kind": "canonical_agent_path",
+            "task_id": canonical_reuse["task_id"],
+            "role": canonical_reuse["role"],
+            "direct_superior": canonical_reuse["direct_superior"],
+            "assignment": canonical_reuse["assignment"],
+            "duty_scope": canonical_reuse["duty_scope"],
+            "semantic_receipt": {
+                "semantic_epoch": canonical_reuse["semantic_epoch"],
+                "case_ref": dict(CASE_REF),
+            },
+            "lease_id": canonical_reuse["lease_id"],
+            "write_set": canonical_reuse["write_set"],
+            "role_ack": canonical_reuse["role_ack"],
+            "context_utilization": 0.42,
+            "status": "running",
+        }
+    ]
+    canonical_p00_context = _p00_context(canonical_reuse)
+    canonical_reuse_result = bridge.native_request_result(
+        canonical_reuse,
+        execution=execution,
+        p00_context=canonical_p00_context,
+    )
+    assert canonical_reuse_result["expected_host_action"] == "followup"
+    assert (
+        canonical_reuse_result["host_invocation"]["arguments"]["target"]
+        == canonical_leaf
+    )
+    canonical_followup_id = "call-canonical-followup-01"
+
+    def canonical_followup_rows(*, with_activity: bool) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = [
+            {
+                "timestamp": "2026-09-06T01:05:20.000Z",
+                "type": "session_meta",
+                "payload": {"id": session_id, "thread_id": session_id},
+            },
+            {
+                "timestamp": "2026-09-06T01:05:20.100Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "name": "followup_task",
+                    "call_id": canonical_followup_id,
+                    "arguments": json.dumps(
+                        {"target": canonical_leaf, "message": "gAAAAA" + "A" * 120}
+                    ),
+                },
+            },
+        ]
+        if with_activity:
+            rows.append(
+                {
+                    "timestamp": "2026-09-06T01:05:20.200Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "item_completed",
+                        "thread_id": session_id,
+                        "item": {
+                            "type": "SubAgentActivity",
+                            "id": canonical_followup_id,
+                            "kind": "interacted",
+                            "agent_thread_id": canonical_child_thread,
+                            "agent_path": canonical_path,
+                        },
+                    },
+                }
+            )
+        rows.append(
+            {
+                "timestamp": "2026-09-06T01:05:20.300Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": canonical_followup_id,
+                    "output": "",
+                },
+            }
+        )
+        return rows
+
+    def write_canonical_followup(home: Path, rows: list[dict[str, object]]) -> None:
+        sessions = home / "sessions" / "2026" / "09"
+        sessions.mkdir(parents=True)
+        (sessions / f"rollout-{session_id}.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows), encoding="utf-8"
+        )
+        # The host records real token usage in the child rollout; the reuse
+        # observation reads only that host-written source.
+        (sessions / f"rollout-{canonical_child_thread}.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "total_token_usage": {"total_tokens": 1100},
+                            "last_token_usage": {
+                                "input_tokens": 1000,
+                                "output_tokens": 100,
+                                "total_tokens": 1100,
+                            },
+                            "model_context_window": 10000,
+                        },
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="court-native-bridge-canonical-followup-") as temp_dir:
         home = Path(temp_dir)
-        _write_trace(
-            home,
-            session_id=session_id,
-            marker=str(reuse_marker),
-            invocation=reuse_result["host_invocation"],
-            output_only_task_name=True,
-            host_task_id="/root/gongbu_followup_handle",
+        write_canonical_followup(home, canonical_followup_rows(with_activity=True))
+        canonical_followed_up = bridge.capture_current_native_delivery(
+            canonical_reuse,
+            execution=execution,
+            p00_context=canonical_p00_context,
+            identity_context=canonical_context,
+            environment=environment,
+            codex_home=home,
         )
-        _expect_rejected(
-            lambda: bridge.capture_current_native_delivery(
-                reuse,
-                execution=execution,
-                p00_context=reuse_p00_context,
-                identity_context=canonical_context,
-                environment=environment,
-                codex_home=home,
-            ),
-            "followup issuer unavailable",
+        assert canonical_followed_up["office_command"] == "followup"
+        canonical_receipt = canonical_followed_up["native_host_action_receipt"]
+        assert canonical_receipt["host_action"] == "followup"
+        assert canonical_receipt["host_identity_kind"] == "canonical_agent_path"
+        assert canonical_receipt["host_thread_id"] is None
+        assert (
+            canonical_receipt["host_result"]["followup_child_thread_id"]
+            == canonical_child_thread
         )
+        assert canonical_receipt["host_result"]["context_utilization"] == 0.11
+        validate_native_host_action_receipt(
+            canonical_receipt, expected=canonical_receipt["request"], replay_guard=set()
+        )
+
+    def rows_without_interacted(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        return [
+            row
+            for row in rows
+            if row.get("payload", {}).get("item", {}).get("kind") != "interacted"
+        ]
+
+    def rows_with_foreign_child(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        result: list[dict[str, object]] = []
+        for row in rows:
+            payload = row.get("payload")
+            item = payload.get("item") if isinstance(payload, dict) else None
+            if isinstance(item, dict) and item.get("kind") == "interacted":
+                row = {
+                    **row,
+                    "payload": {
+                        **payload,
+                        "item": {
+                            **item,
+                            "agent_thread_id": "01a07440-0000-0000-0000-000000000000",
+                        },
+                    },
+                }
+            result.append(row)
+        return result
+
+    for label, mutate in (
+        ("canonical followup without interacted activity", rows_without_interacted),
+        ("canonical followup with foreign child thread", rows_with_foreign_child),
+    ):
+        with tempfile.TemporaryDirectory(prefix="court-native-bridge-canonical-reject-") as temp_dir:
+            home = Path(temp_dir)
+            write_canonical_followup(
+                home, mutate(canonical_followup_rows(with_activity=True))
+            )
+            _expect_rejected(
+                lambda: bridge.capture_current_native_delivery(
+                    canonical_reuse,
+                    execution=execution,
+                    p00_context=canonical_p00_context,
+                    identity_context=canonical_context,
+                    environment=environment,
+                    codex_home=home,
+                ),
+                label,
+            )
 
     with tempfile.TemporaryDirectory(prefix="court-native-bridge-reject-") as temp_dir:
         home = Path(temp_dir)

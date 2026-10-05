@@ -541,7 +541,9 @@ def native_spawn_receipt(
         "lease_id": binding["lease_id"],
         "assignment": model_inputs["assignment"],
         "duty_scope": list(binding.get("read_scope") or binding.get("write_set") or []),
-        "write_set": list(binding.get("write_set") or binding.get("read_scope") or []),
+        # A read-only binding keeps write_set empty; refilling it from read_scope
+        # would forge the widened write set that F25 removes.
+        "write_set": list(binding.get("write_set") or []),
         "role_ack": {
             "role": binding["role"],
             "direct_superior": binding["direct_superior"],
@@ -1270,7 +1272,15 @@ def main() -> int:
         )
         with patch("commands.court_native_bridge.captured_child_read_order", return_value=None):
             acked = preload_ack(cli, env, "matrix", "gongbu-matrix-01", "gongbu")
-        assert acked["agent"]["status"] == "running"
+        # 2026-10-06 ACK-lightweight (P2): the optional legacy back-fill records
+        # evidence and the implicit phase; lifecycle status stays with the lifecycle.
+        assert acked["agent"]["status"] == "starting"
+        assert acked["agent"]["preload_status"] == "PASSED"
+        assert acked["agent"]["preload_phase"] in {
+            "IMPLICIT_AFTER_CAPTURE",
+            "LEGACY_ACK_RECORDED",
+            "COMPLETED_IMPLICIT",
+        }
         assert acked["agent"]["office_identity_evidence"] == "PASSED"
         assert acked["agent"]["dispatch_requested_at"] == dispatch_requested_at
         assert acked["agent"]["host_session_started_at"]

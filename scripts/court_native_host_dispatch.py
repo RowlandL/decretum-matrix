@@ -107,8 +107,8 @@ def _positive_int(value: object, field: str) -> int:
     return value
 
 
-def _string_list(value: object, field: str) -> list[str]:
-    if not isinstance(value, (list, tuple)) or not value:
+def _string_list(value: object, field: str, *, allow_empty: bool = False) -> list[str]:
+    if not isinstance(value, (list, tuple)) or (not value and not allow_empty):
         raise ValueError(f"native_host_action_receipt:{field}_invalid")
     result = [_text(item, field, maximum=1024) for item in value]
     if len(result) != len(set(result)):
@@ -174,6 +174,9 @@ def _normalize_candidate(value: object) -> dict[str, object]:
     superior = _text(
         value.get("direct_superior"), "reuse.direct_superior", maximum=64
     ).lower()
+    identity_kind = value.get("host_identity_kind")
+    if identity_kind is not None and identity_kind != CANONICAL_AGENT_PATH_IDENTITY_KIND:
+        raise ValueError("native_host_action_receipt:reuse_host_identity_kind_invalid")
     role_ack = value.get("role_ack")
     if not isinstance(role_ack, Mapping):
         raise ValueError("native_host_action_receipt:reuse_role_ack_invalid")
@@ -198,6 +201,7 @@ def _normalize_candidate(value: object) -> dict[str, object]:
         "host_instance_id": _text(
             value.get("host_instance_id"), "reuse.host_instance_id"
         ),
+        "host_identity_kind": identity_kind,
         "task_id": _text(value.get("task_id"), "reuse.task_id"),
         "role": role,
         "direct_superior": superior,
@@ -210,7 +214,7 @@ def _normalize_candidate(value: object) -> dict[str, object]:
             "case_ref": case_reference(semantic.get("case_ref", {})),
         },
         "lease_id": _text(value.get("lease_id"), "reuse.lease_id"),
-        "write_set": _string_list(value.get("write_set"), "reuse.write_set"),
+        "write_set": _string_list(value.get("write_set"), "reuse.write_set", allow_empty=True),
         "role_ack": normalized_role_ack,
         "context_utilization": float(ratio),
         "status": _text(value.get("status"), "reuse.status", maximum=32).lower(),
@@ -245,7 +249,7 @@ def normalize_native_host_dispatch_request(value: object) -> dict[str, object]:
         "lease_id": _text(value.get("lease_id"), "lease_id"),
         "assignment": _text(value.get("assignment"), "assignment"),
         "duty_scope": _string_list(value.get("duty_scope"), "duty_scope"),
-        "write_set": _string_list(value.get("write_set"), "write_set"),
+        "write_set": _string_list(value.get("write_set"), "write_set", allow_empty=True),
         "role_ack": _normalize_role_ack(
             value.get("role_ack"), role=role, direct_superior=direct_superior
         ),
@@ -778,13 +782,33 @@ def dispatch_native_host_action(
         host_result = _normalize_host_result(
             callback(str(candidate["host_instance_id"]), deepcopy(request))
         )
-        if host_result.get("host_identity_kind") == CANONICAL_AGENT_PATH_IDENTITY_KIND:
-            raise ValueError("native_host_action_receipt:canonical_followup_issuer_unavailable")
-        if host_result["host_instance_id"] != candidate["host_instance_id"]:
-            raise ValueError("native_host_action_receipt:reuse_host_identity_mismatch")
-        for field in ("host_task_id", "host_thread_id"):
-            if host_result[field] != candidate[field]:
+        candidate_canonical = (
+            candidate.get("host_identity_kind") == CANONICAL_AGENT_PATH_IDENTITY_KIND
+        )
+        result_canonical = (
+            host_result.get("host_identity_kind") == CANONICAL_AGENT_PATH_IDENTITY_KIND
+        )
+        if candidate_canonical or result_canonical:
+            if not (candidate_canonical and result_canonical):
+                raise ValueError(
+                    "native_host_action_receipt:canonical_followup_identity_mismatch"
+                )
+            # A canonical candidate keeps its /root path identity; the child
+            # thread is proven by the observed activity, never by a host thread
+            # field, which stays null for this identity kind.
+            if (
+                host_result["host_task_id"] != candidate["host_task_id"]
+                or host_result["host_instance_id"] != candidate["host_instance_id"]
+            ):
                 raise ValueError("native_host_action_receipt:reuse_host_identity_mismatch")
+            if host_result.get("followup_child_thread_id") != candidate["host_thread_id"]:
+                raise ValueError("native_host_action_receipt:reuse_host_identity_mismatch")
+        else:
+            if host_result["host_instance_id"] != candidate["host_instance_id"]:
+                raise ValueError("native_host_action_receipt:reuse_host_identity_mismatch")
+            for field in ("host_task_id", "host_thread_id"):
+                if host_result[field] != candidate[field]:
+                    raise ValueError("native_host_action_receipt:reuse_host_identity_mismatch")
 
     receipt = _build_receipt(
         request,

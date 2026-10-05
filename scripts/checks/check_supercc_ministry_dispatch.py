@@ -1549,8 +1549,11 @@ def preload_ack_fixture(
         allow_missing_identity=True,
     )
     generation = pending.get("identity_generation_challenge")
-    if pending.get("gate") != "PRELOAD_PENDING" or not isinstance(generation, str):
-        raise AssertionError(f"cannot enter PRELOAD_PENDING fixture phase: {pending}")
+    # 2026-10-06 ACK-lightweight (P3): a missing legacy preload ACK now reads as
+    # NOT_REQUIRED (identity still gated separately); the fixture keeps issuing a
+    # late ACK as evidence so the back-fill path stays covered.
+    if pending.get("gate") != "NOT_REQUIRED" or not isinstance(generation, str):
+        raise AssertionError(f"cannot enter legacy preload fixture phase: {pending}")
     OFFICE_STATE_FIXTURES[role] = {
         "preload_status": "PRELOAD_PENDING",
         "identity_id": None,
@@ -1908,9 +1911,11 @@ def check_menxia_reject_correction_red_matrix() -> None:
                     "json",
                 ]
             )
-        if bootstrap_calls:
+        # 2026-10-06 ACK-lightweight (P3): turn-start no longer blocks on the missing
+        # legacy ACK; the identity gate below still owns identity/authority safety.
+        if len(bootstrap_calls) > 1:
             failures["preflight_current_authority"].append(
-                "turn-start reached dependency bootstrap before full identity/ACK preflight"
+                "turn-start reached dependency bootstrap more than once"
             )
 
         bootstrap_calls.clear()
@@ -1997,7 +2002,9 @@ def check_menxia_reject_correction_red_matrix() -> None:
         allow_missing_identity=True,
     )
     if (
-        pending.get("gate") != "PRELOAD_PENDING"
+        # 2026-10-06 ACK-lightweight (P3): no legacy ACK is required for a new identity;
+        # the challenge itself is still exposed and no fingerprint/ACK is synthesized.
+        pending.get("gate") != "NOT_REQUIRED"
         or not isinstance(pending.get("identity_generation_challenge"), str)
         or pending.get("preload_ack") is not None
         or (pending.get("identity") or {}).get("identity_fingerprint") is not None
@@ -2045,9 +2052,9 @@ def check_menxia_reject_correction_red_matrix() -> None:
             require_visible=False,
             allow_missing_identity=False,
         )
-        if ack_gate.get("gate") != "PASSED":
+        if ack_gate.get("gate") != "NOT_REQUIRED":
             failures["identity_generation"].append(
-                f"PRELOAD_PENDING challenge did not accept office ACK: {ack_gate.get('reason')}"
+                f"legacy office ACK fixture did not read as NOT_REQUIRED: {ack_gate.get('reason')}"
             )
         else:
             OFFICE_STATE_FIXTURES["gongbu"] = {
@@ -2063,9 +2070,9 @@ def check_menxia_reject_correction_red_matrix() -> None:
                 require_visible=False,
                 allow_missing_identity=False,
             )
-            if resumed.get("gate") != "PASSED":
+            if resumed.get("gate") != "NOT_REQUIRED":
                 failures["identity_generation"].append(
-                    f"office ACK could not resume from persisted current generation: {resumed.get('reason')}"
+                    f"persisted current generation did not read as NOT_REQUIRED: {resumed.get('reason')}"
                 )
 
             old_generation = identity.get("identity_generation")
@@ -2111,9 +2118,15 @@ def check_menxia_reject_correction_red_matrix() -> None:
                 require_visible=False,
                 allow_missing_identity=False,
             )
-            if stale_ack.get("gate") != "FAILED":
+            # 2026-10-06 ACK-lightweight (P3): the archived generation's ACK is no
+            # longer a gate, but it must still be flagged as stale legacy evidence
+            # (it cannot impersonate the current identity).
+            if (
+                stale_ack.get("gate") != "NOT_REQUIRED"
+                or stale_ack.get("legacy_preload_ack_stale") is not True
+            ):
                 failures["identity_generation"].append(
-                    "same-session same-id rejoin reused the archived generation's old ACK"
+                    "same-session same-id rejoin did not flag the archived generation's old ACK as stale"
                 )
 
     original_run = ensure_supercc_court.run_command

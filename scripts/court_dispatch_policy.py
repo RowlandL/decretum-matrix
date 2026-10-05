@@ -451,8 +451,9 @@ def _validate_trusted_preload_manifest(
             raise ValueError("exact_preload_contract_gate: invalid case reference") from exc
         if not references_match:
             raise ValueError("exact_preload_contract_gate: case reference mismatch")
-        if raw.get("preload_ack") != "PASSED" or trusted.get("preload_ack") != "PASSED":
-            raise ValueError("exact_preload_contract_gate: preload acknowledgement is not trusted")
+        # 2026-10-06 ACK-lightweight (P3): the legacy preload_ack value is recorded
+        # evidence only. Path/case_ref/profile/dossier/skill identity checks above
+        # stay enforced; the acknowledgement itself is no longer a gate.
     manifest_keys = {
         str(key).strip().lower() for key in trusted_preload_manifest if str(key).strip()
     }
@@ -517,9 +518,9 @@ def validate_dispatch_plan(
             str(value).strip() for value in write_set_raw if str(value).strip()
         ) if isinstance(write_set_raw, (list, tuple)) else ()
         reference = case_reference(raw.get("case_ref"))
+        # 2026-10-06 ACK-lightweight (P3): preload_ack is carried as legacy evidence
+        # on the plan item; it is no longer required to equal PASSED.
         preload_ack = str(raw.get("preload_ack") or "")
-        if preload_ack != "PASSED":
-            raise ValueError("exact_preload_contract_gate: preload_ack must equal PASSED")
         item = DispatchPlanItem(
             role=role,
             office_zh=office_zh,

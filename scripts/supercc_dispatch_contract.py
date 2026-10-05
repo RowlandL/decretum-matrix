@@ -494,8 +494,8 @@ def active_office_preload_ack_gate(
             return {
                 "ok": True,
                 "role": role,
-                "gate": "PRELOAD_PENDING",
-                "reason": "new_identity_requires_office_preload_ack",
+                "gate": "NOT_REQUIRED",
+                "reason": "new_identity_no_legacy_preload_ack",
                 "identity": identity,
                 "identity_generation_challenge": _new_identity_generation_challenge(),
                 "preload_ack": None,
@@ -508,16 +508,10 @@ def active_office_preload_ack_gate(
             "identity": identity,
             "preload_ack": None,
         }
+    # 2026-10-06 ACK-lightweight (P3): the preload acknowledgement is optional
+    # legacy evidence. Identity binding above stays a hard gate; a missing or
+    # malformed legacy ACK payload is recorded, never used to block dispatch.
     supplied, supplied_error = _supplied_preload_acks(args)
-    if supplied_error is not None:
-        return {
-            "ok": False,
-            "role": role,
-            "gate": "FAILED",
-            "reason": supplied_error,
-            "identity": identity,
-            "preload_ack": None,
-        }
     workspace = Path(args.workspace).resolve()
     persisted = runtime["read_office_state"](
         workspace,
@@ -535,38 +529,33 @@ def active_office_preload_ack_gate(
     if ack is None:
         ack = persisted_role.get("preload_ack")
         source = "selected_context_office_state"
-    profile = runtime["profile_metadata"](role)
-    expected = {
-        "schema": runtime["OFFICE_PRELOAD_ACK_SCHEMA"],
-        "preload_status": "PASSED",
-        "identity_id": identity.get("identity_id"),
-        "identity_generation": identity.get("identity_generation"),
-        "identity_binding_id": identity.get("identity_binding_id"),
-        "role_key": role,
-        "direct_superior": runtime["direct_superior_metadata"](role)[
-            "direct_superior"
-        ],
-        "profile_source": profile.get("profile_source"),
-        "dossier_path": str(runtime["office_dossier_path"](role)),
-        "court_skill_path": str(runtime["skill_root"]() / "SKILL.md"),
-        "agent_dossier_loaded": "YES",
-    }
     loaded_skills = ack.get("loaded_skills") if isinstance(ack, Mapping) else None
-    valid = (
+    legacy_recorded = (
         isinstance(ack, Mapping)
         and runtime["OFFICE_PRELOAD_ACK_REQUIRED_FIELDS"].issubset(ack)
-        and all(ack.get(field) == value for field, value in expected.items())
         and isinstance(loaded_skills, list)
         and "decretum-matrix"
         in {str(item).strip().lower() for item in loaded_skills}
     )
+    # A legacy ACK that belongs to an archived/foreign incarnation is flagged as
+    # stale read-only evidence. It cannot be used to impersonate the current
+    # identity because it no longer participates in any gate.
+    legacy_stale = bool(
+        isinstance(ack, Mapping)
+        and (
+            ack.get("identity_id") != identity.get("identity_id")
+            or ack.get("identity_generation") != identity.get("identity_generation")
+        )
+    )
     return {
-        "ok": bool(valid),
+        "ok": True,
         "role": role,
-        "gate": "PASSED" if valid else "FAILED",
-        "reason": "ok" if valid else "active_office_preload_ack_required",
+        "gate": "NOT_REQUIRED",
+        "reason": "preload_ack_optional_legacy_evidence",
         "identity": identity,
         "preload_ack": dict(ack) if isinstance(ack, Mapping) else None,
         "preload_ack_source": source,
-        "expected": expected,
+        "legacy_preload_ack_recorded": bool(legacy_recorded),
+        "legacy_preload_ack_stale": legacy_stale,
+        "legacy_preload_ack_error": str(supplied_error or ""),
     }

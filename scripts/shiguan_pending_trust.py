@@ -255,10 +255,15 @@ class GovernanceTrust:
             raise ValueError("actor role does not match the trusted runtime identity")
         if record.get("status") != "running":
             raise ValueError("office actor is not currently running")
-        for field in ("preload_status", "office_identity_evidence", "model_route_status"):
+        # 2026-10-06 ACK-lightweight (P3): the legacy preload acknowledgement is
+        # optional evidence; identity and model-route evidence remain required and
+        # are now established by admission/start, not by the ACK round-trip.
+        for field in ("office_identity_evidence", "model_route_status"):
             if record.get(field) != "PASSED":
                 raise ValueError(f"office actor lacks trusted {field}")
-        preload_at, _ = _timestamp(record.get("preload_ack_at"), "actor.preload_ack_at")
+        preload_at = ""
+        if record.get("preload_ack_at"):
+            preload_at, _ = _timestamp(record.get("preload_ack_at"), "actor.preload_ack_at")
         return {
             "kind": "court_agent",
             "task_id": task_key,
@@ -297,7 +302,9 @@ class GovernanceTrust:
         agent_id = str(value.get("agent_id") or "")
         if not AGENT_ID_RE.fullmatch(agent_id):
             raise ValueError("actor_identity.agent_id is invalid")
-        preload_at, _ = _timestamp(value.get("preload_ack_at"), "actor_identity.preload_ack_at")
+        preload_at = ""
+        if value.get("preload_ack_at"):
+            preload_at, _ = _timestamp(value.get("preload_ack_at"), "actor_identity.preload_ack_at")
         return {
             "kind": "court_agent",
             "task_id": _bounded(value.get("task_id"), "actor_identity.task_id", maximum=256),

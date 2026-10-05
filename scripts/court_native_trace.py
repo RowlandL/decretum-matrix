@@ -9,6 +9,7 @@ from typing import Mapping
 from urllib.parse import unquote, urlsplit
 
 SCHEMA = 'court.host_spawn_evidence.v1'
+FOLLOWUP_EVIDENCE_SCHEMA = 'court.host_followup_evidence.v1'
 _UUID = re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$', re.I)
 _OPAQUE = re.compile(r'^gAAAAA[A-Za-z0-9_=-]{90,}$')
 _TRUSTED_NIUBASH_WRAPPER = 'c:/tools/niubash/niu.exe'
@@ -46,6 +47,46 @@ def spawn_activity(row: Mapping[str, object], line_number: int) -> dict[str, obj
     return {'call_id': item.get('id'), 'child_thread_id': item.get('agent_thread_id'),
             'child_agent_path': item.get('agent_path'), 'parent_thread_id': payload.get('thread_id'),
             'timestamp': row.get('timestamp'), 'line': line_number}
+
+
+def interacted_activity(row: Mapping[str, object], line_number: int) -> dict[str, object] | None:
+    """Host-recorded evidence that an existing child was given a new turn."""
+    payload = row.get('payload')
+    if row.get('type') != 'event_msg' or not isinstance(payload, Mapping):
+        return None
+    item = payload.get('item')
+    if (payload.get('type') != 'item_completed' or not isinstance(item, Mapping)
+            or item.get('type') != 'SubAgentActivity' or item.get('kind') != 'interacted'):
+        return None
+    return {'call_id': item.get('id'), 'child_thread_id': item.get('agent_thread_id'),
+            'child_agent_path': item.get('agent_path'), 'parent_thread_id': payload.get('thread_id'),
+            'timestamp': row.get('timestamp'), 'line': line_number}
+
+
+def bind_followup_activity(*, call_id: str, call_line: int, call_time: str,
+                           activity: Mapping[str, object], expected_path: str,
+                           expected_child_thread_id: str,
+                           trace_thread_id: str) -> dict[str, object]:
+    """Bind one interacted activity to the exact reused candidate.
+
+    The candidate path and child thread come from the already validated spawn
+    evidence; the activity must be the same call, the same child, and must occur
+    after the call in the same trace.
+    """
+    child = _uuid(activity.get('child_thread_id'), 'child_thread_id')
+    parent = _uuid(activity.get('parent_thread_id'), 'parent_thread_id')
+    expected_child = _uuid(expected_child_thread_id, 'expected_child_thread_id')
+    path = expected_path
+    if (activity.get('call_id') != call_id or activity.get('child_agent_path') != path
+            or not isinstance(path, str) or not path.startswith('/root/')
+            or child != expected_child or parent != trace_thread_id.lower()
+            or int(activity.get('line', 0)) <= call_line
+            or _time(activity.get('timestamp')) < _time(call_time)):
+        raise ValueError('native_trace:followup_activity_mismatch')
+    return {'schema': FOLLOWUP_EVIDENCE_SCHEMA, 'call_id': call_id,
+            'child_thread_id': child, 'child_agent_path': path,
+            'parent_thread_id': parent, 'activity_timestamp': activity['timestamp'],
+            'source': 'host_managed_trace_metadata'}
 
 
 def bind_opaque_spawn(*, call_id: str, call_line: int, call_time: str,

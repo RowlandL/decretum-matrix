@@ -724,7 +724,12 @@ def check_complete_lease_schema() -> None:
         require(value.get("start_condition"), f"lease {child_id!r} lacks start condition")
         require(value.get("expiry_condition"), f"lease {child_id!r} lacks expiry condition")
         require(value.get("return_conditions"), f"lease {child_id!r} lacks return conditions")
-        require(value.get("preload_ack") == "PASSED", f"lease {child_id!r} lacks preload acknowledgement")
+        # 2026-10-06 ACK-lightweight (P3): the legacy preload_ack field is carried as
+        # evidence and must no longer be required to equal PASSED.
+        require(
+            "preload_ack" in value,
+            f"lease {child_id!r} dropped the legacy preload_ack evidence field",
+        )
         measured_cost = value.get("measured_cost")
         require(isinstance(measured_cost, Mapping), f"lease {child_id!r} lacks measured single-agent cost")
         require(float(measured_cost.get("memory_mb", 0)) > 0, f"lease {child_id!r} has no measured memory cost")
@@ -933,15 +938,18 @@ def check_budget_input_identity_contract() -> None:
         ),
         "direct_superior_mismatch",
     )
-    require_rejected(
-        lambda: add_worker(
-            pool,
-            "gongbu#worker-no-preload",
-            shard_id="no-preload-shard",
-            write_set=("synthetic/no-preload",),
-            preload_ack="",
-        ),
-        "preload_required",
+    # 2026-10-06 ACK-lightweight (P3): a missing legacy preload_ack must no longer
+    # reject the lease; the lease is accepted and keeps the field as legacy evidence.
+    lease_without_ack = add_worker(
+        pool,
+        "gongbu#worker-no-preload",
+        shard_id="no-preload-shard",
+        write_set=("synthetic/no-preload",),
+        preload_ack="",
+    )
+    require(
+        lease_without_ack is not None,
+        "lease without a legacy preload acknowledgement was rejected",
     )
 
 

@@ -242,7 +242,7 @@ SUPERCC_ENTRY_SCHEMA = "court.supercc.entry_plan.v1"
 SUPERCC_LIGHT_BOOTSTRAP_POLICY = (
     "all office transports use per-office AGENTS.md dossiers as the long standing "
     "mandate; prompts carry an explicit role plus profile/dossier/SKILL source "
-    "manifest, and the office must return a preload ack before running."
+    "manifest, preload completion is implicit and no acknowledgement is required before running."
 )
 OFFICE_PRELOAD_ACK_SCHEMA = "court.office.preload_ack.v1"
 ENTER_DISPATCH_CONTEXT_SCHEMA = "court.supercc.enter_dispatch_context.v1"
@@ -725,9 +725,9 @@ def profile_manifest_block(role: str) -> str:
             f"- profile_version: {meta.get('profile_version')}",
             f"- office_profile_loaded: {meta.get('office_profile_loaded')}",
             f"- court_skill_path: {skill_relative_path(court_skill)}",
-            "- preload_ack: required before status=running; report role_key, direct_superior, dossier/source acknowledgement, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix.",
+            "- preload_ack: optional legacy back-fill only; preload completion is implicit (preload_phase). When used it reports role_key, direct_superior, dossier/source acknowledgement, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix; never required.",
             "- collaboration_task_path: `/root/*` is routing only and never proves office identity.",
-            "- ordinary_codex_model_route: keep reserved V2 spawn metadata hidden for schema compatibility; record the task-aware recommendation, require route-id plus inheritance acknowledgement, and inherit the main thread model/effort unless a host-managed override path is proven compatible.",
+            "- ordinary_codex_model_route: keep reserved V2 spawn metadata hidden for schema compatibility; record the task-aware recommendation, bind the route-id at admission/start, and inherit the main thread model/effort unless a host-managed override path is proven compatible.",
             "- claude_model_boundary: no office-level model override; inherit the main Claude thread model.",
             "- hermes_model_boundary: no office-level model override in this phase; inherit the main Hermes profile model; detailed profile design is deferred.",
             f"- light_bootstrap_policy: {SUPERCC_LIGHT_BOOTSTRAP_POLICY}",
@@ -875,7 +875,7 @@ def office_dossier_text(role: str) -> str:
         - lineage: {office['lineage']}
         - direct_superior: {rules['superior']}
         - preload_contract_version: {OFFICE_PRELOAD_ACK_SCHEMA}
-        - preload_ack: first report must include preload_status=PASSED, role_key={role}, profile_source, dossier_path, court_skill_path, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix.
+        - preload_ack: optional legacy back-fill only; preload completion is implicit (preload_phase). When used it reports role_key={role}, agent_dossier_loaded=YES, and loaded_skills including decretum-matrix; no acknowledgement is required for the first report.
         - light_bootstrap_policy: {SUPERCC_LIGHT_BOOTSTRAP_POLICY}
 
         ## Standing Mandate
@@ -901,7 +901,7 @@ def office_dossier_text(role: str) -> str:
 
         ## Fast Dispatch Protocol
 
-        1. Before duty work, load this dossier, the referenced standing profile, and Decretum Matrix（诏令矩阵） `SKILL.md`; return the required preload ack. Do not claim running from task_name or `/root/*` alone.
+        1. Before duty work, load this dossier, the referenced standing profile, and Decretum Matrix（诏令矩阵） `SKILL.md`; preload completion is implicit; do not claim running from task_name or `/root/*` alone.
         2. Your squad identity has already been joined by the launcher. Do not run squad join again unless Taizi explicitly sends REPAIR_IDENTITY.
         3. On wake, run exactly one non-blocking inbox check. Use the receive command from Shell Contract that matches your active shell and this role. Use `--wait` only when your direct superior explicitly asks you to wait.
         4. If a structured task exists, ack it first through the same wrapper, do only the bounded task, preserve evidence, then complete it through the same wrapper.
@@ -3873,7 +3873,10 @@ def wake_roles(args: argparse.Namespace, roles: tuple[str, ...], *, reason: str,
         ack_gate = preflight_by_role[role].get("active_office_preload_ack_gate") or {}
         state_records[role].update(
             {
-                "preload_status": "PASSED",
+                # 2026-10-06 ACK-lightweight (P3): implicit completion replaces the
+                # unconditional PASSED write; the legacy ack stays as read-only evidence.
+                "preload_status": "IMPLICIT_COMPLETE",
+                "preload_phase": "COMPLETED_IMPLICIT",
                 "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
                 "identity_id": (ack_gate.get("identity") or {}).get("identity_id"),
                 "identity_generation": (ack_gate.get("identity") or {}).get(
@@ -4064,7 +4067,10 @@ def mark_turn_start_open_decree(args: argparse.Namespace, check: dict[str, Any],
             ack_gate = preflight_by_role[role].get("active_office_preload_ack_gate") or {}
             record.update(
                 {
-                    "preload_status": "PASSED",
+                    # 2026-10-06 ACK-lightweight (P3): implicit completion; the legacy
+                    # acknowledgement is recorded but never required.
+                    "preload_status": "IMPLICIT_COMPLETE",
+                    "preload_phase": "COMPLETED_IMPLICIT",
                     "preload_contract_version": OFFICE_PRELOAD_ACK_SCHEMA,
                     "identity_id": (ack_gate.get("identity") or {}).get(
                         "identity_id"

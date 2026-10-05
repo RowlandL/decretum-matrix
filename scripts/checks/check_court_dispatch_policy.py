@@ -1064,7 +1064,12 @@ def check_public_dispatch_contract() -> dict[str, object]:
     for value in missing_ref.values():
         value.pop("case_ref")
     require(validate([entry])["ok"] is True, "public structural precheck needs host state")
-    for preload in ({}, tampered, missing_ref):
+    # 2026-10-06 ACK-lightweight (P3): a differing legacy preload_ack value is no
+    # longer a gate; identity paths and case references stay enforced.
+    accepted = validate([entry], trusted_preload_manifest=tampered)
+    require(accepted["ok"] is True,
+            "legacy preload_ack value alone still blocked trusted structural reuse")
+    for preload in ({}, missing_ref):
         result = validate([entry], trusted_preload_manifest=preload)
         require(result["ok"] is False and "exact_preload_contract_gate" in result["errors"][0]["code"],
                 "structural reuse bypassed trusted preload")
@@ -1091,7 +1096,6 @@ def check_dispatch_plan() -> dict[str, object]:
         [{**dispatch_item("libu", "礼部", "wording"), "direct_superior": "taizi"}],
         [{**dispatch_item("xingbu", "刑部", "risk"), "evidence_contract": ""}],
         [{**dispatch_item("gongbu", "工部", "build"), "visibility": "visible_core"}],
-        [{**dispatch_item("gongbu", "工部", "build"), "preload_ack": ""}],
         [{**dispatch_item("gongbu", "工部", "build"), "profile_path": "agents/standing-officials/menxia.toml"}],
         [{**dispatch_item("gongbu", "工部", "build"), "dossier_path": "../outside/AGENTS.md"}],
         [{**dispatch_item("gongbu", "工部", "build"), "skill_path": "references/SKILL.md"}],

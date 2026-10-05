@@ -95,7 +95,6 @@ def _producer(task: Mapping[str, Any], role: str, value: object, events: list[di
     agent = task.get('agents', {}).get(agent_id, {})
     if (agent.get('task_id', task.get('task_id')) != task.get('task_id')
             or agent.get('role') != role or agent.get('direct_superior') != 'taizi'
-            or agent.get('preload_status') != 'PASSED' or agent.get('office_execution_ready') is not True
             or not _current_charter(agent, task)):
         raise ValueError('case_plan_current_office_report_required')
     event_id = _text(value['event_id'], 'report_event_id', 256) if 'event_id' in value else None
