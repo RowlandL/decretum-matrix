@@ -454,9 +454,8 @@ def render_active_projection(
         identity_path,
         label="identity_manifest",
     )
-    # The source installation authority retains its integrity metadata. Active
-    # copies expose product identity and version only.
-    active_identity.pop("skill_sha256", None)
+    # The skill digest binding is projected: repo-control doctor and
+    # check_skill_identity both require a skill root to bind SKILL.md.
     _validate_active_manifest_strings(
         label="active_projection_manifest",
         value=active_manifest,

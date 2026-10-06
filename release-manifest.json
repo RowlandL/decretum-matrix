@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "1a06149db6243eaeb54f8c26f8998a788ed09be7b1cd9ac0fab4103979b2b527",
+      "sha256": "84db905a8ed5d066fc18cb703cdf48ccfbe8c9ef46d77cee71a29b6ac5f2cc23",
       "size": 1435
     },
     {
@@ -2571,8 +2571,8 @@
     {
       "mode": "100644",
       "path": "scripts/install_projection_renderer.py",
-      "sha256": "1aa92f6c187a9d3af364b829820eb16c7e91b7b0e63ea19879ea042368c6ff12",
-      "size": 22166
+      "sha256": "783d52396f79de3d534d8d89f0b81345b9aaae69ba3b82610810ea72d28e5e70",
+      "size": 22126
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9250674,
+    "payload_bytes": 9250634,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "5d66823b7284b9caf5fd81386bc862efad24b7b9f70e04d87183b4bb38d23976",
+    "payload_index_sha256": "ce06bfcb1537e34d4da3c2c1ef7247fff2311562de90f50aa213c4dbc8840b99",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 693
   },
