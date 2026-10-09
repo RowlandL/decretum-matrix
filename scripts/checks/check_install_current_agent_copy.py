@@ -5413,7 +5413,7 @@ def check_install_lock_safety_and_release() -> dict[str, object]:
     module = _load_production(errors)
     assert module is not None, errors
     with tempfile.TemporaryDirectory(prefix="b119-lock-") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         for relative in (".agents", ".agents/install-receipts", ".agents/install-receipts/decretum-matrix",
                          ".agents/install-receipts/decretum-matrix/install.lock"):
             home = root / ("invalid-" + str(len(list(root.iterdir()))))
