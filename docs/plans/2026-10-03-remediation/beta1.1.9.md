@@ -87,7 +87,17 @@
 
 | 日期 | 动作 | 证据位置 | 结果 |
 | --- | --- | --- | --- |
-| — | — | — | — |
+| 2026-10-09 | 接续副本 `beta119-closeout-20261009`，保留原 beta118 工作副本；普通协作、唯一源码 writer | 共享 `D:/project/decretum-matrix/tasks/handoffs/TASK-001-20261009-codex-closeout-readback.md` | 已实际读回；本工程 lane 不提交/安装/外部发布 |
+| 2026-10-09 | F03 命令解析与真实创建标记、明确死亡确认 RED/GREEN | `.scratch/beta119-closeout/f03-token-red.log`、`f03-token-green.log`、`f03-creation-red.log`、`f03-creation-green.log`、`f03-death-red.log`、`f03-death-confirmation-green.log` | RED exit 1；GREEN exit 0。Windows FILETIME 单位 100 ns，Linux boot_id + clock ticks；其他不可可靠比较的 POSIX 仅 watchdog fail-closed，无真实 daemon 停止 |
+| 2026-10-09 | F01 生产 create B 前恢复 A、外部代次漂移拒绝、phase marker 落后拒绝、只读语义 | `.scratch/beta119-closeout/f01-writer-red.log`、`f01-writer-green.log`、`regression-completion.log` | RED exit 1；GREEN exit 0；completion 整文件 24 cases 通过 |
+| 2026-10-09 | F02 两个空 HOME planner 零写、安全锁路径、短超时/异常释放及已有并发安装回归 | `.scratch/beta119-closeout/f02-planning-red.log`、`f02-lockpath-red.log`、`f02-boundaries-green.log`、`regression-install.log` | RED exit 1；GREEN exit 0；安装 75 cases、配置 31 cases，errors=[]；隔离 fixture 范围 |
+| 2026-10-09 | 真实 Windows 创建时间 API 只读样本 | `.scratch/beta119-closeout/windows-creation-sample.json` 与独立 `.exit.txt` | exit 0；只输出隔离 Python 样本 PID/CreationDate，非 daemon 启动或停止 |
+
+本轮源码候选边界：账本写入而下一 phase marker 落盘失败时保留账本和 marker，拒绝新业务写入，需人工恢复；不扩自动恢复框架。stage3 `KeyError: charter_sha256` 保持既有基线归因，归 TASK-023。CI 未改；SOURCE/CI 检查不替代 native host/full acceptance。
+
+当前发布目标为 beta1.1.9 的 GitHub 与本机 private candidate。工程 lane 未执行提交、安装、push、tag、Release 或 npm publish；npm beta1.1.8 快照保持。后续状态以实际 commit、候选、安装和远端回读记录补充，不将本计划的历史发布条款作为 npm publish 的本轮授权。
+
+上述状态为 2026-10-09 本轮构建前工程记录。冻结产品 tree 后的实际发布/安装/CI 回读由 root 写入共享 `D:/project/decretum-matrix/tasks` 与根控制面的 `audits/`；以其具体外部回执为准，不回写 tag 对应产品 tree 或预填线上 CI 成功。
 
 ## 发布与 CI 验证（按总纲 26.1）
 

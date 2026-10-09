@@ -6,8 +6,19 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.8",
+  "latest_tag": "beta1.1.9",
   "releases": [
+    {
+      "tag": "beta1.1.9",
+      "title": "Decretum Matrix beta1.1.9",
+      "summary": "beta1.1.9 源码候选：收口完成事务恢复、同 HOME 安装互斥及 watchdog 精确进程身份。",
+      "highlights": [
+        "普通业务写入前在既有 runtime lock 内恢复 completion marker；外部代次漂移与无效 marker 保留并拒绝写入。",
+        "安装写入共用 HOME 锁并先核安全路径；只读规划不取写锁、不新增 HOME 条目；超时和异常后锁可重新获取。",
+        "watchdog 同时匹配 PID、脚本/参数及真实系统创建时间；身份未知时拒绝停止，确认退出或已不存在才清记录。"
+      ],
+      "asset_note": "本条目为 GitHub 与本机 private candidate 的版本目标，不代表已发布、已安装或完整运行验收。npm beta1.1.8 快照保持，本轮未执行 npm publish。"
+    },
     {
       "tag": "beta1.1.8",
       "title": "Decretum Matrix beta1.1.8",

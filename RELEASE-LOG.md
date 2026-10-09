@@ -1,5 +1,12 @@
 # Release Log
 
+## beta1.1.9
+
+- 完成事务恢复与业务写入复用同一 runtime lock；恢复冲突或无效 marker 保留并阻止新写入。安装写入复用同 HOME 锁，规划保持零写，锁路径先验证且超时/异常后可重获。
+- watchdog 复用已有进程发现接口绑定真实创建标记，拒绝 PID 复用、无关命令和不可验证身份；有限等待内确认退出或明确 gone 才清记录。
+- 本地隔离检查覆盖 RED/GREEN、正常恢复、并发安装、合法退出、未知死亡状态保留与 marker phase 落后保留；不据此声明真实 daemon 或生产事故验收。
+- 状态：源码候选，GitHub 与本机 private candidate 目标为 beta1.1.9；尚未由本条目证明提交、CI、打包、安装或发布。npm beta1.1.8 快照保持，本轮未执行 npm publish。
+
 ## beta1.1.8
 
 - 修复两处 HEAD 级 result-recovery schema 漂移：handoff 目标绑定对齐权威 24 键（补 `case_ref`/`plan_ref`，`write_set_sha256` 改回 `write_set`）、recovery receipt 键改为 `evidence_sha256`。

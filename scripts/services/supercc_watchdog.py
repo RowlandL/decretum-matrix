@@ -23,6 +23,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -31,12 +32,15 @@ import time
 from typing import Any
 
 import ensure_supercc_court as court
+import ensure_shiguan_autosync as autosync_process
 
 
 WATCHDOG_SCHEMA = "court.supercc.watchdog.v1"
 WATCHDOG_PROCESS_SCHEMA = "court.supercc.watchdog_process.v1"
 VISIBLE_DEFAULT_ROLES = ("taizi", *court.SUPERCC_VISIBLE_CORE_OFFICES)
 DEFAULT_STALE_SECONDS = 900.0
+STOP_WAIT_SECONDS = 3.0
+STOP_POLL_SECONDS = 0.1
 ABNORMAL_MODES = {
     "429",
     "rate_limited",
@@ -162,6 +166,166 @@ def read_pid_record(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _watchdog_script_paths() -> set[str]:
+    """Reuse the existing exact path normalization/discovery contract."""
+    roots = {
+        Path(__file__).resolve().parents[2],
+        Path.home() / ".agents" / "skills" / "decretum-matrix",
+        Path.home() / ".codex" / "skills" / "decretum-matrix",
+        Path.home() / ".claude" / "skills" / "decretum-matrix",
+        Path.home() / ".hermes" / "skills" / "decretum-matrix",
+    }
+    return {
+        autosync_process.normalized_process_path(root / "scripts" / "services" / "supercc_watchdog.py")
+        for root in roots
+    }
+
+
+def _watchdog_command_tokens(command_line: object) -> list[str] | None:
+    if isinstance(command_line, (list, tuple)):
+        tokens = [str(value) for value in command_line]
+    elif isinstance(command_line, str):
+        text = command_line.strip()
+        if not text:
+            return None
+        try:
+            tokens = shlex.split(text, posix=sys.platform != "win32")
+        except ValueError:
+            return None
+    else:
+        return None
+    if len(tokens) < 2 or not Path(tokens[0].strip('"')).name.lower().startswith("python"):
+        return None
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            index += 1
+            break
+        if token in {"-c", "-m"}:
+            return None
+        if token in {"-W", "-X"}:
+            index += 2
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        break
+    if index >= len(tokens) or autosync_process.normalized_process_path(tokens[index]) not in _watchdog_script_paths():
+        return None
+    return tokens
+
+
+def _watchdog_command_line(command_line: object) -> bool:
+    """Accept only an exact Python script path, never a lookalike argument."""
+    return _watchdog_command_tokens(command_line) is not None
+
+
+def _canonical_watchdog_command(command_line: object) -> list[str] | None:
+    tokens = _watchdog_command_tokens(command_line)
+    if tokens is None:
+        return None
+    canonical = list(tokens)
+    canonical[0] = autosync_process.normalized_process_path(canonical[0])
+    canonical[1] = autosync_process.normalized_process_path(canonical[1])
+    for index, token in enumerate(canonical[2:], start=2):
+        if index > 2 and not token.startswith("-") and ("\\" in token or "/" in token or ":" in token):
+            canonical[index] = autosync_process.normalized_process_path(token)
+    return canonical
+
+
+def _watchdog_process_row(pid: int) -> dict[str, object] | None:
+    discovery_ok, rows = (
+        autosync_process._windows_python_process_rows()
+        if sys.platform == "win32"
+        else autosync_process._posix_python_process_rows()
+    )
+    if not discovery_ok:
+        return None
+    return next((item for item in rows if int(item.get("ProcessId") or 0) == pid), None)
+
+
+def _process_creation_time(row: dict[str, object] | None) -> str | None:
+    if not row:
+        return None
+    value = row.get("CreationDate") or row.get("StartTime")
+    if type(value) is int and value > 0:
+        return str(value)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _exact_process_matches_record(record: dict[str, Any]) -> bool:
+    pid = parse_pid(record.get("pid"))
+    if not pid or not autosync_process.pid_alive(pid):
+        return False
+    row = _watchdog_process_row(pid)
+    if not row or not _watchdog_command_line(row.get("CommandLine")):
+        return False
+    declared_command = record.get("command") or []
+    if not isinstance(declared_command, list) or not declared_command:
+        return False
+    created = _process_creation_time(row)
+    return bool(created) and created == record.get("process_creation_time") and (
+        _canonical_watchdog_command(row.get("CommandLine")) == _canonical_watchdog_command(declared_command)
+    )
+
+
+def _stop_process(pid: int) -> dict[str, Any]:
+    if sys.platform == "win32":
+        result = court.run_command(
+            ["powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", f"Stop-Process -Id {pid} -ErrorAction Stop"],
+            cwd=Path.cwd(), timeout=20, stdout_limit=2000, stderr_limit=4000,
+        )
+        return {"ok": bool(result.get("ok")), "result": result}
+    try:
+        os.kill(pid, 15)
+    except ProcessLookupError:
+        return {"ok": True, "already_stopped": True}
+    return {"ok": True, "signal": 15}
+
+
+def _process_stopped(pid: int) -> bool:
+    """Require an explicit gone/exited result; unreadable is not death."""
+    if sys.platform != "win32":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return autosync_process.process_query_gone(ctypes.get_last_error())
+        try:
+            exit_code = wintypes.DWORD()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value != 259
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
+def _wait_for_process_exit(pid: int, timeout: float = STOP_WAIT_SECONDS) -> bool:
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while True:
+        if _process_stopped(pid):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(STOP_POLL_SECONDS)
+
+
 def start_hidden_daemon(args: argparse.Namespace) -> dict[str, Any]:
     command = hidden_daemon_command(args)
     log_path = Path(args.log_jsonl or default_log_path()).resolve()
@@ -224,10 +388,20 @@ def start_hidden_daemon(args: argparse.Namespace) -> dict[str, Any]:
         record["ok"] = False
         record["error"] = str(exc)
     if record.get("ok"):
+        row = _watchdog_process_row(record["pid"]) if record.get("pid") else None
+        record["process_creation_time"] = _process_creation_time(row)
+        if not record["process_creation_time"] or not row or (
+            _canonical_watchdog_command(row.get("CommandLine")) != _canonical_watchdog_command(command)
+        ):
+            record["ok"] = False
+            record["error"] = "process_creation_time_unavailable_or_identity_mismatch"
+    if record.get("ok"):
         record["watchdog_daemon_start"] = "PASSED"
-        write_pid_record(pid_path, record)
     else:
         record["watchdog_daemon_start"] = "FAILED"
+    if record.get("pid"):
+        # Keep a launched PID record even if its identity could not be bound.
+        write_pid_record(pid_path, record)
     append_jsonl(log_path, record)
     return record
 
@@ -255,32 +429,31 @@ def stop_daemon(args: argparse.Namespace) -> dict[str, Any]:
         append_jsonl(log_path, payload)
         return payload
     try:
-        if os.name == "nt":
-            command = [
-                "powershell.exe",
-                "-NoLogo",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                f"Stop-Process -Id {pid} -ErrorAction SilentlyContinue; 'STOPPED={pid}'",
-            ]
-            result = court.run_command(command, cwd=Path(args.workspace).resolve(), timeout=20, stdout_limit=2000, stderr_limit=4000)
-            payload["ok"] = bool(result.get("ok"))
-            payload["result"] = {k: result.get(k) for k in ("ok", "returncode", "stdout", "stderr", "error")}
+        if not autosync_process.pid_alive(pid) and _process_stopped(pid):
+            payload["ok"] = True
+            payload["already_stopped"] = True
+            payload["exit_confirmed"] = True
+            if pid_path.exists():
+                pid_path.unlink()
+        elif not _exact_process_matches_record(record):
+            payload["ok"] = False
+            payload["reason"] = "process_identity_mismatch"
+            payload["identity_verified"] = False
+            payload["record_retained"] = True
         else:
-            try:
-                os.kill(pid, 15)
-                payload["ok"] = True
-                payload["result"] = {"signal": 15}
-            except ProcessLookupError:
-                payload["ok"] = True
-                payload["result"] = {"already_stopped": True}
-        if payload.get("ok") and pid_path.exists():
-            pid_path.unlink()
+            payload["identity_verified"] = True
+            stop_result = _stop_process(pid)
+            payload["result"] = stop_result
+            payload["ok"] = bool(stop_result.get("ok")) and _wait_for_process_exit(pid)
+            payload["exit_confirmed"] = bool(payload["ok"])
+            if payload.get("ok") and pid_path.exists():
+                pid_path.unlink()
+            elif not payload.get("ok"):
+                payload["record_retained"] = True
     except Exception as exc:
         payload["ok"] = False
         payload["error"] = str(exc)
+        payload["record_retained"] = True
     payload["watchdog_daemon_stop"] = "PASSED" if payload.get("ok") else "FAILED"
     append_jsonl(log_path, payload)
     return payload

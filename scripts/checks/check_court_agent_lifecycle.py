@@ -4138,23 +4138,38 @@ def _mint_native_host_receipt(
     }
 
 
+_STALE_NATIVE_RECEIPT_HASH_FIELDS = frozenset({
+    "native_host_action_receipt_sha256",
+    "native_host_request_sha256",
+    "native_host_result_sha256",
+    "receipt_sha256",
+    "request_sha256",
+    "result_sha256",
+})
+
+
+def _assert_no_native_receipt_hash_projection(
+    value: object,
+    *,
+    label: str,
+) -> None:
+    if isinstance(value, dict):
+        stale = sorted(_STALE_NATIVE_RECEIPT_HASH_FIELDS & set(value))
+        assert not stale, f"{label} exposed stale native receipt hash projection: {stale}"
+        for key, child in value.items():
+            _assert_no_native_receipt_hash_projection(child, label=f"{label}.{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _assert_no_native_receipt_hash_projection(child, label=f"{label}[{index}]")
+
+
 def _native_receipt_persisted(
     record: dict[str, object],
     receipt: dict[str, object],
 ) -> bool:
+    _assert_no_native_receipt_hash_projection(record, label="native receipt record")
     stored = record.get("native_host_action_receipt")
-    if stored == receipt:
-        return True
-    return all(
-        record.get(field) == receipt.get(source)
-        for field, source in (
-            ("native_host_action_receipt_id", "receipt_id"),
-            ("native_host_action_receipt_sha256", "receipt_sha256"),
-            ("native_host_request_sha256", "request_sha256"),
-            ("native_host_result_sha256", "result_sha256"),
-            ("native_host_instance_id", "host_instance_id"),
-        )
-    )
+    return stored == receipt
 
 
 def _run_native_host_positive_lifecycle_cases(
@@ -4265,11 +4280,24 @@ def _run_native_host_positive_lifecycle_cases(
             _production_cli=True,
         )
         try:
-            court_runtime.agent_spawn_failed(refusal_args)
+            refusal_result = court_runtime.agent_spawn_failed(refusal_args)
         except (TypeError, ValueError) as exc:
             failures.append("native_host_valid_refusal_receipt_rejected")
             evidence["valid_refusal_consume_error"] = str(exc)
         else:
+            _assert_no_native_receipt_hash_projection(
+                refusal_result,
+                label="native host refusal result",
+            )
+            refusal_event = next(
+                event
+                for event in court_runtime.read_events(limit=None, task_id=refusal_task)
+                if event.get("action") == "agent_spawn_failed"
+            )
+            _assert_no_native_receipt_hash_projection(
+                refusal_event,
+                label="native host refusal event",
+            )
             refusal_state = court_runtime.load_tasks()[refusal_task]
             stored_admission = refusal_state["agent_admissions"][refusal_wave]
             failed = stored_admission.get("failed_instances") or {}
@@ -4387,11 +4415,25 @@ def _run_native_host_positive_lifecycle_cases(
                 followup_args.assignment = reuse_request["assignment"]
                 followup_args.duty_scope = deepcopy(reuse_request["duty_scope"])
                 try:
-                    office_followup(followup_args)  # type: ignore[operator]
+                    followup_result = office_followup(followup_args)  # type: ignore[operator]
                 except (TypeError, ValueError) as exc:
                     failures.append("native_host_valid_followup_receipt_rejected")
                     evidence["valid_followup_consume_error"] = str(exc)
                 else:
+                    _assert_no_native_receipt_hash_projection(
+                        followup_result,
+                        label="native host followup result",
+                    )
+                    followup_event = next(
+                        event
+                        for event in court_runtime.read_events(limit=None, task_id=spawn_task)
+                        if event.get("action") == "office_followup"
+                        and event.get("agent_id") == spawn_instance
+                    )
+                    _assert_no_native_receipt_hash_projection(
+                        followup_event,
+                        label="native host followup event",
+                    )
                     after_agents = court_runtime.load_tasks()[spawn_task].get("agents") or {}
                     after_record = after_agents.get(spawn_instance)
                     if set(after_agents) != set(before_agents) or len(after_agents) != len(
@@ -4409,10 +4451,12 @@ def _run_native_host_positive_lifecycle_cases(
                         failures.append("native_host_followup_ledger_not_incremented_once")
                     else:
                         entry = after_ledger[-1]
+                        _assert_no_native_receipt_hash_projection(
+                            entry,
+                            label="native host followup ledger",
+                        )
                         if not isinstance(entry, dict) or (
                             entry.get("receipt_id") != reuse_receipt.get("receipt_id")
-                            or entry.get("receipt_sha256")
-                            != reuse_receipt.get("receipt_sha256")
                             or entry.get("assignment") != reuse_request["assignment"]
                             or entry.get("duty_scope") != reuse_request["duty_scope"]
                         ):
@@ -4640,6 +4684,32 @@ def _run_native_host_lifecycle_contract(
     return failures, evidence
 
 
+def check_native_host_context_utilization_backfill_diagnostics() -> None:
+    """Back-fill failures are visible diagnostics while reuse remains fail-closed."""
+    record: dict[str, object] = {
+        "native_child_thread_id": "child-util-warning",
+        "native_host_context_utilization": None,
+    }
+    with patch.dict(os.environ, {"CODEX_HOME": str(Path(tempfile.mkdtemp()))}), patch(
+        "commands.court_native_bridge._child_context_utilization",
+        side_effect=OSError("fixture host trace unavailable"),
+    ):
+        court_runtime._refresh_native_host_context_utilization(record)
+    assert "native_host_context_utilization" not in record or record["native_host_context_utilization"] is None
+    assert record["native_host_context_utilization_warning"] == (
+        "backfill_unavailable:OSError:fixture host trace unavailable"
+    )
+
+    success: dict[str, object] = {"native_child_thread_id": "child-util-success"}
+    with patch.dict(os.environ, {"CODEX_HOME": str(Path(tempfile.mkdtemp()))}), patch(
+        "commands.court_native_bridge._child_context_utilization",
+        return_value=0.42,
+    ):
+        court_runtime._refresh_native_host_context_utilization(success)
+    assert success["native_host_context_utilization"] == 0.42
+    assert "native_host_context_utilization_warning" not in success
+
+
 def check_admission_write_claims() -> None:
     binding = {"instance_id": "gongbu#pending", "write_set": ["result.json"]}
     admission = {"allowed": True, "selected_bindings": [binding]}
@@ -4667,6 +4737,7 @@ def check_admission_write_claims() -> None:
 
 
 def run_agent_lifecycle_checks() -> None:
+    check_native_host_context_utilization_backfill_diagnostics()
     check_admission_write_claims()
     global TASK_SPECIFIC_SKILL_PATH
     check_import_root_isolation()

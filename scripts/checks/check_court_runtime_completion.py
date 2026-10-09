@@ -1654,6 +1654,169 @@ def check_event_written_marker_finalizes_consistent_ledgers() -> None:
     assert not marker.exists()
 
 
+def check_completion_recovery_before_next_write() -> None:
+    task, receipt, _producer_receipt = archived_checkpoint_task("next-write-recovery")
+    original_append = court_runtime.append_event
+    def crash(_event):
+        raise SystemExit("simulated process death")
+    court_runtime.append_event = crash
+    try:
+        try:
+            court_runtime.complete_task_atomically(complete_args(task, receipt))
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("crash injection did not run")
+    finally:
+        court_runtime.append_event = original_append
+    marker = court_runtime.completion_transaction_path(task["task_id"])
+    assert marker.exists()
+    case_b = court_runtime.create_task(create_args("next-write-case-b")).task
+    assert not marker.exists(), "production create B did not recover A before writing"
+    assert court_runtime.load_tasks()[task["task_id"]]["state"] == "ShiguanRecorded"
+    assert case_b["task_id"] in court_runtime.load_tasks()
+    assert any(event.get("task_id") == case_b["task_id"] for event in court_runtime.read_events(limit=None))
+
+
+def check_completion_lagging_marker_fail_closed() -> None:
+    for phase in ("TASK_WRITTEN", "EVENT_WRITTEN"):
+        task, receipt, _producer_receipt = archived_checkpoint_task("lagging-" + phase.lower())
+        original_write = court_runtime._write_completion_transaction_marker
+        def crash_before_phase_write(path, marker):
+            if marker["phase"] == phase:
+                raise SystemExit("marker persistence failure")
+            original_write(path, marker)
+        court_runtime._write_completion_transaction_marker = crash_before_phase_write
+        try:
+            try:
+                court_runtime.complete_task_atomically(complete_args(task, receipt))
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("marker crash injection did not run")
+        finally:
+            court_runtime._write_completion_transaction_marker = original_write
+        marker = court_runtime.completion_transaction_path(task["task_id"])
+        before = (court_runtime.tasks_path().read_bytes(), court_runtime.events_path().read_bytes(), marker.read_bytes())
+        expect_error(lambda: court_runtime.create_task(create_args("lagging-blocked-" + phase)),
+                     "completion_transaction_recovery_conflict")
+        assert before == (court_runtime.tasks_path().read_bytes(), court_runtime.events_path().read_bytes(), marker.read_bytes())
+        marker.unlink()  # isolated fixture cleanup; production requires manual recovery
+
+    marker = court_runtime.runtime_root() / "completion-transaction-invalid.json"
+    marker.write_text("{}", encoding="utf-8")
+    before = (court_runtime.tasks_path().read_bytes(), court_runtime.events_path().read_bytes(), marker.read_bytes())
+    with court_runtime.runtime_lock(recover=False):
+        pass
+    expect_error(lambda: court_runtime.create_task(create_args("invalid-marker-blocked")),
+                 "invalid_completion_transaction_marker")
+    assert before == (court_runtime.tasks_path().read_bytes(), court_runtime.events_path().read_bytes(), marker.read_bytes())
+    marker.unlink()
+
+
+def check_completion_recovery_conflict_preserves_followup_writes() -> None:
+    def crash_after_task_write(_event: dict[str, object]) -> None:
+        raise SystemExit("simulated process death")
+
+    task, receipt, _producer_receipt = archived_checkpoint_task("followup-task-written")
+    original_append = court_runtime.append_event
+    court_runtime.append_event = crash_after_task_write  # type: ignore[assignment]
+    try:
+        try:
+            court_runtime.complete_task_atomically(complete_args(task, receipt))
+        except SystemExit as exc:
+            assert str(exc) == "simulated process death"
+        else:
+            raise AssertionError("simulated process death was swallowed")
+    finally:
+        court_runtime.append_event = original_append  # type: ignore[assignment]
+    task_marker = court_runtime.completion_transaction_path(task["task_id"])
+    assert json.loads(task_marker.read_text(encoding="utf-8"))["phase"] == "TASK_WRITTEN"
+    # Model an explicit external writer, not a production command which must
+    # first recover the outstanding marker under runtime_lock.
+    case_b = deepcopy(task)
+    case_b["task_id"] = "followup-task-written-case-b"
+    external_tasks = court_runtime.load_tasks()
+    external_tasks[case_b["task_id"]] = case_b
+    court_runtime.write_tasks(external_tasks)
+    court_runtime.append_event(
+        {
+            "time": "2026-07-14T00:02:00+00:00",
+            "task_id": case_b["task_id"],
+            "action": "followup-write",
+            "from_state": "MenxiaReview",
+            "to_state": "MenxiaReview",
+            "actor": "menxia",
+            "evidence": "followup case B",
+            "note": "followup case B event",
+            "event_id": "EVT-F01-FOLLOWUP-TASK-WRITTEN",
+        }
+    )
+    assert case_b["task_id"] in court_runtime.load_tasks()
+    assert any(
+        event.get("event_id") == "EVT-F01-FOLLOWUP-TASK-WRITTEN"
+        for event in court_runtime.read_events(limit=None)
+    )
+    after_tasks = court_runtime.tasks_path().read_bytes()
+    after_events = court_runtime.events_path().read_bytes()
+    expect_error(
+        lambda: court_runtime.recover_completion_transaction(task_marker),
+        "completion_transaction_recovery_conflict",
+    )
+    assert task_marker.exists()
+    assert court_runtime.tasks_path().read_bytes() == after_tasks
+    assert court_runtime.events_path().read_bytes() == after_events
+    expect_error(lambda: court_runtime.create_task(create_args("blocked-case-b")),
+                 "completion_transaction_recovery_conflict")
+    assert court_runtime.tasks_path().read_bytes() == after_tasks
+    assert court_runtime.events_path().read_bytes() == after_events
+    # Isolated fixture cleanup permits the independent EVENT_WRITTEN scenario.
+    task_marker.unlink()
+
+    task, receipt, _producer_receipt = archived_checkpoint_task("followup-event-written")
+    original_remove = court_runtime._remove_completion_transaction_marker
+    court_runtime._remove_completion_transaction_marker = lambda _path: None  # type: ignore[assignment]
+    try:
+        court_runtime.complete_task_atomically(complete_args(task, receipt))
+    finally:
+        court_runtime._remove_completion_transaction_marker = original_remove  # type: ignore[assignment]
+    event_marker = court_runtime.completion_transaction_path(task["task_id"])
+    assert json.loads(event_marker.read_text(encoding="utf-8"))["phase"] == "EVENT_WRITTEN"
+    case_b = deepcopy(task)
+    case_b["task_id"] = "followup-event-written-case-b"
+    external_tasks = court_runtime.load_tasks()
+    external_tasks[case_b["task_id"]] = case_b
+    court_runtime.write_tasks(external_tasks)
+    court_runtime.append_event(
+        {
+            "time": "2026-07-14T00:02:00+00:00",
+            "task_id": case_b["task_id"],
+            "action": "followup-write",
+            "from_state": "MenxiaReview",
+            "to_state": "MenxiaReview",
+            "actor": "menxia",
+            "evidence": "followup case B",
+            "note": "followup case B event",
+            "event_id": "EVT-F01-FOLLOWUP-EVENT-WRITTEN",
+        }
+    )
+    assert case_b["task_id"] in court_runtime.load_tasks()
+    assert any(
+        event.get("event_id") == "EVT-F01-FOLLOWUP-EVENT-WRITTEN"
+        for event in court_runtime.read_events(limit=None)
+    )
+    after_tasks = court_runtime.tasks_path().read_bytes()
+    after_events = court_runtime.events_path().read_bytes()
+    expect_error(
+        lambda: court_runtime.recover_completion_transaction(event_marker),
+        "completion_transaction_recovery_conflict",
+    )
+    assert event_marker.exists()
+    assert court_runtime.tasks_path().read_bytes() == after_tasks
+    assert court_runtime.events_path().read_bytes() == after_events
+    event_marker.unlink()
+
+
 def expect_error(callable_: object, expected: str) -> None:
     try:
         callable_()  # type: ignore[operator]
@@ -1924,6 +2087,9 @@ def main() -> int:
             check_generic_completion_paths_fail_closed()
             check_persistent_completion_recovery()
             check_event_written_marker_finalizes_consistent_ledgers()
+            check_completion_recovery_before_next_write()
+            check_completion_lagging_marker_fail_closed()
+            check_completion_recovery_conflict_preserves_followup_writes()
             check_revision_invalidates_derived_state()
             check_pure_revision_rejections()
             check_cli_compare_and_swap()
@@ -1936,7 +2102,7 @@ def main() -> int:
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = value
-    print("COURT_RUNTIME_COMPLETION_OK cases=21")
+    print("COURT_RUNTIME_COMPLETION_OK cases=24")
     return 0
 
 

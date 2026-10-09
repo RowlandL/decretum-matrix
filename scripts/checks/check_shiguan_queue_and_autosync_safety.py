@@ -22,6 +22,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
 import ensure_shiguan_autosync as autosync  # noqa: E402
+import services.supercc_watchdog as watchdog  # noqa: E402
 import ensure_obsidian_shared_vault as obsidian  # noqa: E402
 import check_shiguan_import_queue as import_queue  # noqa: E402
 import migrate_shared_shiguan as migration  # noqa: E402
@@ -33,6 +34,136 @@ import shiguan_paths  # noqa: E402
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def check_watchdog_command_tokens() -> dict[str, object]:
+    command = [sys.executable, str(Path(watchdog.__file__).resolve()), "--workspace", str(Path.cwd())]
+    for value in (command, tuple(command), subprocess.list2cmdline(command)):
+        require(watchdog._watchdog_command_tokens(value) is not None, "valid watchdog argv was rejected")
+    for value in (None, {}, [], (), "", ["python", "unrelated.py"]):
+        require(watchdog._watchdog_command_tokens(value) is None, "unknown watchdog argv was accepted")
+    return {"list_tuple_string_accepted": True, "unknown_or_empty_rejected": True}
+
+
+def check_watchdog_creation_producer() -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="court-watchdog-start-") as temporary:
+        root = Path(temporary)
+        args = type("Args", (), {"workspace": str(root), "roles": "taizi", "interval": 1,
+            "pid_file": str(root / "watchdog.pid.json"), "log_jsonl": str(root / "watchdog.jsonl"),
+            "zellij_session": None, "apply": False, "no_apply": True, "dry_run": True,
+            "force": False, "max_actions": None, "max_iterations": 1})()
+        command = watchdog.hidden_daemon_command(args)
+        row = {"ProcessId": 4321, "CommandLine": subprocess.list2cmdline(command), "CreationDate": 133000000000000001}
+        discovery_name = "_windows_python_process_rows" if sys.platform == "win32" else "_posix_python_process_rows"
+        with mock.patch.object(watchdog.court, "run_command", return_value={"ok": True, "stdout": "PID=4321"}), mock.patch.object(
+            watchdog.subprocess, "Popen", return_value=type("Process", (), {"pid": 4321})()
+        ), mock.patch.object(watchdog.autosync_process, discovery_name, return_value=(True, [row])):
+            started = watchdog.start_hidden_daemon(args)
+        require(started.get("ok") is True, "synthetic daemon start failed")
+        require(started.get("process_creation_time") == "133000000000000001", "launcher time did not bind OS creation time")
+        require(watchdog.read_pid_record(Path(args.pid_file)).get("process_creation_time") == started["process_creation_time"],
+                "PID record omitted OS creation time")
+        with mock.patch.object(watchdog.court, "run_command", return_value={"ok": True, "stdout": "PID=4321"}), mock.patch.object(
+            watchdog.subprocess, "Popen", return_value=type("Process", (), {"pid": 4321})()
+        ), mock.patch.object(watchdog.autosync_process, discovery_name, return_value=(True, [])):
+            unavailable = watchdog.start_hidden_daemon(args)
+        require(unavailable.get("ok") is False, "unavailable creation time was marked PASSED")
+        require(Path(args.pid_file).exists(), "unbound launched PID evidence was lost")
+    return {"os_time_persisted": True, "unavailable_time_fail_closed": True, "real_launches": 0}
+
+
+def check_watchdog_death_confirmation() -> dict[str, object]:
+    import ctypes
+    with tempfile.TemporaryDirectory(prefix="court-watchdog-gone-") as temporary:
+        root = Path(temporary)
+        pid = root / "watchdog.pid.json"
+        args = type("Args", (), {"pid_file": str(pid), "log_jsonl": str(root / "watchdog.jsonl")})()
+        kernel = mock.Mock()
+        kernel.OpenProcess.return_value = 0
+        for error in (5, 123, 87):
+            watchdog.write_pid_record(pid, {"pid": 4321, "command": []})
+            with mock.patch.object(watchdog.sys, "platform", "win32"), mock.patch.object(
+                watchdog.autosync_process, "pid_alive", return_value=False
+            ), mock.patch.object(ctypes, "WinDLL", return_value=kernel, create=True), mock.patch.object(
+                ctypes, "get_last_error", return_value=error, create=True
+            ), mock.patch.object(watchdog, "_stop_process", side_effect=AssertionError("unknown PID stop attempted")):
+                result = watchdog.stop_daemon(args)
+            if error == 87:
+                require(result.get("ok") is True and not pid.exists(), "confirmed gone PID was not cleared")
+            else:
+                require(result.get("ok") is False and pid.exists(), "query failure was treated as death")
+    return {"permission_and_query_failure_retained": True, "explicit_gone_cleared": True}
+
+
+def check_watchdog_process_identity() -> dict[str, object]:
+    """Synthetic PID records must be identity-checked before any stop request."""
+    with tempfile.TemporaryDirectory(prefix="court-watchdog-f03-") as raw_temp:
+        root = Path(raw_temp)
+        pid_path = root / "watchdog.pid.json"
+        log_path = root / "watchdog.jsonl"
+        args = type("Args", (), {"pid_file": str(pid_path), "log_jsonl": str(log_path), "workspace": str(root)})()
+
+        command = [sys.executable, str(Path(watchdog.__file__).resolve()), "--workspace", str(root)]
+        check_watchdog_command_tokens()
+        check_watchdog_creation_producer()
+        check_watchdog_death_confirmation()
+
+        def record(command: list[str], created: str = "133000000000000001") -> None:
+            watchdog.write_pid_record(pid_path, {
+                "schema": watchdog.WATCHDOG_PROCESS_SCHEMA,
+                "pid": 4321,
+                "command": command,
+                "workspace": str(root),
+                "process_creation_time": created,
+            })
+
+        discovered = {"ProcessId": 4321, "CommandLine": subprocess.list2cmdline(command), "CreationDate": "133000000000000001"}
+        discovery_name = "_windows_python_process_rows" if sys.platform == "win32" else "_posix_python_process_rows"
+        for label, declared, actual_created in (
+            ("unrelated", ["python", "unrelated.py"], discovered["CreationDate"]),
+            ("reused_pid", command, "133000000000000002"),
+            ("unavailable_creation", command, None),
+        ):
+            record(declared)
+            row = {**discovered, "CreationDate": actual_created}
+            with mock.patch.object(watchdog.autosync_process, "pid_alive", return_value=True), mock.patch.object(
+                watchdog.autosync_process, discovery_name, return_value=(True, [row])
+            ), mock.patch.object(watchdog, "_stop_process", side_effect=AssertionError("unrelated PID stop attempted")):
+                require(watchdog._exact_process_matches_record(watchdog.read_pid_record(pid_path)) is False,
+                        label + ": live generation was accepted")
+                rejected = watchdog.stop_daemon(args)
+            require(rejected.get("ok") is False, label + ": PID was accepted")
+            require(rejected.get("reason") == "process_identity_mismatch", label + ": mismatch reason drifted")
+            require(pid_path.exists(), label + ": mismatched PID record was removed")
+            require(rejected.get("watchdog_daemon_stop") == "FAILED", label + ": mismatched PID was marked passed")
+
+        record(command)
+        with mock.patch.object(watchdog.autosync_process, "pid_alive", return_value=True), mock.patch.object(
+            watchdog.autosync_process, discovery_name, return_value=(True, [discovered])
+        ), mock.patch.object(watchdog, "_stop_process", return_value={"ok": True, "signal": 15}), mock.patch.object(
+            watchdog, "_process_stopped", side_effect=[False, True]
+        ):
+            stopped = watchdog.stop_daemon(args)
+        require(stopped.get("ok") is True, "matching PID was not stopped")
+        require(stopped.get("watchdog_daemon_stop") == "PASSED", "confirmed exit was not passed")
+        require(not pid_path.exists(), "confirmed stopped PID record was retained")
+
+        record(command)
+        with mock.patch.object(watchdog.autosync_process, "pid_alive", return_value=False), mock.patch.object(
+            watchdog, "_process_stopped", return_value=True
+        ), mock.patch.object(
+            watchdog, "_stop_process", side_effect=AssertionError("dead PID stop attempted")
+        ):
+            already_stopped = watchdog.stop_daemon(args)
+        require(already_stopped.get("ok") is True, "confirmed dead PID was rejected")
+        require(not pid_path.exists(), "confirmed dead PID record was retained")
+        return {
+            "stale_or_unrelated_rejected_and_retained": True,
+            "matching_exit_confirmed": True,
+            "creation_time_reuse_rejected": True,
+            "confirmed_dead_record_removed": True,
+            "real_process_stop_attempts": 0,
+        }
 
 
 def check_seen_ledger_concurrency() -> dict[str, object]:
@@ -783,6 +914,7 @@ def check_daemon_trigger_contract() -> dict[str, object]:
 
 def main() -> int:
     result = {
+        "watchdog_process_identity": check_watchdog_process_identity(),
         "seen_ledger": check_seen_ledger_concurrency(),
         "invalid_sidecar_truth": check_invalid_sidecar_truth(),
         "autosync_health": check_autosync_health_truth(),

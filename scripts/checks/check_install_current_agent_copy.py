@@ -26,6 +26,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Callable
 from unittest import mock
 import zlib
@@ -2996,6 +2997,154 @@ def _check_prune_and_binding_cases(
     return passed
 
 
+def _check_install_compensation_concurrency(
+    install: Installer,
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """F02 RED/GREEN: A compensation must not erase B's concurrent install."""
+
+    name = "install_compensation_concurrency_preserves_b"
+    source, home, manifest, roots = _case_fixture(temp_root, name)
+    scripts_root = ROOT / "scripts"
+    worker = r'''
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+sys.path.insert(0, os.environ["F02_SCRIPTS_ROOT"])
+import install_current_agent_copy as installer
+
+source, home, manifest, output, role_path, ready, plan, release = map(Path, sys.argv[1:])
+role = role_path.name
+ready.write_text("started", encoding="utf-8")
+metadata = {
+    "source_commit": "fixture-commit",
+    "release_label": "beta1.1.9-fixture",
+    "artifact_ref": "fixture-artifact",
+    "build_id": "fixture-build",
+    "installation_id": "installation-" + role,
+    "transaction_id": "transaction-" + role,
+}
+if role == "a":
+    original_writer = installer._write_json_atomic
+
+    def delayed_failure(path, value):
+        if Path(path).name.startswith("install-"):
+            ready.write_text("ready", encoding="utf-8")
+            while not release.exists():
+                time.sleep(0.01)
+            raise RuntimeError("fixture receipt persistence failure")
+        return original_writer(path, value)
+
+    installer._write_json_atomic = delayed_failure
+else:
+    original_plan = installer._plan_projection_writes
+
+    def observed_plan(*args, **kwargs):
+        plan.write_text("plan", encoding="utf-8")
+        return original_plan(*args, **kwargs)
+
+    installer._plan_projection_writes = observed_plan
+
+result = installer.install_current_agent_copy(
+    source_root=source,
+    home_root=home,
+    current_tool="codex",
+    explicit_tools=[],
+    tool_roots={"codex": home / ".codex" / "skills" / "decretum-matrix"},
+    projection_manifest=manifest,
+    write=True,
+    installation_binding=metadata,
+)
+output.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+'''
+    env = dict(os.environ)
+    env["F02_SCRIPTS_ROOT"] = str(scripts_root)
+    a_ready = temp_root / "a-ready"
+    a_plan = temp_root / "a-plan"
+    a_release = temp_root / "a-release"
+    a_output = temp_root / "a-result.json"
+    b_ready = temp_root / "b-ready"
+    b_plan = temp_root / "b-plan"
+    b_release = temp_root / "b-release"
+    b_output = temp_root / "b-result.json"
+    command_base = [sys.executable, "-B", "-c", worker, str(source), str(home), str(manifest)]
+    a_proc = subprocess.Popen(
+        [*command_base, str(a_output), "a", str(a_ready), str(a_plan), str(a_release)],
+        env=env,
+    )
+    b_proc = None
+    try:
+        deadline = time.monotonic() + 20
+        while not a_ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not a_ready.exists():
+            errors.append(f"{name}:a_did_not_reach_receipt_failure")
+            return 0
+        install_lock = home / ".agents" / "install-receipts" / "decretum-matrix" / "install.lock"
+        deadline = time.monotonic() + 20
+        while not install_lock.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not install_lock.exists():
+            errors.append(f"{name}:a_did_not_acquire_install_lock")
+            return 0
+        b_proc = subprocess.Popen(
+            [*command_base, str(b_output), "b", str(b_ready), str(b_plan), str(b_release)],
+            env=env,
+        )
+        deadline = time.monotonic() + 20
+        while not b_ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not b_ready.exists():
+            errors.append(f"{name}:b_did_not_start")
+            return 0
+        time.sleep(0.3)
+        if b_plan.exists():
+            errors.append(f"{name}:b_entered_preflight_while_a_holds_lock")
+        a_release.write_text("release", encoding="utf-8")
+        a_code = a_proc.wait(timeout=30)
+        b_code = b_proc.wait(timeout=30)
+        if a_code != 0 or b_code != 0:
+            errors.append(f"{name}:worker_exit_codes:{a_code}:{b_code}")
+            return 0
+        try:
+            a_result = json.loads(a_output.read_text(encoding="utf-8"))
+            b_result = json.loads(b_output.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            errors.append(f"{name}:result_load_failed:{type(exc).__name__}:{exc}")
+            return 0
+        installed_root = _agents_root(home)
+        binding_path = home / ".agents" / "install-receipts" / "decretum-matrix" / "installation-binding-v2.json"
+        binding = json.loads(binding_path.read_text(encoding="utf-8")) if binding_path.is_file() else {}
+        checks = (
+            a_result.get("ok") is False,
+            b_result.get("ok") is True,
+            installed_root.joinpath("SKILL.md").is_file(),
+            binding.get("transaction_id") == "transaction-b",
+        )
+        if not all(checks):
+            errors.append(f"{name}:contract_failed:{a_result}:{b_result}:{binding}")
+            return 0
+        return 1
+    finally:
+        for marker in (a_release, b_release):
+            marker.write_text("cleanup", encoding="utf-8")
+        if b_proc is not None:
+            try:
+                b_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                b_proc.kill()
+                b_proc.wait(timeout=10)
+        try:
+            a_proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            a_proc.kill()
+            a_proc.wait(timeout=10)
+
+
 def _check_cases(
     install: Installer,
     temp_root: Path,
@@ -5235,8 +5384,87 @@ def _check_blank_host_configuration_cases(
     return passed
 
 
+def check_install_planning_zero_write() -> dict[str, object]:
+    errors: list[str] = []
+    module = _load_production(errors)
+    assert module is not None, errors
+    import commands.fix_decretum_matrix as fix
+    with tempfile.TemporaryDirectory(prefix="b119-plan-") as temporary:
+        root = Path(temporary)
+        for label in ("installer", "fix"):
+            source, home, manifest, roots = _case_fixture(root, label)
+            home.mkdir()
+            before_stat = home.stat()
+            before = (before_stat.st_mode, before_stat.st_mtime_ns, before_stat.st_ctime_ns, list(home.rglob("*")))
+            if label == "installer":
+                result = module.install_current_agent_copy(source_root=source, home_root=home, current_tool="codex",
+                    explicit_tools=[], tool_roots=roots, projection_manifest=manifest, write=False)
+                assert result.get("ok") is True, result
+            else:
+                result = fix._install_update({"selected_root": str(source)}, home, write=False)
+            after_stat = home.stat()
+            after = (after_stat.st_mode, after_stat.st_mtime_ns, after_stat.st_ctime_ns, list(home.rglob("*")))
+            assert after == before, label + ": read-only planner changed empty HOME metadata or entries"
+    return {"empty_home_both_planners_zero_write": True}
+
+
+def check_install_lock_safety_and_release() -> dict[str, object]:
+    errors: list[str] = []
+    module = _load_production(errors)
+    assert module is not None, errors
+    with tempfile.TemporaryDirectory(prefix="b119-lock-") as temporary:
+        root = Path(temporary)
+        for relative in (".agents", ".agents/install-receipts", ".agents/install-receipts/decretum-matrix",
+                         ".agents/install-receipts/decretum-matrix/install.lock"):
+            home = root / ("invalid-" + str(len(list(root.iterdir()))))
+            home.mkdir()
+            invalid = home / relative
+            # Only mock the platform junction predicate; safety and file-lock
+            # ordering remain the real production path.
+            with mock.patch.object(module, "_is_junction", side_effect=lambda path: Path(path) == invalid):
+                try:
+                    with module._installation_lock(home):
+                        raise AssertionError("unsafe lock path was acquired")
+                except module._InstallContractError:
+                    pass
+            assert list(home.rglob("*")) == [], "unsafe lock preflight wrote empty HOME"
+
+        home = root / "timeout"
+        worker = "import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);from court_file_lock import file_lock;\nwith file_lock(Path(sys.argv[2])):\n print('ready',flush=True);sys.stdin.readline()"
+        child = subprocess.Popen([sys.executable, "-B", "-c", worker, str(ROOT / "scripts"),
+                                  str(module._installation_lock_path(home))], stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            assert child.stdout.readline().strip() == "ready", "lock worker did not acquire OS lock"
+            try:
+                with module._installation_lock(home, timeout=0.05):
+                    raise AssertionError("contended installation lock was acquired")
+            except module._InstallContractError as exc:
+                assert exc.reason == "installation_busy", exc.reason
+        finally:
+            child.communicate("release\n", timeout=10)
+        assert child.returncode == 0
+        with module._installation_lock(home, timeout=0.2):
+            with module._installation_lock(home, timeout=0.2):
+                pass  # existing wrapper nesting remains reentrant
+        try:
+            with module._installation_lock(home, timeout=0.2):
+                raise RuntimeError("injected install failure")
+        except RuntimeError:
+            pass
+        with module._installation_lock(home, timeout=0.2):
+            pass
+    return {"unsafe_path_rejected_before_write": True, "timeout_rejected_then_reacquired": True,
+            "exception_releases_lock": True, "reentrant_wrapper": True}
+
+
 def evaluate() -> Payload:
     errors: list[str] = []
+    try:
+        check_install_planning_zero_write()
+        check_install_lock_safety_and_release()
+    except Exception as exc:
+        errors.append("install_lock_boundary:" + str(exc))
     actual_manifest = _load_json(
         PROJECTION_MANIFEST_PATH,
         label="manifest",
@@ -5295,6 +5523,14 @@ def evaluate() -> Payload:
                 prefix="cpb-"
             ) as temp_dir:
                 passed += _check_prune_and_binding_cases(
+                    target,
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
+                prefix="cfc2-"
+            ) as temp_dir:
+                passed += _check_install_compensation_concurrency(
                     target,
                     Path(temp_dir),
                     errors,

@@ -715,6 +715,8 @@ def runtime_lock(timeout: float = 10.0, poll: float = 0.05, *, recover: bool = T
     with file_lock(lock_path(), timeout=timeout, poll_interval=poll):
         if recover:
             recover_ledger_pair(runtime_root())
+            for marker in sorted(runtime_root().glob("completion-transaction-*.json")):
+                recover_completion_transaction(marker)
         else:
             require_readable_ledgers(runtime_root())
         yield
@@ -4535,18 +4537,61 @@ def _validated_completion_transaction_marker(path: Path) -> dict[str, object]:
     return marker
 
 
+def _completion_ledger_matches(
+    path: Path,
+    *,
+    expected_exists: object,
+    expected_sha256: object,
+) -> bool:
+    """Compare one ledger with a marker image before allowing recovery."""
+
+    if not isinstance(expected_exists, bool) or not isinstance(expected_sha256, str):
+        return False
+    exists = path.exists()
+    current = path.read_bytes() if exists else None
+    return exists == expected_exists and _ledger_sha256(current) == expected_sha256
+
+
+def _completion_recovery_state_matches(
+    marker: Mapping[str, object],
+    phase: object,
+) -> bool:
+    """Accept recovery only when both ledgers are at the marker's generation."""
+
+    if phase == "PREPARED":
+        tasks_expected = marker.get("tasks_preimage_exists"), marker.get(
+            "tasks_preimage_sha256"
+        )
+        events_expected = marker.get("events_preimage_exists"), marker.get(
+            "events_preimage_sha256"
+        )
+    elif phase == "TASK_WRITTEN":
+        tasks_expected = True, marker.get("tasks_post_sha256")
+        events_expected = marker.get("events_preimage_exists"), marker.get(
+            "events_preimage_sha256"
+        )
+    elif phase == "EVENT_WRITTEN":
+        tasks_expected = True, marker.get("tasks_post_sha256")
+        events_expected = True, marker.get("events_post_sha256")
+    else:
+        return False
+    return _completion_ledger_matches(
+        tasks_path(), expected_exists=tasks_expected[0], expected_sha256=tasks_expected[1]
+    ) and _completion_ledger_matches(
+        events_path(), expected_exists=events_expected[0], expected_sha256=events_expected[1]
+    )
+
+
 def recover_completion_transaction(marker_path: Path) -> str:
     """Recover or finalize one durable completion marker without event-ledger help."""
 
     marker = _validated_completion_transaction_marker(marker_path)
     phase = marker["phase"]
-    current_tasks = tasks_path().read_bytes() if tasks_path().exists() else None
-    current_events = events_path().read_bytes() if events_path().exists() else None
-    if (
-        phase == "EVENT_WRITTEN"
-        and marker.get("tasks_post_sha256") == _ledger_sha256(current_tasks)
-        and marker.get("events_post_sha256") == _ledger_sha256(current_events)
-    ):
+    if not _completion_recovery_state_matches(marker, phase):
+        # A later writer owns the current ledger generation. Preserve both that
+        # write and this marker so the caller can report the conflict safely.
+        raise ValueError("completion_transaction_recovery_conflict")
+    if phase == "EVENT_WRITTEN":
         _remove_completion_transaction_marker(marker_path)
         return "FINALIZED"
     tasks_preimage = base64.b64decode(str(marker["tasks_preimage_b64"]), validate=True)
@@ -8367,9 +8412,6 @@ def agent_spawn_failed(args: argparse.Namespace) -> dict[str, Any]:
                 native_host_action_receipt_id=refusal_native_host_receipt.get(
                     "receipt_id"
                 ),
-                native_host_action_receipt_sha256=refusal_native_host_receipt.get(
-                    "receipt_sha256"
-                ),
             )
         _commit_task_event(tasks, event)
     return {
@@ -10131,10 +10173,16 @@ def _refresh_native_host_context_utilization(record: dict[str, Any]) -> None:
             os.environ.get("CODEX_HOME") or (Path.home() / ".codex")
         ).expanduser()
         utilization = _child_context_utilization(home, child_thread_id)
-    except (ImportError, OSError, RuntimeError, ValueError):
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        # Keep the reuse gate fail-closed while exposing why the observation was
+        # unavailable to the existing lifecycle/diagnostic projections.
+        record["native_host_context_utilization_warning"] = (
+            f"backfill_unavailable:{type(exc).__name__}:{exc}"
+        )
         return
     if utilization is not None:
         record["native_host_context_utilization"] = utilization
+        record.pop("native_host_context_utilization_warning", None)
 
 
 def agent_start(args: argparse.Namespace) -> TransitionResult:
@@ -11421,9 +11469,6 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
         followups.append(
             {
                 "receipt_id": native_host_receipt.get("receipt_id"),
-                "receipt_sha256": native_host_receipt.get("receipt_sha256"),
-                "request_sha256": native_host_receipt.get("request_sha256"),
-                "result_sha256": native_host_receipt.get("result_sha256"),
                 "assignment": request.get("assignment"),
                 "duty_scope": deepcopy(request.get("duty_scope")),
                 "host_task_id": native_host_receipt.get("host_task_id"),
@@ -11468,9 +11513,6 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
             agent_role=role,
             office_instance_id=current.get("office_instance_id"),
             native_host_action_receipt_id=native_host_receipt.get("receipt_id"),
-            native_host_action_receipt_sha256=native_host_receipt.get(
-                "receipt_sha256"
-            ),
         )
         event["event_id"] = _office_event_id(
             event,

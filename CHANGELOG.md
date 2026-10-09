@@ -1,5 +1,22 @@
 # Changelog
 
+## beta1.1.9 - 2026-10-09 (candidate)
+
+### Fixed
+
+- 完成事务恢复先核对当前 tasks/events 前后像。外部代次漂移时保留账本与 marker 并报告冲突；普通业务写入在既有 runtime lock 内先恢复所有 completion marker，再写入下一任务。
+- 同 HOME 安装的 preflight、投影、验收与补偿共用既有跨进程锁；获取锁前复用 binding 祖先安全检查，并拒绝锁文件自身的 symlink/junction。`write=False` 的安装及 update planner 直接走已有只读规划，不创建空 HOME 锁文件。
+- watchdog 命令列表、元组与字符串走真实解析和精确路径检查。生产 PID record 绑定系统创建时间，停止前同时比对 PID、完整命令及该时间；缺失或不匹配时保留 record。确认退出或明确已不存在才清记录，权限/查询失败不能作为死亡证据。
+- 复用现有 capture 生产者；utilization 回填失败保留 warning。台账清除恒空的 receipt/request/result digest 透传位，沿用既有 request reference。
+
+### Validation boundary
+
+- 隔离故障注入、并发安装、合法退出正例及 Windows 创建时间只读样本已验证。没有启动或停止真实 daemon，没有访问主机 private pending 正文；本轮本地验证不等于生产事故、断电恢复或完整宿主运行验收。
+- 账本已写入而下一 phase marker 未成功落盘的两个窄窗口仍 fail-closed：保留当前账本与旧 marker，拒绝新业务写入，需要人工恢复。本版没有扩大自动恢复框架。
+- Windows 保留 GetProcessTimes 返回的 64-bit FILETIME，单位为 100 ns；这不是实际时钟分辨率保证。Linux 比对 boot_id 与内核 starttime clock ticks；其他无法取得可靠创建标记的 POSIX 主机仅 watchdog fail-closed，不改变其他 service 的发现行为。
+- stage3 `KeyError: charter_sha256` 保留既有基线归因并归 TASK-023。CI 定义和门禁没有改动；CI 的 `CI_SCOPE_PASSED` 仍明确 `native_host=NOT_RUN`、`full_acceptance=false`。
+- 本条目为 GitHub 与本机 private candidate 的版本目标。提交、打包、安装和 GitHub 发布各需实际证据；npm beta1.1.8 快照保持，本轮未执行 npm publish。
+
 ## beta1.1.8 - 2026-10-06 (candidate)
 
 ### Fixed

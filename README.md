@@ -212,15 +212,15 @@ receipt-bound CLI，真实派遣走宿主。
 
 ## 6. 版本
 
-当前源码活动版本为 `beta1.1.8`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
+当前源码活动版本为 `beta1.1.9`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
 安装/发布回执为准；分支名只是当前工作载体，tag、GitHub Release、npm 以及线上 Wiki
 的成功状态只由对应发布回读证明。
 
-本版发布当前宿主适配、默认横向直投、显式 model/effort 路由、已提交诏令门禁和
-跨平台预载预算修复。必读 UTF-8 文本按逻辑换行计量，20 KiB 总预算与普通官署
-768-byte 余量均未放宽；NIUbash 继续只是可选兼容入口。
+本版源码候选收口完成事务恢复、同 HOME 安装互斥和 watchdog 进程身份。保留既有
+层级、scope、写集、容量及安装/发布门禁；隔离检查不证明完整宿主运行验收。
 
-`beta1.1.6-hotfix-v1` 是当前 GitHub 发布版本；npm beta 是独立发布通道。根 `package.json`
+2026-10-09 本轮构建前核验时，GitHub Latest 已读回为 `beta1.1.8`；`beta1.1.9` 是本轮 GitHub 与本机 private candidate
+目标，成功发布仍需独立回读。npm beta1.1.8 快照保持，本轮未执行 npm publish。根 `package.json`
 继续保持 version-neutral 的 `0.0.0-private`，历史版本和历史发布说明继续保留。
 
 - `beta1.0.8` 曾完成发布阶段全量门禁与收据/锚点同步（领域化账册、统一编号、谱系防

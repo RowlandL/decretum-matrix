@@ -26,6 +26,7 @@ import uuid
 
 sys.dont_write_bytecode = True
 
+from court_file_lock import file_lock
 from install_projection_renderer import (
     ActiveProjectionRenderError,
     RenderedActiveProjection,
@@ -147,6 +148,9 @@ BINDING_PREIMAGE_RELATIVE = "binding-preimage/installation-binding-v2.json"
 BACKUP_DIRECTORY_PARTS = (".agents", "install-backups", "decretum-matrix")
 
 _MISSING = object()
+INSTALL_LOCK_RELATIVE = PurePosixPath(
+    ".agents/install-receipts/decretum-matrix/install.lock"
+)
 
 
 class _InstallContractError(RuntimeError):
@@ -173,6 +177,30 @@ def _installation_binding_path(home_root: Path) -> Path:
     if path.is_symlink() or _is_junction(path):
         raise _InstallContractError("installation_binding_path_invalid", str(path))
     return path
+
+
+def _installation_lock_path(home_root: Path) -> Path:
+    """Return the existing file-lock primitive scoped to the actual HOME."""
+
+    # Reuse the binding path's ancestor checks before file_lock can mkdir/open.
+    path = _installation_binding_path(home_root).with_name(INSTALL_LOCK_RELATIVE.name)
+    if path.is_symlink() or _is_junction(path):
+        raise _InstallContractError("installation_lock_path_invalid", str(path))
+    return path
+
+
+@contextmanager
+def _installation_lock(home_root: Path, *, timeout: float = 120.0):
+    """Serialize one HOME's preflight, projection, acceptance, and rollback."""
+
+    path = _installation_lock_path(home_root)
+    try:
+        with file_lock(path, timeout=timeout):
+            yield
+    except TimeoutError as exc:
+        raise _InstallContractError(
+            "installation_busy", str(path)
+        ) from exc
 
 
 def _write_json_atomic(path: Path, value: dict[str, object]) -> None:
@@ -268,6 +296,21 @@ def _binding_shape_reason(binding: object, home_root: Path) -> str | None:
     if any(not _within(path, home) for path in selected_paths):
         return "installation_binding_selected_root_outside_home"
     return None
+
+
+def _binding_generation_matches(current: object, expected: object) -> bool:
+    if not isinstance(current, dict) or not isinstance(expected, dict):
+        return False
+    return all(
+        current.get(field) == expected.get(field)
+        for field in (
+            "transaction_id",
+            "installation_id",
+            "generation",
+            "canonical_root",
+            "selected_roots",
+        )
+    )
 
 
 def _validate_external_acceptance(
@@ -484,7 +527,7 @@ def _build_installation_binding(
     }
 
 
-def commit_installation_binding(
+def _commit_installation_binding_unlocked(
     *,
     home_root: Path,
     external_validation: dict[str, object],
@@ -541,6 +584,23 @@ def _validate_source_package_sha256(value: object | None) -> str | None:
     return value
 
 
+def commit_installation_binding(
+    *,
+    home_root: Path,
+    external_validation: dict[str, object],
+) -> dict[str, object]:
+    """Commit a pending binding under the same HOME-scoped install lock."""
+
+    try:
+        with _installation_lock(home_root):
+            return _commit_installation_binding_unlocked(
+                home_root=home_root,
+                external_validation=external_validation,
+            )
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
+
+
 def _install_receipt_sha256(value: dict[str, object]) -> str:
     body = deepcopy(value)
     body.pop("receipt_sha256", None)
@@ -549,7 +609,7 @@ def _install_receipt_sha256(value: dict[str, object]) -> str:
     ).hexdigest()
 
 
-def finalize_install_receipt(
+def _finalize_install_receipt_unlocked(
     *,
     home_root: Path,
     pending_receipt_path: Path,
@@ -728,6 +788,19 @@ def _safe_relative(value: object) -> bool:
     if candidate.is_absolute() or candidate.drive:
         return False
     return all(part not in {"", ".", ".."} for part in candidate.parts)
+
+
+
+def finalize_install_receipt(**kwargs: object) -> dict[str, object]:
+    """Promote one receipt while holding the HOME-scoped install lock."""
+
+    home_root = kwargs.get("home_root")
+    home = home_root if isinstance(home_root, Path) else Path(str(home_root))
+    try:
+        with _installation_lock(home):
+            return _finalize_install_receipt_unlocked(**kwargs)
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -1704,10 +1777,11 @@ def _stage_binding_preimage(
     }
 
 
-def restore_installation_binding_preimage(
+def _restore_installation_binding_preimage_unlocked(
     *,
     home_root: Path,
     preimage: dict[str, object],
+    expected_binding: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Undo the binding write of a failed install.
 
@@ -1719,6 +1793,19 @@ def restore_installation_binding_preimage(
     home = Path(home_root).resolve(strict=False)
     binding_path = _installation_binding_path(home)
     status = preimage.get("status") if isinstance(preimage, dict) else None
+    if expected_binding is not None:
+        try:
+            current_binding = _read_json(
+                binding_path,
+                reason="installation_binding_missing_or_invalid",
+            )
+        except _InstallContractError as exc:
+            return _failure(exc.reason, detail=exc.detail)
+        if not _binding_generation_matches(current_binding, expected_binding):
+            return _failure(
+                "installation_binding_generation_conflict",
+                detail="current binding no longer belongs to this install transaction",
+            )
     if status == "STAGED":
         root = Path(str(preimage.get("backup_root"))).resolve(strict=False)
         backup_base = home.joinpath(*BACKUP_DIRECTORY_PARTS)
@@ -1742,10 +1829,30 @@ def restore_installation_binding_preimage(
     return {"ok": True, "status": "NOT_REQUIRED"}
 
 
-def rollback_install_backup(
+def restore_installation_binding_preimage(
+    *,
+    home_root: Path,
+    preimage: dict[str, object],
+    expected_binding: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Restore a binding preimage while preserving a newer installation."""
+
+    try:
+        with _installation_lock(home_root):
+            return _restore_installation_binding_preimage_unlocked(
+                home_root=home_root,
+                preimage=preimage,
+                expected_binding=expected_binding,
+            )
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
+
+
+def _rollback_install_backup_unlocked(
     *,
     home_root: Path,
     backup_root: Path,
+    expected_binding: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Restore a successful canonical overlay from its managed-file backup."""
 
@@ -1754,6 +1861,20 @@ def rollback_install_backup(
     root = Path(backup_root).resolve(strict=False)
     if root == backup_base or not _within(root, backup_base):
         return _failure("backup_root_invalid")
+    if expected_binding is not None:
+        binding_path = _installation_binding_path(home)
+        try:
+            current_binding = _read_json(
+                binding_path,
+                reason="installation_binding_missing_or_invalid",
+            )
+        except _InstallContractError as exc:
+            return _failure(exc.reason, detail=exc.detail)
+        if not _binding_generation_matches(current_binding, expected_binding):
+            return _failure(
+                "installation_binding_generation_conflict",
+                detail="current binding no longer belongs to this install transaction",
+            )
     try:
         manifest_path = root / "manifest.json"
         manifest = _read_json(manifest_path, reason="backup_manifest_invalid")
@@ -1911,6 +2032,25 @@ def rollback_install_backup(
         "pending_body_accessed": False,
         "real_host_configuration_accessed": False,
     }
+
+
+def rollback_install_backup(
+    *,
+    home_root: Path,
+    backup_root: Path,
+    expected_binding: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Restore a managed projection under the HOME-scoped install lock."""
+
+    try:
+        with _installation_lock(home_root):
+            return _rollback_install_backup_unlocked(
+                home_root=home_root,
+                backup_root=backup_root,
+                expected_binding=expected_binding,
+            )
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
 
 
 def _transaction_checkpoint(
@@ -2770,13 +2910,22 @@ def _compensate_install_metadata(
     outcomes: dict[str, object] = {}
     backup = result.get("backup", {})
     preimage = result.get("binding_preimage")
+    expected_binding = result.get("installation_binding")
+    expected = expected_binding if isinstance(expected_binding, dict) else None
     for phase in ("projection", "binding"):
         try:
             if phase == "projection" and isinstance(backup, dict) and backup.get("backup_root"):
                 outcome = rollback_install_backup(
-                    home_root=home_root, backup_root=Path(str(backup["backup_root"])))
+                    home_root=home_root,
+                    backup_root=Path(str(backup["backup_root"])),
+                    expected_binding=expected,
+                )
             elif phase == "binding" and isinstance(preimage, dict):
-                outcome = restore_installation_binding_preimage(home_root=home_root, preimage=preimage)
+                outcome = restore_installation_binding_preimage(
+                    home_root=home_root,
+                    preimage=preimage,
+                    expected_binding=expected,
+                )
             else:
                 outcome = {"ok": True, "status": "NOT_REQUIRED"}
             if not isinstance(outcome, dict):
@@ -2797,7 +2946,7 @@ def _compensate_install_metadata(
     }
 
 
-def install_current_agent_copy(
+def _install_current_agent_copy_unlocked(
     *,
     source_root: Path,
     home_root: Path,
@@ -3102,6 +3251,21 @@ def install_current_agent_copy(
                     "unrelated_task_blocked": False,
                 }
     return result
+
+
+def install_current_agent_copy(**kwargs: object) -> dict[str, object]:
+    """Run the complete install lifecycle under the HOME-scoped file lock."""
+
+    if kwargs.get("write") is False:
+        return _install_current_agent_copy_unlocked(**kwargs)
+    home_root = kwargs.get("home_root")
+    if not isinstance(home_root, Path):
+        home_root = Path(str(home_root)) if home_root is not None else Path.home()
+    try:
+        with _installation_lock(home_root):
+            return _install_current_agent_copy_unlocked(**kwargs)
+    except _InstallContractError as exc:
+        return _failure(exc.reason, detail=exc.detail)
 
 
 __all__ = [

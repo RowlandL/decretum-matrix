@@ -1279,8 +1279,15 @@ def _restore_binding_after_failure(
             "status": "RECOVERY_REQUIRED",
             "reason": "binding_preimage_restore_unavailable",
         }
+    expected_binding = result.get("installation_binding")
+    restore_kwargs = {
+        "home_root": home,
+        "preimage": preimage,
+    }
+    if isinstance(expected_binding, dict):
+        restore_kwargs["expected_binding"] = expected_binding
     try:
-        outcome = restore(home_root=home, preimage=preimage)
+        outcome = restore(**restore_kwargs)
     except Exception as exc:
         return {
             "ok": False,
@@ -1303,45 +1310,43 @@ def _compensate_projection(
     result: dict[str, object],
     role_snapshot: dict[str, tuple[bytes, int]] | None = None,
 ) -> dict[str, object]:
+    """Undo projection before binding so generation guards remain meaningful."""
+
+    expected_binding = result.get("installation_binding")
+    expected = expected_binding if isinstance(expected_binding, dict) else None
+    backup = result.get("backup")
+    if not isinstance(backup, dict) or not backup.get("backup_root"):
+        projection: dict[str, object] = {
+            "ok": True,
+            "status": "NOT_REQUIRED",
+            "reason": "no_projection_backup",
+        }
+    else:
+        rollback_kwargs = {
+            "home_root": home,
+            "backup_root": Path(str(backup["backup_root"])),
+        }
+        if expected is not None:
+            rollback_kwargs["expected_binding"] = expected
+        try:
+            rollback = installer_module.rollback_install_backup(**rollback_kwargs)
+        except Exception as exc:
+            rollback = {
+                "ok": False,
+                "status": "RECOVERY_REQUIRED",
+                "reason": f"projection_rollback_failed:{type(exc).__name__}:{exc}",
+            }
+        projection = rollback if isinstance(rollback, dict) else {
+            "ok": False,
+            "status": "RECOVERY_REQUIRED",
+            "reason": "projection_rollback_invalid",
+        }
+
     binding = _restore_binding_after_failure(
         installer_module=installer_module,
         home=home,
         result=result,
     )
-    backup = result.get("backup")
-    if not isinstance(backup, dict) or not backup.get("backup_root"):
-        projection = {
-            "ok": binding.get("ok") is True,
-            "status": "NOT_REQUIRED",
-            "reason": "no_projection_backup",
-            "binding": binding,
-        }
-        if role_snapshot is not None:
-            roles = _restore_codex_roles(home, role_snapshot)
-            projection["roles"] = roles
-            projection["ok"] = projection["ok"] is True and roles.get("ok") is True
-            if projection["ok"] is not True:
-                projection["status"] = "RECOVERY_REQUIRED"
-        elif projection["ok"] is not True:
-            projection["status"] = "RECOVERY_REQUIRED"
-        return projection
-    try:
-        rollback = installer_module.rollback_install_backup(
-            home_root=home,
-            backup_root=Path(str(backup["backup_root"])),
-        )
-    except Exception as exc:
-        return {
-            "ok": False,
-            "status": "RECOVERY_REQUIRED",
-            "reason": f"projection_rollback_failed:{type(exc).__name__}:{exc}",
-            "binding": binding,
-        }
-    projection = rollback if isinstance(rollback, dict) else {
-        "ok": False,
-        "status": "RECOVERY_REQUIRED",
-        "reason": "projection_rollback_invalid",
-    }
     projection["binding"] = binding
     projection["ok"] = projection.get("ok") is True and binding.get("ok") is True
     if role_snapshot is not None:
@@ -1572,7 +1577,7 @@ def _published_package_source_root(package_root: Path) -> Path | None:
     return roots[0]
 
 
-def _install_update(
+def _install_update_unlocked(
     source_selection: dict[str, object],
     home: Path,
     *,
@@ -1912,6 +1917,53 @@ def _install_update(
     if npm_install_result is not None:
         result["npm_candidate_install"] = npm_install_result
     return result
+
+
+def _install_update(
+    source_selection: dict[str, object],
+    home: Path,
+    *,
+    write: bool,
+    candidate_package_root: Path | None = None,
+    candidate_tgz: Path | None = None,
+    candidate_receipt: Path | None = None,
+    npm_prefix: Path | None = None,
+    transaction_id: str | None = None,
+    installation_id: str | None = None,
+    caller_cwd: Path | None = None,
+    replace_existing_npm: bool = False,
+) -> dict[str, object]:
+    """Run install, acceptance, and compensation under one HOME lock."""
+
+    if not write:
+        return _install_update_unlocked(
+            source_selection, home, write=False,
+            candidate_package_root=candidate_package_root, candidate_tgz=candidate_tgz,
+            candidate_receipt=candidate_receipt, npm_prefix=npm_prefix,
+            transaction_id=transaction_id, installation_id=installation_id,
+            caller_cwd=caller_cwd, replace_existing_npm=replace_existing_npm,
+        )
+    module = importlib.import_module("install_current_agent_copy")
+    lock = getattr(module, "_installation_lock", None)
+    if not callable(lock):
+        return {"schema": SCHEMA, "ok": False, "status": "BLOCKED", "reason": "installation_lock_unavailable"}
+    try:
+        with lock(home):
+            return _install_update_unlocked(
+                source_selection,
+                home,
+                write=write,
+                candidate_package_root=candidate_package_root,
+                candidate_tgz=candidate_tgz,
+                candidate_receipt=candidate_receipt,
+                npm_prefix=npm_prefix,
+                transaction_id=transaction_id,
+                installation_id=installation_id,
+                caller_cwd=caller_cwd,
+                replace_existing_npm=replace_existing_npm,
+            )
+    except RuntimeError as exc:
+        return {"schema": SCHEMA, "ok": False, "status": "BLOCKED", "reason": f"installation_lock_failed:{type(exc).__name__}"}
 
 
 def _legacy_migration(home: Path, roots: list[str], receipt: str | None, *, write: bool) -> dict[str, object]:

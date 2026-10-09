@@ -681,3 +681,11 @@
 - 用户拍板三项**跨版本方向**并写入 §26.0：①**编排优先**（门禁不得限制成单写者/单子智能体，非必要限制抛弃；保留层级/写集冲突/容量事实/数据一致性互斥/不扩权）；②**体积预算最小必要放宽**（入口预载 20 KiB / `portable_source` / `source_lines`，须记录并同步检查）；③**ACK 轻量替代**（当前 ACK 限制优先废除；隐式完成 + 可选补录；不得新增 ACK 依赖）。
 - **一致性 loop（5 轮）**：第 1–2 轮自查修订 6 处；第 3 轮独立复核发现 6 条（C1–C6）；第 4 轮定向验证 9/9；第 5 轮独立复审判 C1/C2/C3/C5/C6 完整修复、遗留 L1（§4.5 未标 ACK 例外）与 L2（第一节边界与 §26.1 豁免口径不一致）→ 本轮已修复。
 - **同步落盘**：ACK 轻量替代设计（`evidence/ack-lightweight-replacement-design-20261005.md`）、F22 实施设计（含作废注记）、F23/F22 真实验收清单。
+
+### 2026-10-09 · beta1.1.9 接续源码收口（普通协作）
+
+- 沿用 TASK-001、TASK-022 和原 8 文件修改，在受管 successor `release/beta1.1.9 @ 053e5e2` 接续；原 beta118 工作副本与共享看板保持。只增加已证实缺失的真实进程创建标记生产字段，复用 `ensure_shiguan_autosync.py`，没有新建身份、锁或事务框架。
+- F03 命令列表解析、同 PID/同命令但创建标记不同、权限/查询失败保留记录均有 RED/GREEN；F01 create B 前恢复 A、外部合法漂移冲突保留与 marker phase 落后保留通过；F02 只读 planner 零写、安全锁祖先、短超时/异常释放和既有隔离并发安装通过。详见 [beta1.1.9 执行记录](2026-10-03-remediation/beta1.1.9.md#8-执行记录实施时填写) 及 successor `.scratch/beta119-closeout/`。
+- 已完成本地整文件回归：completion 24 cases；安装 75 cases、配置 31 cases，errors=[]；autosync safety 32 workers/seen_ids=32，private pending 正文读取 0、真实 daemon stop 0。Windows 真实创建时间字段只读样本 exit 0。
+- 账本写入而下一 phase marker 持久化失败仍需人工恢复。Linux 创建标记绑定 boot_id 与内核 clock ticks；其他无可靠创建标记的 POSIX 仅 watchdog fail-closed。stage3 既有漂移仍归 TASK-023；CI 内容不改。
+- active metadata 推进到 beta1.1.9 源码候选。工程 lane 不提交、不安装、不外部发布；GitHub 与本机 private candidate 是本轮目标，npm beta1.1.8 快照保持，本轮未执行 npm publish。最终提交、source gate、候选/安装与远端回读各需独立证据。

@@ -4,7 +4,7 @@ This reference governs local installation of `decretum-matrix` into the active
 agent skill roots. It is runtime-focused; release packaging and publication
 checks stay in the source tree and are not startup prerequisites.
 
-Until external publication readback exists, the current beta1.1.8 source
+Until external publication readback exists, the current beta1.1.9 source
 checkout is treated as an unreleased candidate. Repository text does not
 authorize or prove an active installation; installation requires an explicit
 external transaction and a matching receipt.

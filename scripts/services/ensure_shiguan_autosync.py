@@ -326,6 +326,8 @@ def _windows_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
         kernel32.OpenProcess.restype = wintypes.HANDLE
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE, *([ctypes.POINTER(wintypes.FILETIME)] * 4)]
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
         ntdll.NtQueryInformationProcess.argtypes = [
             wintypes.HANDLE,
             wintypes.ULONG,
@@ -391,12 +393,13 @@ def _windows_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
                             _DISCOVERY_SKIPPED_UNREADABLE_PIDS.append(int(entry.th32ProcessID))
                             more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
                             continue
-                        rows.append(
-                            {
-                                "ProcessId": int(entry.th32ProcessID),
-                                "CommandLine": command_line,
-                            }
-                        )
+                        row = {"ProcessId": int(entry.th32ProcessID), "CommandLine": command_line}
+                        creation, exit_time, kernel_time, user_time = (wintypes.FILETIME() for _ in range(4))
+                        if kernel32.GetProcessTimes(handle, ctypes.byref(creation), ctypes.byref(exit_time),
+                                                    ctypes.byref(kernel_time), ctypes.byref(user_time)):
+                            # Preserve the exact 100 ns FILETIME identity from the existing handle.
+                            row["CreationDate"] = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+                        rows.append(row)
                     finally:
                         kernel32.CloseHandle(handle)
                 more = bool(kernel32.Process32NextW(snapshot, ctypes.byref(entry)))
@@ -426,7 +429,17 @@ def _posix_python_process_rows() -> tuple[bool, list[dict[str, object]]]:
         parts = line.strip().split(maxsplit=1)
         if len(parts) != 2 or not parts[0].isdigit():
             continue
-        rows.append({"ProcessId": int(parts[0]), "CommandLine": parts[1]})
+        row = {"ProcessId": int(parts[0]), "CommandLine": parts[1]}
+        if sys.platform.startswith("linux"):
+            try:
+                # Linux starttime is the kernel's generation marker in clock ticks.
+                ticks = int((Path("/proc") / parts[0] / "stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[19])
+                boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+                if boot:
+                    row["StartTime"] = "linux-boot:" + boot + ":start-ticks:" + str(ticks)
+            except (OSError, ValueError, IndexError):
+                pass
+        rows.append(row)
     return True, rows
 
 
