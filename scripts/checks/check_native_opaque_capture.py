@@ -12,7 +12,7 @@ from types import MappingProxyType
 from unittest.mock import patch
 from commands import court_native_bridge as bridge
 import court_runtime
-from checks.check_court_native_bridge import _request, _execution, _p00_context
+from checks.check_court_native_bridge import _request, _execution, _p00_context, _message_evidence
 from court_native_host_dispatch import validate_native_host_action_receipt
 from court_case_binding import office_capsule_reference
 from court_native_trace import (
@@ -41,7 +41,7 @@ def fixture(home: Path, *, ministry=False, root_distinct=False):
         request['case_ref'], request['role'], request['instance_id'],
         '2026-09-06T09:05:00+08:00',
     )
-    native = bridge.native_request_result(request, execution=_execution(), p00_context=_p00_context(request))
+    native = bridge.native_request_result(request, execution=_execution(), p00_context=_p00_context(request), evidence_binding=_message_evidence(request, _p00_context(request)))
     arguments = copy.deepcopy(native['host_invocation']['arguments'])
     arguments['message'] = 'gAAAAA' + 'A' * 120  # Deliberately not a decryptable payload.
     parent = PARENT if ministry or root_distinct else SESSION
@@ -74,7 +74,7 @@ def fixture(home: Path, *, ministry=False, root_distinct=False):
     def capture():
         return bridge.capture_current_native_delivery(request, execution=_execution(),
             p00_context=_p00_context(request), identity_context=context,
-            environment={'CODEX_THREAD_ID':parent,'CODEX_SESSION_ID':SESSION,'CODEX_HOME':str(home)}, codex_home=home)
+            environment={'CODEX_THREAD_ID':parent,'CODEX_SESSION_ID':SESSION,'CODEX_HOME':str(home)}, codex_home=home, evidence_binding=_message_evidence(request, _p00_context(request)))
     return rows, child_meta, context, save, capture
 
 
@@ -135,14 +135,13 @@ def model_capture_fixture(
     execution, p00_context = court_runtime._native_bridge_host_message_inputs(
         task, admission
     )
-    native = court_runtime._native_bridge_request_result(
-        task,
-        admission,
-        binding,
-        request,
-        spawn_model_field=request_model_field,
-        spawn_reasoning_effort_field=request_effort_field,
-    )
+    with patch.object(court_runtime, '_native_bridge_message_evidence',
+            return_value=_message_evidence(request, p00_context)):
+        native = court_runtime._native_bridge_request_result(
+            task, admission, binding, request,
+            spawn_model_field=request_model_field,
+            spawn_reasoning_effort_field=request_effort_field,
+        )
     child_model = model if model is not None else parent_model
     child_effort = (
         reasoning_effort
@@ -216,6 +215,8 @@ def model_capture_fixture(
         capture_model_field: object = _UNSET,
         capture_effort_field: object = _UNSET,
         selection_override: object = _UNSET,
+        context_override: object = _UNSET,
+        request_override: object = _UNSET,
     ):
         kwargs = {
             'model_authorization_binding': (
@@ -229,9 +230,10 @@ def model_capture_fixture(
         if capture_effort_field is not _UNSET:
             kwargs['spawn_reasoning_effort_field'] = capture_effort_field
         return bridge.capture_current_native_delivery(
-            request,
+            request if request_override is _UNSET else request_override,
             execution=execution,
-            p00_context=p00_context,
+            p00_context=p00_context if context_override is _UNSET else context_override,
+            evidence_binding=native['message_evidence_binding'],
             identity_context=context,
             environment={
                 'CODEX_THREAD_ID': PARENT,
@@ -260,6 +262,37 @@ def model_capture_fixture(
 
 
 class OpaqueCaptureTests(unittest.TestCase):
+    def test_plain_capture_rejects_each_binding_change_separately(self):
+        for label in ('receipt_only', 'old_epoch_same_path', 'plan_reference_same_path', 'scope_only'):
+            with self.subTest(change=label), tempfile.TemporaryDirectory() as tmp:
+                case = model_capture_fixture(
+                    Path(tmp), model='gpt-6-astra', reasoning_effort='ultra',
+                    request_model_field='visible', request_effort_field='visible', selection_digit='d',
+                )
+                request = copy.deepcopy(case['request'])
+                context = copy.deepcopy(case['native']['host_message_binding']['p00']['dispatch_context'])
+                if label == 'receipt_only':
+                    context['semantic_receipt_id'] = 'SEM-TAMPERED'
+                elif label == 'old_epoch_same_path':
+                    request['semantic_epoch'] -= 1
+                    request['case_ref']['charter_revision'] -= 1
+                    request['office_capsule_ref'] = office_capsule_reference(
+                        request['case_ref'], request['role'], request['instance_id'],
+                        request['office_capsule_ref']['issued_at'],
+                    )
+                    context['semantic_epoch'] = request['semantic_epoch']
+                    context['case_ref'] = copy.deepcopy(request['case_ref'])
+                    for pointer in context['pointers']:
+                        pointer['case_ref'] = copy.deepcopy(request['case_ref'])
+                elif label == 'plan_reference_same_path':
+                    pointer = context['pointers'][-1]
+                    pointer['plan_ref'] = {**pointer.pop('case_ref'), 'plan_id': 'PLAN-FOREIGN', 'plan_revision': 1}
+                else:
+                    request['duty_scope'].append('scripts/court_runtime.py')
+                with self.assertRaises(ValueError):
+                    case['capture'](capture_model_field='visible', capture_effort_field='visible',
+                                    request_override=request, context_override=context)
+
     def test_host_facts_capture_without_decrypting_or_claiming_message_delivery(self):
         with tempfile.TemporaryDirectory() as tmp:
             rows, meta, context, save, capture = fixture(Path(tmp))
@@ -322,7 +355,7 @@ class OpaqueCaptureTests(unittest.TestCase):
                 '2026-09-06T09:05:00+08:00',
             )
             args = json.loads(rows[1]['payload']['arguments'])
-            args['message'] = bridge.canonical_host_message(request, execution=_execution(), p00_context=_p00_context(request))
+            args['message'] = bridge.canonical_host_message(request, execution=_execution(), p00_context=_p00_context(request), evidence_binding=_message_evidence(request, _p00_context(request)))
             rows[1]['payload']['arguments'] = json.dumps(args); save()
             evidence = capture()['host_spawn_evidence']
             self.assertEqual(evidence['message_verification'], 'PLAINTEXT_EXACT_MATCHED')
@@ -596,21 +629,17 @@ class OpaqueCaptureTests(unittest.TestCase):
                 selection_digit='d',
             )
             arguments = json.loads(case['parent_rows'][2]['payload']['arguments'])
-            message = json.loads(arguments['message'])
-            message['p00']['dispatch_context']['semantic_receipt_id'] = 'SEM-TAMPERED'
-            message['p00']['dispatch_context']['pointers'] = [{
+            foreign_context = copy.deepcopy(case['native']['host_message_binding']['p00']['dispatch_context'])
+            foreign_context['semantic_receipt_id'] = 'SEM-TAMPERED'
+            foreign_context['pointers'] = [{
                 'path': 'court-runtime:tasks/foreign/charter',
-                'case_ref': copy.deepcopy(message['p00']['case_ref']),
+                'case_ref': copy.deepcopy(case['request']['case_ref']),
             }]
-            arguments['message'] = json.dumps(
-                message, ensure_ascii=False, sort_keys=True, separators=(',', ':')
-            )
-            case['parent_rows'][2]['payload']['arguments'] = json.dumps(arguments)
-            case['save']()
-            with self.assertRaisesRegex(ValueError, 'host_message_mismatch'):
+            with self.assertRaisesRegex(ValueError, 'message_evidence_binding_mismatch'):
                 case['capture'](
                     capture_model_field='visible',
                     capture_effort_field='visible',
+                    context_override=foreign_context,
                 )
 
 

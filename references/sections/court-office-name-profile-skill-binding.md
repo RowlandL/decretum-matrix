@@ -11,6 +11,16 @@ semantic sources, not byte-validation gates.
 bounded assignment; its prefix must match the canonical office token below, but
 the name alone does not prove that the office has accepted the assignment.
 
+New native dispatch uses the admitted `collaboration_task_name` as the host duty
+name, for example `gongbu_repair`. The default uses the complete ASCII business
+path so independent scopes remain distinguishable; technical evidence paths do
+not supply the duty name. When a business path cannot form a lossless ASCII name,
+the result gives a concrete
+`next_step` to supply the existing name field. Technical dispatch ids and
+attempts stay in request/receipt evidence. Capture and start consume the same
+generated host name; already captured instances keep their actual host identity
+for followup.
+
 | `role_key` | official name head | `task_name` prefix | agent-id prefix |
 | --- | --- | --- | --- |
 | `taizi` | `TaiZi` | `taizi` | `taizi` |
@@ -102,14 +112,34 @@ office_assignment = {
 }
 ```
 
-For the office's first reply, preserve
+In the existing office runtime/trace evidence, preserve
 `schema=court.office.role_ack.v1`, `role_acknowledged=YES|DEGRADED`, `role_key`,
 `office_zh`, `direct_superior`, `assignment_id`, `agent_dossier_loaded=YES|NO|NOT_NEEDED`,
 and `loaded_skills` when a skill was actually loaded. The assignment packet and
-first reply are complementary; neither may be inferred from a successful spawn
-call.
+actual office evidence are complementary; neither may be inferred from a
+successful spawn call. The ordinary human memorial projects the business
+`summary`, actual `status`, necessary `evidence`, and `next` action. Preload and
+identity receipts remain machine evidence rather than a separate visible office
+reply.
 
 ## Native request details
+
+The native host receives a readable business assignment generated from the
+admitted facts. The complete request, P00 packet and machine binding remain in
+the current task/admission/receipt records. Evidence pointers select the actual
+immutable semantic-receipt sequence and admission event; the renderer and
+capture use that same bound projection. This preserves exact plaintext and
+opaque metadata delivery checks while keeping technical objects out of the
+human assignment and memorial. After the exact skill, startup and selected
+profile/dossier are read, the office continues its admitted duty under the
+existing implicit preload lifecycle.
+
+Production materials and service entry roots resolve from the committed
+installation binding. The public CLI launcher and MCP service entry verify
+their selected installation root; an unavailable binding returns a reason and
+recovery action. Source ownership and explicit test fixtures keep their own
+meaning. Runtime data isolation such as `COURT_RUNTIME_ROOT` changes data
+location, not the selected installed code or material identity.
 
 Template `--worktree .` is cwd-relative; request-file worktree is relative to
 the request file. Documents are skill-relative. Host evidence may record

@@ -202,6 +202,12 @@ Legal transition and audit rules:
 - 门下省 may reject from `ThreeDepartmentsPetition`, `MenxiaReview`, or
   `ShiguanRecorded` back to the last office that can repair the defect. It must
   name the defect, the rejected field, and the required evidence for resubmission.
+- 首次进入 `MenxiaReview` 由 `actor=menxia` 接受，最终 `owner=menxia`；
+  显式 owner 与该职责一致，并携带非空复核交接证据。此阶段开始待审，
+  最终 assessment 与史馆 checkpoint 仍由后续完成路径取得。
+- 专用 `resume` 恢复已经从 `MenxiaReview` 暂停的阶段时，继续原控制路径，
+  owner 保持门下，原复核证据保留在既有事件和暂停记录中。其他阶段的暂停
+  进入门下复核仍按首次接受规则处理；本次恢复证据按原审计路径记录。
 - 尚书省 may cancel, pause, or resume 六部/工坊 work only inside the active decree
   boundary. Pause/resume/cancel must be auditable: record who requested it, which
   task or agente it affects, whether evidence was preserved, and what remains

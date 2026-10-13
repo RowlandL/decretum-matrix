@@ -235,18 +235,27 @@ class OfficeDecreeStartupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'menxia_report_missing'):
                 runtime._validated_completion_source(task, changed)
 
-    def test_libu_bootstrap_instructs_read_and_ack_only(self) -> None:
+    def test_libu_bootstrap_enters_business_with_bound_history(self) -> None:
+        self.stack.enter_context(patch.object(runtime, 'skill_root', return_value=Path(runtime.__file__).resolve().parents[1]))
         task, admission = self._review_and_admit_libu()
-        request = runtime.office_native_request(Namespace(
+        admission = task['agent_admissions'][admission['wave_id']]
+        selector = Namespace(
             schema='court.office.native_request.v1', task_id=task['task_id'],
             wave_id=admission['wave_id'], instance_id=admission['selected_bindings'][0]['instance_id'],
-        ))['request']
+        )
+        with patch.object(runtime, 'events_for_task', wraps=runtime.events_for_task) as history_reads:
+            generated = runtime.office_native_request(selector)
+        self.assertEqual(history_reads.call_count, 1, 'reuse the validated admission facts during request construction')
+        request = generated['request']
+        bound = admission['selected_bindings'][0]
         packet = runtime.public_dispatch_context_packet(task, admission['wave_id'])
         with patch.object(subprocess, 'Popen', side_effect=AssertionError('unexpected bootstrap process')):
-            message = json.loads(bridge.canonical_host_message(
+            message = bridge.canonical_host_message(
                 request, execution=task['case_execution'], p00_context=packet,
-            ))
-        bootstrap = message['bootstrap']
+                evidence_binding=generated['message_evidence_binding'],
+            )
+        machine = generated['host_message_binding']
+        bootstrap = machine['bootstrap']
         self.assertEqual(bootstrap['skill'], 'SKILL.md')
         self.assertEqual(bootstrap['then_read'], [
             'references/court-normal-startup.md',
@@ -256,10 +265,66 @@ class OfficeDecreeStartupTests(unittest.TestCase):
             bootstrap['first_action'],
             'Read SKILL.md < startup < {profile,dossier}.',
         )
-        self.assertEqual(bootstrap['then'], 'Emit acceptance; notify superior; wait.')
-        self.assertTrue(bootstrap['child_acceptance']['startup_guide_loaded'])
-        self.assertEqual(message['p00']['case_ref'], case_reference(task))
-        self.assertEqual(message['p00']['office_capsule_ref'], request['office_capsule_ref'])
+        self.assertIn('Execute the admitted business', bootstrap['then'])
+        self.assertNotIn('child_acceptance', bootstrap)
+        self.assertFalse(message.startswith('{'))
+        self.assertNotIn(request['dispatch_uid'], message)
+        self.assertEqual(machine['p00']['case_ref'], case_reference(task))
+        self.assertEqual(machine['p00']['office_capsule_ref'], request['office_capsule_ref'])
+        for field in ('court_skill_path', 'startup_guide_path', 'profile_source', 'dossier_path'):
+            self.assertIn(request['role_ack'][field], message)
+        evidence = generated['message_evidence_binding']
+        self.assertEqual(evidence['semantic_receipt'], task['semantic_receipt'])
+        self.assertEqual(evidence['admission_event']['admission_record'], runtime._admission_bound_record(admission))
+        self.assertEqual(generated['presentation_binding_status'], 'BOUND_HISTORY')
+        for change in ('receipt_only', 'old_epoch_same_path', 'plan_reference_same_path', 'scope_only', 'missing_history', 'anchor'):
+            with self.subTest(change=change):
+                foreign_task, foreign_admission = deepcopy(task), deepcopy(admission)
+                foreign_request, foreign_packet = deepcopy(request), deepcopy(packet)
+                if change == 'receipt_only':
+                    foreign_packet['semantic_receipt_id'] = 'SEM-FOREIGN'
+                elif change == 'old_epoch_same_path':
+                    # The request remains at the old epoch while the existing
+                    # current record advances; every pointer path is unchanged.
+                    foreign_task['semantic_epoch'] += 1
+                    foreign_task['charter_revision'] += 1
+                    foreign_task['semantic_receipt']['semantic_epoch'] += 1
+                    foreign_task['semantic_receipt']['case_ref']['charter_revision'] += 1
+                elif change == 'plan_reference_same_path':
+                    foreign_packet['pointers'][-1]['plan_ref']['plan_id'] = 'PLAN-FOREIGN'
+                elif change == 'scope_only':
+                    foreign_request['duty_scope'].append('scripts/court_runtime.py')
+                elif change == 'missing_history':
+                    foreign_task.pop('semantic_receipts')
+                else:
+                    foreign_admission['admission_event_id'] = 'missing'
+                with self.assertRaises(ValueError):
+                    runtime._native_bridge_message_evidence(
+                        foreign_task, foreign_admission, bound, foreign_request, foreign_packet)
+        with self.assertRaisesRegex(ValueError, 'message_evidence_required'):
+            bridge.canonical_host_message(request, execution=task['case_execution'], p00_context=packet)
+
+        # Source-only host metadata fixture drives actual capture/start/report.
+        # It proves implicit business completion without a legacy ACK gate.
+        with patch.object(opaque, '_request', return_value=deepcopy(request)), \
+                patch.object(opaque, '_p00_context', return_value=packet):
+            rows, meta, ctx, save, capture = opaque.fixture(self.root / 'host', ministry=True)
+            ctx.clear(); ctx.update(runtime._native_bridge_identity_context(task, bound))
+            captured = runtime.office_native_capture(Namespace(
+                schema='court.office.native_capture.v1', task_id=task['task_id'],
+                wave_id=admission['wave_id'], instance_id=bound['instance_id']))
+        started = runtime.office_start(Namespace(**captured['office_request']))
+        record = started['office_instance']
+        self.assertEqual(record['preload_phase'], 'IMPLICIT_AFTER_CAPTURE')
+        report = runtime.office_report(Namespace(
+            task_id=task['task_id'], actor='shangshu', evidence='bounded business report', note='',
+            **{key: record[key] for key in (
+                'semantic_epoch', 'case_ref', 'checkpoint_id', 'dispatch_uid', 'attempt',
+                'role', 'office_instance_kind', 'office_instance_id', 'carrier_proof')},
+        ))
+        self.assertEqual(report['office_instance']['preload_phase'], 'COMPLETED_IMPLICIT')
+        self.assertEqual(report['office_instance']['preload_status'], 'PENDING')
+        self.assertEqual(report['business_report']['summary'], 'bounded business report')
 
     def test_reviewed_libu_request_and_opaque_capture(self) -> None:
         task, admission = self._review_and_admit_libu()

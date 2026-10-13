@@ -24,7 +24,7 @@ upgrade stored bytes, or authorize a transition.
 Every child execution is bound to an office identity before the runtime lock,
 write, or event. The accepted NPSB contract requires canonical `role_key`,
 `office_zh`, and `direct_superior`; verified profile and dossier hashes; a
-canonical skill path and skill hash with explicit preload acknowledgement; and
+canonical skill path and skill hash with actual role-local preload evidence; and
 the task/agent naming evidence required by the office assignment. The binding is
 rechecked inside the lock to prevent stale pre-lock evidence. Missing, mismatched,
 spoofed, or legacy-incomplete evidence remains fail-closed; historical false-ready
@@ -151,7 +151,13 @@ Use that schema instead of probing one missing field at a time.
 Copy `task_id`, `semantic_epoch`, `case_ref`, `checkpoint_id`, `dispatch_uid`,
 `attempt`, `office_instance_id`, `agent_id`, `role`, `direct_superior`,
 `worktree`, and `write_set` from the admitted agent record. Carry the actual
-`plan_ref` for the work; null is allowed when no plan exists. If the record has
+`plan_ref` bound to the admission. An explicit null from an admission made before
+a plan existed remains null. When a historical record lacks the field, the
+existing target-binding producer resolves the task's actual issued plan;
+normalization must not supply a guessed null or unsigned plan. Structured result
+completion through finish and result recovery compare both `task_id` and
+`plan_ref` with that same target.
+If the record has
 `office_instance_kind` and `carrier_proof`, copy both without inventing host IDs.
 Supply the actual `status` (`completed`, `failed`, or `cancelled`), a nonempty
 `summary`, an array of evidence pointers, and `produced_at` as an ISO timestamp.
@@ -186,8 +192,10 @@ semantic binding, the same structured result/quarantine rules, and the same
 
 `start`, formal `report`, and `finish` require the current task semantic state
 to remain `DISPATCHABLE`. `QUARANTINED`, `REVERIFY`, or any other state fails
-before task or event bytes change. A formal report also requires a passed exact
-preload acknowledgement and otherwise fails with zero task/event writes.
+before task or event bytes change. A formal report consumes the current implicit
+preload state and actual bound office evidence. An optional legacy preload
+acknowledgement records the prior protocol; it is not a separate wait gate for
+the normal business path.
 `close` and terminal `reconcile` remain release-only operations governed by the
 existing terminal/release contract; they do not restore dispatch authority.
 

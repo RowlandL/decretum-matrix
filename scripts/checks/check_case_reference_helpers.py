@@ -248,6 +248,8 @@ class CaseReferenceHelperTests(unittest.TestCase):
             result_binding_problems(
                 envelope,
                 {
+                    "task_id": "local-alias",
+                    "plan_ref": None,
                     "case_ref": context["case_ref"],
                     "semantic_epoch": 2,
                     "checkpoint_id": receipt["checkpoint_id"],

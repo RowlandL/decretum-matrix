@@ -883,12 +883,18 @@ def _result_envelope(
     attempt: int | None = None,
 ) -> dict[str, object]:
     write_set = agent.get("write_set")
+    if "plan_ref" in agent:
+        expected_plan = agent['plan_ref']
+    else:
+        task = court_runtime.load_tasks().get(str(agent['task_id']))
+        plan = task.get('zhongshu_plan') if isinstance(task, dict) else None
+        expected_plan = court_runtime.plan_reference(plan) if isinstance(plan, dict) else None
     envelope = {
         "schema": "court.office.result.v1",
         "task_id": agent["task_id"],
         "semantic_epoch": agent["semantic_epoch"],
         "case_ref": agent["case_ref"],
-        "plan_ref": agent.get("plan_ref"),
+        "plan_ref": expected_plan,
         "checkpoint_id": agent["checkpoint_id"],
         "dispatch_uid": agent["dispatch_uid"],
         "attempt": agent["attempt"] if attempt is None else attempt,
@@ -1215,6 +1221,79 @@ def check_finish_requires_structured_result_and_quarantines_stale() -> None:
         raise AssertionError("SEMANTIC_RESULT_ENVELOPE_MISSING " + ";".join(problems))
 
 
+def check_f05_result_task_and_signed_plan_binding() -> dict[str, object]:
+    observations, failures = [], []
+    with tempfile.TemporaryDirectory() as temporary:
+        original_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temporary)
+        try:
+            task_id = 'f05-result-binding'
+            task = _reviewed_dispatchable_case(task_id, 'F05 one issued plan source')
+            signed_plan = court_runtime.plan_reference(task['zhongshu_plan'])
+            admission = court_runtime.agent_admit(_admit_args(task))
+            start = _start_args(task, admission)
+            snapshot = court_runtime.agent_start(start).task
+            agent = snapshot['agents'][start.agent_id]
+            legal = _result_envelope(agent)
+            legal['plan_ref'] = deepcopy(signed_plan)
+            for label in ('wrong_task', 'unissued_plan'):
+                court_runtime.write_tasks({task_id: deepcopy(snapshot)})
+                envelope = deepcopy(legal)
+                field = 'task_id' if label == 'wrong_task' else 'plan_ref'
+                if label == 'wrong_task':
+                    envelope['task_id'] = 'foreign-task'
+                else:
+                    envelope['plan_ref']['plan_revision'] += 1
+                result = court_runtime.agent_finish(_finish_args(task_id, agent, envelope=envelope))
+                record = result.task['agents'][agent['agent_id']]
+                reason = 'agent_result_binding_mismatch:' + field
+                reasons = result.event.get('reason_codes', [])
+                quarantined = record.get('result_state') == 'QUARANTINED'
+                if not quarantined or reason not in reasons:
+                    failures.append(label + ':finish_accepted')
+                if quarantined:
+                    try:
+                        court_runtime.agent_finish(_finish_args(task_id, agent, envelope=deepcopy(legal)))
+                    except ValueError as error:
+                        if 'terminal agent' not in str(error):
+                            failures.append(label + ':wrong_retry_error')
+                    else:
+                        failures.append(label + ':terminal_retry_accepted')
+                observations.append({'case': label, 'action': result.event['action'],
+                                     'quarantined': quarantined, 'reasons': reasons})
+            explicit_null = deepcopy(agent)
+            explicit_null['plan_ref'] = None
+            if court_runtime._target_binding_from_record(snapshot, explicit_null)['plan_ref'] is not None:
+                failures.append('explicit_null:overwritten')
+            missing = deepcopy(agent)
+            missing.pop('plan_ref', None)
+            if court_runtime._target_binding_from_record(snapshot, missing)['plan_ref'] != signed_plan:
+                failures.append('missing:wrong_signed_plan_fallback')
+            if _result_envelope(missing)['plan_ref'] != signed_plan:
+                failures.append('fixture_missing:invented_null')
+            null_snapshot = deepcopy(snapshot)
+            null_snapshot['agents'][agent['agent_id']] = explicit_null
+            court_runtime.write_tasks({task_id: null_snapshot})
+            null_result = court_runtime.agent_finish(
+                _finish_args(task_id, explicit_null, envelope=_result_envelope(explicit_null)))
+            if null_result.task['agents'][agent['agent_id']]['status'] != 'completed':
+                failures.append('explicit_null:finish_rejected')
+            court_runtime.write_tasks({task_id: deepcopy(snapshot)})
+            finished = court_runtime.agent_finish(_finish_args(task_id, agent, envelope=legal))
+            if finished.task['agents'][agent['agent_id']]['status'] != 'completed':
+                failures.append('legal:finish_rejected')
+        finally:
+            court_runtime.runtime_root = original_root
+    result = {'evidence_class': 'SOURCE_ONLY', 'task_id': task_id,
+              'signed_plan_source': 'submit_plan -> task.zhongshu_plan -> plan_reference',
+              'plan_ref': signed_plan, 'observations': observations,
+              'explicit_null': 'preserved', 'missing': 'task_signed_plan',
+              'legal_finish': 'completed', 'failures': failures}
+    if failures:
+        raise AssertionError('F05_BINDING_RED ' + json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return result
+
+
 def check_correction_invalidates_all_derived_state_append_only() -> None:
     task_id = "semantic-correction-invalidation"
     old_charter = "correction invalidation old charter"
@@ -1491,6 +1570,75 @@ def check_compaction_reboot_idle_reuse_immutable_receipt() -> None:
     ]
     if triggers[-3:] != ["compaction", "reboot", "long-idle"]:
         raise AssertionError("SEMANTIC_RESTORE_VERIFICATION_HISTORY_MISSING")
+
+
+def check_f04_persisted_capsule_schema() -> dict[str, object]:
+    observations = []
+    failures = []
+    values = [('missing', None), ('unknown', 'court.semantic.invariant_capsule.v0'),
+              ('empty', ''), ('null', None), ('integer', 4), ('list', []), ('object', {}), ('bool', True)]
+    with tempfile.TemporaryDirectory() as temporary:
+        original_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temporary)
+        try:
+            task_id = 'f04-capsule-schema'
+            court_runtime.create_task(_create_args(task_id, 'F04 persisted capsule schema'))
+            court_runtime.semantic_checkpoint_task(_semantic_args(task_id, 'checkpoint'))
+            valid = court_runtime.semantic_verify_task(_semantic_args(task_id, 'verify')).task
+            if court_semantic_continuity.semantic_binding_problems(valid, require_complete=True):
+                raise AssertionError('F04_LEGAL_CAPSULE_REJECTED')
+            for label, value in values:
+                input_args = _create_args('f04-input-' + label, 'F04 input capsule schema')
+                if label == 'missing':
+                    input_args.invariant_capsule.pop('schema')
+                else:
+                    input_args.invariant_capsule['schema'] = value
+                try:
+                    court_runtime.create_task(input_args)
+                except ValueError as error:
+                    input_result = str(error)
+                else:
+                    input_result = 'ACCEPTED'
+                    failures.append(label + ':input')
+                persisted = deepcopy(valid)
+                if label == 'missing':
+                    persisted['invariant_capsule'].pop('schema')
+                else:
+                    persisted['invariant_capsule']['schema'] = value
+                court_runtime.write_tasks({task_id: persisted})
+                loaded = court_runtime.load_tasks()[task_id]
+                problems = court_semantic_continuity.semantic_binding_problems(loaded, require_complete=True)
+                if not problems:
+                    failures.append(label + ':persisted')
+                outcomes = {}
+                for operation in ('checkpoint', 'verify'):
+                    court_runtime.write_tasks({task_id: deepcopy(persisted)})
+                    before = court_runtime.tasks_path().read_bytes()
+                    try:
+                        action = (court_runtime.semantic_checkpoint_task if operation == 'checkpoint'
+                                  else court_runtime.semantic_verify_task)
+                        action(_semantic_args(task_id, operation))
+                    except ValueError as error:
+                        outcomes[operation] = str(error)
+                        if court_runtime.tasks_path().read_bytes() != before:
+                            failures.append(label + ':' + operation + ':mutation')
+                    else:
+                        outcomes[operation] = 'ACCEPTED'
+                        failures.append(label + ':' + operation)
+                observations.append({'schema_case': label, 'input': input_result,
+                                     'persisted': problems or ['ACCEPTED'], **outcomes})
+            court_runtime.write_tasks({task_id: deepcopy(valid)})
+            court_runtime.semantic_checkpoint_task(_semantic_args(task_id, 'checkpoint'))
+            legal = court_runtime.semantic_verify_task(_semantic_args(task_id, 'verify')).task
+            if legal['semantic_state'] != 'DISPATCHABLE':
+                failures.append('legal:checkpoint-verify')
+        finally:
+            court_runtime.runtime_root = original_root
+    result = {'evidence_class': 'SOURCE_ONLY', 'observations': observations,
+              'legal': 'DISPATCHABLE', 'failures': failures}
+    if failures:
+        raise AssertionError('F04_SCHEMA_RED ' + json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return result
 
 
 def check_incomplete_capsule_and_multisource_drift_fail_closed() -> None:
@@ -4546,6 +4694,7 @@ def evaluate() -> dict[str, object]:
             "SEMANTIC_RESULT_ENVELOPE",
             check_finish_requires_structured_result_and_quarantines_stale,
         ),
+        ("F05_RESULT_TASK_SIGNED_PLAN", check_f05_result_task_and_signed_plan_binding),
         (
             "SEMANTIC_CORRECTION_INVALIDATION",
             check_correction_invalidates_all_derived_state_append_only,
@@ -4559,6 +4708,7 @@ def evaluate() -> dict[str, object]:
             "SEMANTIC_CAPSULE_AND_MULTISOURCE_DRIFT",
             check_incomplete_capsule_and_multisource_drift_fail_closed,
         ),
+        ("F04_PERSISTED_CAPSULE_SCHEMA", check_f04_persisted_capsule_schema),
         (
             "F-CRASH-003",
             check_f_crash_003_paired_ledger_recovery_and_replay,

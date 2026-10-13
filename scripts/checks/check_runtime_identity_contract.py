@@ -17,6 +17,9 @@ from pathlib import Path
 import tempfile
 from types import ModuleType
 from typing import Any
+from unittest import mock
+
+import shiguan_paths
 
 sys.dont_write_bytecode = True
 
@@ -95,6 +98,72 @@ def _write_package_metadata(package_root: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _runtime_resolver_checks() -> dict[str, object]:
+    failures: list[str] = []
+    cases: list[str] = []
+    rejections: list[dict[str, object]] = []
+    original_code_root = shiguan_paths.code_root()
+    with tempfile.TemporaryDirectory(prefix="decretum-runtime-resolver-") as temp_dir:
+        home = Path(temp_dir) / "home"
+        canonical = home / ".agents" / "skills" / "decretum-matrix"
+        (canonical / "scripts").mkdir(parents=True)
+        (canonical / "scripts" / "court_cli.py").write_text("# fixture\n", encoding="utf-8")
+        binding_path = _write_binding(home, canonical)
+        # A committed projection omits repository-only helpers. Their absence
+        # must neither select the source checkout nor invalidate the binding.
+        try:
+            selected = shiguan_paths.runtime_code_root(home=home)
+        except Exception as exc:
+            failures.append(f"resolver_committed_binding_rejected:{type(exc).__name__}:{exc}")
+        else:
+            if selected != canonical:
+                failures.append("resolver_committed_binding_not_selected")
+        cases.append("committed_without_repository_only_markers")
+        if shiguan_paths.code_root() != original_code_root:
+            failures.append("resolver_changed_source_code_root")
+
+        valid_binding = json.loads(binding_path.read_text(encoding="utf-8"))
+        negative_cases = [
+            ("missing", None),
+            ("malformed", "{"),
+            ("pending", {**valid_binding, "completion": "PENDING_VALIDATION"}),
+            ("generation", {**valid_binding, "generation": 0}),
+            ("canonical_root", {**valid_binding, "canonical_root": str(home)}),
+            ("unselected_primary", {**valid_binding, "selected_roots": [str(home)]}),
+            ("unphysical_selected", {**valid_binding, "selected_roots": [str(canonical), str(home / "absent")]}),
+        ]
+        for label, value in negative_cases:
+            if value is None:
+                binding_path.unlink()
+            else:
+                binding_path.write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
+            with mock.patch.object(shiguan_paths, "code_root", return_value=original_code_root):
+                try:
+                    shiguan_paths.runtime_code_root(home=home)
+                except RuntimeError as exc:
+                    message = str(exc)
+                    try:
+                        next_step = json.loads(message.partition("next_step=")[2])
+                    except json.JSONDecodeError:
+                        next_step = {}
+                    expected_command = ["decretum-matrix", "install", "update", "--home-root", str(home), "--format", "json"]
+                    recoverable = (
+                        "; reason=INSTALLATION_BINDING_" in message
+                        and next_step.get("action") == "prepare_installation_repair_plan"
+                        and next_step.get("command") == expected_command
+                    )
+                    if not recoverable:
+                        failures.append(f"resolver_{label}_recovery_action_missing_or_invalid")
+                    rejections.append({"case": label, "actual_error": message, "recoverable": recoverable})
+                except Exception as exc:
+                    failures.append(f"resolver_{label}_wrong_exception:{type(exc).__name__}")
+                else:
+                    failures.append(f"resolver_{label}_accepted_or_source_fallback")
+            cases.append(label)
+        binding_path.write_text(json.dumps(valid_binding), encoding="utf-8")
+    return {"scope": "SOURCE", "cases": cases, "rejections": rejections, "failures": failures}
 
 
 def evaluate() -> dict[str, Any]:
@@ -303,6 +372,8 @@ def evaluate() -> dict[str, Any]:
             if callable(original_release_archive):
                 launcher._release_archive = original_release_archive
 
+    resolver = _runtime_resolver_checks()
+    failures.extend(resolver["failures"])
     return {
         "schema": "court.runtime_identity_contract_check.v2",
         "ok": not failures,
@@ -316,6 +387,7 @@ def evaluate() -> dict[str, Any]:
             "cache_generation_key": cache_key_a,
             "ordinary_content_digest": "FORBIDDEN",
             "postinstall_mode": "EXPLICIT_DISABLED",
+            "runtime_resolver": resolver,
         },
         "failures": failures,
     }

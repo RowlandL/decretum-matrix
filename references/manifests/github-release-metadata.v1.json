@@ -6,8 +6,20 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.1.9",
+  "latest_tag": "beta1.2.0",
   "releases": [
+    {
+      "tag": "beta1.2.0",
+      "title": "Decretum Matrix beta1.2.0",
+      "summary": "beta1.2.0 SOURCE 候选：简明官署差遣与回奏、严格安装运行根，以及 P00、结果绑定和门下转移修复。",
+      "highlights": [
+        "职责名消费已准入的名称或完整 ASCII 业务路径；人类业务说明绑定已有不可变证据指针，机器请求与真实实例身份保留。",
+        "运行根只接受有效 COMMITTED 安装 binding；P00 持久消费者拒绝非法 schema，缺字段沿用原拒绝原因。",
+        "完成与恢复比较同一目标任务及实际签发计划；显式空计划保留，历史缺字段才回退到真实计划来源。",
+        "首次门下交接核对 actor、owner 与非空证据；恢复已接受的门下暂停阶段保持门下 owner，复用已有审计和暂停证据。"
+      ],
+      "asset_note": "SOURCE 检查与独立审查已分项记录。本条目不证明已打包、已安装、真实 native/UI 或正式全流转；T08/stage3 与 archive 漂移保留，提交、CI 与发布各需实际回读。"
+    },
     {
       "tag": "beta1.1.9",
       "title": "Decretum Matrix beta1.1.9",

@@ -10,9 +10,12 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 sys.dont_write_bytecode = True
@@ -20,6 +23,8 @@ sys.dont_write_bytecode = True
 from court_public_api import court_command_help, court_status, memory_scan, shiguan_archive_dry_run, shiguan_query
 from court_public_registry import load_public_tools
 import court_mcp_server
+from checks.check_runtime_identity_contract import _write_binding
+from shiguan_paths import shared_root
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +43,8 @@ EXPECTED_TOOLS = {
     "court.closeout_checklist",
     "shiguan.entries_query",
     "shiguan.iku_candidates",
+    "shiguan.recall",
+    "shiguan.recall_stats",
 }
 CURRENT_PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-11-25"
@@ -57,15 +64,35 @@ EXPECTED_COMMAND_IDS = {
     "shiguan.query": "shiguan.query-shiguan-index",
     "shiguan.entries_query": "shiguan.query-shiguan-index",
     "shiguan.iku_candidates": "shiguan.repair-archive-placeholders",
+    "shiguan.recall": "shiguan.query-shiguan-recall",
+    "shiguan.recall_stats": "shiguan.query-shiguan-recall",
     "shiguan.archive_dry_run": "shiguan.archive-checkpoint",
     "memory.scan": "shiguan.internal-memory-shiguan-bridge",
 }
 
 
+def _source_runtime_fixture() -> tuple[tempfile.TemporaryDirectory, Path, Path, dict[str, str]]:
+    """Stage source for isolated entry tests; this is not live install evidence."""
+
+    fixture = tempfile.TemporaryDirectory(prefix="decretum-mcp-source-fixture-")
+    home = Path(fixture.name) / "home"
+    root = home / ".agents" / "skills" / "decretum-matrix"
+    for relative in ("scripts", "agents", "references/manifests"):
+        shutil.copytree(ROOT / relative, root / relative, ignore=shutil.ignore_patterns("__pycache__"))
+    for name in ("VERSION", "SKILL.md"):
+        shutil.copyfile(ROOT / name, root / name)
+    _write_binding(home, root)
+    env = dict(os.environ)
+    env.update({"HOME": str(home), "USERPROFILE": str(home), "COURT_SHARED_SHIGUAN_ROOT": str(shared_root())})
+    return fixture, home, root / "scripts" / "court_mcp_server.py", env
+
+
 def _start() -> subprocess.Popen[str]:
-    return subprocess.Popen(
-        [sys.executable, "-B", str(SERVER)],
+    fixture, _home, server, env = _source_runtime_fixture()
+    proc = subprocess.Popen(
+        [sys.executable, "-B", str(server)],
         cwd=ROOT,
+        env=env,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -73,6 +100,8 @@ def _start() -> subprocess.Popen[str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    proc._court_source_fixture = fixture
+    return proc
 
 
 def _close(proc: subprocess.Popen[str]) -> None:
@@ -83,6 +112,54 @@ def _close(proc: subprocess.Popen[str]) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=5)
+    fixture = getattr(proc, "_court_source_fixture", None)
+    if fixture is not None:
+        fixture.cleanup()
+
+
+def _runtime_entry_checks(evidence: list[dict[str, object]]) -> list[tuple[str, bool]]:
+    fixture, home, server, env = _source_runtime_fixture()
+    try:
+        request = json.dumps({"jsonrpc": "2.0", "id": "root-check", "method": "server/discover"}) + "\n"
+        checks: list[tuple[str, bool]] = []
+        binding_path = _write_binding(home, server.parents[1])
+        valid_binding = json.loads(binding_path.read_text(encoding="utf-8"))
+        for label, entry, binding in (
+            ("source_root", SERVER, valid_binding),
+            ("missing_binding", server, None),
+            ("pending_binding", server, {**valid_binding, "completion": "PENDING_VALIDATION"}),
+            ("unphysical_root", server, {**valid_binding, "selected_roots": [str(home / "absent")]}),
+        ):
+            if binding is None:
+                binding_path.unlink()
+            else:
+                binding_path.write_text(json.dumps(binding), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "-B", str(entry)], input=request,
+                cwd=ROOT, env=env, text=True, encoding="utf-8", capture_output=True, timeout=20,
+            )
+            checks.append((
+                f"mcp_normal_entry_rejects_{label}",
+                result.returncode == 2 and not result.stdout
+                and "decretum-mcp startup error:" in result.stderr,
+            ))
+            try:
+                next_step = json.loads(result.stderr.partition("next_step=")[2])
+            except json.JSONDecodeError:
+                next_step = {}
+            expected_command = (
+                [sys.executable, "-B", str(server)] if label == "source_root"
+                else ["decretum-matrix", "install", "update", "--home-root", str(home), "--format", "json"]
+            )
+            expected_reason = "mcp_runtime_root_not_bound_to_installation" if label == "source_root" else "INSTALLATION_BINDING_"
+            recoverable = f"reason={expected_reason}" in result.stderr and next_step.get("command") == expected_command
+            checks.append((f"mcp_normal_entry_{label}_recovery_action", recoverable))
+            evidence.append({"case": label, "command": [sys.executable, "-B", str(entry)],
+                             "exit": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+                             "recoverable": recoverable})
+        return checks
+    finally:
+        fixture.cleanup()
 
 
 def _rpc(proc: subprocess.Popen[str], request: dict[str, Any]) -> dict[str, Any]:
@@ -1382,8 +1459,12 @@ def run() -> dict[str, object]:
     checks.extend(_domain_ledger_transaction_checks())
     checks.extend(_robustness_probes())
     checks.extend(_compact_startup_checks())
+    runtime_entry_evidence: list[dict[str, object]] = []
+    checks.extend(_runtime_entry_checks(runtime_entry_evidence))
     return {
         "schema": "decretum.mcp_stdio_adapter_check.v2",
+        "scope": "SOURCE",
+        "runtime_entry_rejections": runtime_entry_evidence,
         "ok": all(ok for _, ok in checks),
         "checks": [{"name": name, "ok": ok} for name, ok in checks],
         "modern": {

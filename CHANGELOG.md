@@ -1,5 +1,27 @@
 # Changelog
 
+## beta1.2.0 - 2026-10-14 (candidate; SOURCE accepted)
+
+### Changed
+
+- Native 宿主名称消费已准入的职责名；缺省名称使用完整 ASCII 业务路径，不能无损表示时给现有职责名的恢复动作。名称生产、捕获和 start 同源，内部 dispatch/attempt/agent identity 继续留在机器证据中。旧实例按已捕获目标合法复用。
+- 宿主接收简明业务差遣。预载后的当前职责继续执行，删除活动链中的预填 acceptance JSON 和等待任务；普通回奏从业务 summary/status/evidence/next 投影，完整 P00/请求/回执留在现有技术记录中。
+- 简明差遣的证据指针绑定实际 semantic-receipt history 和 admission event。当前请求构建内复用已验证事实，I/O 与 mutation 前的必要复验保持。
+- 生产运行根从 COMMITTED 安装 binding 选择，移除安装 marker 不全时退回源码的路径；MCP 启动核对自身根属于有效安装。源码归属函数和显式隔离 fixture 保留原用途。
+
+### Fixed
+
+- P00 持久化消费者复用既有 schema 常量，拒绝未知、空和非文本 schema；checkpoint/verify 与输入端对齐，缺字段沿用原拒绝原因，合法胶囊继续 DISPATCHABLE。
+- 结构化结果完成及恢复比较同一目标的 task_id 与 plan_ref。显式空计划引用保留，历史缺字段才取实际签发计划；错误结果沿原隔离/终态重试路径处理。原关联 checker 补齐真实目标字段。
+- 首次 MenxiaReview 在原转移写边界核对门下 actor、owner 与非空交接证据；恢复已接受的门下暂停阶段保持门下 owner，并复用原事件/暂停证据，不前置最终 assessment 或新增持久字段。
+
+### Validation boundary
+
+- 本版优先派遣/回奏与安装根工作包、F04/F05/F06 已通过本地 SOURCE 出口和独立门下审查。runtime、lifecycle、显式 SOURCE completion 24 项及关联 checker 7/7 实际通过；安装候选、真实 native/UI 与正式全流转未由此证明。
+- 完整 semantic 入口 T08 在本批 before/current 同条件下均失败；独立 stage3 的 charter_sha256 漂移继续保留。未宣称全部套件全绿或扩大修复这些既有条目。
+- 当前实际安装仍为 beta1.1.9 / generation 27 / COMMITTED；源码开发、安装投影和实际宿主运行分别记录。本轮未替换安装、重启已有 MCP 服务、推进 root accepted version 或发布。
+- 当前安装必需投影材料与 14 官署配置存在并同步；独立 archive_checkpoint.py 的本日额外修改保留为差异，不以“补齐”覆盖其他写者的行为。
+
 ## beta1.1.9 - 2026-10-09 (candidate)
 
 ### Fixed

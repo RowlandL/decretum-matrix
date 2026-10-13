@@ -1,5 +1,13 @@
 # Release Log
 
+## beta1.2.0
+
+- 官署职责名使用已准入的名称或可无损表达的业务路径；差遣与回奏使用简明业务说明，内部请求、P00 与真实实例绑定保留在既有机器证据中。
+- 简明差遣的证据指针绑定实际 semantic-receipt history 与 admission event；运行根从 COMMITTED 安装 binding 选择，缺失或无效绑定时拒绝回退源码。
+- P00 持久消费者拒绝未知、空和非文本 schema；结果完成与恢复核对同一目标的 task_id/plan_ref，保留显式空计划及历史缺字段的实际签发计划来源。
+- 首次 MenxiaReview 核对门下 actor、owner 与非空交接证据；已接受门下阶段的专用暂停恢复保持门下 owner，并复用既有转移与暂停证据。
+- 状态：SOURCE 候选；本轮本地 SOURCE 检查和独立审查不证明打包、安装、真实 native/UI 或正式全流转。既有 T08/stage3 与 archive 漂移保留；提交、CI 与发布以对应回读为准。
+
 ## beta1.1.9
 
 - 完成事务恢复与业务写入复用同一 runtime lock；恢复冲突或无效 marker 保留并阻止新写入。安装写入复用同 HOME 锁，规划保持零写，锁路径先验证且超时/异常后可重获。

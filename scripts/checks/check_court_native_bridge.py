@@ -23,6 +23,7 @@ if str(SCRIPTS) not in sys.path:
 
 from commands import court_native_bridge as bridge
 import court_runtime
+NATIVE_SKILL_ROOT_RESOLVER = court_runtime.skill_root
 from court_case_binding import office_capsule_reference
 from court_native_host_dispatch import (
     native_request_reference,
@@ -86,6 +87,18 @@ def _p00_context(request: dict[str, object]) -> dict[str, object]:
         "fork_context": "none",
         "context_mode": "bounded",
         "pointers": [{"path": "authority/current.md", "case_ref": dict(CASE_REF)}],
+    }
+
+
+def _message_evidence(request, context):
+    """Pure adapter fixture; real public runtime tests verify persisted records."""
+    normalized = bridge.normalize_native_host_dispatch_request(request)
+    return {
+        'source': 'SOURCE_ONLY_FIXTURE',
+        'request': normalized, 'dispatch_context': bridge._message_context(normalized, context),
+        'semantic_receipt': {'receipt_sequence': 1}, 'admission_event': {},
+        'pointers': ['court-runtime:tasks/fixture/semantic_receipts[receipt_sequence=1]',
+                     'court-runtime:tasks/fixture/events[0]'],
     }
 
 
@@ -284,7 +297,7 @@ def _runtime_request_builder_fixture() -> None:
                     if spawn_agent_type_field == "visible"
                     else None
                 ),
-            )
+            evidence_binding=_message_evidence(request, _p00_context(request)))
 
         court_runtime.load_tasks = lambda: {task_id: task}  # type: ignore[assignment]
         court_runtime.events_for_task = lambda *_args, **_kwargs: [event]  # type: ignore[assignment]
@@ -352,7 +365,7 @@ def _runtime_host_message_fixture() -> None:
         "preload_sources": court_runtime._semantic_preload_sources(str(request["role"])),
     }
     result = court_runtime._native_bridge_request_result(task, admission, binding, request)
-    message = json.loads(result["host_message"])
+    message = result["host_message_binding"]
     assert message["task"]["task_id"] == request["task_id"]
     assert message["task"]["role_key"] == request["role"]
     assert message["execution"] == {"authority": "super", "behavior": "parallel"}
@@ -364,7 +377,7 @@ def _runtime_host_message_fixture() -> None:
         selected = {"authority": authority, "behavior": "parallel"}
         bound = {**task, "case_binding": {**CASE_REF, "case_execution": selected}}
         reply = court_runtime._native_bridge_request_result(bound, admission, binding, request)
-        assert json.loads(reply["host_message"])["execution"] == selected
+        assert reply["host_message_binding"]["execution"] == selected
     for selected in ({"authority": "super", "behavior": "serial"},
                      {"authority": "unknown", "behavior": "parallel"}):
         _expect_rejected(lambda: court_runtime._native_bridge_host_message_inputs(
@@ -572,6 +585,18 @@ def _caller_guard_fixture() -> None:
 
 
 class NativeCapabilityContractTests(unittest.TestCase):
+    def setUp(self):
+        source_root = patch.object(court_runtime, 'skill_root', return_value=OFFICE_ROOT)
+        source_root.start()
+        self.source_root = source_root
+        self.addCleanup(source_root.stop)
+        # Model/capability tests isolate the already-bound renderer from disk
+        # history. Dedicated evidence tests below exercise its real producer.
+        producer = patch.object(court_runtime, '_native_bridge_message_evidence',
+            side_effect=lambda task, admission, binding, request, context: _message_evidence(request, context))
+        self.evidence_producer = producer
+        producer.start()
+        self.addCleanup(producer.stop)
     child_thread_id = "019f4eb1-38e7-7760-bbc9-77a030b7cf0e"
     session_id = "019f4eb0-38e7-7760-bbc9-77a030b7cf0e"
     binding = {"role": "gongbu", "instance_id": "gongbu-native-0001"}
@@ -687,6 +712,256 @@ class NativeCapabilityContractTests(unittest.TestCase):
             ),
         }
         return task, admission, binding, request
+
+    def test_native_presentation_uses_duty_name_and_business_message(self):
+        request = _request()
+        result = bridge.native_request_result(
+            request, execution=_execution(), p00_context=_p00_context(request),
+            evidence_binding=_message_evidence(request, _p00_context(request)),
+        )
+        name = result['host_invocation']['arguments']['task_name']
+        self.assertNotRegex(name, r'_native_[0-9a-f]{16}$')
+        self.assertNotIn(DISPATCH_UID.removeprefix('DSP-')[-12:], name)
+        message = result['host_message']
+        self.assertFalse(message.startswith('{'))
+        self.assertIn(request['assignment'], message)
+        self.assertNotIn('child_acceptance', message)
+        self.assertNotIn('Emit acceptance', message)
+        self.assertNotIn('wait.', message)
+        self.assertNotIn(DISPATCH_UID, message)
+        self.assertIn('结论', message)
+        self.assertEqual(result['request_ref'], native_request_reference(request))
+
+    def test_admitted_presentation_name_reaches_runtime_renderer_and_start(self):
+        task, admission, binding, request = self._runtime_request_case()
+        binding['collaboration_task_name'] = 'gongbu_presentation'
+        result = court_runtime._native_bridge_request_result(
+            task, admission, binding, request
+        )
+        self.assertEqual(result['host_invocation']['arguments']['task_name'],
+                         binding['collaboration_task_name'])
+        with patch.object(court_runtime, '_native_bridge_model_inputs', return_value={
+            'assignment': request['assignment'], 'task_focus': 'fixture',
+            'complexity': 'low', 'risk': 'low', 'ambiguity': 'low', 'transport': 'codex'
+        }), patch.object(court_runtime, 'public_dispatch_context_packet', return_value={}), \
+                patch.object(court_runtime, '_revalidate_context_economy_start', return_value=None):
+            start = court_runtime._native_bridge_start_request(
+                task, admission, binding, request,
+                {'request_ref': result['request_ref'], 'native_host_action_receipt': {}}
+            )
+        self.assertEqual(start['collaboration_task_name'], binding['collaboration_task_name'])
+
+    def test_business_report_projects_only_result_fields(self):
+        report = bridge.business_report_projection({
+            'summary': '名称和消息修复通过。', 'status': 'completed',
+            'evidence': ['checks/green.txt'], 'next': '送门下复核。',
+            'dispatch_uid': DISPATCH_UID, 'preload_ack_request': {'skill_loaded': True}
+        })
+        self.assertEqual(set(report), {'summary', 'status', 'evidence', 'next'})
+        self.assertNotIn(DISPATCH_UID, json.dumps(report))
+
+    def test_receipt_only_and_same_path_old_epoch_change_exact_host_message(self):
+        request = _request()
+        context = _p00_context(request)
+        evidence = _message_evidence(request, context)
+        original = bridge.canonical_host_message(request, execution=_execution(), p00_context=context,
+                                                 evidence_binding=evidence)
+        tampered = deepcopy(context)
+        tampered['semantic_receipt_id'] = 'SEM-TAMPERED'
+        with self.assertRaisesRegex(ValueError, 'message_evidence_binding_mismatch'):
+            bridge.canonical_host_message(request, execution=_execution(), p00_context=tampered,
+                                          evidence_binding=evidence)
+        old = deepcopy(request)
+        old['semantic_epoch'] -= 1
+        old['case_ref']['charter_revision'] -= 1
+        old['office_capsule_ref'] = office_capsule_reference(
+            old['case_ref'], old['role'], old['instance_id'], ISSUED_AT)
+        old_context = deepcopy(context)
+        old_context['semantic_epoch'] = old['semantic_epoch']
+        old_context['case_ref'] = deepcopy(old['case_ref'])
+        old_context['pointers'][0]['case_ref'] = deepcopy(old['case_ref'])
+        with self.assertRaisesRegex(ValueError, 'message_evidence_binding_mismatch'):
+            bridge.canonical_host_message(old, execution=_execution(), p00_context=old_context,
+                                          evidence_binding=evidence)
+
+    def test_business_envelope_reaches_actual_office_finish_projection(self):
+        envelope = {'summary': '职责名修复通过。', 'status': 'completed',
+                    'evidence': ['evidence/green.txt'], 'dispatch_uid': DISPATCH_UID}
+        record = {'role': 'gongbu', 'result_envelope': envelope, 'status': 'completed',
+                  'preload_ack_request': {'skill_loaded': True}}
+        task = {'agents': {'gongbu-fixture': record}, 'next_step': '送门下复核。'}
+        event = {'event_id': 'event-fixture', 'evidence': 'event/evidence.txt'}
+        with patch.object(court_runtime, '_office_lifecycle_receipt', return_value={'bound': True}):
+            payload = court_runtime._office_transition_payload(
+                'finish', court_runtime.TransitionResult(task, event), 'gongbu-fixture')
+        self.assertEqual(payload['business_report'], {
+            'summary': envelope['summary'], 'status': 'completed',
+            'evidence': envelope['evidence'], 'next': task['next_step']})
+        self.assertEqual(payload['office_instance'], record)
+        self.assertEqual(payload['event'], event)
+
+    def test_same_role_default_duties_and_retry_keep_existing_target(self):
+        request = _request()
+        request['assignment'] = '修复职责名称'
+        other = deepcopy(request)
+        other['assignment'] = '修复安装入口'
+        other['duty_scope'] = other['write_set'] = ['scripts/court_runtime.py']
+        first = bridge.native_request_result(
+            request, execution=_execution(), p00_context=_p00_context(request),
+            evidence_binding=_message_evidence(request, _p00_context(request)))
+        second = bridge.native_request_result(
+            other, execution=_execution(), p00_context=_p00_context(other),
+            evidence_binding=_message_evidence(other, _p00_context(other)))
+        names = [value['host_invocation']['arguments']['task_name'] for value in (first, second)]
+        self.assertEqual(names, ['gongbu_scripts_commands_court_native_bridge', 'gongbu_scripts_court_runtime'])
+        self.assertEqual(first['request']['role'], second['request']['role'])
+        retry = deepcopy(request)
+        retry['attempt'] += 1
+        retry['dispatch_uid'] = 'DSP-' + 'b' * 32
+        self.assertEqual(bridge.native_host_task_name(retry), names[0])
+
+        task, admission, binding, reuse = self._runtime_request_case(followup=True)
+        old_path = '/root/shangshu/gongbu_native_aabbccddee120001'
+        candidate = reuse['compatible_live_instances'][0]
+        candidate.update(host_task_id=old_path, host_instance_id=old_path,
+                         host_thread_id='01a0743f-9c12-7842-bfec-8620bf6942c4',
+                         host_identity_kind='canonical_agent_path')
+        reuse['attempt'] = 2
+        resumed = bridge.native_request_result(
+            reuse, execution=_execution(), p00_context=_p00_context(reuse),
+            collaboration_task_name='gongbu_presentation',
+            evidence_binding=_message_evidence(reuse, _p00_context(reuse)))
+        self.assertEqual(resumed['host_invocation']['tool_name'], 'followup_task')
+        self.assertEqual(resumed['host_invocation']['arguments']['target'], old_path.rsplit('/', 1)[-1])
+        self.assertNotIn('task_name', resumed['host_invocation']['arguments'])
+        self.assertNotIn(DISPATCH_UID, resumed['host_message'])
+        self.assertNotIn('bootstrap', resumed['host_message_binding'])
+        record = {'role': reuse['role'], 'office_instance_id': reuse['instance_id'],
+                  'office_instance_kind': 'child_agent', 'carrier_proof': {'agent_id': 'gongbu-original'},
+                  'semantic_epoch': 3, 'case_ref': dict(CASE_REF), 'checkpoint_id': 'checkpoint-old',
+                  'dispatch_uid': DISPATCH_UID, 'attempt': 1}
+        task['agents'] = {'gongbu-original': record}
+        followup = court_runtime._native_bridge_followup_request(task, binding, reuse,
+            {'native_host_action_receipt': {}, 'request_ref': native_request_reference(reuse)})
+        self.assertEqual(followup['carrier_proof'], record['carrier_proof'])
+        self.assertEqual(followup['dispatch_uid'], record['dispatch_uid'])
+        self.assertEqual(followup['attempt'], record['attempt'])
+
+    def test_pure_renderer_missing_binding_never_returns_json(self):
+        request = _request()
+        with self.assertRaisesRegex(ValueError, 'message_evidence_required'):
+            bridge.native_request_result(request, execution=_execution(), p00_context=_p00_context(request))
+
+    def test_default_invocation_distinguishes_complete_duty_paths(self):
+        for label, assignment, write_set, paths, expected in (
+            ('read_only_wrappers', '复核语义连续性', [],
+             ['scripts/check_semantic_continuity.py', 'scripts/checks/check_semantic_continuity.py'],
+             ['gongbu_scripts_check_semantic_continuity', 'gongbu_scripts_checks_check_semantic_continuity']),
+            ('same_stem', 'review config', None,
+             ['src/alpha/config.py', 'src/beta/config.py'],
+             ['gongbu_src_alpha_config', 'gongbu_src_beta_config']),
+        ):
+            with self.subTest(case=label):
+                arguments = []
+                for path in paths:
+                    request = _request()
+                    request['assignment'] = assignment
+                    request['duty_scope'] = [path]
+                    request['write_set'] = [] if write_set == [] else [path]
+                    generated = bridge.native_request_result(
+                        request, execution=_execution(), p00_context=_p00_context(request),
+                        evidence_binding=_message_evidence(request, _p00_context(request)))
+                    arguments.append(generated['host_invocation']['arguments'])
+                    self.assertEqual(generated['request']['write_set'], request['write_set'])
+                self.assertEqual([value['task_name'] for value in arguments], expected)
+                self.assertNotEqual(arguments[0]['task_name'], arguments[1]['task_name'])
+                self.assertTrue(all(DISPATCH_UID not in value['task_name'] for value in arguments))
+
+    def test_missing_or_overlong_default_duty_has_admitted_name_recovery(self):
+        for assignment, path in (
+            ('修复职责名称', '模块/职责说明.md'),
+            ('review config', '/'.join(['longresponsibility'] * 12) + '/config.py'),
+        ):
+            with self.subTest(path=path):
+                request = _request()
+                request['assignment'] = assignment
+                request['duty_scope'] = request['write_set'] = [path]
+                context = _p00_context(request)
+                with self.assertRaisesRegex(ValueError, 'next_step=.*collaboration_task_name.*native-request'):
+                    bridge.native_request_result(request, execution=_execution(), p00_context=context,
+                                                 evidence_binding=_message_evidence(request, context))
+                recovered = bridge.native_request_result(
+                    request, execution=_execution(), p00_context=context,
+                    collaboration_task_name='gongbu_duty_names',
+                    evidence_binding=_message_evidence(request, context))
+                self.assertEqual(recovered['host_invocation']['arguments']['task_name'], 'gongbu_duty_names')
+                self.assertEqual(recovered['request']['assignment'], assignment)
+                self.assertEqual(recovered['request']['duty_scope'], [path])
+                with self.assertRaisesRegex(ValueError, 'host_task_name_too_long; next_step=.*collaboration_task_name'):
+                    bridge.native_request_result(request, execution=_execution(), p00_context=context,
+                        collaboration_task_name='gongbu_' + 'longduty' * 20,
+                        evidence_binding=_message_evidence(request, context))
+
+    def test_native_materials_follow_committed_runtime_root_without_source_fallback(self):
+        from checks.installed_identity_fixture import write_skill
+        self.source_root.stop()
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                write_skill(root)
+                with patch.object(court_runtime, 'skill_root', NATIVE_SKILL_ROOT_RESOLVER), \
+                        patch.object(court_runtime, 'runtime_code_root', return_value=root):
+                    self.assertEqual(court_runtime.skill_root(), root)
+                    preload = court_runtime._semantic_preload_sources('gongbu')
+                    sources = court_runtime._native_role_ack_sources(preload)
+                    self.assertEqual(sources['court_skill_path'], str(root / 'SKILL.md'))
+                    self.assertEqual(sources['profile_source'], str(root / preload['profile_source']))
+                with patch.object(court_runtime, 'skill_root', NATIVE_SKILL_ROOT_RESOLVER), \
+                        patch.object(court_runtime, 'runtime_code_root', side_effect=RuntimeError('invalid binding')):
+                    with self.assertRaisesRegex(RuntimeError, 'invalid binding'):
+                        court_runtime._native_role_ack_sources(preload)
+        finally:
+            self.source_root.start()
+
+    def test_default_invocation_requires_lossless_business_path(self):
+        for path, explicit in (
+            ('src/甲模块.py', 'gongbu_alpha_module'),
+            ('src/乙模块.py', 'gongbu_beta_module'),
+            ('.scratch/TASK-002-20261013/result.json', 'gongbu_result_review'),
+            ('.repo-control/TASK-002-20261013/result.json', 'gongbu_runtime_review'),
+            ('src/alpha-config.py', 'gongbu_config_review'),
+        ):
+            with self.subTest(path=path):
+                request = _request()
+                request['assignment'] = '复核业务实现'
+                request['duty_scope'] = request['write_set'] = [path]
+                context = _p00_context(request)
+                with self.assertRaisesRegex(ValueError, 'next_step=.*collaboration_task_name.*native-request'):
+                    bridge.native_request_result(request, execution=_execution(), p00_context=context,
+                                                 evidence_binding=_message_evidence(request, context))
+                recovered = bridge.native_request_result(request, execution=_execution(), p00_context=context,
+                    collaboration_task_name=explicit, evidence_binding=_message_evidence(request, context))
+                self.assertEqual(recovered['host_invocation']['arguments']['task_name'], explicit)
+                self.assertEqual(recovered['request']['duty_scope'], [path])
+
+        request = _request()
+        request['assignment'] = '复核业务实现'
+        request['write_set'] = ['.scratch/TASK-002-20261013/result.json', 'src/alpha/config.py']
+        request['duty_scope'] = request['write_set']
+        generated = bridge.native_request_result(request, execution=_execution(), p00_context=_p00_context(request),
+            evidence_binding=_message_evidence(request, _p00_context(request)))
+        self.assertEqual(generated['host_invocation']['arguments']['task_name'], 'gongbu_src_alpha_config')
+        self.assertNotIn('task_002', generated['host_invocation']['arguments']['task_name'])
+        request['write_set'] = ['.repo-control/TASK-002-20261013/result.json']
+        request['duty_scope'] = request['write_set'] + ['src/beta/config.py']
+        generated = bridge.native_request_result(request, execution=_execution(), p00_context=_p00_context(request),
+            evidence_binding=_message_evidence(request, _p00_context(request)))
+        self.assertEqual(generated['host_invocation']['arguments']['task_name'], 'gongbu_src_beta_config')
+        request['write_set'] = ['src/甲模块.py', 'src/alpha/config.py']
+        request['duty_scope'] = request['write_set']
+        with self.assertRaisesRegex(ValueError, 'next_step=.*collaboration_task_name.*native-request'):
+            bridge.native_request_result(request, execution=_execution(), p00_context=_p00_context(request),
+                evidence_binding=_message_evidence(request, _p00_context(request)))
 
     def test_model_effort_selector_capabilities_are_closed_and_value_free(self):
         base = {
@@ -986,7 +1261,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
             execution=_execution(),
             p00_context=_p00_context(request),
             agent_type=actual_agent_type,
-        )
+        evidence_binding=_message_evidence(request, _p00_context(request)))
         invocation = {
             **native["host_invocation"],
             "arguments": dict(native["host_invocation"]["arguments"]),
@@ -1020,7 +1295,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
                     "CODEX_SESSION_ID": self.session_id,
                 },
                 codex_home=home,
-            )
+            evidence_binding=_message_evidence(request, _p00_context(request)))
 
     def test_visible_capture_rejects_null_child_role_after_exact_role_control(self):
         exact = self._capture(
@@ -1271,13 +1546,13 @@ class NativeCapabilityContractTests(unittest.TestCase):
             request,
             execution=_execution(),
             p00_context=_p00_context(request),
-        )
+        evidence_binding=_message_evidence(request, _p00_context(request)))
         visible = bridge.native_request_result(
             request,
             execution=_execution(),
             p00_context=_p00_context(request),
             agent_type="gongbu",
-        )
+        evidence_binding=_message_evidence(request, _p00_context(request)))
         hidden_arguments = hidden["host_invocation"]["arguments"]
         visible_arguments = visible["host_invocation"]["arguments"]
         self.assertEqual(hidden_arguments["task_name"], visible_arguments["task_name"])
@@ -1324,7 +1599,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
             reuse,
             execution=_execution(),
             p00_context=_p00_context(reuse),
-        )
+        evidence_binding=_message_evidence(reuse, _p00_context(reuse)))
         self.assertEqual(control["expected_host_action"], "followup")
         with self.assertRaisesRegex(
             ValueError,
@@ -1335,7 +1610,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
                 execution=_execution(),
                 p00_context=_p00_context(reuse),
                 agent_type="gongbu",
-            )
+            evidence_binding=_message_evidence(reuse, _p00_context(reuse)))
 
     def test_explicit_model_followup_reuses_only_same_matched_authorization(self):
         selection = self._model_selection(
@@ -1411,7 +1686,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
             request,
             execution=_execution(),
             p00_context=_p00_context(request),
-        )
+        evidence_binding=_message_evidence(request, _p00_context(request)))
         manifest = build_preload_manifest("gongbu")
         startup = "references/court-normal-startup.md"
         measure = court_runtime._native_bridge_preload_source_bytes
@@ -1494,7 +1769,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
                     execution=_execution(),
                     p00_context=_p00_context(request),
                     agent_type=agent_type,
-                )
+                evidence_binding=_message_evidence(request, _p00_context(request)))
                 binding = {
                     "role": role,
                     "office_instance_kind": "child_agent",
@@ -1538,12 +1813,12 @@ def main() -> int:
         request,
         execution=execution,
         p00_context=p00_context,
-    )
+    evidence_binding=_message_evidence(request, p00_context))
     assert result["schema"] == "court.office.native_request.result.v1"
     marker = result["host_message_marker"]
     assert isinstance(marker, str) and bridge.HOST_MARKER_PREFIX in marker
     assert result["request_ref"] == native_request_reference(request)
-    assert json.loads(result["host_message"])["marker"] == marker
+    assert result["host_message_binding"]["marker"] == marker
     assert result["host_invocation"]["arguments"]["message"] == result["host_message"]
 
     _expect_rejected(
@@ -1581,7 +1856,9 @@ def main() -> int:
         original_builder = court_runtime.build_preload_manifest
         with patch.object(court_runtime, 'build_preload_manifest',
                           side_effect=lambda *a, **k: original_builder(*a, **{**k, 'skill_root': fixture_root})), \
-                patch.object(court_runtime, 'skill_root', return_value=fixture_root):
+                patch.object(court_runtime, 'skill_root', return_value=fixture_root), \
+                patch.object(court_runtime, '_native_bridge_message_evidence',
+                    side_effect=lambda task, admission, binding, request, context: _message_evidence(request, context)):
             _runtime_host_message_fixture()
     _caller_guard_fixture()
 
@@ -1596,7 +1873,7 @@ def main() -> int:
             p00_context=p00_context,
             environment=environment,
             codex_home=home,
-        )
+        evidence_binding=_message_evidence(request, p00_context))
         receipt = captured["native_host_action_receipt"]
         assert isinstance(receipt, dict)
         assert receipt["schema"] == "court.native_host_action_receipt.v1"
@@ -1615,7 +1892,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment={"CODEX_THREAD_ID": "different-legacy-thread", "CODEX_SESSION_ID": session_id},
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "legacy thread metadata mismatch",
         )
 
@@ -1635,7 +1912,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "same marker different message",
         )
 
@@ -1655,7 +1932,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "same marker different task target",
         )
 
@@ -1675,7 +1952,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "same marker different role",
         )
 
@@ -1695,7 +1972,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "host identity unavailable",
         )
 
@@ -1722,7 +1999,7 @@ def main() -> int:
             identity_context=canonical_context,
             environment={"CODEX_THREAD_ID": "child-thread-not-session", "CODEX_SESSION_ID": session_id},
             codex_home=home,
-        )
+        evidence_binding=_message_evidence(request, p00_context))
         canonical_receipt = canonical_capture["native_host_action_receipt"]
         assert canonical_receipt["host_identity_kind"] == "canonical_agent_path"
         assert canonical_receipt["host_thread_id"] is None
@@ -1772,7 +2049,7 @@ def main() -> int:
                     identity_context=context,
                     environment=environment,
                     codex_home=home,
-                ),
+                evidence_binding=_message_evidence(request, p00_context)),
                 label,
             )
 
@@ -1801,7 +2078,7 @@ def main() -> int:
             identity_context=shangshu_context,
             environment=environment,
             codex_home=home,
-        )
+        evidence_binding=_message_evidence(request, p00_context))
         assert shangshu_capture["native_host_action_receipt"]["trusted_parent_kind"] == "same_case_ready_shangshu"
 
     v1_result = bridge.native_request_result(
@@ -1809,7 +2086,7 @@ def main() -> int:
         execution=execution,
         p00_context=p00_context,
         agent_type="gongbu",
-    )
+    evidence_binding=_message_evidence(request, p00_context))
     assert v1_result["host_invocation"]["arguments"]["agent_type"] == "gongbu"
     with tempfile.TemporaryDirectory(prefix="court-native-bridge-v1-") as temp_dir:
         home = Path(temp_dir)
@@ -1826,7 +2103,7 @@ def main() -> int:
             agent_type="gongbu",
             environment=environment,
             codex_home=home,
-        )
+        evidence_binding=_message_evidence(request, p00_context))
         assert v1_capture["office_command"] == "start"
 
     with tempfile.TemporaryDirectory(prefix="court-native-bridge-v1-reject-") as temp_dir:
@@ -1846,7 +2123,7 @@ def main() -> int:
                 agent_type="gongbu",
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "v1 agent_type missing",
         )
 
@@ -1867,7 +2144,7 @@ def main() -> int:
                 agent_type="gongbu",
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "v1 agent_type wrong",
         )
 
@@ -1898,7 +2175,7 @@ def main() -> int:
         reuse,
         execution=execution,
         p00_context=reuse_p00_context,
-    )
+    evidence_binding=_message_evidence(reuse, reuse_p00_context))
     reuse_marker = reuse_result["host_message_marker"]
     with tempfile.TemporaryDirectory(prefix="court-native-bridge-followup-") as temp_dir:
         home = Path(temp_dir)
@@ -1918,7 +2195,7 @@ def main() -> int:
             p00_context=reuse_p00_context,
             environment=environment,
             codex_home=home,
-        )
+        evidence_binding=_message_evidence(reuse, reuse_p00_context))
         assert followed_up["office_command"] == "followup"
         assert followed_up["native_host_action_receipt"]["host_action"] == "followup"
 
@@ -1947,7 +2224,7 @@ def main() -> int:
                     p00_context=reuse_p00_context,
                     environment=environment,
                     codex_home=home,
-                ),
+                evidence_binding=_message_evidence(reuse, reuse_p00_context)),
                 f"{delivery_only_tool} must not produce a reuse receipt",
             )
         with tempfile.TemporaryDirectory(prefix="court-native-bridge-send-input-") as temp_dir:
@@ -1972,7 +2249,7 @@ def main() -> int:
                     p00_context=reuse_p00_context,
                     environment=environment,
                     codex_home=home,
-                ),
+                evidence_binding=_message_evidence(reuse, reuse_p00_context)),
                 f"{delivery_only_tool} without a marker must not produce a reuse receipt",
             )
 
@@ -1995,7 +2272,7 @@ def main() -> int:
                 p00_context=reuse_p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(reuse, reuse_p00_context)),
             "same marker different followup target",
         )
 
@@ -2037,7 +2314,7 @@ def main() -> int:
         canonical_reuse,
         execution=execution,
         p00_context=canonical_p00_context,
-    )
+    evidence_binding=_message_evidence(canonical_reuse, canonical_p00_context))
     assert canonical_reuse_result["expected_host_action"] == "followup"
     assert (
         canonical_reuse_result["host_invocation"]["arguments"]["target"]
@@ -2136,7 +2413,7 @@ def main() -> int:
             identity_context=canonical_context,
             environment=environment,
             codex_home=home,
-        )
+        evidence_binding=_message_evidence(canonical_reuse, canonical_p00_context))
         assert canonical_followed_up["office_command"] == "followup"
         canonical_receipt = canonical_followed_up["native_host_action_receipt"]
         assert canonical_receipt["host_action"] == "followup"
@@ -2194,7 +2471,7 @@ def main() -> int:
                     identity_context=canonical_context,
                     environment=environment,
                     codex_home=home,
-                ),
+                evidence_binding=_message_evidence(canonical_reuse, canonical_p00_context)),
                 label,
             )
 
@@ -2213,7 +2490,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "session metadata mismatch",
         )
 
@@ -2227,7 +2504,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "unknown tool shape",
         )
 
@@ -2241,7 +2518,7 @@ def main() -> int:
                 p00_context=p00_context,
                 environment=environment,
                 codex_home=home,
-            ),
+            evidence_binding=_message_evidence(request, p00_context)),
             "missing request marker",
         )
 
@@ -2260,4 +2537,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    with patch.object(court_runtime, 'skill_root', return_value=OFFICE_ROOT):
+        raise SystemExit(main())

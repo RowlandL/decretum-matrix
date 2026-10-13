@@ -85,26 +85,44 @@ def code_root() -> Path:
     return Path(__file__).parents[1]
 
 
-RUNTIME_MARKER_PATHS = (
-    Path("scripts") / "court_cli.py",
-    Path("scripts") / "archive_checkpoint.py",
-    Path("scripts") / "query_shiguan_index.py",
-    Path("scripts") / "sync_active_copies.py",
-)
+def runtime_installation_binding(home: Path | None = None) -> dict[str, object]:
+    """Read the committed runtime binding through the existing path guards."""
+
+    # The registry imports these source/data helpers. Delay this import until
+    # selection so module loading stays read-only and does not form a cycle.
+    from refresh_capability_registry import (
+        INSTALLATION_BINDING_SCHEMA,
+        _load_reference_file,
+        _managed_installation_binding_path,
+        installation_binding_errors,
+    )
+
+    selected_home = (home or Path.home()).expanduser()
+    next_step = json.dumps({
+        "action": "prepare_installation_repair_plan",
+        "command": ["decretum-matrix", "install", "update", "--home-root", str(selected_home), "--format", "json"],
+    }, ensure_ascii=True)
+    try:
+        path = _managed_installation_binding_path(selected_home)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            "installation_binding_path_invalid; reason=INSTALLATION_BINDING_PATH_INVALID; next_step=" + next_step
+        ) from exc
+    binding = _load_reference_file(path, INSTALLATION_BINDING_SCHEMA, expected_path=path)
+    errors = installation_binding_errors(binding, home_root=selected_home)
+    if errors:
+        raise RuntimeError(
+            "installation_binding_missing_or_invalid:" + ",".join(errors)
+            + "; reason=" + ",".join(errors) + "; next_step=" + next_step
+        )
+    return binding
 
 
 def runtime_code_root(home: Path | None = None) -> Path:
-    """Return the stable canonical installed runtime when it is complete."""
+    """Return the committed canonical installation; never select source code."""
 
-    canonical = (
-        (home or Path.home()).expanduser()
-        / ".agents"
-        / "skills"
-        / "decretum-matrix"
-    )
-    if all((canonical / relative).is_file() for relative in RUNTIME_MARKER_PATHS):
-        return canonical
-    return code_root()
+    binding = runtime_installation_binding(home)
+    return Path(str(binding["canonical_root"]))
 
 
 def resolved_code_root() -> Path:

@@ -1515,6 +1515,75 @@ def check_atomic_complete_and_exact_rollback() -> None:
     assert court_runtime.events_path().read_bytes() == before_events
 
 
+def check_f06_first_menxia_transition_and_dedicated_resume() -> dict[str, object]:
+    from checks.check_semantic_continuity import _reviewed_dispatchable_case
+    failures, observations = [], []
+    with TemporaryDirectory() as temporary:
+        original_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temporary)
+        try:
+            task_id = 'f06-first-memorial-review'
+            _reviewed_dispatchable_case(task_id, 'F06 first Menxia review transition')
+            for state in ('SixMinistries', 'Workshops'):
+                court_runtime.transition_task(Namespace(task_id=task_id, to_state=state, actor='shangshu',
+                    owner='', heartbeat='', evidence='F06 reviewed dispatch', note='F06 legal path'))
+            snapshot = court_runtime.load_tasks()[task_id]
+            for label, actor, owner, evidence in (
+                ('ministry_actor', 'gongbu', '', 'review-pointer'),
+                ('superior_actor', 'shangshu', 'menxia', 'review-pointer'),
+                ('foreign_owner', 'menxia', 'shangshu', 'review-pointer'),
+                ('missing_evidence', 'menxia', '', ''),
+            ):
+                court_runtime.write_tasks({task_id: deepcopy(snapshot)})
+                before = court_runtime.tasks_path().read_bytes()
+                try:
+                    result = court_runtime.transition_task(Namespace(task_id=task_id, to_state='MenxiaReview',
+                        actor=actor, owner=owner, heartbeat='', evidence=evidence, note='F06 first negative'))
+                except ValueError as error:
+                    observations.append({'case': label, 'refused': str(error)})
+                    if court_runtime.tasks_path().read_bytes() != before:
+                        failures.append(label + ':mutated')
+                else:
+                    observations.append({'case': label, 'accepted_owner': result.task['owner']})
+                    failures.append(label + ':accepted')
+            court_runtime.write_tasks({task_id: deepcopy(snapshot)})
+            pause_args = Namespace(task_id=task_id, actor='shangshu', reason='review hold',
+                evidence_preserved='review-pointer', unsafe_remaining='none', affected_scope='F06', note='F06 pause')
+            paused_workshops = court_runtime.pause_task(pause_args).task
+            try:
+                court_runtime.resume_task(Namespace(task_id=task_id, to_state='MenxiaReview', actor='shangshu',
+                    resume_evidence='hold cleared', affected_scope='F06', from_paused_state='Workshops', note='F06 first bypass'))
+            except ValueError as error:
+                observations.append({'case': 'paused_from_workshops', 'refused': str(error)})
+                if court_runtime.load_tasks()[task_id] != paused_workshops:
+                    failures.append('paused_from_workshops:mutated')
+            else:
+                failures.append('paused_from_workshops:accepted')
+            court_runtime.write_tasks({task_id: deepcopy(snapshot)})
+            accepted = court_runtime.transition_task(Namespace(task_id=task_id, to_state='MenxiaReview',
+                actor='menxia', owner='', heartbeat='', evidence='review-pointer', note='F06 first accepted')).task
+            if accepted['owner'] != 'menxia': failures.append('first_legal:owner')
+            court_runtime.pause_task(pause_args)
+            resumed = court_runtime.resume_task(Namespace(task_id=task_id, to_state='MenxiaReview', actor='shangshu',
+                resume_evidence='hold cleared', affected_scope='F06', from_paused_state='MenxiaReview', note='F06 dedicated resume')).task
+            if resumed['owner'] != 'menxia': failures.append('accepted_resume:owner')
+            if resumed.get('evidence_preserved') != 'review-pointer':
+                failures.append('accepted_resume:review_evidence_lost')
+            review_events = [event for event in court_runtime.events_for_task(task_id)
+                if event.get('from_state') == 'Workshops' and event.get('to_state') == 'MenxiaReview'
+                and event.get('actor') == 'menxia' and event.get('evidence') == 'review-pointer']
+            if not review_events:
+                failures.append('accepted_resume:original_review_event_lost')
+        finally:
+            court_runtime.runtime_root = original_root
+    result = {'evidence_class': 'SOURCE_ONLY', 'task_id': task_id, 'observations': observations,
+              'first_path': 'reviewed_dispatchable -> SixMinistries -> Workshops -> MenxiaReview',
+              'legal_first': accepted['state'], 'resume_owner': resumed['owner'], 'failures': failures}
+    if failures:
+        raise AssertionError('F06_REVIEW_RED ' + json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return result
+
+
 def check_pause_resume_is_limited_to_menxia_review() -> None:
     task = assessment_ready_task("pause-resume")
     tasks = court_runtime.load_tasks()
@@ -2056,11 +2125,13 @@ def main() -> int:
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         original_runtime_root = court_runtime.runtime_root
+        original_skill_root = court_runtime.skill_root
         original_environment = {
             key: os.environ.get(key)
             for key in ("COURT_SHARED_SHIGUAN_ROOT", "COURT_RUNTIME_ROOT", "HOME", "USERPROFILE")
         }
         court_runtime.runtime_root = lambda: root / "runtime"  # type: ignore[assignment]
+        court_runtime.skill_root = lambda: Path(court_runtime.__file__).resolve().parents[1]
         os.environ.update(
             {
                 "COURT_SHARED_SHIGUAN_ROOT": str(root / "shared"),
@@ -2084,6 +2155,7 @@ def main() -> int:
             check_checkpoint_receipt_strict_binding()
             check_atomic_complete_and_exact_rollback()
             check_pause_resume_is_limited_to_menxia_review()
+            check_f06_first_menxia_transition_and_dedicated_resume()
             check_generic_completion_paths_fail_closed()
             check_persistent_completion_recovery()
             check_event_written_marker_finalizes_consistent_ledgers()
@@ -2097,6 +2169,7 @@ def main() -> int:
             check_cli_parser()
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+            court_runtime.skill_root = original_skill_root
             for key, value in original_environment.items():
                 if value is None:
                     os.environ.pop(key, None)

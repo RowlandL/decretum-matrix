@@ -137,7 +137,7 @@ from court_semantic_continuity import (
     validate_invariant_capsule,
     verify_semantic_receipt,
 )
-from shiguan_paths import code_root, ensure_shared_seed, reference_path
+from shiguan_paths import code_root, runtime_code_root, ensure_shared_seed, reference_path
 
 
 STATES = {
@@ -269,6 +269,7 @@ RESULT_RECOVERY_REASON_CODES = frozenset(
 )
 RESULT_BINDING_REASON_CODES = {
     "task_id": "RESULT_BINDING_TASK_ID_MISMATCH",
+    "plan_ref": "RESULT_BINDING_PLAN_REF_MISMATCH",
     "semantic_epoch": "RESULT_BINDING_SEMANTIC_EPOCH_MISMATCH",
     "case_ref": "RESULT_BINDING_CASE_REF_MISMATCH",
     "checkpoint_id": "RESULT_BINDING_CHECKPOINT_ID_MISMATCH",
@@ -389,7 +390,7 @@ def normalize_optional_timestamp(value: object, field: str) -> str | None:
 
 
 def skill_root() -> Path:
-    return code_root()
+    return runtime_code_root()
 
 
 def runtime_root() -> Path:
@@ -2157,9 +2158,8 @@ def _reject_native_host_receipt_replay(
 
 
 def _native_role_ack_sources(preload: Mapping[str, object]) -> dict[str, str]:
-    from court_office_bootstrap import ROOT as office_root
     return {
-        field: str((Path(office_root) / Path(str(preload[field]))).resolve())
+        field: str((skill_root() / Path(str(preload[field]))).resolve())
         for field in (
             "profile_source",
             "dossier_path",
@@ -2439,7 +2439,7 @@ def _expected_semantic_binding(task, args, *, require_dispatchable):
 
 
 def _semantic_preload_sources(role: str) -> dict[str, str]:
-    manifest = build_preload_manifest(role)
+    manifest = build_preload_manifest(role, skill_root=skill_root())
     return {
         "profile_source": manifest.profile_source,
         "dossier_path": manifest.dossier_path,
@@ -2750,7 +2750,7 @@ def _admission_bound_record(admission: Mapping[str, object]) -> dict[str, object
 def _validate_admission_immutable_event_anchor(
     task: Mapping[str, object],
     admission: Mapping[str, object],
-) -> None:
+) -> dict[str, object]:
     if isinstance(task.get("case_binding"), dict):
         from court_case_binding import refresh_case_binding
         expected_task = deepcopy(task)
@@ -2765,15 +2765,16 @@ def _validate_admission_immutable_event_anchor(
             raise ValueError("case_admission_binding_stale_or_foreign")
     event_id = admission.get("admission_event_id")
     matches = [
-        event for event in events_for_task(task.get("task_id"), limit=None)
+        (index, event) for index, event in enumerate(events_for_task(task.get("task_id"), limit=None))
         if event.get("action") == "agent_admit"
         and event.get("event_id") == event_id
         and event.get("wave_id") == admission.get("wave_id")
         and event.get("allowed") is True
     ]
     if (not event_id or len(matches) != 1
-            or matches[0].get("admission_record") != _admission_bound_record(admission)):
+            or matches[0][1].get("admission_record") != _admission_bound_record(admission)):
         raise ValueError("agent_start_admission_immutable_anchor_mismatch")
+    return {"index": matches[0][0], "event": deepcopy(matches[0][1])}
 
 
 def _admission_event_id(task, admission):
@@ -7542,10 +7543,21 @@ def apply_transition(
         actor = args.actor
         if actor not in OFFICES:
             raise ValueError(f"unknown actor office: {actor}")
+        owner = args.owner or actor
+        if to_state == "MenxiaReview":
+            restoring_review = (control_context and from_state == "Paused"
+                                and task.get("paused_from") == "MenxiaReview")
+            if not restoring_review and actor != "menxia":
+                raise ValueError("menxia_review_actor_required")
+            if args.owner and args.owner != "menxia":
+                raise ValueError("menxia_review_owner_required")
+            if not str(args.evidence or "").strip():
+                raise ValueError("menxia_review_evidence_required")
+            owner = "menxia"
         task.setdefault("runtime_schema_version", RUNTIME_SCHEMA_VERSION)
         task.setdefault("agent_runtime", default_agent_runtime())
         task["state"] = to_state
-        task["owner"] = args.owner or actor
+        task["owner"] = owner
         task["updated_at"] = now_text()
         task["last_evidence"] = args.evidence
         if args.heartbeat:
@@ -8668,7 +8680,7 @@ def _target_binding_from_record(task: Mapping[str, object], record: Mapping[str,
     if not isinstance(case_ref, Mapping) and str(task.get("court_code") or "").strip():
         case_ref = case_reference(task)
     plan_ref = record.get("plan_ref")
-    if not isinstance(plan_ref, Mapping):
+    if "plan_ref" not in record:
         plan = task.get("zhongshu_plan")
         plan_ref = plan_reference(plan) if isinstance(plan, Mapping) else None
     binding: dict[str, object] = {
@@ -9096,7 +9108,7 @@ def _consume_recovery_for_finish_locked(
                 raise ValueError("result_recovery_target_mismatch")
     else:
         target_binding, target_binding_sha256 = _validate_target_binding(task, target)
-    if result_binding_problems(dict(envelope), target):
+    if result_binding_problems(dict(envelope), target_binding):
         raise ValueError("result_recovery_target_mismatch")
     consumed_receipts: list[dict[str, object]] = []
     for recovery_id in recovery_ids:
@@ -9437,14 +9449,18 @@ def agent_event(
                 # Public admission reserves an office before its host carrier
                 # exists. Bind that carrier from the validated capture without
                 # rewriting the immutable admission or changing its office ID.
-                if admitted_proof is None and not admitted_task_name and requested_kind == "child_agent":
+                if admitted_proof is None and requested_kind == "child_agent":
                     start_native_host_receipt = _validate_native_host_receipt_for_runtime(
                         task, admission, matched_binding, args,
                         decision="spawn", host_action="spawn", outcome="succeeded")
                     if not start_native_host_receipt or not start_native_host_receipt.get("host_spawn_evidence"):
                         raise ValueError("native_carrier_capture_required")
+                    from commands.court_native_bridge import native_host_task_name
                     request_suffix = native_task_suffix(start_native_host_receipt["request"])
-                    admitted_task_name = f"{role.replace('-', '_')}_native_{request_suffix}"
+                    admitted_task_name = native_host_task_name(
+                        start_native_host_receipt["request"],
+                        matched_binding.get("collaboration_task_name") or matched_binding.get("task_name"),
+                    )
                     if str(start_native_host_receipt.get("host_instance_id", "")).rsplit("/", 1)[-1] != admitted_task_name:
                         raise ValueError("native_carrier_capture_name_mismatch")
                     admitted_proof = {"agent_id": f"{role}-native-{request_suffix}"}
@@ -9671,7 +9687,9 @@ def agent_event(
                 result_envelope = getattr(args, "_result_envelope", None)
                 if not isinstance(result_envelope, dict):
                     raise ValueError("structured_result_envelope_required")
-                result_problems = result_binding_problems(result_envelope, existing_agent)
+                result_problems = result_binding_problems(
+                    result_envelope, _target_binding_from_record(task, existing_agent)
+                )
                 if result_problems:
                     now = now_text()
                     original_envelope = getattr(args, "_original_result_envelope", None)
@@ -10112,7 +10130,7 @@ def _office_transition_payload(
     record = agents.get(internal_id) if isinstance(agents, dict) else None
     if not isinstance(record, dict):
         raise ValueError("office_instance_receipt_missing")
-    return {
+    payload = {
         "schema": "court.office.cli.v1",
         "ok": True,
         "command": command,
@@ -10125,6 +10143,19 @@ def _office_transition_payload(
         "office_instance": deepcopy(record),
         "event": deepcopy(result.event),
     }
+    if command in {"report", "finish"}:
+        from commands.court_native_bridge import business_report_projection
+        envelope = record.get("result_envelope")
+        business = dict(envelope) if isinstance(envelope, Mapping) else {
+            "summary": record.get("result") or result.event.get("evidence", ""),
+            "status": record.get("status", ""),
+            "evidence": [result.event["evidence"]] if result.event.get("evidence") else [],
+        }
+        business["next"] = result.task.get("next_step") or (
+            "提交直接上级复核。" if command == "finish" else "按已派遣范围继续办理。"
+        )
+        payload["business_report"] = business_report_projection(business)
+    return payload
 
 
 _PRELOAD_PHASE_ORDER = {
@@ -10495,7 +10526,7 @@ def _native_bridge_task_binding(
     admission = admissions.get(wave_id) if isinstance(admissions, Mapping) else None
     if not isinstance(admission, dict) or admission.get("allowed") is not True:
         raise ValueError("native_bridge:allowed_admission_required")
-    _validate_admission_immutable_event_anchor(task, admission)
+    validated_anchor = _validate_admission_immutable_event_anchor(task, admission)
     selected = admission.get("selected_bindings")
     if not isinstance(selected, (list, tuple)):
         raise ValueError("native_bridge:admission_bindings_invalid")
@@ -10508,6 +10539,7 @@ def _native_bridge_task_binding(
     if len(matches) != 1:
         raise ValueError("native_bridge:admitted_instance_not_unique")
     binding = matches[0]
+    binding["_validated_admission_anchor"] = validated_anchor
     if str(binding.get("role") or "").strip().lower() not in OFFICES:
         raise ValueError("native_bridge:binding_role_invalid")
     if not str(binding.get("direct_superior") or "").strip():
@@ -10642,7 +10674,9 @@ def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, o
     from court_native_host_dispatch import normalize_native_host_dispatch_request
     preload = binding.get('preload_sources')
     model_inputs = admission.get('model_route_inputs')
-    admission_event_id = _admission_event_id(task, admission)
+    anchor = binding.get('_validated_admission_anchor')
+    admission_event_id = (anchor['event']['event_id'] if isinstance(anchor, Mapping)
+                          else _admission_event_id(task, admission))
     if not isinstance(preload, Mapping) or not isinstance(model_inputs, Mapping) or (not admission_event_id):
         raise ValueError('native_bridge:admission_facts_incomplete')
     assignment = require_text(model_inputs.get('assignment'), 'assignment')
@@ -10904,17 +10938,15 @@ def _native_bridge_preload_input_budget(
 ) -> dict[str, object]:
     """Measure one selected office's verified preload plus compact host input."""
 
-    from court_office_bootstrap import ROOT as office_root
-
     role = require_text(binding.get("role"), "role").strip().lower()
     carrier_kind = str(binding.get("office_instance_kind") or "child_agent").strip()
     if carrier_kind != "child_agent":
         raise ValueError("native_bridge:ordinary_child_carrier_required")
-    manifest = build_preload_manifest(role, carrier_kind=carrier_kind)
+    manifest = build_preload_manifest(role, carrier_kind=carrier_kind, skill_root=skill_root())
     expected_sources = _semantic_preload_sources(role)
     if binding.get("preload_sources") != expected_sources:
         raise ValueError("native_bridge:preload_source_binding_mismatch")
-    root = Path(office_root).resolve()
+    root = skill_root().resolve()
     relative_paths = {
         "profile_bytes": manifest.profile_source,
         "dossier_bytes": manifest.dossier_path,
@@ -11052,6 +11084,8 @@ def _native_bridge_request_result(
         agent_type=agent_type,
         model=model,
         reasoning_effort=reasoning_effort,
+        collaboration_task_name=binding.get("collaboration_task_name") or binding.get("task_name"),
+        evidence_binding=_native_bridge_message_evidence(task, admission, binding, request, p00_context),
     )
     message = result.get("host_message")
     if not isinstance(message, str):
@@ -11073,6 +11107,62 @@ def _native_bridge_request_result(
     if spawn_reasoning_effort_field is not None:
         result["spawn_reasoning_effort_field"] = effort_capability
     return result
+
+
+def _native_bridge_message_evidence(
+    task: Mapping[str, object], admission: Mapping[str, object],
+    binding: Mapping[str, object], request: Mapping[str, object], context: Mapping[str, object],
+) -> dict[str, object]:
+    """Use existing immutable history positions for the human evidence pointers."""
+    from commands.court_native_bridge import _message_context
+    from court_native_host_dispatch import normalize_native_host_dispatch_request
+    from urllib.parse import quote
+
+    normalized = normalize_native_host_dispatch_request(request)
+    packet = _message_context(normalized, context)
+    expected_packet = _message_context(
+        normalized, public_dispatch_context_packet(task, str(admission.get('wave_id') or ''))
+    )
+    if packet != expected_packet:
+        raise ValueError('native_bridge:dispatch_context_binding_mismatch')
+    current = task.get('semantic_receipt')
+    history = task.get('semantic_receipts')
+    if not isinstance(current, Mapping) or not isinstance(history, list):
+        raise ValueError('native_bridge:semantic_history_required')
+    matches = [(index, receipt) for index, receipt in enumerate(history)
+               if isinstance(receipt, Mapping) and receipt.get('receipt_id') == packet['semantic_receipt_id']]
+    if (len(matches) != 1 or dict(matches[0][1]) != dict(current)
+            or matches[0][1].get('receipt_sequence') != matches[0][0] + 1
+            or current.get('semantic_epoch') != normalized['semantic_epoch']
+            or current.get('case_ref') != normalized['case_ref']):
+        raise ValueError('native_bridge:semantic_history_binding_mismatch')
+    anchor = binding.get('_validated_admission_anchor')
+    if not isinstance(anchor, Mapping):
+        anchor = _validate_admission_immutable_event_anchor(task, admission)
+    validated_binding = {**binding, '_validated_admission_anchor': anchor}
+    if normalized != _native_bridge_request(task, admission, validated_binding):
+        raise ValueError('native_bridge:admission_request_binding_mismatch')
+    event = anchor['event']
+    if (event.get('event_id') != admission.get('admission_event_id')
+            or event.get('admission_record') != _admission_bound_record(admission)
+            or normalized['admission_anchor']['receipt_id'] != admission.get('admission_event_id')
+            or normalized['wave_id'] != admission.get('wave_id')
+            or normalized['dispatch_uid'] != admission.get('dispatch_uid')
+            or normalized['attempt'] != admission.get('attempt')):
+        raise ValueError('native_bridge:admission_history_binding_mismatch')
+    escaped = quote(str(task['task_id']), safe='')
+    sequence = matches[0][1]['receipt_sequence']
+    return {
+        'source': 'RUNTIME_HISTORY',
+        'request': normalized,
+        'dispatch_context': packet,
+        'semantic_receipt': deepcopy(dict(current)),
+        'admission_event': deepcopy(event),
+        'pointers': [
+            f'court-runtime:tasks/{escaped}/semantic_receipts[receipt_sequence={sequence}]',
+            f'court-runtime:tasks/{escaped}/events[{anchor["index"]}]',
+        ],
+    }
 
 
 def _native_bridge_model_inputs(admission: Mapping[str, object]) -> dict[str, object]:
@@ -11138,7 +11228,10 @@ def _native_bridge_start_request(task: Mapping[str, object], admission: Mapping[
         ):
             raise ValueError("native_bridge:model_execution_binding_mismatch")
     agent_id = f'{role}-native-{suffix}'
-    collaboration_task_name = f"{role.replace('-', '_')}_native_{suffix}"
+    from commands.court_native_bridge import native_host_task_name
+    collaboration_task_name = native_host_task_name(
+        request, binding.get("collaboration_task_name") or binding.get("task_name")
+    )
     preload = build_preload_manifest(role)
     required_skill = {
         'name': 'decretum-matrix',
@@ -11288,6 +11381,8 @@ def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
             "spawn_reasoning_effort_field"
         ),
         identity_context=_native_bridge_identity_context(task, binding),
+        collaboration_task_name=binding.get("collaboration_task_name") or binding.get("task_name"),
+        evidence_binding=native_request['message_evidence_binding'],
     )
     command = captured.get("office_command")
     if command == "start":

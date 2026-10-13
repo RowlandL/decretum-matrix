@@ -222,14 +222,49 @@ def _execution(value: object) -> dict[str, str]:
     return {"authority": authority, "behavior": behavior}
 
 
-def canonical_host_message(
+def native_host_task_name(
+    request: Mapping[str, object], collaboration_task_name: str | None = None,
+) -> str:
+    """Project an admitted duty name without using machine instance identity."""
+    prefix = str(request['role']).replace('-', '_')
+    recovery = (f'next_step=set the admitted collaboration_task_name to a concise '
+                f'{prefix}_<duty> name; re-admit the corrected binding and rebuild native-request')
+    if collaboration_task_name is not None:
+        name = _text(collaboration_task_name, 'collaboration_task_name')
+        if len(name) > 128:
+            raise ValueError(f'native_bridge:host_task_name_too_long; {recovery}')
+        if re.fullmatch(rf'{re.escape(prefix)}_[a-z0-9]+(?:_[a-z0-9]+)*', name) is None:
+            raise ValueError(f'native_bridge:host_task_name_invalid; {recovery}')
+        return name
+    paths = list(request.get('write_set') or []) + list(request.get('duty_scope') or [])
+    duty = ''
+    for raw_path in paths:
+        path = Path(str(raw_path).replace('\\', '/'))
+        if any(part.lower() in {'.scratch', '.repo-control'} for part in path.parts):
+            continue
+        if not str(path).isascii():
+            break
+        duty_path = path.with_suffix('').as_posix().lower()
+        candidate = duty_path.replace('/', '_')
+        if re.fullmatch(r'[a-z0-9]+(?:_[a-z0-9]+)*', candidate) is None:
+            break
+        duty = candidate
+        break
+    name = prefix + '_' + duty
+    if not duty or len(name) > 128:
+        reason = 'host_task_name_duty_missing' if not duty else 'host_task_name_too_long'
+        raise ValueError(f'native_bridge:{reason}; {recovery}')
+    return name
+
+
+def host_message_binding(
     request: object,
     *,
     execution: object,
     p00_context: object,
     agent_type: str | None = None,
-) -> str:
-    """Render the exact bounded message that a host tool must receive."""
+) -> dict[str, object]:
+    """Keep the full machine binding outside the human host message."""
 
     normalized = normalize_native_host_dispatch_request(request)
     decision, action, _ = select_native_host_action(normalized)
@@ -245,9 +280,9 @@ def canonical_host_message(
         "schema": HOST_MESSAGE_SCHEMA,
         "marker": host_message_marker(normalized),
         "request_ref": request_ref,
-        "phase": "preload" if action == "spawn" else "business",
+        "phase": "preload_then_business" if action == "spawn" else "business",
         "business": {
-            "phase": "preload" if action == "spawn" else "business",
+            "phase": "preload_then_business" if action == "spawn" else "business",
             "assignment": normalized["assignment"],
         },
         "task": {
@@ -274,9 +309,7 @@ def canonical_host_message(
         "host_agent_type": normalized_agent_type,
         "stop": "Reject scope, role, task, superior, admission, or host-evidence drift; report only through the direct superior.",
     }
-    # The spawn message is phase 0 (bounded preload); a followup of an
-    # acknowledged child resumes the bound business and must not re-read the
-    # preload sources or ask the child to wait again.
+    # Preload completes implicitly. A resumed office keeps its existing carrier.
     if action == "spawn":
         message["bootstrap"] = {
             "first_action": "Read SKILL.md < startup < {profile,dossier}.",
@@ -285,15 +318,7 @@ def canonical_host_message(
             "then_read": ["references/court-normal-startup.md",
                           f"agents/standing-officials/{normalized['role']}.toml",
                           f"agents/office-dossiers/{normalized['role']}/AGENTS.md"],
-            "then": "Emit acceptance; notify superior; wait.",
-            "child_acceptance": {
-                "schema": "court.child_preload_acceptance.v1",
-                "task_id": normalized['task_id'], "role_key": normalized['role'],
-                "office_instance_id": normalized['instance_id'],
-                "request_ref": request_ref,
-                "skill_loaded": True, "startup_guide_loaded": True,
-                "profile_loaded": True, "dossier_loaded": True,
-            },
+            "then": "Execute the admitted business; report summary, status, evidence, next to the direct superior.",
         }
     else:
         message["resume"] = {
@@ -303,7 +328,58 @@ def canonical_host_message(
             ),
             "then": "Stop after the direct superior accepts or rejects the bounded result.",
         }
-    return json.dumps(message, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return message
+
+
+def canonical_host_message(
+    request: object, *, execution: object, p00_context: object,
+    agent_type: str | None = None,
+    evidence_binding: Mapping[str, object] | None = None,
+) -> str:
+    """Render the exact business text; the separate binding retains receipts."""
+    from court_office_bootstrap import OFFICE_ASSIGNMENT_IDENTITIES
+
+    binding = host_message_binding(request, execution=execution,
+                                   p00_context=p00_context, agent_type=agent_type)
+    normalized = normalize_native_host_dispatch_request(request)
+    if evidence_binding is None:
+        raise ValueError('native_bridge:message_evidence_required')
+    context = binding['p00']['dispatch_context']
+    if (evidence_binding.get('request') != normalized
+            or evidence_binding.get('dispatch_context') != context):
+        raise ValueError('native_bridge:message_evidence_binding_mismatch')
+    pointers = evidence_binding.get('pointers')
+    if not isinstance(pointers, (list, tuple)) or len(pointers) != 2:
+        raise ValueError('native_bridge:message_evidence_pointers_invalid')
+    evidence_paths = [_text(pointer, 'evidence.path', maximum=1024) for pointer in pointers]
+    role = str(normalized['role'])
+    superior = str(normalized['direct_superior'])
+    office = OFFICE_ASSIGNMENT_IDENTITIES.get(role)
+    parent = OFFICE_ASSIGNMENT_IDENTITIES.get(superior)
+    office_name = office[3] if office else role
+    superior_name = parent[3] if parent else superior
+    lines = [f'{superior_name}派遣{office_name}：{normalized["assignment"]}']
+    if binding['host_action'] == 'spawn':
+        sources = normalized['role_ack']
+        lines.append('先完整读取以下绑定材料，读完直接办理本次任务：')
+        lines.extend(str(sources[field]) for field in (
+            'court_skill_path', 'startup_guide_path', 'profile_source', 'dossier_path'
+        ))
+    else:
+        lines.append('沿用本署已加载材料和现有实例，继续办理本次任务。')
+    authority = binding['execution']
+    lines.append(f'执行权限：{authority["authority"]}；方式：{authority["behavior"]}。')
+    lines.append('职责范围：' + '、'.join(normalized['duty_scope']))
+    lines.append('写入范围：' + ('、'.join(normalized['write_set']) or '只读'))
+    lines.append('任务依据：' + '、'.join(evidence_paths))
+    lines.append(f'仅向{superior_name}回奏结论、状态、证据和下一步；机器回执保存在证据文件。')
+    return '\n'.join(lines)
+
+
+def business_report_projection(result: Mapping[str, object]) -> dict[str, object]:
+    """Project existing business result fields without preload or identity data."""
+    return {field: deepcopy(result.get(field, [] if field == 'evidence' else ''))
+            for field in ('summary', 'status', 'evidence', 'next')}
 
 
 def _host_invocation(
@@ -313,14 +389,11 @@ def _host_invocation(
     agent_type: str | None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    collaboration_task_name: str | None = None,
 ) -> dict[str, object]:
     _decision, action, candidate = select_native_host_action(request)
     if action == "spawn":
-        task_name = (
-            str(request["role"]).replace("-", "_")
-            + "_native_"
-            + native_task_suffix(request)
-        )
+        task_name = native_host_task_name(request, collaboration_task_name)
         arguments: dict[str, object] = {
             "task_name": task_name,
             "fork_turns": "none",
@@ -371,6 +444,8 @@ def native_request_result(
     agent_type: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    collaboration_task_name: str | None = None,
+    evidence_binding: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Expose the exact canonical host message and direct host invocation."""
 
@@ -384,6 +459,7 @@ def native_request_result(
         execution=execution,
         p00_context=p00_context,
         agent_type=agent_type,
+        evidence_binding=evidence_binding,
     )
     return {
         "schema": NATIVE_REQUEST_RESULT_SCHEMA,
@@ -391,12 +467,19 @@ def native_request_result(
         "request_ref": request_ref,
         "host_message_marker": host_message_marker(normalized),
         "host_message": message,
+        "message_evidence_binding": deepcopy(evidence_binding),
+        "presentation_binding_status": ('BOUND_HISTORY'
+            if evidence_binding.get('source') == 'RUNTIME_HISTORY' else 'SOURCE_ONLY'),
+        "host_message_binding": host_message_binding(
+            normalized, execution=execution, p00_context=p00_context, agent_type=agent_type
+        ),
         "host_invocation": _host_invocation(
             normalized,
             message=message,
             agent_type=agent_type,
             model=model,
             reasoning_effort=reasoning_effort,
+            collaboration_task_name=collaboration_task_name,
         ),
         "decision": decision,
         "expected_host_action": action,
@@ -596,7 +679,7 @@ def _exact_spawn_call(
         if candidate.get('task_name') != expected.get('task_name'):
             return None
         if not is_opaque_message(candidate.get('message')):
-            raise ValueError('native_bridge:host_message_mismatch')
+            _exact_message(candidate, str(expected.get('message') or ''))
     if name != invocation.get("tool_name"):
         raise ValueError("native_bridge:unknown_host_tool_shape")
     arguments = _call_arguments(payload)
@@ -663,9 +746,12 @@ def _exact_followup_call(
             arguments = _call_arguments(payload)
         except ValueError:
             return None
-        if not is_opaque_message(arguments.get("message")):
-            return None
-        opaque = True
+        opaque = is_opaque_message(arguments.get("message"))
+        if not opaque:
+            expected = invocation.get('arguments', {})
+            if arguments.get('target') not in invocation.get('target_candidates', []):
+                return None
+            _exact_message(arguments, str(expected.get('message') or ''))
     if name not in _FOLLOWUP_TOOL_NAMES:
         raise ValueError("native_bridge:unknown_host_tool_shape")
     arguments = _call_arguments(payload)
@@ -1312,6 +1398,8 @@ def capture_current_native_delivery(
     identity_context: object | None = None,
     environment: Mapping[str, str] | None = None,
     codex_home: Path | None = None,
+    collaboration_task_name: str | None = None,
+    evidence_binding: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Capture only a successful, marked native action in this current session.
 
@@ -1343,6 +1431,7 @@ def capture_current_native_delivery(
         execution=execution,
         p00_context=p00_context,
         agent_type=agent_type,
+        evidence_binding=evidence_binding,
     )
     marker = host_message_marker(normalized)
     invocation = _host_invocation(
@@ -1351,6 +1440,7 @@ def capture_current_native_delivery(
         agent_type=agent_type,
         model=selected_model if isinstance(selected_model, str) else None,
         reasoning_effort=selected_effort if isinstance(selected_effort, str) else None,
+        collaboration_task_name=collaboration_task_name,
     )
     # Capture may be requested by the coordinator, but evidence must come from
     # the actual permitted parent, never from the reader's identity by inference.

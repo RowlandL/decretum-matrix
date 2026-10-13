@@ -318,6 +318,7 @@ def isolated_preload_installation():
             stack.enter_context(patch.dict(function.__kwdefaults__, {keyword: value}))
         stack.enter_context(patch.object(court_office_bootstrap, "PROFILE_ROOT", profiles))
         stack.enter_context(patch.object(court_office_bootstrap, "SKILL_PATH", root / "SKILL.md"))
+        stack.enter_context(patch.object(court_runtime, 'skill_root', return_value=root))
         scratch = root / "tmp"
         scratch.mkdir()
         stack.enter_context(patch.object(tempfile, "tempdir", str(scratch)))
@@ -586,15 +587,19 @@ def check_startup_exact_flow_contract() -> None:
         "normal startup implicit flow contract missing: " + ", ".join(missing),
     )
 
-    bootstrap_source = inspect.getsource(court_native_bridge.canonical_host_message)
-    for marker in (
-        '"skill": "SKILL.md"',
-        '"references/court-normal-startup.md"',
-        '"startup_guide_loaded": True',
-        '"profile_loaded": True',
-        '"dossier_loaded": True',
-    ):
-        require(marker in bootstrap_source, f"native bootstrap contract missing: {marker}")
+    from checks.check_court_native_bridge import _request, _execution, _p00_context, _message_evidence
+    request = _request()
+    generated = court_native_bridge.native_request_result(
+        request, execution=_execution(), p00_context=_p00_context(request),
+        evidence_binding=_message_evidence(request, _p00_context(request)),
+    )
+    bootstrap = generated['host_message_binding']['bootstrap']
+    require('child_acceptance' not in bootstrap, 'native bootstrap must not prefill acceptance')
+    require('Execute the admitted business' in bootstrap['then'], 'native bootstrap must enter business')
+    message = generated['host_message']
+    require(not message.startswith('{'), 'native bootstrap must deliver business text')
+    for field in ('court_skill_path', 'startup_guide_path', 'profile_source', 'dossier_path'):
+        require(request['role_ack'][field] in message, f'native bootstrap source missing: {field}')
 
 
 def check_pinned_capability_registry_contract() -> None:

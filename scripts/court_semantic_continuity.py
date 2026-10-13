@@ -522,6 +522,8 @@ def semantic_binding_problems(
         unknown = sorted(set(capsule) - INVARIANT_CAPSULE_REQUIRED_FIELDS)
         if unknown:
             problems.append("invariant_capsule_fields_unknown:" + ",".join(unknown))
+        if "schema" in capsule and capsule["schema"] != INVARIANT_CAPSULE_SCHEMA:
+            problems.append("invalid_invariant_capsule_schema")
         if len(canonical_json_bytes(capsule)) > INVARIANT_CAPSULE_MAX_BYTES:
             problems.append("invariant_capsule_exceeds_2kib")
         if isinstance(charter, str) and charter.strip() and capsule.get(
@@ -2079,6 +2081,8 @@ def result_binding_problems(
             ),
         }
     expected = {
+        "task_id": binding.get("task_id"),
+        "plan_ref": binding.get("plan_ref"),
         "case_ref": case_reference(binding_ref),
         "semantic_epoch": binding.get("semantic_epoch"),
         "checkpoint_id": binding.get("checkpoint_id"),

@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 from court_operation_journal import write_journal
 from court_public_api import has_replacement_characters
 from court_public_registry import invoke_public_tool, load_public_tools, validate_public_tool_arguments
-from shiguan_paths import reference_path
+from shiguan_paths import _same_lexical_path, code_root, reference_path, runtime_installation_binding
 from stdio_encoding import configure_stdin, configure_stdio
 
 
@@ -417,6 +417,24 @@ def _dispatch(message: dict[str, Any], state: dict[str, object]) -> dict[str, ob
 
 
 def main() -> int:
+    try:
+        binding = runtime_installation_binding()
+        selected_roots = [Path(str(value)) for value in binding["selected_roots"]]
+        if not any(
+            _same_lexical_path(ROOT, root) and _same_lexical_path(code_root(), root)
+            for root in selected_roots
+        ):
+            next_step = json.dumps({
+                "action": "restart_mcp_with_bound_entrypoint",
+                "command": [sys.executable, "-B", str(Path(str(binding["canonical_root"])) / "scripts" / "court_mcp_server.py")],
+            }, ensure_ascii=True)
+            raise RuntimeError(
+                "mcp_runtime_root_not_bound_to_installation; reason=mcp_runtime_root_not_bound_to_installation"
+                + f"; actual_root={ROOT}; next_step=" + next_step
+            )
+    except RuntimeError as exc:
+        print(f"decretum-mcp startup error: {exc}", file=sys.stderr, flush=True)
+        return 2
     configure_stdio()
     configure_stdin()
     state = {"legacy_initialized": False}

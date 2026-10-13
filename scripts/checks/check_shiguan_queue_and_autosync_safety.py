@@ -546,10 +546,8 @@ def check_install_path_convergence() -> dict[str, object]:
         canonical_skill = home / ".agents" / "skills" / "decretum-matrix"
         canonical_scripts = canonical_skill / "scripts"
         canonical_scripts.mkdir(parents=True)
-        names = {path.name for path in shiguan_paths.RUNTIME_MARKER_PATHS}
-        names.update(("sync_shiguan_obsidian_vault.py", "ensure_shiguan_service_daemon.py"))
-        for name in names:
-            (canonical_scripts / name).write_text("# fixture\n", encoding="utf-8")
+        from checks.check_runtime_identity_contract import _write_binding
+        binding_path = _write_binding(home, canonical_skill)
         current = {
             "api_key": "must-" + "not-leak",
             "service_daemon_script": str(old_skill / "scripts" / "shiguan_service_daemon.py"),
@@ -563,6 +561,20 @@ def check_install_path_convergence() -> dict[str, object]:
             mock.patch.object(obsidian, "references_root", return_value=refs),
         ):
             rebound = obsidian.build_sync_config(source, current)
+            binding_path.unlink()
+            try:
+                obsidian.build_sync_config(source, current)
+            except RuntimeError as exc:
+                require("installation_binding_missing_or_invalid" in str(exc), "missing binding wrong failure")
+                require("reason=INSTALLATION_BINDING_MISSING" in str(exc), "missing binding reason was omitted")
+                recovery = json.loads(str(exc).partition("next_step=")[2])
+                require(recovery.get("command") == ["decretum-matrix", "install", "update", "--home-root", str(home), "--format", "json"],
+                        "missing binding recovery plan command was omitted")
+            else:
+                raise AssertionError("missing binding selected source runtime")
+            _write_binding(home, canonical_skill)
+            recovered = obsidian.build_sync_config(source, current)
+            require(recovered["autosync_script"] == rebound["autosync_script"], "restored binding did not recover")
         for field in ("service_daemon_script", "service_ensure_script"):
             require("court-capability-router" not in str(rebound[field]), f"stale {field}")
         for field in (
@@ -597,7 +609,9 @@ def check_install_path_convergence() -> dict[str, object]:
             mock.patch.object(obsidian, "patch_config", side_effect=capture_patch),
         ):
             obsidian.update_sync_config(source)
-        return {"active_roots": len(expected), "pending_body_reads": 0, "api_key_public": "REDACTED"}
+        return {"active_roots": len(expected), "pending_body_reads": 0, "api_key_public": "REDACTED",
+                "scope": "SOURCE", "runtime_binding": "COMMITTED",
+                "missing_binding_fail_closed": True, "binding_restored_recovered": True}
 
 
 def check_autosync_sidecar_contract() -> dict[str, object]:
