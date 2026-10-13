@@ -128,6 +128,8 @@ class OfficeDecreeStartupTests(unittest.TestCase):
             self.assertEqual((run.call_count, popen.call_count, system.call_count), (0, 0, 0))
 
     def _review_and_admit_libu(self, *, public_office_request=False) -> tuple[dict, dict]:
+        # SOURCE template/capture fixture; ExitStack restores the production resolver.
+        self.stack.enter_context(patch.object(runtime, 'skill_root', return_value=Path(runtime.__file__).resolve().parents[1]))
         task_id = self.task['task_id']
         for state in ('Taizi', 'ThreeDepartments'):
             runtime.transition_task(runtime.build_parser().parse_args([
@@ -236,7 +238,6 @@ class OfficeDecreeStartupTests(unittest.TestCase):
                 runtime._validated_completion_source(task, changed)
 
     def test_libu_bootstrap_enters_business_with_bound_history(self) -> None:
-        self.stack.enter_context(patch.object(runtime, 'skill_root', return_value=Path(runtime.__file__).resolve().parents[1]))
         task, admission = self._review_and_admit_libu()
         admission = task['agent_admissions'][admission['wave_id']]
         selector = Namespace(

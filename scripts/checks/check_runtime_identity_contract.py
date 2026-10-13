@@ -106,7 +106,7 @@ def _runtime_resolver_checks() -> dict[str, object]:
     rejections: list[dict[str, object]] = []
     original_code_root = shiguan_paths.code_root()
     with tempfile.TemporaryDirectory(prefix="decretum-runtime-resolver-") as temp_dir:
-        home = Path(temp_dir) / "home"
+        home = Path(temp_dir).resolve() / "home"
         canonical = home / ".agents" / "skills" / "decretum-matrix"
         (canonical / "scripts").mkdir(parents=True)
         (canonical / "scripts" / "court_cli.py").write_text("# fixture\n", encoding="utf-8")
