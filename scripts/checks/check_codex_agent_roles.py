@@ -31,7 +31,7 @@ from sync_codex_agents_from_profiles import (
     template_root,
     codex_home,
 )
-from court_multi_agent_protocol import validate_protocol_config
+from court_multi_agent_protocol import render_protocol_config, validate_protocol_config
 
 
 REQUIRED_STRING_KEYS = ("name", "description", "developer_instructions")
@@ -85,13 +85,6 @@ def validate_codex_multi_agent_config(
     overlay_path = managed_path or base_path.with_name("managed_config.toml")
     path = _effective_config_path(base_path, overlay_path)
     text = path.read_text(encoding="utf-8")
-    data = read_toml(path)
-    agents = data.get("agents")
-    features = data.get("features")
-    agents = agents if isinstance(agents, dict) else {}
-    features = features if isinstance(features, dict) else {}
-    multi_agent = features.get("multi_agent_v2")
-    multi_agent = multi_agent if isinstance(multi_agent, dict) else {}
     contract = validate_protocol_config(text)
     base_contract = validate_protocol_config(base_path.read_text(encoding="utf-8"))
     error_aliases = {
@@ -104,14 +97,11 @@ def validate_codex_multi_agent_config(
         "v1_inactive_v2_total_threads_must_be_at_least_2": "features.multi_agent_v2.max_concurrent_threads_per_session:must_be_at_least_2_when_v1",
         "v1_child_threads_exceed_inactive_v2_capacity": "agents.max_threads:exceeds_inactive_v2_capacity",
         "v1_inactive_v2_reserved_schema_must_remain_hidden": "features.multi_agent_v2.hide_spawn_agent_metadata:must_remain_true_when_v1",
+        "native_v1_max_depth_must_equal_4": "agents.max_depth:must_equal_4",
+        "native_v1_child_threads_must_be_positive": "agents.max_concurrent_threads_per_session:must_be_positive_for_native_v1",
     }
     errors = [error_aliases.get(str(error), str(error)) for error in contract.get("errors", [])]
     selected_protocol = contract.get("mode")
-    legacy_max_threads = agents.get("max_threads")
-    v2_max_threads = multi_agent.get("max_concurrent_threads_per_session")
-    spawn_agent_metadata_hidden = multi_agent.get("hide_spawn_agent_metadata") is True
-    effective_child_thread_limit = contract.get("effective_child_thread_limit")
-    configured_thread_limit = v2_max_threads if selected_protocol == "v2" else legacy_max_threads
     return {
         "ok": not errors,
         "config_path": str(path),
@@ -121,22 +111,20 @@ def validate_codex_multi_agent_config(
         "auto_discovery_root": str((codex_home() / "agents").resolve()),
         "selected_protocol": selected_protocol,
         "max_depth": contract.get("max_depth"),
-        "max_threads": configured_thread_limit,
-        "logical_total_threads": v2_max_threads if selected_protocol in {"v1", "v2"} else None,
-        "legacy_max_threads": legacy_max_threads,
-        "max_concurrent_threads_per_session": v2_max_threads,
-        "effective_child_thread_limit": effective_child_thread_limit,
-        "multi_agent_v2_enabled": multi_agent.get("enabled"),
-        "multi_agent_enabled": features.get("multi_agent"),
+        "max_threads": contract.get("max_threads"),
+        "logical_total_threads": contract.get("logical_total_threads"),
+        "legacy_max_threads": contract.get("legacy_max_threads"),
+        "max_concurrent_threads_per_session": contract.get("max_concurrent_threads_per_session"),
+        "effective_child_thread_limit": contract.get("effective_child_thread_limit"),
+        "multi_agent_v2_enabled": contract.get("multi_agent_v2_enabled"),
+        "multi_agent_enabled": contract.get("multi_agent_enabled"),
         "inactive_v2_config_preserved": contract.get("inactive_v2_config_preserved"),
-        "spawn_agent_metadata_visible": multi_agent.get("hide_spawn_agent_metadata") is False,
-        "spawn_agent_metadata_hidden": spawn_agent_metadata_hidden,
-        "spawn_agent_metadata_claim_scope": "CONFIG_ONLY_NOT_RUNTIME_SCHEMA",
-        "runtime_spawn_schema_visibility": "LIVE_TOOL_CAPABILITY_REQUIRED",
-        "runtime_spawn_schema_inferred_from_config": False,
-        "reserved_spawn_schema_compatible": bool(
-            multi_agent.get("enabled") is True and spawn_agent_metadata_hidden
-        ),
+        "spawn_agent_metadata_visible": contract.get("spawn_agent_metadata_visible"),
+        "spawn_agent_metadata_hidden": contract.get("spawn_agent_metadata_hidden"),
+        "spawn_agent_metadata_claim_scope": contract.get("spawn_agent_metadata_claim_scope"),
+        "runtime_spawn_schema_visibility": contract.get("runtime_spawn_schema_visibility"),
+        "runtime_spawn_schema_inferred_from_config": contract.get("runtime_spawn_schema_inferred_from_config"),
+        "reserved_spawn_schema_compatible": contract.get("reserved_spawn_schema_compatible"),
         "errors": errors,
     }
 
@@ -150,6 +138,7 @@ def _has_protocol_material(data: dict[str, object]) -> bool:
         isinstance(features.get("multi_agent_v2"), dict)
         or features.get("multi_agent") is not None
         or agents.get("max_threads") is not None
+        or agents.get("max_concurrent_threads_per_session") is not None
     )
 
 
@@ -270,6 +259,85 @@ def validate_managed_overlay_contract() -> None:
         assert result["config_layer_source"] == "legacy_managed_overlay"
 
 
+def validate_native_config_contract() -> dict[str, int]:
+    native = "[agents]\nmax_depth=4\nmax_concurrent_threads_per_session=32\n"
+    positives = (
+        (native, 32),
+        (native + "\n[features]\nmulti_agent=true\n", 32),
+        (native + "\n[features]\nmulti_agent=true\nmulti_agent_v2=false\n", 32),
+        (native.replace("=32", "=1"), 1),
+    )
+    legacy = {
+        "v1": "[agents]\nmax_depth=4\nmax_threads=15\n[features]\nmulti_agent=true\n"
+              "[features.multi_agent_v2]\nenabled=false\nmax_concurrent_threads_per_session=16\nhide_spawn_agent_metadata=true\n",
+        "v2": "[agents]\nmax_depth=4\n[features.multi_agent_v2]\nenabled=true\n"
+              "max_concurrent_threads_per_session=16\nhide_spawn_agent_metadata=true\n",
+        "serial": "[agents]\nmax_depth=4\n[features]\nmulti_agent=false\n[features.multi_agent_v2]\nenabled=false\n",
+    }
+    negatives = ["", "[agents]\nmax_depth=4\n"]
+    negatives.extend(
+        native.replace("=32", "=" + value)
+        for value in ("true", "false", "0", "-1", "1.5", '"32"')
+    )
+    negatives.extend(
+        native.replace("max_depth=4", "max_depth=" + value)
+        for value in ("true", "false", "3", "5", "4.0", '"4"')
+    )
+    negatives.extend(
+        native + "\n[features]\nmulti_agent=" + value + "\n"
+        for value in ("false", "1", '"true"')
+    )
+    negatives.extend(
+        native + "\n[features]\nmulti_agent_v2=" + value + "\n"
+        for value in ("true", "1", '"false"')
+    )
+    negatives.extend((
+        "features=false\n" + native,
+        "features=[]\n" + native,
+        native + "max_threads=32\n",
+    ))
+    with tempfile.TemporaryDirectory(prefix="court-native-config-check-") as temp_dir:
+        root = Path(temp_dir).resolve()
+        base, overlay = root / "config.toml", root / "managed_config.toml"
+        for text, children in positives:
+            base.write_text(text, encoding="utf-8")
+            before = base.read_bytes()
+            result = validate_codex_multi_agent_config(base, overlay)
+            assert result["ok"] is True and result["selected_protocol"] == "v1"
+            assert result["max_threads"] == result["max_concurrent_threads_per_session"] == result["effective_child_thread_limit"] == children
+            assert result["logical_total_threads"] == children + 1
+            assert result["spawn_agent_metadata_claim_scope"] == "CONFIG_ONLY_NOT_RUNTIME_SCHEMA"
+            assert result["runtime_spawn_schema_inferred_from_config"] is False
+            assert base.read_bytes() == before
+        for mode, text in legacy.items():
+            base.write_text(text, encoding="utf-8")
+            result = validate_codex_multi_agent_config(base, overlay)
+            assert result["ok"] is True and result["selected_protocol"] == mode
+            if mode != "serial":
+                assert result["effective_child_thread_limit"] == 15 and result["logical_total_threads"] == 16
+        for mode in ("v1", "v2"):
+            base.write_text(render_protocol_config(native, mode, total_threads=33), encoding="utf-8")
+            result = validate_codex_multi_agent_config(base, overlay)
+            assert result["ok"] is True and result["selected_protocol"] == mode
+            assert result["effective_child_thread_limit"] == 32 and result["logical_total_threads"] == 33
+        for text in negatives:
+            base.write_text(text, encoding="utf-8")
+            before = base.read_bytes()
+            assert validate_codex_multi_agent_config(base, overlay)["ok"] is False, text
+            assert base.read_bytes() == before
+        assert validate_protocol_config(native, expected_mode="v2")["ok"] is False
+        base.write_text(legacy["v2"], encoding="utf-8")
+        overlay.write_text(native, encoding="utf-8")
+        result = validate_codex_multi_agent_config(base, overlay)
+        assert result["ok"] is True and result["selected_protocol"] == "v1"
+        assert result["base_selected_protocol"] == "v2" and result["effective_child_thread_limit"] == 32
+        assert result["config_layer_source"] == "legacy_managed_overlay"
+        overlay.write_text(native.replace("=32", "=true"), encoding="utf-8")
+        assert validate_codex_multi_agent_config(base, overlay)["ok"] is False
+    return {"native_positive": len(positives), "legacy_positive": len(legacy), "producer_positive": 2,
+            "negative": len(negatives) + 1, "layer": 2}
+
+
 def validate_ordinary_carrier_projection_contract() -> None:
     templates = template_root()
     for name in ("zhongshu.toml", "patrol-inspector.toml"):
@@ -296,6 +364,7 @@ def main() -> int:
     try:
         validate_immutable_backup_contract()
         validate_managed_overlay_contract()
+        validate_native_config_contract()
         validate_ordinary_carrier_projection_contract()
         result = validate_installed_agents()
     except Exception as exc:

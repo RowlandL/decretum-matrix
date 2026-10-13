@@ -1,5 +1,19 @@
 # Changelog
 
+## beta1.2.0-hotfix-v1 - 2026-10-14 (candidate; not published)
+
+### Fixed
+
+- Codex 配置的共享读取器识别原生 agents.max_concurrent_threads_per_session 与当前 V1 缺省。原生容量按子线程计数，32 child 对应总 33；不套用旧 V2 的总线程减一规则。
+- 官署配置报告消费同一 contract 的容量事实，避免再次只从旧表取值。原生配置所在的有效层沿现有 layer 选择机制识别。
+- 保留旧 V1/V2、serial、原 renderer 的合法混合输出及非法配置拒绝。配置 writer、用户配置、控制器、模型与服务未修改。
+
+### Validation boundary
+
+- 原 beta1.2.0 已通过同提交线上六项 CI 并发布 GitHub/npm。本机事务在旧配置读取器报 protocol_mode_unresolved 后完整回滚，原 COMMITTED 安装恢复；本条修复由该实际失败触发。
+- 本条是同版兼容候选。直接 SOURCE 对照、候选、线上 CI、正式发布、本机安装与真实 native/UI 分别记录；新源码不复用原已发布提交的证据。
+- 原 beta1.2.0 标签、附件与公开 npm 版本保持不变。新的外部补丁发布与实际安装等待本候选独立验证和用户决定。
+
 ## beta1.2.0 - 2026-10-14 (candidate; SOURCE accepted)
 
 ### Changed

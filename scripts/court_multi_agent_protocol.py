@@ -339,11 +339,15 @@ def validate_protocol_config(text: str, *, expected_mode: SelectedMode | None = 
     features = data.get("features") if isinstance(data, dict) else None
     agents = agents if isinstance(agents, dict) else {}
     features = features if isinstance(features, dict) else {}
-    v2 = features.get("multi_agent_v2")
-    v2 = v2 if isinstance(v2, dict) else {}
+    v2_value = features.get("multi_agent_v2")
+    v2_is_table = isinstance(v2_value, dict)
+    v2 = v2_value if v2_is_table else {}
+    native_threads_present = "max_concurrent_threads_per_session" in agents
+    native_threads = agents.get("max_concurrent_threads_per_session")
+    native_v1 = native_threads_present and not v2_is_table and "max_threads" not in agents
     max_depth = agents.get("max_depth")
     legacy_threads = agents.get("max_threads")
-    multi_agent_enabled = features.get("multi_agent")
+    multi_agent_enabled = features.get("multi_agent", True if native_v1 else None)
     v2_enabled = v2.get("enabled") is True
     v2_disabled = v2.get("enabled") is False
     v2_threads = v2.get("max_concurrent_threads_per_session")
@@ -360,7 +364,28 @@ def validate_protocol_config(text: str, *, expected_mode: SelectedMode | None = 
         errors.append("v2_enabled_with_legacy_max_threads")
     mode: SelectedMode | None = None
     effective_child_limit: int | None = None
-    if v2_enabled:
+    configured_thread_limit: int | None = None
+    logical_total_threads: int | None = None
+    if native_v1:
+        mode = "v1"
+        if "features" in data and not isinstance(data["features"], dict):
+            errors.append("native_features_must_be_table")
+        if multi_agent_enabled is False:
+            errors.append("native_v1_multi_agent_disabled")
+        elif multi_agent_enabled is not True:
+            errors.append("native_v1_multi_agent_must_be_boolean")
+        if v2_value is not None and not isinstance(v2_value, bool):
+            errors.append("native_v1_v2_flag_must_be_boolean")
+        elif v2_value is True:
+            errors.append("native_v1_v2_enabled_conflict")
+        if not isinstance(max_depth, int) or isinstance(max_depth, bool) or max_depth != HARD_MAX_DEPTH:
+            errors.append("native_v1_max_depth_must_equal_4")
+        if not isinstance(native_threads, int) or isinstance(native_threads, bool) or native_threads < 1:
+            errors.append("native_v1_child_threads_must_be_positive")
+        else:
+            configured_thread_limit = effective_child_limit = native_threads
+            logical_total_threads = native_threads + 1
+    elif v2_enabled:
         mode = "v2"
         if max_depth != HARD_MAX_DEPTH:
             errors.append("v2_max_depth_must_equal_4")
@@ -370,6 +395,7 @@ def validate_protocol_config(text: str, *, expected_mode: SelectedMode | None = 
             errors.append("v2_reserved_spawn_schema_must_be_hidden")
         if isinstance(v2_threads, int) and not isinstance(v2_threads, bool):
             effective_child_limit = max(v2_threads - 1, 0)
+            configured_thread_limit = logical_total_threads = v2_threads
     elif v2_disabled and multi_agent_enabled is True and legacy_threads is not None:
         mode = "v1"
         if max_depth != HARD_MAX_DEPTH:
@@ -384,6 +410,9 @@ def validate_protocol_config(text: str, *, expected_mode: SelectedMode | None = 
             errors.append("v1_inactive_v2_reserved_schema_must_remain_hidden")
         if isinstance(legacy_threads, int) and not isinstance(legacy_threads, bool):
             effective_child_limit = legacy_threads
+            configured_thread_limit = legacy_threads
+        if isinstance(v2_threads, int) and not isinstance(v2_threads, bool):
+            logical_total_threads = v2_threads
     elif v2_disabled and multi_agent_enabled is False:
         mode = "serial"
         if legacy_threads is not None or v2_threads is not None:
@@ -398,12 +427,20 @@ def validate_protocol_config(text: str, *, expected_mode: SelectedMode | None = 
         "mode": mode,
         "max_depth": max_depth,
         "legacy_max_threads": legacy_threads,
+        "max_threads": configured_thread_limit,
+        "logical_total_threads": logical_total_threads,
         "multi_agent_enabled": multi_agent_enabled,
-        "multi_agent_v2_enabled": v2_enabled,
-        "max_concurrent_threads_per_session": v2_threads,
+        "multi_agent_v2_enabled": v2_value is True if native_v1 else v2_enabled,
+        "max_concurrent_threads_per_session": native_threads if native_v1 else v2_threads,
         "hide_spawn_agent_metadata": hidden_metadata,
         "inactive_v2_config_preserved": inactive_v2_config_preserved,
         "effective_child_thread_limit": effective_child_limit,
+        "spawn_agent_metadata_visible": hidden_metadata is False,
+        "spawn_agent_metadata_hidden": hidden_metadata is True,
+        "reserved_spawn_schema_compatible": v2_enabled and hidden_metadata is True,
+        "spawn_agent_metadata_claim_scope": "CONFIG_ONLY_NOT_RUNTIME_SCHEMA",
+        "runtime_spawn_schema_visibility": "LIVE_TOOL_CAPABILITY_REQUIRED",
+        "runtime_spawn_schema_inferred_from_config": False,
     }
 
 

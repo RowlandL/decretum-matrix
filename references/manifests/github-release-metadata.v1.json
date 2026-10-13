@@ -6,8 +6,18 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.0",
+  "latest_tag": "beta1.2.0-hotfix-v1",
   "releases": [
+    {
+      "tag": "beta1.2.0-hotfix-v1",
+      "title": "Decretum Matrix beta1.2.0-hotfix-v1",
+      "summary": "beta1.2.0-hotfix-v1 本地候选准备：为已审核的 native V1 reader 兼容修复派生同版 hotfix，保留必要保护与实际宿主配置。",
+      "highlights": [
+        "仅承载 native V1 reader 识别兼容修复，旧格式与必要负例保护继续保留。",
+        "版本使用既有机制派生公开 semver 1.2.0-beta.0.hotfix.1，不增加发布流程或修改宿主配置。"
+      ],
+      "asset_note": "本条目仅为本地候选意图，不声明候选、CI、外部 hotfix 发布或实际安装成功。已发布 beta1.2.0 的 b8 tag、资产和 npm 保留；旧版证据不复用于本次变更。"
+    },
     {
       "tag": "beta1.2.0",
       "title": "Decretum Matrix beta1.2.0",
