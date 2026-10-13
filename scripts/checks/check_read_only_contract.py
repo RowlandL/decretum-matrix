@@ -271,6 +271,28 @@ def main() -> int:
                 {0, 2},
             ),
         ]
+        web_args = next(args for label, args, _allowed in commands if label == "shiguan_web_check_only")
+        before = snapshot(blank)
+        rejected = subprocess.run([sys.executable, *web_args], cwd=SKILL_ROOT, env=blank_env,
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        if rejected.returncode != 1 or rejected.stdout or before != snapshot(blank):
+            raise AssertionError("unbound web check-only did not reject without writes")
+        error = rejected.stderr.splitlines()[-1]
+        if not error.startswith("RuntimeError: installation_binding_path_invalid; reason=INSTALLATION_BINDING_PATH_INVALID; next_step="):
+            raise AssertionError(f"unbound web check-only wrong rejection: {rejected.stderr}")
+        recovery = json.loads(error.partition("next_step=")[2])
+        if recovery != {"action": "prepare_installation_repair_plan", "command": [
+            "decretum-matrix", "install", "update", "--home-root", blank_env["HOME"], "--format", "json"]}:
+            raise AssertionError(f"unbound web check-only wrong recovery: {recovery}")
+        checks.append({"label": "shiguan_web_missing_binding_rejected", "returncode": 1,
+                       "reason": "INSTALLATION_BINDING_PATH_INVALID", "next_step": recovery, "no_writes": True})
+        # Success paths run against a committed isolated installation. The
+        # earlier blank-HOME rejection remains explicit and cannot be any error.
+        from check_runtime_identity_contract import _write_binding
+        home = Path(blank_env["HOME"])
+        installed = home / ".agents" / "skills" / "decretum-matrix"
+        (installed / "scripts").mkdir(parents=True)
+        _write_binding(home, installed)
         for label, args, allowed in commands:
             checks.append(run_read_only(label, args, blank_env, blank, allowed))
 

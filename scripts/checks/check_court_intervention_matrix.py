@@ -493,15 +493,7 @@ def native_spawn_receipt(
     preload = binding.get("preload_sources")
     if not isinstance(preload, dict):
         raise AssertionError("native fixture preload sources missing")
-    from court_office_bootstrap import ROOT as office_root
-
-    role_ack_sources = {
-        field: str((Path(office_root) / Path(str(preload[field]))).resolve())
-        for field in (
-            "profile_source", "dossier_path", "court_skill_path",
-            "startup_guide_path",
-        )
-    }
+    role_ack_sources = court_runtime._native_role_ack_sources(preload)
     model_inputs = admission.get("model_route_inputs")
     if not isinstance(model_inputs, dict):
         raise AssertionError("native fixture model inputs missing")

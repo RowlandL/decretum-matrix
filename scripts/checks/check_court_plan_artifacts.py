@@ -362,21 +362,36 @@ class RuntimePlanFlowTests(unittest.TestCase):
                          '--request-file',self.write('legacy-review-template.json',legacy))['status'],'REPLAYED')
         status = self.cli('workflow-status', '--task-id', 'plan-flow')
         self.assertEqual(status['plan_status'], 'REVIEWED')
-        server = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve().parents[1] / 'court_mcp_server.py')],
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
-        def rpc(message):
-            server.stdin.write(json.dumps(message) + '\n'); server.stdin.flush()
-            return json.loads(server.stdout.readline())
+        from checks.check_court_mcp_server import _source_runtime_fixture
+        mcp_fixture, _home, server_path, server_env = _source_runtime_fixture()
         try:
-            rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-11-25', 'capabilities': {}, 'clientInfo': {'name': 'isolated-plan-interface', 'version': '1'}}})
-            result = rpc({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'court.workflow_status', 'arguments': {'task_id': 'plan-flow'}}})
-            received = result['result']['structuredContent']['api']['stdout']
-            self.assertEqual(received, status)
+            rejected = subprocess.run(
+                [sys.executable, '-B', str(Path(__file__).resolve().parents[1] / 'court_mcp_server.py')],
+                env=server_env, input='', capture_output=True, text=True, encoding='utf-8', timeout=30)
+            self.assertEqual(rejected.returncode, 2, rejected.stderr)
+            self.assertEqual(rejected.stdout, '')
+            self.assertIn('reason=mcp_runtime_root_not_bound_to_installation', rejected.stderr)
+            recovery = json.loads(rejected.stderr.partition('next_step=')[2])
+            self.assertEqual(recovery['command'], [sys.executable, '-B', str(server_path)])
+            server = subprocess.Popen([sys.executable, '-B', str(server_path)], env=server_env,
+                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
+            def rpc(message):
+                server.stdin.write(json.dumps(message) + '\n'); server.stdin.flush()
+                line = server.stdout.readline()
+                self.assertTrue(line, server.stderr.read() if server.poll() is not None else 'MCP response missing')
+                return json.loads(line)
+            try:
+                rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-11-25', 'capabilities': {}, 'clientInfo': {'name': 'isolated-plan-interface', 'version': '1'}}})
+                result = rpc({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'court.workflow_status', 'arguments': {'task_id': 'plan-flow'}}})
+                received = result['result']['structuredContent']['api']['stdout']
+                self.assertEqual(received, status)
+            finally:
+                server.stdin.close()
+                try: server.wait(timeout=10)
+                except subprocess.TimeoutExpired: server.kill(); server.wait(timeout=10)
+                server.stdout.close(); server.stderr.close()
         finally:
-            server.stdin.close()
-            try: server.wait(timeout=10)
-            except subprocess.TimeoutExpired: server.kill(); server.wait(timeout=10)
-            server.stdout.close(); server.stderr.close()
+            mcp_fixture.cleanup()
         self.cli('plan', 'submit', '--task-id', 'plan-flow', '--request-file', self.write('stale.json', request), ok=False)
         self.cli('transition', '--task-id', 'plan-flow', '--to-state', 'ThreeDepartmentsPetition', '--actor', 'taizi', '--evidence', 'reviewed')
 
