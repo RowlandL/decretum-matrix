@@ -1881,8 +1881,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_supercc_truth_gates.py",
-      "sha256": "12d8101261019e46536856cf632fbcd86cc59014f3c769ca8320ba182c5213cc",
-      "size": 17686
+      "sha256": "e65ca1b79976e53851096d0e53f00e14d63632e80faeacdf88969d6b2c6e669b",
+      "size": 17718
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9518360,
+    "payload_bytes": 9518392,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "06b0713f445df1b9be2ae6040cd144ef808f09019002b3beddc9c0cf883d3cd3",
+    "payload_index_sha256": "77d72ca8605e8e0a142a66bc53378783b6e8dc4464e78efe9fbdef038963f974",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 693
   },
