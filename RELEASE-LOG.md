@@ -1,10 +1,11 @@
 # Release Log
 
-## beta1.2.0-hotfix-v1
+## beta1.2.1
 
-- 同版 hotfix 本地候选意图：仅承载已审核的 native V1 reader 兼容修复，保留旧格式与必要负例保护，保持实际宿主配置。
-- 版本标识为 `beta1.2.0-hotfix-v1`；既有机制派生公开 semver `1.2.0-beta.0.hotfix.1`，不修改 derive 或发布流程。
-- 状态：SOURCE 本地准备。候选、新提交 CI、外部 hotfix 发布与实际安装均待独立证据和对应决定；已发布 beta1.2.0 的 b8 tag、资产和 npm 保留，旧版证据不证明本次变更。
+- 本版范围为 F07/F08 事实回执与 cmd 退出码，以及派遣收益判断、有限复用和安全换新。未发布 hotfix 的已审核 native V1 reader 修复随本版交付，旧格式与必要负例保护保留。
+- 史馆并发最小修复已获独立 SOURCE 接受：graph 完整事务锁、Windows 真正 shared/exclusive、recall 同快照/模型初始化协调、seed 完整且不覆盖发布。原32并发与新增窗口、失败重试、缓存真实损坏拒绝均通过。MCP 同一 stdio 的慢请求串行等待限制保留。
+- 版本标识为 `beta1.2.1`；公开 semver 由既有机制派生，不修改 derive 或发布流程，不单独发布 hotfix。
+- 状态：SOURCE 已接受，最终候选与宿主验证待办。最终标签/Release 为 beta1.2.1，ZIP 为 decretum-matrix-beta1.2.1.zip，公开 npm 为1.2.1-beta.0；旧hotfix仅为代码来源。候选、真实宿主、同提交 CI 六任务、发布与安装分别验收，旧候选证据不证明本版完成。
 
 ## beta1.2.0
 

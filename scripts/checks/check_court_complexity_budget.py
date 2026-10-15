@@ -3675,6 +3675,89 @@ def check_context_economy_contract() -> None:
     require(pressure["decision"] == "DEGRADED", "host memory pressure did not take precedence")
 
 
+def check_finite_context_reuse_contract() -> None:
+    evaluator = complexity_budget_module.evaluate_context_reuse
+    defaults = complexity_budget_module.context_reuse_defaults
+    request = {
+        "role": "gongbu",
+        "context_policy": {"issue_ref": "TASK-003/context", "work_unit_id": "retest",
+                           "next_input_tokens": 1000},
+    }
+    candidate = {
+        "assignment": "context implementation",
+        "context_policy": {"issue_ref": "TASK-003/context"},
+        "completed_work_units": ["repair"],
+        "context_utilization": 0.20,
+        "context_window_tokens": 100_000,
+    }
+    before = deepcopy(candidate)
+    continued = evaluator(candidate, request)
+    require(continued["allowed"] is True, "same-problem short continuation was rejected")
+    require(continued["projection_tokens"] == 33_288,
+            "projection repeated historical/preload tokens or omitted future reserves")
+    require(candidate == before, "context decision mutated the live candidate")
+
+    independent = deepcopy(request)
+    independent["context_policy"]["issue_ref"] = "TASK-003/independent"
+    require(evaluator(candidate, independent)["allowed"] is False,
+            "low occupancy authorized an independent problem on the old instance")
+
+    # One parameterized case covers all three responsibility layers.
+    for role, kind, limit in (("menxia", "office", 3), ("libu", "office", 4),
+                              ("gongbu", "worker", 2)):
+        current = deepcopy(candidate)
+        current["completed_work_units"] = [f"accepted-{i}" for i in range(limit)]
+        incoming = deepcopy(request)
+        incoming["role"] = role
+        incoming["context_policy"]["instance_kind"] = kind
+        require(defaults(role, kind)["completed_work_units_max"] == limit,
+                f"finite default changed without updating the accepted role policy: {role}/{kind}")
+        require(evaluator(current, incoming)["allowed"] is False,
+                f"work budget exhaustion reused {role}/{kind}")
+        current["context_utilization"] = 0.01
+        require(evaluator(current, incoming)["allowed"] is False,
+                f"compaction reset the cumulative work budget: {role}/{kind}")
+        current["completed_work_units"] = ["accepted-0"] * (limit + 3)
+        require(evaluator(current, incoming)["allowed"] is True,
+                f"repeated acceptance counted the same work unit more than once: {role}/{kind}")
+
+    exhausted = deepcopy(request)
+    exhausted["context_policy"]["next_input_tokens"] = 50_000
+    require(evaluator(candidate, exhausted)["allowed"] is False,
+            "next-input plus output/handoff reserves crossed 80% without renewal")
+    exact_boundary = deepcopy(request)
+    exact_boundary["context_policy"].update(next_input_tokens=60_000,
+                                          output_reserve_tokens=0, handoff_reserve_tokens=0)
+    require(evaluator(candidate, exact_boundary)["allowed"] is False,
+            "the exact 80% projected boundary was reused")
+    for field in ("context_utilization", "context_window_tokens"):
+        unknown = deepcopy(candidate)
+        unknown[field] = None
+        require(evaluator(unknown, request)["allowed"] is False,
+                f"unknown observation became zero: {field}")
+    for value in (None, -1, True, float("nan")):
+        unknown = deepcopy(request)
+        unknown["context_policy"]["next_input_tokens"] = value
+        require(evaluator(candidate, unknown)["allowed"] is False,
+                f"invalid or unknown prediction was admitted: {value!r}")
+
+
+def check_dispatch_choice_contract() -> None:
+    facts = {"user_instruction": None, "necessary_complexity": True,
+             "simpler_equivalent_available": False, "low_marginal_value": False,
+             "budget_sufficient": True, "risk_acceptable": True, "rollback_ready": True}
+    cases = (
+        ({"necessary_complexity": False, "simpler_equivalent_available": True}, "direct"),
+        ({"reuse_available": True}, "reuse"),
+        ({"reuse_available": False}, "fresh"),
+        ({"budget_sufficient": False, "reuse_available": True}, "deferred"),
+    )
+    for changes, expected in cases:
+        outcome = complexity_budget_module.evaluate_complexity_budget(**{**facts, **changes})
+        require(outcome["dispatch_choice"] == expected, f"wrong dispatch choice: {expected}")
+        require(outcome["hard_gates_preserved"] is True, "dispatch choice waived a hard gate")
+
+
 def main() -> int:
     check_strict_result_enum()
     check_user_explicit_instruction_precedence()
@@ -3730,6 +3813,8 @@ def main() -> int:
     check_w3_repair_contracts()
     check_parallel_limit_override_contract()
     check_context_economy_contract()
+    check_finite_context_reuse_contract()
+    check_dispatch_choice_contract()
     print(
         "COURT_COMPLEXITY_BUDGET_OK "
         "results=4 user_priority=PASSED taizi_four_factors=PASSED "
@@ -3749,7 +3834,8 @@ def main() -> int:
         "scope_binding=PASSED lease_schema=PASSED lease_access_contract=PASSED input_contract=PASSED "
         "composite_admission=PASSED small_wave=PASSED "
         "lease_lifecycle=PASSED hard_limits=PASSED w3_repair=PASSED "
-        "parallel_limit_override=PASSED context_economy=PASSED"
+        "parallel_limit_override=PASSED context_economy=PASSED finite_context_reuse=PASSED "
+        "dispatch_choice=PASSED"
     )
     return 0
 

@@ -3669,6 +3669,11 @@ def check_only(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def action_result_status(results: list[dict[str, Any]]) -> str:
+    successes = sum(result.get("ok") is True for result in results)
+    return "SUCCESS" if successes == len(results) else "PARTIAL" if successes else "FAILED"
+
+
 def rename_taizi_only(args: argparse.Namespace) -> dict[str, Any]:
     workspace = Path(args.workspace).resolve()
     check = supercc_check_for_args(args, workspace)
@@ -3687,17 +3692,26 @@ def rename_taizi_only(args: argparse.Namespace) -> dict[str, Any]:
     visible = visible_office_panes(check)
     taizi_selection = select_unique_visible_pane(visible, "taizi")
     taizi_pane_id = taizi_selection.get("pane_id") if taizi_selection.get("ok") else current_pane_id()
-    actions.append(
-        {
-            "rename_taizi_pane": rename_taizi_pane(
-                args.dry_run,
-                pane_id=str(taizi_pane_id) if taizi_pane_id else None,
-                zellij_session=current_zellij_session(check),
-            )
-        }
+    rename_result = rename_taizi_pane(
+        args.dry_run,
+        pane_id=str(taizi_pane_id) if taizi_pane_id else None,
+        zellij_session=current_zellij_session(check),
     )
-    actions.append({"join_taizi": join_agent("taizi", "taizi", workspace, args.dry_run)})
-    return {"ok": check["passed"], "check": check, "actions": actions}
+    join_result = join_agent("taizi", "taizi", workspace, args.dry_run)
+    actions.extend([{"rename_taizi_pane": rename_result}, {"join_taizi": join_result}])
+    results = [rename_result, join_result]
+    if archived:
+        results.append(archived)
+    status = action_result_status(results)
+    applied: list[str] = []
+    if not args.dry_run:
+        if archived and (archived.get("ok") is True or archived.get("returncode") == 0):
+            applied.append("archive_existing_taizi_identity")
+        if rename_result.get("ok") is True:
+            applied.append("rename_current_pane")
+        if join_result.get("ok") is True:
+            applied.append("join_taizi_identity")
+    return {"ok": status == "SUCCESS", "status": status, "check": check, "actions": actions, "_applied_side_effects": applied}
 
 
 def parse_office_set(selection: str | None) -> set[str]:
@@ -3735,9 +3749,27 @@ def silence_roles(
             "Expected silence is recorded in Shiguan and mirrored to patrol only when explicit diagnostics are active."
         )
         notices.append({"role": role, "result": send_squad_notice(workspace, sender, role, message, args.dry_run)})
+    successful_roles = [notice["role"] for notice in notices if (notice.get("result") or {}).get("ok") is True]
+    modes: dict[str, dict[str, Any]] = {}
+    if successful_roles:
+        modes.update(build_mode_records(tuple(successful_roles), default_mode=default_mode, reason=reason, unfinished=unfinished))
+    if kept_awake:
+        modes.update(
+            build_mode_records(
+                tuple(kept_awake),
+                default_mode=protected_mode,
+                reason=f"{reason}: protected/unfinished roles stay awake as specified",
+                unfinished=unfinished,
+            )
+        )
+    try:
+        state = write_office_state(workspace, modes, zellij_session=current_zellij_session(check), dry_run=args.dry_run)
+    except (OSError, ValueError, TimeoutError) as exc:
+        state = {"ok": False, "error": str(exc)}
+    silenced = successful_roles if state.get("ok") is True and not args.dry_run else []
     inspector_notice: dict[str, Any] | None = None
     if notify_inspector_expected_silence and inspector_enabled(args) and "patrol-inspector" in active_ids:
-        expected = ",".join(to_silence)
+        expected = ",".join(silenced)
         message = (
             "[CLOSEOUT_WATCH] 结诏收束已发；expected_silenced_roles="
             f"{expected}; expected_mode={default_mode}; do not report these roles as abnormal solely "
@@ -3750,21 +3782,19 @@ def silence_roles(
             "result": send_squad_notice(workspace, sender, "patrol-inspector", message, args.dry_run),
         }
         notices.append(inspector_notice)
-    modes: dict[str, dict[str, Any]] = {}
-    if to_silence:
-        modes.update(build_mode_records(tuple(to_silence), default_mode=default_mode, reason=reason, unfinished=unfinished))
-    if kept_awake:
-        modes.update(
-            build_mode_records(
-                tuple(kept_awake),
-                default_mode=protected_mode,
-                reason=f"{reason}: protected/unfinished roles stay awake as specified",
-                unfinished=unfinished,
-            )
-        )
-    state = write_office_state(workspace, modes, zellij_session=current_zellij_session(check), dry_run=args.dry_run)
+    results = [notice["result"] for notice in notices if "result" in notice]
+    status = action_result_status([*results, state])
+    applied = [] if args.dry_run else [f"send_silence_notice:{role}" for role in successful_roles]
+    if not args.dry_run and state.get("ok") is True:
+        applied.append("write_idle_receive_modes")
+        if silenced:
+            applied.append("record_expected_closeout_silence")
+    if not args.dry_run and inspector_notice and inspector_notice["result"].get("ok") is True:
+        applied.append("send_expected_silence_inspector_notice")
     return {
-        "ok": True,
+        "ok": status == "SUCCESS",
+        "status": status,
+        "_applied_side_effects": applied,
         "supercc_env_gate": check.get("supercc_env_gate"),
         "visible_display_gate": check.get("visible_display_gate"),
         "display_transport_gate": check.get("display_transport_gate"),
@@ -3781,10 +3811,13 @@ def silence_roles(
         "silent_supervisor_policy": SILENT_SUPERVISOR_POLICY,
         "closeout_silence_policy": CLOSEOUT_SILENCE_POLICY,
         "supervision_channel": SUPERVISION_CHANNEL,
-        "supervision_evidence": "PASSED",
+        "supervision_evidence": "PASSED" if status == "SUCCESS" else status,
         "check": check,
-        "silenced": to_silence,
-        "expected_silenced_roles_for_supervisor": to_silence,
+        "requested_silence_roles": to_silence,
+        "silenced": silenced,
+        "silence_evidence": "notice_delivered_and_state_recorded",
+        "actual_idle_verification": "NOT_OBSERVED",
+        "expected_silenced_roles_for_supervisor": silenced,
         "inspector_notice": inspector_notice,
         "kept_awake_no_silence": kept_awake,
         "unfinished_kept_awake": sorted(unfinished),
@@ -5038,7 +5071,9 @@ def side_effect_manifest(args: argparse.Namespace, payload: dict[str, Any] | Non
     if not dry_run and isinstance(explicit_applied, list):
         applied = [str(item) for item in explicit_applied if str(item).strip()]
         applied_evidence = "explicit_runtime_evidence"
-    elif not dry_run and planned_if_live and payload is not None:
+    elif not dry_run and planned_if_live and payload is not None and action not in {"rename_taizi", "closeout_silence"}:
+        # Untouched producers retain their existing success contract.  F07
+        # actions require explicit evidence, including an explicitly empty list.
         action_succeeded = bool(payload.get("ok", payload.get("passed", False)))
         if action_succeeded:
             applied = list(planned_if_live)

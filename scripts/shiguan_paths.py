@@ -1333,13 +1333,16 @@ def default_obsidian_inbox() -> Path:
 
 
 def _create_text_exclusive(path: Path, text: str) -> bool:
-    """Create a seed file exactly once without truncating a concurrent writer."""
+    """Publish a complete UTF-8 seed once without replacing an existing name."""
+
+    # Warm startup visits 18 seeds. This is only an I/O shortcut; publication below
+    # still decides ownership atomically when another writer creates the name.
+    if path.exists():
+        return False
+    from court_file_lock import atomic_write_bytes
 
     try:
-        with path.open("x", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
+        atomic_write_bytes(path, text.encode("utf-8"), no_clobber=True)
     except FileExistsError:
         return False
     return True
@@ -1419,8 +1422,8 @@ def ensure_shared_seed() -> Path:
 
     write_lock = refs / "court-runtime" / "shiguan-write.lock"
     # Idempotent seed writing: several writers may hold this lock at once, so a
-    # second launcher is not serialized behind the first. The atomic per-file
-    # replace below keeps each seeded file consistent; the lock only excludes the
+    # second launcher is not serialized behind the first. Complete candidates
+    # publish without replacing existing seeds; the lock only excludes the
     # read-modify-write transitions that still take the exclusive form.
     with file_lock(write_lock, shared=True):
         readmes = {

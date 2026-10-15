@@ -91,7 +91,8 @@ authority, durable store, daemon, or second state machine.
   only the triggered governing references. For office work, dispatch with compact
   role/direct-superior/task-boundary context, then let the assigned office load
   the smallest role-local dossier/profile only when the duty needs it.
-  `compatible_instance_policy=REUSE_FIRST`: prefer a compatible live instance
+  `compatible_instance_policy=REUSE_FIRST`: for the same problem within the finite
+  work-unit and projected context budget, prefer a compatible live instance
   with matching task, role, receipt, lease, write set, and role acknowledgement before
   creating another. Do not reuse when `context_occupancy_ratio >= 0.80`, when
   the next task is unrelated to the candidate's prior task, or when large-scale
@@ -1169,6 +1170,37 @@ Phase-1 closeout validation uses only `court synthetic-closeout` and a
 `PREPARED -> ARCHIVE_COMMITTED -> TASK_EVENT_COMMITTED` and
 `court closeout-recover --operation-id`; it is not a real Shiguan production
 adapter and never authorizes access to pending import bodies.
+
+## Finite Work Units And Safe Renewal
+
+复用计数沿原实例与 append-only 事件保存。`office report` 或 `agent-report`
+可带 `work_unit_result={work_unit_id,issue_ref,result_ref}`；它只证明提交结果。
+同实例直接上级在原 report 命令提交
+`work_unit_acceptance={result_event_id,acceptance_ref}`，引用当前 P00 的实际
+结果报告事件，才接受一个工作单。同结果或同工作单重发不增加累计，普通报告/
+followup/finish 不增加累计。压缩、降低 context ratio 或重复消息不重置历史。
+下一工作单由直接上级在原 report 提交 `next_work_unit`，包含 `issue_ref`、
+`work_unit_id`、`next_input_tokens` 及可选输出/交接预留。它只登记待办，不能改
+immutable admission；下一 native-request 消费它，真实 followup 后才成为当前
+`context_policy`。新问题仍与目标历史比较，不能靠改问题标识在旧实例续办。
+有限默认值和预测口径由 [dispatch](court-offices-dispatch.md#dispatch-value-and-finite-context-reuse)
+及原 budget 模块承载，不建立第二计数账册。
+
+到限后原上级先停止追加。旧实例可完成在途步骤，或通过原报告保存
+`context_checkpoint={issue_ref,resume_point,unfinished,evidence_refs,write_set,inflight_action_refs}`。
+换新 binding 的 `context_policy.handoff` 只引用原 `source_agent_id` 和
+`checkpoint_event_id`。新写权须等旧实例具名 checkpoint、finish/close 和
+`release_status=closed`，且原宿主 child trace 在 checkpoint 后存在实际
+`task_complete`，之后无 `task_started` 或工具调用。非空在途动作继续等待，
+超时、无响应或自填布尔值不证明停写。`result_handoff` 仍是失败结果恢复。
+
+新实例可先预读交接，以业务回奏 `接手事实：` 载明问题、接手点、未完成事项、
+证据和写集。原 start consumer 从真实 child trace 核对这些关键事实，随后才
+授予同一写权。缺停写、缺读回、失败或未知状态保持未接手/PARTIAL；旧结果和
+证据继续保留，不同时授予两个写者，不重发已完成的外部动作。不能复用的已消费
+实例由 `native-request` 返回 `renewal_required` 及原因，再由原上级走新 admission；
+不在同一个 instance 静默 spawn。独立门下以实际宿主新开、续办、接手和展示证据
+接受；隔离检查及源码规则不替代这一证据。
 
 ## Hierarchical Budget Pool Gate
 

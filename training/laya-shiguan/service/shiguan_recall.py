@@ -14,10 +14,15 @@ r"""史馆对照决策检索引擎（Shiguan Recall）。
 from __future__ import annotations
 
 import json
+import io
 import os
 import pickle
 import re
+import sys
+import threading
 import time
+from contextlib import nullcontext
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
@@ -25,6 +30,13 @@ import torch.nn.functional as F
 from transformers import AutoTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
+# The HTTP/stdio entry points add service/ only. Resolve the existing helper
+# from this installation's scripts/, without depending on the caller's cwd.
+_SCRIPTS_ROOT = ROOT.parents[1] / "scripts"
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+from court_file_lock import atomic_write_bytes, file_lock
+
 MODEL_DIR = ROOT / "models" / "laya-multilingual"
 CORPUS = ROOT / "corpus" / "corpus-v2.jsonl"
 SERVICE_VERSION = "1.0.0"
@@ -145,34 +157,79 @@ def rows_from_corpus(path: Path) -> list[dict]:
     return [r for r in rows if r["source"] == "index"]
 
 
+@dataclass(frozen=True)
+class _IndexSnapshot:
+    rows: list[dict] = field(default_factory=list)
+    vecs: torch.Tensor | None = None
+    stamp: dict = field(default_factory=dict)
+    built_at: float = 0.0
+    build_seconds: float = 0.0
+    source_kind: str = ""
+    source_path: str = ""
+    cache_path: str = ""
+
+
 class ShiguanRecall:
     def __init__(self, max_len: int = 512, device: str | None = None) -> None:
         self.max_len = max_len
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self._model = None
         self._tok = None
-        self.rows: list[dict] = []
-        self.vecs: torch.Tensor | None = None
-        self.built_at: float = 0.0
-        self.build_seconds: float = 0.0
-        self.source_kind: str = ""
-        self.source_path: str = ""
-        self.cache_path: str = ""
+        self._build_lock = threading.RLock()
+        self._snapshot = _IndexSnapshot()
+
+    # Keep the existing read interface used by the standalone entry points.
+    @property
+    def rows(self):
+        return self._snapshot.rows
+
+    @property
+    def vecs(self):
+        return self._snapshot.vecs
+
+    @property
+    def built_at(self):
+        return self._snapshot.built_at
+
+    @property
+    def build_seconds(self):
+        return self._snapshot.build_seconds
+
+    @property
+    def source_kind(self):
+        return self._snapshot.source_kind
+
+    @property
+    def source_path(self):
+        return self._snapshot.source_path
+
+    @property
+    def cache_path(self):
+        return self._snapshot.cache_path
 
     # ---------- 模型 ----------
     def _ensure_model(self) -> None:
         if self._model is not None:
             return
-        from safetensors.torch import load_file
-        from laya.common import build_model
+        # A warm vector cache skips embedding during build, so the first queries
+        # can reach model initialization together. Reuse the engine lock; it is
+        # reentrant because a cold build also calls this through _embed.
+        with self._build_lock:
+            if self._model is not None:
+                return
+            from safetensors.torch import load_file
+            from laya.common import build_model
 
-        cfg = json.loads((MODEL_DIR / "rl_agent_config.json").read_text(encoding="utf-8"))
-        cfg.update(max_len=self.max_len, head_max_len=192, gradient_checkpointing=False)
-        self._tok = AutoTokenizer.from_pretrained(str(MODEL_DIR / "tokenizer"))
-        model = build_model(cfg, encoder_dir=str(MODEL_DIR / "encoder"), pretrained=False)
-        model.load_state_dict(load_file(str(MODEL_DIR / "model.safetensors")), strict=True)
-        model.to(self.device).eval()
-        self._model = model
+            cfg = json.loads((MODEL_DIR / "rl_agent_config.json").read_text(encoding="utf-8"))
+            cfg.update(max_len=self.max_len, head_max_len=192, gradient_checkpointing=False)
+            tok = AutoTokenizer.from_pretrained(str(MODEL_DIR / "tokenizer"))
+            model = build_model(cfg, encoder_dir=str(MODEL_DIR / "encoder"), pretrained=False)
+            model.load_state_dict(load_file(str(MODEL_DIR / "model.safetensors")), strict=True)
+            model.to(self.device).eval()
+            # _model is the ready flag. Failed initialization publishes neither
+            # half, releases the lock and leaves the next query free to retry.
+            self._tok = tok
+            self._model = model
 
     def _embed(self, texts: list[str], batch: int = 16) -> torch.Tensor:
         self._ensure_model()
@@ -205,35 +262,45 @@ class ShiguanRecall:
         return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
     def build(self, force: bool = False) -> None:
-        source, kind = self._source()
-        self.source_kind = kind
-        self.source_path = str(source)
-        if kind == "live_shiguan_index":
-            self.rows = rows_from_live_index(source)
-        else:
-            self.rows = rows_from_corpus(source)
-        stamp = self._stamp(source)
-        cache = cache_path()
-        self.cache_path = str(cache)
-        if not force and cache.exists():
-            try:
-                cached = torch.load(cache, weights_only=False)
-            except (OSError, RuntimeError, EOFError, pickle.UnpicklingError):
-                cached = None
-            if isinstance(cached, dict) and cached.get("stamp") == stamp:
-                self.vecs = cached["vecs"]
-                self.built_at = cached.get("built_at", 0.0)
+        # Per-engine single-flight; force rebuilds wait for one another. Failed
+        # builds leave the last published generation intact and may be retried.
+        with self._build_lock:
+            source, kind = self._source()
+            # Bind the lock to the actual source, including a references override.
+            # Capture rows and stamp together, then release before slow embedding.
+            guard = (file_lock(source.parent / "court-runtime/shiguan-write.lock", shared=True)
+                     if kind == "live_shiguan_index" else nullcontext())
+            with guard:
+                rows = rows_from_live_index(source) if kind == "live_shiguan_index" else rows_from_corpus(source)
+                stamp = self._stamp(source)
+            current = self._snapshot
+            if not force and current.vecs is not None and current.stamp == stamp:
                 return
-        t0 = time.time()
-        self.vecs = self._embed([r["state"] for r in self.rows])
-        self.build_seconds = time.time() - t0
-        self.built_at = time.time()
-        try:
-            cache.parent.mkdir(parents=True, exist_ok=True)
-            torch.save({"stamp": stamp, "vecs": self.vecs, "built_at": self.built_at}, cache)
-        except (OSError, RuntimeError):
-            # 缓存不可写不应影响服务可用性；下次启动重新编码即可。
-            self.cache_path = f"unavailable:{cache}"
+            cache = cache_path()
+            if not force and cache.exists():
+                try:
+                    cached = torch.load(cache, weights_only=False)
+                except (OSError, RuntimeError, EOFError, pickle.UnpicklingError):
+                    cached = None
+                if (isinstance(cached, dict) and cached.get("stamp") == stamp
+                        and getattr(cached.get("vecs"), "shape", (None,))[0] == len(rows)):
+                    self._snapshot = _IndexSnapshot(rows=rows, vecs=cached["vecs"], stamp=stamp,
+                        built_at=cached.get("built_at", 0.0), source_kind=kind,
+                        source_path=str(source), cache_path=str(cache))
+                    return
+            t0 = time.time()
+            vecs = self._embed([r["state"] for r in rows])
+            build_seconds, built_at = time.time() - t0, time.time()
+            cache_location = str(cache)
+            try:
+                buffer = io.BytesIO()
+                torch.save({"stamp": stamp, "vecs": vecs, "built_at": built_at}, buffer)
+                atomic_write_bytes(cache, buffer.getvalue())
+            except (OSError, RuntimeError):
+                # 缓存不可写不应影响服务可用性；下次启动重新编码即可。
+                cache_location = f"unavailable:{cache}"
+            self._snapshot = _IndexSnapshot(rows=rows, vecs=vecs, stamp=stamp, built_at=built_at,
+                build_seconds=build_seconds, source_kind=kind, source_path=str(source), cache_path=cache_location)
 
     # ---------- 检索 ----------
     @staticmethod
@@ -256,23 +323,25 @@ class ShiguanRecall:
         }
 
     def recall(self, state: str, k: int = 5, same_top: bool = False) -> dict:
-        if self.vecs is None:
+        snapshot = self._snapshot
+        if snapshot.vecs is None:
             self.build()
-        assert self.vecs is not None
+            snapshot = self._snapshot
+        assert snapshot.vecs is not None
         q = self._embed([state])
-        sim = (q @ self.vecs.T)[0]
-        pool = range(len(self.rows))
+        sim = (q @ snapshot.vecs.T)[0]
+        pool = range(len(snapshot.rows))
         if same_top:
             head = state.splitlines()[0].replace("主题：", "").strip()
-            pool = [i for i, r in enumerate(self.rows) if r["group"] == head]
+            pool = [i for i, r in enumerate(snapshot.rows) if r["group"] == head]
             if not pool:
-                pool = range(len(self.rows))
+                pool = range(len(snapshot.rows))
         idx = sorted(pool, key=lambda i: -float(sim[i]))[: max(1, k)]
-        matches = [{"similarity": round(float(sim[i]), 4), **self._record(self.rows[i])} for i in idx]
+        matches = [{"similarity": round(float(sim[i]), 4), **self._record(snapshot.rows[i])} for i in idx]
         return {
             "matches": matches,
             "stats": {
-                "indexed_records": len(self.rows),
+                "indexed_records": len(snapshot.rows),
                 "k": k,
                 "top_similarity": matches[0]["similarity"] if matches else None,
             },
@@ -284,16 +353,17 @@ class ShiguanRecall:
         }
 
     def stats(self) -> dict:
-        paths = [self._record(r)["stored_path"] for r in self.rows] if self.rows else []
+        snapshot = self._snapshot
+        paths = [self._record(r)["stored_path"] for r in snapshot.rows]
         return {
             "service_version": SERVICE_VERSION,
             "model": "convaiinnovations/laya-multilingual (mmBERT-base 322M)",
-            "index_source": self.source_kind or None,
-            "index_source_path": self.source_path or None,
-            "indexed_records": len(self.rows),
+            "index_source": snapshot.source_kind or None,
+            "index_source_path": snapshot.source_path or None,
+            "indexed_records": len(snapshot.rows),
             "distinct_lineages": len({p for p in paths if p}),
-            "embedding_dim": int(self.vecs.shape[1]) if self.vecs is not None else None,
-            "index_cache": self.cache_path or str(cache_path()),
-            "built_at": self.built_at,
+            "embedding_dim": int(snapshot.vecs.shape[1]) if snapshot.vecs is not None else None,
+            "index_cache": snapshot.cache_path or str(cache_path()),
+            "built_at": snapshot.built_at,
             "device": str(self.device),
         }

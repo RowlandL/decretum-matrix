@@ -8,6 +8,7 @@
 
 - [Shiguan Lineage And Court Code](#shiguan-lineage-and-court-code)
 - [史馆实录](#史馆实录)
+- [Local Index And Recall Concurrency](#local-index-and-recall-concurrency)
 - [Token Three-Level Optimization / 令牌三级优化](#token-three-level-optimization--令牌三级优化)
 - [Framework GBrain Contract](#framework-gbrain-contract)
 - [Codex/Hermes Internal Memory Bridge](#codexhermes-internal-memory-bridge)
@@ -316,6 +317,55 @@ and rerun the same command. In `super` mode, a read-only 史馆 check or a write
 this skill's own 史馆 directory is considered in-scope unless the runtime blocks
 it; request runtime escalation immediately if required. Only fall back to manual
 recording when escalation is denied or unavailable.
+
+## Local Index And Recall Concurrency
+
+The local file-lock boundary remains
+`references/court-runtime/shiguan-write.lock` beneath the selected shared
+references root. Authoritative read-modify-write operations use the exclusive
+form. Idempotent seed maintenance and snapshot readers may use the shared form.
+On Windows, `LockFileEx` / `UnlockFileEx` lock byte zero with real shared or
+exclusive access; the old CRT `LK_NBRLCK` has the same behavior as `LK_NBLCK`
+and does not provide shared coexistence. POSIX retains `flock`.
+
+The existing per-path `RLock` still serializes threads in one process. Reentry
+preserves the outer OS mode: exclusive-to-shared is safe, while shared-to-exclusive
+raises an error rather than claiming an upgrade. The existing timeout/poll
+contract remains; only an OS lock conflict is retried. Other Windows OS errors
+propagate. Process exit releases the OS lock, including abnormal exit.
+
+`build_shiguan_knowledge_graph.build_and_write()` holds the same exclusive
+Shiguan lock across index read, graph construction, and publication. It uses
+`atomic_write_text` for the published JSON. Serializing the complete transaction
+prevents a delayed old snapshot from overwriting a newer graph.
+
+`ShiguanRecall` serializes builds within each engine. A concurrent cold request
+reuses the completed build; a failed build may be retried, and force builds run
+one at a time. Rows, vectors, source/cache metadata and timestamps publish as
+one snapshot. Each `recall()` / `stats()` reads one published snapshot, so a
+concurrent rebuild does not mix their generations.
+
+Live rows and their size/mtime stamp are captured together under a shared lock
+at the actual source's `references/court-runtime/shiguan-write.lock`. Source
+selection still prefers `SHIGUAN_REFERENCES_ROOT`, then the shared-root overrides,
+then the default live index; the local development corpus remains the fallback.
+An override index must not be read while locking an unrelated global root.
+Embedding runs after releasing the authoritative Shiguan lock. Cache serialization
+uses `atomic_write_bytes`; an unwritable cache leaves the in-memory result usable.
+Independent processes may still build the same cache concurrently. There is no
+cross-process build single-flight or distributed-lock claim; a cache stamp mismatch
+causes a rebuild.
+
+The existing `check_shiguan_shared_write_lock.py` verifies real process overlap,
+both exclusive conflict directions, old CRT interoperability on Windows,
+reentry, error propagation, and release. `check_shiguan_concurrency.py` retains
+the 32-process checkpoint, 32-thread upsert, atomic replacement and crash-release
+checks, and adds controlled graph/recall interleavings. Recall checks use
+temporary indexes/caches and fake dependencies/embedding, including a subprocess
+that starts with only the service directory import path. These SOURCE/isolated
+checks do not prove real model/service operation or release/install acceptance.
+The synchronous public MCP request loop still has head-of-line blocking; this
+local consistency change does not add an asynchronous scheduler.
 
 ## Token Three-Level Optimization / 令牌三级优化
 

@@ -39,7 +39,8 @@ from typing import Any, Mapping, Sequence
 from stdio_encoding import configure_stdio
 
 from court_agent_admission import budget_lease_access_contract_error
-from court_complexity_budget import evaluate_context_economy, normalize_budget_pool
+from court_complexity_budget import (evaluate_context_economy, normalize_budget_pool,
+    evaluate_complexity_budget, evaluate_context_reuse, context_reuse_defaults)
 from court_dispatch_policy import MAX_AGENT_TREE_DEPTH, MAX_AGENT_TREE_THREADS, select_wave
 from court_dispatch_hierarchy import validate_dispatch_hierarchy
 from court_intake_gate import (
@@ -2169,6 +2170,97 @@ def _native_role_ack_sources(preload: Mapping[str, object]) -> dict[str, str]:
     }
 
 
+def _native_context_policy(admission: Mapping[str, object],
+                           binding: Mapping[str, object],
+                           record: Mapping[str, object] | None = None) -> dict[str, object]:
+    inputs = admission.get("model_route_inputs") or {}
+    defaults = context_reuse_defaults(str(binding.get("role") or ""),
+                                     str(binding.get("instance_kind") or "office"))
+    policy = binding.get("context_policy", {})
+    if not isinstance(policy, Mapping):
+        raise ValueError("native_bridge:context_policy_invalid")
+    combined = {"issue_ref": inputs.get("assignment"),
+            "work_unit_id": inputs.get("task_focus"),
+            "next_input_tokens": admission.get("context_tokens"),
+            "output_reserve_tokens": defaults["output_reserve_tokens"],
+            "handoff_reserve_tokens": defaults["handoff_reserve_tokens"]}
+    if isinstance(record, Mapping):
+        saved = record.get("context_policy")
+        if saved is not None:
+            if not isinstance(saved, Mapping):
+                raise ValueError("native_bridge:context_policy_invalid")
+            combined.update(deepcopy(dict(saved)))
+    # Saved state supplies omitted values, never replaces this admission's
+    # explicit issue/input. A superior's bounded next unit remains the last update.
+    combined.update(deepcopy(dict(policy)))
+    if isinstance(record, Mapping):
+        for field in ("next_work_unit",):
+            update = record.get(field)
+            if update is not None:
+                if not isinstance(update, Mapping):
+                    raise ValueError("native_bridge:context_policy_invalid")
+                combined.update(deepcopy(dict(update)))
+        if record.get("context_handoff"):
+            combined.pop("handoff", None)
+    combined["instance_kind"] = binding.get("instance_kind", "office")
+    return combined
+
+
+def _accepted_work_unit_ids(task_id: str, agent_id: str) -> list[str]:
+    """Derive the finite budget only from the existing acceptance event stream."""
+    return sorted({json.dumps([event["work_unit_acceptance"]["issue_ref"],
+                               event["work_unit_acceptance"]["work_unit_id"]],
+                              ensure_ascii=False)
+                   for event in events_for_task(task_id, limit=None)
+                   if event.get("action") == "agent_report"
+                   and event.get("agent_id") == agent_id
+                   and isinstance(event.get("work_unit_acceptance"), Mapping)})
+
+
+def _native_candidate_facts(task: Mapping[str, object],
+                            target: Mapping[str, object]) -> dict[str, object]:
+    receipt = target.get("native_host_action_receipt")
+    original = receipt.get("request") if isinstance(receipt, Mapping) else None
+    if isinstance(original, Mapping):
+        facts = {field: deepcopy(original.get(field)) for field in
+                 ("task_id", "role", "direct_superior", "assignment", "duty_scope",
+                  "lease_id", "write_set", "role_ack", "context_policy")}
+        facts["semantic_receipt"] = {field: deepcopy(original.get(field))
+                                     for field in ("semantic_epoch", "case_ref")}
+        for field in ("task_id", "role", "direct_superior", "lease_id", "write_set",
+                      "semantic_epoch", "case_ref"):
+            if field in target and original.get(field) != target[field]:
+                raise ValueError("native_bridge:target_historical_binding_mismatch:" + field)
+    else:
+        # Older lifecycle records may predate the embedded receipt. Only their
+        # own bound values are a fallback; never copy the new request's facts.
+        preload = target.get("preload_sources")
+        facts = {"task_id": target.get("task_id"), "role": target.get("role"),
+                 "direct_superior": target.get("direct_superior"),
+                 "assignment": target.get("scope"), "duty_scope": target.get("read_scope"),
+                 "lease_id": target.get("lease_id"), "write_set": target.get("write_set"),
+                 "semantic_receipt": {field: target.get(field)
+                                      for field in ("semantic_epoch", "case_ref")},
+                 "role_ack": ({"role": target.get("role"),
+                               "direct_superior": target.get("direct_superior"),
+                               **_native_role_ack_sources(preload)}
+                              if isinstance(preload, Mapping) else None)}
+    if facts.get("context_policy") is None:
+        facts["context_policy"] = {"issue_ref": facts.get("assignment")}
+    facts["completed_work_units"] = _accepted_work_unit_ids(
+        str(task.get("task_id") or ""), str(target.get("agent_id") or ""))
+    facts["context_window_tokens"] = target.get("native_host_context_window_tokens")
+    facts["context_utilization"] = target.get("native_host_context_utilization")
+    if target.get("native_child_thread_id"):
+        from commands.court_native_bridge import _child_context_observation
+        observation = _child_context_observation(
+            Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")),
+            str(target["native_child_thread_id"]))
+        facts["context_window_tokens"] = observation.get("context_window_tokens") if observation else None
+        facts["context_utilization"] = observation.get("context_utilization") if observation else None
+    return facts
+
+
 def _native_host_request_binding_problems(request: Mapping[str, object], *, task: Mapping[str, object], admission: Mapping[str, object], binding: Mapping[str, object], args: argparse.Namespace, record: Mapping[str, object] | None, decision: str) -> list[str]:
     route_inputs = admission.get('model_route_inputs')
     expected_assignment = route_inputs.get('assignment') if isinstance(route_inputs, Mapping) else None
@@ -2206,6 +2298,9 @@ def _native_host_request_binding_problems(request: Mapping[str, object], *, task
             'receipt_id': _admission_event_id(task, admission),
         },
     }
+    if ("context_policy" in request or "context_policy" in binding
+            or isinstance(record, Mapping) and "context_policy" in record):
+        expected["context_policy"] = _native_context_policy(admission, binding, record)
     problems = [f'native_host_action_receipt:{field}_mismatch' for field, expected_value in expected.items() if request.get(field) != expected_value]
     candidates = request.get('compatible_live_instances')
     if decision == 'spawn':
@@ -2238,6 +2333,13 @@ def _native_host_request_binding_problems(request: Mapping[str, object], *, task
             ):
                 if candidate.get(request_field) != record.get(record_field):
                     problems.append(f'native_host_action_receipt:reuse_{request_field}_mismatch')
+            if "context_policy" in request:
+                historical = _native_candidate_facts(task, record)
+                for field, fact in historical.items():
+                    if field != "context_utilization" and candidate.get(field) != fact:
+                        problems.append(f'native_host_action_receipt:reuse_{field}_mismatch')
+                if not evaluate_context_reuse(historical, request)["allowed"]:
+                    problems.append('native_host_action_receipt:reuse_budget_exhausted')
     return problems
 
 
@@ -9252,6 +9354,219 @@ office_result_handoff = handoff_recovered_result
 office_result_consume = consume_recovered_result
 
 
+def _context_report_fields(task: Mapping[str, object], record: Mapping[str, object],
+                           args: argparse.Namespace) -> dict[str, object]:
+    """Add business result/acceptance facts to ordinary report events only."""
+    fields: dict[str, object] = {}
+    next_unit = getattr(args, "next_work_unit", None)
+    if next_unit is not None:
+        required = {"issue_ref", "work_unit_id", "next_input_tokens"}
+        allowed = required | {"output_reserve_tokens", "handoff_reserve_tokens"}
+        if (not isinstance(next_unit, Mapping) or not required <= set(next_unit) <= allowed
+                or args.actor != record.get("direct_superior")):
+            raise ValueError("next_work_unit_direct_superior_required")
+        for key in ("issue_ref", "work_unit_id"):
+            require_text(next_unit.get(key), key)
+        for key in set(next_unit) - {"issue_ref", "work_unit_id"}:
+            if type(next_unit[key]) is not int or next_unit[key] < 0:
+                raise ValueError("next_work_unit_prediction_invalid")
+        fields["next_work_unit"] = deepcopy(dict(next_unit))
+    result = getattr(args, "work_unit_result", None)
+    acceptance = getattr(args, "work_unit_acceptance", None)
+    if result is not None and acceptance is not None:
+        raise ValueError("work_unit_result_and_acceptance_must_be_separate")
+    if result is not None:
+        if not isinstance(result, Mapping) or set(result) != {"work_unit_id", "issue_ref", "result_ref"}:
+            raise ValueError("work_unit_result_invalid")
+        fields["work_unit_result"] = {key: require_text(value, key) for key, value in result.items()}
+        policy = record.get("context_policy")
+        issue = policy.get("issue_ref") if isinstance(policy, Mapping) else record.get("scope")
+        if result["issue_ref"] != issue:
+            raise ValueError("work_unit_issue_mismatch")
+    if acceptance is not None:
+        if (not isinstance(acceptance, Mapping)
+                or set(acceptance) != {"result_event_id", "acceptance_ref"}
+                or args.actor != record.get("direct_superior")):
+            raise ValueError("work_unit_acceptance_direct_superior_required")
+        reference = require_text(acceptance.get("result_event_id"), "result_event_id")
+        matches = [event for event in events_for_task(str(task["task_id"]), limit=None)
+                   if event.get("event_id") == reference and event.get("action") == "agent_report"
+                   and event.get("agent_id") == record.get("agent_id")
+                   and event.get("semantic_epoch") == record.get("semantic_epoch")
+                   and event.get("case_ref") == record.get("case_ref")
+                   and isinstance(event.get("work_unit_result"), Mapping)]
+        if len(matches) != 1:
+            raise ValueError("work_unit_result_event_required")
+        unit = matches[0]["work_unit_result"]
+        fields["work_unit_acceptance"] = {
+            "result_event_id": reference,
+            "acceptance_ref": require_text(acceptance.get("acceptance_ref"), "acceptance_ref"),
+            "work_unit_id": unit["work_unit_id"], "issue_ref": unit["issue_ref"]}
+    checkpoint = getattr(args, "context_checkpoint", None)
+    if checkpoint is not None:
+        required = {"issue_ref", "resume_point", "unfinished", "evidence_refs", "write_set", "inflight_action_refs"}
+        if not isinstance(checkpoint, Mapping) or set(checkpoint) != required:
+            raise ValueError("context_checkpoint_invalid")
+        for key in ("issue_ref", "resume_point"):
+            require_text(checkpoint.get(key), key)
+        for key in ("unfinished", "evidence_refs", "write_set", "inflight_action_refs"):
+            if not isinstance(checkpoint[key], list) or any(
+                    not isinstance(item, str) or not item.strip() for item in checkpoint[key]):
+                raise ValueError("context_checkpoint_invalid:" + key)
+        if checkpoint["write_set"] != record.get("write_set") or not checkpoint["evidence_refs"]:
+            raise ValueError("context_checkpoint_scope_or_evidence_mismatch")
+        fields["context_checkpoint"] = deepcopy(dict(checkpoint))
+    assessment = getattr(args, "dispatch_assessment", None)
+    if assessment is not None:
+        if not isinstance(assessment, Mapping):
+            raise ValueError("dispatch_assessment_invalid")
+        facts = dict(assessment)
+        reason = require_text(facts.pop("reason", None), "dispatch_assessment.reason")
+        fields["dispatch_assessment"] = {**evaluate_complexity_budget(**facts),
+            "reason": reason, "actual_executor": record.get("office_instance_id") or record.get("agent_id")}
+    return fields
+
+
+def _context_handoff_checkpoint(task: Mapping[str, object], binding: Mapping[str, object]
+                                ) -> tuple[dict[str, object], dict[str, object]] | None:
+    policy = binding.get("context_policy")
+    handoff = policy.get("handoff") if isinstance(policy, Mapping) else None
+    if handoff is None:
+        for record in (task.get("agents") or {}).values():
+            if not isinstance(record, Mapping) or record.get("role") != binding.get("role"):
+                continue
+            overlaps = any(repository_paths_overlap(path, previous)
+                           for path in binding.get("write_set", [])
+                           for previous in record.get("write_set", []))
+            if not overlaps:
+                continue
+            if record.get("release_status") != "closed":
+                raise ValueError("context_handoff_required_before_writer_start")
+            if not (record.get("context_policy") or record.get("native_host_action_receipt_id")):
+                continue  # Preserve compatibility for already closed legacy records.
+            # A completed historical unit is not an unfinished owner transfer.
+            # Prove its original finish/close and host stop; do not require a
+            # closed office to retroactively issue a new checkpoint or case ref.
+            events = [event for event in events_for_task(str(task["task_id"]), limit=None)
+                      if event.get("agent_id") == record.get("agent_id")
+                      and event.get("case_ref") == record.get("case_ref")
+                      and event.get("semantic_epoch") == record.get("semantic_epoch")]
+            checkpoints = [(i, event) for i, event in enumerate(events)
+                           if isinstance(event.get("context_checkpoint"), Mapping)]
+            pending_index = checkpoints[-1][0] if checkpoints else -1
+            pending = checkpoints[-1][1]["context_checkpoint"] if checkpoints else {}
+            finishes = [i for i, event in enumerate(events) if event.get("action") == "agent_finish"]
+            closed_after_finish = any(i > max(finishes) and event.get("action") == "agent_close"
+                                      for i, event in enumerate(events)) if finishes else False
+            completed_after_checkpoint = False
+            for i, event in enumerate(events):
+                result = event.get("work_unit_result")
+                if (not finishes or not pending_index < i < max(finishes)
+                        or event.get("action") != "agent_report" or event.get("actor") != record.get("role")
+                        or not isinstance(result, Mapping) or not result.get("result_ref")
+                        or not pending.get("issue_ref") or result.get("issue_ref") != pending["issue_ref"]):
+                    continue
+                completed_after_checkpoint = any(
+                    i < j < max(finishes) and accepted.get("action") == "agent_report"
+                    and accepted.get("actor") == record.get("direct_superior")
+                    and isinstance(accepted.get("work_unit_acceptance"), Mapping)
+                    and accepted["work_unit_acceptance"].get("result_event_id") == event.get("event_id")
+                    and accepted["work_unit_acceptance"].get("issue_ref") == result.get("issue_ref")
+                    and accepted["work_unit_acceptance"].get("work_unit_id") == result.get("work_unit_id")
+                    and bool(accepted["work_unit_acceptance"].get("acceptance_ref"))
+                    for j, accepted in enumerate(events))
+                if completed_after_checkpoint:
+                    break
+            if (record.get("final_status", record.get("status")) != "completed"
+                    or (pending.get("unfinished") or pending.get("inflight_action_refs"))
+                    and not completed_after_checkpoint
+                    or not closed_after_finish):
+                raise ValueError("context_handoff_required_before_writer_start")
+            from commands.court_native_bridge import child_handoff_observation
+            stop = child_handoff_observation(
+                Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")),
+                str(record.get("native_child_thread_id") or ""),
+                session_id=str(record.get("native_trace_session_id") or ""))
+            complete = stop.get("complete_at")
+            reports = [event for event in events if event.get("action") == "agent_report"]
+            if (not complete or reports and datetime.fromisoformat(
+                    _aware_timestamp(complete, "context_handoff_completion_invalid")) < datetime.fromisoformat(
+                    _aware_timestamp(reports[-1].get("time"), "context_handoff_checkpoint_time_invalid"))):
+                raise ValueError("context_handoff_host_stop_not_observed")
+        return None
+    if not isinstance(handoff, Mapping) or set(handoff) != {"source_agent_id", "checkpoint_event_id"}:
+        raise ValueError("context_handoff_invalid")
+    source_id = require_text(handoff.get("source_agent_id"), "source_agent_id")
+    source = (task.get("agents") or {}).get(source_id)
+    current_case = binding.get("case_ref", case_reference(task))
+    if (not isinstance(source, Mapping) or source.get("role") != binding.get("role")
+            or source.get("direct_superior") != binding.get("direct_superior")
+            or not isinstance(source.get("case_ref"), Mapping)
+            or source["case_ref"].get("court_code") != current_case.get("court_code")
+            or source.get("release_status") != "closed"):
+        raise ValueError("context_handoff_source_not_closed")
+    events = events_for_task(str(task["task_id"]), limit=None)
+    checkpoints = [(i, event) for i, event in enumerate(events)
+                   if event.get("event_id") == handoff["checkpoint_event_id"]
+                   and event.get("action") == "agent_report" and event.get("agent_id") == source_id
+                   and event.get("case_ref") == source.get("case_ref")
+                   and event.get("semantic_epoch") == source.get("semantic_epoch")
+                   and isinstance(event.get("context_checkpoint"), Mapping)]
+    if len(checkpoints) != 1:
+        raise ValueError("context_handoff_checkpoint_event_required")
+    checkpoint_index, event = checkpoints[0]
+    checkpoint = dict(event["context_checkpoint"])
+    if (checkpoint.get("write_set") != binding.get("write_set")
+            or checkpoint.get("issue_ref") != policy.get("issue_ref")
+            or checkpoint.get("inflight_action_refs") != []):
+        raise ValueError("context_handoff_checkpoint_not_ready")
+    finishes = [i for i, item in enumerate(events) if i > checkpoint_index
+                and item.get("agent_id") == source_id and item.get("action") == "agent_finish"]
+    closes = [item for i, item in enumerate(events) if finishes and i > max(finishes)
+              and item.get("agent_id") == source_id and item.get("action") == "agent_close"]
+    if not closes:
+        raise ValueError("context_handoff_source_close_event_required")
+    from commands.court_native_bridge import child_handoff_observation
+    stop = child_handoff_observation(
+        Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")),
+        str(source.get("native_child_thread_id") or ""),
+        session_id=str(source.get("native_trace_session_id") or ""))
+    complete = stop.get("complete_at")
+    if (not complete or datetime.fromisoformat(_aware_timestamp(complete, "context_handoff_completion_invalid"))
+            < datetime.fromisoformat(_aware_timestamp(event.get("time"), "context_handoff_checkpoint_time_invalid"))):
+        raise ValueError("context_handoff_host_stop_not_observed")
+    return checkpoint, {"source_agent_id": source_id, "checkpoint_event_id": event["event_id"],
+                        "source_close_event_id": closes[-1]["event_id"], "host_stop": stop}
+
+
+def _context_handoff_start(task: Mapping[str, object], binding: Mapping[str, object],
+                            receipt: Mapping[str, object] | None) -> dict[str, object] | None:
+    handoff = _context_handoff_checkpoint(task, binding)
+    if handoff is None:
+        return None
+    checkpoint, proof = handoff
+    from commands.court_native_bridge import child_handoff_observation, handoff_readback_text
+    spawn = receipt.get("host_spawn_evidence") if isinstance(receipt, Mapping) else None
+    if not isinstance(spawn, Mapping):
+        raise ValueError("context_handoff_new_child_evidence_required")
+    readback = child_handoff_observation(
+        Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")),
+        str(spawn.get("child_thread_id") or ""),
+        session_id=str(receipt.get("trace_session_id") or ""),
+        readback_text=handoff_readback_text(checkpoint), checkpoint=checkpoint)
+    if readback.get("readback_line") is None:
+        raise ValueError("context_handoff_actual_readback_required")
+    # Recheck claims under the same runtime lock immediately before start.
+    other_records = [record for record in (task.get("agents") or {}).values()
+                     if isinstance(record, Mapping)
+                     and record.get("status") not in TERMINAL_AGENT_STATUSES
+                     and record.get("release_status") != "closed"]
+    if any(repository_paths_overlap(path, active) for path in binding.get("write_set", [])
+           for record in other_records for active in record.get("write_set", [])):
+        raise ValueError("context_handoff_writer_conflict")
+    return {**proof, "readback": readback}
+
+
 def agent_event(
     args: argparse.Namespace,
     lifecycle_action: str,
@@ -9596,6 +9911,7 @@ def agent_event(
                 host_action="spawn",
                 outcome="succeeded",
             )
+            args._context_handoff_proof = _context_handoff_start(task, matched_binding, start_native_host_receipt)
             start_admission = admission
             start_model_route = dict(model_route)
             admitted_model_authorization = model_route.get(
@@ -9827,6 +10143,8 @@ def agent_event(
             # the terminal/quarantine guards above stay enforced.
         now = now_text()
         current = dict(agents.get(agent_id, {})) if isinstance(agents.get(agent_id), dict) else {}
+        context_fields = (_context_report_fields(task, current, args)
+                          if lifecycle_action == "agent_report" else {})
         recovery_consumed_receipts: list[dict[str, object]] = []
         recovery_finish_event_id = ""
         previous_status = str(current.get("final_status") or current.get("status") or "")
@@ -9926,6 +10244,11 @@ def agent_event(
                 current.update(deepcopy(matching_bindings[0]))
             if captured_carrier is not None:
                 current.update(deepcopy(captured_carrier))
+            current["context_policy"] = _native_context_policy(start_admission, matched_binding)
+            handoff_proof = getattr(args, "_context_handoff_proof", None)
+            if handoff_proof is not None:
+                current["context_handoff"] = deepcopy(handoff_proof)
+                current["context_policy"].pop("handoff", None)
             current['charter_revision'] = task['charter_revision']
             if start_hierarchy_evidence is not None:
                 current.update(start_hierarchy_evidence)
@@ -9958,6 +10281,8 @@ def agent_event(
             _refresh_native_host_context_utilization(current)
         if lifecycle_action == "agent_report" and consultation_refs is not None:
             current["consultation_refs"] = deepcopy(consultation_refs)
+        if lifecycle_action == "agent_report" and "next_work_unit" in context_fields:
+            current["next_work_unit"] = deepcopy(context_fields["next_work_unit"])
         if lifecycle_action == "agent_finish":
             _advance_preload_phase(current, now, "COMPLETED_IMPLICIT")
             current["finished_at"] = now
@@ -10014,6 +10339,7 @@ def agent_event(
         event = make_event(task, lifecycle_action, status, str(task.get("state")), actor, evidence, args.note)
         event["agent_id"] = agent_id
         event["agent_role"] = role
+        event.update(context_fields)
         event['charter_revision'] = current.get('charter_revision', current.get('semantic_epoch'))
         for field in AGENT_SEMANTIC_ARG_FIELDS:
             if current.get(field) is not None:
@@ -10198,21 +10524,22 @@ def _refresh_native_host_context_utilization(record: dict[str, Any]) -> None:
     if not child_thread_id:
         return
     try:
-        from commands.court_native_bridge import _child_context_utilization
+        from commands.court_native_bridge import _child_context_observation
 
         home = Path(
             os.environ.get("CODEX_HOME") or (Path.home() / ".codex")
         ).expanduser()
-        utilization = _child_context_utilization(home, child_thread_id)
-    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+        observation = _child_context_observation(home, child_thread_id)
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
         # Keep the reuse gate fail-closed while exposing why the observation was
         # unavailable to the existing lifecycle/diagnostic projections.
         record["native_host_context_utilization_warning"] = (
             f"backfill_unavailable:{type(exc).__name__}:{exc}"
         )
         return
-    if utilization is not None:
-        record["native_host_context_utilization"] = utilization
+    if observation is not None:
+        record["native_host_context_utilization"] = observation["context_utilization"]
+        record["native_host_context_window_tokens"] = observation["context_window_tokens"]
         record.pop("native_host_context_utilization_warning", None)
 
 
@@ -10688,6 +11015,9 @@ def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, o
     read_scope = binding['read_scope'] if 'read_scope' in binding else write_set
     if not isinstance(read_scope, (list, tuple)) or not isinstance(write_set, (list, tuple)):
         raise ValueError('native_bridge:binding_scope_invalid')
+    target = _native_bridge_target_record(task, binding)
+    if target is None:
+        _context_handoff_checkpoint(task, binding)
     request: dict[str, object] = {
         'schema': 'court.native_host_dispatch_request.v1',
         'task_id': task.get('task_id'),
@@ -10714,8 +11044,8 @@ def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, o
             'receipt_id': admission_event_id,
         },
         'compatible_live_instances': [],
+        'context_policy': _native_context_policy(admission, binding, target),
     }
-    target = _native_bridge_target_record(task, binding)
     if target is not None:
         # A followup is lawful when the admitted binding carries a bounded
         # business scope; a preload-only binding stays preload-only. Host
@@ -10733,7 +11063,8 @@ def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, o
             )
         if str(target.get('status') or '').strip().lower() in TERMINAL_AGENT_STATUSES:
             raise ValueError('native_bridge:target_native_actor_terminal')
-        raw_ratio = target.get('native_host_context_utilization')
+        historical = _native_candidate_facts(task, target)
+        raw_ratio = historical.get('context_utilization')
         if isinstance(raw_ratio, bool) or not isinstance(raw_ratio, (int, float)):
             raise ValueError('native_bridge:reuse_context_unavailable')
         if target.get('native_host_identity_kind') == 'canonical_agent_path':
@@ -10762,22 +11093,16 @@ def _native_bridge_request(task: Mapping[str, object], admission: Mapping[str, o
                 raise ValueError('native_bridge:target_host_identity_missing')
         request['compatible_live_instances'] = [{
             **host_fields,
-            'task_id': request['task_id'],
-            'role': request['role'],
-            'direct_superior': request['direct_superior'],
-            'assignment': request['assignment'],
-            'duty_scope': deepcopy(request['duty_scope']),
-            'semantic_receipt': {
-                'semantic_epoch': request['semantic_epoch'],
-                'case_ref': request['case_ref'],
-            },
-            'lease_id': request['lease_id'],
-            'write_set': deepcopy(request['write_set']),
-            'role_ack': deepcopy(request['role_ack']),
-            'context_utilization': float(raw_ratio),
+            **historical,
             'status': str(target.get('status') or '').strip().lower(),
         }]
-    return normalize_native_host_dispatch_request(request)
+    normalized = normalize_native_host_dispatch_request(request)
+    if target is not None and select_native_host_action(normalized)[0] != 'reuse':
+        reason = evaluate_context_reuse(normalized['compatible_live_instances'][0], normalized)['reason']
+        raise ValueError('native_bridge:renewal_required:' + str(reason)
+                         + '; next_step=checkpoint/finish/close the old writer; '
+                         'the direct superior admits a fresh instance with a bounded handoff')
+    return normalized
 
 
 def _native_bridge_host_message_inputs(
@@ -11025,6 +11350,10 @@ def _native_bridge_request_result(
         binding,
         spawn_agent_type_field=spawn_agent_type_field,
     )
+    if action == "followup":
+        # The admitted role route remains validated above. Its spawn-only role
+        # field is not an argument to the existing child's followup carrier.
+        agent_type = None
     model_capability = _native_bridge_optional_capability(
         spawn_model_field,
         "spawn_model_field",
@@ -11575,6 +11904,9 @@ def office_followup(args: argparse.Namespace) -> dict[str, object]:
             }
         )
         current["native_host_followups"] = followups
+        if "context_policy" in request:
+            current["context_policy"] = deepcopy(request["context_policy"])
+            current.pop("next_work_unit", None)
         # Refresh the reuse observation only with a real host reading; a missing
         # observation never overwrites an earlier one.
         utilization = _receipt_context_utilization(native_host_receipt)
@@ -13501,6 +13833,8 @@ def build_parser() -> argparse.ArgumentParser:
     agent_report_parser.add_argument("--actor", default="shangshu", choices=sorted(OFFICES))
     agent_report_parser.add_argument("--evidence", required=True)
     agent_report_parser.add_argument("--consultation-refs-json", dest="consultation_refs", type=json_array_argument)
+    for field in ("work_unit_result", "work_unit_acceptance", "context_checkpoint", "dispatch_assessment", "next_work_unit"):
+        agent_report_parser.add_argument(f"--{field.replace('_', '-')}-json", dest=field, type=json_object_argument)
     agent_report_parser.add_argument("--note", default="")
 
     agent_finish_parser = sub.add_parser("agent-finish", help="record a child agent completion")

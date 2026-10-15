@@ -6,17 +6,19 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.0-hotfix-v1",
+  "latest_tag": "beta1.2.1",
   "releases": [
     {
-      "tag": "beta1.2.0-hotfix-v1",
-      "title": "Decretum Matrix beta1.2.0-hotfix-v1",
-      "summary": "beta1.2.0-hotfix-v1 本地候选准备：为已审核的 native V1 reader 兼容修复派生同版 hotfix，保留必要保护与实际宿主配置。",
+      "tag": "beta1.2.1",
+      "title": "Decretum Matrix beta1.2.1",
+      "summary": "beta1.2.1：superCC 事实回执、cmd 退出码、有限上下文复用与安全换新、史馆并发修复，并吸收此前未发布的 native V1 reader 修复内容。",
       "highlights": [
-        "仅承载 native V1 reader 识别兼容修复，旧格式与必要负例保护继续保留。",
-        "版本使用既有机制派生公开 semver 1.2.0-beta.0.hotfix.1，不增加发布流程或修改宿主配置。"
+        "F07/F08 按真实动作结果与退出码验收，保留部分成功和正常参数转发。",
+        "派遣选择、有限工作单复用及安全换新沿现有预算、P00 与 owner/lease 实施。",
+        "已接受 native V1 reader 修复随本版交付；旧 V1/V2、serial、合法 mixed 与32child/33logical保持。",
+        "graph 完整事务、Windows 真共享锁、recall 一致快照和模型初始化、seed 完整且不覆盖发布均通过源码独立复核与隔离回归；真实运行边界另行留证。"
       ],
-      "asset_note": "本条目仅为本地候选意图，不声明候选、CI、外部 hotfix 发布或实际安装成功。已发布 beta1.2.0 的 b8 tag、资产和 npm 保留；旧版证据不复用于本次变更。"
+      "asset_note": "最终产物使用 beta1.2.1 身份：decretum-matrix-beta1.2.1.zip / npm 1.2.1-beta.0。此前hotfix只合入修复内容；源码、隔离、真实宿主、CI、发布和安装分别按最终提交实际回读。原beta1.2.0标签、资产与npm不变。"
     },
     {
       "tag": "beta1.2.0",

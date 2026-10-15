@@ -1,6 +1,13 @@
 # Changelog
 
-## beta1.2.0-hotfix-v1 - 2026-10-14 (candidate; not published)
+## beta1.2.1 - 2026-10-16 (candidate; SOURCE accepted)
+
+### Candidate scope
+
+- 本版实施 F07/F08：superCC 聚合使用真实动作结果，保留部分成功；Windows cmd 入口保留真实外部退出码与参数。
+- 本版实施派遣收益判断、同问题有限复用与安全上下文换新。沿用当前 budget、P00、owner/lease 与生命周期，不增加调度器或独立账册。
+- 修复知识图谱旧快照迟到覆盖、Windows 共享锁实际串行、召回 engine 首次并发构建与暖缓存模型初始化竞争。图谱复用完整事务锁，召回发布一致快照并协调模型初始化；首次史馆 seed 复用原子写入，以严格不覆盖方式发布完整内容，保留暖启动并行和已有用户配置。
+- 仅吸收未发布 beta1.2.0-hotfix-v1 的兼容修复内容。最终版本为 beta1.2.1、ZIP 为 decretum-matrix-beta1.2.1.zip、公开 npm 为 1.2.1-beta.0；不以旧 hotfix 名称发布。本版 native V1 reader 修复已在接续源码中。
 
 ### Fixed
 
@@ -11,8 +18,9 @@
 ### Validation boundary
 
 - 原 beta1.2.0 已通过同提交线上六项 CI 并发布 GitHub/npm。本机事务在旧配置读取器报 protocol_mode_unresolved 后完整回滚，原 COMMITTED 安装恢复；本条修复由该实际失败触发。
-- 本条是同版兼容候选。直接 SOURCE 对照、候选、线上 CI、正式发布、本机安装与真实 native/UI 分别记录；新源码不复用原已发布提交的证据。
-- 原 beta1.2.0 标签、附件与公开 npm 版本保持不变。新的外部补丁发布与实际安装等待本候选独立验证和用户决定。
+- 本版限定源码及隔离回归已获独立接受，包含原32并发、真实进程初始化窗口和缓存解码保护。最终 SOURCE 总门、候选、线上 CI、正式发布、本机安装与真实 native/UI 分别留证；不复用旧候选接受。
+- 并发复现均使用隔离目录或内存 fake backend；不证明真实史馆曾损坏。公共 MCP 的同步 stdio 仍逐个处理请求，慢召回会延迟同进程后续请求；本版不增加异步调度框架。
+- 原 beta1.2.0 标签、附件与公开 npm 版本保持不变。beta1.2.1 的正式出口须先取得最终提交的 CI 六任务通过；未执行的宿主与安装项明确保留其边界。
 
 ## beta1.2.0 - 2026-10-14 (candidate; SOURCE accepted)
 

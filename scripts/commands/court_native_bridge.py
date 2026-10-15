@@ -372,6 +372,15 @@ def canonical_host_message(
     lines.append('职责范围：' + '、'.join(normalized['duty_scope']))
     lines.append('写入范围：' + ('、'.join(normalized['write_set']) or '只读'))
     lines.append('任务依据：' + '、'.join(evidence_paths))
+    policy = normalized.get('context_policy')
+    handoff = policy.get('handoff') if isinstance(policy, Mapping) else None
+    if isinstance(handoff, Mapping):
+        lines.append('本次先只读交接证据与所指材料，等待公共 start 接受后才写入。')
+        lines.append('从原 checkpoint 的实际工具输出读回关键事实，回奏格式：'
+                     '接手事实：问题=<issue_ref>；接手点=<resume_point>；未完=<各项用、连接>；'
+                     '证据=<各项用、连接>；写集=<各项用、连接，空时只读>。')
+        lines.append('交接依据：court-runtime:tasks/' + str(normalized['task_id'])
+                     + '/events[event_id=' + str(handoff.get('checkpoint_event_id')) + ']')
     lines.append(f'仅向{superior_name}回奏结论、状态、证据和下一步；机器回执保存在证据文件。')
     return '\n'.join(lines)
 
@@ -879,7 +888,7 @@ def _empty_tool_output(payload: Mapping[str, object]) -> bool:
     return True
 
 
-def _child_context_utilization(home: Path, child_thread_id: str) -> float | None:
+def _child_context_observation(home: Path, child_thread_id: str) -> dict[str, object] | None:
     """Read the latest host-observed context usage for one canonical child.
 
     The only source is the host rollout metadata: the last ``token_count``
@@ -926,7 +935,91 @@ def _child_context_utilization(home: Path, child_thread_id: str) -> float | None
         return None
     if last is None:
         return None
-    return last[0] / last[1]
+    return {"context_utilization": last[0] / last[1],
+            "context_tokens": last[0], "context_window_tokens": last[1]}
+
+
+def _child_context_utilization(home: Path, child_thread_id: str) -> float | None:
+    observation = _child_context_observation(home, child_thread_id)
+    return float(observation["context_utilization"]) if observation else None
+
+
+def handoff_readback_text(checkpoint: Mapping[str, object]) -> str:
+    """Business facts to be read back by the actual new host child."""
+    return ("接手事实：问题=" + str(checkpoint["issue_ref"])
+            + "；接手点=" + str(checkpoint["resume_point"])
+            + "；未完=" + "、".join(checkpoint["unfinished"])
+            + "；证据=" + "、".join(checkpoint["evidence_refs"])
+            + "；写集=" + ("、".join(checkpoint["write_set"]) or "只读"))
+
+
+def child_handoff_observation(home: Path, child_thread_id: str, *,
+                              session_id: str, readback_text: str | None = None,
+                              checkpoint: Mapping[str, object] | None = None
+                              ) -> dict[str, object]:
+    """Observe host completion/readback; supplied booleans cannot prove either.
+
+    Closing the court record alone does not prove the host stopped. A new turn,
+    user input, or tool invocation after task_complete invalidates quiescence.
+    """
+    path = _session_metadata_path(home, child_thread_id)
+    if path.stat().st_size > TRACE_MAX_BYTES:
+        raise ValueError("native_bridge:child_trace_too_large")
+    header = _read_session_header(path)
+    if (header.get("id") != child_thread_id
+            or header.get("session_id") != session_id):
+        raise ValueError("native_bridge:handoff_child_session_mismatch")
+    complete_at = None
+    readback_line = None
+    checkpoint_read_line = None
+    def contains_checkpoint(value: object, depth: int = 0) -> bool:
+        if depth > 10:
+            return False
+        if isinstance(value, Mapping):
+            return (checkpoint is not None and dict(value) == dict(checkpoint)) or any(
+                contains_checkpoint(child, depth + 1) for child in value.values())
+        if isinstance(value, list):
+            return any(contains_checkpoint(child, depth + 1) for child in value)
+        if isinstance(value, str):
+            try:
+                return contains_checkpoint(json.loads(value), depth + 1)
+            except (ValueError, RecursionError):
+                return False
+        return False
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if line_number > TRACE_MAX_LINES:
+                raise ValueError("native_bridge:child_trace_too_many_lines")
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(item, Mapping):
+                continue
+            payload = item.get("payload")
+            if not isinstance(payload, Mapping):
+                continue
+            kind = payload.get("type")
+            if item.get("type") == "event_msg":
+                if kind == "task_complete":
+                    complete_at = item.get("timestamp")
+                elif kind in {"task_started", "user_message"}:
+                    complete_at = None
+            if item.get("type") == "response_item":
+                if kind in {"function_call", "custom_tool_call", "local_shell_call"}:
+                    complete_at = None
+                if kind in {"function_call_output", "custom_tool_call_output"} and contains_checkpoint(payload):
+                    checkpoint_read_line = line_number
+                if kind == "message" and payload.get("role") == "assistant":
+                    content = payload.get("content")
+                    if isinstance(content, list):
+                        message = "\n".join(str(block.get("text") or "")
+                                            for block in content if isinstance(block, Mapping))
+                        if readback_text and readback_text in message and checkpoint_read_line is not None:
+                            readback_line = line_number
+    return {"trace_path": str(path), "complete_at": complete_at,
+            "readback_line": readback_line, "checkpoint_read_line": checkpoint_read_line,
+            "child_thread_id": child_thread_id}
 
 
 def _canonical_followup_host_result(

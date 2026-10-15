@@ -33,6 +33,77 @@ _LEVEL_CHILD = {
 _DEPARTMENT_ROLES = frozenset({"zhongshu", "menxia", "shangshu"})
 _MINISTRY_ROLES = frozenset({"libu-hr", "hubu", "libu", "bingbu", "xingbu", "gongbu"})
 
+# Conservative engineering defaults, not empirically established quality limits.
+# Counts refer to distinct, superior-accepted semantic work units. Token reserves
+# are incremental future output/handoff; observed context already includes preload.
+CONTEXT_REUSE_DEFAULTS = {
+    "department": {"completed_work_units_max": 3, "output_reserve_tokens": 8192,
+                   "handoff_reserve_tokens": 4096},
+    "ministry": {"completed_work_units_max": 4, "output_reserve_tokens": 8192,
+                 "handoff_reserve_tokens": 4096},
+    "worker": {"completed_work_units_max": 2, "output_reserve_tokens": 4096,
+               "handoff_reserve_tokens": 2048},
+}
+
+
+def context_reuse_defaults(role: str, instance_kind: str = "office") -> dict[str, object]:
+    level = ("worker" if instance_kind in {"worker", "craftsman", "office_worker_instance", "workshop", "artisan"}
+             else "department" if role in _DEPARTMENT_ROLES else "ministry")
+    return {"level": level, **CONTEXT_REUSE_DEFAULTS[level]}
+
+
+def evaluate_context_reuse(candidate: Mapping[str, object],
+                           request: Mapping[str, object]) -> dict[str, object]:
+    """Apply the finite work budget and one incremental context projection.
+
+    Legacy pure-adapter requests retain their old ratio-only contract. Runtime
+    requests always provide context_policy, including an unknown estimate when
+    necessary; unknown observations or predictions never become zero.
+    """
+    policy = request.get("context_policy")
+    if policy is None:
+        return {"allowed": True, "reason": "legacy_ratio_gate", "projection_tokens": None}
+    if not isinstance(policy, Mapping):
+        raise ValueError("context_policy_invalid")
+    prior_policy = candidate.get("context_policy")
+    prior_issue = (prior_policy.get("issue_ref") if isinstance(prior_policy, Mapping)
+                   else candidate.get("assignment"))
+    defaults = context_reuse_defaults(str(request.get("role") or ""),
+                                     str(policy.get("instance_kind") or "office"))
+    completed = candidate.get("completed_work_units", [])
+    if not isinstance(completed, (list, tuple)) or any(
+            not isinstance(item, str) or not item.strip() for item in completed):
+        raise ValueError("completed_work_units_invalid")
+    result = {"allowed": False, "reason": "independent_problem", **defaults,
+              "completed_work_units": len(set(completed)), "projection_tokens": None}
+    if not isinstance(policy.get("issue_ref"), str) or not policy["issue_ref"].strip():
+        result["reason"] = "issue_ref_unknown"
+        return result
+    if policy["issue_ref"] != prior_issue:
+        return result
+    if len(set(completed)) >= defaults["completed_work_units_max"]:
+        result["reason"] = "completed_work_unit_budget_exhausted"
+        return result
+    ratio, window = candidate.get("context_utilization"), candidate.get("context_window_tokens")
+    if (not _finite_number(ratio) or not 0 <= float(ratio) < 0.80
+            or type(window) is not int or window <= 0):
+        result["reason"] = "context_observation_unknown_or_exhausted"
+        return result
+    inputs = policy.get("next_input_tokens")
+    output = policy.get("output_reserve_tokens", defaults["output_reserve_tokens"])
+    handoff = policy.get("handoff_reserve_tokens", defaults["handoff_reserve_tokens"])
+    if any(type(value) is not int or value < 0 for value in (inputs, output, handoff)):
+        result["reason"] = "context_prediction_unknown"
+        return result
+    projected = float(ratio) * window + inputs + output + handoff
+    result.update(projection_tokens=projected, context_window_tokens=window,
+                  next_input_tokens=inputs, output_reserve_tokens=output,
+                  handoff_reserve_tokens=handoff,
+                  allowed=projected < 0.80 * window,
+                  reason="same_problem_within_budget" if projected < 0.80 * window
+                         else "predicted_context_budget_exhausted")
+    return result
+
 _RESOURCE_FIELDS = (
     "sample_id",
     "sampled_at",
@@ -797,6 +868,7 @@ def evaluate_complexity_budget(
     budget_sufficient: bool,
     risk_acceptable: bool,
     rollback_ready: bool,
+    reuse_available: bool = False,
 ) -> dict[str, object]:
     """Apply explicit user priority, otherwise the four-factor Taizi decision."""
 
@@ -808,6 +880,7 @@ def evaluate_complexity_budget(
     budget_sufficient = _require_strict_bool(budget_sufficient)
     risk_acceptable = _require_strict_bool(risk_acceptable)
     rollback_ready = _require_strict_bool(rollback_ready)
+    reuse_available = _require_strict_bool(reuse_available)
 
     source = "USER_EXPLICIT" if user_instruction is not None else "TAIZI_BUDGET"
     considered = ("necessity", "budget", "risk", "rollback")
@@ -829,6 +902,9 @@ def evaluate_complexity_budget(
         "decision_source": source,
         "considered_factors": considered,
         "hard_gates_preserved": True,
+        "dispatch_choice": ("deferred" if result == "BUDGET_DEFERRED" else
+                            "direct" if result in {"MINIMAL_PASS", "LOW_VALUE_REJECTED"}
+                            else "reuse" if reuse_available else "fresh"),
     }
 
 

@@ -713,6 +713,244 @@ class NativeCapabilityContractTests(unittest.TestCase):
         }
         return task, admission, binding, request
 
+    def test_runtime_reuse_uses_historical_problem_and_window(self):
+        request = _request()
+        request["context_policy"] = {
+            "issue_ref": "TASK-003/context", "work_unit_id": "repair", "next_input_tokens": 1000,
+        }
+        target = {
+            "agent_id": "old-writer", "office_instance_id": request["instance_id"],
+            "task_id": request["task_id"], "role": request["role"],
+            "direct_superior": request["direct_superior"], "status": "running",
+            "semantic_epoch": request["semantic_epoch"], "case_ref": request["case_ref"],
+            "lease_id": request["lease_id"], "write_set": request["write_set"],
+            "native_host_task_id": "old-task", "native_host_thread_id": "old-thread",
+            "native_host_instance_id": "old-instance",
+            "native_host_context_utilization": 0.20, "native_host_context_window_tokens": 100_000,
+            "native_host_action_receipt": {"request": deepcopy(request)},
+            # Real agent_start persists this field, including the resolved defaults.
+            "context_policy": court_runtime._native_context_policy(
+                {"model_route_inputs": {"assignment": request["assignment"]}},
+                {"role": "gongbu", "context_policy": request["context_policy"]}),
+        }
+        task = {"task_id": request["task_id"], "agents": {"old-writer": target}}
+        admission = {key: request[key] for key in
+                     ("wave_id", "dispatch_uid", "attempt", "semantic_epoch", "case_ref")}
+        admission["model_route_inputs"] = {"assignment": request["assignment"], "task_focus": "retest"}
+        binding = {key: request[key] for key in
+                   ("role", "instance_id", "direct_superior", "lease_id", "write_set", "office_capsule_ref")}
+        binding.update(preload_sources=court_runtime._semantic_preload_sources("gongbu"),
+                       read_scope=request["duty_scope"], bounded_mandate="same repair",
+                       expected_result="verified repair", context_policy=deepcopy(request["context_policy"]),
+                       _validated_admission_anchor={"event": {"event_id": request["admission_anchor"]["receipt_id"]}})
+        with patch.object(court_runtime, "events_for_task", return_value=[]):
+            continued = court_runtime._native_bridge_request(task, admission, binding)
+            self.assertEqual(bridge.select_native_host_action(continued)[0], "reuse")
+            self.assertEqual(continued["context_policy"]["issue_ref"], "TASK-003/context")
+            prior = deepcopy(target)
+            binding["context_policy"]["issue_ref"] = "TASK-003/independent"
+            with self.assertRaisesRegex(ValueError, "renewal_required:independent_problem"):
+                court_runtime._native_bridge_request(task, admission, binding)
+            self.assertEqual(target, prior)
+            binding["context_policy"]["issue_ref"] = "TASK-003/context"
+            target["native_host_context_window_tokens"] = None
+            with self.assertRaisesRegex(ValueError, "renewal_required"):
+                court_runtime._native_bridge_request(task, admission, binding)
+            target["native_host_context_window_tokens"] = 100_000
+            target["next_work_unit"] = {"issue_ref": "TASK-003/context", "work_unit_id": "next",
+                                        "next_input_tokens": 1000}
+            next_request = court_runtime._native_bridge_request(task, admission, binding)
+            self.assertEqual(next_request["context_policy"]["work_unit_id"], "next")
+            self.assertEqual(target["context_policy"]["work_unit_id"], "repair")
+            target["next_work_unit"]["issue_ref"] = "TASK-003/independent"
+            with self.assertRaisesRegex(ValueError, "renewal_required:independent_problem"):
+                court_runtime._native_bridge_request(task, admission, binding)
+            target.pop("next_work_unit")
+            target["native_host_action_receipt"]["request"]["lease_id"] = "unrelated-old-lease"
+            with self.assertRaisesRegex(ValueError, "target_historical_binding_mismatch"):
+                court_runtime._native_bridge_request(task, admission, binding)
+
+    def test_completed_closed_history_does_not_require_retroactive_checkpoint(self):
+        source_id = "completed-writer"
+        old_thread = "019f4eb2-38e7-7760-bbc9-77a030b7cf0e"
+        source = {"agent_id": source_id, "role": "gongbu", "direct_superior": "shangshu",
+                  "case_ref": dict(CASE_REF), "semantic_epoch": 3,
+                  "release_status": "closed", "status": "completed", "final_status": "completed",
+                  "write_set": ["scripts/owned.py"],
+                  "context_policy": {"issue_ref": "TASK-003/old"},
+                  "native_host_action_receipt_id": "original-native-receipt",
+                  "native_child_thread_id": old_thread, "native_trace_session_id": self.session_id}
+        task = {"task_id": "completed-history", **CASE_REF, "agents": {source_id: source}}
+        binding = {"role": "gongbu", "direct_superior": "shangshu", "case_ref": dict(CASE_REF),
+                   "write_set": source["write_set"], "context_policy": {"issue_ref": "TASK-003/new"}}
+        events = [{"action": action, "agent_id": source_id, "event_id": action,
+                   "case_ref": dict(CASE_REF), "semantic_epoch": 3,
+                   "time": "2026-09-06T12:30:00+08:00"}
+                  for action in ("agent_report", "agent_finish", "agent_close")]
+        complete = {"type": "event_msg", "timestamp": "2026-09-06T13:00:00+08:00",
+                    "payload": {"type": "task_complete"}}
+        with tempfile.TemporaryDirectory(prefix="native-completed-history-") as temp_dir:
+            home = Path(temp_dir)
+            _write_child_session_meta(home, child_thread_id=old_thread,
+                                      session_id=self.session_id, agent_role="gongbu")
+            path = home / "sessions/2026/09" / f"rollout-{old_thread}.jsonl"
+            header = path.read_text()
+            path.write_text(header + json.dumps(complete) + "\n", encoding="utf-8")
+            with patch.dict("os.environ", {"CODEX_HOME": str(home)}), \
+                    patch.object(court_runtime, "events_for_task", return_value=events):
+                before = deepcopy(task)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, binding))
+                newer = deepcopy(binding)
+                newer["case_ref"]["charter_revision"] = 4
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
+                self.assertEqual(task, before)
+                for status, release in (("running", "active"), ("completed", "active"),
+                                        ("failed", "closed")):
+                    source.update(status=status, final_status=status, release_status=release)
+                    with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                        court_runtime._context_handoff_checkpoint(task, newer)
+                source.update(status="completed", final_status="completed", release_status="closed")
+                closed = events.pop()
+                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                    court_runtime._context_handoff_checkpoint(task, newer)
+                events.append(closed)
+                events[0]["context_checkpoint"] = {"unfinished": ["still needs handoff"],
+                                                    "inflight_action_refs": []}
+                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                    court_runtime._context_handoff_checkpoint(task, newer)
+                events[0]["context_checkpoint"]["issue_ref"] = "TASK-003/old"
+                events[0]["context_checkpoint"]["inflight_action_refs"] = ["old-ci"]
+                result = {**events[0], "event_id": "completed-result", "actor": "gongbu",
+                          "work_unit_result": {"issue_ref": "TASK-003/old", "work_unit_id": "repair",
+                                               "result_ref": "proof/completed.json"}}
+                result.pop("context_checkpoint")
+                accepted = {**result, "event_id": "accepted-result", "actor": "shangshu",
+                            "work_unit_acceptance": {"result_event_id": "completed-result",
+                                "issue_ref": "TASK-003/old", "work_unit_id": "repair",
+                                "acceptance_ref": "proof/superior-acceptance.json"}}
+                accepted.pop("work_unit_result")
+                events[1:1] = [result, accepted]
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
+                for field, invalid in (("actor", "gongbu"), ("semantic_epoch", 2)):
+                    original = accepted[field]
+                    accepted[field] = invalid
+                    with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                        court_runtime._context_handoff_checkpoint(task, newer)
+                    accepted[field] = original
+                accepted["work_unit_acceptance"]["result_event_id"] = "unrelated-result"
+                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                    court_runtime._context_handoff_checkpoint(task, newer)
+                accepted["work_unit_acceptance"]["result_event_id"] = "completed-result"
+                result["work_unit_result"]["issue_ref"] = "TASK-003/unrelated"
+                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                    court_runtime._context_handoff_checkpoint(task, newer)
+                result["work_unit_result"]["issue_ref"] = "TASK-003/old"
+                events[1:3] = [accepted, result]
+                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                    court_runtime._context_handoff_checkpoint(task, newer)
+                events[1:3] = []
+                events[0].pop("context_checkpoint")
+                path.write_text(header + json.dumps(complete) + "\n" + json.dumps({
+                    "type": "response_item", "payload": {"type": "function_call",
+                    "name": "still-writing", "arguments": "{}"}}) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "host_stop_not_observed"):
+                    court_runtime._context_handoff_checkpoint(task, newer)
+
+    def test_handoff_requires_host_stop_and_readback_after_actual_checkpoint_read(self):
+        # Synthetic child traces exercise the real reader; they are SOURCE evidence.
+        checkpoint = {"issue_ref": "TASK-003/context", "resume_point": "retest",
+                      "unfinished": ["verify"], "evidence_refs": ["proof/original.json"],
+                      "write_set": ["scripts/owned.py"], "inflight_action_refs": []}
+        source_id = "old-writer"
+        old_thread = "019f4eb2-38e7-7760-bbc9-77a030b7cf0e"
+        source = {"agent_id": source_id, "role": "gongbu", "direct_superior": "shangshu",
+                  "case_ref": dict(CASE_REF), "semantic_epoch": 3, "release_status": "closed",
+                  "status": "completed", "write_set": checkpoint["write_set"],
+                  "native_child_thread_id": old_thread, "native_trace_session_id": self.session_id}
+        task = {"task_id": "handoff-fixture", **CASE_REF, "agents": {source_id: source}}
+        binding = {"role": "gongbu", "direct_superior": "shangshu", "case_ref": dict(CASE_REF),
+                   "write_set": checkpoint["write_set"],
+                   "context_policy": {"issue_ref": checkpoint["issue_ref"],
+                                      "handoff": {"source_agent_id": source_id,
+                                                  "checkpoint_event_id": "checkpoint"}}}
+        events = [
+            {"action": "agent_report", "agent_id": source_id, "event_id": "checkpoint",
+             "case_ref": dict(CASE_REF), "semantic_epoch": 3,
+             "time": "2026-09-06T12:30:00+08:00", "context_checkpoint": checkpoint},
+            {"action": "agent_finish", "agent_id": source_id, "event_id": "finished"},
+            {"action": "agent_close", "agent_id": source_id, "event_id": "closed"},
+        ]
+        receipt = {"host_spawn_evidence": {"child_thread_id": self.child_thread_id},
+                   "trace_session_id": self.session_id}
+        with tempfile.TemporaryDirectory(prefix="native-renewal-trace-") as temp_dir:
+            home = Path(temp_dir)
+            for thread in (old_thread, self.child_thread_id):
+                _write_child_session_meta(home, child_thread_id=thread,
+                                          session_id=self.session_id, agent_role="gongbu")
+            old_path = home / "sessions/2026/09" / f"rollout-{old_thread}.jsonl"
+            new_path = home / "sessions/2026/09" / f"rollout-{self.child_thread_id}.jsonl"
+            old_header, new_header = old_path.read_text(), new_path.read_text()
+            complete = {"type": "event_msg", "timestamp": "2026-09-06T13:00:00+08:00",
+                        "payload": {"type": "task_complete"}}
+            tool_read = {"type": "response_item", "payload": {
+                "type": "function_call_output", "call_id": "read-checkpoint",
+                "output": json.dumps({"context_checkpoint": checkpoint})}}
+            readback = {"type": "response_item", "payload": {
+                "type": "message", "role": "assistant", "content": [
+                    {"type": "output_text", "text": bridge.handoff_readback_text(checkpoint)}]}}
+            def write_rows(path, header, rows):
+                path.write_text(header + "".join(json.dumps(row) + "\n" for row in rows),
+                                encoding="utf-8")
+            write_rows(old_path, old_header, [complete])
+            with patch.dict("os.environ", {"CODEX_HOME": str(home)}), \
+                    patch.object(court_runtime, "events_for_task", return_value=events):
+                omitted = deepcopy(binding)
+                omitted["context_policy"].pop("handoff")
+                source["context_policy"] = {"issue_ref": checkpoint["issue_ref"]}
+                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
+                    court_runtime._context_handoff_checkpoint(task, omitted)
+                source.pop("context_policy")
+                write_rows(new_path, new_header, [readback])
+                before = deepcopy(task)
+                with self.assertRaisesRegex(ValueError, "actual_readback_required"):
+                    court_runtime._context_handoff_start(task, binding, receipt)
+                self.assertEqual(task, before)
+                mismatched = deepcopy(readback)
+                mismatched["payload"]["content"][0]["text"] = "接手事实：问题=wrong"
+                write_rows(new_path, new_header, [tool_read, mismatched])
+                with self.assertRaisesRegex(ValueError, "actual_readback_required"):
+                    court_runtime._context_handoff_start(task, binding, receipt)
+                write_rows(new_path, new_header, [tool_read, readback])
+                self.assertIsNotNone(court_runtime._context_handoff_start(task, binding, receipt))
+                newer = deepcopy(binding)
+                newer["case_ref"]["charter_revision"] = 4
+                self.assertIsNotNone(court_runtime._context_handoff_start(task, newer, receipt))
+                newer["case_ref"]["court_code"] = "another-case"
+                with self.assertRaisesRegex(ValueError, "source_not_closed"):
+                    court_runtime._context_handoff_start(task, newer, receipt)
+                task["agents"]["another-writer"] = {"status": "running", "release_status": "active",
+                                                    "write_set": checkpoint["write_set"]}
+                with self.assertRaisesRegex(ValueError, "writer_conflict"):
+                    court_runtime._context_handoff_start(task, binding, receipt)
+                task["agents"].pop("another-writer")
+                close_event = events.pop()
+                with self.assertRaisesRegex(ValueError, "close_event_required"):
+                    court_runtime._context_handoff_start(task, binding, receipt)
+                events.append(close_event)
+                checkpoint["inflight_action_refs"] = ["still-running-ci"]
+                with self.assertRaisesRegex(ValueError, "checkpoint_not_ready"):
+                    court_runtime._context_handoff_start(task, binding, receipt)
+                checkpoint["inflight_action_refs"] = []
+                source["release_status"] = "active"
+                with self.assertRaisesRegex(ValueError, "source_not_closed"):
+                    court_runtime._context_handoff_start(task, binding, receipt)
+                source["release_status"] = "closed"
+                write_rows(old_path, old_header, [complete, {"type": "response_item", "payload": {
+                    "type": "function_call", "name": "still-writing", "arguments": "{}"}}])
+                with self.assertRaisesRegex(ValueError, "host_stop_not_observed"):
+                    court_runtime._context_handoff_start(task, binding, receipt)
+                self.assertEqual(task["agents"][source_id]["write_set"], checkpoint["write_set"])
+
     def test_native_presentation_uses_duty_name_and_business_message(self):
         request = _request()
         result = bridge.native_request_result(
@@ -846,6 +1084,21 @@ class NativeCapabilityContractTests(unittest.TestCase):
         self.assertEqual(followup['carrier_proof'], record['carrier_proof'])
         self.assertEqual(followup['dispatch_uid'], record['dispatch_uid'])
         self.assertEqual(followup['attempt'], record['attempt'])
+
+    def test_runtime_role_route_spawn_then_followup_omits_spawn_only_fields(self):
+        for protocol in ("v1", "v2"):
+            task, admission, binding, request = self._runtime_request_case()
+            admission.update(self._admission(protocol))
+            spawned = court_runtime._native_bridge_request_result(
+                task, admission, binding, request, spawn_agent_type_field="visible")
+            self.assertEqual(spawned["host_invocation"]["tool_name"], "spawn_agent")
+            self.assertEqual(spawned["host_invocation"]["arguments"]["agent_type"], "gongbu")
+            _, _, _, followup = self._runtime_request_case(followup=True)
+            continued = court_runtime._native_bridge_request_result(task, admission, binding, followup)
+            self.assertEqual(continued["host_invocation"]["tool_name"], "followup_task")
+            self.assertFalse({"agent_type", "task_name", "fork_turns", "model", "reasoning_effort"}
+                             & set(continued["host_invocation"]["arguments"]))
+            self.assertEqual(continued["request"]["instance_id"], spawned["request"]["instance_id"])
 
     def test_pure_renderer_missing_binding_never_returns_json(self):
         request = _request()

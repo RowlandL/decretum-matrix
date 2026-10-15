@@ -20,6 +20,7 @@ sys.dont_write_bytecode = True
 
 from shiguan_entry_utils import enrich_entry
 from shiguan_paths import code_root, ensure_shared_seed, reference_path
+from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
 
 
 def skill_root() -> Path:
@@ -154,11 +155,13 @@ def build_graph(entries: list[dict[str, object]]) -> dict[str, object]:
 
 
 def build_and_write() -> tuple[int, Path]:
-    entries = load_entries()
-    graph = build_graph(entries)
-    path = graph_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(graph, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # The read/build/publish transaction shares the authoritative index lock.
+    # Atomic replacement alone would still let an older snapshot finish last.
+    with file_lock(shiguan_write_lock_path()):
+        entries = load_entries()
+        graph = build_graph(entries)
+        path = graph_path()
+        atomic_write_text(path, json.dumps(graph, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return len(entries), path
 
 

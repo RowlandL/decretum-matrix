@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import ExitStack
+from contextlib import redirect_stdout
+import io
+import json
 import sys
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -122,6 +127,135 @@ def assert_strict_gate_matrix() -> None:
         assert actual is expected, f"strict gate matrix case {name}: expected {expected}, got {actual}"
 
 
+def assert_action_receipts() -> list[dict[str, object]]:
+    """Exercise action outcomes independently of the environment health gate."""
+    launcher = ensure_supercc_court
+    parser = launcher.build_parser()
+    receipts: list[dict[str, object]] = []
+    for rename_ok, join_ok, expected in (
+        (False, False, "FAILED"),
+        (True, False, "PARTIAL"),
+        (False, True, "PARTIAL"),
+        (True, True, "SUCCESS"),
+    ):
+        args = parser.parse_args(["--workspace", str(ROOT), "--rename-taizi"])
+        health = {"passed": True, "squad": {"agents_json": []}, "zellij": {}}
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(launcher, "supercc_check_for_args", return_value=health))
+            stack.enter_context(patch.object(launcher, "rename_taizi_pane", return_value={"ok": rename_ok}))
+            stack.enter_context(patch.object(launcher, "join_agent", return_value={"ok": join_ok}))
+            result = launcher.rename_taizi_only(args)
+        assert result["ok"] is (expected == "SUCCESS"), result
+        assert result["status"] == expected, result
+        applied = launcher.side_effect_manifest(args, result)["applied"]
+        assert applied == (["rename_current_pane"] if rename_ok else []) + (["join_taizi_identity"] if join_ok else [])
+        receipts.append({"action": "rename_taizi", "rename_ok": rename_ok, "join_ok": join_ok, "status": expected, "applied": applied})
+
+    # For rename, a healthy environment and a bare ok are not mutation evidence.
+    assert launcher.side_effect_manifest(args, {"ok": True})["applied"] == []
+
+    # The public CLI must return a failure exit for partial/failed action results.
+    for status, exit_code in (("SUCCESS", 0), ("PARTIAL", 2), ("FAILED", 2)):
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(launcher, "maybe_bootstrap_supercc_dependencies", return_value={"ok": True}))
+            stack.enter_context(patch.object(launcher, "rename_taizi_only", return_value={"ok": status == "SUCCESS", "status": status}))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            assert launcher.main(["--workspace", str(ROOT), "--rename-taizi"]) == exit_code
+
+    for sends, state_ok, expected in (
+        ({"bingbu": False, "gongbu": False}, False, "FAILED"),
+        ({"bingbu": True, "gongbu": False}, True, "PARTIAL"),
+        ({"bingbu": True, "gongbu": True}, False, "PARTIAL"),
+        ({"bingbu": True, "gongbu": True}, True, "SUCCESS"),
+    ):
+        args = parser.parse_args(["--workspace", str(ROOT), "--closeout-silence"])
+        health = {"passed": True, "squad": {"agents_json": [{"id": role, "status": "active"} for role in sends]}, "zellij": {}}
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(launcher, "supercc_check_for_args", return_value=health))
+            stack.enter_context(patch.object(launcher, "send_squad_notice", side_effect=lambda _workspace, _sender, role, *_args: {"ok": sends[role]}))
+            writer = stack.enter_context(patch.object(launcher, "write_office_state", return_value={"ok": state_ok}))
+            result = launcher.silence_roles(args, ("bingbu", "gongbu", "hubu"), unfinished=set(), reason="fixture")
+        assert result["ok"] is (expected == "SUCCESS"), result
+        assert result["status"] == expected, result
+        assert result["silenced"] == ([role for role, ok in sends.items() if ok] if state_ok else []), result
+        written_modes = writer.call_args.args[1]
+        assert all(role not in written_modes for role, ok in sends.items() if not ok)
+        assert "hubu" not in result["silenced"]
+        applied = launcher.side_effect_manifest(args, result)["applied"]
+        assert ("write_idle_receive_modes" in applied) is state_ok
+        assert ("send_silence_notice:bingbu" in applied) is sends["bingbu"]
+        assert ("send_silence_notice:gongbu" in applied) is sends["gongbu"]
+        receipts.append({"action": "silence", "sends": sends, "state_ok": state_ok, "status": expected, "silenced": result["silenced"], "applied": applied})
+
+    # Real state writers raise on invalid state or I/O failure; retain delivery evidence.
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(launcher, "supercc_check_for_args", return_value=health))
+        stack.enter_context(patch.object(launcher, "send_squad_notice", return_value={"ok": True}))
+        stack.enter_context(patch.object(launcher, "write_office_state", side_effect=OSError("fixture write denied")))
+        result = launcher.silence_roles(args, ("bingbu",), unfinished=set(), reason="fixture")
+    assert result["status"] == "PARTIAL" and result["silenced"] == []
+    assert result["state"]["ok"] is False
+
+    # Dry-run success is planning only; protected and unfinished roles are never sent silence.
+    args.dry_run = True
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(launcher, "supercc_check_for_args", return_value=health))
+        sender = stack.enter_context(patch.object(launcher, "send_squad_notice", return_value={"ok": True, "dry_run": True}))
+        stack.enter_context(patch.object(launcher, "write_office_state", return_value={"ok": True, "dry_run": True}))
+        result = launcher.silence_roles(args, ("bingbu", "gongbu", "taizi"), unfinished={"gongbu"}, reason="fixture")
+    assert sender.call_count == 1
+    assert result["silenced"] == [] and result["expected_silenced_roles_for_supervisor"] == []
+    assert launcher.side_effect_manifest(args, result)["applied"] == []
+    return receipts
+
+
+def assert_side_effect_manifest_compatibility() -> list[dict[str, object]]:
+    """Preserve untouched action results while explicit evidence takes priority."""
+    launcher = ensure_supercc_court
+    parser = launcher.build_parser()
+    receipts: list[dict[str, object]] = []
+    # This is the real successful write_agent_dossiers result shape from the
+    # integration regression; that producer does not emit explicit evidence.
+    dossier_success = {
+        "ok": True,
+        "written_count": 1,
+        "dossiers": [{"ok": True, "written": True, "changed": True}],
+    }
+    for flags, payload in (
+        (["--write-agent-dossiers"], dossier_success),
+        (["--launch-three"], {"ok": True}),
+        (["--launch-visible-core"], {"ok": True}),
+        (["--launch-offices", "bingbu"], {"ok": True}),
+        (["--turn-start", "visible-core"], {"ok": True}),
+        (["--restart-offices", "bingbu"], {"ok": True}),
+        (["--wake-offices", "bingbu"], {"ok": True}),
+        (["--enter-dispatch"], {"ok": True}),
+        (["--super-entry", "launch"], {"ok": True}),
+    ):
+        args = parser.parse_args(["--workspace", str(ROOT), *flags])
+        result = launcher.side_effect_manifest(args, payload)
+        assert result["applied"] == result["planned_if_live"] and result["applied"], result
+        assert result["mutates_runtime"] is True
+        receipts.append({"action": result["selected_action"], "applied": result["applied"]})
+        for evidence in ([], ["one_confirmed_effect"]):
+            explicit = launcher.side_effect_manifest(args, {**payload, "_applied_side_effects": evidence})
+            assert explicit["applied"] == evidence, explicit
+        assert launcher.side_effect_manifest(args, {"ok": False})["applied"] == []
+        args.dry_run = True
+        assert launcher.side_effect_manifest(args, payload)["applied"] == []
+
+    # F07 producers must never expand planned effects from their top-level ok,
+    # even if an explicit list is empty or unavailable.
+    for flag in ("--rename-taizi", "--closeout-silence"):
+        args = parser.parse_args(["--workspace", str(ROOT), flag])
+        for payload in ({"ok": True}, {"ok": False}, {"ok": True, "_applied_side_effects": []}):
+            result = launcher.side_effect_manifest(args, payload)
+            assert result["applied"] == [] and result["mutates_runtime"] is False, result
+        partial = launcher.side_effect_manifest(args, {"ok": False, "_applied_side_effects": ["one_confirmed_effect"]})
+        assert partial["applied"] == ["one_confirmed_effect"], partial
+    return receipts
+
+
 def main() -> int:
     canonical = ensure_supercc_court.role_title("zhongshu")
 
@@ -205,6 +339,8 @@ def main() -> int:
         assert ";cmd=" not in signal.lower()
 
     assert_strict_gate_matrix()
+    receipts = assert_action_receipts()
+    compatibility_receipts = assert_side_effect_manifest_compatibility()
 
     parser = ensure_supercc_court.build_parser()
     args = parser.parse_args(["--workspace", str(ROOT), "--rename-taizi"])
@@ -213,6 +349,7 @@ def main() -> int:
     assert failed_manifest["applied"] == []
     assert failed_manifest["mutates_runtime"] is False
 
+    print(json.dumps({"action_receipts": receipts, "side_effect_compatibility": compatibility_receipts, "real_pane_squad": "NOT_RUN"}, ensure_ascii=False))
     print("SUPERCC_TRUTH_GATES_OK")
     return 0
 

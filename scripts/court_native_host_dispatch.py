@@ -18,6 +18,7 @@ import sys
 sys.dont_write_bytecode = True
 
 from court_case_binding import case_reference
+from court_complexity_budget import evaluate_context_reuse
 
 
 HOST_DISPATCH_REQUEST_SCHEMA = "court.native_host_dispatch_request.v1"
@@ -195,7 +196,7 @@ def _normalize_candidate(value: object) -> dict[str, object]:
                "startup_guide_path",
            )},
     }
-    return {
+    normalized = {
         "host_task_id": _text(value.get("host_task_id"), "reuse.host_task_id"),
         "host_thread_id": _text(value.get("host_thread_id"), "reuse.host_thread_id"),
         "host_instance_id": _text(
@@ -219,6 +220,10 @@ def _normalize_candidate(value: object) -> dict[str, object]:
         "context_utilization": float(ratio),
         "status": _text(value.get("status"), "reuse.status", maximum=32).lower(),
     }
+    for field in ("context_policy", "completed_work_units", "context_window_tokens"):
+        if field in value:
+            normalized[field] = deepcopy(value[field])
+    return normalized
 
 
 def normalize_native_host_dispatch_request(value: object) -> dict[str, object]:
@@ -258,6 +263,11 @@ def normalize_native_host_dispatch_request(value: object) -> dict[str, object]:
             _normalize_candidate(candidate) for candidate in raw_candidates
         ],
     }
+    if "context_policy" in value:
+        policy = value["context_policy"]
+        if not isinstance(policy, Mapping):
+            raise ValueError("native_host_action_receipt:context_policy_invalid")
+        normalized["context_policy"] = deepcopy(dict(policy))
     capsule = normalized["office_capsule_ref"]
     if normalized["case_ref"]["charter_revision"] != normalized["semantic_epoch"]:
         raise ValueError("native_host_action_receipt:case_revision_mismatch")
@@ -281,7 +291,9 @@ def _candidate_is_compatible(
 ) -> bool:
     if candidate.get("status") not in {"idle", "running", "active", "waiting"}:
         return False
-    if float(candidate.get("context_utilization", 1.0)) >= REUSE_CONTEXT_LIMIT:
+    if not 0.0 <= float(candidate.get("context_utilization", 1.0)) < REUSE_CONTEXT_LIMIT:
+        return False
+    if not evaluate_context_reuse(candidate, request)["allowed"]:
         return False
     exact_fields = (
         "task_id",

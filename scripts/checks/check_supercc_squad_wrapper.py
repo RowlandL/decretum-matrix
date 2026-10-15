@@ -12,7 +12,11 @@ if _SCRIPTS_ROOT not in sys.path:
 import argparse
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +32,68 @@ def load_module(name: str, path: Path) -> Any:
 
 def check(condition: bool, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"ok": bool(condition), "message": message, "details": details or {}}
+
+
+def cmd_exit_checks(root: Path) -> list[dict[str, Any]]:
+    """Run the real cmd entry, with isolated interpreter selectors and a harmless child."""
+    if os.name != "nt":
+        return [check(True, "Windows cmd execution NOT_RUN on this platform")]
+    compiler = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
+    if not compiler.is_file():
+        return [check(True, "Windows cmd execution NOT_RUN: system C# compiler unavailable", {"skipped": True})]
+    checks: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="supercc-cmd-check-") as directory:
+        fixture = Path(directory)
+        # A native proxy is necessary: calling a .cmd interpreter stub would
+        # replace the outer batch and hide its stale ERRORLEVEL regression.
+        source = fixture / "Interpreter.cs"
+        source.write_text(r'''
+using System;
+using System.Diagnostics;
+using System.IO;
+class Interpreter {
+    static int Main() {
+        string raw = Environment.CommandLine;
+        int end = raw.StartsWith("\"") ? raw.IndexOf('"', 1) + 1 : raw.IndexOf(' ');
+        string arguments = end < 0 ? "" : raw.Substring(end).TrimStart();
+        if (Path.GetFileNameWithoutExtension(Environment.GetCommandLineArgs()[0]) == "py") {
+            if (!arguments.StartsWith("-3 ")) return 91;
+            arguments = arguments.Substring(3);
+        }
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("SUPERCC_TEST_PYTHON"), arguments);
+        start.UseShellExecute = false;
+        using (var child = Process.Start(start)) { child.WaitForExit(); return child.ExitCode; }
+    }
+}
+''', encoding="utf-8")
+        compiled = fixture / "Interpreter.exe"
+        build = subprocess.run([str(compiler), "/nologo", "/target:exe", f"/out:{compiled}", str(source)], capture_output=True, text=True)
+        if build.returncode:
+            return [check(False, "compile native interpreter fixture", {"stdout": build.stdout, "stderr": build.stderr})]
+        child = fixture / "echo_args.py"
+        child.write_text("import json,sys\nprint(json.dumps(sys.argv[2:],ensure_ascii=False))\nsys.exit(int(sys.argv[1]))\n", encoding="utf-8")
+        arguments = ["with space", "", "bang!value", "中文"]
+        env = dict(os.environ)
+        env["SUPERCC_TEST_PYTHON"] = sys.executable
+        env["SUPERCC_SQUAD_COMMAND"] = subprocess.list2cmdline([sys.executable, str(child)])
+        env["PYTHONIOENCODING"] = "utf-8"
+        # Only the selected executable and system tools are visible to WHERE.
+        env["PATH"] = str(fixture) + os.pathsep + str(Path(env.get("SystemRoot", r"C:\Windows")) / "System32")
+        for interpreter in ("python", "python3", "py"):
+            proxy = fixture / f"{interpreter}.exe"
+            shutil.copyfile(compiled, proxy)
+            for code in (0, 17):
+                passthrough = ["--", str(code), *arguments]
+                direct = subprocess.run([sys.executable, str(root / "scripts/supercc_squad.py"), *passthrough], env=env, capture_output=True, text=True, encoding="utf-8")
+                command = subprocess.list2cmdline([str(root / "scripts/supercc-squad.cmd"), *passthrough])
+                via_cmd = subprocess.run('"' + env.get("COMSPEC", "cmd.exe") + '" /d /v:off /s /c "' + command + '"', env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+                checks.append(check(
+                    via_cmd.returncode == direct.returncode == code and via_cmd.stdout == direct.stdout and json.loads(direct.stdout) == arguments,
+                    f"cmd {interpreter} preserves exit {code} and each supported argument",
+                    {"cmd_exit": via_cmd.returncode, "python_exit": direct.returncode, "cmd_stdout": via_cmd.stdout, "python_stdout": direct.stdout, "cmd_stderr": via_cmd.stderr},
+                ))
+            proxy.unlink()
+    return checks
 
 
 def run_checks() -> dict[str, Any]:
@@ -134,6 +200,7 @@ def run_checks() -> dict[str, Any]:
         )
     )
 
+    checks.extend(cmd_exit_checks(root))
     return {
         "ok": all(item["ok"] for item in checks),
         "checks": checks,

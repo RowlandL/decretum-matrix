@@ -853,6 +853,54 @@ def evaluate_bridge_contract(bridge: object) -> tuple[list[str], dict[str, objec
     }
 
 
+def evaluate_finite_context_dispatch(bridge: object) -> tuple[list[str], dict[str, object]]:
+    """Observe actual host callbacks for the new policy, separate from legacy fixtures."""
+    failures: list[str] = []
+    evidence: dict[str, object] = {}
+    for label in ("same-problem", "new-problem", "work-limit", "predicted-limit",
+                  "unknown-window", "unknown-input"):
+        request = _request(suffix=f"context-{label}")
+        request["context_policy"] = {
+            "issue_ref": "TASK-003/context", "work_unit_id": "retest", "next_input_tokens": 1000,
+        }
+        candidate = _compatible_candidate(request, context_utilization=0.20)
+        candidate.update(context_policy={"issue_ref": "TASK-003/context"},
+                         completed_work_units=["repair"], context_window_tokens=100_000)
+        if label == "new-problem":
+            request["context_policy"]["issue_ref"] = "TASK-003/independent"
+        elif label == "work-limit":
+            candidate["completed_work_units"] = [f"accepted-{i}" for i in range(4)]
+        elif label == "predicted-limit":
+            request["context_policy"]["next_input_tokens"] = 50_000
+        elif label == "unknown-window":
+            candidate["context_window_tokens"] = None
+        elif label == "unknown-input":
+            request["context_policy"]["next_input_tokens"] = None
+        request["compatible_live_instances"] = [candidate]
+        host = _RecordingHost(suffix=label, followup_response={
+            "ok": True, "host_task_id": candidate["host_task_id"],
+            "host_thread_id": candidate["host_thread_id"],
+            "host_instance_id": candidate["host_instance_id"],
+            "host_action_id": f"host-action-{uuid.uuid4().hex}",
+        })
+        lifecycle = _RecordingLifecycle()
+        result, error = _dispatch_result(bridge.dispatch_native_host_action, request,
+                                        host=host, lifecycle=lifecycle)
+        expected = "reuse" if label == "same-problem" else "spawn"
+        receipt = _receipt(result)
+        if (error is not None or not isinstance(receipt, dict)
+                or receipt.get("decision") != expected):
+            failures.append(f"finite_context_dispatch_failed:{label}:{error}")
+        counts = (len(host.spawn_requests), len(host.followup_requests))
+        if counts != ((0, 1) if expected == "reuse" else (1, 0)):
+            failures.append(f"finite_context_host_callback_mismatch:{label}")
+        if expected == "reuse" and len(lifecycle.followed_up) != 1:
+            failures.append("finite_context_continuation_lost_original_lifecycle")
+        evidence[label] = {"expected": expected, "spawn": counts[0], "followup": counts[1],
+                           "error": str(error) if error else None}
+    return failures, evidence
+
+
 def evaluate() -> dict[str, Any]:
     failures: list[str] = []
     execution = select_native_execution(
@@ -883,9 +931,12 @@ def evaluate() -> dict[str, Any]:
     bridge, bridge_failures = load_bridge()
     failures.extend(bridge_failures)
     bridge_evidence: dict[str, object] = {"behavior_evaluated": False}
+    context_evidence: dict[str, object] = {}
     if bridge is not None and not bridge_failures:
         behavior_failures, bridge_evidence = evaluate_bridge_contract(bridge)
         failures.extend(behavior_failures)
+        context_failures, context_evidence = evaluate_finite_context_dispatch(bridge)
+        failures.extend(context_failures)
 
     return {
         "schema": "court.native_host_dispatch_check.v1",
@@ -905,6 +956,7 @@ def evaluate() -> dict[str, Any]:
             "required_lifecycle_compensations": ["quarantine", "reconcile"],
             "required_outcomes": ["succeeded", "refused"],
             "bridge_contract": bridge_evidence,
+            "finite_context_dispatch": context_evidence,
         },
         "failures": failures,
     }

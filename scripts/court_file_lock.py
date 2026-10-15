@@ -21,6 +21,27 @@ import time
 from typing import BinaryIO, Iterator
 
 
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    class _OVERLAPPED(ctypes.Structure):
+        _fields_ = [("Internal", ctypes.c_size_t), ("InternalHigh", ctypes.c_size_t),
+                    ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
+                    ("hEvent", wintypes.HANDLE)]
+
+    _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _LOCK_FILE_EX = _KERNEL32.LockFileEx
+    _LOCK_FILE_EX.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                             wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(_OVERLAPPED)]
+    _LOCK_FILE_EX.restype = wintypes.BOOL
+    _UNLOCK_FILE_EX = _KERNEL32.UnlockFileEx
+    _UNLOCK_FILE_EX.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                               wintypes.DWORD, ctypes.POINTER(_OVERLAPPED)]
+    _UNLOCK_FILE_EX.restype = wintypes.BOOL
+
+
 _LOCAL_LOCKS_GUARD = threading.Lock()
 _LOCAL_LOCKS: dict[str, threading.RLock] = {}
 _THREAD_STATE = threading.local()
@@ -64,15 +85,16 @@ def _prepare_lock_file(handle: BinaryIO) -> None:
 def _try_os_lock(handle: BinaryIO, *, shared: bool = False) -> bool:
     handle.seek(0)
     if os.name == "nt":
-        import msvcrt
-
-        mode = msvcrt.LK_NBRLCK if shared else msvcrt.LK_NBLCK
-        try:
-            msvcrt.locking(handle.fileno(), mode, 1)
-        except OSError as exc:
-            if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK, errno.EPERM}:
+        # CRT LK_NBRLCK equals LK_NBLCK; only LockFileEx supplies a true shared
+        # byte lock. Offset zero / length one stays interoperable with old CRT.
+        flags = 0x00000001 | (0 if shared else 0x00000002)  # FAIL_IMMEDIATELY / EXCLUSIVE_LOCK
+        overlapped = _OVERLAPPED()
+        if not _LOCK_FILE_EX(msvcrt.get_osfhandle(handle.fileno()), flags, 0, 1, 0,
+                             ctypes.byref(overlapped)):
+            error = ctypes.get_last_error()
+            if error == 33:  # ERROR_LOCK_VIOLATION only; other failures are not contention.
                 return False
-            raise
+            raise ctypes.WinError(error)
         return True
 
     import fcntl
@@ -90,9 +112,10 @@ def _try_os_lock(handle: BinaryIO, *, shared: bool = False) -> bool:
 def _unlock_os(handle: BinaryIO) -> None:
     handle.seek(0)
     if os.name == "nt":
-        import msvcrt
-
-        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        overlapped = _OVERLAPPED()
+        if not _UNLOCK_FILE_EX(msvcrt.get_osfhandle(handle.fileno()), 0, 1, 0,
+                               ctypes.byref(overlapped)):
+            raise ctypes.WinError(ctypes.get_last_error())
         return
 
     import fcntl
@@ -134,7 +157,14 @@ def file_lock(
         raise TimeoutError(f"timed out waiting for in-process lock: {target}")
 
     depths = _thread_depths()
+    modes = getattr(_THREAD_STATE, "modes", None)
+    if modes is None:
+        modes = {}
+        _THREAD_STATE.modes = modes
     if depths.get(key, 0):
+        if modes[key] and not shared:
+            local.release()
+            raise ValueError("cannot upgrade a reentrant shared file lock to exclusive")
         depths[key] += 1
         try:
             yield
@@ -153,6 +183,7 @@ def file_lock(
             if _try_os_lock(handle, shared=shared):
                 os_locked = True
                 depths[key] = 1
+                modes[key] = shared
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -169,6 +200,7 @@ def file_lock(
                     handle.close()
         finally:
             depths.pop(key, None)
+            modes.pop(key, None)
             local.release()
 
 
@@ -187,12 +219,16 @@ def atomic_write_text(
     atomic_write_bytes(path, text.encode(encoding))
 
 
-def atomic_write_bytes(path: Path, data: bytes) -> None:
+def atomic_write_bytes(path: Path, data: bytes, *, no_clobber: bool = False) -> None:
     """Durably write bytes to a sibling temp file, then atomically replace.
 
     Threads are serialized per target. Cross-process replace collisions on
     Windows are transiently retried; callers that need read-modify-write
     semantics must still hold ``file_lock`` around the whole transaction.
+    ``no_clobber=True`` publishes the complete candidate with Windows rename
+    or a POSIX hard link, raising ``FileExistsError`` if the name is occupied.
+    Other OS errors
+    propagate; there is no fallback to replacement or a partial final file.
     """
 
     target = Path(path)
@@ -201,31 +237,41 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
         fd, raw_temp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
         temp_path = Path(raw_temp)
         try:
-            with os.fdopen(fd, "wb") as handle:
+            handle = os.fdopen(fd, "wb")
+            fd = None  # fdopen owns it now; its closed number may be reused.
+            with handle:
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
-            if target.exists():
-                try:
-                    os.chmod(temp_path, target.stat().st_mode)
-                except OSError:
-                    pass
+            if no_clobber:
+                if os.name == "nt":
+                    os.rename(temp_path, target)  # Windows rename never replaces.
+                else:
+                    os.link(temp_path, target, follow_symlinks=False)
+                    temp_path.unlink()
+            else:
+                if target.exists():
+                    try:
+                        os.chmod(temp_path, target.stat().st_mode)
+                    except OSError:
+                        pass
 
-            replace_deadline = time.monotonic() + 2.0
-            while True:
-                try:
-                    os.replace(temp_path, target)
-                    break
-                except PermissionError:
-                    if time.monotonic() >= replace_deadline:
-                        raise
-                    time.sleep(0.01)
+                replace_deadline = time.monotonic() + 2.0
+                while True:
+                    try:
+                        os.replace(temp_path, target)
+                        break
+                    except PermissionError:
+                        if time.monotonic() >= replace_deadline:
+                            raise
+                        time.sleep(0.01)
             fsync_parent_directory(target.parent)
         except BaseException:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             try:
                 temp_path.unlink()
             except OSError:

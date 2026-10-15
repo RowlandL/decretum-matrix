@@ -3,7 +3,7 @@ name: decretum-matrix
 description: Decretum Matrix（诏令矩阵） routes /court and $decretum-matrix work through 三省六部, P00, explicit authority, CLI/MCP and Codex/Hermes host receipts. superCC is a separate runtime.
 license: AGPL-3.0
 metadata:
-  version: beta1.2.0-hotfix-v1
+  version: beta1.2.1
   author: RowlandL
 ---
 
@@ -15,7 +15,7 @@ metadata:
 
 - Carry exact ids, bounded scope/write set, receipt pointers, role/direct_superior and `fork_turns=none`; no full transcript/file/diff/agent list by default.
 - `child_agent` and `worktree_thread` share capsule, receipt, hierarchy, role context and bounded trace; neither creates another authority.
-- Reuse compatible live instances below 80% context; keep in-flight work until completion/recall. Unrelated or large parallel work may need a fresh instance. Full-context override never changes authority, safety or hierarchy.
+- Reuse the same problem only within finite work and projected context budgets; 80% remains an engineering ceiling. New problems use fresh instances; protect in-flight work and verify stop/readback before writer handoff. Full-context override preserves authority, safety and hierarchy. Details: [dispatch](references/court-offices-dispatch.md), [lifecycle](references/court-state-runtime-agents.md).
 - `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: durable Shiguan projections after migration are not inline runtime authority.
 
 ## Codex/Claude Hierarchical Relay Evidence
@@ -26,7 +26,7 @@ Absent a newest explicit user ban, lawful horizontal messages default to direct 
 
 ## Unified Dynamic Dispatch Semantics
 
-1. 官署按职责、依赖、风险和证据价值选择，不为填满容量派生。
+1. 官署按职责、依赖、风险和证据价值，比较当前官署直接完成、同问题有限复用和新开；在原预算/报告记录理由，不为填满容量派生，独立复核保持。
 2. 默认 whole-tree 上限 16（含 root），`max_depth=4`；只有最新用户明确给出更大数量或 `unlimited/解限` 才可提高 ceiling。预算、宿主容量/拒绝、资源压力、层级、写集与实例追溯仍须有效；预载完成为隐式判定（`preload_phase`），不再要求 ACK 回执。
 3. `execution_authority=approval|autonomous|super` 与 `behavior=serial|parallel` 独立。缺哪项分别询问；不得从记忆、旧会话、sandbox、安装意图或运行权限推定。
 4. `super并行` = super + parallel + native。superCC 是独立 runtime/入口，不是第四权；native/superCC 互斥，不探测候选、不切换、不回退。

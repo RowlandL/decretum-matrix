@@ -9,6 +9,40 @@
 4. superCC 固定显性太子+三省，但这不限制尚书省非显性、真实派遣有用六部。
 5. 普通 super并行不使用 superCC pane、office show delay、wake 或 closeout-silence；其普通 spawn 展示延时为 0。
 
+## Dispatch Value And Finite Context Reuse
+
+尚书派六部、六部派本部工坊前，比较当前官署直接完成、同问题复用和新开。
+依据是任务独立性、专用能力、并行/隔离/审核价值，以及预载、重复读取、通信和
+整合成本。小而紧密耦合的工作可由有权限的当前官署承担；在既有报告保存
+`dispatch_assessment` 与 `actual_executor`，不产生虚构下级履职。独立门下审核保留。
+三省实例的复用和换新使用相同上下文规则；所有派遣仍走原直接上级。
+
+`requested_bindings[].context_policy` 绑定原任务的问题 `issue_ref`、工作单
+`work_unit_id` 和尚未进入上下文的 `next_input_tokens`。独立新问题使用新实例；
+同根因补证、修复和复测可连续办理。旧候选必须使用其原记录和实际宿主回执，
+不能拿新请求的 assignment、scope、P00、lease 或写集填成“兼容”。
+
+默认值集中在 `scripts/court_complexity_budget.py:context_reuse_defaults`。
+三省、六部、工坊分别最多接受 3、4、2 个不同工作单。三省和六部默认输出/
+交接预留 8192/4096 tokens，工坊为 4096/2048 tokens。这些是保守工程默认，
+不是各模型的实证质量阈值。已观测上下文已经含历史和预载；预测只加一次
+下一输入、输出预留和交接预留，结果必须低于窗口的 80%。未知占用、窗口或
+下一输入不按零处理；生产请求不向该旧实例追加工作。容量不足则保留待办。
+纯协议旧请求未带 `context_policy` 的 ratio-only 兼容不证明新策略已接受。
+
+有独立结果的工作单通过原 `office report` 提交 `work_unit_result`，直接上级
+引用该实际结果事件提交 `work_unit_acceptance` 后才去重累计。普通消息、
+report、followup、heartbeat 和整个实例 finish 不累计；上下文压缩不清零。
+预算到限先停止追加工作，保留当前写入、CI 或不可中断动作至完成或 checkpoint。
+换新沿原 admission/lease/start/close 链；具体停写和读回证据见
+[lifecycle](court-state-runtime-agents.md#finite-work-units-and-safe-renewal)。
+
+新实例使用 `fork_turns=none`，完整读取绑定安装态技能和本署材料；未变化的
+原实例续办保持渐进读取。2 KiB capsule/context packet 不扩容；业务交接使用
+原任务和证据指针。界面保留业务清楚的官署名称，机器编号和回执留在证据。
+成本对照须保持模型、effort、权限和输入相同；估计与实测分列，缺测写
+`unavailable`。源码检查、隔离对照、实际宿主及独立接受分别记录。
+
 ## Codex/Claude Hierarchical Relay Evidence
 
 This section is a governing reference for formal parallel and relay claims in

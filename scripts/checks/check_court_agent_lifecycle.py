@@ -41,7 +41,7 @@ import court_office_bootstrap
 from checks.installed_identity_fixture import FIXTURE_DIGEST, write_skill
 from court_intake_gate import minimal_request_understanding_example
 from court_agent_admission import budget_lease_access_contract_error
-from court_case_binding import case_reference
+from court_case_binding import case_reference, office_capsule_reference
 from court_complexity_budget import normalize_budget_pool
 from check_court_office_assignment_binding import run_office_assignment_binding_checks
 from court_office_bootstrap import build_child_office_profile
@@ -3553,15 +3553,28 @@ def check_standard_case_decree_dispatch_guards() -> None:
     followup = event_args(task_id, proof["agent_id"], role="zhongshu", actor="taizi",
         office_instance_kind="child_agent", office_instance_id=instance, carrier_proof=proof)
     reject_incomplete("followup", followup)
+    set_task_field(task_id, lambda task: task["agents"][proof["agent_id"]].update(
+        native_host_context_utilization=0.42, native_host_context_window_tokens=100_000))
+    actual = court_runtime.load_tasks()[task_id]
+    old_record = actual["agents"][proof["agent_id"]]
     candidate = {**host_result, **{field: deepcopy(native_request[field]) for field in
         ("task_id", "role", "direct_superior", "assignment", "duty_scope", "lease_id", "write_set", "role_ack")},
         "semantic_receipt": {field: native_request[field] for field in ("semantic_epoch", "case_ref")},
-        "status": "running", "context_utilization": 0.42}
+        **court_runtime._native_candidate_facts(actual, old_record), "status": "running"}
     reuse = {**native_request, "compatible_live_instances": [candidate]}
     followup.native_host_action_receipt, evidence = _mint_native_host_receipt(bridge, reuse,
         host_result={**host_result, "host_action_id": "host-action-decree-followup"})
     assert followup.native_host_action_receipt is not None, evidence
     followup.assignment, followup.duty_scope = reuse["assignment"], reuse["duty_scope"]
+    downgraded = deepcopy(reuse)
+    downgraded.pop("context_policy")
+    old_receipt, evidence = _mint_native_host_receipt(bridge, downgraded,
+        host_result={**host_result, "host_action_id": "host-action-policy-downgrade"})
+    assert old_receipt is not None, evidence
+    invalid_followup = deepcopy(followup)
+    invalid_followup.native_host_action_receipt = old_receipt
+    reject_unchanged(task_id, lambda: court_runtime.office_followup(invalid_followup),
+                     "a new-policy instance downgraded to a legacy ratio-only receipt")
     assert office_cli("followup", followup)["receipt"]["action"] == "followup"
     from check_court_runtime_completion import revision_args
     task = court_runtime.load_tasks()[task_id]
@@ -3968,8 +3981,7 @@ def _semantic_quarantine_args(task_id: str) -> Namespace:
     return Namespace(
         task_id=task_id,
         expected_semantic_epoch=task["semantic_epoch"],
-        expected_charter_sha256=task["charter_sha256"],
-        expected_invariant_capsule_sha256=task["invariant_capsule_sha256"],
+        case_ref=case_reference(task),
         expected_checkpoint_id=receipt["checkpoint_id"],
         trigger="native_host_lifecycle_commit_failed",
         reason_code=["native_host_lifecycle_commit_failed"],
@@ -4024,6 +4036,8 @@ def _native_host_request(
             "receipt_id": admission["event_id"],
         },
         "compatible_live_instances": compatible_live_instances or [],
+        "context_policy": court_runtime._native_context_policy(
+            stored, binding, (task.get("agents") or {}).get(instance_id)),
     }
 
 
@@ -4172,6 +4186,78 @@ def _native_receipt_persisted(
     return stored == receipt
 
 
+def _check_accepted_work_unit_reports(task_id: str, agent_id: str) -> dict[str, object]:
+    """Accept business work through real report events, with byte-stable refusals."""
+    record = court_runtime.load_tasks()[task_id]["agents"][agent_id]
+    issue = record["context_policy"]["issue_ref"]
+    before_agents = set(court_runtime.load_tasks()[task_id]["agents"])
+    ordinary = court_runtime.agent_report(event_args(task_id, agent_id, actor="gongbu"))
+    assert court_runtime._accepted_work_unit_ids(task_id, agent_id) == []
+    result = court_runtime.agent_report(event_args(
+        task_id, agent_id, actor="gongbu", work_unit_result={
+            "work_unit_id": "repair", "issue_ref": issue, "result_ref": "proof/repair.json"}))
+    assert court_runtime._accepted_work_unit_ids(task_id, agent_id) == []
+    acceptance = {"result_event_id": result.event["event_id"], "acceptance_ref": "review/repair.md"}
+    reject_unchanged(task_id, lambda: court_runtime.agent_report(event_args(
+        task_id, agent_id, actor="gongbu", work_unit_acceptance=acceptance)),
+        "a worker self-accepted its own result")
+    reject_unchanged(task_id, lambda: court_runtime.agent_report(event_args(
+        task_id, agent_id, actor="shangshu", work_unit_acceptance={
+            "result_event_id": ordinary.event["event_id"], "acceptance_ref": "review/no-result.md"})),
+        "a plain report became an accepted work unit")
+    court_runtime.agent_report(event_args(task_id, agent_id, actor="shangshu",
+                                         work_unit_acceptance=acceptance))
+    assert len(court_runtime._accepted_work_unit_ids(task_id, agent_id)) == 1
+    court_runtime.agent_report(event_args(task_id, agent_id, actor="shangshu",
+                                         work_unit_acceptance=acceptance))
+    assert len(court_runtime._accepted_work_unit_ids(task_id, agent_id)) == 1
+    repeated = court_runtime.agent_report(event_args(
+        task_id, agent_id, actor="gongbu", work_unit_result={
+            "work_unit_id": "repair", "issue_ref": issue, "result_ref": "proof/retest.json"}))
+    court_runtime.agent_report(event_args(task_id, agent_id, actor="shangshu",
+        work_unit_acceptance={"result_event_id": repeated.event["event_id"],
+                              "acceptance_ref": "review/retest.md"}))
+    assert len(court_runtime._accepted_work_unit_ids(task_id, agent_id)) == 1
+    next_unit = {"issue_ref": issue, "work_unit_id": "verify-next", "next_input_tokens": 1000}
+    reject_unchanged(task_id, lambda: court_runtime.agent_report(event_args(
+        task_id, agent_id, actor="gongbu", next_work_unit=next_unit)),
+        "a worker assigned itself another work unit")
+    prior_policy = deepcopy(court_runtime.load_tasks()[task_id]["agents"][agent_id]["context_policy"])
+    next_report = court_runtime.agent_report(event_args(
+        task_id, agent_id, actor="shangshu", next_work_unit=next_unit))
+    assert next_report.event["next_work_unit"] == next_unit
+    pending = court_runtime.load_tasks()[task_id]["agents"][agent_id]
+    assert pending["next_work_unit"] == next_unit
+    assert pending["context_policy"] == prior_policy
+    assert len(court_runtime._accepted_work_unit_ids(task_id, agent_id)) == 1
+    assessment = {
+        "user_instruction": None, "necessary_complexity": False,
+        "simpler_equivalent_available": True, "low_marginal_value": False,
+        "budget_sufficient": True, "risk_acceptable": True, "rollback_ready": True,
+        "reason": "one bounded correction shares the current write set",
+    }
+    direct = court_runtime.agent_report(event_args(task_id, agent_id,
+        dispatch_assessment=assessment, actor="gongbu"))
+    assert direct.event["dispatch_assessment"]["dispatch_choice"] == "direct"
+    assert direct.event["dispatch_assessment"]["actual_executor"] in {
+        record.get("office_instance_id"), agent_id}
+    assert set(court_runtime.load_tasks()[task_id]["agents"]) == before_agents
+    checkpoint = {"issue_ref": issue, "resume_point": "verify-next-step",
+                  "unfinished": ["retest"], "evidence_refs": ["proof/repair.json"],
+                  "write_set": list(record["write_set"]), "inflight_action_refs": ["running-ci"]}
+    saved = court_runtime.agent_report(event_args(task_id, agent_id,
+        actor="gongbu", context_checkpoint=checkpoint))
+    assert saved.event["context_checkpoint"] == checkpoint
+    current = court_runtime.load_tasks()[task_id]["agents"][agent_id]
+    assert current.get("release_status") != "closed"
+    assert current["write_set"] == record["write_set"]
+    assert len(court_runtime._accepted_work_unit_ids(task_id, agent_id)) == 1
+    return {"accepted_distinct_work_units": 1, "self_acceptance_rejected": True,
+            "ordinary_report_not_counted": True, "duplicate_result_not_counted": True,
+            "direct_executor_preserved": True, "inflight_checkpoint_preserved": True,
+            "next_work_unit_superior_only": True, "assignment_not_consumed_before_followup": True}
+
+
 def _run_native_host_positive_lifecycle_cases(
     *,
     bridge: object,
@@ -4236,6 +4322,8 @@ def _run_native_host_positive_lifecycle_cases(
                 replay_probe["events_unchanged"]
             ):
                 failures.append("native_host_start_replay_mutated_runtime")
+            evidence["work_unit_reports"] = _check_accepted_work_unit_reports(
+                spawn_task, spawn_instance)
 
     refusal_task = "native-host-valid-refusal-consume"
     refusal_wave = "native-host-valid-refusal-wave"
@@ -4356,6 +4444,8 @@ def _run_native_host_positive_lifecycle_cases(
         ):
             failures.append("native_host_followup_rejection_mutated_runtime")
 
+        set_task_field(spawn_task, lambda task: task["agents"][spawn_instance].update(
+            native_host_context_utilization=0.42, native_host_context_window_tokens=100_000))
         before_state = court_runtime.load_tasks()[spawn_task]
         before_agents = dict(before_state.get("agents") or {})
         live_record = before_agents.get(spawn_instance)
@@ -4371,15 +4461,13 @@ def _run_native_host_positive_lifecycle_cases(
                 "duty_scope": deepcopy(spawn_request["duty_scope"]),
                 "semantic_receipt": {
                     "semantic_epoch": spawn_request["semantic_epoch"],
-                    "charter_sha256": spawn_request["charter_sha256"],
-                    "invariant_capsule_sha256": spawn_request[
-                        "invariant_capsule_sha256"
-                    ],
+                    "case_ref": deepcopy(spawn_request["case_ref"]),
                 },
                 "lease_id": spawn_request["lease_id"],
                 "write_set": deepcopy(spawn_request["write_set"]),
                 "role_ack": deepcopy(spawn_request["role_ack"]),
                 "context_utilization": 0.42,
+                **court_runtime._native_candidate_facts(before_state, live_record),
                 "status": "running",
             }
             reuse_request = _native_host_request(
@@ -4605,8 +4693,9 @@ def _run_native_host_lifecycle_contract(
                 "instance_id": "gongbu-native-quarantine",
                 "direct_superior": "shangshu",
                 "semantic_epoch": task["semantic_epoch"],
-                "charter_sha256": task["charter_sha256"],
-                "invariant_capsule_sha256": task["invariant_capsule_sha256"],
+                "case_ref": case_reference(task),
+                "office_capsule_ref": office_capsule_reference(
+                    case_reference(task), "gongbu", "gongbu-native-quarantine", court_runtime.now_text()),
                 "lease_id": "native-host-quarantine-lease",
                 "assignment": "native host lifecycle quarantine integration",
                 "duty_scope": ["scripts/court_runtime.py"],
@@ -4614,13 +4703,12 @@ def _run_native_host_lifecycle_contract(
                 "role_ack": {
                     "role": "gongbu",
                     "direct_superior": "shangshu",
-                    "profile_sha256": "b" * 64,
-                    "dossier_sha256": "d" * 64,
+                    **court_runtime._native_role_ack_sources(
+                        court_runtime._semantic_preload_sources("gongbu")),
                 },
                 "admission_anchor": {
                     "schema": "court.agent.admission_receipt.v1",
                     "receipt_id": "native-host-quarantine-admission",
-                    "receipt_sha256": "a" * 64,
                 },
                 "compatible_live_instances": [],
             }
@@ -4686,27 +4774,29 @@ def _run_native_host_lifecycle_contract(
 
 def check_native_host_context_utilization_backfill_diagnostics() -> None:
     """Back-fill failures are visible diagnostics while reuse remains fail-closed."""
-    record: dict[str, object] = {
-        "native_child_thread_id": "child-util-warning",
-        "native_host_context_utilization": None,
-    }
-    with patch.dict(os.environ, {"CODEX_HOME": str(Path(tempfile.mkdtemp()))}), patch(
-        "commands.court_native_bridge._child_context_utilization",
-        side_effect=OSError("fixture host trace unavailable"),
-    ):
-        court_runtime._refresh_native_host_context_utilization(record)
-    assert "native_host_context_utilization" not in record or record["native_host_context_utilization"] is None
-    assert record["native_host_context_utilization_warning"] == (
-        "backfill_unavailable:OSError:fixture host trace unavailable"
-    )
+    for error in (OSError, ValueError, TypeError):
+        record: dict[str, object] = {
+            "native_child_thread_id": "child-util-warning",
+            "native_host_context_utilization": None,
+        }
+        with tempfile.TemporaryDirectory(prefix="native-context-warning-") as temp_dir, \
+                patch.dict(os.environ, {"CODEX_HOME": temp_dir}), patch(
+                    "commands.court_native_bridge._child_context_observation",
+                    side_effect=error("fixture host trace unavailable")):
+            court_runtime._refresh_native_host_context_utilization(record)
+        assert record.get("native_host_context_utilization") is None
+        assert record["native_host_context_utilization_warning"] == (
+            f"backfill_unavailable:{error.__name__}:fixture host trace unavailable")
 
     success: dict[str, object] = {"native_child_thread_id": "child-util-success"}
     with patch.dict(os.environ, {"CODEX_HOME": str(Path(tempfile.mkdtemp()))}), patch(
-        "commands.court_native_bridge._child_context_utilization",
-        return_value=0.42,
+        "commands.court_native_bridge._child_context_observation",
+        return_value={"context_utilization": 0.42, "context_window_tokens": 100_000,
+                      "context_tokens": 42_000},
     ):
         court_runtime._refresh_native_host_context_utilization(success)
     assert success["native_host_context_utilization"] == 0.42
+    assert success["native_host_context_window_tokens"] == 100_000
     assert "native_host_context_utilization_warning" not in success
 
 
