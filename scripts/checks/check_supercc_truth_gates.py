@@ -349,7 +349,7 @@ def main() -> int:
     assert failed_manifest["applied"] == []
     assert failed_manifest["mutates_runtime"] is False
 
-    print(json.dumps({"action_receipts": receipts, "side_effect_compatibility": compatibility_receipts, "real_pane_squad": "NOT_RUN"}, ensure_ascii=False))
+    print(json.dumps({"ok": True, "status": "PASSED", "action_receipts": receipts, "side_effect_compatibility": compatibility_receipts, "real_pane_squad": "NOT_RUN"}, ensure_ascii=False))
     print("SUPERCC_TRUTH_GATES_OK")
     return 0
 
