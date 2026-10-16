@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -582,6 +583,338 @@ def _caller_guard_fixture() -> None:
         court_case_binding.validate_case_binding = original_validate  # type: ignore[assignment]
         bridge.current_host_identity = original_identity  # type: ignore[assignment]
         court_runtime._native_bridge_identity_context = original_identity_context  # type: ignore[assignment]
+
+
+class NativeRepeatCaptureTests(unittest.TestCase):
+    """SOURCE fixtures for repeated opaque delivery, never real host evidence."""
+
+    session = '01a0743b-4c11-7021-b2ad-31f2dfe23df5'
+    parent = '01a07440-9c7d-7b52-b53a-51edbd68e6da'
+    child = '01a0743f-9c12-7842-bfec-8620bf6942c4'
+    path = '/root/shangshu_repeat/gongbu_repeat'
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='court-repeat-source-')
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        self.request = _request()
+        self.unit = {'issue_ref': 'same-issue', 'work_unit_id': 'Q', 'next_input_tokens': 1000}
+        defaults = court_runtime.context_reuse_defaults('gongbu', 'office')
+        self.request['context_policy'] = {
+            **self.unit, 'output_reserve_tokens': defaults['output_reserve_tokens'],
+            'handoff_reserve_tokens': defaults['handoff_reserve_tokens'], 'instance_kind': 'office'}
+        self.request['compatible_live_instances'] = [{
+            'host_task_id': self.path, 'host_instance_id': self.path,
+            'host_identity_kind': 'canonical_agent_path', 'host_thread_id': self.child,
+            **{key: deepcopy(self.request[key]) for key in (
+                'task_id', 'role', 'direct_superior', 'assignment', 'duty_scope',
+                'lease_id', 'write_set', 'role_ack')},
+            'semantic_receipt': {'semantic_epoch': 3, 'case_ref': dict(CASE_REF)},
+            'context_policy': dict(self.unit), 'context_window_tokens': 100000,
+            'context_utilization': 0.1, 'status': 'running',
+        }]
+        self.record = {
+            'role': 'gongbu', 'office_instance_id': self.request['instance_id'],
+            'office_instance_kind': 'child_agent',
+            'carrier_proof': {'agent_id': 'gongbu-repeat-source'},
+            'direct_superior': 'shangshu', 'semantic_epoch': 3,
+            'case_ref': dict(CASE_REF), 'dispatch_uid': self.request['dispatch_uid'],
+            'attempt': 1, 'checkpoint_id': 'SC-repeat-source',
+            'next_work_unit': dict(self.unit), 'context_policy': dict(self.request['context_policy']),
+            'native_host_identity_kind': 'canonical_agent_path',
+            'native_host_task_id': self.path, 'native_host_instance_id': self.path,
+            'native_child_thread_id': self.child,
+        }
+        self.task = {'task_id': self.request['task_id'],
+                     'agents': {'gongbu-repeat-source': self.record},
+                     'native_host_action_receipts': {}}
+        self.binding = {'role': 'gongbu', 'instance_id': self.request['instance_id'],
+                        'direct_superior': 'shangshu'}
+        admitted = {'event_id': self.request['admission_anchor']['receipt_id'],
+                    'time': '2026-09-06T04:00:00+00:00'}
+        self.anchor = {'index': 0, 'event': admitted}
+        self.events = [admitted, self.next_event('next-first', '2026-09-06T04:07:49Z'),
+                       self.next_event('next-recovery', '2026-09-06T04:21:48Z')]
+        self.rows = [{'type': 'session_meta', 'payload': {
+            'id': self.parent, 'session_id': self.session, 'thread_id': self.parent}}]
+        self.add_delivery('call-first', '2026-09-06T04:07:56.100Z')
+        self.add_delivery('call-second', '2026-09-06T04:21:59.100Z')
+        self.assertEqual(bridge.select_native_host_action(self.request)[1], 'followup')
+
+    def next_event(self, event_id, timestamp):
+        return {'event_id': event_id, 'time': timestamp, 'action': 'agent_report',
+                'task_id': self.request['task_id'], 'actor': 'shangshu',
+                'agent_id': 'gongbu-repeat-source', 'agent_role': 'gongbu',
+                **{key: deepcopy(self.record[key]) for key in (
+                    'semantic_epoch', 'case_ref', 'dispatch_uid', 'attempt', 'checkpoint_id')},
+                'next_work_unit': dict(self.unit)}
+
+    def add_delivery(self, call_id, timestamp):
+        self.rows.extend([
+            {'type': 'response_item', 'timestamp': timestamp, 'payload': {
+                'type': 'function_call', 'name': 'followup_task', 'call_id': call_id,
+                'arguments': json.dumps({'target': 'gongbu_repeat',
+                                         'message': 'gAAAAA' + 'A' * 120})}},
+            {'type': 'event_msg', 'timestamp': timestamp, 'payload': {
+                'type': 'item_completed', 'thread_id': self.parent, 'item': {
+                    'type': 'SubAgentActivity', 'kind': 'interacted', 'id': call_id,
+                    'agent_path': self.path, 'agent_thread_id': self.child}}},
+        ])
+
+    def boundary(self):
+        with patch.object(court_runtime, 'events_for_task', return_value=deepcopy(self.events)):
+            return court_runtime._native_bridge_delivery_boundary(
+                self.task, self.binding, self.request, self.anchor)
+
+    def capture(self, boundary):
+        sessions = self.home / 'sessions' / '2026' / '09'
+        sessions.mkdir(parents=True, exist_ok=True)
+        trace = sessions / f'rollout-{self.parent}.jsonl'
+        trace.write_text('\n'.join(json.dumps(row) for row in self.rows), encoding='utf-8')
+        context = _p00_context(self.request)
+        evidence = _message_evidence(self.request, context)
+        evidence['delivery_boundary'] = boundary
+        return bridge.capture_current_native_delivery(
+            self.request, execution=_execution(), p00_context=context,
+            evidence_binding=evidence,
+            identity_context={'case_session_id': self.session, 'semantic_epoch': 3,
+                              'trusted_parent_paths': [{
+                                  'path': '/root/shangshu_repeat',
+                                  'kind': 'same_case_ready_shangshu', 'thread_id': self.parent}]},
+            environment={'CODEX_THREAD_ID': self.parent, 'CODEX_SESSION_ID': self.session},
+            codex_home=self.home)
+
+    def test_second_unconsumed_delivery_uses_existing_report_boundary(self):
+        # Both calls still exist and neither has been consumed by office followup.
+        boundary = {'event_id': 'next-recovery', 'time': '2026-09-06T04:21:48Z',
+                    'request_ref': native_request_reference(self.request)}
+        captured = self.capture(boundary)
+        self.assertEqual(captured['host_action_id'], 'call-second')
+        self.assertEqual(captured['office_command'], 'followup')
+        self.assertEqual(captured['trace']['delivery_boundary'], boundary)
+        receipt = captured['native_host_action_receipt']
+        self.assertEqual(receipt['host_result']['followup_child_thread_id'], self.child)
+        # Capture is read-only and repeatable; only lifecycle consumes a receipt.
+        before = deepcopy(self.task)
+        self.assertEqual(self.capture(boundary)['host_action_id'], 'call-second')
+        self.assertEqual(self.task, before)
+        validate_native_host_action_receipt(receipt, expected=receipt['request'], replay_guard=set())
+        with self.assertRaisesRegex(ValueError, 'replay'):
+            validate_native_host_action_receipt(
+                receipt, expected=receipt['request'], replay_guard={receipt['receipt_id']})
+        for field, value in (('attempt', 2), ('dispatch_uid', 'DSP-' + 'f' * 32),
+                             ('semantic_epoch', 4)):
+            expected = deepcopy(receipt['request'])
+            expected[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_native_host_action_receipt(receipt, expected=expected, replay_guard=set())
+
+    def test_runtime_current_unit_boundary_and_consumed_pending_projection(self):
+        boundary = self.boundary()
+        self.assertEqual(boundary['event_id'], 'next-recovery')
+        self.assertEqual(self.capture(boundary)['host_action_id'], 'call-second')
+        self.record.pop('next_work_unit')  # office followup saves context_policy and clears pending.
+        self.assertEqual(self.boundary(), boundary)
+
+    def test_runtime_producer_capture_and_returned_request_keep_original_identity(self):
+        context = _p00_context(self.request)
+        admission = {key: deepcopy(self.request[key]) for key in (
+            'wave_id', 'dispatch_uid', 'attempt', 'semantic_epoch', 'case_ref')}
+        admission['admission_event_id'] = self.anchor['event']['event_id']
+        admission['model_route_inputs'] = {'assignment': self.request['assignment']}
+        admission['model_routes'] = {self.request['instance_id']: {}}
+        self.anchor['event'].update(action='agent_admit', wave_id=admission['wave_id'], allowed=True)
+        self.anchor['event']['admission_record'] = court_runtime._admission_bound_record(admission)
+        self.binding.update({key: deepcopy(self.request[key]) for key in (
+            'office_capsule_ref', 'lease_id', 'write_set')})
+        self.binding.update(read_scope=list(self.request['duty_scope']),
+                            preload_sources=court_runtime._semantic_preload_sources('gongbu'))
+        self.binding['_validated_admission_anchor'] = deepcopy(self.anchor)
+        semantic = {'receipt_id': context['semantic_receipt_id'], 'receipt_sequence': 1,
+                    'semantic_epoch': 3, 'case_ref': dict(CASE_REF)}
+        self.task.update(semantic_receipt=semantic, semantic_receipts=[deepcopy(semantic)])
+        request = bridge.normalize_native_host_dispatch_request(self.request)
+        before = deepcopy((self.task, admission, self.binding, self.events))
+        with patch.object(court_runtime, 'events_for_task', side_effect=lambda *a, **k: deepcopy(self.events)), \
+                patch.object(court_runtime, 'public_dispatch_context_packet', return_value=context), \
+                patch.object(court_runtime, '_native_bridge_request', return_value=request):
+            # Exercise the real evidence producer; only unrelated admission and
+            # model/budget setup is isolated from this read-only capture check.
+            evidence = court_runtime._native_bridge_message_evidence(
+                self.task, admission, self.binding, request, context)
+            self.assertEqual(evidence['source'], 'RUNTIME_HISTORY')
+            self.assertEqual(evidence['delivery_boundary']['event_id'], 'next-recovery')
+            native = bridge.native_request_result(
+                request, execution=_execution(), p00_context=context, evidence_binding=evidence)
+            native['host_input_budget'] = {'status': 'SOURCE_ONLY_FIXTURE'}
+            self.capture(evidence['delivery_boundary'])  # Write SOURCE host rows.
+            identity = {'case_session_id': self.session, 'semantic_epoch': 3,
+                        'trusted_parent_paths': [{'path': '/root/shangshu_repeat',
+                            'kind': 'same_case_ready_shangshu', 'thread_id': self.parent}]}
+            with patch.object(court_runtime, '_native_bridge_task_binding',
+                              return_value=(self.task, admission, self.binding)), \
+                    patch.object(court_runtime, '_native_bridge_caller_guard'), \
+                    patch.object(court_runtime, '_native_bridge_request_result', return_value=native), \
+                    patch.object(court_runtime, '_native_bridge_host_message_inputs',
+                                 return_value=(_execution(), context)), \
+                    patch.object(court_runtime, '_native_bridge_capture_model_authorization_binding',
+                                 return_value=None), \
+                    patch.object(court_runtime, '_native_bridge_identity_context', return_value=identity), \
+                    patch.object(court_runtime, '_native_candidate_facts',
+                                 return_value=deepcopy(self.request['compatible_live_instances'][0])), \
+                    patch.object(court_runtime, '_commit_task_event',
+                                 side_effect=AssertionError('capture must not write events')), \
+                    patch.object(court_runtime, '_record_native_host_receipt',
+                                 side_effect=AssertionError('capture must not consume receipts')), \
+                    patch.dict(os.environ, {'CODEX_THREAD_ID': self.parent,
+                        'CODEX_SESSION_ID': self.session, 'CODEX_HOME': str(self.home)}):
+                captured = court_runtime.office_native_capture(Namespace(
+                    schema=bridge.NATIVE_CAPTURE_INPUT_SCHEMA, task_id=request['task_id'],
+                    wave_id=request['wave_id'], instance_id=request['instance_id']))
+                returned = captured['office_request']
+                receipt = returned['native_host_action_receipt']
+                consumer_args = Namespace(**returned, _production_cli=True)
+
+                def consume_validation():
+                    return court_runtime._validate_native_host_receipt_for_runtime(
+                        self.task, admission, self.binding, consumer_args, decision='reuse',
+                        host_action='followup', outcome='succeeded', record=self.record)
+
+                self.assertEqual(consume_validation()['host_action_id'], 'call-second')
+                self.record['next_work_unit']['work_unit_id'] = 'next-different-unit'
+                with self.assertRaisesRegex(ValueError, 'context_policy_mismatch'):
+                    consume_validation()
+                self.record['next_work_unit'] = dict(self.unit)
+                self.events.append(self.next_event('next-after-capture', '2026-09-06T04:22:30Z'))
+                with self.assertRaisesRegex(ValueError, 'marked_host_action_missing_or_ambiguous'):
+                    consume_validation()
+                # A newer valid action must never silently replace this receipt.
+                self.add_delivery('call-third', '2026-09-06T04:22:40.100Z')
+                self.capture(self.boundary())
+                with self.assertRaisesRegex(ValueError, 'delivery_boundary_action_mismatch'):
+                    consume_validation()
+                self.rows = self.rows[:-2]
+                self.events.pop()
+                self.capture(self.boundary())
+                self.task['native_host_action_receipts'][receipt['receipt_id']] = {'consumed': True}
+                with self.assertRaisesRegex(ValueError, 'replay'):
+                    consume_validation()
+                self.task['native_host_action_receipts'].clear()
+        self.assertEqual(captured['host_action_id'], 'call-second')
+        self.assertEqual(returned['native_host_action_receipt']['host_action_id'], 'call-second')
+        for key in ('dispatch_uid', 'attempt', 'carrier_proof', 'checkpoint_id'):
+            self.assertEqual(returned[key], self.record[key])
+        self.assertEqual((self.task, admission, self.binding, self.events), before)
+
+    def test_admission_is_the_boundary_only_without_a_later_unit(self):
+        self.record.pop('next_work_unit')
+        self.events = self.events[:1]
+        self.assertEqual(self.boundary()['event_id'], self.anchor['event']['event_id'])
+        self.record['next_work_unit'] = dict(self.unit)
+        with self.assertRaises(ValueError):
+            self.boundary()
+        self.record.pop('next_work_unit')
+        self.events = deepcopy(self.events)
+        self.events[0]['time'] = '2026-09-06T04:00:01Z'
+        with self.assertRaises(ValueError):
+            self.boundary()
+
+    def test_same_report_multiple_calls_stays_ambiguous_and_does_not_pick_latest(self):
+        self.events.pop()  # Both calls are later than the same original report.
+        with self.assertRaisesRegex(ValueError, 'marked_host_action_missing_or_ambiguous'):
+            self.capture(self.boundary())
+
+    def test_old_calls_and_same_second_calls_cannot_bind_a_new_unit(self):
+        for timestamp in ('2026-09-06T04:22:00Z', '2026-09-06T04:21:59Z'):
+            with self.subTest(timestamp=timestamp):
+                self.events[-1]['time'] = timestamp
+                with self.assertRaises(ValueError):
+                    self.capture(self.boundary())
+        self.events[-1]['time'] = '2026-09-06T04:21:48Z'
+        self.record['next_work_unit']['work_unit_id'] = 'new-unit'
+        self.request['context_policy']['work_unit_id'] = 'new-unit'
+        with self.assertRaisesRegex(ValueError, 'delivery_boundary'):
+            self.boundary()
+
+    def test_boundary_requires_current_authoritative_report_and_valid_time(self):
+        original = deepcopy(self.events)
+        for field, value in (
+            ('actor', 'gongbu'), ('case_ref', {**CASE_REF, 'charter_revision': 2}),
+            ('semantic_epoch', 2), ('dispatch_uid', 'DSP-' + 'e' * 32),
+            ('attempt', 2), ('checkpoint_id', 'foreign-checkpoint'),
+            ('agent_role', 'bingbu'), ('task_id', 'foreign-task'),
+            ('time', ''), ('time', '2026-09-06T04:21:48'),
+            ('time', '2026-09-06T03:59:00Z'),
+        ):
+            self.events = deepcopy(original)
+            self.events[-1][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                self.boundary()
+        self.events = deepcopy(original)
+        self.events[-1]['agent_id'] = 'foreign-agent'
+        with self.assertRaises(ValueError):
+            self.capture(self.boundary())
+        self.events = deepcopy(original)
+        self.events.append(deepcopy(self.events[-1]))
+        with self.assertRaises(ValueError):
+            self.boundary()
+        self.events = deepcopy(original)
+        self.request['context_policy']['issue_ref'] = 'foreign-issue'
+        with self.assertRaises(ValueError):
+            self.boundary()
+
+    def test_bounded_call_still_requires_unique_correct_host_interaction(self):
+        rows = deepcopy(self.rows)
+        boundary = {'event_id': 'next-recovery', 'time': '2026-09-06T04:21:48Z',
+                    'request_ref': native_request_reference(self.request)}
+        for mutation in ('parent', 'session', 'target', 'child', 'path', 'missing',
+                         'duplicate-call', 'duplicate-activity', 'before-line', 'before-time',
+                         'missing-time', 'duplicate-old-id', 'foreign-activity'):
+            self.rows = deepcopy(rows)
+            call, activity = self.rows[-2:]
+            if mutation == 'parent':
+                activity['payload']['thread_id'] = self.session
+            elif mutation == 'session':
+                self.rows[0]['payload']['session_id'] = self.child
+            elif mutation == 'target':
+                arguments = json.loads(call['payload']['arguments'])
+                arguments['target'] = 'gongbu_foreign'
+                call['payload']['arguments'] = json.dumps(arguments)
+            elif mutation == 'child':
+                activity['payload']['item']['agent_thread_id'] = self.session
+            elif mutation == 'path':
+                activity['payload']['item']['agent_path'] += '_foreign'
+            elif mutation == 'missing':
+                self.rows.pop()
+            elif mutation == 'duplicate-call':
+                self.rows.append(deepcopy(call))
+            elif mutation == 'duplicate-activity':
+                self.rows.append(deepcopy(activity))
+            elif mutation == 'before-line':
+                self.rows[-2:] = [activity, call]
+            elif mutation == 'before-time':
+                activity['timestamp'] = '2026-09-06T04:21:58Z'
+            elif mutation == 'duplicate-old-id':
+                self.rows[1]['payload']['call_id'] = call['payload']['call_id']
+            elif mutation == 'foreign-activity':
+                duplicate = deepcopy(activity)
+                duplicate['payload']['item']['agent_thread_id'] = self.session
+                self.rows.append(duplicate)
+            else:
+                call.pop('timestamp')
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                self.capture(boundary)
+
+    def test_caller_cannot_supply_boundary_selector_or_receipt(self):
+        base = {'schema': bridge.NATIVE_CAPTURE_INPUT_SCHEMA,
+                'task_id': self.request['task_id'], 'wave_id': self.request['wave_id'],
+                'instance_id': self.request['instance_id']}
+        for field in ('host_call_id', 'delivery_boundary', 'trace_path', 'host_result',
+                      'native_host_action_receipt'):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                court_runtime.office_request_namespace(Namespace(
+                    office_command='native-capture', request_json=json.dumps({**base, field: {}}),
+                    request_file=None))
 
 
 class NativeCapabilityContractTests(unittest.TestCase):
@@ -2775,8 +3108,9 @@ def main() -> int:
             "missing request marker",
         )
 
-    capability_suite = unittest.defaultTestLoader.loadTestsFromTestCase(
-        NativeCapabilityContractTests
+    capability_suite = unittest.TestSuite(
+        unittest.defaultTestLoader.loadTestsFromTestCase(case)
+        for case in (NativeCapabilityContractTests, NativeRepeatCaptureTests)
     )
     if not unittest.TextTestRunner(verbosity=1).run(capability_suite).wasSuccessful():
         return 1

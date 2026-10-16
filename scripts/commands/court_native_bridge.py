@@ -9,6 +9,7 @@ there.  It deliberately exposes no MCP-facing surface.
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import timedelta
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ from court_native_identity import canonical_agent_path, canonical_agent_path_ide
 from court_model_router import validate_current_codex_model_selection
 from court_native_trace import (bind_followup_activity, bind_opaque_spawn, interacted_activity,
                                 is_opaque_message, spawn_activity,
-                                skill_read_order, NativeEvidencePending)
+                                skill_read_order, NativeEvidencePending, _time as trace_time)
 
 
 NATIVE_REQUEST_INPUT_SCHEMA = "court.office.native_request.v1"
@@ -1052,9 +1053,6 @@ def _canonical_followup_host_result(
         activity
         for activity in interactions
         if activity.get("call_id") == call_id
-        and activity.get("child_agent_path") == path
-        and isinstance(activity.get("child_thread_id"), str)
-        and str(activity.get("child_thread_id")).lower() == child_thread
     ]
     if len(matching) != 1:
         raise ValueError("native_bridge:canonical_followup_activity_missing_or_ambiguous")
@@ -1526,6 +1524,19 @@ def capture_current_native_delivery(
         agent_type=agent_type,
         evidence_binding=evidence_binding,
     )
+    boundary = evidence_binding.get('delivery_boundary')
+    not_before = None
+    if expected_action == 'followup' and boundary is not None:
+        if (not isinstance(boundary, Mapping)
+                or set(boundary) != {'event_id', 'time', 'request_ref'}
+                or boundary.get('request_ref') != native_request_reference(normalized)):
+            raise ValueError('native_bridge:delivery_boundary_binding_mismatch')
+        _text(boundary.get('event_id'), 'delivery_boundary.event_id')
+        # Runtime history has second precision. A call within that same second
+        # may precede the report; only the next full second proves ordering.
+        not_before = trace_time(boundary.get('time')).replace(microsecond=0) + timedelta(seconds=1)
+    elif expected_action == 'followup' and evidence_binding.get('source') == 'RUNTIME_HISTORY':
+        raise ValueError('native_bridge:delivery_boundary_required')
     marker = host_message_marker(normalized)
     invocation = _host_invocation(
         normalized,
@@ -1566,6 +1577,7 @@ def capture_current_native_delivery(
     session_values: set[str] = set()
     thread_values: set[str] = set()
     marked_calls: list[tuple[str, str]] = []
+    call_counts: dict[str, int] = {}
     outputs: dict[str, dict[str, object]] = {}
     activities: list[dict[str, object]] = []
     interactions: list[dict[str, object]] = []
@@ -1609,6 +1621,13 @@ def capture_current_native_delivery(
                 payload = _payload(item)
                 if payload is None:
                     continue
+                event_type = str(payload.get('type') or '').strip().lower()
+                if event_type in _CALL_TYPES:
+                    observed_id = str(payload.get('call_id') or payload.get('id') or '').strip()
+                    call_counts[observed_id] = call_counts.get(observed_id, 0) + 1
+                    if not_before is not None and str(payload.get('name') or '').lower() in _FOLLOWUP_TOOL_NAMES:
+                        if trace_time(item.get('timestamp')) < not_before:
+                            continue
                 marked = (
                     _exact_spawn_call(
                         payload,
@@ -1658,6 +1677,8 @@ def capture_current_native_delivery(
     if len(marked_calls) != 1:
         raise ValueError("native_bridge:marked_host_action_missing_or_ambiguous")
     call_id, tool_name = marked_calls[0]
+    if call_counts.get(call_id) != 1:
+        raise ValueError('native_bridge:host_call_id_ambiguous')
     output = outputs.get(call_id)
     if output is None and not canonical_followup:
         raise ValueError("native_bridge:matching_host_output_missing")
@@ -1783,6 +1804,8 @@ def capture_current_native_delivery(
             "source": "host_managed_current_session_metadata",
         },
     }
+    if not_before is not None:
+        result['trace']['delivery_boundary'] = deepcopy(dict(boundary))
     for field in (
         "observed_spawn_agent_type_field",
         "observed_child_agent_role",

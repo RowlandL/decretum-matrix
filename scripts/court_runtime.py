@@ -2384,6 +2384,23 @@ def _validate_native_host_receipt_for_runtime(
         or receipt.get("outcome") != outcome
     ):
         raise ValueError("native_host_action_receipt:runtime_action_mismatch")
+    if host_action == 'followup' and 'context_policy' in request:
+        # A superior can report the same work-unit values again after capture.
+        # Reuse the read-only producer under the lifecycle lock, so that newer
+        # event boundary cannot consume an older call with the same request_ref.
+        from commands.court_native_bridge import capture_current_native_delivery
+        current_binding = {**binding, '_validated_admission_anchor':
+                           _validate_admission_immutable_event_anchor(task, admission)}
+        current_request = _native_bridge_request(task, admission, current_binding)
+        execution, context = _native_bridge_host_message_inputs(task, admission)
+        current_capture = capture_current_native_delivery(
+            current_request, execution=execution, p00_context=context,
+            identity_context=_native_bridge_identity_context(task, binding),
+            collaboration_task_name=binding.get('collaboration_task_name') or binding.get('task_name'),
+            evidence_binding=_native_bridge_message_evidence(
+                task, admission, current_binding, current_request, context))
+        if current_capture.get('host_action_id') != receipt.get('host_action_id'):
+            raise ValueError('native_host_action_receipt:delivery_boundary_action_mismatch')
     routes = admission.get("model_routes")
     route = (
         routes.get(str(binding.get("instance_id") or "").strip().lower())
@@ -11438,6 +11455,67 @@ def _native_bridge_request_result(
     return result
 
 
+def _native_bridge_delivery_boundary(
+    task: Mapping[str, object], binding: Mapping[str, object],
+    request: Mapping[str, object], anchor: Mapping[str, object],
+) -> dict[str, object] | None:
+    """Bound reuse to the existing admission or current superior work report.
+
+    This is read-only runtime history, never a timestamp or selector supplied by
+    the capture caller. A repeated next_work_unit report deliberately establishes
+    a new boundary even when the work description itself has not changed.
+    """
+    record = _native_bridge_target_record(task, binding)
+    if record is None:
+        return None
+    error = 'native_bridge:delivery_boundary_binding_mismatch'
+    history = events_for_task(task.get('task_id'), limit=None)
+    index, event = anchor['index'], anchor['event']
+    if (type(index) is not int or not 0 <= index < len(history)
+            or history[index] != event
+            or sum(row.get('event_id') == event.get('event_id') for row in history) != 1
+            or record.get('semantic_epoch') != request.get('semantic_epoch')
+            or record.get('case_ref') != request.get('case_ref')
+            or record.get('direct_superior') != binding.get('direct_superior')):
+        raise ValueError(error)
+    admitted_at = datetime.fromisoformat(_aware_timestamp(event.get('time'), error))
+    target_id = next(key for key, value in task['agents'].items() if value == record)
+    reports = [(i, row) for i, row in enumerate(history)
+               if row.get('action') == 'agent_report' and row.get('agent_id') == target_id
+               and 'next_work_unit' in row]
+    pending = record.get('next_work_unit')
+    if pending is not None and not reports:
+        raise ValueError(error)
+    if reports:
+        report_index, report = reports[-1]
+        unit = report.get('next_work_unit')
+        policy = request.get('context_policy')
+        if (not isinstance(unit, Mapping) or not unit or not isinstance(policy, Mapping)
+                or any(policy.get(key) != value for key, value in unit.items())):
+            # A later admission can replace a completed unit, but a pending or
+            # newer report cannot be skipped to fall back to an older boundary.
+            if pending is not None or report_index >= index:
+                raise ValueError(error)
+        else:
+            if (pending is not None and pending != unit
+                    or not report.get('event_id')
+                    or sum(row.get('event_id') == report['event_id'] for row in history) != 1
+                    or report.get('task_id') != task.get('task_id')
+                    or report.get('actor') != binding.get('direct_superior')
+                    or report.get('agent_role') != binding.get('role')
+                    or any(report.get(key) != record.get(key) for key in (
+                        'semantic_epoch', 'case_ref', 'dispatch_uid', 'attempt', 'checkpoint_id'))):
+                raise ValueError(error)
+            reported_at = datetime.fromisoformat(_aware_timestamp(report.get('time'), error))
+            if ((report_index > index and reported_at < admitted_at)
+                    or (report_index < index and reported_at > admitted_at)):
+                raise ValueError(error)
+            if report_index > index:
+                event = report
+    return {'event_id': event['event_id'], 'time': event['time'],
+            'request_ref': native_request_reference(request)}
+
+
 def _native_bridge_message_evidence(
     task: Mapping[str, object], admission: Mapping[str, object],
     binding: Mapping[str, object], request: Mapping[str, object], context: Mapping[str, object],
@@ -11481,7 +11559,7 @@ def _native_bridge_message_evidence(
         raise ValueError('native_bridge:admission_history_binding_mismatch')
     escaped = quote(str(task['task_id']), safe='')
     sequence = matches[0][1]['receipt_sequence']
-    return {
+    evidence = {
         'source': 'RUNTIME_HISTORY',
         'request': normalized,
         'dispatch_context': packet,
@@ -11492,6 +11570,10 @@ def _native_bridge_message_evidence(
             f'court-runtime:tasks/{escaped}/events[{anchor["index"]}]',
         ],
     }
+    boundary = _native_bridge_delivery_boundary(task, binding, normalized, anchor)
+    if boundary is not None:
+        evidence['delivery_boundary'] = boundary
+    return evidence
 
 
 def _native_bridge_model_inputs(admission: Mapping[str, object]) -> dict[str, object]:

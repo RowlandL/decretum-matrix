@@ -4,6 +4,7 @@
 
 - 本版范围为 F07/F08 事实回执与 cmd 退出码，以及派遣收益判断、有限复用和安全换新。未发布 hotfix 的已审核 native V1 reader 修复随本版交付，旧格式与必要负例保护保留。
 - 史馆并发最小修复已获独立 SOURCE 接受：graph 完整事务锁、Windows 真正 shared/exclusive、recall 同快照/模型初始化协调、seed 完整且不覆盖发布。原32并发与新增窗口、失败重试、缓存真实损坏拒绝均通过。MCP 同一 stdio 的慢请求串行等待限制保留。
+- 实际宿主发现的重复 followup 捕获歧义采用已有工作单事件作可信边界修复；同边界多动作、同值新事件旧回执及回放继续拒绝。原 checker 41 项与 opaque 20 项通过；新候选真实续验另取证，公共 schema 与 selector 不变。
 - 版本标识为 `beta1.2.1`；公开 semver 由既有机制派生，不修改 derive 或发布流程，不单独发布 hotfix。
 - 状态：SOURCE 已接受，最终候选与宿主验证待办。最终标签/Release 为 beta1.2.1，ZIP 为 decretum-matrix-beta1.2.1.zip，公开 npm 为1.2.1-beta.0；旧hotfix仅为代码来源。候选、真实宿主、同提交 CI 六任务、发布与安装分别验收，旧候选证据不证明本版完成。
 
