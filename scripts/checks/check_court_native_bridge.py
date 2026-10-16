@@ -806,6 +806,61 @@ class NativeRepeatCaptureTests(unittest.TestCase):
             self.assertEqual(returned[key], self.record[key])
         self.assertEqual((self.task, admission, self.binding, self.events), before)
 
+    def test_legacy_context_receipt_keeps_original_consumer_without_native_recapture(self):
+        request, record, binding = deepcopy((self.request, self.record, self.binding))
+        candidate = request['compatible_live_instances'][0]
+        candidate.pop('host_identity_kind')
+        record.pop('native_host_identity_kind')
+        record.pop('native_child_thread_id')
+        for field in ('host_task_id', 'host_thread_id', 'host_instance_id'):
+            candidate[field] = 'legacy-' + field
+            record['native_' + field] = candidate[field]
+        record.update(native_host_action_receipt={'request': deepcopy(request)},
+                      native_host_context_utilization=0.1,
+                      native_host_context_window_tokens=100000)
+        admission = {key: deepcopy(request[key]) for key in (
+            'wave_id', 'dispatch_uid', 'attempt', 'semantic_epoch', 'case_ref')}
+        admission.update(admission_event_id=request['admission_anchor']['receipt_id'],
+                         model_route_inputs={'assignment': request['assignment']},
+                         model_routes={request['instance_id']: {}})
+        binding.update({key: deepcopy(request[key]) for key in (
+            'office_capsule_ref', 'lease_id', 'write_set')})
+        binding.update(read_scope=list(request['duty_scope']), dispatch_phase='preload_only',
+                       preload_sources=court_runtime._semantic_preload_sources('gongbu'))
+        admitted = {'event_id': admission['admission_event_id'], 'action': 'agent_admit',
+                    'wave_id': request['wave_id'], 'allowed': True,
+                    'admission_record': court_runtime._admission_bound_record(admission)}
+        task = {'task_id': request['task_id'], 'native_host_action_receipts': {}}
+        with patch.object(court_runtime, 'events_for_task', return_value=[admitted]), \
+                patch.object(court_runtime, '_native_bridge_request',
+                             side_effect=AssertionError('legacy adapter must not recapture')):
+            candidate.update(court_runtime._native_candidate_facts(task, record))
+            host_result = {'ok': True, 'host_action_id': 'legacy-context-followup',
+                           **{key: candidate[key] for key in (
+                               'host_task_id', 'host_thread_id', 'host_instance_id')}}
+            receipt = bridge.dispatch_native_host_action(
+                request, host=Namespace(followup=lambda *_: host_result),
+                lifecycle=Namespace(followup=lambda value: value))['host_action_receipt']
+            args = Namespace(native_host_action_receipt=receipt, _production_cli=True)
+
+            def validate():
+                return court_runtime._validate_native_host_receipt_for_runtime(
+                    task, admission, binding, args, decision='reuse', host_action='followup',
+                    outcome='succeeded', record=record)
+
+            before = deepcopy((task, admission, binding, record))
+            self.assertEqual(validate()['host_action_id'], host_result['host_action_id'])
+            task['native_host_action_receipts'][receipt['receipt_id']] = {'consumed': True}
+            with self.assertRaisesRegex(ValueError, 'replay'):
+                validate()
+            task['native_host_action_receipts'].clear()
+            downgraded = deepcopy(receipt)
+            downgraded['request'].pop('context_policy')
+            args.native_host_action_receipt = downgraded
+            with self.assertRaisesRegex(ValueError, 'context_policy_mismatch'):
+                validate()
+            self.assertEqual((task, admission, binding, record), before)
+
     def test_admission_is_the_boundary_only_without_a_later_unit(self):
         self.record.pop('next_work_unit')
         self.events = self.events[:1]

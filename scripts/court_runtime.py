@@ -2384,10 +2384,13 @@ def _validate_native_host_receipt_for_runtime(
         or receipt.get("outcome") != outcome
     ):
         raise ValueError("native_host_action_receipt:runtime_action_mismatch")
-    if host_action == 'followup' and 'context_policy' in request:
+    if (host_action == 'followup' and 'context_policy' in request
+            and isinstance(record, Mapping)
+            and record.get('native_host_identity_kind') == 'canonical_agent_path'):
         # A superior can report the same work-unit values again after capture.
-        # Reuse the read-only producer under the lifecycle lock, so that newer
-        # event boundary cannot consume an older call with the same request_ref.
+        # Recheck canonical native delivery under the lifecycle lock, so a newer
+        # event cannot consume an older call with the same request_ref. Legacy
+        # receipt adapters retain their original binding and replay validation.
         from commands.court_native_bridge import capture_current_native_delivery
         current_binding = {**binding, '_validated_admission_anchor':
                            _validate_admission_immutable_event_anchor(task, admission)}
