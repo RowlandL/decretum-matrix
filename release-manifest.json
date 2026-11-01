@@ -3105,7 +3105,7 @@
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
     "payload_index_sha256": "acdf78fa08b2d1c3f8f4e586b86ec9b5cb607318ddf5c227de0e54a759d75f83",
     "source_packaged_tracked_file_count": 503,
-    "source_tracked_file_count": 693
+    "source_tracked_file_count": 697
   },
   "license": {
     "declared": "AGPL-3.0-only",
@@ -3122,6 +3122,7 @@
     ".github/test-support/candidate-install-regression.py",
     ".github/test-support/install-finalization-regression.py",
     ".github/workflows/ci.yml",
+    ".github/workflows/publish-packages.yml",
     ".gitignore",
     ".repo-control/evidence/decretum-matrix/objective-remediation/post-059-script-review.json",
     ".repo-control/evidence/decretum-matrix/objective-remediation/runtime-baseline.json",
@@ -3227,6 +3228,8 @@
     "docs/plans/2026-10-03-remediation/beta1.3.7.md",
     "docs/plans/2026-10-03-remediation/beta1.3.8.md",
     "docs/plans/2026-10-03-remediation/beta1.3.9.md",
+    "docs/plans/2026-11-01-memory-decision-gateway-roadmap.md",
+    "docs/plans/2026-11-01-office-duties-and-name-decoupling-plan.md",
     "docs/plans/beta1.0.8/contracts/cli-command-surface-projection-draft.json",
     "docs/plans/beta1.0.8/contracts/contract-a-iku-candidates.md",
     "docs/plans/beta1.0.8/contracts/contract-b-lineage-taxonomy.md",
@@ -3267,6 +3270,7 @@
     "docs/reports/beta109-review-20260905/evidence-summary.json",
     "docs/reports/beta110-20260905/evidence-summary.json",
     "docs/research/2026-08-25-next-version-cli-mcp-hooks-shiguan-memory-research.md",
+    "docs/research/2026-11-01-memory-decision-gateway-sources.md",
     "docs/superpowers/plans/2026-09-06-beta1.1.1-release.md",
     "docs/wiki/Architecture.md",
     "docs/wiki/CLI-and-MCP.md",
