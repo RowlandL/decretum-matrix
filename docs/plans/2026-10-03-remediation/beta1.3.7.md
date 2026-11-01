@@ -2,7 +2,7 @@
 
 > 总纲：[2026-10-03 修复与完善计划（总纲）](../2026-10-03-decretum-matrix-remediation-plan.md)
 > 上一版：[beta1.3.6](./beta1.3.6.md)｜下一版：[beta1.3.8](./beta1.3.8.md)
-> 依赖：[beta1.2.6](./beta1.2.6.md)、[beta1.2.9](./beta1.2.9.md)、[beta1.3.0](./beta1.3.0.md)、[beta1.3.3](./beta1.3.3.md)｜被依赖：[beta1.3.9](./beta1.3.9.md)
+> 依赖：[beta1.2.6](./beta1.2.6.md)、[beta1.2.9](./beta1.2.9.md)、[beta1.3.0](./beta1.3.0.md)、[beta1.3.3](./beta1.3.3.md)、[beta1.3.6](./beta1.3.6.md)｜被依赖：[beta1.3.8](./beta1.3.8.md)、[beta1.3.9](./beta1.3.9.md)
 > 工单：`24-e8-governance-benefit-metrics`（本地工单 .scratch/remediation-2026-10/issues/）
 > 权威依据：consolidated-review.md（仓库外只读，绝对路径见总纲文档地图；该类引用不参与仓库内链接校验）
 > 条目：增强 E8（已授权）
@@ -46,6 +46,21 @@
 | 工单 | 覆盖 |
 | --- | --- |
 | `24-e8-governance-benefit-metrics` | E8 全部工作包 |
+
+## 2026-11-01 计划增补 · 分决策位置的质量与净收益
+
+状态：**PLANNED_UNVERIFIED**。本次仅修订计划；新增项的实施与晋级按本版出口，不将历史发布条款当作本次发布授权。
+
+详见[统一需求、架构与版本矩阵](../2026-11-01-memory-decision-gateway-roadmap.md)，本节和原F/E条目共同构成本版工作范围；原缺陷修复不因模型研究而被无界阻塞。
+
+1. 比较规则/宿主基线、本地模型+宿主回退、Rust/Node候选；按决策位置和语言/场景分组报告。
+2. 测错误接受、覆盖与校准、派遣成功、宿主回退、冷/暖启动、p50/p95延迟、内存、IPC与工具轮次。
+3. 单列input/cache-read/cache-write/output Token、追加大小、模型切换损失与恢复成本；保留负收益样本。
+
+增补验收：
+
+- [ ] 以原始数据决定采用/缩小/替换provider/停止，报告样本量与硬件；不设未经实测的节省比例。
+- [ ] 新能力的源码、模型效果、真实宿主及缓存证据分别记录；尚未实施项不得填写成功结果。
 
 ## 8. 执行记录（实施时填写）
 

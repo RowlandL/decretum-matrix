@@ -45,6 +45,10 @@ EXPECTED_TOOLS = {
     "shiguan.iku_candidates",
     "shiguan.recall",
     "shiguan.recall_stats",
+    "court.decision_contract",
+    "court.decision_project",
+    "court.office_duty",
+    "court.task_skeleton",
 }
 CURRENT_PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-11-25"
@@ -68,6 +72,10 @@ EXPECTED_COMMAND_IDS = {
     "shiguan.recall_stats": "shiguan.query-shiguan-recall",
     "shiguan.archive_dry_run": "shiguan.archive-checkpoint",
     "memory.scan": "shiguan.internal-memory-shiguan-bridge",
+    "court.decision_contract": "court.court-runtime",
+    "court.decision_project": "court.court-runtime",
+    "court.office_duty": "court.court-runtime",
+    "court.task_skeleton": "court.court-runtime",
 }
 
 
@@ -1134,6 +1142,572 @@ def _compact_startup_checks() -> list[tuple[str, bool]]:
     return [('compact_status_without_history_or_bulk',True),('known_special_lifecycle_not_claimed_as_native',True)]
 
 
+def _public_contract_checks() -> list[tuple[str, bool]]:
+    """Replay the beta1.2.2 public-boundary cases through the public tool entry.
+
+    Every body here is an isolated fixture: no real Shiguan entry, no
+    pending/private text and no live recall service is read.
+    """
+
+    import types
+    from unittest import mock
+
+    import court_shiguan_recall_client
+    from court_public_api import (
+        public_office_duty_projection,
+        public_shiguan_entries_query,
+        public_task_skeleton,
+        shiguan_query,
+    )
+
+    probes: list[tuple[str, bool]] = []
+
+    # F09: a recall-service failure must reach ok/isError, exit status and audit.
+    failure_body = {"ok": False, "problem": "recall_service_unavailable", "detail": "synthetic"}
+    with mock.patch.object(court_shiguan_recall_client, "_request", return_value=dict(failure_body)):
+        failed = court_mcp_server.call_tool("shiguan.recall", {"state": "state", "k": 1}, modern=True)
+    failed_body = failed.get("structuredContent", {})
+    failed_api = failed_body.get("api", {})
+    probes.append(
+        (
+            "f09_recall_failure_propagates_to_tool_result",
+            failed.get("isError") is True
+            and failed_body.get("ok") is False
+            and failed_body.get("problem") == "recall_service_unavailable"
+            and failed_api.get("exit_status") == 1
+            and failed_api.get("stderr") == "recall_service_unavailable"
+            and court_mcp_server._audit_receipt(failed)
+            == {"ok": False, "outcome": "error", "error": "recall_service_unavailable"},
+        )
+    )
+
+    healthy_body = {"ok": True, "items": [], "advisory": {"authority": "advisory"}}
+    with mock.patch.object(court_shiguan_recall_client, "_request", return_value=dict(healthy_body)):
+        healthy = court_mcp_server.call_tool("shiguan.recall", {"state": "state", "k": 1}, modern=True)
+    probes.append(
+        (
+            "f09_recall_healthy_result_stays_success",
+            healthy.get("isError") is not True
+            and healthy["structuredContent"]["ok"] is True
+            and healthy["structuredContent"]["api"]["exit_status"] == 0,
+        )
+    )
+
+    # F09 guard: a legitimate domain negative stays a normal diagnostic. The
+    # plan below is well formed; only the dispatch rules say no, so the verdict
+    # is a result and never a tool error.
+    negative_entry = {
+        "role": "not-a-role",
+        "office_zh": "x",
+        "direct_superior": "y",
+        "duty": "d",
+        "evidence_contract": "e",
+        "parallel_group": "p",
+        "visibility": "non_visible",
+        "instance_key": "not-a-role#0001",
+    }
+    negative = court_mcp_server.call_tool(
+        "court.dispatch_plan_validate", {"entries": [negative_entry]}, modern=True
+    )
+    negative_api = negative["structuredContent"]["api"]
+    probes.append(
+        (
+            "f09_domain_negative_is_not_a_tool_error",
+            negative.get("isError") is not True
+            and negative["structuredContent"]["ok"] is True
+            and negative_api.get("ok") is False
+            and negative_api["errors"][0]["code"] == "dispatch_plan_invalid"
+            and court_mcp_server._audit_receipt(negative) == {"ok": True, "outcome": "succeeded"},
+        )
+    )
+
+    # F09: an exception the client did not classify must still fail closed at
+    # the public API instead of escaping to the CLI peer as a traceback.
+    with mock.patch.object(
+        court_shiguan_recall_client,
+        "recall",
+        side_effect=UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+    ):
+        raised = court_mcp_server.call_tool("shiguan.recall", {"state": "state", "k": 1}, modern=True)
+    raised_api = raised["structuredContent"]["api"]
+    with mock.patch.object(court_shiguan_recall_client, "recall", side_effect=KeyError("items")):
+        unshaped = court_mcp_server.call_tool("shiguan.recall", {"state": "state", "k": 1}, modern=True)
+    unshaped_api = unshaped["structuredContent"]["api"]
+    probes.append(
+        (
+            "f09_recall_transport_exception_fails_closed",
+            raised.get("isError") is True
+            and raised["structuredContent"]["ok"] is False
+            and raised_api["exit_status"] == 1
+            and raised_api["stderr"] == "recall_client_failure_unicodedecodeerror"
+            and court_mcp_server._audit_receipt(raised)
+            == {"ok": False, "outcome": "error", "error": "recall_client_failure_unicodedecodeerror"}
+            and unshaped.get("isError") is True
+            and unshaped_api["exit_status"] == 1
+            and unshaped_api["stderr"] == "recall_client_failure_keyerror",
+        )
+    )
+
+    # F09: the audit journal entry itself must record the contract failure, not
+    # only the in-memory receipt projection.
+    captured: list[dict[str, object]] = []
+
+    def capture_journal(*_args: object, **kwargs: object) -> None:
+        captured.append(dict(kwargs))
+
+    with mock.patch.object(court_mcp_server, "reference_path", return_value="audit-fixture"), mock.patch.object(
+        court_mcp_server, "write_journal", side_effect=capture_journal
+    ):
+        journaled = court_mcp_server.handle(
+            _modern_request(
+                "f09-audit",
+                "tools/call",
+                params={
+                    "name": "court.decision_project",
+                    "arguments": {
+                        "record": {
+                            "decision_position": "agent_lifecycle",
+                            "allowed_candidates": ["dispatch", "reuse"],
+                            "decision_provider": "rule-agent-lifecycle",
+                            "provider_kind": "rule",
+                            "outcome": "allow",
+                            "candidate": "deploy-everything",
+                        }
+                    },
+                },
+            ),
+            {},
+        )
+    journal_receipt = captured[-1]["receipt_metadata"] if captured else {}
+    probes.append(
+        (
+            "f09_contract_error_is_journaled_as_error",
+            bool(captured)
+            and journaled.get("result", {}).get("isError") is True
+            and journal_receipt.get("ok") is False
+            and journal_receipt.get("outcome") == "error"
+            and journal_receipt.get("tool") == "court.decision_project"
+            and isinstance(journal_receipt.get("error"), str)
+            and 0 < len(journal_receipt["error"]) <= 128,
+        )
+    )
+
+    # F16: the legacy query reuses the entries_query metadata whitelist.
+    fixture = [
+        {
+            "time": "2026-11-01T00:00:00Z",
+            "court_code": "CC-1",
+            "topic": "alpha",
+            "status": "recorded",
+            "summary": "first",
+            "synthetic_answers": {"x": 1},
+            "private_body": "TOP-SECRET-BODY",
+        },
+        {
+            "time": "2026-11-02T00:00:00Z",
+            "court_code": "CC-2",
+            "topic": "beta",
+            "status": "recorded",
+            "summary": "second",
+            "raw_text": "SECOND-SECRET-BODY",
+        },
+    ]
+    fake = types.ModuleType("query_shiguan_index")
+    fake.load_entries = lambda: [dict(row) for row in fixture]
+    # Deliberately reversed: the projection must preserve the match order the
+    # query implementation returns instead of re-sorting the rows (F16).
+    fake.select_query_matches = lambda entries, terms: [dict(entries[1]), dict(entries[0])]
+    previous_module = sys.modules.get("query_shiguan_index")
+    sys.modules["query_shiguan_index"] = fake
+    try:
+        legacy = shiguan_query(["alpha"], limit=5)
+        entries = public_shiguan_entries_query("alpha", limit=5)
+    finally:
+        if previous_module is None:
+            sys.modules.pop("query_shiguan_index", None)
+        else:
+            sys.modules["query_shiguan_index"] = previous_module
+    legacy_rows = legacy.get("stdout")
+    legacy_text = json.dumps(legacy_rows, ensure_ascii=False)
+    probes.append(
+        (
+            "f16_legacy_query_uses_metadata_whitelist",
+            sorted(legacy) == ["exit_status", "stderr", "stdout"]
+            and isinstance(legacy_rows, list)
+            and [row.get("court_code") for row in legacy_rows] == ["CC-2", "CC-1"]
+            and [sorted(row) for row in legacy_rows] == [sorted(row) for row in entries["matches"]]
+            and not any(
+                token in legacy_text
+                for token in ("TOP-SECRET-BODY", "SECOND-SECRET-BODY", "synthetic_answers", "private_body", "raw_text")
+            ),
+        )
+    )
+
+    # Decision contract: rule positive, legal negative, abstain, host hand-off, illegal candidate.
+    decision_base = {
+        "decision_position": "agent_lifecycle",
+        "allowed_candidates": ["dispatch", "reuse", "direct"],
+        "decision_provider": "rule-agent-lifecycle",
+        "provider_kind": "rule",
+        "provider_version": "rules-1",
+        "confidence_calibrated": True,
+        "input_scope": "scope=task-1",
+    }
+
+    def decide(record: dict[str, object]) -> dict[str, object]:
+        return court_mcp_server.call_tool("court.decision_project", {"record": record}, modern=True)
+
+    allow = decide({**decision_base, "outcome": "allow", "candidate": "reuse"})
+    deny = decide({**decision_base, "outcome": "deny", "candidate": "dispatch"})
+    abstain = decide({**decision_base, "outcome": "abstain", "fallback_reason": "not_calibrated"})
+    handoff = decide(
+        {
+            **decision_base,
+            "outcome": "allow",
+            "candidate": "reuse",
+            "provider_kind": "local_model",
+            "fallback_reason": "local_model_timeout",
+        }
+    )
+    illegal = decide({**decision_base, "outcome": "allow", "candidate": "deploy-everything"})
+
+    def decision_of(result: dict[str, object]) -> dict[str, object]:
+        return result["structuredContent"]["api"].get("stdout", {}).get("decision", {})
+
+    probes.append(
+        (
+            "decision_rule_positive_projects_bounded_fields",
+            allow.get("isError") is not True
+            and decision_of(allow)["outcome"] == "allow"
+            and decision_of(allow)["decision_position"] == "agent_lifecycle"
+            and decision_of(allow)["decision_provider"] == "rule-agent-lifecycle"
+            and decision_of(allow)["confidence_calibrated"] is True
+            and decision_of(allow)["host_continuation"]["required"] is False,
+        )
+    )
+    probes.append(
+        (
+            "decision_legal_negative_stays_diagnostic",
+            deny.get("isError") is not True
+            and deny["structuredContent"]["api"]["stdout"]["ok"] is True
+            and decision_of(deny)["outcome"] == "deny"
+            and decision_of(deny)["candidate"] == "dispatch",
+        )
+    )
+    probes.append(
+        (
+            "decision_abstain_requires_host_continuation",
+            abstain.get("isError") is not True
+            and decision_of(abstain)["outcome"] == "abstain"
+            and decision_of(abstain)["host_continuation"]["required"] is True
+            and decision_of(abstain)["host_continuation"]["state"] == "host_continuation"
+            and decision_of(abstain)["host_continuation"]["reason"] == "not_calibrated"
+            and decision_of(abstain)["host_continuation"]["route"] == "host_native"
+            and decision_of(abstain)["host_continuation"]["reenters_local_route"] is False,
+        )
+    )
+    probes.append(
+        (
+            "decision_host_handoff_reason_projected",
+            decision_of(handoff)["host_continuation"]["required"] is True
+            and decision_of(handoff)["host_continuation"]["reason"] == "local_model_timeout"
+            and decision_of(handoff)["host_continuation"]["reenters_local_route"] is False,
+        )
+    )
+    probes.append(
+        (
+            # A candidate outside the allowed set is a caller/contract error, not
+            # a legitimate negative: it has to reach isError, exit status and the
+            # audit outcome instead of hiding behind ok:false.
+            "decision_illegal_candidate_rejected",
+            illegal.get("isError") is True
+            and illegal["structuredContent"]["ok"] is False
+            and illegal["structuredContent"]["api"]["exit_status"] == 1
+            and illegal["structuredContent"]["api"]["stderr"]
+            == "candidate_not_in_allowed_candidates"
+            and illegal["structuredContent"]["api"]["stdout"]["errors"][0]["code"]
+            == "candidate_not_in_allowed_candidates"
+            and court_mcp_server._audit_receipt(illegal)
+            == {"ok": False, "outcome": "error", "error": "candidate_not_in_allowed_candidates"},
+        )
+    )
+    # R1: identifiers are bounded metadata strings; nothing is stringified.
+    object_candidate = court_mcp_server.call_tool(
+        "court.decision_project",
+        {
+            "record": {
+                **decision_base,
+                "allowed_candidates": [{"private_body": "SYNTHETIC_PRIVATE_BODY"}],
+                "outcome": "allow",
+                "candidate": {"private_body": "SYNTHETIC_PRIVATE_BODY"},
+            }
+        },
+        modern=True,
+    )
+    long_candidate = decide(
+        {**decision_base, "allowed_candidates": ["x" * 200000], "outcome": "allow", "candidate": "x" * 200000}
+    )
+    numeric_candidate = decide({**decision_base, "outcome": "allow", "candidate": 123})
+    probes.append(
+        (
+            "decision_candidate_object_rejected_without_public_body",
+            object_candidate.get("isError") is True
+            and object_candidate["structuredContent"]["api"]["stderr"]
+            == "allowed_candidates_must_be_string_identifiers"
+            and "SYNTHETIC_PRIVATE_BODY" not in json.dumps(object_candidate, ensure_ascii=False),
+        )
+    )
+    probes.append(
+        (
+            "decision_candidate_above_max_text_rejected",
+            long_candidate.get("isError") is True
+            and long_candidate["structuredContent"]["api"]["stderr"]
+            == "allowed_candidates_above_max_text"
+            and len(json.dumps(long_candidate, ensure_ascii=False)) < 4000,
+        )
+    )
+    probes.append(
+        (
+            "decision_candidate_non_string_rejected",
+            numeric_candidate.get("isError") is True
+            and numeric_candidate["structuredContent"]["api"]["stderr"] == "candidate_must_be_string",
+        )
+    )
+
+    # R2: a host that is unusable, or that abstains, may not be routed to again.
+    host_error = decide(
+        {
+            **decision_base,
+            "provider_kind": "host_model",
+            "outcome": "error",
+            "error_code": "host_down",
+            "fallback_reason": "host_unavailable",
+        }
+    )
+    host_abstain = decide({**decision_base, "provider_kind": "host_model", "outcome": "abstain"})
+    probes.append(
+        (
+            "decision_host_model_failure_pauses_not_reroutes",
+            host_error.get("isError") is not True
+            and decision_of(host_error)["host_continuation"]["state"] == "paused"
+            and decision_of(host_error)["host_continuation"]["required"] is False
+            and decision_of(host_error)["host_continuation"]["route"] is None
+            and decision_of(host_error)["host_continuation"]["pause_reason"] == "host_unavailable"
+            and decision_of(host_error)["host_continuation"]["resume_when"]
+            == ["host_reachable", "rule_path_only_actions"],
+        )
+    )
+    probes.append(
+        (
+            "decision_host_model_abstain_pauses",
+            host_abstain.get("isError") is not True
+            and decision_of(host_abstain)["host_continuation"]["state"] == "paused"
+            and decision_of(host_abstain)["host_continuation"]["pause_reason"] == "host_model_cannot_judge"
+            and decision_of(host_abstain)["host_continuation"]["route"] is None
+            and "explicit_user_redecision" in decision_of(host_abstain)["host_continuation"]["resume_when"],
+        )
+    )
+
+    # R3: an uncalibrated local verdict becomes a local abstain the host judges;
+    # a calibrated local verdict and a rule verdict are left alone.
+    uncalibrated = decide(
+        {
+            **decision_base,
+            "provider_kind": "local_model",
+            "outcome": "allow",
+            "candidate": "reuse",
+            "confidence_calibrated": False,
+        }
+    )
+    calibrated = decide(
+        {
+            **decision_base,
+            "provider_kind": "local_model",
+            "outcome": "allow",
+            "candidate": "reuse",
+            "confidence_calibrated": True,
+        }
+    )
+    probes.append(
+        (
+            "decision_uncalibrated_local_model_downgrades_to_abstain",
+            uncalibrated.get("isError") is not True
+            and decision_of(uncalibrated)["outcome"] == "abstain"
+            and decision_of(uncalibrated)["fallback_reason"] == "not_calibrated"
+            and decision_of(uncalibrated)["host_continuation"]["required"] is True
+            and decision_of(uncalibrated)["host_continuation"]["reason"] == "not_calibrated"
+            and "uncalibrated_local_model_downgraded_to_abstain"
+            in decision_of(uncalibrated)["normalized"],
+        )
+    )
+    probes.append(
+        (
+            "decision_calibrated_local_and_rule_verdicts_unchanged",
+            calibrated.get("isError") is not True
+            and decision_of(calibrated)["outcome"] == "allow"
+            and decision_of(calibrated)["host_continuation"]["required"] is False
+            and decision_of(calibrated)["normalized"] == []
+            and decision_of(allow)["outcome"] == "allow"
+            and decision_of(allow)["host_continuation"]["required"] is False,
+        )
+    )
+
+    # R4: evidence references keep their exact text; an unfittable pointer is
+    # rejected instead of being rewritten into a different location.
+    exact_ref = (
+        "references/court-runtime/tasks/CCR-R2-SHIR-20260714-A02/receipts/"
+        "semantic-checkpoint-2026-11-02T000000Z.json"
+    )
+    spaced_ref = "receipts/task  with  two-spaces/result.json"
+    kept = decide(
+        {**decision_base, "outcome": "allow", "candidate": "reuse", "evidence_refs": [exact_ref, spaced_ref]}
+    )
+    overlong_ref = decide(
+        {**decision_base, "outcome": "allow", "candidate": "reuse", "evidence_refs": ["x" * 513]}
+    )
+    object_ref = decide(
+        {**decision_base, "outcome": "allow", "candidate": "reuse", "evidence_refs": [{"path": "x"}]}
+    )
+    probes.append(
+        (
+            "decision_evidence_refs_preserved_verbatim",
+            kept.get("isError") is not True
+            and decision_of(kept)["evidence_refs"] == [exact_ref, spaced_ref]
+            and len(decision_of(kept)["evidence_refs"][0]) == len(exact_ref),
+        )
+    )
+    probes.append(
+        (
+            "decision_evidence_ref_above_max_rejected",
+            overlong_ref.get("isError") is True
+            and overlong_ref["structuredContent"]["api"]["stderr"] == "evidence_ref_above_max_length",
+        )
+    )
+    probes.append(
+        (
+            "decision_evidence_ref_non_string_rejected",
+            object_ref.get("isError") is True
+            and object_ref["structuredContent"]["api"]["stderr"] == "evidence_ref_not_string",
+        )
+    )
+
+    failed_provider = decide(
+        {
+            **decision_base,
+            "outcome": "error",
+            "error_code": "provider_timeout",
+            "provider_kind": "local_model",
+            "fallback_reason": "local_model_timeout",
+        }
+    )
+    probes.append(
+        (
+            # The projection itself succeeds; what failed upstream stays a
+            # classified outcome with its code, never a silent success.
+            "decision_error_outcome_keeps_code_and_host_handoff",
+            failed_provider.get("isError") is not True
+            and decision_of(failed_provider)["outcome"] == "error"
+            and decision_of(failed_provider)["error_code"] == "provider_timeout"
+            and decision_of(failed_provider)["host_continuation"]["required"] is True
+            and decision_of(failed_provider)["host_continuation"]["reason"] == "local_model_timeout",
+        )
+    )
+    contract = court_mcp_server.call_tool("court.decision_contract", {}, modern=True)
+    contract_api = contract["structuredContent"]["api"]["stdout"]
+    probes.append(
+        (
+            "decision_contract_keeps_verification_unverified",
+            contract.get("isError") is not True
+            and contract_api["verification"]["state"] == "PLANNED_UNVERIFIED"
+            and contract_api["verification"]["model_effect"] == "NOT_RUN"
+            and contract_api["verification"]["real_host"] == "NOT_RUN"
+            and contract_api["verification"]["cache"] == "NOT_RUN"
+            and len(contract_api["positions"]) == 8,
+        )
+    )
+
+    # Duty / instance / display separation and the bounded task extension.
+    duty = public_office_duty_projection("shangshu")["stdout"]
+    probes.append(
+        (
+            "office_duty_reuses_existing_hierarchy_authority",
+            duty["ok"] is True
+            and duty["roles"][0]["duty"]["role_key"] == "shangshu"
+            and duty["roles"][0]["duty"]["direct_superior"] == "taizi"
+            and duty["roles"][0]["instance"]["binding"] == "assignment_required"
+            and duty["roles"][0]["display"]["display_authority"] is False
+            and duty["display_name_grants_authority"] is False,
+        )
+    )
+    probes.append(
+        (
+            # The duty layer must read the standing profile authority (duty text,
+            # office name, profile pointer), not a second hardcoded table.
+            "office_duty_reads_standing_profile_authority",
+            duty["roles"][0]["duty"]["office_zh"] == "尚书省"
+            and duty["roles"][0]["duty"]["profile_source"] == "agents/standing-officials/shangshu.toml"
+            and str(duty["roles"][0]["duty"]["duty"] or "").startswith("Dispatches 六部")
+            and duty["roles"][0]["duty"]["hierarchy_source"]
+            == "references/manifests/court-dispatch-hierarchy.v1.json"
+            and public_office_duty_projection()["stdout"]["count"] == 14,
+        )
+    )
+    slots = {
+        "goal_intent": "goal",
+        "inputs_sources": "sources",
+        "work_dependency": "dependency",
+        "delivery_acceptance": "acceptance",
+        "handoff_recovery": "handoff",
+    }
+    skeleton = public_task_skeleton(role_key="gongbu", **slots)["stdout"]
+    engineering = public_task_skeleton(
+        role_key="gongbu", extension="engineering", extension_fields={"verification": "pytest"}, **slots
+    )["stdout"]
+    probes.append(
+        (
+            "task_skeleton_keeps_six_semantic_slots",
+            skeleton["ok"] is True
+            and skeleton["slot_order"]
+            == ["goal_intent", "inputs_sources", "duty_boundary", "work_dependency", "delivery_acceptance", "handoff_recovery"]
+            and skeleton["duty"] == {"role_key": "gongbu", "direct_superior": "shangshu"}
+            and skeleton["extension"]["confers_authority"] is False,
+        )
+    )
+    probes.append(
+        (
+            "task_extension_is_bounded",
+            engineering["ok"] is True
+            and engineering["extension"]["fields"] == {"verification": "pytest"}
+            and engineering["extension"]["overrides_core_slots"] is False
+            and public_task_skeleton(
+                role_key="gongbu", extension="engineering", extension_fields={"duty_boundary": "x"}, **slots
+            )["stdout"]["errors"][0]["code"]
+            == "core_slot_override_rejected"
+            and public_task_skeleton(role_key="gongbu", extension="marketing", **slots)["stdout"]["errors"][0][
+                "code"
+            ]
+            == "unknown_task_extension",
+        )
+    )
+    probes.append(
+        (
+            "title_or_person_name_confers_no_role_or_dispatch_edge",
+            all(
+                rejected["exit_status"] == 1
+                and rejected["stdout"]["errors"][0]["code"] == "unknown_role_key"
+                for rejected in (
+                    public_office_duty_projection("CEO"),
+                    public_office_duty_projection("COO"),
+                    public_task_skeleton(role_key="CEO", **slots),
+                    public_task_skeleton(role_key="Zhang San", **slots),
+                    public_task_skeleton(role_key="menxia-admin", **slots),
+                )
+            ),
+        )
+    )
+    return probes
+
+
 def run() -> dict[str, object]:
     probe = subprocess.run([sys.executable, "-B", "-c",
         "import sys; sys.path.insert(0, 'scripts'); "
@@ -1459,6 +2033,7 @@ def run() -> dict[str, object]:
     checks.extend(_domain_ledger_transaction_checks())
     checks.extend(_robustness_probes())
     checks.extend(_compact_startup_checks())
+    checks.extend(_public_contract_checks())
     runtime_entry_evidence: list[dict[str, object]] = []
     checks.extend(_runtime_entry_checks(runtime_entry_evidence))
     return {

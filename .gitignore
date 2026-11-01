@@ -9,6 +9,7 @@ __pycache__/
 .env
 .env.*
 .obsidian/
+.dsh/
 .git/
 references/audits/
 references/agente-logs/

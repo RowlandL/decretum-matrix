@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Mapping
 import uuid
 
 sys.dont_write_bytecode = True
@@ -161,6 +161,25 @@ def _audit_error_code(value: object) -> str:
     return "tool_call_error"
 
 
+def _operation_failure(api_result: object) -> str | None:
+    """Return a bounded problem code when the API reports an operation failure.
+
+    Only an explicit non-zero exit_status counts. A legitimate domain verdict --
+    a dispatch plan that fails its rules, or a deny decision -- is a normal
+    result that carries its own ok field, so it must never become a tool error
+    (beta1.2.2 F09).
+    """
+
+    if not isinstance(api_result, Mapping):
+        return None
+    exit_status = api_result.get("exit_status")
+    if isinstance(exit_status, bool) or not isinstance(exit_status, int) or exit_status == 0:
+        return None
+    stdout = api_result.get("stdout")
+    problem = stdout.get("problem") if isinstance(stdout, Mapping) else None
+    return str(problem or api_result.get("stderr") or "operation_failed")[:128]
+
+
 def call_tool(name: str, arguments: object = None, *, modern: bool = False) -> dict[str, object]:
     tools = load_public_tools()
     tool = tools.get(name)
@@ -174,6 +193,20 @@ def call_tool(name: str, arguments: object = None, *, modern: bool = False) -> d
         # the caller (handle) write the audit journal for this call too.
         result = {"ok": False, "problem": str(exc)}
         return _modern_tool_result(result, error=True) if modern else _tool_result(result, error=True)
+    failure = _operation_failure(api_result)
+    if failure is not None:
+        # An explicit operation failure has to agree across the tool result, the
+        # JSON-RPC isError flag and the audit outcome written by handle().
+        failed = {
+            "ok": False,
+            "problem": failure,
+            "tool": name,
+            "command_id": tool.command_id,
+            "api": api_result,
+            "dry_run": tool.dry_run,
+            "write_enabled": False,
+        }
+        return _modern_tool_result(failed, error=True) if modern else _tool_result(failed, error=True)
     result = {
         "ok": True,
         "tool": name,

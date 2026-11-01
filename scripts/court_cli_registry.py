@@ -475,25 +475,90 @@ def _capture_runtime(
     )
 
 
+STATUS_VIEWS: tuple[str, ...] = ("compact", "full")
+STATUS_LIMIT_DEFAULT = 12
+
+
+def _court_status_help() -> str:
+    """Return static court status help; it never reads the state backend."""
+
+    return "\n".join(
+        (
+            "decretum-matrix court status",
+            "",
+            "Usage: decretum-matrix court status [--limit N] [--view compact|full]",
+            "",
+            "Options:",
+            f"  --limit N    status entry ceiling, 1..100 (default {STATUS_LIMIT_DEFAULT})",
+            "  --view VIEW  compact for startup, full includes history (default full)",
+        )
+    )
+
+
+def _status_limit(value: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise CliUsageError("--limit requires an integer") from exc
+
+
+def _parse_status_arguments(arguments: Sequence[str]) -> tuple[int, str]:
+    """Parse court status strictly: no unknown flags and no missing values.
+
+    The MCP projection already enforces this through its wire schema; the CLI
+    adapter has to reject the same inputs instead of silently ignoring them
+    (beta1.2.2 F18).
+    """
+
+    limit = STATUS_LIMIT_DEFAULT
+    view = "full"
+    values = list(arguments)
+    index = 0
+    while index < len(values):
+        value = values[index]
+        if value == "--limit":
+            if index + 1 >= len(values):
+                raise CliUsageError("--limit requires a value")
+            limit = _status_limit(values[index + 1])
+            index += 2
+            continue
+        if value.startswith("--limit="):
+            limit = _status_limit(value.split("=", 1)[1])
+            index += 1
+            continue
+        if value == "--view":
+            if index + 1 >= len(values):
+                raise CliUsageError("--view requires a value")
+            view = values[index + 1]
+            index += 2
+            continue
+        if value.startswith("--view="):
+            view = value.split("=", 1)[1]
+            index += 1
+            continue
+        raise CliUsageError(f"unknown court status argument: {value}")
+    if view not in STATUS_VIEWS:
+        raise CliUsageError("--view must be compact or full")
+    return limit, view
+
+
 def _capture_public_api(command: str, arguments: Sequence[str]) -> InvocationResult:
     """Call the shared read-only API directly, parallel to MCP."""
 
     if command != "status":
         raise CliUsageError(f"unsupported shared public API command: court {command}")
+    if any(value in {"-h", "--help"} for value in arguments):
+        # Help stays static: it must not reach the status backend (F18).
+        return InvocationResult(
+            returncode=0,
+            stdout=_court_status_help() + "\n",
+            stderr="",
+            loader="court_cli_registry",
+            legacy_path=None,
+        )
+    limit, view = _parse_status_arguments(arguments)
     from court_public_api import court_status
 
-    limit = 12
-    view = 'full'
-    values = list(arguments)
-    for index, value in enumerate(values):
-        if value == "--limit" and index + 1 < len(values):
-            limit = int(values[index + 1])
-        elif value.startswith("--limit="):
-            limit = int(value.split("=", 1)[1])
-        elif value == '--view' and index + 1 < len(values):
-            view = values[index + 1]
-        elif value.startswith('--view='):
-            view = value.split('=',1)[1]
     payload = court_status(limit, view=view)
     return InvocationResult(
         returncode=int(payload.get("exit_status", 1)),

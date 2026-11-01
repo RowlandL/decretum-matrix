@@ -2579,6 +2579,117 @@
           "name": "court.closeout_checklist",
           "public_api": "public_closeout_checklist",
           "side_effect": "read_only"
+        },
+        {
+          "description": "Return the bounded decision-contract vocabulary shared by CLI and MCP.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "name": "court.decision_contract",
+          "public_api": "public_decision_contract",
+          "side_effect": "read_only"
+        },
+        {
+          "description": "Project one decision record onto the bounded public contract.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "record": {
+                "description": "decision record to project",
+                "type": "object"
+              }
+            },
+            "required": [
+              "record"
+            ],
+            "type": "object"
+          },
+          "name": "court.decision_project",
+          "public_api": "public_decision_projection",
+          "side_effect": "read_only"
+        },
+        {
+          "description": "Project duty, real-instance and display layers for standing offices.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "role_key": {
+                "description": "optional canonical role key",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "court.office_duty",
+          "public_api": "public_office_duty_projection",
+          "side_effect": "read_only"
+        },
+        {
+          "description": "Build the unified task skeleton with a bounded task-type extension.",
+          "dry_run": false,
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "delivery_acceptance": {
+                "description": "Expected artefact, success and failure criteria with evidence",
+                "minLength": 1,
+                "type": "string"
+              },
+              "extension": {
+                "description": "Optional bounded task-type extension name",
+                "enum": ["engineering", "research", "document", "operations", "review"],
+                "type": "string"
+              },
+              "extension_fields": {
+                "description": "Optional extension fields; core slots cannot be overridden",
+                "type": "object"
+              },
+              "goal_intent": {
+                "description": "Problem to solve, expected result and current user constraints",
+                "minLength": 1,
+                "type": "string"
+              },
+              "handoff_recovery": {
+                "description": "Receiver, state, open items, stop/escalate and fallback conditions",
+                "minLength": 1,
+                "type": "string"
+              },
+              "inputs_sources": {
+                "description": "Required material, evidence pointers and known facts with trust boundary",
+                "minLength": 1,
+                "type": "string"
+              },
+              "role_key": {
+                "description": "Existing canonical role key; a display name or title is not accepted",
+                "minLength": 1,
+                "type": "string"
+              },
+              "work_dependency": {
+                "description": "Concrete steps, prerequisites, parallel parts and decision points",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "goal_intent",
+              "inputs_sources",
+              "role_key",
+              "work_dependency",
+              "delivery_acceptance",
+              "handoff_recovery"
+            ],
+            "type": "object"
+          },
+          "name": "court.task_skeleton",
+          "public_api": "public_task_skeleton",
+          "side_effect": "read_only"
         }
       ],
       "public": true,

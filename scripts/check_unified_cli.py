@@ -1947,6 +1947,77 @@ def evaluate_npm_launcher_runtime_selection() -> dict[str, object]:
     }
 
 
+def evaluate_court_status_arguments() -> dict[str, object]:
+    """Replay the strict court status parsing required by beta1.2.2 F18.
+
+    The state backend is replaced by a stub so the check can prove both that
+    help never reaches it and that the accepted arguments are forwarded.
+    """
+
+    import contextlib
+    import io
+    from unittest import mock
+
+    import court_cli_registry
+    import court_public_api
+
+    problems: list[str] = []
+    evidence: dict[str, object] = {}
+
+    def invoke(arguments: list[str], backend: object) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(court_public_api, "court_status", side_effect=backend):
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = court_cli_registry.main(["court", "status", *arguments])
+        return code, out.getvalue(), err.getvalue()
+
+    def unreachable(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("court status must not reach the state backend here")
+
+    code, out, err = invoke(["--help"], unreachable)
+    evidence["help_stdout_head"] = out.strip().splitlines()[:1]
+    if code != 0 or "Usage: decretum-matrix court status" not in out:
+        problems.append(f"help_not_static:code={code}:err={err.strip()[:160]}")
+
+    rejections = (
+        (["--bogus"], "unknown court status argument"),
+        (["--limit"], "--limit requires a value"),
+        (["--view"], "--view requires a value"),
+        (["--view", "verbose"], "--view must be compact or full"),
+        (["--limit", "abc"], "--limit requires an integer"),
+    )
+    for arguments, expected in rejections:
+        code, _out, err = invoke(list(arguments), unreachable)
+        if code != 3 or expected not in err:
+            problems.append(f"not_rejected:{arguments}:code={code}:err={err.strip()[:160]}")
+
+    calls: list[tuple[int, str]] = []
+
+    def recorded(limit: int = 12, view: str = "full") -> dict[str, object]:
+        calls.append((int(limit), str(view)))
+        return {"exit_status": 0, "stdout": {"view": view, "limit": limit}, "stderr": ""}
+
+    positives = (
+        (["--limit", "5", "--view", "compact"], (5, "compact")),
+        (["--view=compact", "--limit=7"], (7, "compact")),
+        ([], (12, "full")),
+    )
+    for arguments, expected_call in positives:
+        calls.clear()
+        code, _out, err = invoke(list(arguments), recorded)
+        if code != 0 or calls != [expected_call]:
+            problems.append(f"positive_changed:{arguments}:code={code}:calls={calls}:err={err.strip()[:160]}")
+    evidence["positive_calls_proved"] = len(positives)
+    return {
+        "schema": "decretum.cli_court_status_arguments_check.v1",
+        "ok": not problems,
+        "status": "PASS" if not problems else "FAIL",
+        "CLI_COURT_STATUS_ARGUMENTS": "PASS" if not problems else "FAIL",
+        "evidence": evidence,
+        "problems": problems,
+    }
+
+
 def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
     selected = []
     if args.inventory_only:
@@ -1969,6 +2040,8 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
         selected.append(evaluate_npm_launcher_runtime_selection())
     if args.subprocess_utf8:
         selected.append(evaluate_isolated_subprocess_utf8())
+    if args.court_status:
+        selected.append(evaluate_court_status_arguments())
     if not selected or args.all:
         selected = [
             evaluate_inventory(),
@@ -1982,6 +2055,7 @@ def _selected_reports(args: argparse.Namespace) -> list[dict[str, object]]:
             evaluate_npm_launcher_stdio(),
             evaluate_npm_launcher_runtime_selection(),
             evaluate_isolated_subprocess_utf8(),
+            evaluate_court_status_arguments(),
         ]
     return selected
 
@@ -2025,6 +2099,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--archive-receipt", action="store_true")
     parser.add_argument("--npm-runtime", action="store_true")
     parser.add_argument("--subprocess-utf8", action="store_true")
+    parser.add_argument("--court-status", action="store_true")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--write-manifest", action="store_true")
     parser.add_argument("--json", action="store_true")

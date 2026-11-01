@@ -1,5 +1,29 @@
 # Changelog
 
+## beta1.2.2 - 2026-11-01 (candidate; SOURCE in development)
+
+### Changed
+
+- 公共边界三条规定一致成立：失败可见、查询白名单、参数严格。CLI 与 MCP 继续共用 `court_public_api.py` 与同一份命令权威清单，不新增第二套传输实现或泛化框架。
+- 新增统一决策契约投影（`court.decision_contract` / `court.decision_project`）：覆盖决策位置、允许候选、provider、业务否定、abstain、错误码与宿主接续原因，只投影有界元数据，不复制私密消息。规则正例、合法否定、abstain 与宿主接续保持正常诊断；非法候选、未知决策位置等**输入/契约错误**属于操作失败，传播到 `exit_status`、`ok/isError` 与审计，不套用“合法否定”豁免。
+- 新增职责/实例/显示名分离投影（`court.office_duty`）与统一任务骨架（`court.task_skeleton`）：职责正文、官署名与 profile 指针取自既有 standing profile（`agents/standing-officials/*.toml`），层级边取自既有 `court-dispatch-hierarchy.v1.json`，两者不一致即失败关闭；不新建身份表、状态账册或第二 resolver。实例层在无真实 assignment 前保持 `assignment_required`；显示名、CEO/COO 或人名不产生角色、权限或派遣边，任务扩展不能覆盖核心语义槽位。
+- 决策投影严格化（R1/R4）：候选与固定文本元数据必须是非空、长度有界的字符串；对象、列表、布尔、数字与超长值一律按契约错误拒绝，不字符串化、不静默截断标识。证据引用改用独立规则（上限 512 字符），合法引用逐字保留（含内部空格），超长或非字符串直接拒绝，不生成不可定位的截断引用。
+- 决策续办出口明确化（R2/R3）：宿主失败或宿主 abstain 投影为有界暂停出口（`pause_reason` + `resume_when`），不再把判断交回同一不可用宿主；未校准 `local_model` 的 allow/deny 规范投影为 abstain + `not_calibrated` 并由宿主判断，规则与缓存判决不受校准状态影响。
+- 本次新增契约、文档与配置使用仓库/技能根相对路径；绝对路径仅作机器证据，历史绝对路径不在本版批量改写。
+
+### Fixed
+
+- F09：召回服务不可达、HTTP 错误或载荷非法等明确操作失败，由公共 API 传播为非零 `exit_status` 与非空 `stderr`，MCP 外层给出 `ok=false` / `isError=true`，既有审计记为 `ok=false, outcome=error`；召回客户端未分类异常（如解码/协议异常）在公共 API 内以 `recall_client_failure_*` 失败关闭，不再上抛给 CLI 对端，审计经 `handle()` 的 journal 写入路径实测。合法领域否定（计划不满足派遣规则、决策 deny/abstain）保持正常诊断，不被转成工具错误；输入/契约错误（非法候选、未知 role_key、未知扩展）按操作失败传播，不以“合法否定”豁免。
+- F16：旧 `shiguan.query` 复用 `entries_query` 的既有元数据白名单投影，只返回白名单字段；匹配排序与 `_api_result` envelope 形状不变。
+- F18：`court status` 严格拒绝未知参数、`--limit`/`--view` 缺值、非整数 `--limit` 与非法 `--view`；`court status --help` 输出静态帮助且不访问状态后端；`compact`/`limit` 正例保持不变。
+
+### Validation boundary
+
+- 本版仅源码与隔离回归：`check_court_mcp_server.py`（99 项）、`check_read_only_contract.py`、`check_unified_cli.py` 的 registry/inventory/parity/court-status 四项、`check_catalog.py`、`check_court_result_semantics.py`，以及本次新引入依赖侧的 `check_court_dispatch_hierarchy.py`、`check_court_office_assignment_binding.py`、`check_court_office_bootstrap.py` 与 `git diff --check` 实际通过。
+- 决策契约的模型效果、真实宿主接续与缓存增益均未测量，投影内 `verification` 明确为 `model_effect=NOT_RUN`、`real_host=NOT_RUN`、`cache=NOT_RUN`；不以 mock 证明 Laya 或任何决策器质量。
+- F09 故障对照为 mock，未连接真实外部召回服务；F16、决策与职责用例均为隔离夹具，未读取真实 pending/private 正文。
+- 未部署网关、未训练或下载模型、未重写执行器、未安装或替换本机 runtime、未发布/push/tag/PR；本条目为开发中候选，不是发布验收。
+
 ## beta1.2.1 - 2026-10-16 (candidate; SOURCE accepted)
 
 ### Candidate scope

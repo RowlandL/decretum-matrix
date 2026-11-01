@@ -158,6 +158,11 @@
 
 ## 计划与任务
 
+- [2026-11-01 三省六部史实职责、智能体工作方式与名称解耦计划](plans/2026-11-01-office-duties-and-name-decoupling-plan.md)（PLANNED_UNVERIFIED）
+- [2026-11-01 分层记忆、统一决策入口与 Rust / Node 演进计划](plans/2026-11-01-memory-decision-gateway-roadmap.md)（PLANNED_UNVERIFIED）
+- [2026-11-01 记忆与网关一手来源](research/2026-11-01-memory-decision-gateway-sources.md)
+- [修复与完善总纲及后续版本分配](plans/2026-10-03-decretum-matrix-remediation-plan.md)
+
 - [docs/plans/2026-07-14-ccr-r2-shir-a02-execution-book.md](<plans/2026-07-14-ccr-r2-shir-a02-execution-book.md>)
 - [docs/plans/2026-07-14-court-capability-router-shiguan-install-remediation-plan.md](<plans/2026-07-14-court-capability-router-shiguan-install-remediation-plan.md>)
 - [docs/plans/2026-07-15-court-office-selective-loading-remediation-plan.md](<plans/2026-07-15-court-office-selective-loading-remediation-plan.md>)

@@ -5,6 +5,11 @@
 参考（不采信结论）：`D:\project\_diag\decretum-beta117-full-review-20261003\claude-records\`（Claude 历史记录）
 范围：修复最终版的 27 项发现（F01–F27）+ 增强线十条（已获授权），按连续版本号分布；**子智能体派遣链锁定 beta1.1.8**。每版验收通过后执行发布与 CI 验证（见 26.1）；不含现用安装替换。
 
+
+> **2026-11-01 计划修订（PLANNED_UNVERIFIED）**：新增[分层记忆、统一决策入口与 Rust / Node 演进计划](2026-11-01-memory-decision-gateway-roadmap.md)。本次只更新计划和来源说明，不实施、不训练、不安装、不发布；后续实施依当时授权。需求与计划承载基线为 beta1.2.1 源码，以下 2026-10-03 基线与执行记录保留历史语境，不代表根接受版本或本机现状。
+
+> **同日职责增补（PLANNED_UNVERIFIED）**：[以唐制史实为基线、适应现代智能体的职责与名称解耦计划](2026-11-01-office-duties-and-name-decoupling-plan.md)。复用既有profile/dossier和身份包设计，中书统一结构化任务骨架，名称不改变职责或工作方式。分散进入9个后续版本，不实施、不发布。
+
 ## 一、基线与边界
 
 | 项 | 值 |
@@ -28,31 +33,31 @@
 
 编号规则：**连续递进、不跳号**；一版一主题；前一版出口达成才启动下一版；某版内容合并或推迟时后续顺延占号。
 
-| 版本 | 主题 | 条目 | 类型 | 状态 | 独立计划 |
-| --- | --- | --- | --- | --- | --- |
-| **beta1.1.8** | 子智能体派遣链 | F22–F26 | 修复 | **★锁定（必含）** | [beta1.1.8.md](2026-10-03-remediation/beta1.1.8.md) |
-| beta1.1.9 | 数据与进程边界 | F01、F02、F03 | 修复（P1 清零） | 计划内 | [beta1.1.9.md](2026-10-03-remediation/beta1.1.9.md) |
-| beta1.2.0 | 语义与计划绑定 | F04、F05、F06 | 修复 | 计划内 | [beta1.2.0.md](2026-10-03-remediation/beta1.2.0.md) |
-| beta1.2.1 | superCC 事实回执 | F07、F08 | 修复 | 计划内 | [beta1.2.1.md](2026-10-03-remediation/beta1.2.1.md) |
-| beta1.2.2 | 公共接口与审计 | F09、F16、F18 | 修复 | 计划内 | [beta1.2.2.md](2026-10-03-remediation/beta1.2.2.md) |
-| beta1.2.3 | 安装入口与锁生命周期 | F10、F12 | 修复 | 计划内 | [beta1.2.3.md](2026-10-03-remediation/beta1.2.3.md) |
-| beta1.2.4 | 安装恢复语义与首装说明 | F11、F21 | 修复 | 计划内 | [beta1.2.4.md](2026-10-03-remediation/beta1.2.4.md) |
-| beta1.2.5 | 常驻日志维护 | F13 | 修复 | 计划内 | [beta1.2.5.md](2026-10-03-remediation/beta1.2.5.md) |
-| beta1.2.6 | 召回刷新与 LAN 下载 | F14、F15 | 修复 | 计划内 | [beta1.2.6.md](2026-10-03-remediation/beta1.2.6.md) |
-| beta1.2.7 | 前言解析一致性 | F17 | 修复 | 计划内 | [beta1.2.7.md](2026-10-03-remediation/beta1.2.7.md) |
-| beta1.2.8 | 门禁与夹具隔离 | F19、F20 | 修复 | 计划内 | [beta1.2.8.md](2026-10-03-remediation/beta1.2.8.md) |
-| beta1.2.9 | 归档回执契约 | F27 | 修复 | 计划内 | [beta1.2.9.md](2026-10-03-remediation/beta1.2.9.md) |
-| beta1.3.0 | 运行期日志封顶与可观测性 | 增强 E1 | 增强 | **已授权** | [beta1.3.0.md](2026-10-03-remediation/beta1.3.0.md) |
-| beta1.3.1 | superCC 依赖治理与验收 | 增强 E2 | 增强 | **已授权** | [beta1.3.1.md](2026-10-03-remediation/beta1.3.1.md) |
-| beta1.3.2 | 安装互斥与断电恢复 | 增强 E3 | 增强 | **已授权** | [beta1.3.2.md](2026-10-03-remediation/beta1.3.2.md) |
-| beta1.3.3 | 测试入口与端到端试点 | 增强 E4 | 增强 | **已授权** | [beta1.3.3.md](2026-10-03-remediation/beta1.3.3.md) |
-| beta1.3.4 | 文档批次 | 增强 E5 | 增强 | **已授权** | [beta1.3.4.md](2026-10-03-remediation/beta1.3.4.md) |
-| beta1.3.5 | 去 PyYAML 评估 | 增强 E6 | 增强 | **已授权** | [beta1.3.5.md](2026-10-03-remediation/beta1.3.5.md) |
-| beta1.3.6 | Node / 多语言 SDK 等价试点 | 增强 E7 | 增强 | **已授权** | [beta1.3.6.md](2026-10-03-remediation/beta1.3.6.md) |
-| beta1.3.7 | 治理收益度量 | 增强 E8 | 增强 | **已授权** | [beta1.3.7.md](2026-10-03-remediation/beta1.3.7.md) |
-| beta1.3.8 | Web UI 与插件机制评估 | 增强 E9 | 增强 | **已授权** | [beta1.3.8.md](2026-10-03-remediation/beta1.3.8.md) |
-| beta1.3.9 | 标准化与 v1.0.0 准备 | 增强 E10 | 增强 | **已授权** | [beta1.3.9.md](2026-10-03-remediation/beta1.3.9.md) |
-| v1.0.0 | 生态扩展（预发布转正式） | — | 里程碑 | 远期（需验收后决策） | — |
+| 版本 | 主题 | 条目 | 类型 | 状态 | 独立计划 | 2026-11-01 增补（计划） |
+| --- | --- | --- | --- | --- | --- | --- |
+| **beta1.1.8** | 子智能体派遣链 | F22–F26 | 修复 | **★锁定（必含）** | [beta1.1.8.md](2026-10-03-remediation/beta1.1.8.md) | — |
+| beta1.1.9 | 数据与进程边界 | F01、F02、F03 | 修复（P1 清零） | 计划内 | [beta1.1.9.md](2026-10-03-remediation/beta1.1.9.md) | — |
+| beta1.2.0 | 语义与计划绑定 | F04、F05、F06 | 修复 | 计划内 | [beta1.2.0.md](2026-10-03-remediation/beta1.2.0.md) | — |
+| beta1.2.1 | superCC 事实回执 | F07、F08 | 修复 | 计划内 | [beta1.2.1.md](2026-10-03-remediation/beta1.2.1.md) | — |
+| beta1.2.2 | 公共接口与审计 | F09、F16、F18 | 修复 | 计划内 | [beta1.2.2.md](2026-10-03-remediation/beta1.2.2.md) | 统一决策契约与宿主回退；职责与统一任务结构契约 |
+| beta1.2.3 | 安装入口与锁生命周期 | F10、F12 | 修复 | 计划内 | [beta1.2.3.md](2026-10-03-remediation/beta1.2.3.md) | — |
+| beta1.2.4 | 安装恢复语义与首装说明 | F11、F21 | 修复 | 计划内 | [beta1.2.4.md](2026-10-03-remediation/beta1.2.4.md) | — |
+| beta1.2.5 | 常驻日志维护 | F13 | 修复 | 计划内 | [beta1.2.5.md](2026-10-03-remediation/beta1.2.5.md) | — |
+| beta1.2.6 | 召回刷新与 LAN 下载 | F14、F15 | 修复 | 计划内 | [beta1.2.6.md](2026-10-03-remediation/beta1.2.6.md) | 条件召回与追加式记忆 |
+| beta1.2.7 | 前言解析一致性 | F17 | 修复 | 计划内 | [beta1.2.7.md](2026-10-03-remediation/beta1.2.7.md) | — |
+| beta1.2.8 | 门禁与夹具隔离 | F19、F20 | 修复 | 计划内 | [beta1.2.8.md](2026-10-03-remediation/beta1.2.8.md) | 决策、回退与缓存契约门禁；职责和名称置换门禁 |
+| beta1.2.9 | 归档回执契约 | F27 | 修复 | 计划内 | [beta1.2.9.md](2026-10-03-remediation/beta1.2.9.md) | 分层投影与Laya记忆决策建议；职责与名称的历史记录 |
+| beta1.3.0 | 运行期日志封顶与可观测性 | 增强 E1 | 增强 | **已授权** | [beta1.3.0.md](2026-10-03-remediation/beta1.3.0.md) | 记忆生命周期shadow与成本观测 |
+| beta1.3.1 | superCC 依赖治理与验收 | 增强 E2 | 增强 | **已授权** | [beta1.3.1.md](2026-10-03-remediation/beta1.3.1.md) | 统一入口与广泛语义分配试点；史实分工的智能体协作试点 |
+| beta1.3.2 | 安装互斥与断电恢复 | 增强 E3 | 增强 | **已授权** | [beta1.3.2.md](2026-10-03-remediation/beta1.3.2.md) | 记忆投影与未来原生后端的恢复边界 |
+| beta1.3.3 | 测试入口与端到端试点 | 增强 E4 | 增强 | **已授权** | [beta1.3.3.md](2026-10-03-remediation/beta1.3.3.md) | 决策到执行、记忆追加的全链E2E；跨宿主职责与命名E2E |
+| beta1.3.4 | 文档批次 | 增强 E5 | 增强 | **已授权** | [beta1.3.4.md](2026-10-03-remediation/beta1.3.4.md) | 路由、记忆保留与追加上下文说明；逐官职责与现代工作手册 |
+| beta1.3.5 | 入口依赖与去 PyYAML 评估 | 增强 E6 | 增强 | **已授权** | [beta1.3.5.md](2026-10-03-remediation/beta1.3.5.md) | Node快路选点与依赖边界评估 |
+| beta1.3.6 | Rust / Node 网关与只读模块等价试点 | 增强 E7 | 增强 | **已授权** | [beta1.3.6.md](2026-10-03-remediation/beta1.3.6.md) | Rust/Node网关与原生模块等价试点；职责与提示投影的跨语言等价 |
+| beta1.3.7 | 治理收益度量 | 增强 E8 | 增强 | **已授权** | [beta1.3.7.md](2026-10-03-remediation/beta1.3.7.md) | 分决策位置的质量与净收益 |
+| beta1.3.8 | Web UI 与插件机制评估 | 增强 E9 | 增强 | **已授权** | [beta1.3.8.md](2026-10-03-remediation/beta1.3.8.md) | 可替换决策插件与只读可观测界面；名称skin与受控职责扩展 |
+| beta1.3.9 | 标准化与 v1.0.0 准备 | 增强 E10 | 增强 | **已授权** | [beta1.3.9.md](2026-10-03-remediation/beta1.3.9.md) | 稳定契约与后续原生化晋级材料；职责、动态任务结构与名称兼容晋级 |
+| v1.0.0 | 生态扩展（预发布转正式） | — | 里程碑 | 远期（需验收后决策） | — | — |
 
 说明：增强线（1.3.0–1.3.9）经用户 2026-10-03 授权纳入执行范围；其边界声明（各节）仍有效——"授权"不等于取消边界。修复线覆盖最终版全部 27 项发现。
 
@@ -67,6 +72,9 @@
 | 文档 | 路径（相对仓库根） | 状态 |
 | --- | --- | --- |
 | 总纲（本文） | `docs/plans/2026-10-03-decretum-matrix-remediation-plan.md` | 已建（本轮修订后生效） |
+| 2026-11-01 增补计划 | `docs/plans/2026-11-01-memory-decision-gateway-roadmap.md` | PLANNED_UNVERIFIED |
+| 记忆与网关一手来源 | `docs/research/2026-11-01-memory-decision-gateway-sources.md` | 文档/源码研究，未作部署实测 |
+| 职责与名称解耦增补 | `docs/plans/2026-11-01-office-duties-and-name-decoupling-plan.md` | PLANNED_UNVERIFIED，史实与现代映射分开 |
 | 各版本独立计划 | `docs/plans/2026-10-03-remediation/<version>.md`（22 份：`beta1.1.8.md` … `beta1.3.9.md`） | 已建（22 份） |
 | 本地工单 | 本仓库工作树内 `.scratch/<feature-slug>/spec.md` + `issues/NN-<slug>.md`（本地工单区，不经 VCS 跟踪；可达性校验只验文件存在） | 建独立计划时同步 |
 | 权威报告（仓库外只读） | `D:\project\_diag\decretum-dispatch-incident-20261003\consolidated-review.md` | 只读引用（不复制入仓库） |
@@ -88,7 +96,7 @@
    （模板示例路径以独立计划所在目录为基准；总纲自身的相对基准为 `docs/plans/`。）
 
 2. **链式互引**：相邻版本双向引用（1.1.8 ↔ 1.1.9 ↔ … ↔ 1.3.9）；beta1.1.7 与 v1.0.0 为**外部锚点**（无独立计划），首末版导航按其锚点文案填写，不产生计划链接。
-3. **依赖互引**：存在依赖的版本双向标注，按各节声明的前置（如 1.2.3←1.1.9 的 F02、1.2.4←1.2.3、1.2.8←1.2.2 的 F09、1.3.2←1.2.3/1.2.4、1.3.5←1.2.7、1.3.7←1.2.6/1.2.9/1.3.0/1.3.3、1.3.9←1.2.9/1.3.6/1.3.7/1.3.8；1.3.6、1.3.8 无依赖；本枚举不穷举，完整依赖以各版导航块为准）。被依赖方在"被依赖"行反标；相邻版本保持链式互引，不因此改变依赖语义。
+3. **依赖互引**：所有前置和反向引用以各版当前导航块为准。2026-11-01 新增依赖见[增补矩阵](2026-11-01-memory-decision-gateway-roadmap.md#7-分版本交付与新增依赖)，须双向同步；相邻版本链接不自动构成新的依赖。
 4. **总纲回指**：总纲第二节表格的"独立计划"列在建好后替换为真实链接（去掉"待建"）。
 5. **工单互引**：每个工单头部引用其所属版本计划；版本计划的"工单"行按第二十八节映射表列出对应工单链接（一对多：一个版本可含多张工单）。
 6. **证据互引**：执行记录的失败对照样本以相对路径链接进对应版本计划；不跨仓库复制原件；仓库外证据（如 `_diag`、事件原始回执）以绝对路径标注为"仓库外只读"。
@@ -218,7 +226,7 @@
 ## 八、beta1.2.2 · 公共接口与审计
 
 > 独立计划：[beta1.2.2.md](2026-10-03-remediation/beta1.2.2.md)｜上一版：beta1.2.1｜下一版：beta1.2.3
-> 依赖：无｜被依赖：beta1.2.8（MCP 断言预期依赖本版 F09）
+> 依赖：无｜被依赖：[beta1.2.6](2026-10-03-remediation/beta1.2.6.md)、[beta1.2.8](2026-10-03-remediation/beta1.2.8.md)、[beta1.2.9](2026-10-03-remediation/beta1.2.9.md)、[beta1.3.1](2026-10-03-remediation/beta1.3.1.md)
 
 **版本目标**：公共边界"失败要可见、查询要白名单、参数要严格"三条一致成立。
 
@@ -274,7 +282,7 @@
 ## 十二、beta1.2.6 · 召回刷新与 LAN 下载
 
 > 独立计划：[beta1.2.6.md](2026-10-03-remediation/beta1.2.6.md)｜上一版：beta1.2.5｜下一版：beta1.2.7
-> 依赖：无｜被依赖：beta1.3.7（度量引用的召回路径）
+> 依赖：[beta1.2.2](2026-10-03-remediation/beta1.2.2.md)｜被依赖：[beta1.2.8](2026-10-03-remediation/beta1.2.8.md)、[beta1.3.7](2026-10-03-remediation/beta1.3.7.md)
 
 **版本目标**：动态索引的刷新语义明确；LAN 下载走鉴权通道且失败可见。
 
@@ -288,7 +296,7 @@
 ## 十三、beta1.2.7 · 前言解析一致性
 
 > 独立计划：[beta1.2.7.md](2026-10-03-remediation/beta1.2.7.md)｜上一版：beta1.2.6｜下一版：beta1.2.8
-> 依赖：无｜被依赖：beta1.3.5（去 PyYAML 评估基线）
+> 依赖：无｜被依赖：beta1.3.5（入口依赖与去 PyYAML 评估基线）
 
 **版本目标**：同一前言在有无 PyYAML 的环境下判定一致。
 
@@ -301,7 +309,7 @@
 ## 十四、beta1.2.8 · 门禁与夹具隔离
 
 > 独立计划：[beta1.2.8.md](2026-10-03-remediation/beta1.2.8.md)｜上一版：beta1.2.7｜下一版：beta1.2.9
-> 依赖：beta1.2.2（F09 修复后 MCP 断言稳定）｜被依赖：beta1.3.3（测试入口接续 gate）
+> 依赖：[beta1.2.2](2026-10-03-remediation/beta1.2.2.md)、[beta1.2.6](2026-10-03-remediation/beta1.2.6.md)｜被依赖：[beta1.3.1](2026-10-03-remediation/beta1.3.1.md)、[beta1.3.3](2026-10-03-remediation/beta1.3.3.md)、[beta1.3.5](2026-10-03-remediation/beta1.3.5.md)、[beta1.3.6](2026-10-03-remediation/beta1.3.6.md)
 
 **版本目标**：当前"真的红却没进 gate"的测试进入门禁；夹具不再与源环境互相污染。
 
@@ -315,7 +323,7 @@
 ## 十五、beta1.2.9 · 归档回执契约
 
 > 独立计划：[beta1.2.9.md](2026-10-03-remediation/beta1.2.9.md)｜上一版：beta1.2.8｜下一版：beta1.3.0
-> 依赖：无｜被依赖：beta1.3.7（结项回执）、beta1.3.9（v1.0.0 结诏门禁）
+> 依赖：[beta1.2.2](2026-10-03-remediation/beta1.2.2.md)｜被依赖：[beta1.3.0](2026-10-03-remediation/beta1.3.0.md)、[beta1.3.2](2026-10-03-remediation/beta1.3.2.md)、[beta1.3.7](2026-10-03-remediation/beta1.3.7.md)、[beta1.3.9](2026-10-03-remediation/beta1.3.9.md)
 
 **版本目标**：独立归档回执满足自身结诏契约（含两个摘要字段与完整身份），使正式结诏门禁可过。
 
@@ -334,7 +342,7 @@
 ## 十六、beta1.3.0 · 运行期日志封顶与可观测性（E1）
 
 > 独立计划：[beta1.3.0.md](2026-10-03-remediation/beta1.3.0.md)｜上一版：beta1.2.9｜下一版：beta1.3.1
-> 依赖：beta1.2.5（常驻维护点）｜被依赖：beta1.3.7
+> 依赖：[beta1.2.5](2026-10-03-remediation/beta1.2.5.md)、[beta1.2.9](2026-10-03-remediation/beta1.2.9.md)｜被依赖：[beta1.3.2](2026-10-03-remediation/beta1.3.2.md)、[beta1.3.3](2026-10-03-remediation/beta1.3.3.md)、[beta1.3.7](2026-10-03-remediation/beta1.3.7.md)
 
 **版本目标**：在报告裁定的既有能力（两 daemon 周期维护、helper、journal 与 held-stream 重定位已存在）之上，补齐**仍未覆盖的路径**——Web 异常路径与长驻进程运行期超限的封顶与轮转记录（不依赖重启）；成果表述采用可证据化断言（"异常路径与运行期超限均有轮转记录可审计"），不使用"已根治"。
 
@@ -355,7 +363,7 @@
 ## 十七、beta1.3.1 · superCC 依赖治理与验收（E2）
 
 > 独立计划：[beta1.3.1.md](2026-10-03-remediation/beta1.3.1.md)｜上一版：beta1.3.0｜下一版：beta1.3.2
-> 依赖：beta1.2.1（回执语义）｜被依赖：无
+> 依赖：[beta1.2.1](2026-10-03-remediation/beta1.2.1.md)、[beta1.2.2](2026-10-03-remediation/beta1.2.2.md)、[beta1.2.8](2026-10-03-remediation/beta1.2.8.md)｜被依赖：[beta1.3.3](2026-10-03-remediation/beta1.3.3.md)、[beta1.3.4](2026-10-03-remediation/beta1.3.4.md)、[beta1.3.6](2026-10-03-remediation/beta1.3.6.md)、[beta1.3.8](2026-10-03-remediation/beta1.3.8.md)
 
 **版本目标**：superCC 外部依赖（zellij + squad）有明确清单、检查命令与文档；"非标准环境"判定可复现。
 
@@ -374,7 +382,7 @@
 ## 十八、beta1.3.2 · 安装互斥与断电恢复（E3）
 
 > 独立计划：[beta1.3.2.md](2026-10-03-remediation/beta1.3.2.md)｜上一版：beta1.3.1｜下一版：beta1.3.3
-> 依赖：beta1.2.3、beta1.2.4｜被依赖：无
+> 依赖：[beta1.2.3](2026-10-03-remediation/beta1.2.3.md)、[beta1.2.4](2026-10-03-remediation/beta1.2.4.md)、[beta1.2.9](2026-10-03-remediation/beta1.2.9.md)、[beta1.3.0](2026-10-03-remediation/beta1.3.0.md)｜被依赖：[beta1.3.3](2026-10-03-remediation/beta1.3.3.md)、[beta1.3.6](2026-10-03-remediation/beta1.3.6.md)
 
 **版本目标**：多进程安装互斥；中断安装可检测、可恢复或明确需人工处理（补齐 CHANGELOG 明示的未实现边界：断电恢复与并发安装串行化）。
 
@@ -393,7 +401,7 @@
 ## 十九、beta1.3.3 · 测试入口与端到端试点（E4）
 
 > 独立计划：[beta1.3.3.md](2026-10-03-remediation/beta1.3.3.md)｜上一版：beta1.3.2｜下一版：beta1.3.4
-> 依赖：beta1.2.8（gate 基线）｜被依赖：beta1.3.7
+> 依赖：[beta1.2.8](2026-10-03-remediation/beta1.2.8.md)、[beta1.3.0](2026-10-03-remediation/beta1.3.0.md)、[beta1.3.1](2026-10-03-remediation/beta1.3.1.md)、[beta1.3.2](2026-10-03-remediation/beta1.3.2.md)｜被依赖：[beta1.3.4](2026-10-03-remediation/beta1.3.4.md)、[beta1.3.5](2026-10-03-remediation/beta1.3.5.md)、[beta1.3.7](2026-10-03-remediation/beta1.3.7.md)
 
 **版本目标**：回归与故障注入可发现、可运行；建立 3–5 个典型端到端场景（含真实派遣链）。
 
@@ -414,7 +422,7 @@
 ## 二十、beta1.3.4 · 文档批次（E5）
 
 > 独立计划：[beta1.3.4.md](2026-10-03-remediation/beta1.3.4.md)｜上一版：beta1.3.3｜下一版：beta1.3.5
-> 依赖：beta1.2.4（首装路径）｜被依赖：无
+> 依赖：[beta1.2.4](2026-10-03-remediation/beta1.2.4.md)、[beta1.3.1](2026-10-03-remediation/beta1.3.1.md)、[beta1.3.3](2026-10-03-remediation/beta1.3.3.md)｜被依赖：无
 
 **版本目标**：用户文档达到"可照做"程度；按具体内容改进，不新建平行材料。
 
@@ -431,10 +439,10 @@
 
 **边界**：不重写 README 主体；英文文档待授权。
 
-## 二十一、beta1.3.5 · 去 PyYAML 评估（E6）
+## 二十一、beta1.3.5 · 入口依赖与去 PyYAML 评估（E6）
 
 > 独立计划：[beta1.3.5.md](2026-10-03-remediation/beta1.3.5.md)｜上一版：beta1.3.4｜下一版：beta1.3.6
-> 依赖：beta1.2.7（一致性基线）｜被依赖：无
+> 依赖：[beta1.2.7](2026-10-03-remediation/beta1.2.7.md)、[beta1.2.8](2026-10-03-remediation/beta1.2.8.md)、[beta1.3.3](2026-10-03-remediation/beta1.3.3.md)｜被依赖：[beta1.3.6](2026-10-03-remediation/beta1.3.6.md)
 
 **版本目标**：评估复杂 YAML 前置解析的替代方案（保持回退边界），给出"继续依赖 / 提供无依赖路径"的结论。预算口径：启动入口 / 快速预载预算 20 KiB = 20480 字节（`check_unified_cli` 的 normal startup entry 上限）；扩展精简 parser 不得使启动入口越限。
 
@@ -451,10 +459,10 @@
 
 **边界**：不直接替换；不写完整 YAML 引擎。
 
-## 二十二、beta1.3.6 · Node / 多语言 SDK 等价试点（E7）
+## 二十二、beta1.3.6 · Rust / Node 网关与只读模块等价试点（E7）
 
 > 独立计划：[beta1.3.6.md](2026-10-03-remediation/beta1.3.6.md)｜上一版：beta1.3.5｜下一版：beta1.3.7
-> 依赖：无｜被依赖：beta1.3.9
+> 依赖：[beta1.2.8](2026-10-03-remediation/beta1.2.8.md)、[beta1.3.1](2026-10-03-remediation/beta1.3.1.md)、[beta1.3.2](2026-10-03-remediation/beta1.3.2.md)、[beta1.3.5](2026-10-03-remediation/beta1.3.5.md)｜被依赖：[beta1.3.7](2026-10-03-remediation/beta1.3.7.md)、[beta1.3.8](2026-10-03-remediation/beta1.3.8.md)、[beta1.3.9](2026-10-03-remediation/beta1.3.9.md)
 
 **版本目标**：以一个纯协议/只读模块做等价试点，量化"减少 Python 依赖"的真实收益。
 
@@ -469,12 +477,12 @@
 - [ ] 度量报告（含与现路径对比）
 - [ ] 结论与后续建议
 
-**边界**：不改状态写入/安装/恢复；Laya 训练与模型服务保持独立 Python（经既有 HTTP seam）。
+**边界**：不改状态写入/安装/恢复；Laya 训练保留独立 Python；推理先沿既有 HTTP seam，原生推理等价试点与回退按 2026-11-01 增补计划执行。
 
 ## 二十三、beta1.3.7 · 治理收益度量（E8）
 
 > 独立计划：[beta1.3.7.md](2026-10-03-remediation/beta1.3.7.md)｜上一版：beta1.3.6｜下一版：beta1.3.8
-> 依赖：beta1.2.6、beta1.2.9、beta1.3.0、beta1.3.3｜被依赖：beta1.3.9
+> 依赖：[beta1.2.6](2026-10-03-remediation/beta1.2.6.md)、[beta1.2.9](2026-10-03-remediation/beta1.2.9.md)、[beta1.3.0](2026-10-03-remediation/beta1.3.0.md)、[beta1.3.3](2026-10-03-remediation/beta1.3.3.md)、[beta1.3.6](2026-10-03-remediation/beta1.3.6.md)｜被依赖：[beta1.3.8](2026-10-03-remediation/beta1.3.8.md)、[beta1.3.9](2026-10-03-remediation/beta1.3.9.md)
 
 **版本目标**：用代表性真实任务度量治理收益，不靠自报分数。
 
@@ -493,7 +501,7 @@
 ## 二十四、beta1.3.8 · Web UI 与插件机制评估（E9）
 
 > 独立计划：[beta1.3.8.md](2026-10-03-remediation/beta1.3.8.md)｜上一版：beta1.3.7｜下一版：beta1.3.9
-> 依赖：无｜被依赖：beta1.3.9
+> 依赖：[beta1.3.1](2026-10-03-remediation/beta1.3.1.md)、[beta1.3.6](2026-10-03-remediation/beta1.3.6.md)、[beta1.3.7](2026-10-03-remediation/beta1.3.7.md)｜被依赖：[beta1.3.9](2026-10-03-remediation/beta1.3.9.md)
 
 **版本目标**：评估治理控制台与插件扩展的可行性，给出进入实现的门槛。
 
@@ -512,7 +520,7 @@
 ## 二十五、beta1.3.9 · 标准化与 v1.0.0 准备（E10）
 
 > 独立计划：[beta1.3.9.md](2026-10-03-remediation/beta1.3.9.md)｜上一版：beta1.3.8｜下一版：v1.0.0（外部锚点·无独立计划）
-> 依赖：beta1.2.9、beta1.3.6、beta1.3.7、beta1.3.8｜被依赖：v1.0.0
+> 依赖：[beta1.2.9](2026-10-03-remediation/beta1.2.9.md)、[beta1.3.6](2026-10-03-remediation/beta1.3.6.md)、[beta1.3.7](2026-10-03-remediation/beta1.3.7.md)、[beta1.3.8](2026-10-03-remediation/beta1.3.8.md)｜被依赖：v1.0.0（里程碑）
 
 **版本目标**：为 v1.0.0 准备决策材料：API 冻结评估、向后兼容策略、RC 方案。
 
@@ -559,9 +567,25 @@
 
 1. 每版本统一出口：修复/实现 + 失败与成功对照（保留原始失败样本）+ 回归 + 文档同步 + 发布与 CI 验证 + 本文件执行记录。
 2. 版本号连续占用：某版内容合并/推迟时后续顺延，不空号、不跳号。
-3. Node 脱 Python 仅作为可评估方向：先纯协议/只读试点；Laya 保持独立 Python。
+3. Rust / Node 渐进迁移按 2026-11-01 增补推进：优先兼容上游与成熟网关复用，先只读/纯协议再依证据扩大；Laya 训练保留 Python，推理原生化须独立等价验证并有回退。
 4. 治理收益用代表性真实任务度量；自报 95 分、checker PASS、未校准"完成度"不替代数据。
 5. 不新造：第二套状态/身份/记忆框架、平行预载协议、完整 YAML 引擎、安装策略重写。
+
+### 26.3 统一决策、宿主接续与追加式记忆（2026-11-01）
+
+- 跨版本需求和采用方案见[增补计划](2026-11-01-memory-decision-gateway-roadmap.md)，一手事实见[来源说明](../research/2026-11-01-memory-decision-gateway-sources.md)。
+- 采用统一逻辑入口、确定性策略、可替换语义决策器及现有宿主执行器；覆盖派遣/复用/换新、能力/模型路由、流程与记忆。Laya不是必需网关，规则足够时不调用模型，不可用或不可靠时交当前宿主模型。
+- 记忆仅在上下文末尾追加；不重写system、tools或历史前缀。更正用新消息、压缩用新epoch，缓存效果需实际数据。
+- 分层、时效、遗忘候选和重新激活沿现有史馆派生；不建立第二套记忆权威，不因年龄或模型建议自动删除权威记录。
+- beta1.3.5/1.3.6 的旧“仅Node评估/模型服务保持Python”边界按本次增补细化；先复用成熟网关与协议，原生推理/写入迁移分别验收。研究未完成或试点不达标时保留旧后端，不视为新能力已实现。
+
+### 26.4 史实职责与现代智能体适应化（2026-11-01）
+
+- [职责与名称解耦增补](2026-11-01-office-duties-and-name-decoupling-plan.md)为本轮后续计划的职责来源。唐制为主要史实参照，现代职责、动态prompt、串并行和复用为明确的软件改编。
+- 中书拟定与拆解、门下审议封驳、尚书统筹实施和六部专业职能保持分工；按需启用，不复刻全员常驻和古代流转次数。
+- stable role/assignment/profile与display_name/skin分离；CEO、COO或人名不自动生成职责、权限或上级关系。身份包旧计划仍为PLAN_ONLY，不当作已实现。
+- 统一语义骨架加按任务扩展，不生成第二份P00/身份账册，不为改名重写上下文前缀；审查、执行、汇总与记录分别留证。
+- 分批进入1.2.2、1.2.8、1.2.9、1.3.1、1.3.3、1.3.4、1.3.6、1.3.8、1.3.9，原前置不变；不因历史来源推导普遍优于所有其他组织方式。
 
 ## 二十七、文档任务（随版本滚动）
 
@@ -627,8 +651,8 @@
   beta1.3.2  安装互斥与断电恢复
   beta1.3.3  测试入口与端到端试点
   beta1.3.4  文档批次
-  beta1.3.5  去 PyYAML 评估
-  beta1.3.6  Node / 多语言 SDK 等价试点
+  beta1.3.5  入口依赖与去 PyYAML 评估
+  beta1.3.6  Rust / Node 网关与只读模块等价试点
   beta1.3.7  治理收益度量
   beta1.3.8  Web UI 与插件机制评估
   beta1.3.9  标准化与 v1.0.0 准备
@@ -689,3 +713,17 @@
 - 已完成本地整文件回归：completion 24 cases；安装 75 cases、配置 31 cases，errors=[]；autosync safety 32 workers/seen_ids=32，private pending 正文读取 0、真实 daemon stop 0。Windows 真实创建时间字段只读样本 exit 0。
 - 账本写入而下一 phase marker 持久化失败仍需人工恢复。Linux 创建标记绑定 boot_id 与内核 clock ticks；其他无可靠创建标记的 POSIX 仅 watchdog fail-closed。stage3 既有漂移仍归 TASK-023；CI 内容不改。
 - active metadata 推进到 beta1.1.9 源码候选。工程 lane 不提交、不安装、不外部发布；GitHub 与本机 private candidate 是本轮目标，npm beta1.1.8 快照保持，本轮未执行 npm publish。最终提交、source gate、候选/安装与远端回读各需独立证据。
+
+
+### 2026-11-01 · 需求收敛与后续计划增补（未实施）
+
+- 纳入腾讯分层/时效记忆、DeepSeek Superagent/Harness 的编排边界，以及覆盖广泛语义判断的可替换决策层。
+- 采用统一入口与规则/语义/执行分离；成熟Rust网关优先复用评估，Laya不可用或不可靠回退宿主模型。
+- 用户要求记忆只在末尾追加，保持既有上下文前缀；Rust/Node迁移按兼容、质量和净成本分批推进。
+- 更新14份后续独立计划及正反依赖，保留原F/E条目与历史实施记录；本次未实施代码、未更改版本、未安装或发布。
+
+### 2026-11-01 · 职责史实与智能体适应化增补（未实施）
+
+- 按用户最新澄清，三省六部具体职责以史实为基线，现代智能体职责与工作方式另列；名称例子不作固定职务映射。
+- 新增职责、动态结构化任务、名称skin和历史/现代对照计划，续接既有身份包PLAN_ONLY设计；同步9个后续版本。
+- 原记忆/网关/宿主回退/末尾追加与Rust/Node计划保持；无现用profile、dossier、代码、版本或发布修改。

@@ -5,6 +5,7 @@ import {
   createReadStream,
   existsSync,
   readFileSync,
+  realpathSync,
 } from "node:fs";
 import {
   chmod,
@@ -5139,7 +5140,7 @@ export async function createVerifiedPackage({
   }
 }
 
-function buildReceipt(verified, contract = LIVE_PACKAGE_CONTRACT) {
+export function buildReceipt(verified, contract = LIVE_PACKAGE_CONTRACT) {
   return {
     schema: "decretum.npm_package_receipt.v2",
     status: "PASS",
@@ -5248,16 +5249,138 @@ export async function buildPackageArtifacts() {
   }
 }
 
+function runVerifiedTool(command, args) {
+  const result = spawnSync(command, args, { encoding: "utf8" });
+  if (result.status !== 0) {
+    fail(`${command} exited ${result.status}: ${(result.stderr || result.stdout || "").trim()}`);
+  }
+  return result.stdout.trim();
+}
+
+function carriesForbiddenPublication(node) {
+  if (node === null || typeof node !== "object") {
+    return false;
+  }
+  if (Array.isArray(node)) {
+    return node.some(carriesForbiddenPublication);
+  }
+  if (node.publication === "FORBIDDEN") {
+    return true;
+  }
+  return Object.values(node).some(carriesForbiddenPublication);
+}
+
+function sha256ToolDigest(filePath) {
+  const output = runVerifiedTool("sha256sum", [filePath]);
+  const match = /^\\?([0-9a-f]{64})/.exec(output.trim());
+  assert(match, "sha256sum output is not a digest");
+  return match[1];
+}
+
+// Thin entry over the producer receipt: the accepted receipt is the authority
+// for the published bytes, the embedded ZIP and the source commit. Byte
+// comparison uses the platform sha256sum/tar tools; no digest is re-implemented.
+export async function verifyAcceptedReceipt({ receiptPath, tarballPath, zipPath }) {
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+  assert(receipt.schema === "decretum.npm_package_receipt.v2", "accepted receipt schema mismatch");
+  assert(receipt.status === "PASS", "accepted receipt status is not PASS");
+  assert(!carriesForbiddenPublication(receipt), "accepted receipt is a FORBIDDEN local candidate");
+  assertDeepEqual(receipt.package?.name, PACKAGE_NAME, "receipt package.name");
+  assertDeepEqual(receipt.package?.version, PACKAGE_VERSION, "receipt package.version");
+  assertDeepEqual(receipt.package?.dist_tag, DIST_TAG, "receipt package.dist_tag");
+  assertDeepEqual(receipt.package?.registry, REGISTRY, "receipt package.registry");
+  assertDeepEqual(receipt.package?.filename, TARBALL_NAME, "receipt package.filename");
+  assertDeepEqual(receipt.package?.access, "public", "receipt package.access");
+  assertDeepEqual(receipt.source?.repository, REPOSITORY_URL, "receipt source.repository");
+  assertDeepEqual(receipt.source?.commit, gitText("rev-parse", "HEAD"), "receipt source.commit");
+  assertDeepEqual(receipt.source?.tree, gitText("rev-parse", "HEAD^{tree}"), "receipt source.tree");
+  assertDeepEqual(receipt.source?.tag, RELEASE_LABEL, "receipt source.tag");
+  assertDeepEqual(receipt.source?.tag_ref, TAG_REF, "receipt source.tag_ref");
+  // The authority for the asset location is the producer contract, not a bare
+  // file name: RELEASE_ASSETS keeps the ZIP at release/<artifact> and the pack
+  // places it at package/release/<artifact>.
+  const zipAssetPath = LIVE_PACKAGE_CONTRACT.releaseAssets
+    .map((asset) => asset.path)
+    .find((assetPath) => assetPath.endsWith("/" + LIVE_IDENTITY.artifactName));
+  assert(zipAssetPath, "producer contract has no release ZIP asset path");
+  const zipAsset = (receipt.assets || []).find((asset) => asset && asset.path === zipAssetPath);
+  assert(zipAsset, "accepted receipt has no asset entry for the release ZIP");
+  const zipDigest = sha256ToolDigest(zipPath);
+  assertDeepEqual(zipDigest, zipAsset.sha256, "accepted ZIP sha256");
+  const tarballDigest = sha256ToolDigest(tarballPath);
+  assertDeepEqual(tarballDigest, receipt.package.sha256, "published tarball sha256");
+  const extractRoot = await mkdtemp(path.join(tmpdir(), "dm-accepted-receipt-"));
+  try {
+    runVerifiedTool("tar", ["--force-local", "-xzf", tarballPath, "-C", extractRoot, `package/${zipAssetPath}`]);
+    const embeddedDigest = sha256ToolDigest(path.join(extractRoot, "package", zipAssetPath));
+    assertDeepEqual(embeddedDigest, zipAsset.sha256, "embedded release ZIP sha256");
+  } finally {
+    await rm(extractRoot, { recursive: true, force: true });
+  }
+  return {
+    schema: "decretum.npm_accepted_receipt_verification.v1",
+    status: "PASS",
+    package: receipt.package.name,
+    version: receipt.package.version,
+    source_commit: receipt.source.commit,
+    source_tag: receipt.source.tag,
+    accepted_zip: zipAssetPath,
+  };
+}
+
+function moduleFilePath() {
+  const url = new URL(import.meta.url);
+  try {
+    return fileURLToPath(url);
+  } catch {
+    // A UNC import URL keeps its host; fileURLToPath rejects it on some Node
+    // builds, so rebuild the Windows UNC path from the URL parts instead.
+    if (url.protocol !== "file:") {
+      return "";
+    }
+    const decoded = decodeURIComponent(url.pathname);
+    if (process.platform !== "win32") {
+      return decoded;
+    }
+    const host = url.host ? `\\\\${url.host}` : "";
+    return path.normalize(`${host}${decoded.replace(/\//g, "\\")}`);
+  }
+}
+
 function isMainModule() {
   if (!process.argv[1]) {
     return false;
   }
-  return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+  try {
+    // Both sides go through the real filesystem path: the entry can be reached
+    // through a UNC alias, a mapped drive or a relative path.
+    const self = realpathSync(moduleFilePath());
+    const entry = realpathSync(path.resolve(process.argv[1]));
+    // Windows paths are case-insensitive and the UNC host case can differ
+    // between the imported URL and the resolved entry.
+    return process.platform === "win32"
+      ? self.toLowerCase() === entry.toLowerCase()
+      : self === entry;
+  } catch {
+    return false;
+  }
 }
 
 if (isMainModule()) {
+  const receiptFlag = process.argv.indexOf("--verify-accepted-receipt");
   const localCandidateDirectory = parseLocalInstallCandidateArguments(process.argv);
-  const action = process.argv.includes("--self-test")
+  const action = receiptFlag >= 0
+    ? () => {
+        const [receiptPath, tarballPath, zipPath] = process.argv.slice(receiptFlag + 1);
+        if (!receiptPath || !tarballPath || !zipPath) {
+          fail("--verify-accepted-receipt requires <receipt.json> <tarball.tgz> <release.zip>");
+        }
+        return verifyAcceptedReceipt({ receiptPath, tarballPath, zipPath }).then((report) => {
+          console.log(jsonText(report).trimEnd());
+          return report;
+        });
+      }
+    : process.argv.includes("--self-test")
     ? runSyntheticSelfTest
     : localCandidateDirectory
       ? () => buildLocalInstallCandidateArtifacts(localCandidateDirectory)

@@ -6,8 +6,22 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.1",
+  "latest_tag": "beta1.2.2",
   "releases": [
+    {
+      "tag": "beta1.2.2",
+      "title": "Decretum Matrix beta1.2.2",
+      "summary": "beta1.2.2：公共边界失败可见/查询白名单/参数严格三链路收口，新增统一决策契约投影与职责-实例-显示名分离，并严格化候选与证据引用元数据。",
+      "highlights": [
+        "F09 操作失败传播到 public API 退出状态、MCP ok/isError 与审计；规则否定、deny、abstain 仍为正常诊断。",
+        "F16 旧 shiguan.query 复用 entries_query 元数据白名单，匹配顺序与 envelope 不变；F18 court status 拒绝未知参数/缺值/非法 view，help 不触达状态后端。",
+        "统一决策契约：位置、有界候选、provider、宿主接续与暂停出口；未校准本地判决规范为 abstain+not_calibrated，宿主失败不再回路由同一宿主。",
+        "职责投影复用既有 role_key/profile 与派遣清单，漂移即失败关闭；任务骨架六槽与有界扩展不能覆盖核心语义。",
+        "证据引用逐字保留（上限 512），候选与固定文本必须为有界字符串；非法输入按契约错误传播。",
+        "验证边界：模型效果、真实宿主与缓存均 NOT_RUN，能力保持 PLANNED_UNVERIFIED。"
+      ],
+      "asset_note": "最终产物使用 beta1.2.2 身份：decretum-matrix-beta1.2.2.zip / npm 1.2.2-beta.0。源码、隔离安装、真实宿主、CI、发布分别按最终提交实际回读；未回读项保持待定，不以前版或候选证据冒充。"
+    },
     {
       "tag": "beta1.2.1",
       "title": "Decretum Matrix beta1.2.1",

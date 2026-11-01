@@ -17,7 +17,7 @@ import zipfile
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from release_gate_manifest import (
     REQUIRED_CHECK_CONTRACTS,
@@ -1541,6 +1541,58 @@ def _candidate_execution_problems(
     return problems
 
 
+def failed_entry_label(item: Mapping[str, object]) -> str:
+    """Return a stable text label for a failed record.
+
+    Step failures carry a name while required-check failures carry an id; the
+    text report must print both shapes without changing the judgement.
+    """
+
+    for field in ("name", "id", "check_id", "step"):
+        value = item.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "unknown_failure"
+
+
+def format_failure_line(item: Mapping[str, object]) -> str:
+    """Render one failed record as a single text line."""
+
+    detail = item.get("output") or item.get("problems")
+    if isinstance(detail, (list, tuple)):
+        detail = ", ".join(str(part) for part in detail)
+    return f"FAILED {failed_entry_label(item)}: {detail}"
+
+
+def exit_code_for(ok: bool) -> int:
+    """Map the gate verdict to its process exit code."""
+
+    return 0 if ok else 2
+
+
+def run_failure_report_self_test() -> list[str]:
+    """Verify the report handles name-only, id-only and unlabeled failures."""
+
+    cases: tuple[tuple[str, dict[str, object], str], ...] = (
+        ("name_only", {"name": "court_runtime", "output": "boom"}, "FAILED court_runtime: boom"),
+        (
+            "id_only",
+            {"id": "supercc_truth_gates", "problems": ["missing"]},
+            "FAILED supercc_truth_gates: missing",
+        ),
+        ("no_label", {"output": "bare"}, "FAILED unknown_failure: bare"),
+        ("no_detail", {"id": "empty_case"}, "FAILED empty_case: None"),
+    )
+    passed: list[str] = []
+    for case, record, expected in cases:
+        line = format_failure_line(record)
+        assert line == expected, (case, line)
+        passed.append("failure_report_" + case)
+    assert exit_code_for(True) == 0 and exit_code_for(False) == 2
+    passed.append("failure_report_exit_code")
+    return passed
+
+
 def _required_check_result(
     check: dict[str, object],
     *,
@@ -1960,6 +2012,7 @@ def main() -> int:
         manifest = load_release_manifest()
         manifest_self_test_cases = run_hierarchy_release_gate_self_test(manifest)
         manifest_self_test_cases.extend(run_required_check_contract_self_test(manifest))
+        manifest_self_test_cases.extend(run_failure_report_self_test())
     except (ReleaseGateManifestError, AssertionError) as exc:
         failure = {
             "name": "release_manifest_policy",
@@ -2001,7 +2054,7 @@ def main() -> int:
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         else:
             print(f"RELEASE_GATE_FAILED steps=0 failed=1 package_gate=NOT_EVALUATED")
-            print(f"FAILED {failure['name']}: {failure['output']}")
+            print(format_failure_line(failure))
         return 2
     manifest_self_test = {
         "status": "PASSED",
@@ -2049,7 +2102,7 @@ def main() -> int:
                 f"cases={len(manifest_self_test_cases)} "
                 f"names={','.join(manifest_self_test_cases)}"
             )
-        return 0 if result["ok"] else 2
+        return exit_code_for(result["ok"])
     runtime_skip = phase in RUNTIME_REQUIRED_PHASES and args.skip_runtime
     active_copies_skip = phase == "full" and args.skip_active_copies
     if runtime_skip or active_copies_skip:
@@ -2099,7 +2152,7 @@ def main() -> int:
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         else:
             print("RELEASE_GATE_FAILED steps=0 failed=1 package_gate=NOT_RUN install_receipt_gate=NOT_RUN manifest_self_test=PASSED")
-            print(f"FAILED {failure['name']}: {failure['output']}")
+            print(format_failure_line(failure))
         return 2
 
     expected_provenance = {
@@ -2451,7 +2504,7 @@ def main() -> int:
             f"manifest_self_test={manifest_self_test['status']}"
         )
         for item in failed:
-            print(f"FAILED {item['name']}: {item.get('output') or item.get('problems')}")
+            print(format_failure_line(item))
     return 0 if result["ok"] else 2
 
 

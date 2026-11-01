@@ -104,6 +104,9 @@ decretum-matrix install fix --apply --format json  # 显式写入
   这是**预期行为**，不是故障。
 - 校验失败返回结构化 problem 字符串（如 `missing_arguments:...`、
   `unknown_arguments:...`），用 `--format json` 读取。
+- `court status` 严格解析参数：未知参数、`--limit`/`--view` 缺值、非整数 `--limit`
+  与非法 `--view` 一律以退出码 3 拒绝；`court status --help` 输出静态帮助，**不访问**
+  状态后端。
 - 状态变更必须走 receipt-bound CLI；检查 domain success，不要只检查命令是否打印帮助。
 
 ---
@@ -119,7 +122,7 @@ decretum-matrix install fix --apply --format json  # 显式写入
 | 投影实现 | `scripts/court_public_registry.py` |
 | 主协议版本 | `2026-07-28`（现代、无状态） |
 | 兼容协议版本 | `2025-11-25` |
-| 工具数 | 13（全部 `read_only`） |
+| 工具数 | 19（全部 `read_only`） |
 | 服务器身份 | `decretum-matrix` |
 
 现代 wire 要求每个请求携带
@@ -136,7 +139,7 @@ decretum-matrix install fix --apply --format json  # 显式写入
 `notifications/initialized`，之后可不用现代 `_meta` 调用 `tools/list` / `tools/call`。
 现代与 legacy 回执分别记录。
 
-### 2.2 工具矩阵（13 个，全部只读）
+### 2.2 工具矩阵（19 个，全部只读）
 
 | 工具 | 用途 | 参数（`*` 为必填） |
 | --- | --- | --- |
@@ -152,7 +155,13 @@ decretum-matrix install fix --apply --format json  # 显式写入
 | `shiguan.archive_dry_run` | 报告归档边界，不写史馆 | 无 |
 | `shiguan.entries_query` | 元数据投影查询史馆条目 | `query*` `limit` |
 | `shiguan.iku_candidates` | 扫描 IKU 占位候选（dry-run） | `scope` `limit` |
-| `shiguan.query` | 查询公开史馆索引记录 | `terms` `limit` |
+| `shiguan.query` | 查询公开史馆索引记录（复用 `entries_query` 元数据白名单） | `terms` `limit` |
+| `shiguan.recall` | 只读召回建议（advisory，无执行权） | `state*` `k` `same_topic` |
+| `shiguan.recall_stats` | 只读召回服务与索引统计 | 无 |
+| `court.decision_contract` | 返回统一决策契约词表与验证状态 | 无 |
+| `court.decision_project` | 把一条决策记录投影到有界公共契约（候选与固定文本必须是有界字符串；证据引用逐字保留） | `record*` |
+| `court.office_duty` | 投影职责、真实实例与显示名三层（职责与官署名取自 standing profile，层级边取自派遣清单） | `role_key` |
+| `court.task_skeleton` | 生成统一任务语义骨架与有界扩展 | `goal_intent*` `inputs_sources*` `role_key*` `work_dependency*` `delivery_acceptance*` `handoff_recovery*` `extension` `extension_fields` |
 
 参数枚举：
 
@@ -161,6 +170,17 @@ decretum-matrix install fix --apply --format json  # 显式写入
   （默认 `approval`）
 - `court.dispatch_plan_validate.behavior`：`serial` | `parallel`（默认 `serial`）
 - `shiguan.iku_candidates.scope`：`plan-archives`（默认）
+- `court.decision_project` 的 `record.outcome`：`allow` | `deny` | `abstain` | `error`；
+  `record.provider_kind`：`rule` | `local_model` | `host_model` | `cache`
+- `court.task_skeleton.extension`：`engineering` | `research` | `document` |
+  `operations` | `review`；扩展字段只能在该类型的白名单内，核心槽位不可覆盖
+- `court.decision_project` 的边界（beta1.2.2 R1–R4）：`allowed_candidates`/`candidate`/
+  `decision_provider`/`provider_version`/`input_scope`/`error_code`/`fallback_reason`
+  必须是有界字符串（上限 96），对象/列表/布尔/数字与超长值属契约错误，不做字符串化或截断；
+  `evidence_refs` 用独立上限 512 且逐字保留，超长或非字符串即拒绝；
+  `host_continuation.state` 为 `resolved`｜`host_continuation`｜`paused`，暂停时给
+  `pause_reason` 与 `resume_when`，不会把判断交回同一不可用宿主；未校准 `local_model`
+  的 allow/deny 规范投影为 abstain + `not_calibrated`（`normalized` 记录该规范化）。
 
 ### 2.3 调用示例
 
@@ -192,7 +212,19 @@ decretum-matrix install fix --apply --format json  # 显式写入
 }
 ```
 
-失败返回 `{"ok": false, "problem": "<bounded error code>"}` 且 `isError=true`。
+失败语义按 beta1.2.2 收口为三类，且三类不再互相混淆：
+
+- **操作失败**（召回服务不可达、HTTP 错误、载荷非法、明确操作失败）：公共 API 返回非零
+  `exit_status` 与非空 `stderr`，外层返回 `{"ok": false, "problem": "<bounded error code>"}`
+  且 `isError=true`，审计记为 `ok=false, outcome=error`。
+- **输入/契约错误**（未知 `role_key`、非法决策候选、未知决策位置、未知任务扩展、
+  扩展覆盖核心槽位）：同为失败，公共 API 以 `exit_status=1` 与 `stderr=<error code>`
+  返回被拒绝的载荷，外层 `ok=false` / `isError=true`，审计 `ok=false, outcome=error`。
+  这类错误**不得**借"合法否定"豁免。
+- **合法领域结论**（例如 `dispatch_plan_validate` 判定计划不合法、决策投影给出
+  `deny`/`abstain` 或宿主接续原因）：仍是正常结果，外层 `ok=true`、
+  `isError=false`，否定结论只看工具自身载荷（`api.stdout`）的 `ok`/`outcome`。
+
 `write_enabled` 恒为 `false`，这是 MCP 面的硬保证。
 
 ### 2.4 只读保证与审计

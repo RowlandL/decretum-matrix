@@ -1,0 +1,276 @@
+name: Publish beta package to GitHub Packages
+
+# Consumes the already accepted Release receipt and assets; never rebuilds them.
+# Triggered by a published Release (runs on the released tag commit) or by a
+# bounded manual retry for the same tag. Registry is GitHub Packages only.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (betaN.N.N)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-packages-${{ github.repository }}-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+  PYTHONDONTWRITEBYTECODE: "1"
+  EXPECTED_REPOSITORY: "RowlandL/decretum-matrix"
+  EXPECTED_PACKAGE: "@rowlandl/decretum-matrix"
+  EXPECTED_REGISTRY: "https://npm.pkg.github.com"
+
+jobs:
+  publish:
+    if: github.repository == 'RowlandL/decretum-matrix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      - name: Resolve and strictly validate the release tag
+        id: tag
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_REGISTRY: ${{ github.event.release.repository.full_name }}
+        run: |
+          set -euo pipefail
+          tag="${EVENT_TAG:-${INPUT_TAG:-}}"
+          python - "$tag" "$EXPECTED_REPOSITORY" "${EVENT_REGISTRY:-$GITHUB_REPOSITORY}" <<'PY'
+          import re, sys
+          tag, expected_repo, registry = sys.argv[1], sys.argv[2], sys.argv[3]
+          if not re.fullmatch(r"beta[0-9]+\.[0-9]+\.[0-9]+", tag or ""):
+              raise SystemExit("rejected_tag_shape:" + repr(tag))
+          if registry != expected_repo:
+              raise SystemExit("rejected_repository:" + registry)
+          print("release_tag=" + tag)
+          PY
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@rowlandl"
+
+      - name: Verify version anchors, package identity and derived npm version
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re
+          tag = os.environ["RELEASE_TAG"]
+          core = tag[len("beta"):]
+          version = core + "-beta.0"
+          errors = []
+          if open("VERSION", encoding="utf-8").read().strip() != tag:
+              errors.append("version_file_mismatch")
+          if not re.search(r"^  version: " + re.escape(tag) + r"$", open("SKILL.md", encoding="utf-8").read(), re.M):
+              errors.append("skill_metadata_mismatch")
+          plugin = json.load(open(".codex-plugin/plugin.json", encoding="utf-8"))
+          if plugin.get("version") != tag or plugin.get("name") != "decretum-matrix":
+              errors.append("plugin_identity_mismatch")
+          manifest = json.load(open("release-manifest.json", encoding="utf-8"))
+          expected_artifact = "decretum-matrix-" + tag + ".zip"
+          for field, value in (
+              ("release_label", tag),
+              ("version_core", core),
+              ("artifact_name", expected_artifact),
+              ("sidecar_name", expected_artifact + ".sha256"),
+              ("expected_final_tag", "refs/tags/" + tag),
+          ):
+              if manifest.get(field) != value:
+                  errors.append(field + "_mismatch:" + str(manifest.get(field)))
+          source = open("scripts/build_npm_package.mjs", encoding="utf-8").read()
+          package = re.search(r'export const PACKAGE_NAME = "([^"]+)"', source)
+          registry = re.search(r'export const REGISTRY = "([^"]+)"', source)
+          if not package or package.group(1) != os.environ["EXPECTED_PACKAGE"]:
+              errors.append("package_name_mismatch")
+          if not registry or registry.group(1) != os.environ["EXPECTED_REGISTRY"]:
+              errors.append("registry_mismatch")
+          if errors:
+              raise SystemExit("rejected_identity:" + ",".join(errors))
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write("NPM_VERSION=" + version + "\n")
+              handle.write("ARTIFACT_NAME=" + expected_artifact + "\n")
+              handle.write("TARBALL_NAME=rowlandl-decretum-matrix-" + version + ".tgz\n")
+              handle.write("RECEIPT_NAME=rowlandl-decretum-matrix-" + version + ".receipt.json\n")
+          print("derived npm version", version)
+          PY
+
+      - name: Validate the release manifest with the existing validator
+        run: python -B scripts/checks/check_release_manifest.py
+
+      - name: Require every job of the tag commit CI workflow to have succeeded
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          python - "$sha" "$GITHUB_REPOSITORY" <<'PY'
+          import json, os, re, subprocess, sys
+          sha, repo = sys.argv[1], sys.argv[2]
+          # Required set comes from the CI workflow shipped in this exact commit,
+          # so it can never drift from the tested authority.
+          text = open(".github/workflows/ci.yml", encoding="utf-8").read()
+          block = text.split("\njobs:\n", 1)
+          if len(block) != 2:
+              raise SystemExit("ci_workflow_jobs_block_missing")
+          required = []
+          for line in block[1].splitlines():
+              match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+              if match:
+                  required.append(match.group(1))
+              elif line and not line.startswith("  "):
+                  break
+          if not required:
+              raise SystemExit("ci_workflow_has_no_jobs")
+          def api(path):
+              out = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
+              return json.loads(out)
+          runs = api(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100").get("workflow_runs", [])
+          ci = [r for r in runs if r.get("path") == ".github/workflows/ci.yml"]
+          if not ci:
+              raise SystemExit("missing_ci_run_for_commit")
+          latest = sorted(ci, key=lambda r: r.get("created_at") or "")[-1]
+          if latest.get("head_sha") != sha:
+              raise SystemExit("ci_run_head_mismatch")
+          if latest.get("status") != "completed" or latest.get("conclusion") != "success":
+              raise SystemExit("ci_not_green:" + str(latest.get("status")) + ":" + str(latest.get("conclusion")))
+          seen = {}
+          for job in api(f"repos/{repo}/actions/runs/{latest['id']}/jobs?per_page=100").get("jobs", []):
+              name = job.get("name")
+              if name in seen:
+                  raise SystemExit("ci_duplicate_job:" + str(name))
+              seen[name] = job
+          missing = [name for name in required if name not in seen]
+          if missing:
+              raise SystemExit("ci_missing_jobs:" + ",".join(missing))
+          extra = sorted(set(seen) - set(required))
+          if extra:
+              raise SystemExit("ci_unexpected_jobs:" + ",".join(extra))
+          bad = [name for name in required if seen[name].get("status") != "completed" or seen[name].get("conclusion") != "success"]
+          if bad:
+              raise SystemExit("ci_jobs_not_green:" + ",".join(bad))
+          print("ci_green_required_jobs", len(required), sorted(required))
+          PY
+
+      - name: Download the accepted release receipt and assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
+          python - "$ARTIFACT_NAME" "$TARBALL_NAME" "$RECEIPT_NAME" <<'PY'
+          import os, sys
+          artifact, tarball, receipt = sys.argv[1], sys.argv[2], sys.argv[3]
+          names = set(os.listdir("release-assets"))
+          required = {artifact, artifact + ".sha256", tarball, receipt}
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit("missing_release_assets:" + ",".join(missing))
+          print("release_assets_ok", sorted(required))
+          PY
+          (cd release-assets && sha256sum -c "$ARTIFACT_NAME.sha256")
+
+      - name: Bind the accepted receipt to the tarball, the embedded ZIP and this commit
+        run: |
+          set -euo pipefail
+          node scripts/build_npm_package.mjs --verify-accepted-receipt \
+            "release-assets/$RECEIPT_NAME" \
+            "release-assets/$TARBALL_NAME" \
+            "release-assets/$ARTIFACT_NAME"
+
+      - name: Refuse to overwrite a published version with different content
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          npmrc="$RUNNER_TEMP/.npmrc"
+          printf "@rowlandl:registry=%s\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n" "$EXPECTED_REGISTRY" > "$npmrc"
+          python - "$EXPECTED_PACKAGE" "$NPM_VERSION" "$EXPECTED_REGISTRY" "$npmrc" "release-assets/$RECEIPT_NAME" <<'PY'
+          import json, os, re, subprocess, sys
+          package, version, registry, npmrc, receipt_path = sys.argv[1:6]
+          receipt = json.load(open(receipt_path, encoding="utf-8"))
+          package_section = receipt.get("package") or {}
+          integrity = package_section.get("integrity")
+          shasum = package_section.get("shasum")
+          # Receipt values are data: they are validated as formats and passed as
+          # argv, never assembled into shell code.
+          def invalid(value):
+              return (not isinstance(value, str) or not value or "\n" in value or "\r" in value
+                      or "$(" in value or "`" in value)
+          if invalid(integrity) or not re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", integrity):
+              raise SystemExit("rejected_receipt_integrity_format")
+          if invalid(shasum) or not re.fullmatch(r"[0-9a-f]{40}", shasum):
+              raise SystemExit("rejected_receipt_shasum_format")
+          environment = dict(os.environ)
+          environment["NODE_AUTH_TOKEN"] = os.environ.get("NODE_AUTH_TOKEN", "")
+          query = subprocess.run(
+              ["npm", "view", f"{package}@{version}", "--json", "--registry", registry, "--userconfig", npmrc],
+              capture_output=True, text=True, env=environment,
+          )
+          if query.returncode != 0:
+              message = (query.stderr or "") + (query.stdout or "")
+              if re.search(r"E404|404 Not Found|is not in this registry", message):
+                  print("registry_version_absent")
+                  raise SystemExit(0)
+              raise SystemExit("rejected_registry_query_failed:" + message.strip()[:200])
+          published = json.loads(query.stdout)
+          dist = (published.get("dist") or {}) if isinstance(published, dict) else {}
+          if dist.get("integrity") != integrity or dist.get("shasum") != shasum:
+              raise SystemExit("rejected_existing_package_differs")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write("PUBLISH_SKIPPED_IDENTICAL=true\n")
+          print("published_version_matches_accepted_receipt")
+          PY
+
+      - name: Publish the accepted tarball to GitHub Packages
+        if: env.PUBLISH_SKIPPED_IDENTICAL != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          npmrc="$RUNNER_TEMP/.npmrc"
+          printf "@rowlandl:registry=%s\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n" "$EXPECTED_REGISTRY" > "$npmrc"
+          npm publish "release-assets/$TARBALL_NAME" \
+            --registry "$EXPECTED_REGISTRY" \
+            --tag beta \
+            --userconfig "$npmrc"
+
+      - name: Read back the published version
+        if: env.PUBLISH_SKIPPED_IDENTICAL != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          npmrc="$RUNNER_TEMP/.npmrc"
+          printf "@rowlandl:registry=%s\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n" "$EXPECTED_REGISTRY" > "$npmrc"
+          npm view "$EXPECTED_PACKAGE@$NPM_VERSION" version dist.integrity \
+            --registry "$EXPECTED_REGISTRY" --userconfig "$npmrc"
