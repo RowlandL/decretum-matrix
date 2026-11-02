@@ -584,7 +584,7 @@ def check_install_path_convergence() -> dict[str, object]:
             "service_ensure_script",
         ):
             require(
-                Path(str(rebound[field])).parent == canonical_scripts,
+                Path(str(rebound[field])).parent.resolve() == canonical_scripts.resolve(),
                 f"{field} did not bind the canonical installed runtime root",
             )
         require(Path(str(rebound["shared_shiguan_root"])) == refs, "shared root was not rebound")

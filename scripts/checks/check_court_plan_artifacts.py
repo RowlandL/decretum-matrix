@@ -372,7 +372,9 @@ class RuntimePlanFlowTests(unittest.TestCase):
             self.assertEqual(rejected.stdout, '')
             self.assertIn('reason=mcp_runtime_root_not_bound_to_installation', rejected.stderr)
             recovery = json.loads(rejected.stderr.partition('next_step=')[2])
-            self.assertEqual(recovery['command'], [sys.executable, '-B', str(server_path)])
+            self.assertEqual(recovery['command'][:2], [sys.executable, '-B'])
+            self.assertEqual([Path(item).resolve() for item in recovery['command'][2:]],
+                             [Path(server_path).resolve()])
             server = subprocess.Popen([sys.executable, '-B', str(server_path)], env=server_env,
                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
             def rpc(message):

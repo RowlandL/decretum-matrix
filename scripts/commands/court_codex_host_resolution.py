@@ -62,6 +62,52 @@ def default_native_path() -> Path:
     return user_config_base() / "npm" / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
 
 
+APPLICABILITY_EXIT_CODE = 3
+APPLICABILITY_STATUS = "NOT_APPLICABLE_HOST_WITHOUT_NPM_CODEX"
+APPLICABILITY_SCHEMA = "court.codex_host_resolution.applicability.v1"
+
+
+def npm_shim_directories() -> list[Path]:
+    """PATH directories that expose an npm Codex shim (codex.cmd / codex.ps1)."""
+
+    found: list[Path] = []
+    for raw in os.environ.get("PATH", "").split(os.pathsep):
+        text = raw.strip('"')
+        if not text:
+            continue
+        directory = Path(text)
+        if not directory.is_dir():
+            continue
+        if (directory / "codex.cmd").is_file() or (directory / "codex.ps1").is_file():
+            found.append(directory)
+    return found
+
+
+def applicability_report(native_path: Path) -> dict[str, object]:
+    """Decide whether npm-shim host resolution applies to this host.
+
+    The npm-shim repair exists so CreateProcess cannot pick a stale desktop
+    executable ahead of an npm Codex shim. Applicability therefore needs both
+    premises: an npm shim on PATH and the npm-native vendor binary. Reporting an
+    absent premise is not the same as reporting the npm resolution healthy.
+    """
+
+    shims = npm_shim_directories()
+    native_present = bool(native_path.is_file())
+    applicable = bool(shims) and native_present
+    return {
+        "schema": APPLICABILITY_SCHEMA,
+        "applicable": applicable,
+        "status": "APPLICABLE_NPM_SHIM_HOST" if applicable else APPLICABILITY_STATUS,
+        "npm_shim_directories": [str(path) for path in shims],
+        "native_path": str(native_path),
+        "premises": {
+            "npm_shim_on_path": bool(shims),
+            "npm_native_vendor_binary": native_present,
+        },
+    }
+
+
 def default_front_path() -> Path:
     for raw in os.environ.get("PATH", "").split(os.pathsep):
         directory = Path(raw.strip('"')) if raw.strip('"') else None
@@ -206,7 +252,9 @@ def inspect_live(native_path: Path, front_path: Path) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--native-path", type=Path, default=default_native_path())
+    # None keeps "the user passed --native-path" observable; an explicit value that
+    # happens to equal the default must still count as an explicit probe.
+    parser.add_argument("--native-path", type=Path)
     parser.add_argument("--front-path", type=Path)
     parser.add_argument("--backup-root", type=Path)
     parser.add_argument("--repair", action="store_true")
@@ -214,17 +262,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
+    # A bare invocation is the live gate probe: without both npm premises there is
+    # nothing to verify, so report NOT_APPLICABLE instead of a traceback. Any
+    # explicit path argument is an explicit request for strict verification.
+    explicit_probe = args.front_path is not None or args.native_path is not None
+    native_path = args.native_path if args.native_path is not None else default_native_path()
+    applicability = applicability_report(native_path)
+    if not explicit_probe and not args.repair and applicability["applicable"] is not True:
+        report = dict(applicability)
+        report.update({
+            "ok": False,
+            "healthy": None,
+            "action": "NOT_APPLICABLE",
+            "repair": None,
+            "note": "npm-shim Codex host resolution has no premise on this host; no repair attempted",
+        })
+        print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        return APPLICABILITY_EXIT_CODE
+
     front = args.front_path or default_front_path()
     backup = args.backup_root or (references_root() / "host-capability-backups" / "codex-command-resolution")
     repair_result = None
     if args.repair:
         repair_result = ensure_front_link(
-            native_path=args.native_path,
+            native_path=native_path,
             front_path=front,
             backup_root=backup,
             prefer_symlink=not args.no_symlink,
         )
-    report = inspect_live(args.native_path, front)
+    report = inspect_live(native_path, front)
     report["repair"] = repair_result
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["healthy"] else 1

@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 from court_operation_journal import write_journal
 from court_public_api import has_replacement_characters
 from court_public_registry import invoke_public_tool, load_public_tools, validate_public_tool_arguments
-from shiguan_paths import _same_lexical_path, code_root, reference_path, runtime_installation_binding
+from shiguan_paths import _same_installed_root, code_root, reference_path, runtime_installation_binding
 from stdio_encoding import configure_stdin, configure_stdio
 
 
@@ -454,7 +454,7 @@ def main() -> int:
         binding = runtime_installation_binding()
         selected_roots = [Path(str(value)) for value in binding["selected_roots"]]
         if not any(
-            _same_lexical_path(ROOT, root) and _same_lexical_path(code_root(), root)
+            _same_installed_root(ROOT, root) and _same_installed_root(code_root(), root)
             for root in selected_roots
         ):
             next_step = json.dumps({

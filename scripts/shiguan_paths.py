@@ -203,6 +203,27 @@ def _same_lexical_path(left: Path, right: Path) -> bool:
     )
 
 
+def _same_installed_root(left: Path, right: Path) -> bool:
+    """Installation identity only: a short-name spelling and the long spelling name one root.
+
+    Topology slot matching must keep lexical locator semantics -- a compatibility
+    junction and its target are different entries -- so this helper is scoped to
+    installation/MCP root binding and refuses any path that traverses a reparse
+    point. Both sides must be reparse-free for the resolved comparison to apply.
+    """
+
+    if _same_lexical_path(left, right):
+        return True
+    try:
+        from refresh_capability_registry import _physical_directory
+
+        left_key = os.path.normcase(str(Path(_physical_directory(Path(left))).resolve()))
+        right_key = os.path.normcase(str(Path(_physical_directory(Path(right))).resolve()))
+    except (OSError, ValueError):
+        return False
+    return left_key == right_key
+
+
 def _same_physical_path(left: Path, right: Path) -> bool:
     try:
         return os.path.samefile(left, right)

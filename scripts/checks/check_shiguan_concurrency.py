@@ -42,6 +42,12 @@ CHECKPOINT_LOCK_TIMEOUT_SECONDS = 120.0
 CHECKPOINT_JOIN_TIMEOUT_SECONDS = 180.0
 
 
+def _same_path(left: Path, right: Path) -> bool:
+    """Compare file identity, not spelling: 8.3 short names name the same file."""
+
+    return Path(left).resolve() == Path(right).resolve()
+
+
 def _seed_worker(shared: str, window: str, reached: Any, release: Any, result: Any) -> None:
     import court_file_lock as locking
     import shiguan_paths as paths
@@ -77,7 +83,7 @@ def _seed_worker(shared: str, window: str, reached: Any, release: Any, result: A
     def scheduled_open(path, mode="r", *args, **kwargs):
         handle = real_open(path, mode, *args, **kwargs)
         # Retain the real failure control for the old final-name-first writer.
-        return ScheduledWriter(handle) if path == config and mode == "x" and window == "write" else handle
+        return ScheduledWriter(handle) if _same_path(path, config) and mode == "x" and window == "write" else handle
 
     def scheduled_mkstemp(*args, **kwargs):
         fd, name = real_mkstemp(*args, **kwargs)
@@ -91,7 +97,7 @@ def _seed_worker(shared: str, window: str, reached: Any, release: Any, result: A
         return ScheduledWriter(handle) if fd in candidate_fds and window == "write" else handle
 
     def scheduled_publish(source, target, **kwargs):
-        if Path(target) == config and window in {"commit", "exit"}:
+        if _same_path(Path(target), config) and window in {"commit", "exit"}:
             reached.set()
             if window == "exit":
                 os._exit(23)
@@ -985,6 +991,49 @@ def join_processes(processes: list[multiprocessing.Process], timeout: float) -> 
         raise AssertionError(f"workers timed out: {[process.pid for process in alive]}")
 
 
+def check_shared_root_topology_identity(root: Path) -> dict[str, object]:
+    """A committed dual-compatibility-junction receipt stays valid and never rewrites."""
+
+    import shiguan_paths as paths
+
+    if os.name != "nt":
+        return {"skipped": "NTFS junction topology is Windows-only"}
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / "home" / ".agents" / "court-shiguan" / "decretum-matrix"
+    (target / "references").mkdir(parents=True)
+    legacy_home = target.with_name("court-capability-router")
+    legacy_local = root / "local" / "court-shiguan" / "court-capability-router"
+    legacy_local.parent.mkdir(parents=True, exist_ok=True)
+    for legacy in (legacy_home, legacy_local):
+        legacy.mkdir(parents=True, exist_ok=True)
+        created = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(legacy / "references"), str(target / "references")],
+            capture_output=True, text=True,
+        )
+        if created.returncode != 0:
+            return {"skipped": f"junction unavailable: {(created.stderr or created.stdout).strip()[:160]}"}
+    with (
+        patch.object(paths, "default_shared_root", return_value=target),
+        patch.object(paths, "default_legacy_shared_root", return_value=legacy_local),
+        patch.dict(os.environ, {key: "" for key in paths.ROOT_ENV_KEYS}, clear=False),
+    ):
+        paths._ensure_physical_topology_receipt(target)
+        receipt = paths._load_topology_receipt(target)
+        marker = paths._load_topology_commit(target)
+        verified = paths._verified_physical_topology_receipt(
+            receipt, marker, legacy_root=legacy_home, target_root=target
+        )
+        assert verified is True, "committed dual-junction topology receipt was rejected"
+        with patch.object(paths, "_write_json_replace", wraps=paths._write_json_replace) as writer:
+            first = paths.shared_root()
+            second = paths.shared_root()
+        writes = writer.call_count
+    assert writes == 0, f"shared_root rewrote the topology receipt {writes} times"
+    assert first == second == target, (str(first), str(second))
+    return {"receipt_verified": True, "shared_root_calls": 2, "topology_writes": writes,
+            "selected": str(first), "legacy_entries": 2}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--targeted-only", action="store_true",
@@ -996,6 +1045,7 @@ def main() -> int:
         root = Path(raw)
         selected = (("seed_publication", check_seed_publication),) if args.seed_only else (
                             ("seed_publication", check_seed_publication),
+                            ("shared_root_topology_identity", check_shared_root_topology_identity),
                             ("graph_transaction", check_graph_transaction),
                             ("recall_snapshots", check_recall_snapshots),
                             ("recall_model_initialization", check_recall_model_initialization),

@@ -160,11 +160,94 @@ def _runtime_entry_checks(evidence: list[dict[str, object]]) -> list[tuple[str, 
                 else ["decretum-matrix", "install", "update", "--home-root", str(home), "--format", "json"]
             )
             expected_reason = "mcp_runtime_root_not_bound_to_installation" if label == "source_root" else "INSTALLATION_BINDING_"
-            recoverable = f"reason={expected_reason}" in result.stderr and next_step.get("command") == expected_command
+            # The bound entry is reported in its committed (resolved) spelling; compare
+            # identity, not spelling, while still requiring the exact interpreter and -B.
+            recorded_command = next_step.get("command")
+            command_matches = (
+                isinstance(recorded_command, list)
+                and len(recorded_command) == len(expected_command)
+                and all(
+                    Path(str(actual)).resolve() == Path(str(expected_value)).resolve()
+                    if index >= 2 else str(actual) == str(expected_value)
+                    for index, (actual, expected_value) in enumerate(zip(recorded_command, expected_command))
+                )
+            )
+            recoverable = f"reason={expected_reason}" in result.stderr and command_matches
             checks.append((f"mcp_normal_entry_{label}_recovery_action", recoverable))
             evidence.append({"case": label, "command": [sys.executable, "-B", str(entry)],
                              "exit": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
                              "recoverable": recoverable})
+        return checks
+    finally:
+        fixture.cleanup()
+
+
+def _short_name_spelling(path: Path) -> str | None:
+    """Return the Windows 8.3 short spelling of an existing path, or None when unavailable."""
+
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    function = ctypes.windll.kernel32.GetShortPathNameW
+    function.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    function.restype = wintypes.DWORD
+    buffer = ctypes.create_unicode_buffer(32768)
+    if not function(str(path), buffer, 32768):
+        return None
+    return buffer.value
+
+
+def _runtime_root_identity_checks(evidence: list[dict[str, object]]) -> list[tuple[str, bool]]:
+    """Installation identity: a short-name spelling is accepted, a junction alias is not."""
+
+    fixture, _home, server, env = _source_runtime_fixture()
+    try:
+        discover = json.dumps({"jsonrpc": "2.0", "id": "root-identity", "method": "server/discover"}) + "\n"
+        checks: list[tuple[str, bool]] = []
+        short = _short_name_spelling(server)
+        if short is None or short == str(server):
+            evidence.append({"case": "short_name_installation_entry",
+                             "skipped": "no distinct 8.3 short spelling available on this host"})
+            checks.append(("mcp_installed_entry_accepts_8_3_short_spelling", True))
+        else:
+            probe = subprocess.run(
+                [sys.executable, "-B", short], input=discover, cwd=ROOT, env=env,
+                text=True, encoding="utf-8", capture_output=True, timeout=120,
+            )
+            evidence.append({"case": "short_name_installation_entry", "command": [sys.executable, "-B", short],
+                             "exit": probe.returncode, "stdout_head": probe.stdout[:200],
+                             "stderr_tail": probe.stderr[-400:]})
+            checks.append(("mcp_installed_entry_accepts_8_3_short_spelling",
+                           probe.returncode == 0 and bool(probe.stdout.strip())))
+
+        installed_root = Path(server).parents[1]
+        alias = Path(fixture.name) / "alias-skill"
+        created = (
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(installed_root)],
+                           capture_output=True, text=True)
+            if os.name == "nt" else None
+        )
+        if created is None or created.returncode != 0:
+            evidence.append({"case": "junction_alias_installation_entry",
+                             "skipped": "directory junction unavailable on this host"})
+            checks.append(("mcp_installed_entry_rejects_junction_alias", True))
+        else:
+            alias_entry = alias / "scripts" / "court_mcp_server.py"
+            probe = subprocess.run(
+                [sys.executable, "-B", str(alias_entry)], input=discover, cwd=ROOT, env=env,
+                text=True, encoding="utf-8", capture_output=True, timeout=120,
+            )
+            rejected = (
+                probe.returncode == 2
+                and not probe.stdout
+                and "mcp_runtime_root_not_bound_to_installation" in probe.stderr
+            )
+            evidence.append({"case": "junction_alias_installation_entry", "command": [sys.executable, "-B", str(alias_entry)],
+                             "exit": probe.returncode, "stdout": probe.stdout[:200],
+                             "stderr_tail": probe.stderr[-400:], "rejected": rejected})
+            checks.append(("mcp_installed_entry_rejects_junction_alias", rejected))
         return checks
     finally:
         fixture.cleanup()
@@ -850,7 +933,15 @@ def _domain_ledger_transaction_checks() -> list[tuple[str, bool]]:
         real_run = domain_ledger_api.subprocess.run
 
         def reject_commit(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-            if command[:3] == ["git", "-C", str(repo)] and len(command) > 3 and command[3] == "commit":
+            # The ledger resolves its root before invoking Git, so match the repository
+            # by identity instead of by the unresolved fixture spelling.
+            targeted = (
+                len(command) > 3
+                and command[0] == "git"
+                and command[1] == "-C"
+                and Path(command[2]).resolve() == repo.resolve()
+            )
+            if targeted and command[3] == "commit":
                 return subprocess.CompletedProcess(command, 1, stdout="", stderr="fixture commit rejected")
             return real_run(command, **kwargs)
 
@@ -2036,6 +2127,7 @@ def run() -> dict[str, object]:
     checks.extend(_public_contract_checks())
     runtime_entry_evidence: list[dict[str, object]] = []
     checks.extend(_runtime_entry_checks(runtime_entry_evidence))
+    checks.extend(_runtime_root_identity_checks(runtime_entry_evidence))
     return {
         "schema": "decretum.mcp_stdio_adapter_check.v2",
         "scope": "SOURCE",

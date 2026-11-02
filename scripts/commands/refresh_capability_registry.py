@@ -644,6 +644,12 @@ def _path_key(path: Path) -> str:
     return os.path.normcase(os.path.abspath(os.fspath(path)))
 
 
+def _resolved_path_key(path: Path) -> str:
+    """Path identity key that also expands 8.3 short names and junctions."""
+
+    return _path_key(Path(path).resolve())
+
+
 def _path_is_link_or_reparse(path: Path) -> bool:
     try:
         value = path.lstat()
@@ -717,15 +723,19 @@ def installation_binding_errors(
     except ValueError:
         errors.append("INSTALLATION_BINDING_CANONICAL_ROOT_INVALID")
         return sorted(set(errors))
-    if _path_key(bound_canonical) != _path_key(expected_canonical):
+    # Short (ADMINI~1) and long spellings name the same directory; compare resolved
+    # identities so a committed binding is not rejected over path spelling alone.
+    expected_key = _resolved_path_key(expected_canonical)
+    if _resolved_path_key(bound_canonical) != expected_key:
         errors.append("INSTALLATION_BINDING_CANONICAL_ROOT_INVALID")
+    resolved_home = Path(home).resolve()
     selected = binding.get("selected_roots")
     selected_paths: list[Path] = []
     if isinstance(selected, list):
         for raw_path in selected:
             try:
-                selected_path = _physical_directory(Path(str(raw_path)))
-                selected_path.relative_to(home)
+                selected_path = _physical_directory(Path(str(raw_path))).resolve()
+                selected_path.relative_to(resolved_home)
             except (ValueError, TypeError):
                 errors.append("INSTALLATION_BINDING_SELECTED_ROOT_INVALID")
                 continue
@@ -733,7 +743,7 @@ def installation_binding_errors(
                 errors.append("INSTALLATION_BINDING_SELECTED_ROOTS_INVALID")
                 continue
             selected_paths.append(selected_path)
-    if not any(_path_key(path) == _path_key(expected_canonical) for path in selected_paths):
+    if not any(_path_key(path) == expected_key for path in selected_paths):
         errors.append("INSTALLATION_BINDING_PRIMARY_ROOT_MISSING")
     return sorted(set(errors))
 

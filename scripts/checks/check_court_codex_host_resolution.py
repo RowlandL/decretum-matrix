@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
+import court_codex_host_resolution as host_resolution
 from court_codex_host_resolution import (
     build_resolution_report,
     ensure_front_link,
@@ -91,6 +92,57 @@ def main() -> int:
         assert os.path.samefile(native, front)
 
     print("COURT_CODEX_HOST_RESOLUTION_OK")
+    # Applicability contract: a host without both npm premises must be told so
+    # explicitly, and that verdict must never be reported as a healthy npm
+    # resolution. Explicit path probes stay strict.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        absent_native = root / "vendor" / "codex.exe"
+        # The absent-premise verdict must not depend on this host's real PATH: pin it
+        # to a directory that provably holds no npm shim.
+        shimless_path = root / "shimless-path"
+        shimless_path.mkdir()
+        with patch.dict(os.environ, {"PATH": str(shimless_path)}, clear=False):
+            bare_report = host_resolution.applicability_report(absent_native)
+        assert bare_report["schema"] == host_resolution.APPLICABILITY_SCHEMA
+        assert bare_report["applicable"] is False
+        assert bare_report["status"] == host_resolution.APPLICABILITY_STATUS
+        assert bare_report["premises"] == {"npm_shim_on_path": False, "npm_native_vendor_binary": False}
+        shim_dir = root / "npm-prefix"
+        shim_dir.mkdir()
+        (shim_dir / "codex.cmd").write_text("@echo off\n", encoding="utf-8")
+        native_copy = root / "native" / "codex.exe"
+        native_copy.parent.mkdir()
+        native_copy.write_bytes(b"verified-native")
+        with patch.dict(os.environ, {"PATH": str(shim_dir)}, clear=False):
+            shim_report = host_resolution.applicability_report(native_copy)
+        assert shim_report["applicable"] is True
+        assert shim_report["status"] == "APPLICABLE_NPM_SHIM_HOST"
+        assert shim_report["npm_shim_directories"] == [str(shim_dir)]
+        with patch.dict(os.environ, {"PATH": str(shim_dir)}, clear=False):
+            half_report = host_resolution.applicability_report(absent_native)
+        assert half_report["applicable"] is False
+        assert half_report["premises"]["npm_shim_on_path"] is True
+
+    # Boundary: an explicit --native-path that equals the default value is still an
+    # explicit probe and must never be downgraded to the NOT_APPLICABLE verdict.
+    import io
+    from contextlib import redirect_stdout
+
+    default_equal = host_resolution.default_native_path()
+    with redirect_stdout(io.StringIO()):
+        try:
+            explicit_code = host_resolution.main(["--native-path", str(default_equal)])
+        except (RuntimeError, FileNotFoundError, OSError):
+            explicit_code = None
+    assert explicit_code != host_resolution.APPLICABILITY_EXIT_CODE
+
+    host_applicable = host_resolution.applicability_report(default_equal)["applicable"]
+    if host_applicable is not True:
+        with redirect_stdout(io.StringIO()):
+            bare_code = host_resolution.main([])
+        assert bare_code == host_resolution.APPLICABILITY_EXIT_CODE
+
     return 0
 
 

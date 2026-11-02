@@ -1,5 +1,32 @@
 # Changelog
 
+## Maintenance 2026-11-03 (same beta1.2.3 tree; no new version, no new tag, no published asset change)
+
+Source defects fixed (product code):
+
+- Windows 8.3 short names (`ADMINI~1`) are now handled as *installation identity* only: `shiguan_paths._same_installed_root` resolves and requires every path component to be reparse-free, and `court_mcp_server.main()` uses it for the installation-root binding check. The global `_same_lexical_path` keeps its lexical locator semantics, so a compatibility junction and its target remain distinct topology slots and a committed dual-junction receipt stays valid without rewrites.
+- `refresh_capability_registry.installation_binding_errors` compares resolved path identities (canonical root, selected roots, primary root) after `_physical_directory` rejects reparse points, so a committed binding is not rejected over path spelling alone.
+- `court_native_trace._static_niu_cat_read` rejects only a *leading* `~` (home expansion); a mid-path `~` from a Windows 8.3 short name is a literal path character.
+- `court_codex_host_resolution` gains an explicit applicability report: a bare invocation on a host without both npm premises (shim on PATH and npm-native vendor binary) returns a structured `NOT_APPLICABLE_HOST_WITHOUT_NPM_CODEX` with exit code 3 instead of a traceback. The release-gate manifest is deliberately unchanged, so the step still fails closed and no PASS is claimed; enabling an official N/A needs a coordinated manifest/policy change plus review.
+
+Test realism and regressions (no assertion removed, no timeout or threshold change):
+
+- `check_shiguan_concurrency`: seed-window interception compares path identity; new `shared_root_topology_identity` probe requires a committed dual-junction topology receipt to stay valid with zero `shared_root()` writes.
+- `check_court_mcp_server`: adds an 8.3-spelling acceptance probe and a junction-alias rejection probe for the installed entry, compares the recovery argv by resolved identity, and rejects Git commits by repository identity so the failed-commit path is observable again.
+- `check_court_plan_artifacts`: the recovery argv assertion requires the exact interpreter and `-B` and compares the script path by resolved identity.
+
+Environment residue (not a code defect):
+
+- A stale `scripts/__pycache__/release_gate_manifest.cpython-314.pyc` (24002 B) tripped the zero-budget `generated_runtime` hard fail in `check_source_state_budget`. The artifact was removed and the contract was left unchanged; no current gate entry point recreates it.
+
+Runtime-location finding (measured, contract untouched):
+
+- `cli_performance`, `package_privacy_regressions`, `court_plan_artifacts` and `court_intervention_matrix` were re-run on a local-storage snapshot with identical bytes and the original budgets: rc=0 in 39 s, 157 s, 144 s and 110 s respectively. The earlier SMB/UNC failures are therefore runtime-location effects; no threshold, timeout or check was relaxed.
+
+### Release payload manifest and maintenance docs sync (DONE)
+
+- Release payload manifest synced with the existing producer (`scripts/release_payload_manifest.py --write`): the pre-write `--check` was stale (rc=2), the post-write `--check` is rc=0, and `release-manifest.json` moved 22 insertions / 22 deletions. Affected checks re-run green: `release_manifest` (9 s), `release_metadata` (1 s), `catalog_strict` (5 s), `quick_validate` (17 s), `portability` (43 s), `release_payload_manifest --check` (107 s).
+
 ## beta1.2.3 - 2026-11-02 (local development complete, local commit adf50f9; unreleased)
 
 ### Changed

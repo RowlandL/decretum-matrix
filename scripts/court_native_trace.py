@@ -283,7 +283,10 @@ def _static_niu_cat_read(payload: str) -> str | None:
     if (
         not path
         or path.startswith('-')
-        or any(character in path for character in ('*', '?', '[', ']', '%', '~', '{', '}'))
+        # A Windows 8.3 short name (ADMINI~1) carries a literal ~ mid-path; only a
+        # leading ~ is home expansion, and a quoted literal never expands at all.
+        or path.startswith('~')
+        or any(character in path for character in ('*', '?', '[', ']', '%', '{', '}'))
         or '..' in re.split(r'[\\\\/]', path)
     ):
         return None

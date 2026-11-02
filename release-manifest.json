@@ -1383,8 +1383,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_codex_host_resolution.py",
-      "sha256": "c546b777c13a5c5b51896067e7734bbb888ebda7c0dfb347b7158fdbcdc878ea",
-      "size": 3198
+      "sha256": "094741d4b62f78c1ac71eb0e81b46684ad3cfe662e6446729cfc9e34a31a2cb0",
+      "size": 6041
     },
     {
       "mode": "100644",
@@ -1425,8 +1425,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_mcp_server.py",
-      "sha256": "c231bb25b3323a8fd557e47ae0e1841d2003ff18e7c8966f888c167b185d3663",
-      "size": 89266
+      "sha256": "00bf030d94c2ee3fd36aacc79b9076824463d0a7f99c22db877c78f9eba81690",
+      "size": 93878
     },
     {
       "mode": "100644",
@@ -1479,8 +1479,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_plan_artifacts.py",
-      "sha256": "57c4ae00d680bd3c456f7b1cc8fe5fa9cc2ad191bd047d9fb7a2d594fd7bf4ff",
-      "size": 28673
+      "sha256": "48f0c0ad3af39571319036067a59796b027aeca8a653c3e962bcd0ea312e68ea",
+      "size": 28808
     },
     {
       "mode": "100644",
@@ -1695,8 +1695,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_shiguan_concurrency.py",
-      "sha256": "04fa718ac47598e71ebb8f203a132d949c5e3d5cf9bb375631e8be230602913a",
-      "size": 52212
+      "sha256": "2232a86c1e0fe67becc936fabd29b51a9ab2447d2676c2cf0285727f7c267804",
+      "size": 54788
     },
     {
       "mode": "100644",
@@ -1761,8 +1761,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_shiguan_queue_and_autosync_safety.py",
-      "sha256": "f09e1499bf760879b89ec1dbb4b7e01e3ec6f10927ead32b08aada035bb5e62c",
-      "size": 47212
+      "sha256": "9c50cd0e1fa9f6ecf344243a1e01c5566976e479d1a90b996bf42687cb4c0c0f",
+      "size": 47232
     },
     {
       "mode": "100644",
@@ -1941,8 +1941,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/court_codex_host_resolution.py",
-      "sha256": "11bf22f0b14017955a8ef1186f19e1d8995719e7a64beb5c429d321aed80b88d",
-      "size": 7915
+      "sha256": "962c67a1d820a49a3d15fbba3e59a3e14ca9f88d0d9d410a24c6134bf3935d0d",
+      "size": 10691
     },
     {
       "mode": "100644",
@@ -2139,8 +2139,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/refresh_capability_registry.py",
-      "sha256": "5545b19ccd37726db6fb9474dc4cb1f753fdb6e65b5b7017030137d421c1294e",
-      "size": 82796
+      "sha256": "5814b05dd093fc329793ff55672bee2236b8218b49459d9a354779f5fa05c967",
+      "size": 83221
     },
     {
       "mode": "100644",
@@ -2307,8 +2307,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_mcp_server.py",
-      "sha256": "83122f3db2f7bc07db9ae1fecb3fc74dc1d9399cdd938b0529df2779e4d9170b",
-      "size": 19898
+      "sha256": "341ab8949c064dc202c4813d149795bfc4f04d4f17638f6cc964ced16643ce66",
+      "size": 19904
     },
     {
       "mode": "100644",
@@ -2343,8 +2343,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_native_trace.py",
-      "sha256": "957d6b045af8eeb6e3743e98434fb341a7c565e56bb81e8a3844f8f02fad6979",
-      "size": 23564
+      "sha256": "10a7b0ccd345f31ee097a08cc5a3788624572aa71a28cd68599f07586453866f",
+      "size": 23756
     },
     {
       "mode": "100644",
@@ -2817,8 +2817,8 @@
     {
       "mode": "100644",
       "path": "scripts/shiguan_paths.py",
-      "sha256": "834bcc22c889891080829415f0008189ebfdab136c9cc19154d7848708e335b3",
-      "size": 60894
+      "sha256": "510c3493cf537ec22c0f08158dfb1b0c1ab02ca511d726aa36fd2a6d3ce2e8d4",
+      "size": 61791
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9647575,
+    "payload_bytes": 9662057,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "46dbeb6c58c7719911082bd05f3a2f85a4c7fe1133e120cabe473353a9b30587",
+    "payload_index_sha256": "32a823abbb1aa15b9ec978f6616fed85195157c33d641afe4652b49137c38a68",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 697
   },
