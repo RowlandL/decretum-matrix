@@ -4844,32 +4844,43 @@ def run_agent_lifecycle_checks() -> None:
         TASK_SPECIFIC_SKILL_PATH = task_skill
         original_runtime_root = court_runtime.runtime_root
         court_runtime.runtime_root = lambda: fixture_root / "runtime"  # type: ignore[assignment]
+        # Every top-level checker keeps its own runtime sub-root: the checks are
+        # independent, and a shared ledger makes each later document rebuild grow
+        # with the accumulated task set. Order, count and assertions are unchanged;
+        # each checker still runs against a real runtime root it creates itself.
+        top_level_checks = (
+            check_create_model_selection_contract,
+            check_office_name_identity_binding,
+            check_assignment_binding_toctou_rejected,
+            check_dispatch_hierarchy_revalidated_before_start_write,
+            check_three_department_hierarchy_revalidated_before_start_write,
+            check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write,
+            check_admission_binding,
+            check_explicit_execution_budgets,
+            check_runtime_generates_bounded_child_profile,
+            check_caller_child_binding_digest_rejected_before_admission_write,
+            check_child_profile_tamper_rejected_before_start_write,
+            check_budget_lease_access_contract_allows_approved_subset,
+            check_child_access_contract_tamper_rejected_before_start_write,
+            check_dispatch_context_economy_contract,
+            check_terminal_and_identity,
+            check_unified_office_instance_lifecycle,
+            check_office_instance_proof_writer_and_attempt_guards,
+            check_office_instance_semantic_and_result_binding,
+            check_office_task_name_and_readiness_binding,
+            check_office_lifecycle_authority_guards,
+            check_same_second_office_report_event_ids_are_unique,
+            check_office_lifecycle_json_cli,
+            check_standard_case_decree_dispatch_guards,
+            check_office_cli_error_contract,
+            check_malformed_sibling_blocks_lifecycle_write,
+        )
         try:
-            check_create_model_selection_contract()
-            check_office_name_identity_binding()
-            check_assignment_binding_toctou_rejected()
-            check_dispatch_hierarchy_revalidated_before_start_write()
-            check_three_department_hierarchy_revalidated_before_start_write()
-            check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write()
-            check_admission_binding()
-            check_explicit_execution_budgets()
-            check_runtime_generates_bounded_child_profile()
-            check_caller_child_binding_digest_rejected_before_admission_write()
-            check_child_profile_tamper_rejected_before_start_write()
-            check_budget_lease_access_contract_allows_approved_subset()
-            check_child_access_contract_tamper_rejected_before_start_write()
-            check_dispatch_context_economy_contract()
-            check_terminal_and_identity()
-            check_unified_office_instance_lifecycle()
-            check_office_instance_proof_writer_and_attempt_guards()
-            check_office_instance_semantic_and_result_binding()
-            check_office_task_name_and_readiness_binding()
-            check_office_lifecycle_authority_guards()
-            check_same_second_office_report_event_ids_are_unique()
-            check_office_lifecycle_json_cli()
-            check_standard_case_decree_dispatch_guards()
-            check_office_cli_error_contract()
-            check_malformed_sibling_blocks_lifecycle_write()
+            for index, check in enumerate(top_level_checks):
+                case_root = fixture_root / f"case-{index:02d}" / "runtime"
+                case_root.mkdir(parents=True, exist_ok=True)
+                with patch.object(court_runtime, "runtime_root", lambda root=case_root: root):
+                    check()
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
             TASK_SPECIFIC_SKILL_PATH = None
