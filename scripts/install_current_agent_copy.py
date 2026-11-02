@@ -26,7 +26,7 @@ import uuid
 
 sys.dont_write_bytecode = True
 
-from court_file_lock import file_lock
+from court_file_lock import UnsafeLockPathError, file_lock
 from install_projection_renderer import (
     ActiveProjectionRenderError,
     RenderedActiveProjection,
@@ -151,6 +151,7 @@ _MISSING = object()
 INSTALL_LOCK_RELATIVE = PurePosixPath(
     ".agents/install-receipts/decretum-matrix/install.lock"
 )
+BINDING_LOCK_SEED = b"court.installation_binding.v2 commit lock\n"
 
 
 class _InstallContractError(RuntimeError):
@@ -425,26 +426,73 @@ def _validate_external_acceptance(
     return None
 
 
-@contextmanager
-def _binding_commit_lock(path: Path):
-    lock = path.with_name(f".{path.name}.lock")
+def _prepare_binding_lock_file(lock: Path) -> None:
+    """Refuse a linked lock entry, then own a regular seed file.
+
+    The OS lock primitive follows links and seeds an empty file with a NUL
+    byte, so a planted link would reach a file outside HOME. The lock entry is
+    therefore validated and created here with exclusive-create semantics that
+    never follow a link, exactly like the HOME install lock preflight.
+
+    court_file_lock.file_lock now opens this entry through a verified
+    descriptor, so a link planted before or during the open is refused before
+    any byte is written; this preflight only keeps the install-specific reason
+    code for the pre-planted case.
+    """
+
+    lock.parent.mkdir(parents=True, exist_ok=True)
     try:
         descriptor = os.open(
             os.fspath(lock),
             os.O_CREAT | os.O_EXCL | os.O_WRONLY,
             0o600,
         )
-    except FileExistsError as exc:
-        raise _InstallContractError("installation_binding_busy", str(lock)) from exc
-    try:
-        os.write(descriptor, b"court.installation_binding.v2 commit\n")
-        yield
-    finally:
-        os.close(descriptor)
+    except FileExistsError:
+        pass
+    except OSError as exc:
+        raise _InstallContractError("installation_binding_lock_path_invalid", str(lock)) from exc
+    else:
         try:
-            lock.unlink()
-        except FileNotFoundError:
-            pass
+            os.write(descriptor, BINDING_LOCK_SEED)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    info = lock.lstat()
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    unsafe = (
+        stat.S_ISLNK(info.st_mode)
+        or (reparse and getattr(info, "st_file_attributes", 0) & reparse)
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_nlink > 1
+    )
+    if unsafe:
+        raise _InstallContractError("installation_binding_lock_path_invalid", str(lock))
+
+
+@contextmanager
+def _binding_commit_lock(path: Path, *, timeout: float = 5.0):
+    """Serialize one binding commit through the existing OS lock primitive.
+
+    Ownership is the byte lock a live process holds, not the presence of the
+    lock file, so a killed holder releases it instead of leaving every later
+    commit permanently "installation_binding_busy".
+    """
+
+    lock = path.with_name(f".{path.name}.lock")
+    _prepare_binding_lock_file(lock)
+    try:
+        with file_lock(lock, timeout=timeout):
+            if (
+                lock.lstat().st_nlink != 1
+                or lock.is_symlink()
+                or _is_junction(lock)
+            ):
+                raise _InstallContractError("installation_binding_lock_path_invalid", str(lock))
+            yield
+    except UnsafeLockPathError as exc:
+        raise _InstallContractError("installation_binding_lock_path_invalid", str(lock)) from exc
+    except TimeoutError as exc:
+        raise _InstallContractError("installation_binding_busy", str(lock)) from exc
 
 
 def _previous_binding_generation(home_root: Path) -> int:

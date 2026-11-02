@@ -1,5 +1,13 @@
 # Release Log
 
+## beta1.2.3
+
+- 范围为安装入口定位与 binding 锁生命周期：F10 前置全局 `--format` 不再遮蔽 install 组；F12 binding 提交锁复用既有 OS 文件锁，异常退出后的持久 busy 消除，活跃持有者互斥保留。
+- 发布链路修复：`npm publish` 使用绝对本地 tarball 路径；裸相对路径曾被解析为 hosted git shorthand，是 beta1.2.2 `PUBLISH_FAILED` 的根因。
+- court_runtime 提交路径去掉同事务重复序列化；保留 schema/迁移/前后像校验与 300s 门禁。
+- 版本标识为 `beta1.2.3`；公开 semver 由既有机制派生为 1.2.3-beta.0，不修改 derive 或发布流程。
+- 状态：本行为开发中候选；真实 GitHub Packages 发布、同提交 CI 六任务、真实安装与 native runtime admission 均未回读，保持 NOT_RUN / NOT_ESTABLISHED。
+
 ## beta1.2.2
 
 - 范围为公共边界三链路：F09 操作失败传播到 public API 退出状态、MCP ok/isError 与审计；F16 旧 shiguan.query 复用元数据白名单；F18 court status 严格拒绝未知参数、缺值、非法 view，help 不触达状态后端。

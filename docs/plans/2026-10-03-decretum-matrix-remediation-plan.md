@@ -40,7 +40,7 @@
 | beta1.2.0 | 语义与计划绑定 | F04、F05、F06 | 修复 | 计划内 | [beta1.2.0.md](2026-10-03-remediation/beta1.2.0.md) | — |
 | beta1.2.1 | superCC 事实回执 | F07、F08 | 修复 | 计划内 | [beta1.2.1.md](2026-10-03-remediation/beta1.2.1.md) | — |
 | beta1.2.2 | 公共接口与审计 | F09、F16、F18 | 修复 | 计划内 | [beta1.2.2.md](2026-10-03-remediation/beta1.2.2.md) | 统一决策契约与宿主回退；职责与统一任务结构契约 |
-| beta1.2.3 | 安装入口与锁生命周期 | F10、F12 | 修复 | 计划内 | [beta1.2.3.md](2026-10-03-remediation/beta1.2.3.md) | — |
+| beta1.2.3 | 安装入口与锁生命周期 | F10、F12 | 修复 | 实施中（F10/F12 工作树已实现，待复核与提交） | [beta1.2.3.md](2026-10-03-remediation/beta1.2.3.md) | — |
 | beta1.2.4 | 安装恢复语义与首装说明 | F11、F21 | 修复 | 计划内 | [beta1.2.4.md](2026-10-03-remediation/beta1.2.4.md) | — |
 | beta1.2.5 | 常驻日志维护 | F13 | 修复 | 计划内 | [beta1.2.5.md](2026-10-03-remediation/beta1.2.5.md) | — |
 | beta1.2.6 | 召回刷新与 LAN 下载 | F14、F15 | 修复 | 计划内 | [beta1.2.6.md](2026-10-03-remediation/beta1.2.6.md) | 条件召回与追加式记忆 |
@@ -251,6 +251,8 @@
 | F12 | binding O_EXCL sentinel 残留导致后续 busy | `scripts/install_current_agent_copy.py:386` | 复用既有 OS 锁释放机制；与 F02 分别验收 |
 
 **版本出口**：参数排列正例（含前置 format）与异常退出后重入正例均通过。
+
+**本版实施状态（2026-11-02，工作树，未提交）**：F10/F12 已在 `release/beta1.2.3` 工作树实现并有隔离子进程正/负例；发布参数（beta1.2.2 `PUBLISH_FAILED` 根因）与 court_runtime 提交路径重复序列化同版修复。真实 GitHub Packages 发布、同提交 CI、真实安装与 native runtime admission 均未回读，保持 NOT_RUN / NOT_ESTABLISHED；`release-manifest.json` 的 `files` 索引仍为上一版内容，须由既有发布工具在发布时重新生成。
 
 ## 十、beta1.2.4 · 安装恢复语义与首装说明
 

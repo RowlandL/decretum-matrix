@@ -1002,10 +1002,10 @@ def check_assessment_cli_cas_idempotency_and_rollback() -> None:
     original_write = court_runtime.write_tasks
     original_append = court_runtime.append_event
 
-    def counted_write(value: dict[str, dict[str, object]]) -> None:
+    def counted_write(value: dict[str, dict[str, object]], document: str | None = None) -> None:
         nonlocal writes
         writes += 1
-        original_write(value)
+        original_write(value, document)
 
     def counted_append(value: dict[str, object]) -> None:
         nonlocal events
@@ -1363,10 +1363,10 @@ def check_atomic_complete_and_exact_rollback() -> None:
     original_write = court_runtime.write_tasks
     original_append = court_runtime.append_event
 
-    def counted_write(value: dict[str, dict[str, object]]) -> None:
+    def counted_write(value: dict[str, dict[str, object]], document: str | None = None) -> None:
         nonlocal writes
         writes += 1
-        original_write(value)
+        original_write(value, document)
 
     def counted_append(value: dict[str, object]) -> None:
         nonlocal events
@@ -1957,10 +1957,10 @@ def check_cli_compare_and_swap() -> None:
     original_write = court_runtime.write_tasks
     original_append = court_runtime.append_event
 
-    def counted_write(value: dict[str, dict[str, object]]) -> None:
+    def counted_write(value: dict[str, dict[str, object]], document: str | None = None) -> None:
         nonlocal writes
         writes += 1
-        original_write(value)
+        original_write(value, document)
 
     def counted_append(value: dict[str, object]) -> None:
         nonlocal events

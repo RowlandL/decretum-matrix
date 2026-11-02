@@ -66,7 +66,12 @@
 
 | 日期 | 动作 | 证据位置 | 结果 |
 | --- | --- | --- | --- |
-| — | — | — | — |
+| 2026-11-02 | 基线复现（F10）：隔离 HOME 下 `install --help` exit=0 进入安装驱动；`--format text install --help` 与 `--format=json install --help` exit=1 `installation_binding_missing_or_invalid` | `scripts/checks/check_install_current_agent_copy.py` `check_launcher_install_group_location` | 复现 |
+| 2026-11-02 | F10 修复：launcher 先按既有全局规则消费 `--format` / `--format=`，再定位子组；安装驱动只收组后参数 | `bin/decretum-matrix.py` | 已实现，5 个正例排列 + 2 个非法取值负例通过 |
+| 2026-11-02 | 基线复现（F12）：真实持锁子进程被 kill 后 `.<binding>.lock` 残留，下一次提交 `STALE_BUSY:installation_binding_busy` | `check_binding_commit_lock_lifecycle` 隔离探针 | 复现 |
+| 2026-11-02 | F12 修复：binding 提交锁改用既有 `court_file_lock.file_lock`；锁归属为活进程 OS 字节锁 | `scripts/install_current_agent_copy.py` | 已实现；kill 后下一次提交成功，活跃持有者仍 `installation_binding_busy` |
+| 2026-11-02 | F02 联合回归：HOME 安装锁被真实子进程持有时 binding 提交在锁内失败关闭 | `check_binding_commit_lock_lifecycle` | 通过（`installation_busy`，未触碰文件） |
+| 2026-11-02 | 版本标识 beta1.2.3 同步：VERSION/SKILL/plugin/SBOM/release-manifest/github release metadata/legal+metadata 常量/CHANGELOG/RELEASE-LOG | `scripts/checks/check_release_metadata.py --json` | PASSED |
 
 ## 发布与 CI 验证（按总纲 26.1）
 

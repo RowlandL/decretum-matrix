@@ -1,5 +1,25 @@
 # Changelog
 
+## beta1.2.3 - 2026-11-02 (candidate; SOURCE in development)
+
+### Changed
+
+- F10 安装入口定位：`bin/decretum-matrix.py` 先按公共 CLI 的既有全局规则消费 `--format`（含 `--format=...`），再定位子组；前置全局参数不再遮蔽 install 组。`format` 前置/置后/缺省三种排列均进入安装驱动并保持帮助与既有参数契约，非法取值与缺值给出明确的 `--format` 错误；非 install 组仍按缺 binding 失败关闭。
+- F12 binding 提交锁：`scripts/install_current_agent_copy.py` 的 binding 提交改为复用既有 `court_file_lock.file_lock`，`O_EXCL` 哨兵删除。锁归属是活进程持有的 OS 字节锁，不是锁文件是否存在；持有者被 kill 后不再留下持久 `installation_binding_busy`，活跃持有者与 `installation_busy` 语义保持不变。
+- 发布参数：`.github/workflows/publish-packages.yml` 的 `npm publish` 改传 `$PWD/release-assets/<tgz>` 绝对本地路径，避免裸相对路径被当作 hosted git shorthand（beta1.2.2 `github_packages.status=PUBLISH_FAILED` 的原因）；registry、dist-tag、receipt 校验、同提交 CI 前置与权限边界不变。
+- court_runtime 提交路径：`_commit_task_event` 在一次持锁事务内只计算一次持久化文档，并把它同时用于 `ledger_pair_write` 前后像、写盘与提交后校验；不再对同一事务重复全量加载/规范化/序列化。schema、迁移、事务与前后像校验、300s 门禁与本版断言不变。
+
+### Fixed
+
+- F10（P2）：`--format text install ...` / `--format=json install ...` 不再误报 `installation_binding_missing_or_invalid`。
+- F12（P2）：真实持锁子进程 kill/中断后，下一次正常 binding 提交成功；真实活跃持有者仍互斥（回归 beta1.1.9 F02 全过程锁范围）。
+
+### Validation boundary
+
+- 新增回归落在既有模块：`scripts/checks/check_install_current_agent_copy.py`（F10 隔离子进程排列矩阵、F12 真实持锁与 kill 释放、F02 锁范围）、`scripts/checks/check_release_gate.py`（隔离 npm 替身回放真实 workflow 的 `npm publish` argv）。
+- `court_runtime` 300s 门禁在本基线未复现超时：隔离 HOME 下 46.51s 以 `installation_binding_path_invalid` 提前失败（需真实已安装 binding），故只量化提交路径热区（48 任务 / 3.72MB 账本 / 40 提交：文档计算 80→40 次、墙钟 −27.4%），不宣称端到端门禁已通过。
+- 未执行真实 GitHub Packages 发布、同提交 CI、真实宿主安装与真实 native runtime admission；相关能力保持 `PLANNED_UNVERIFIED`。
+
 ## beta1.2.2 - 2026-11-01 (candidate; SOURCE in development)
 
 ### Changed

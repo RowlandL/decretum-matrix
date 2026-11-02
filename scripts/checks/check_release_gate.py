@@ -759,6 +759,159 @@ def run_log_capture_self_test() -> dict[str, bool]:
                 os.environ["COURT_RELEASE_GATE_LOG_ROOT"] = previous
 
 
+PUBLISH_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "publish-packages.yml"
+PUBLISH_STEP_NAME = "Publish the accepted tarball to GitHub Packages"
+PUBLISH_FIXTURE_TARBALL = "rowlandl-decretum-matrix-1.2.3-beta.0.tgz"
+PUBLISH_FIXTURE_REGISTRY = "https://npm.pkg.github.com"
+PUBLISH_FIXTURE_TOKEN = "ghs_placeholder_not_a_secret"
+PUBLISH_VALUE_FLAGS = {"--registry", "--tag", "--userconfig", "--access", "--otp"}
+
+
+def _publish_step_script(source: str) -> str:
+    """Return the dedented shell body of the npm publish step."""
+
+    lines = source.splitlines()
+    header = next((index for index, line in enumerate(lines)
+                   if line.strip() == "- name: " + PUBLISH_STEP_NAME), None)
+    if header is None:
+        raise AssertionError("publish_workflow_step_missing")
+    run_index = None
+    for index in range(header + 1, len(lines)):
+        if lines[index].strip() == "run: |":
+            run_index = index
+            break
+        if lines[index].strip().startswith("- "):
+            break
+    if run_index is None:
+        raise AssertionError("publish_workflow_run_block_missing")
+    base = len(lines[run_index]) - len(lines[run_index].lstrip())
+    block: list[str] = []
+    for line in lines[run_index + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) <= base:
+            break
+        block.append(line)
+    while block and not block[-1].strip():
+        block.pop()
+    trims = [len(line) - len(line.lstrip()) for line in block if line.strip()]
+    if not trims:
+        raise AssertionError("publish_workflow_run_block_empty")
+    trim = min(trims)
+    return "\n".join(line[trim:] if line.strip() else "" for line in block) + "\n"
+
+
+def _posix_shell() -> str | None:
+    """Return a POSIX shell the real workflow step can be replayed under."""
+
+    found = shutil.which("bash") or shutil.which("sh")
+    if found:
+        return found
+    program_files = Path(os.environ.get("ProgramFiles") or "C:/Program Files")
+    for candidate in (
+        program_files / "Git" / "bin" / "bash.exe",
+        program_files / "Git" / "usr" / "bin" / "sh.exe",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def _is_local_tarball_operand(value: str, name: str) -> bool:
+    """True when npm reads the operand as a local file rather than a spec."""
+
+    if not value or value != value.strip():
+        return False
+    return value.startswith(("/", "./", "~/")) and Path(value).name == name
+
+
+def _npm_publish_operands(argv: list[str]) -> list[str]:
+    """Return the positional operands of a captured npm argv tuple."""
+
+    operands: list[str] = []
+    index = 1
+    while index < len(argv):
+        item = argv[index]
+        if item in PUBLISH_VALUE_FLAGS:
+            index += 2
+            continue
+        if item.startswith("-"):
+            index += 1
+            continue
+        operands.append(item)
+        index += 1
+    return operands
+
+
+def run_publish_argv_self_test() -> dict[str, bool]:
+    """Replay the real publish step against an isolated npm stand-in."""
+
+    script = _publish_step_script(PUBLISH_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    cases: dict[str, bool] = {
+        "bare_relative_operand_rejected": not _is_local_tarball_operand(
+            "release-assets/" + PUBLISH_FIXTURE_TARBALL, PUBLISH_FIXTURE_TARBALL
+        ),
+    }
+    shell = _posix_shell()
+    cases["posix_shell_available"] = shell is not None
+    if shell is None:
+        cases["publish_argv_captured"] = False
+        return cases
+    with tempfile.TemporaryDirectory(prefix="publish-argv-") as temporary:
+        work = Path(temporary).resolve()
+        stub_dir = work / "stub-bin"
+        stub_dir.mkdir()
+        runner_temp = work / "runner-temp"
+        runner_temp.mkdir()
+        release = work / "release-assets"
+        release.mkdir()
+        (release / PUBLISH_FIXTURE_TARBALL).write_bytes(b"fixture-tarball")
+        capture = work / "captured-argv.txt"
+        stub = stub_dir / "npm"
+        stub.write_text('#!/bin/sh\nfor arg in "$@"; do printf "%s\\n" "$arg"; done > "$CAPTURE_PATH"\n', encoding="utf-8")
+        stub.chmod(0o755)
+        environment = {
+            "PATH": str(stub_dir) + os.pathsep + os.environ.get("PATH", ""),
+            "CAPTURE_PATH": str(capture),
+            "EXPECTED_REGISTRY": PUBLISH_FIXTURE_REGISTRY,
+            "TARBALL_NAME": PUBLISH_FIXTURE_TARBALL,
+            "RUNNER_TEMP": str(runner_temp),
+            "NODE_AUTH_TOKEN": PUBLISH_FIXTURE_TOKEN,
+            "PUBLISH_SKIPPED_IDENTICAL": "",
+        }
+        completed = subprocess.run(
+            [shell, "-c", script],
+            cwd=str(work), env=environment, capture_output=True, text=True, timeout=180,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(
+                "publish_step_replay_failed:"
+                + (completed.stderr or completed.stdout).strip()[-300:]
+            )
+        argv = capture.read_text(encoding="utf-8").split()
+        if not argv:
+            raise AssertionError("publish_argv_not_captured")
+        cases["publish_subcommand_first"] = argv[0] == "publish"
+        operands = _npm_publish_operands(argv)
+        cases["single_positional_operand"] = len(operands) == 1
+        operand = operands[0] if operands else ""
+        cases["operand_is_local_path"] = _is_local_tarball_operand(
+            operand, PUBLISH_FIXTURE_TARBALL
+        )
+        cases["operand_is_release_asset"] = operand.endswith(
+            "/release-assets/" + PUBLISH_FIXTURE_TARBALL
+        )
+        cases["operand_exists_on_disk"] = subprocess.run(
+            [shell, "-c", 'test -f "$1"', "sh", operand],
+            cwd=str(work), capture_output=True, timeout=60,
+        ).returncode == 0
+        cases["registry_flag"] = (
+            "--registry" in argv and PUBLISH_FIXTURE_REGISTRY in argv
+        )
+        cases["dist_tag_flag"] = "--tag" in argv and "beta" in argv
+        cases["userconfig_flag"] = "--userconfig" in argv
+        cases["token_kept_out_of_argv"] = PUBLISH_FIXTURE_TOKEN not in argv
+    return cases
+
+
 def run_step(
     name: str,
     command: list[str],
@@ -2068,12 +2221,14 @@ def main() -> int:
             candidate_evidence_self_test = run_candidate_evidence_self_test()
             ci_summary_self_test = run_ci_summary_self_test()
             log_capture_self_test = run_log_capture_self_test()
+            publish_argv_self_test = run_publish_argv_self_test()
             result = {
                 "ok": (
                     all(domain_contract_self_test.values())
                     and all(candidate_evidence_self_test.values())
                     and all(ci_summary_self_test.values())
                     and all(log_capture_self_test.values())
+                    and all(publish_argv_self_test.values())
                 ),
                 "schema": "court.release_gate.self_test.v1",
                 "manifest_self_test": manifest_self_test,
@@ -2082,6 +2237,7 @@ def main() -> int:
                 "candidate_evidence_self_test": candidate_evidence_self_test,
                 "ci_summary_self_test": ci_summary_self_test,
                 "log_capture_self_test": log_capture_self_test,
+                "publish_argv_self_test": publish_argv_self_test,
             }
         except AssertionError as exc:
             result = {
@@ -2093,6 +2249,7 @@ def main() -> int:
                 "candidate_evidence_self_test": {"status": "FAILED", "error": str(exc)},
                 "ci_summary_self_test": {"status": "FAILED", "error": str(exc)},
                 "log_capture_self_test": {"status": "FAILED", "error": str(exc)},
+                "publish_argv_self_test": {"status": "FAILED", "error": str(exc)},
             }
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

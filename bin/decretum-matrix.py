@@ -356,6 +356,51 @@ def runtime_identity_probe(
 
 
 INSTALL_COMMAND = "install"
+GLOBAL_FORMAT_OPTION = "--format"
+GLOBAL_FORMAT_PREFIX = "--format="
+GLOBAL_FORMAT_VALUES = frozenset({"text", "json"})
+
+
+def _strip_global_format(argv: list[str]) -> list[str]:
+    """Consume the documented global format option, keeping argument order.
+
+    The public CLI treats --format as the only option that may precede a
+    group, so the launcher must read it the same way before it locates the
+    group; otherwise a leading --format hides the install group and the
+    install payload reports a missing binding instead of installing.
+    """
+
+    remaining: list[str] = []
+    output_format: str | None = None
+    index = 0
+    while index < len(argv):
+        value = argv[index]
+        if value == GLOBAL_FORMAT_OPTION:
+            if index + 1 >= len(argv):
+                raise LauncherError("--format requires text or json")
+            output_format = argv[index + 1]
+            index += 2
+            continue
+        if value.startswith(GLOBAL_FORMAT_PREFIX):
+            output_format = value.split("=", 1)[1]
+            index += 1
+            continue
+        remaining.append(value)
+        index += 1
+    if output_format is not None and output_format not in GLOBAL_FORMAT_VALUES:
+        raise LauncherError("--format must be text or json")
+    return remaining
+
+
+def _group_index(argv: list[str]) -> int:
+    """Return the index of the first token that is not an option."""
+
+    index = 0
+    while index < len(argv):
+        if not argv[index].startswith("-"):
+            return index
+        index += 1
+    return -1
 
 
 def _dispatch_install(package_root: Path, forwarded: list[str]) -> int:
@@ -383,14 +428,18 @@ def main(argv: list[str] | None = None) -> int:
     effective_argv = sys.argv[1:] if argv is None else argv
     if effective_argv == ["--npm-postinstall"]:
         raise LauncherError("npm_postinstall_disabled")
-    if effective_argv[:1] == [INSTALL_COMMAND]:
-        return _dispatch_install(package_root, effective_argv[1:])
+    forwarded = _strip_global_format(effective_argv)
+    group = _group_index(forwarded)
+    if group >= 0 and forwarded[group] == INSTALL_COMMAND:
+        return _dispatch_install(package_root, forwarded[:group] + forwarded[group + 1:])
     runtime_root, runtime_binding = _select_runtime(package_root)
     if effective_argv == ["--runtime-identity"]:
         print(json.dumps(runtime_binding, ensure_ascii=False, sort_keys=True))
         return 0
     cli = runtime_root / "scripts" / "court_cli.py"
     sys.path.insert(0, str(cli.parent))
+    # Every group other than install consumes the global --format itself, so
+    # the runtime CLI receives the caller argv unchanged.
     sys.argv = [str(cli), *effective_argv]
     runpy.run_path(str(cli), run_name="__main__")
     return 0

@@ -1,7 +1,7 @@
 {
   "archive_root": "decretum-matrix/",
-  "artifact_name": "decretum-matrix-beta1.2.2.zip",
-  "attestation_name": "decretum-matrix-beta1.2.2.release-attestation.json",
+  "artifact_name": "decretum-matrix-beta1.2.3.zip",
+  "attestation_name": "decretum-matrix-beta1.2.3.release-attestation.json",
   "authors": "AUTHORS.md",
   "build": {
     "atomic_publish": "same_directory_hard_link_no_replace",
@@ -16,12 +16,12 @@
   "contributing": "CONTRIBUTING.md",
   "contributor_license_agreement": "CLA.md",
   "display_name": "Decretum Matrix（诏令矩阵）",
-  "expected_final_tag": "refs/tags/beta1.2.2",
+  "expected_final_tag": "refs/tags/beta1.2.3",
   "files": [
     {
       "mode": "100644",
       "path": ".codex-plugin/plugin.json",
-      "sha256": "74d3cd1029c2881d284374d67bce42de381271de2d07519cba17077abe6a7c2b",
+      "sha256": "3cc9459736b38d26c19aaba4d112b36dd964e1c0b061c7eb0bfb22514ee2bdf4",
       "size": 730
     },
     {
@@ -87,13 +87,13 @@
     {
       "mode": "100644",
       "path": "README.md",
-      "sha256": "14fa5646c27c9ce7ee4ee694779aa12fe13201381f64a9a797a52a12cb66aee1",
+      "sha256": "3b525232b943c834cd7f27ace5b54ee66e1b8786640d1604eb23a9642bb062f0",
       "size": 11681
     },
     {
       "mode": "100644",
       "path": "SBOM.spdx.json",
-      "sha256": "fb27a8115e6df320b6627084eb0a720fbb583c62606e8736833b3203263ae26f",
+      "sha256": "799deb1f49a57af24a025c0ad7fb2f1cae6830bf6e8321373a1f5362df7a91a0",
       "size": 875
     },
     {
@@ -105,7 +105,7 @@
     {
       "mode": "100644",
       "path": "SKILL.md",
-      "sha256": "927f49aad46f02036318bf2d74a2d11f942c11e943a07ef8d828c68bb08b22b7",
+      "sha256": "d0ca9e3eb159e86d5deebcc09ce59878b81c9ccc1f422cbfe0e13fac288b9229",
       "size": 9213
     },
     {
@@ -123,7 +123,7 @@
     {
       "mode": "100644",
       "path": "VERSION",
-      "sha256": "b55528fcb7c121423b002f2f8e1653314223a56bfbddfa612cdb4f3f29b36376",
+      "sha256": "6f6929a7b8891ebf3cb2a83f32cf7658889a703076f7b119f37d08a3b0ddc3fd",
       "size": 10
     },
     {
@@ -417,8 +417,8 @@
     {
       "mode": "100644",
       "path": "bin/decretum-matrix.py",
-      "sha256": "dab998152250bc0cd711bbbd3b64f590859fe313475d317e5737b72163064525",
-      "size": 13361
+      "sha256": "3da37c3e4367cb99b4e5860ad09f2bb0cfdedaab03620a6c20554455daa36fb4",
+      "size": 15167
     },
     {
       "mode": "100644",
@@ -537,7 +537,7 @@
     {
       "mode": "100644",
       "path": "references/install.md",
-      "sha256": "4c5bb40b735b69de2a5b1bbae86632fb1dafce7879d200cedf882a180aac635e",
+      "sha256": "3c2435675d0baee6dd93b7fef5544860e3f155a32f0e2a856021488f301a0afd",
       "size": 10668
     },
     {
@@ -567,8 +567,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/github-release-metadata.v1.json",
-      "sha256": "cb0cd603380f95ce917eb1d7bf1a2cc2b864a16bea4b3d3e1c86549c9792ea81",
-      "size": 26559
+      "sha256": "30482909e067d5fdb2fc439b74a295f5a0e65ee4066e21d3c47879ed0b554636",
+      "size": 28007
     },
     {
       "mode": "100644",
@@ -591,7 +591,7 @@
     {
       "mode": "100644",
       "path": "references/manifests/skill-identity.v1.json",
-      "sha256": "aef64e6d01c4c23f4e65534e1ba6b3a8660e3ac74ff99b688139720cb0330e9d",
+      "sha256": "8d02816f4cc08308216a2289457d99841d50b0c8cd43634e4603aeed53d681ca",
       "size": 1435
     },
     {
@@ -1359,8 +1359,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_agent_lifecycle.py",
-      "sha256": "5df2a727a32a3f257ea1b77b8cb167cd597edc8c83ef612830ca092183f5cc96",
-      "size": 209704
+      "sha256": "1c0aba6d7b085affb9cc9e95901ec41fbe85a3e50d7764d7bcd01696c2a5c58f",
+      "size": 209871
     },
     {
       "mode": "100644",
@@ -1503,8 +1503,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_court_runtime_completion.py",
-      "sha256": "e5decd9a5b104b5276f60cba25fc636f91967759433dc04fbf8716ea5933920b",
-      "size": 93256
+      "sha256": "92a32dcadd797e2c6685b9cb8ddc55ba5d8659249c7e98d7f6ee6a020361939c",
+      "size": 93373
     },
     {
       "mode": "100644",
@@ -1563,8 +1563,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_current_agent_copy.py",
-      "sha256": "def9bfd18b2e81810344c8a823173f79a3d49aa4e2054dbdf4f550fa1826ef12",
-      "size": 228212
+      "sha256": "96de6a8fc7c578ff3db86a321325eedfd7f79cdd7dfd70f447cfb790ecad494b",
+      "size": 241630
     },
     {
       "mode": "100644",
@@ -1635,13 +1635,13 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_gate.py",
-      "sha256": "53b5252ac73678ac13eed1fac313fc15a7aaab7375f62f217912701f107011a8",
-      "size": 102872
+      "sha256": "30ff91aaaee08e40cb70f3a6a2493ef8d1121908d7ef3521e09f544aa9024e71",
+      "size": 109225
     },
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_legal.py",
-      "sha256": "88d4d2cf12dbe62861dcf7c35d223a2226f82d0955f828922a4a4f16f1a5a21c",
+      "sha256": "40a7d2d026d4818bc43009e7912e2f312446daef8b594bbf635b7b3a1c30efaa",
       "size": 24140
     },
     {
@@ -1653,7 +1653,7 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_release_metadata.py",
-      "sha256": "9c28b54d7c9486dd11c889c6c3944c6b36eb5d2b2559ffdf134c1b759b7c1f76",
+      "sha256": "fce90478729bd8b56673807be1fa49ce446f00a811715525078a5bd9fd8dbcad",
       "size": 9463
     },
     {
@@ -1923,7 +1923,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/build_release_artifacts.py",
-      "sha256": "6943fb124c8304de458cec5bdc34a2062305180348cf4faeb8ed098078ce7666",
+      "sha256": "96a8ce28148d3b6b251b61a67f4054608e5eb087f70424baef1b68ee782a2b6c",
       "size": 39124
     },
     {
@@ -2091,7 +2091,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/package_skill.py",
-      "sha256": "98c09dc3ace20aebe7b708a3f8f2c04ba42672b25d1a67af32d39ddd6fa7c6dd",
+      "sha256": "bc903e6d0f08eaee1e6b9700988083732d32651dd87ed781266548c62042c637",
       "size": 68352
     },
     {
@@ -2151,7 +2151,7 @@
     {
       "mode": "100644",
       "path": "scripts/commands/release_payload_manifest.py",
-      "sha256": "46bcc677d42300324b65f325b3764f79c8d339ce56d1910af16c0282480df6cb",
+      "sha256": "e7c73ba3033fcdf4502f573edcdbd4239607dbd68bf17b80a4ada854eed0202c",
       "size": 30105
     },
     {
@@ -2289,8 +2289,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_file_lock.py",
-      "sha256": "b3db7441f8c0792411b710f2704843774221b10939b8ff2fd7150596db494540",
-      "size": 10551
+      "sha256": "d2904838b59288aef7445650d206e16297ded6c88646014b17a4f28edce01cc1",
+      "size": 13427
     },
     {
       "mode": "100644",
@@ -2409,8 +2409,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_runtime.py",
-      "sha256": "1df7238e4723edc785bae409a5c18610d7c7923013b345ec376c77cfdcab49a4",
-      "size": 639487
+      "sha256": "12989ba259e8830140a99705911ebabf170ef9fd13b232ee37c4971986c64919",
+      "size": 640170
     },
     {
       "mode": "100644",
@@ -2565,8 +2565,8 @@
     {
       "mode": "100644",
       "path": "scripts/install_current_agent_copy.py",
-      "sha256": "22aaf1153f2c5acd280ef55edee19025b0f0cd821524ae3783fd991b3bcf8e15",
-      "size": 127861
+      "sha256": "3f2043dba2f346048b66621d8cb6d85814ced6ad7f16235214715070a7c41f61",
+      "size": 129993
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9618575,
+    "payload_bytes": 9647575,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "c511f2ebb3969b73cc5274fe2a9ee6d78f50f898d539ef1177ec6b19f0f425ef",
+    "payload_index_sha256": "46dbeb6c58c7719911082bd05f3a2f85a4c7fe1133e120cabe473353a9b30587",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 697
   },
@@ -3115,7 +3115,7 @@
   "package_name": "decretum-matrix",
   "privacy_policy": "PRIVACY.md",
   "provenance": "PROVENANCE.md",
-  "release_label": "beta1.2.2",
+  "release_label": "beta1.2.3",
   "repository_only_files": [
     ".github/CODEOWNERS",
     ".github/test-support/candidate-attempt-regression.mjs",
@@ -3315,8 +3315,8 @@
   "sbom": "SBOM.spdx.json",
   "schema": "court.release_manifest.v2",
   "security_policy": "SECURITY.md",
-  "sidecar_name": "decretum-matrix-beta1.2.2.zip.sha256",
+  "sidecar_name": "decretum-matrix-beta1.2.3.zip.sha256",
   "third_party_notices": "THIRD_PARTY_NOTICES.md",
   "trademarks": "TRADEMARKS.md",
-  "version_core": "1.2.2"
+  "version_core": "1.2.3"
 }

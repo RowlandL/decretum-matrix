@@ -6,8 +6,21 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.2",
+  "latest_tag": "beta1.2.3",
   "releases": [
+    {
+      "tag": "beta1.2.3",
+      "title": "Decretum Matrix beta1.2.3",
+      "summary": "beta1.2.3：安装入口参数定位与 binding 提交锁生命周期修复，发布参数改为绝对本地 tarball 路径，并去掉运行时提交路径的同事务重复序列化。",
+      "highlights": [
+        "F10 安装入口：前置全局 --format 不再遮蔽 install 组；format 前置/置后/缺省三种排列均进入安装驱动，非法取值与缺值报明确错误，非 install 组仍失败关闭。",
+        "F12 binding 提交锁复用既有 OS 文件锁：持有进程被 kill 后下一次申请成功，活跃持有者仍互斥，installation_busy 语义保留。",
+        "发布参数：npm publish 改传绝对本地 tarball 路径，裸相对路径不再被解析为 hosted git shorthand；release_gate 自测以隔离 npm 替身回放真实 workflow argv。",
+        "court_runtime 在一次持锁事务内复用已计算的持久化文档；保留 schema/迁移/前后像校验与 300s 门禁。",
+        "验证边界：真实发布、同提交 CI、真实宿主安装与 native runtime admission 均 NOT_RUN，能力保持 PLANNED_UNVERIFIED。"
+      ],
+      "asset_note": "本版产物身份为 beta1.2.3：decretum-matrix-beta1.2.3.zip / npm 1.2.3-beta.0。源码、隔离安装、真实宿主、CI 与发布按最终提交分别回读；未回读项保持待定，不以前版或候选证据冒充。"
+    },
     {
       "tag": "beta1.2.2",
       "title": "Decretum Matrix beta1.2.2",

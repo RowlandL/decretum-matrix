@@ -259,7 +259,9 @@ jobs:
           set -euo pipefail
           npmrc="$RUNNER_TEMP/.npmrc"
           printf "@rowlandl:registry=%s\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n" "$EXPECTED_REGISTRY" > "$npmrc"
-          npm publish "release-assets/$TARBALL_NAME" \
+          # npm reads a bare relative path as a hosted git shorthand, so the
+          # accepted tarball is published by absolute local path.
+          npm publish "$PWD/release-assets/$TARBALL_NAME" \
             --registry "$EXPECTED_REGISTRY" \
             --tag beta \
             --userconfig "$npmrc"

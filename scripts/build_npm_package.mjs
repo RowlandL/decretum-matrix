@@ -1316,7 +1316,9 @@ async function runSyntheticInstalledSmoke(
 export async function runSyntheticSelfTest() {
   const root = await mkdtemp(path.join(tmpdir(), "decretum-npm-contract-"));
   try {
-    const fixtureVersionCore = "1.2.3";
+    // Keep the synthetic fixture one patch ahead of the live VERSION label so
+    // the decoupling assertion in check_npm_package.mjs stays meaningful.
+    const fixtureVersionCore = "1.2.4";
     const releaseLabel = `beta${fixtureVersionCore}`;
     const manifest = {
       artifact_name: `decretum-matrix-${releaseLabel}.zip`,

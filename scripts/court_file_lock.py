@@ -15,6 +15,7 @@ from contextlib import contextmanager
 import errno
 import os
 from pathlib import Path
+import stat
 import tempfile
 import threading
 import time
@@ -71,6 +72,79 @@ def _thread_depths() -> dict[str, int]:
         depths = {}
         _THREAD_STATE.depths = depths
     return depths
+
+
+class UnsafeLockPathError(OSError):
+    """The lock path is a link, a reparse point, or a multiply-linked entry."""
+
+
+def _lock_path_is_unsafe(info: os.stat_result) -> bool:
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(
+        stat.S_ISLNK(info.st_mode)
+        or (reparse and getattr(info, "st_file_attributes", 0) & reparse)
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_nlink > 1
+    )
+
+
+def _verify_lock_handle(target: Path, handle: BinaryIO) -> None:
+    """Refuse a lock name that is unsafe or no longer the opened file."""
+
+    opened = os.fstat(handle.fileno())
+    try:
+        named = os.lstat(target)
+    except OSError as exc:
+        raise UnsafeLockPathError(f"lock path is not resolvable: {target}") from exc
+    if _lock_path_is_unsafe(named):
+        raise UnsafeLockPathError(f"unsafe lock path: {target}")
+    if (named.st_ino, named.st_dev) != (opened.st_ino, opened.st_dev):
+        raise UnsafeLockPathError(f"lock path was replaced while opening: {target}")
+
+
+def _open_lock_handle(target: Path) -> BinaryIO:
+    """Open the lock file without creating or writing through a link.
+
+    An existing entry is opened without ``O_CREAT`` so a planted link can only
+    be followed, never materialised; the descriptor is then checked against the
+    name before any byte is written. A missing entry is created with
+    ``O_CREAT|O_EXCL``, which also refuses a link planted in that window.
+    """
+
+    binary = getattr(os, "O_BINARY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    for _attempt in range(3):
+        try:
+            descriptor = os.open(target, os.O_RDWR | binary | nofollow, 0o600)
+            break
+        except FileNotFoundError:
+            try:
+                descriptor = os.open(
+                    target, os.O_RDWR | os.O_CREAT | os.O_EXCL | binary | nofollow, 0o600
+                )
+                break
+            except FileExistsError:
+                # A concurrent legitimate creator, not an attack; retry the
+                # non-creating open and let the descriptor check decide.
+                continue
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise UnsafeLockPathError(f"unsafe lock path: {target}") from exc
+                raise
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise UnsafeLockPathError(f"unsafe lock path: {target}") from exc
+            raise
+    if descriptor is None:
+        raise UnsafeLockPathError(f"lock path keeps appearing while opening: {target}")
+    handle = os.fdopen(descriptor, "r+b", buffering=0)
+    try:
+        _verify_lock_handle(target, handle)
+    except BaseException:
+        handle.close()
+        raise
+    return handle
 
 
 def _prepare_lock_file(handle: BinaryIO) -> None:
@@ -177,11 +251,12 @@ def file_lock(
     os_locked = False
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        handle = target.open("a+b", buffering=0)
+        handle = _open_lock_handle(target)
         _prepare_lock_file(handle)
         while True:
             if _try_os_lock(handle, shared=shared):
                 os_locked = True
+                _verify_lock_handle(target, handle)
                 depths[key] = 1
                 modes[key] = shared
                 break

@@ -5458,11 +5458,280 @@ def check_install_lock_safety_and_release() -> dict[str, object]:
             "exception_releases_lock": True, "reentrant_wrapper": True}
 
 
+LAUNCHER_PATH = ROOT / "bin" / "decretum-matrix.py"
+LAUNCHER_MODULE_NAME = "decretum_matrix_launcher_probe"
+INSTALL_USAGE_MARKER = "usage: install-runtime"
+BINDING_FAILURE_MARKER = "installation_binding_missing_or_invalid"
+
+
+def _load_launcher_module():
+    """Import the public launcher so its argv contract can be asserted."""
+
+    spec = importlib.util.spec_from_file_location(LAUNCHER_MODULE_NAME, LAUNCHER_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[LAUNCHER_MODULE_NAME] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_launcher(argv: list[str], home: Path) -> subprocess.CompletedProcess[str]:
+    environment = dict(os.environ)
+    environment.update(
+        HOME=str(home),
+        USERPROFILE=str(home),
+        XDG_DATA_HOME=str(home / ".local" / "share"),
+        APPDATA=str(home / "appdata"),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    return subprocess.run(
+        [sys.executable, "-B", str(LAUNCHER_PATH), *argv],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        cwd=str(ROOT),
+        env=environment,
+    )
+
+
+def check_launcher_install_group_location() -> dict[str, object]:
+    """F10: a leading global --format must not hide the install group."""
+
+    with tempfile.TemporaryDirectory(prefix="b123-f10-launcher-") as temporary:
+        home = Path(temporary).resolve() / "home"
+        home.mkdir()
+        accepted = (
+            ("install_group_first", ["install", "--help"]),
+            ("format_before_group", ["--format", "text", "install", "--help"]),
+            ("format_equals_before_group", ["--format=json", "install", "--help"]),
+            ("format_after_group", ["install", "--help", "--format", "text"]),
+            ("format_before_group_no_value_use", ["--format", "text", "install"]),
+        )
+        located: dict[str, int] = {}
+        for label, argv in accepted:
+            completed = _run_launcher(argv, home)
+            text = completed.stdout + completed.stderr
+            located[label] = completed.returncode
+            assert BINDING_FAILURE_MARKER not in text, (label, text[-400:])
+            if label != "format_before_group_no_value_use":
+                assert completed.returncode == 0, (label, completed.returncode, text[-400:])
+                assert INSTALL_USAGE_MARKER in text, (label, text[-400:])
+        rejected = {}
+        for label, argv in (
+            ("format_value_invalid", ["--format", "xml", "install", "--help"]),
+            ("format_value_missing", ["--format"]),
+        ):
+            completed = _run_launcher(argv, home)
+            text = completed.stdout + completed.stderr
+            rejected[label] = completed.returncode
+            assert completed.returncode == 1, (label, completed.returncode, text[-400:])
+            assert "--format" in text, (label, text[-400:])
+            assert BINDING_FAILURE_MARKER not in text, (label, text[-400:])
+        # Every group other than install keeps failing closed without a binding.
+        completed = _run_launcher(["--format", "text", "court", "status"], home)
+        text = completed.stdout + completed.stderr
+        assert completed.returncode == 1, (completed.returncode, text[-400:])
+        assert BINDING_FAILURE_MARKER in text, text[-400:]
+        assert list(home.rglob("*")) == [], "launcher probe wrote into the isolated HOME"
+        # Every group other than install keeps the documented global --format
+        # contract, so the runtime CLI must receive the caller argv unchanged.
+        launcher = _load_launcher_module()
+        captured: dict[str, object] = {}
+
+        def record_runtime_invocation(path, run_name=None):
+            captured["path"] = path
+            captured["argv"] = list(sys.argv)
+
+        saved_argv = list(sys.argv)
+        saved_path = list(sys.path)
+        try:
+            with mock.patch.object(launcher, "_select_runtime", return_value=(Path("/court-runtime"), {})), \
+                    mock.patch.object(launcher.runpy, "run_path", side_effect=record_runtime_invocation):
+                launcher.main(["--format", "json", "court", "status"])
+        finally:
+            sys.argv[:] = saved_argv
+            sys.path[:] = saved_path
+        assert captured["path"] == str(Path("/court-runtime") / "scripts" / "court_cli.py"), captured
+        assert captured["argv"][1:] == ["--format", "json", "court", "status"], captured
+    return {
+        "install_group_located": located,
+        "invalid_format_rejected": rejected,
+        "non_install_group_still_fails_closed": True,
+    }
+
+
+def check_binding_commit_lock_lifecycle() -> dict[str, object]:
+    """F12: a killed binding holder must not leave a sentinel that refuses the next commit."""
+
+    errors: list[str] = []
+    module = _load_production(errors)
+    assert module is not None, errors
+    holder = (
+        "import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);"
+        "import install_current_agent_copy as mod;"
+        "import court_file_lock;"
+        "lock=mod._binding_commit_lock(Path(sys.argv[2]));"
+        "lock.__enter__();print('ready',flush=True);sys.stdin.readline();lock.__exit__(None,None,None)"
+    )
+    with tempfile.TemporaryDirectory(prefix="b123-f12-binding-") as temporary:
+        home = Path(temporary).resolve() / "home"
+        binding = home / ".agents" / "install-receipts" / "decretum-matrix" / "installation-binding-v2.json"
+        binding.parent.mkdir(parents=True, exist_ok=True)
+        def spawn_holder() -> subprocess.Popen[str]:
+            child = subprocess.Popen(
+                [sys.executable, "-B", "-c", holder, str(ROOT / "scripts"), str(binding)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            line = child.stdout.readline().strip() if child.stdout else ""
+            assert line == "ready", ("binding holder did not acquire the commit lock", line, child.stderr.read() if child.stderr else "")
+            return child
+
+        child = spawn_holder()
+        try:
+            try:
+                with module._binding_commit_lock(binding, timeout=0.05):
+                    raise AssertionError("a live binding holder did not exclude a second commit")
+            except module._InstallContractError as exc:
+                assert exc.reason == "installation_binding_busy", exc.reason
+        finally:
+            child.kill()
+            child.communicate(timeout=60)
+        assert child.returncode not in (0, None), child.returncode
+        # The killed holder must not refuse the next normal commit with a stale busy sentinel.
+        with module._binding_commit_lock(binding, timeout=30.0):
+            pass
+
+        # A planted link on the lock entry must fail closed: the OS lock primitive
+        # follows links and seeds an empty file, which would reach outside HOME.
+        outside = Path(temporary).resolve() / "outside" / "target.bin"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_bytes(b"")
+        link_home = Path(temporary).resolve() / "link-home"
+        link_binding = link_home / ".agents" / "install-receipts" / "decretum-matrix" / "installation-binding-v2.json"
+        link_binding.parent.mkdir(parents=True)
+        link_lock = link_binding.with_name("." + link_binding.name + ".lock")
+        link_kind = None
+        try:
+            os.symlink(outside, link_lock)
+            link_kind = "symlink"
+        except (OSError, NotImplementedError, AttributeError):
+            try:
+                os.link(outside, link_lock)
+                link_kind = "hardlink"
+            except (OSError, NotImplementedError):
+                link_kind = None
+        assert link_kind is not None, "no link type available for the lock-path case"
+        outside_before = outside.read_bytes()
+        try:
+            with module._binding_commit_lock(link_binding, timeout=0.1):
+                raise AssertionError("a linked binding lock path was acquired")
+        except module._InstallContractError as exc:
+            assert exc.reason == "installation_binding_lock_path_invalid", exc.reason
+        assert outside.read_bytes() == outside_before, "linked binding lock wrote outside HOME"
+        with module.file_lock(outside, timeout=0.0):
+            pass  # the outside target never became the held lock object
+        refused = module.commit_installation_binding(home_root=link_home, external_validation={})
+        assert refused.get("ok") is False, refused
+        assert refused.get("reason") == "installation_binding_lock_path_invalid", refused
+
+        # The primitive itself must refuse a linked lock path and never seed it.
+        direct_lock = Path(temporary).resolve() / "direct" / "primitive.lock"
+        direct_lock.parent.mkdir(parents=True, exist_ok=True)
+        direct_target = Path(temporary).resolve() / "outside" / "primitive-target.bin"
+        direct_target.write_bytes(b"")
+        try:
+            os.symlink(direct_target, direct_lock)
+        except (OSError, NotImplementedError, AttributeError):
+            os.link(direct_target, direct_lock)
+        try:
+            with module.file_lock(direct_lock, timeout=0.1):
+                raise AssertionError("the lock primitive acquired a linked lock path")
+        except OSError as exc:
+            assert type(exc).__name__ == "UnsafeLockPathError", type(exc).__name__
+        assert direct_target.read_bytes() == b"", "the primitive seeded a linked lock target"
+
+        # A link planted exactly at the primitive's open call must also be refused,
+        # which is the window a preflight alone cannot cover.
+        swap_home = Path(temporary).resolve() / "swap-home"
+        swap_binding = swap_home / ".agents" / "install-receipts" / "decretum-matrix" / "installation-binding-v2.json"
+        swap_binding.parent.mkdir(parents=True)
+        swap_lock = swap_binding.with_name("." + swap_binding.name + ".lock")
+        swap_target = Path(temporary).resolve() / "outside" / "swap-target.bin"
+        swap_target.write_bytes(b"")
+        import court_file_lock as lock_primitive
+        real_os_open = lock_primitive.os.open
+        swap_state = {"swapped": False}
+
+        def swapping_open(path, flags, mode=0o777):
+            if (
+                not swap_state["swapped"]
+                and (flags & os.O_CREAT) == 0
+                and os.path.normcase(str(path)) == os.path.normcase(str(swap_lock))
+            ):
+                swap_state["swapped"] = True
+                try:
+                    if swap_lock.exists() or swap_lock.is_symlink():
+                        os.unlink(swap_lock)
+                except OSError:
+                    pass
+                try:
+                    os.symlink(swap_target, swap_lock)
+                except (OSError, NotImplementedError, AttributeError):
+                    os.link(swap_target, swap_lock)
+            return real_os_open(path, flags, mode)
+
+        with mock.patch.object(lock_primitive.os, "open", side_effect=swapping_open):
+            try:
+                with module._binding_commit_lock(swap_binding, timeout=0.1):
+                    raise AssertionError("a lock path swapped at open time was acquired")
+            except module._InstallContractError as exc:
+                assert exc.reason == "installation_binding_lock_path_invalid", exc.reason
+        assert swap_state["swapped"] is True, "the mid-open swap was not injected"
+        assert swap_target.read_bytes() == b"", "a swapped lock path wrote outside HOME"
+
+        # F02 regression: the whole binding commit stays inside the HOME-scoped install lock.
+        install_worker = (
+            "import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);"
+            "import install_current_agent_copy as mod;"
+            "lock=mod._installation_lock(Path(sys.argv[2]));"
+            "lock.__enter__();print('ready',flush=True);sys.stdin.readline();lock.__exit__(None,None,None)"
+        )
+        holder_child = subprocess.Popen(
+            [sys.executable, "-B", "-c", install_worker, str(ROOT / "scripts"), str(home)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            ready = holder_child.stdout.readline().strip() if holder_child.stdout else ""
+            assert ready == "ready", ("install lock holder did not acquire", ready)
+
+            real_install_lock = module._installation_lock
+
+            def bounded_install_lock(path: Path, *, timeout: float = 0.05):
+                return real_install_lock(path, timeout=timeout)
+
+            with mock.patch.object(module, "_installation_lock", bounded_install_lock):
+                contended = module.commit_installation_binding(home_root=home, external_validation={})
+            assert contended.get("ok") is False, contended
+            assert contended.get("reason") == "installation_busy", contended
+        finally:
+            holder_child.communicate("release\n", timeout=30)
+        assert holder_child.returncode == 0
+    return {
+        "live_holder_excluded": True,
+        "killed_holder_released": True,
+        "binding_commit_inside_install_lock": True,
+        "linked_lock_path_rejected": True,
+        "linked_primitive_path_rejected": True,
+        "mid_open_swap_rejected": True,
+    }
+
+
 def evaluate() -> Payload:
     errors: list[str] = []
     try:
         check_install_planning_zero_write()
         check_install_lock_safety_and_release()
+        check_launcher_install_group_location()
+        check_binding_commit_lock_lifecycle()
     except Exception as exc:
         errors.append("install_lock_boundary:" + str(exc))
     actual_manifest = _load_json(

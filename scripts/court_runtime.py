@@ -688,8 +688,13 @@ def _task_document(tasks: dict[str, dict[str, Any]]) -> str:
         if not isinstance(task, dict):
             raise ValueError(f"task entry '{task_id}' must contain an object")
         _runtime_schema_version(task)
-        incoming = deepcopy(task)
         raw_task = raw_tasks.get(task_id)
+        if raw_task is not None and raw_task == task:
+            # Byte-identical to the persisted copy: reuse it and skip both the
+            # defensive copy and the normalizing comparison.
+            persisted_tasks[task_id] = raw_task
+            continue
+        incoming = deepcopy(task)
         if raw_task is not None:
             normalized_raw = normalize_task(raw_task)
             if raw_task != normalized_raw and incoming == normalized_raw:
@@ -699,15 +704,23 @@ def _task_document(tasks: dict[str, dict[str, Any]]) -> str:
     return json.dumps(persisted_tasks, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
-def write_tasks(tasks: dict[str, dict[str, Any]]) -> None:
+def write_tasks(tasks: dict[str, dict[str, Any]], document: str | None = None) -> None:
+    """Persist tasks; a caller inside one transaction may reuse its document."""
+
     ensure_runtime_root()
-    atomic_write_text(tasks_path(), _task_document(tasks))
+    atomic_write_text(tasks_path(), _task_document(tasks) if document is None else document)
 
 
 def _commit_task_event(tasks: dict[str, dict[str, Any]], event: dict[str, Any]) -> None:
+    """Persist the task document and the event as one paired-ledger commit."""
+
     line = json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
-    with ledger_pair_write(runtime_root(), _task_document(tasks), line):
-        write_tasks(tasks)
+    ensure_runtime_root()
+    # One lock-held transaction reuses the persisted document for the pair
+    # preimage, the write and the post-commit verification.
+    document = _task_document(tasks)
+    with ledger_pair_write(runtime_root(), document, line):
+        write_tasks(tasks, document)
         append_event(event)
 
 

@@ -4826,6 +4826,35 @@ def check_admission_write_claims() -> None:
     assert court_runtime._active_office_write_claims(task) == {"result.json"}
 
 
+LIFECYCLE_CASES = (
+    check_create_model_selection_contract,
+    check_office_name_identity_binding,
+    check_assignment_binding_toctou_rejected,
+    check_dispatch_hierarchy_revalidated_before_start_write,
+    check_three_department_hierarchy_revalidated_before_start_write,
+    check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write,
+    check_admission_binding,
+    check_explicit_execution_budgets,
+    check_runtime_generates_bounded_child_profile,
+    check_caller_child_binding_digest_rejected_before_admission_write,
+    check_child_profile_tamper_rejected_before_start_write,
+    check_budget_lease_access_contract_allows_approved_subset,
+    check_child_access_contract_tamper_rejected_before_start_write,
+    check_dispatch_context_economy_contract,
+    check_terminal_and_identity,
+    check_unified_office_instance_lifecycle,
+    check_office_instance_proof_writer_and_attempt_guards,
+    check_office_instance_semantic_and_result_binding,
+    check_office_task_name_and_readiness_binding,
+    check_office_lifecycle_authority_guards,
+    check_same_second_office_report_event_ids_are_unique,
+    check_office_lifecycle_json_cli,
+    check_standard_case_decree_dispatch_guards,
+    check_office_cli_error_contract,
+    check_malformed_sibling_blocks_lifecycle_write,
+)
+
+
 def run_agent_lifecycle_checks() -> None:
     check_native_host_context_utilization_backfill_diagnostics()
     check_admission_write_claims()
@@ -4843,33 +4872,14 @@ def run_agent_lifecycle_checks() -> None:
         task_skill.write_text("# lifecycle task-specific fixture\n", encoding="utf-8")
         TASK_SPECIFIC_SKILL_PATH = task_skill
         original_runtime_root = court_runtime.runtime_root
-        court_runtime.runtime_root = lambda: fixture_root / "runtime"  # type: ignore[assignment]
+        # Every case is independent: accumulating all earlier cases' tasks in
+        # one ledger turns each commit into a full-ledger rewrite, so each
+        # case gets its own runtime root while sharing the same fixture files.
         try:
-            check_create_model_selection_contract()
-            check_office_name_identity_binding()
-            check_assignment_binding_toctou_rejected()
-            check_dispatch_hierarchy_revalidated_before_start_write()
-            check_three_department_hierarchy_revalidated_before_start_write()
-            check_dispatch_hierarchy_receipt_tamper_rejected_before_start_write()
-            check_admission_binding()
-            check_explicit_execution_budgets()
-            check_runtime_generates_bounded_child_profile()
-            check_caller_child_binding_digest_rejected_before_admission_write()
-            check_child_profile_tamper_rejected_before_start_write()
-            check_budget_lease_access_contract_allows_approved_subset()
-            check_child_access_contract_tamper_rejected_before_start_write()
-            check_dispatch_context_economy_contract()
-            check_terminal_and_identity()
-            check_unified_office_instance_lifecycle()
-            check_office_instance_proof_writer_and_attempt_guards()
-            check_office_instance_semantic_and_result_binding()
-            check_office_task_name_and_readiness_binding()
-            check_office_lifecycle_authority_guards()
-            check_same_second_office_report_event_ids_are_unique()
-            check_office_lifecycle_json_cli()
-            check_standard_case_decree_dispatch_guards()
-            check_office_cli_error_contract()
-            check_malformed_sibling_blocks_lifecycle_write()
+            for case in LIFECYCLE_CASES:
+                case_root = fixture_root / "runtime" / case.__name__
+                court_runtime.runtime_root = lambda root=case_root: root  # type: ignore[assignment]
+                case()
         finally:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
             TASK_SPECIFIC_SKILL_PATH = None
