@@ -155,6 +155,51 @@ def evaluate() -> dict[str, object]:
         and not receipt_stderr
     )
 
+    # Windows path limit: the atomic temporary name must stay short even when the
+    # event directory is already deep. The final event name and schema stay exact,
+    # consecutive events must not overwrite each other and no temporary is left.
+    import court_diagnostics
+
+    with tempfile.TemporaryDirectory(prefix="court-deep-events-") as deep_root:
+        event_dir = Path(deep_root) / court_diagnostics.NAME / "fix-current-thread"
+        # Grow the fixture with a single filler segment so the event directory is
+        # about 180 characters without overshooting the Windows limit for the
+        # final event file (~241 characters).
+        filler = 180 - len(str(event_dir)) - 1
+        if filler > 0:
+            event_dir = Path(deep_root) / ("s" * filler) / court_diagnostics.NAME / "fix-current-thread"
+        deep_base = event_dir.parents[1]
+        event_dir.mkdir(parents=True, exist_ok=True)
+        deep_event_dir_length = len(str(event_dir))
+        original_audit_base = court_diagnostics._audit_base
+        court_diagnostics._audit_base = lambda: (deep_base, "fixture_deep_event_path")
+        try:
+            first = court_diagnostics.write_audit_event(
+                task="fix-current-thread", operation="fixture", phase="intent", status="started", payload={"n": 1}
+            )
+            second = court_diagnostics.write_audit_event(
+                task="fix-current-thread", operation="fixture", phase="result", status="succeeded", payload={"n": 2}
+            )
+        finally:
+            court_diagnostics._audit_base = original_audit_base
+        first_body = json.loads(Path(first["path"]).read_text(encoding="utf-8"))
+        second_body = json.loads(Path(second["path"]).read_text(encoding="utf-8"))
+        leftovers = [entry.name for entry in Path(first["path"]).parent.iterdir() if entry.name.startswith(".")]
+        final_path_length = len(first["path"])
+    checks["deep_event_path_atomic_write_succeeds"] = (
+        170 <= deep_event_dir_length <= 200
+        and final_path_length < 250
+        and first_body["schema"] == "workspace.operation_event.v1"
+        and first_body["event_id"] != second_body["event_id"]
+        and first_body["phase"] == "intent"
+        and first_body["status"] == "started"
+        and second_body["phase"] == "result"
+        and second_body["status"] == "succeeded"
+        and first_body["payload"]["n"] == 1
+        and second_body["payload"]["n"] == 2
+        and not leftovers
+    )
+
     return {
         "schema": SCHEMA,
         "ok": all(checks.values()),

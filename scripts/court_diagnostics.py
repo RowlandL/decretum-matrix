@@ -79,7 +79,10 @@ def write_audit_event(
         "payload": {**payload, "audit_location": location},
     }
     path = event_dir / f"{event_id}.json"
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    # Keep the atomic temporary name short and inside the same directory: the
+    # final event name is bounded, but repeating it in the temporary can exceed
+    # the Windows path limit when the event directory is already deep.
+    temporary = event_dir / f".{uuid.uuid4().hex}.tmp"
     temporary.write_text(
         json.dumps(event, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
