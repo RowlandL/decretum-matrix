@@ -6,7 +6,7 @@
 - 发布链路修复：`npm publish` 使用绝对本地 tarball 路径；裸相对路径曾被解析为 hosted git shorthand，是 beta1.2.2 `PUBLISH_FAILED` 的根因。
 - court_runtime 提交路径去掉同事务重复序列化；保留 schema/迁移/前后像校验与 300s 门禁。
 - 版本标识为 `beta1.2.3`；公开 semver 由既有机制派生为 1.2.3-beta.0，不修改 derive 或发布流程。
-- 状态：本行为开发中候选；真实 GitHub Packages 发布、同提交 CI 六任务、真实安装与 native runtime admission 均未回读，保持 NOT_RUN / NOT_ESTABLISHED。
+- 状态：**本地开发完成、未发布**（本地提交 `adf50f9356feb613be135b74d04f3f422700e6fb`）。真实 GitHub Packages 发布、同提交 CI 六任务、真实用户安装与 native runtime admission 均未执行/未回读，保持 NOT_RUN / NOT_ESTABLISHED；本行不构成发布验收。
 
 ## beta1.2.2
 

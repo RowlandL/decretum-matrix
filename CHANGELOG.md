@@ -1,6 +1,6 @@
 # Changelog
 
-## beta1.2.3 - 2026-11-02 (candidate; SOURCE in development)
+## beta1.2.3 - 2026-11-02 (local development complete, local commit adf50f9; unreleased)
 
 ### Changed
 
@@ -17,7 +17,7 @@
 ### Validation boundary
 
 - 新增回归落在既有模块：`scripts/checks/check_install_current_agent_copy.py`（F10 隔离子进程排列矩阵、F12 真实持锁与 kill 释放、F02 锁范围）、`scripts/checks/check_release_gate.py`（隔离 npm 替身回放真实 workflow 的 `npm publish` argv）。
-- `court_runtime` 300s 门禁在本基线未复现超时：隔离 HOME 下 46.51s 以 `installation_binding_path_invalid` 提前失败（需真实已安装 binding），故只量化提交路径热区（48 任务 / 3.72MB 账本 / 40 提交：文档计算 80→40 次、墙钟 −27.4%），不宣称端到端门禁已通过。
+- `court_runtime` 300s 门禁（历史记录，非当前状态）：在隔离安装 binding 尚未建立时，隔离 HOME 下曾以 46.51s 提前失败（`installation_binding_path_invalid`），该次仅为前置失败，不构成门禁结论。随后在隔离 COMMITTED 安装上实跑同一 300s 门禁并通过：`check_court_agent_lifecycle` 86.68s rc0、`check_court_runtime` 135.61s rc0（上限 300s、断言集合与 CI 检查集合均未改；证据为 canonical `gate-runs.json` 与 `gate-logs/`）。提交路径另有 48 任务 / 3.72MB 账本 / 40 提交的量化（文档计算 80→40 次、墙钟 −27.4%），属辅助测量，不替代门禁。
 - 未执行真实 GitHub Packages 发布、同提交 CI、真实宿主安装与真实 native runtime admission；相关能力保持 `PLANNED_UNVERIFIED`。
 
 ## beta1.2.2 - 2026-11-01 (candidate; SOURCE in development)
