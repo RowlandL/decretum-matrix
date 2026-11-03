@@ -31,7 +31,7 @@
   "rights_owner": "孙华清",
   "schema": "court.skill_identity.v1",
   "schema_version": 1,
-  "skill_sha256": "D0CA9E3EB159E86D5DEEBCC09CE59878B81C9CCC1F422CBFE0E13FAC288B9229",
+  "skill_sha256": "679450B4A66870BBB6DF873C4A000DCF05CD41C89C6735EE49A47E2F6C8AB673",
   "withdrawn_names": [
     "DecreeMatri",
     "decreematri"

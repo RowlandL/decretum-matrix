@@ -6,8 +6,21 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.3",
+  "latest_tag": "beta1.2.3-hotfix-v1",
   "releases": [
+    {
+      "tag": "beta1.2.3-hotfix-v1",
+      "title": "Decretum Matrix beta1.2.3-hotfix-v1",
+      "summary": "beta1.2.3-hotfix-v1：纯版本包装热修，承载 f4852e6 已接受维护修复；业务行为不变，原 beta1.2.3 tag/资产与 npm 1.2.3-beta.0 保留。",
+      "highlights": [
+        "包装范围：VERSION、SKILL 元数据、Codex 插件清单、SBOM、发布常量与 GitHub 发布简报同步为 beta1.2.3-hotfix-v1；VERSION_CORE 保持 1.2.3。",
+        "npm 派生：既有 builder 由 VERSION 推出 1.2.3-beta.0.hotfix.1，不改 derive 规则；已发布 1.2.3-beta.0 不被覆盖。",
+        "publisher：publish-packages.yml 接受 betaN.N.N-hotfix-vN 并按同一解析派生 npm 版本；receipt、integrity、同提交六 CI 与 registry 回读门禁不变。",
+        "业务行为：沿用 f4852e6 已接受的 Windows 8.3 安装身份、binding 物理路径比较、路径中 ~ 字面处理与 npm 缺省宿主结构化 N/A，未新增改动。",
+        "验证边界：tag、Release 七资产、GitHub Packages 与本机安装按最终提交分别回读；未回读项保持 NOT_RUN。"
+      ],
+      "asset_note": "本版产物身份为 beta1.2.3-hotfix-v1：decretum-matrix-beta1.2.3-hotfix-v1.zip / npm 1.2.3-beta.0.hotfix.1，dist-tag beta。源码、隔离安装、真实宿主、CI 与发布按最终提交分别回读；未回读项保持待定，不以前版或候选证据冒充。"
+    },
     {
       "tag": "beta1.2.3",
       "title": "Decretum Matrix beta1.2.3",

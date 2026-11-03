@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (betaN.N.N)"
+        description: "Release tag to publish (betaN.N.N or betaN.N.N-hotfix-vN)"
         required: true
         type: string
 
@@ -51,7 +51,7 @@ jobs:
           python - "$tag" "$EXPECTED_REPOSITORY" "${EVENT_REGISTRY:-$GITHUB_REPOSITORY}" <<'PY'
           import re, sys
           tag, expected_repo, registry = sys.argv[1], sys.argv[2], sys.argv[3]
-          if not re.fullmatch(r"beta[0-9]+\.[0-9]+\.[0-9]+", tag or ""):
+          if re.fullmatch(r"beta[0-9]+\.[0-9]+\.[0-9]+(?:-hotfix-v[1-9][0-9]*)?", tag or "") is None:
               raise SystemExit("rejected_tag_shape:" + repr(tag))
           if registry != expected_repo:
               raise SystemExit("rejected_repository:" + registry)
@@ -84,8 +84,15 @@ jobs:
           python - <<'PY'
           import json, os, re
           tag = os.environ["RELEASE_TAG"]
-          core = tag[len("beta"):]
-          version = core + "-beta.0"
+          # Same parsing as scripts/build_npm_package.mjs deriveReleaseIdentity: the
+          # numeric core anchors version_core; a hotfix tag only appends the suffix.
+          identity = re.fullmatch(
+              r"beta([0-9]+\.[0-9]+\.[0-9]+)(?:-hotfix-v([1-9][0-9]*))?", tag
+          )
+          if identity is None:
+              raise SystemExit("rejected_tag_shape:" + repr(tag))
+          core, hotfix = identity.group(1), identity.group(2)
+          version = core + "-beta.0" + (".hotfix." + hotfix if hotfix else "")
           errors = []
           if open("VERSION", encoding="utf-8").read().strip() != tag:
               errors.append("version_file_mismatch")

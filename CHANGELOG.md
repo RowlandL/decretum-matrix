@@ -1,5 +1,14 @@
 # Changelog
 
+## beta1.2.3-hotfix-v1 - 2026-11-03 (packaging-only hotfix; product behavior identical to f4852e6)
+
+仅版本包装，不含产品行为改动：`f4852e6` 已接受的维护修复（Windows 8.3 安装身份、binding 物理路径比较、路径中部 `~` 字面处理、npm 缺省宿主结构化 N/A 报告）原样承载。
+
+- 活跃发布标识同步为 `beta1.2.3-hotfix-v1`：`VERSION`、`SKILL.md` 元数据、`.codex-plugin/plugin.json`、`SBOM.spdx.json`、`release_payload_manifest.py` / `package_skill.py` / `check_release_legal.py` / `check_release_metadata.py` 常量与 `build_release_artifacts.py` 自测、README 与安装指引、GitHub 发布简报。`VERSION_CORE` 保持 `1.2.3`，npm 派生版本为 `1.2.3-beta.0.hotfix.1`。已发布的 `beta1.2.3` tag/Release 资产与 npm `1.2.3-beta.0` 保留、不覆盖。
+- publisher 热修支持：`.github/workflows/publish-packages.yml` 接受 `betaN.N.N-hotfix-vN`，并按与 `scripts/build_npm_package.mjs` 相同的解析派生 `core-beta.0.hotfix.N`；receipt、integrity、同提交 CI 集合与 registry 回读门禁不变，`ci.yml` 检查集合未改。
+- `release-manifest.json` 由既有生成器重建（`scripts/commands/release_payload_manifest.py --write`），未手工改写。
+- 验证边界：tag、GitHub Release 资产、GitHub Packages 版本与真实宿主安装属于最终提交的独立回读，包装阶段为 NOT_RUN。
+
 ## Maintenance 2026-11-03 (same beta1.2.3 tree; no new version, no new tag, no published asset change)
 
 Source defects fixed (product code):

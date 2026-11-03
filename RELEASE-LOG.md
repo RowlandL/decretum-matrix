@@ -1,5 +1,13 @@
 # Release Log
 
+## beta1.2.3-hotfix-v1
+
+- 范围为纯版本包装：业务行为与 `f4852e6` 已接受的十二文件维护修复一致，未新增行为改动。
+- 活跃标识同步为 `beta1.2.3-hotfix-v1`；`VERSION_CORE` 保持 `1.2.3`，npm 派生版本由既有机制给出 `1.2.3-beta.0.hotfix.1`。
+- publisher 热修支持：`.github/workflows/publish-packages.yml` 接受 `betaN.N.N-hotfix-vN` 并按同一解析派生 npm 版本；receipt/integrity/CI 集合/registry 门禁不变。
+- 发布清单由既有生成器重建；原 `beta1.2.3` tag、Release 资产与 npm `1.2.3-beta.0` 保留，不覆盖。
+- 状态：**包装完成、未发布**（分支 `release/beta1.2.3-hotfix-v1`，起点 `f4852e6`）。真实 tag、Release、GitHub Packages 回读与实际安装均未执行，保持 NOT_RUN；本行不构成发布验收。
+
 ## beta1.2.3
 
 - 范围为安装入口定位与 binding 锁生命周期：F10 前置全局 `--format` 不再遮蔽 install 组；F12 binding 提交锁复用既有 OS 文件锁，异常退出后的持久 busy 消除，活跃持有者互斥保留。
