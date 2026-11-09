@@ -212,11 +212,11 @@ receipt-bound CLI，真实派遣走宿主。
 
 ## 6. 版本
 
-当前源码活动版本为 `beta1.2.3-hotfix-v1`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
+当前源码活动版本为 `beta1.2.3-hotfix-v2`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
 安装/发布回执为准；分支名只是当前工作载体，tag、GitHub Release、npm 以及线上 Wiki
 的成功状态只由对应发布回读证明。
 
-本版为 `beta1.2.3-hotfix-v1` 热修包装，承载 `f4852e6` 已接受的维护修复，业务行为未变。
+本版为 `beta1.2.3-hotfix-v2` 热修包装，承载 `f4852e6` 已接受的维护修复，业务行为未变。
 同提交 CI、外部 hotfix 发布、GitHub Packages 版本与真实安装仍须各自回读证据；已发布 `beta1.2.3` 的 tag、资产与 npm `1.2.3-beta.0` 保持保留、不被覆盖。
 
 以下保留 beta1.2.0 的历史源码说明：

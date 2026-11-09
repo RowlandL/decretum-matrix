@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 from typing import Mapping
 from urllib.parse import unquote, urlsplit
@@ -261,7 +261,7 @@ def _direct_niu_payload(item: Mapping[str, object]) -> str | None:
     if (
         niu_name != 'niu.exe'
         or normalized_niu != _TRUSTED_NIUBASH_WRAPPER
-        or not Path(niu_executable).is_absolute()
+        or not PureWindowsPath(niu_executable).is_absolute()
         or not inner
         or inner != inner.strip()
         or any(character in niu_executable for character in ('\x00', '\r', '\n', '`', '$'))

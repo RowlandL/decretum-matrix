@@ -6,8 +6,19 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.3-hotfix-v1",
+  "latest_tag": "beta1.2.3-hotfix-v2",
   "releases": [
+    {
+      "tag": "beta1.2.3-hotfix-v2",
+      "title": "Decretum Matrix beta1.2.3-hotfix-v2",
+      "summary": "修复 CLI 未列出合法 --trigger 值的问题，非法输入立即给出可用选项。",
+      "highlights": [
+        "checkpoint、verify、quarantine 的 --help 和参数错误直接复用现有合法值枚举。",
+        "非法值在读取任务及写账本之前退出；原语义完整性校验和登记流程保持。",
+        "回归覆盖全部合法值、before_dispatch / dispatch、跨操作错误值和无写入拒绝。"
+      ],
+      "asset_note": "安装包为 @rowlandl/decretum-matrix@1.2.3-beta.0.hotfix.2，registry 为 GitHub Packages；同提交 CI、候选安装、发布与本机安装按实际回执分别核验。"
+    },
     {
       "tag": "beta1.2.3-hotfix-v1",
       "title": "Decretum Matrix beta1.2.3-hotfix-v1",

@@ -103,6 +103,7 @@ from court_operation_journal import (
     write_json as write_operation_json,
 )
 from court_semantic_continuity import (
+    SEMANTIC_GATE_TRIGGERS,
     build_semantic_receipt,
     canonical_json_sha256,
     derive_semantic_receipt,
@@ -13600,7 +13601,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
     )
-    semantic_checkpoint.add_argument("--trigger", required=True)
+    semantic_checkpoint.add_argument(
+        "--trigger", required=True, choices=sorted(SEMANTIC_GATE_TRIGGERS["semantic_checkpoint"])
+    )
     semantic_checkpoint.add_argument("--actor", default="taizi", choices=sorted(OFFICES))
     semantic_checkpoint.add_argument("--evidence", required=True)
     semantic_checkpoint.add_argument("--note", default="")
@@ -13616,7 +13619,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
     )
-    semantic_verify.add_argument("--trigger", required=True)
+    semantic_verify.add_argument(
+        "--trigger", required=True, choices=sorted(SEMANTIC_GATE_TRIGGERS["semantic_verify"])
+    )
     semantic_verify.add_argument("--actor", default="taizi", choices=sorted(OFFICES))
     semantic_verify.add_argument("--evidence", required=True)
     semantic_verify.add_argument("--note", default="")
@@ -13676,7 +13681,9 @@ def build_parser() -> argparse.ArgumentParser:
     semantic_quarantine.add_argument("--case-ref", type=json_object_argument)
     semantic_quarantine.add_argument("--expected-checkpoint-id", required=True)
     semantic_quarantine.add_argument("--reason-code", action="append", required=True)
-    semantic_quarantine.add_argument("--trigger", required=True)
+    semantic_quarantine.add_argument(
+        "--trigger", required=True, choices=sorted(SEMANTIC_GATE_TRIGGERS["semantic_quarantine"])
+    )
     semantic_quarantine.add_argument("--actor", default="menxia", choices=sorted(OFFICES))
     semantic_quarantine.add_argument("--evidence", required=True)
     semantic_quarantine.add_argument("--note", default="")

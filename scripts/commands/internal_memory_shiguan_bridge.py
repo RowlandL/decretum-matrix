@@ -127,7 +127,7 @@ def _sanitize_report_value(value: Any) -> Any:
     home = str(user_home().resolve())
     for variant in {home, home.replace("\\", "/")}:
         sanitized = re.sub(re.escape(variant), "$USER_HOME", sanitized, flags=re.IGNORECASE)
-    if re.search(r"(?i)(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)", sanitized):
+    if Path(sanitized).is_absolute() or re.search(r"(?i)(?:[a-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)", sanitized):
         digest = hashlib.sha256(sanitized.encode("utf-8", errors="surrogatepass")).hexdigest()[:16]
         return f"<local-path:{digest}>"
     return sanitized

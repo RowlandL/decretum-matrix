@@ -19,3 +19,5 @@ readable) and never block delivery.
 Load later volumes from `SKILL.md`. Closeout pointer:
 `references/court-closeout-validation.md`; require Menxia result, memorial
 shard, and archive receipt.
+
+登记复用上述既有短链路，不新增账本或预载环节。`semantic checkpoint|verify|quarantine --help` 直接列出各自合法 `--trigger` 值；非法输入按提示纠正后重试，不绕过前置条件。

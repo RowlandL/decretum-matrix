@@ -159,10 +159,12 @@ def check_seed_publication(root: Path) -> dict[str, object]:
             with patch.dict(os.environ, env):
                 paths.ensure_shared_seed()
         reached, release, result = context.Event(), context.Event(), context.Queue()
+        first_result = context.Queue()
+        reader_reached, reader_release = context.Event(), context.Event()
         first = context.Process(target=_seed_worker,
-            args=(str(shared), window, reached, release, context.Queue()))
+            args=(str(shared), window, reached, release, first_result))
         second = context.Process(target=_seed_worker,
-            args=(str(shared), "reader", context.Event(), context.Event(), result))
+            args=(str(shared), "reader", reader_reached, reader_release, result))
         first.start()
         try:
             assert reached.wait(10), f"real seed {window} window not reached"

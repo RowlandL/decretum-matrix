@@ -1,5 +1,13 @@
 # Changelog
 
+## beta1.2.3-hotfix-v2 - 2026-11-09
+
+- 修复 Issue 01 根因：CLI 未列出合法 `--trigger` 值。checkpoint、verify、quarantine 的帮助与错误提示直接复用现有枚举。
+- 非法值在参数解析阶段报告收到的值和允许值，先于任务读取与账本写入；完整性验证保持。
+- 增加合法值、跨操作非法值、原始错误输入及无写入回归。登记沿用既有简明流程，不增加层或门禁。
+- GitHub Packages 安装包版本为 `1.2.3-beta.0.hotfix.2`；原版本保留。源码、安装、CI 和发布状态以各自回执为准。
+
+
 ## beta1.2.3-hotfix-v1 - 2026-11-03 (packaging-only hotfix; product behavior identical to f4852e6)
 
 仅版本包装，不含产品行为改动：`f4852e6` 已接受的维护修复（Windows 8.3 安装身份、binding 物理路径比较、路径中部 `~` 字面处理、npm 缺省宿主结构化 N/A 报告）原样承载。

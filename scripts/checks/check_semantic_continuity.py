@@ -2021,6 +2021,59 @@ def check_legacy_v2_v3_are_diagnostic_only_until_semantically_bound() -> None:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
+def check_semantic_cli_trigger_choices_are_discoverable_and_fail_before_write() -> None:
+    for command, gate in (("checkpoint", "semantic_checkpoint"),
+                          ("verify", "semantic_verify"),
+                          ("quarantine", "semantic_quarantine")):
+        parser = court_runtime.build_parser()
+        output = io.StringIO()
+        with redirect_stdout(output):
+            try:
+                parser.parse_args(["semantic", command, "--help"])
+            except SystemExit as exc:
+                if exc.code != 0:
+                    raise AssertionError("SEMANTIC_TRIGGER_HELP_FAILED") from exc
+        for trigger in court_semantic_continuity.SEMANTIC_GATE_TRIGGERS[gate]:
+            if trigger not in output.getvalue():
+                raise AssertionError(f"SEMANTIC_TRIGGER_HELP_MISSING:{command}:{trigger}")
+        if command == "quarantine":
+            base = ["--task-id", "missing", "--expected-semantic-epoch", "1",
+                    "--expected-checkpoint-id", "missing", "--reason-code", "manual"]
+        else:
+            base = ["--task-id", "missing", "--context-file", "missing.json"]
+        for trigger in court_semantic_continuity.SEMANTIC_GATE_TRIGGERS[gate]:
+            parsed = parser.parse_args(["semantic", command, *base,
+                                        "--trigger", trigger, "--evidence", "test"])
+            if parsed.trigger != trigger:
+                raise AssertionError("SEMANTIC_TRIGGER_VALID_REJECTED")
+        invalid = ("before_dispatch", "dispatch", "verify" if command == "checkpoint" else "checkpoint")
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            original_root = court_runtime.runtime_root
+            court_runtime.runtime_root = lambda: runtime
+            try:
+                for trigger in invalid:
+                    stderr = io.StringIO()
+                    with redirect_stderr(stderr):
+                        try:
+                            exit_code = court_runtime.main(["semantic", command, *base,
+                                                            "--trigger", trigger, "--evidence", "test"])
+                        except SystemExit as exc:
+                            exit_code = exc.code
+                    if exit_code != 2:
+                        raise AssertionError("SEMANTIC_TRIGGER_INVALID_EXIT")
+                    diagnostic = stderr.getvalue()
+                    if "--trigger" not in diagnostic or trigger not in diagnostic:
+                        raise AssertionError("SEMANTIC_TRIGGER_DIAGNOSTIC_MISSING_INPUT")
+                    for allowed in court_semantic_continuity.SEMANTIC_GATE_TRIGGERS[gate]:
+                        if allowed not in diagnostic:
+                            raise AssertionError("SEMANTIC_TRIGGER_DIAGNOSTIC_MISSING_CHOICES")
+                    if "integrity" in diagnostic or list(runtime.iterdir()):
+                        raise AssertionError("SEMANTIC_TRIGGER_REJECT_NOT_PARSE_ONLY")
+            finally:
+                court_runtime.runtime_root = original_root
+
+
 def check_semantic_checkpoint_cli_is_json_and_machine_stable() -> None:
     task_id = "semantic-cli-checkpoint"
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -4672,6 +4725,7 @@ def check_stage3_xingbu_fail_gates() -> None:
 def evaluate() -> dict[str, object]:
     checks = (
         ("PUBLIC_INVARIANT_CAPSULE_CONTRACT", check_public_invariant_capsule_contract),
+        ("SEMANTIC_CLI_TRIGGER_CHOICES", check_semantic_cli_trigger_choices_are_discoverable_and_fail_before_write),
         (
             "STAGE3_RESULT_RECOVERY_PURE_SCHEMA_CORE_HEAD_IDEMPOTENCY_RED",
             check_stage3_result_recovery_pure_schema_core_head_idempotency_red,

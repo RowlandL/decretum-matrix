@@ -9,9 +9,7 @@ _SCRIPTS_ROOT = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
-from pathlib import Path
 import os
-import sys
 import tempfile
 from unittest.mock import patch
 
@@ -23,7 +21,6 @@ from court_codex_host_resolution import (
     ensure_front_link,
     parse_codex_version,
 )
-
 
 def main() -> int:
     assert parse_codex_version("codex-cli 0.144.1\n") == "0.144.1"
@@ -92,14 +89,9 @@ def main() -> int:
         assert os.path.samefile(native, front)
 
     print("COURT_CODEX_HOST_RESOLUTION_OK")
-    # Applicability contract: a host without both npm premises must be told so
-    # explicitly, and that verdict must never be reported as a healthy npm
-    # resolution. Explicit path probes stay strict.
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         absent_native = root / "vendor" / "codex.exe"
-        # The absent-premise verdict must not depend on this host's real PATH: pin it
-        # to a directory that provably holds no npm shim.
         shimless_path = root / "shimless-path"
         shimless_path.mkdir()
         with patch.dict(os.environ, {"PATH": str(shimless_path)}, clear=False):
@@ -124,8 +116,6 @@ def main() -> int:
         assert half_report["applicable"] is False
         assert half_report["premises"]["npm_shim_on_path"] is True
 
-    # Boundary: an explicit --native-path that equals the default value is still an
-    # explicit probe and must never be downgraded to the NOT_APPLICABLE verdict.
     import io
     from contextlib import redirect_stdout
 
