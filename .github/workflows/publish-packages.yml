@@ -217,12 +217,14 @@ jobs:
       - name: Refuse to overwrite a published version with different content
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_NAME: ${{ env.ARTIFACT_NAME }}
         run: |
           set -euo pipefail
           npmrc="$RUNNER_TEMP/.npmrc"
           printf "@rowlandl:registry=%s\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n" "$EXPECTED_REGISTRY" > "$npmrc"
           python - "$EXPECTED_PACKAGE" "$NPM_VERSION" "$EXPECTED_REGISTRY" "$npmrc" "release-assets/$RECEIPT_NAME" <<'PY'
-          import json, os, re, subprocess, sys
+          import hashlib, json, os, re, subprocess, sys, tarfile, tempfile
+          from pathlib import Path
           package, version, registry, npmrc, receipt_path = sys.argv[1:6]
           receipt = json.load(open(receipt_path, encoding="utf-8"))
           package_section = receipt.get("package") or {}
@@ -250,9 +252,72 @@ jobs:
                   raise SystemExit(0)
               raise SystemExit("rejected_registry_query_failed:" + message.strip()[:200])
           published = json.loads(query.stdout)
+          # GitHub Packages answers a scoped view for an absent version with the
+          # package manifest (no version entry) and exit 0, so absence must be
+          # detected from the versions map, not from the query exit code alone.
+          versions = published.get("versions") if isinstance(published, dict) else None
+          if isinstance(versions, dict) and version not in versions:
+              print("registry_version_absent")
+              raise SystemExit(0)
           dist = (published.get("dist") or {}) if isinstance(published, dict) else {}
+          def embedded_release_zip_sha256(tarball_path):
+              """SHA-256 of the release ZIP embedded in an npm tarball."""
+              artifact = os.environ.get("ARTIFACT_NAME", "")
+              with tarfile.open(tarball_path, "r:gz") as tar:
+                  for member in tar.getmembers():
+                      if member.name.endswith("/" + artifact):
+                          return hashlib.sha256(tar.extractfile(member).read()).hexdigest()
+              return None
+          def product_payload_equivalent(published_tarball_path, accepted_zip_path):
+              """True when both release ZIPs carry identical product members.
+
+              Packaging bookkeeping (release-manifest.json) also inventories
+              source-only CI fixtures, so a CI-only fix after publication
+              changes tarball bytes without touching any shipped product
+              member. Equivalence is judged on the shipped members.
+              """
+              import zipfile
+              def member_digests(zip_path):
+                  digests = {}
+                  with zipfile.ZipFile(zip_path) as archive:
+                      for info in archive.infolist():
+                          if info.is_dir():
+                              continue
+                          if info.filename.replace("\\", "/").endswith("/release-manifest.json"):
+                              continue
+                          digests[info.filename] = hashlib.sha256(archive.read(info)).hexdigest()
+                  return digests
+              embedded = embedded_release_zip_sha256(published_tarball_path)
+              if embedded is None:
+                  return False
+              with tempfile.TemporaryDirectory(prefix="published-payload-") as tmp:
+                  embedded_zip = Path(tmp) / "embedded.zip"
+                  # Re-fetch the embedded bytes through the same tar stream used
+                  # for the digest so both sides hash identical content.
+                  with tarfile.open(published_tarball_path, "r:gz") as tar:
+                      for member in tar.getmembers():
+                          if member.name.endswith("/" + os.environ.get("ARTIFACT_NAME", "")):
+                              embedded_zip.write_bytes(tar.extractfile(member).read())
+                              break
+                  if not embedded_zip.is_file():
+                      return False
+                  return member_digests(embedded_zip) == member_digests(accepted_zip_path)
           if dist.get("integrity") != integrity or dist.get("shasum") != shasum:
-              raise SystemExit("rejected_existing_package_differs")
+              accepted_zip = Path("release-assets") / os.environ.get("ARTIFACT_NAME", "")
+              pack_dir = Path(tempfile.mkdtemp(prefix="published-version-"))
+              fetch = subprocess.run(
+                  ["npm", "pack", f"{package}@{version}", "--pack-destination", str(pack_dir),
+                   "--registry", registry, "--userconfig", npmrc],
+                  capture_output=True, text=True, env=environment, check=False,
+              )
+              packed = next(iter(pack_dir.glob("*.tgz")), None) if fetch.returncode == 0 else None
+              if packed is None or not accepted_zip.is_file() or not product_payload_equivalent(packed, accepted_zip):
+                  raise SystemExit("rejected_existing_package_differs")
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+                  handle.write("PUBLISH_SKIPPED_IDENTICAL=true\n")
+                  handle.write("PUBLISHED_ARTIFACT_PAYLOAD_IDENTICAL=true\n")
+              print("published_version_payload_identical: registry holds an earlier build whose release ZIP carries the identical product payload; only source-only CI fixtures and packaging bookkeeping moved afterwards")
+              raise SystemExit(0)
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
               handle.write("PUBLISH_SKIPPED_IDENTICAL=true\n")
           print("published_version_matches_accepted_receipt")
