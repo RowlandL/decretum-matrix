@@ -2911,7 +2911,18 @@ def _check_npm_prefix_visibility_closeout(
         command = bindir / command_name
         command.write_text(body, encoding="utf-8")
         command.chmod(command.stat().st_mode | stat.S_IXUSR)
+        # Windows shutil.which only resolves PATHEXT executables: give the
+        # fixture a matching .cmd shim carrying the SAME body so the probe's
+        # real PATH lookup finds the fake command — and binds or declines
+        # exactly like the bare POSIX shim — on every host.
+        cmd_shim = bindir / (command_name + ".cmd")
+        cmd_shim.write_text(body, encoding="utf-8")
+        cmd_shim.chmod(cmd_shim.stat().st_mode | stat.S_IXUSR)
         return command
+
+    def remove_path_command(command: Path) -> None:
+        command.unlink(missing_ok=True)
+        Path(str(command) + ".cmd").unlink(missing_ok=True)
 
     def probe(**overrides: object) -> Payload:
         environment = {

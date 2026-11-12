@@ -1563,8 +1563,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_install_current_agent_copy.py",
-      "sha256": "e071fd609dc1148258bb79758ca6a278b8df2c5700504d1c7ce8de87cf5d1e33",
-      "size": 257647
+      "sha256": "c93e78cbb189020fb2be33c3d1ab67299a71a562ae9d3101f6c124be585a00ab",
+      "size": 258257
     },
     {
       "mode": "100644",
@@ -3106,10 +3106,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9739660,
+    "payload_bytes": 9740270,
     "payload_file_count": 512,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "580dd4513101423dbdf6637e900b1d170d7b043f017da137ec7231442b22e35d",
+    "payload_index_sha256": "5ba3ab8d3f6b0d9640070f06b23b7c118547b5997811e693a03799fe7103712c",
     "source_packaged_tracked_file_count": 504,
     "source_tracked_file_count": 698
   },
