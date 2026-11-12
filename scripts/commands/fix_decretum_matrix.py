@@ -1415,17 +1415,17 @@ def _run_public_shim_probe(
         return {"ok": False, "status": "BLOCKED", "reason": "public_shim_layout_invalid"}
     if node_modules.name.casefold() != "node_modules":
         return {"ok": False, "status": "BLOCKED", "reason": "public_shim_layout_invalid"}
+    # beta1.2.3-hotfix-v3: Unix 全局 npm 把公共 shim 放在 <prefix>/bin，
+    # <prefix>/lib/node_modules/.bin 只是本地布局的兜底；两者都按候选解析，
+    # 缺失的布局不作为错误（beta1.2.3-hotfix-v3 Linux 半安装探测链）。
     try:
-        shim_root = _physical_directory(
-            node_modules / ".bin",
-            label="public_shim_directory",
-        )
         prefix_root = _physical_directory(
-            node_modules.parent,
+            node_modules.parents[1],
             label="public_shim_prefix",
         )
-    except RuntimeError as exc:
+    except (IndexError, RuntimeError) as exc:
         return {"ok": False, "status": "BLOCKED", "reason": str(exc)}
+    shim_root = node_modules / ".bin"
     if os.name == "nt":
         shim_candidates = (
             prefix_root / "decretum-matrix.cmd",
@@ -1449,7 +1449,14 @@ def _run_public_shim_probe(
             subprocess.list2cmdline([str(shim), "--runtime-identity"]),
         ]
     else:
-        shim = shim_root / "decretum-matrix"
+        shim_candidates = (
+            prefix_root / "bin" / "decretum-matrix",
+            shim_root / "decretum-matrix",
+        )
+        shim = next(
+            (candidate for candidate in shim_candidates if candidate.exists() or candidate.is_symlink()),
+            shim_candidates[-1],
+        )
         try:
             shim_status = shim.lstat()
         except OSError as exc:
