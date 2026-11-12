@@ -172,6 +172,11 @@ def _assert_safe_descendant(
     if not _is_under(path_absolute, root_absolute):
         raise ValueError(f"{label} escapes root: {path_absolute}")
     relative = path_absolute.relative_to(root_absolute)
+    if relative.as_posix() == UNMANAGED_VENV_RELATIVE or relative.as_posix().startswith(
+        UNMANAGED_VENV_RELATIVE + "/"
+    ):
+        # Unmanaged venv content: internal links are its normal layout.
+        return path_absolute
     current = root_absolute
     for index, part in enumerate(relative.parts):
         current = current / part
@@ -190,17 +195,32 @@ def _assert_safe_descendant(
     return path_absolute
 
 
+# Linux bootstrap (court-host-platform-pitfalls.md): the recall-chain venv
+# lives inside the installed root and is unmanaged local runtime content.
+# Its internal links (lib64, python bins) must not fail the root safety
+# invariant; the hash contract still never projects any of it.
+UNMANAGED_VENV_RELATIVE = "training/laya-shiguan/.venv"
+
+
 def _scan_safe_tree(root: Path, *, label: str) -> list[Path]:
     root = _assert_safe_root(root, allow_missing=False, label=label)
     files: list[Path] = []
     stack = [root]
     while stack:
         current = stack.pop()
+        if current.relative_to(root).as_posix() == UNMANAGED_VENV_RELATIVE:
+            # The Linux recall-chain bootstrap (court-host-platform-pitfalls.md)
+            # keeps a standard venv inside the installed root. Its internal
+            # links (lib64, python bins) are unmanaged local runtime content,
+            # not managed payload; the hash contract never projects it.
+            continue
         with os.scandir(current) as entries:
             for entry in sorted(entries, key=lambda item: item.name.casefold()):
                 path = Path(entry.path)
                 value = entry.stat(follow_symlinks=False)
                 if _stat_is_link_or_reparse(value):
+                    if path.relative_to(root).as_posix() == UNMANAGED_VENV_RELATIVE:
+                        continue
                     raise ValueError(f"{label} contains a link or reparse point: {path}")
                 if stat.S_ISDIR(value.st_mode):
                     stack.append(path)
