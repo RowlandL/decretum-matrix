@@ -172,10 +172,8 @@ def _assert_safe_descendant(
     if not _is_under(path_absolute, root_absolute):
         raise ValueError(f"{label} escapes root: {path_absolute}")
     relative = path_absolute.relative_to(root_absolute)
-    if relative.as_posix() == UNMANAGED_VENV_RELATIVE or relative.as_posix().startswith(
-        UNMANAGED_VENV_RELATIVE + "/"
-    ):
-        # Unmanaged venv content: internal links are its normal layout.
+    if _is_unmanaged_bootstrap(relative.as_posix()):
+        # Unmanaged local bootstrap content: internal links are its normal layout.
         return path_absolute
     current = root_absolute
     for index, part in enumerate(relative.parts):
@@ -196,10 +194,24 @@ def _assert_safe_descendant(
 
 
 # Linux bootstrap (court-host-platform-pitfalls.md): the recall-chain venv
-# lives inside the installed root and is unmanaged local runtime content.
-# Its internal links (lib64, python bins) must not fail the root safety
-# invariant; the hash contract still never projects any of it.
+# and corpus live inside the installed root and are unmanaged local runtime
+# content. Venv-internal links (lib64, python bins) and locally downloaded
+# corpus data must not fail the root safety invariant or count as extras;
+# the hash contract still never projects any of it.
 UNMANAGED_VENV_RELATIVE = "training/laya-shiguan/.venv"
+UNMANAGED_BOOTSTRAP_RELATIVES = (
+    UNMANAGED_VENV_RELATIVE,
+    "training/laya-shiguan/corpus",
+)
+
+
+def _is_unmanaged_bootstrap(relative: str) -> bool:
+    if relative == UNMANAGED_VENV_RELATIVE or relative.startswith(UNMANAGED_VENV_RELATIVE + "/"):
+        return True
+    return any(
+        relative == item or relative.startswith(item + "/")
+        for item in UNMANAGED_BOOTSTRAP_RELATIVES
+    )
 
 
 def _scan_safe_tree(root: Path, *, label: str) -> list[Path]:
@@ -208,18 +220,15 @@ def _scan_safe_tree(root: Path, *, label: str) -> list[Path]:
     stack = [root]
     while stack:
         current = stack.pop()
-        if current.relative_to(root).as_posix() == UNMANAGED_VENV_RELATIVE:
-            # The Linux recall-chain bootstrap (court-host-platform-pitfalls.md)
-            # keeps a standard venv inside the installed root. Its internal
-            # links (lib64, python bins) are unmanaged local runtime content,
-            # not managed payload; the hash contract never projects it.
+        if _is_unmanaged_bootstrap(current.relative_to(root).as_posix()):
+            # Unmanaged local bootstrap content (see UNMANAGED_BOOTSTRAP_RELATIVES).
             continue
         with os.scandir(current) as entries:
             for entry in sorted(entries, key=lambda item: item.name.casefold()):
                 path = Path(entry.path)
                 value = entry.stat(follow_symlinks=False)
                 if _stat_is_link_or_reparse(value):
-                    if path.relative_to(root).as_posix() == UNMANAGED_VENV_RELATIVE:
+                    if _is_unmanaged_bootstrap(path.relative_to(root).as_posix()):
                         continue
                     raise ValueError(f"{label} contains a link or reparse point: {path}")
                 if stat.S_ISDIR(value.st_mode):
