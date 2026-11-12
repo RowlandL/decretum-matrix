@@ -1423,11 +1423,24 @@ class PackageBuildTests(unittest.TestCase):
             for path in stage.rglob("*")
             if path.is_file()
         }
+        # beta1.2.3-hotfix-v3: the identity contract (check_skill_identity
+        # HOST_METHODOLOGY_PORTABLE_SURFACES) requires these two shells inside
+        # every install root, so they travel with the shared active projection.
+        # Every other checker surface stays excluded from the runtime stage.
+        identity_portable_surfaces = {
+            "scripts/check_court_agent_lifecycle.py",
+            "scripts/check_court_office_assignment_binding.py",
+        }
         self.assertFalse(
             any(
                 name == "scripts/check_active_copy_hashes.py"
-                or name.startswith("scripts/check_")
-                or name.startswith("scripts/checks/")
+                or (
+                    name not in identity_portable_surfaces
+                    and (
+                        name.startswith("scripts/check_")
+                        or name.startswith("scripts/checks/")
+                    )
+                )
                 for name in names
             )
         )

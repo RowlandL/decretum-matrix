@@ -259,12 +259,20 @@ def _validate_candidate_zip_payload(path: Path) -> None:
     entries = payload.get("files") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
         raise RuntimeError("candidate_artifact_manifest_invalid")
+    # beta1.2.3-hotfix-v3: the identity contract requires these two shells
+    # inside install roots, so they are portable identity surfaces rather than
+    # repository-only checkers (mirrors package_skill.is_source_only_checker_path).
+    identity_portable_surfaces = {
+        "scripts/check_court_agent_lifecycle.py",
+        "scripts/check_court_office_assignment_binding.py",
+    }
     checker_paths = sorted(
         {
             str(entry.get("path"))
             for entry in entries
             if isinstance(entry, dict)
             and isinstance(entry.get("path"), str)
+            and entry["path"] not in identity_portable_surfaces
             and (
                 entry["path"] == "scripts/check_active_copy_hashes.py"
                 or entry["path"].startswith("scripts/check_")
