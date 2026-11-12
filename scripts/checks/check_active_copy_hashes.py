@@ -223,8 +223,17 @@ def _scan_safe_tree(root: Path, *, label: str) -> list[Path]:
                         continue
                     raise ValueError(f"{label} contains a link or reparse point: {path}")
                 if stat.S_ISDIR(value.st_mode):
+                    if entry.name == "__pycache__":
+                        # Bytecode caches are derived runtime artifacts (the
+                        # packaged payload excludes them like every other
+                        # consumer), not managed or user content; installed
+                        # roots legitimately accumulate them from live
+                        # services and must not fail acceptance on them.
+                        continue
                     stack.append(path)
                 elif stat.S_ISREG(value.st_mode):
+                    if path.suffix.lower() == ".pyc":
+                        continue
                     files.append(path)
                 else:
                     raise ValueError(f"{label} contains a non-regular path: {path}")
