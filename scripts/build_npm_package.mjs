@@ -594,8 +594,17 @@ if accepted_manifest.get("payload_kind") not in ("runtime", "install_source"):
 expected = {}
 expected_casefolded = {}
 source_only_checker_entries = []
+identity_portable_surfaces = {
+    "scripts/check_court_agent_lifecycle.py",
+    "scripts/check_court_office_assignment_binding.py",
+}
 def is_source_only_checker(relative):
+    # beta1.2.3-hotfix-v3: mirrors package_skill.is_source_only_checker_path —
+    # the two identity contract shells are portable surfaces, not repository
+    # only checkers.
     relative = relative.replace("\\", "/").casefold()
+    if relative in identity_portable_surfaces:
+        return False
     return relative == "scripts/check_active_copy_hashes.py" or relative.startswith("scripts/check_") or relative.startswith("scripts/checks/")
 for entry in accepted_manifest.get("files", []):
     if not isinstance(entry, dict):
