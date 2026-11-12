@@ -220,7 +220,13 @@ def _normalized_refs(value: object) -> dict[str, dict[str, str]]:
             continue
         reference = {
             key: str(raw[key]).strip()
-            for key in ("source_ref", "source_revision", "transaction_id")
+            for key in (
+                "source_ref",
+                "source_revision",
+                "transaction_id",
+                "target_size",
+                "target_mtime_ns",
+            )
             if str(raw.get(key) or "").strip()
         }
         if reference:
@@ -437,8 +443,13 @@ def queue_vault_changes(
         if (
             managed_cache
             and generated_ref
-            and current.get("observation_state") == "MANAGED"
-            and _reference_matches(current, generated_ref)
+            and (
+                (
+                    current.get("observation_state") == "MANAGED"
+                    and _reference_matches(current, generated_ref)
+                )
+                or _manifest_custody_untouched(path, generated_ref)
+            )
         ):
             queued.append(
                 {
@@ -451,13 +462,16 @@ def queue_vault_changes(
             )
             continue
         if previous and _stat_tuple(previous) == _stat_tuple(current):
-            # Same size/mtime is not proof that an external editor did not
-            # change the bytes.  Preserve the target and surface uncertainty.
+            # Stat-identical between cycles: nothing was observed to change.
+            # Stability is not an external-edit signal; flagging it as a
+            # conflict poisoned every steady-state cycle and forced pointless
+            # full re-syncs.  Emit a non-conflict observation only.
             queued.append(
                 {
                     "queued": False,
-                    "conflict": True,
-                    "reason": "unverifiable_external_change",
+                    "skipped": True,
+                    "conflict": False,
+                    "reason": "unchanged_snapshot",
                     "path": str(path),
                     "rel": rel,
                 }
@@ -490,6 +504,29 @@ def _reference_matches(item: dict[str, object], reference: dict[str, str]) -> bo
         not reference.get(key)
         or str(item.get(key) or "") == str(reference.get(key) or "")
         for key in ("source_revision", "source_ref", "transaction_id")
+    )
+
+
+def _manifest_custody_untouched(path: Path, baseline: dict[str, str]) -> bool:
+    """Stat-level custody check against the sync manifest's recorded write.
+
+    The daemon's watch vocabulary (index-row revisions) can never match the
+    manifest's export-generation vocabulary, so reference matching alone
+    cannot recognize our own sync output.  When the file's stat still equals
+    the stat the sync recorded when it wrote the file, the bytes are ours and
+    the watch scan must not flag them as unverifiable external changes.
+    """
+
+    expected_size = str(baseline.get("target_size") or "")
+    expected_mtime = str(baseline.get("target_mtime_ns") or "")
+    if not expected_size or not expected_mtime:
+        return False
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return False
+    return str(stat_result.st_size) == expected_size and (
+        str(stat_result.st_mtime_ns) == expected_mtime
     )
 
 
@@ -624,7 +661,9 @@ def known_export_snapshot(value: object) -> bool:
 
 
 def run_filesystem_sync(config: dict[str, object], timeout: int = 600) -> dict[str, object]:
-    script = Path(__file__).with_name("sync_shiguan_obsidian_vault.py")
+    # Use the A+B compatibility shell under scripts/ so the subprocess resolves
+    # shiguan_paths; running the inner services/ module directly cannot import it.
+    script = Path(__file__).resolve().parents[1] / "sync_shiguan_obsidian_vault.py"
     vault = configured_cache_vault(config)
     source = authoritative_source_reference()
     with tempfile.NamedTemporaryFile(prefix="shiguan-sync-result-", suffix=".json", delete=False) as handle:

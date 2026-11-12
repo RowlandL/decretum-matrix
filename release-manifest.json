@@ -1599,8 +1599,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_obsidian_sync_transaction.py",
-      "sha256": "e719f981213d1a954c711b576d4479bef5ff4e6622938a8ffe588d4226db4964",
-      "size": 41760
+      "sha256": "4c0cdd257987baf82c771bb7f9e67bd61dd0d266d47d7ec972db7ebbaafa2e99",
+      "size": 42610
     },
     {
       "mode": "100644",
@@ -1623,8 +1623,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_portability.py",
-      "sha256": "47716524799e1ac83e443445429050d6ccc940d00491be9c83510849380ac873",
-      "size": 15633
+      "sha256": "d55ad4560be77ac9e90001469caf53cf2e2867cbd02a22c981845c56b61a07fb",
+      "size": 16901
     },
     {
       "mode": "100644",
@@ -1761,8 +1761,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_shiguan_queue_and_autosync_safety.py",
-      "sha256": "9c50cd0e1fa9f6ecf344243a1e01c5566976e479d1a90b996bf42687cb4c0c0f",
-      "size": 47232
+      "sha256": "e48643ee3248ec2aee970e7df011fda45434abe313f415818ba2d5466abe298e",
+      "size": 47858
     },
     {
       "mode": "100644",
@@ -2751,8 +2751,8 @@
     {
       "mode": "100644",
       "path": "scripts/services/shiguan_autosync_daemon.py",
-      "sha256": "b5f3a3dcc21f246b131525bf88a18a61c49d5d891502bf6a98599560f661ee99",
-      "size": 36721
+      "sha256": "2d3d8bca16e65ff63eb25506e85b81b41a70cf2d8249ddd1984dc51c1d264d0e",
+      "size": 38283
     },
     {
       "mode": "100644",
@@ -2781,8 +2781,8 @@
     {
       "mode": "100644",
       "path": "scripts/services/sync_shiguan_obsidian_vault.py",
-      "sha256": "2d29da051ba216cbda549d883b97e849c65ecfe56aca97d8c114e3d61a8ae016",
-      "size": 34576
+      "sha256": "9ffb96b99b54f214d1f3e218285cec02884a4d8e153572f796b5864e7ab08127",
+      "size": 39729
     },
     {
       "mode": "100644",
@@ -2823,8 +2823,8 @@
     {
       "mode": "100644",
       "path": "scripts/shiguan_paths.py",
-      "sha256": "510c3493cf537ec22c0f08158dfb1b0c1ab02ca511d726aa36fd2a6d3ce2e8d4",
-      "size": 61791
+      "sha256": "a4457deca5c3bb64ca194ee7ab08ccace41cc3f40d699b4e5ecb31c063fb04f7",
+      "size": 62377
     },
     {
       "mode": "100644",
@@ -3106,10 +3106,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9726342,
+    "payload_bytes": 9736387,
     "payload_file_count": 512,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "fd77aedc78c4cce083eaebf3da5ddbbb4c1bec99100201a5ee91a31bab39693b",
+    "payload_index_sha256": "74095b6f50088d3f4db6b22c661bc498012e4e7f3214d5ff14da194e6635b77c",
     "source_packaged_tracked_file_count": 504,
     "source_tracked_file_count": 698
   },

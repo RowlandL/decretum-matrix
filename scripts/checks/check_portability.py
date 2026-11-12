@@ -174,6 +174,25 @@ def run() -> dict[str, object]:
             and Path(runtime_agent["shared_shiguan_root"])
             == synthetic_shared_root.resolve() / "references"
         )
+        # ZCode hosts export Claude Code compatibility env markers (verified on
+        # a live ZCode session), so the runtime detector must test ZCode's own
+        # markers before the Claude Code context, or every ZCode transcript is
+        # mislabeled claude-code.  With no host markers at all the result must
+        # degrade to unknown instead of guessing a host.
+        os.environ.pop("CODEX_THREAD_ID", None)
+        os.environ.pop("CLAUDE_CODE_EFFORT_LEVEL", None)
+        os.environ["ZCODE_SESSION_ID"] = "test-zcode"
+        os.environ["CLAUDE_CODE_SESSION_ID"] = "test-claude-compat-marker"
+        zcode_runtime = shiguan_paths.detect_runtime_agent()
+        for key in shiguan_paths.ZCODE_ENV_KEYS:
+            os.environ.pop(key, None)
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+        bare_runtime = shiguan_paths.detect_runtime_agent()
+        zcode_precedence = (
+            zcode_runtime["source_agent"] == "zcode"
+            and zcode_runtime["source_agent_label"] == "ZCode"
+            and bare_runtime["source_agent"] == "unknown"
+        )
         generic_cli_alias = shiguan_paths.detect_runtime_agent("genericcli")
         source_agent_alias_ok = (
             generic_cli_alias["source_agent"] == "generic-cli"
@@ -231,6 +250,12 @@ def run() -> dict[str, object]:
         }
     )
     checks.append({"name": "explicit Codex runtime outranks weak Claude markers", "ok": codex_runtime_precedence})
+    checks.append(
+        {
+            "name": "ZCode runtime outranks Claude compatibility markers and bare hosts stay unknown",
+            "ok": zcode_precedence,
+        }
+    )
     checks.append(
         {
             "name": "explicit source-agent override is writer-whitelisted",

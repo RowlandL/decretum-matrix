@@ -59,11 +59,19 @@ CLAUDE_CODE_ENV_KEYS = (
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
     "CLAUDE_CODE_SESSION_ID",
 )
+# ZCode hosts also export Claude Code compatibility markers (CLAUDE_CODE_SESSION_ID
+# etc.), so ZCode's own markers must be tested before the Claude Code context.
+ZCODE_ENV_KEYS = (
+    "ZCODE_SESSION_ID",
+    "ZCODE_APP_VERSION",
+    "ZCODE_ENV",
+)
 AGENT_LABELS = {
     "claude-code": "Claude Code",
     "codex": "Codex",
     "generic-cli": "GenericCLI",
     "hermes": "Hermes",
+    "zcode": "ZCode",
     "agents": "Agents",
     "unknown": "Unknown",
 }
@@ -1560,6 +1568,11 @@ def detect_runtime_agent(explicit: str | None = None) -> dict[str, str]:
             raise ValueError(f"source_agent_not_allowed:{agent_id}")
     elif os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_MANAGED_BY_NPM"):
         agent_id = "codex"
+    elif any(os.environ.get(key) for key in ZCODE_ENV_KEYS):
+        # ZCode is a Claude-compatible host and exports Claude Code env markers
+        # (CLAUDE_CODE_SESSION_ID etc.), so this branch must run before the
+        # Claude Code context check or ZCode sessions get mislabeled.
+        agent_id = "zcode"
     elif is_claude_code_context(root_texts):
         agent_id = "claude-code"
     elif any("/appdata/local/hermes/skills/" in text or "/.hermes/skills/" in text for text in root_texts):

@@ -666,7 +666,7 @@ def check_autosync_sidecar_contract() -> dict[str, object]:
 
 
 def check_daemon_revision_contract() -> dict[str, object]:
-    """Exercise trusted daemon references and retain the unknown-source red case."""
+    """Exercise trusted daemon references and custody-based output recognition."""
     with tempfile.TemporaryDirectory(prefix="court-autosync-revision-") as raw_temp:
         root = Path(raw_temp)
         references = root / "references"
@@ -823,16 +823,26 @@ def check_daemon_revision_contract() -> dict[str, object]:
             cache_vault=cache,
             generated_refs=refs,
         )
+        # The stat-CAS custody chain supersedes the old unknown-source conflict
+        # contract: when the manifest proves this sync wrote the target and the
+        # stat still matches, an UNVERIFIED watch vocabulary observation is our
+        # own output and must be skipped, not flagged as an unverifiable
+        # conflict.  A genuinely touched target fails the custody stat check
+        # and stays guarded by the sync transaction's preserve path (covered by
+        # check_obsidian_sync_transaction).
         require(
-            len(unknown) == 1 and unknown[0].get("reason") == "unverifiable_external_change" and unknown[0].get("conflict") is True,
-            f"unknown source was not held as a conflict: {unknown}",
+            len(unknown) == 1
+            and unknown[0].get("reason") == "managed_sync_output"
+            and unknown[0].get("skipped") is True
+            and unknown[0].get("conflict") is not True,
+            f"unknown vocabulary with intact custody was not recognized as sync output: {unknown}",
         )
         return {
             "trusted_revision": trusted["source_revision"],
             "producer_transaction": trusted["transaction_id"],
             "sync_transaction": "sync-tx-1",
             "managed_output_reused": True,
-            "unknown_source_conflict": True,
+            "unknown_vocabulary_custody_recognized": True,
         }
 
 

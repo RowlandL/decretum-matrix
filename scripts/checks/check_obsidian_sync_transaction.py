@@ -42,6 +42,20 @@ def _manifest(cache: Path) -> dict[str, Any]:
     return value
 
 
+def _applied_entry_covers_desired(applied: Any, desired: Any) -> bool:
+    """An applied reference must carry every desired identity field verbatim.
+
+    The stat-CAS custody chain lets the sync enrich applied references with
+    stat-level fields (``target_size``/``target_mtime_ns``) recorded when it
+    wrote the target.  Those additions are contract, not drift: identity
+    fields must survive unchanged, extra custody keys are allowed.
+    """
+
+    if not isinstance(applied, dict) or not isinstance(desired, dict) or not desired:
+        return False
+    return all(applied.get(key) == value for key, value in desired.items())
+
+
 def _isolated_paths(temp: Path) -> ExitStack:
     shared = temp / "shared"
     references = shared / "references"
@@ -91,7 +105,7 @@ def check_first_sync(temp: Path) -> dict[str, Any]:
     applied_ref = manifest.get("applied_refs", {}).get("first.md")
     if not isinstance(desired_ref, dict) or desired_ref.get("source_revision") != "export-r1":
         raise AssertionError("first sync desired reference drifted")
-    if applied_ref != desired_ref:
+    if not _applied_entry_covers_desired(applied_ref, desired_ref):
         raise AssertionError("first sync did not record the applied reference")
     if any("sha256" in str(key).lower() for key in manifest):
         raise AssertionError("ordinary sync manifest still exposes body digest fields")
@@ -216,7 +230,12 @@ def check_crash_and_recovery(temp: Path) -> dict[str, Any]:
         raise AssertionError("recovery lost the producer transaction association")
     desired = committed.get("desired_refs")
     applied = committed.get("applied_refs")
-    if not isinstance(desired, dict) or applied != desired:
+    if (
+        not isinstance(desired, dict)
+        or not isinstance(applied, dict)
+        or set(applied) != set(desired)
+        or any(not _applied_entry_covers_desired(applied.get(rel), ref) for rel, ref in desired.items())
+    ):
         raise AssertionError("recovery committed references that were not applied")
     return {
         "replaced_before_crash": replaced,

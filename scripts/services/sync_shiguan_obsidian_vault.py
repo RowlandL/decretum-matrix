@@ -72,13 +72,22 @@ def filesystem_sync_lock_path() -> Path:
     return reference_path("court-runtime", "obsidian-filesystem-sync.lock")
 
 
-def staged_copy2(src: Path, dst: Path, expected_dst_ref: object = None) -> bool:
-    """Copy a new target through a sibling temp file.
+def staged_copy2(
+    src: Path,
+    dst: Path,
+    expected_dst_ref: object = None,
+    *,
+    allow_replace: bool = False,
+) -> bool:
+    """Copy a target through a sibling temp file with an atomic replace.
 
-    Existing targets are deliberately never replaced by this low-level helper.
-    A caller must obtain an explicit, non-content target reference in a future
-    transaction before an overwrite can be authorized.  This keeps an
-    unobservable external edit from being mistaken for a safe compare-and-swap.
+    Existing targets are deliberately never replaced unless the caller passes
+    ``allow_replace=True``.  That flag is the "future transaction" authorization
+    this docstring once awaited: the caller must first prove custody of the
+    existing target (``_target_untouched`` against the committed manifest's
+    recorded stat, or an explicit in-flight transaction reference).  This keeps
+    an unobservable external edit from being mistaken for a safe
+    compare-and-swap: edited targets fail the custody gate and stay preserved.
     """
 
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -89,9 +98,10 @@ def staged_copy2(src: Path, dst: Path, expected_dst_ref: object = None) -> bool:
         shutil.copy2(src, temp_path)
         with temp_path.open("r+b") as handle:
             os.fsync(handle.fileno())
-        # No body comparison is performed here.  The transaction lock and the
-        # explicit absence precondition are the only safe facts available.
-        if dst.exists():
+        # No body comparison is performed here.  The transaction lock, the
+        # explicit absence precondition, and the caller's custody gate are the
+        # only safe facts available.
+        if dst.exists() and not allow_replace:
             return False
         deadline = time.monotonic() + 2.0
         while True:
@@ -127,7 +137,13 @@ def normalized_manifest_refs(value: object) -> dict[str, dict[str, str]]:
             continue
         reference = {
             key: str(raw[key]).strip()
-            for key in ("source_ref", "source_revision", "transaction_id")
+            for key in (
+                "source_ref",
+                "source_revision",
+                "transaction_id",
+                "target_size",
+                "target_mtime_ns",
+            )
             if str(raw.get(key) or "").strip()
         }
         if reference:
@@ -158,6 +174,39 @@ def _reference_matches(item: dict[str, str], reference: dict[str, str]) -> bool:
     )
 
 
+def target_stat_signature(target: Path) -> dict[str, str]:
+    """Return stat-level custody fields for a written vault target."""
+
+    try:
+        stat_result = target.stat()
+    except OSError:
+        return {}
+    return {
+        "target_size": str(stat_result.st_size),
+        "target_mtime_ns": str(stat_result.st_mtime_ns),
+    }
+
+
+def _target_untouched(target: Path, baseline: dict[str, str]) -> bool:
+    """Stat-level compare-and-swap for an existing committed target.
+
+    The v2 manifest keeps reference semantics and never reads body digests.
+    Custody is therefore proven with the stat recorded when this sync last
+    wrote the file: any external edit (user note, Obsidian plugin) changes
+    mtime or size and fails the swap, keeping the preserve-only guarantee.
+    """
+
+    expected_size = str(baseline.get("target_size") or "")
+    expected_mtime = str(baseline.get("target_mtime_ns") or "")
+    if not expected_size or not expected_mtime:
+        return False
+    actual = target_stat_signature(target)
+    return bool(actual) and (
+        actual["target_size"] == expected_size
+        and actual["target_mtime_ns"] == expected_mtime
+    )
+
+
 def generated_sync_manifest(
     src: Path,
     state: str,
@@ -177,7 +226,7 @@ def generated_sync_manifest(
     reference = str(source_ref or "").strip() or f"shiguan://export/{revision}"
     desired_refs: dict[str, dict[str, str]] = {}
     for path in sorted(item for item in src.rglob("*") if item.is_file()):
-        if path.name == EXPORT_MANAGED_MARKER_NAME:
+        if path.name in {EXPORT_MANAGED_MARKER_NAME, AUTO_SYNC_STATUS_NAME}:
             continue
         desired_refs[path.relative_to(src).as_posix()] = _source_reference(
             revision,
@@ -265,6 +314,9 @@ def update_sync_manifest_ref(
         source_ref or value.get("source_ref"),
         transaction_id or value.get("transaction_id"),
     )
+    # Record stat-level custody so later transactions can prove this sync
+    # wrote the target (compare-and-swap update path).
+    reference.update(target_stat_signature(target))
     desired = normalized_manifest_refs(value.get("desired_refs"))
     applied = normalized_manifest_refs(value.get("applied_refs"))
     desired[normalized_rel] = dict(reference)
@@ -382,7 +434,8 @@ def mirror_tree(
     src_files = {
         p.relative_to(src)
         for p in src.rglob("*")
-        if p.is_file() and p.name != EXPORT_MANAGED_MARKER_NAME
+        if p.is_file()
+        and p.name not in {EXPORT_MANAGED_MARKER_NAME, AUTO_SYNC_STATUS_NAME}
     }
     dst_files = {
         p.relative_to(dst)
@@ -394,6 +447,15 @@ def mirror_tree(
     existing_manifest = load_sync_manifest(dst)
     sync_manifest: dict[str, object] | None = None
     previous_generated_refs = load_sync_manifest_refs(dst)
+    if (
+        not previous_generated_refs
+        and existing_manifest.get("schema") == SYNC_MANIFEST_SCHEMA
+        and existing_manifest.get("state") == "conflict"
+    ):
+        # A conflict run must not erase the last committed baseline.  Keep the
+        # committed chain alive so later transactions can still prove custody
+        # and resolve their updates instead of degrading permanently.
+        previous_generated_refs = normalized_manifest_refs(existing_manifest.get("previous_refs"))
     manifest_migration_source = (
         "sync_manifest"
         if existing_manifest.get("schema") == SYNC_MANIFEST_SCHEMA
@@ -461,7 +523,7 @@ def mirror_tree(
                 current_transaction_id,
             )
             for path in sorted(item for item in src.rglob("*") if item.is_file())
-            if path.name != EXPORT_MANAGED_MARKER_NAME
+            if path.name not in {EXPORT_MANAGED_MARKER_NAME, AUTO_SYNC_STATUS_NAME}
         }
     )
     applied_generated_refs = (
@@ -479,8 +541,11 @@ def mirror_tree(
         if not expected_ref or not target.is_file():
             return False
         # A target's bytes are intentionally not inspected.  This verification
-        # only records that this transaction atomically created the target.
+        # only records that this transaction atomically created the target,
+        # plus the stat-level custody fields later transactions need for the
+        # compare-and-swap update path.
         applied_generated_refs[rel_text] = dict(expected_ref)
+        applied_generated_refs[rel_text].update(target_stat_signature(target))
         sync_manifest["applied_refs"] = dict(applied_generated_refs)
         if persist:
             applied_since_checkpoint += 1
@@ -530,10 +595,35 @@ def mirror_tree(
                 applied_generated_refs[rel_text] = dict(desired_generated_refs[rel_text])
             continue
         else:
-            # Existing text has no trustworthy non-content compare-and-swap
-            # token.  Preserve it and surface a conflict for review.
-            user_modified_conflicts.append(rel_text)
-            preserved += 1
+            # Update path with stat-level custody: when the committed
+            # manifest proves this sync wrote the target and the stat
+            # recorded at that time still matches, no external edit can
+            # have happened, so this transaction may replace the file.
+            # Touched targets keep the preserve-only guarantee and stay
+            # surfaced as conflicts for review.
+            baseline = previous_generated_refs.get(rel_text)
+            if baseline and _target_untouched(d, baseline):
+                if sync_manifest is not None:
+                    applied_generated_refs[rel_text] = dict(desired_generated_refs[rel_text])
+                    sync_manifest["applied_refs"] = dict(applied_generated_refs)
+                    write_sync_manifest(dst, sync_manifest)
+                if staged_copy2(s, d, baseline, allow_replace=True):
+                    if verify_applied(rel_text, d, persist=True):
+                        updated += 1
+                    else:
+                        user_modified_conflicts.append(rel_text)
+                        preserved += 1
+                else:
+                    applied_generated_refs.pop(rel_text, None)
+                    if sync_manifest is not None:
+                        sync_manifest["applied_refs"] = dict(applied_generated_refs)
+                    user_modified_conflicts.append(rel_text)
+                    preserved += 1
+            else:
+                # Existing text has no trustworthy non-content compare-and-swap
+                # token.  Preserve it and surface a conflict for review.
+                user_modified_conflicts.append(rel_text)
+                preserved += 1
 
     for rel in sorted(dst_files - src_files):
         d = dst / rel
@@ -558,6 +648,15 @@ def mirror_tree(
                 user_modified_conflicts.append(rel_text)
                 preserved += 1
         sync_manifest["state"] = "conflict" if user_modified_conflicts else "committed"
+        if user_modified_conflicts:
+            # An unresolved run must not lose custody knowledge: carry the
+            # incoming baseline merged with this transaction's successful
+            # applies into previous_refs, so the next run can still prove
+            # stat-level custody for every file it wrote and only genuinely
+            # touched targets stay conflicts.
+            custody_refs = dict(previous_generated_refs)
+            custody_refs.update(applied_generated_refs)
+            sync_manifest["previous_refs"] = custody_refs
         sync_manifest["applied_refs"] = dict(applied_generated_refs)
         sync_manifest["conflicts"] = sorted(user_modified_conflicts)
         sync_manifest["updated_at"] = datetime.now().isoformat(timespec="seconds")
@@ -621,15 +720,22 @@ def write_marker(vault: Path, result: dict[str, object], dry_run: bool) -> dict[
     text = "\n".join(body)
     if marker.is_file():
         # The status marker is ordinary text and cannot be compared by body
-        # digest in this contract.  Keep an existing marker until an explicit
-        # external transaction reference authorizes its replacement.
-        return {
-            "written": False,
-            "conflict": True,
-            "path": str(marker),
-            "rel": AUTO_SYNC_STATUS_NAME,
-            "reason": "status_marker_external_state_unverifiable",
-        }
+        # digest in this contract.  Replace an existing marker only when the
+        # manifest proves this sync wrote it and the recorded stat still
+        # matches (no external edit since).  Custody lives across both the
+        # committed applied set and the carried baseline, because mirror_tree
+        # no longer manages this file.
+        value = load_sync_manifest(vault)
+        custody_refs = dict(normalized_manifest_refs(value.get("previous_refs")))
+        custody_refs.update(normalized_manifest_refs(value.get("applied_refs")))
+        if not _target_untouched(marker, custody_refs.get(AUTO_SYNC_STATUS_NAME, {})):
+            return {
+                "written": False,
+                "conflict": True,
+                "path": str(marker),
+                "rel": AUTO_SYNC_STATUS_NAME,
+                "reason": "status_marker_external_state_unverifiable",
+            }
     atomic_write_text(marker, text)
     update_sync_manifest_ref(vault, AUTO_SYNC_STATUS_NAME)
     return {
