@@ -1616,9 +1616,18 @@ def _npm_global_module_roots(prefix: Path, *, from_root_command: bool) -> tuple[
 
     if from_root_command:
         return (prefix,)
+    if os.name == "nt":
+        return (
+            prefix / "node_modules",
+            prefix / "lib" / "node_modules",
+            prefix,
+        )
+    # Unix npm installs into <prefix>/lib/node_modules (what npm root --global
+    # reports); prefer that over the Windows-style direct layout so a stale
+    # candidate registration cannot shadow the live package.
     return (
-        prefix / "node_modules",
         prefix / "lib" / "node_modules",
+        prefix / "node_modules",
         prefix,
     )
 
@@ -1629,7 +1638,13 @@ def _command_binds_entrypoint(command: Path, entrypoint: Path) -> bool:
     if not command.is_file() or not entrypoint.is_file():
         return False
     try:
-        if command.resolve() == entrypoint.resolve():
+        resolved = command.resolve()
+        declared_bins = {entrypoint.resolve()}
+        sibling_js = (entrypoint.parent / "decretum-matrix.js").resolve()
+        # npm 的 Unix shim 是符号链接，直指 bin/decretum-matrix.js；该包装器
+        # 自身再拉起 python 入口，等价绑定同一包入口链。
+        declared_bins.add(sibling_js)
+        if resolved in declared_bins:
             return True
     except OSError:
         return False
@@ -1651,6 +1666,19 @@ def _command_binds_entrypoint(command: Path, entrypoint: Path) -> bool:
     if "@rowlandl" in parts:
         index = parts.index("@rowlandl")
         candidates.add("/".join(parts[index:]))
+        # npm installs the package with bin/decretum-matrix.js as the shim
+        # target; that wrapper spawns this python entrypoint. Referencing
+        # either declared bin module binds the same package entrypoint chain.
+        bin_dir = parts[index:-1]
+        candidates.add("/".join([*bin_dir, "decretum-matrix.js"]))
+        try:
+            candidates.add(
+                str((entrypoint.parent / "decretum-matrix.js").resolve())
+                .replace("\\", "/")
+                .casefold()
+            )
+        except OSError:
+            pass
     return any(candidate and candidate in normalized for candidate in candidates)
 
 
