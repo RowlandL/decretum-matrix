@@ -1617,8 +1617,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_package_privacy.py",
-      "sha256": "cbd763dd91750473ac06e3a83b3da64279776e3b3cd59798d2cb480b45f33947",
-      "size": 71948
+      "sha256": "7ccba393c4bcf94944edea4d7ce9ebdb41b70192966d9e18da9ec3ca8eeac05b",
+      "size": 72585
     },
     {
       "mode": "100644",
@@ -2031,8 +2031,8 @@
     {
       "mode": "100644",
       "path": "scripts/commands/fix_decretum_matrix.py",
-      "sha256": "bfe07ea03c9d595a4f81de5c3a1ea4bbcc3ca01068128f6ce50563cbc758273e",
-      "size": 105550
+      "sha256": "19757ebccd423a72b0702a6436956da115e5a62e3486fa2522df6be028247bcc",
+      "size": 106003
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9714133,
+    "payload_bytes": 9715223,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "53168ff67604a8b51f0d1833b63cf3dbaff59e0572cab4faf10570e1c175e1ff",
+    "payload_index_sha256": "5d132f9467660555d353f1b4e8cde53dddf96de32f93d33e0c8cfd43063c567f",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 698
   },
