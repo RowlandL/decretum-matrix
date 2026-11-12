@@ -136,6 +136,29 @@ def rows_from_live_index(path: Path) -> list[dict]:
     return rows
 
 
+def _live_index_has_rows(path: Path) -> bool:
+    """实时索引有效性判据：**至少一行可解析 JSON**（空占位文件/全坏行均无效）。
+
+    与 rows_from_live_index 同语义：可解析行即为有效记录行；读到首个有效行
+    即返回，不为校验重读整个索引。
+    """
+
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                return True
+    except OSError:
+        return False
+    return False
+
+
 _ENUM = ("WRITE", "PROPOSE", "SKIP", "DEFERRED")
 _GRADE = {"S": 3, "A": 3, "B": 2, "C": 1, "D": 0, "E": 0, "F": 0}
 
@@ -250,11 +273,19 @@ class ShiguanRecall:
 
     # ---------- 索引 ----------
     def _source(self) -> tuple[Path, str]:
-        """优先实时史馆索引；仅开发态回退本地语料。"""
+        """优先实时史馆索引（**≥1 有效行才采信**）；无效/缺失时回退本地语料。"""
 
         live = live_index_path()
         if live is not None and live.is_file():
-            return live, "live_shiguan_index"
+            if _live_index_has_rows(live):
+                return live, "live_shiguan_index"
+            # 空占位/坏行实时索引不得静默生效：显式告警后回退本地语料。
+            print(f"[shiguan-recall] 实时史馆索引无有效记录（空文件或全部行解析失败），"
+                  f"回退本地语料：{live}", file=sys.stderr)
+        if not CORPUS.is_file():
+            raise FileNotFoundError(
+                f"shiguan-recall: 实时史馆索引不可用（{live}）且本地语料缺失（{CORPUS}）；"
+                "无可用数据源，保持 fail-closed")
         return CORPUS, "local_corpus"
 
     def _stamp(self, path: Path) -> dict:

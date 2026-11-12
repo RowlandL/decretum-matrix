@@ -1152,6 +1152,35 @@ def _package_bundle_provenance(path: Path, *, root: Path = ROOT) -> dict[str, st
     }
 
 
+def _package_skill_identity_problems(path: Path, package_skill: object) -> list[str]:
+    """Run the authoritative skill identity checker against the packaged skill root.
+
+    beta1.2.3-hotfix-v2 shipped a ZIP whose identity manifest still bound the
+    previous release's SKILL.md digest; this gate fails any package that would
+    repeat that. Extraction is read-only into a temp dir; the checker itself
+    stays the single hash authority.
+    """
+
+    from checks.check_skill_identity import check_identity
+
+    prefix = f"{package_skill.ROOT_NAME}/"
+    with tempfile.TemporaryDirectory(prefix="decretum-release-gate-identity-") as raw_temp:
+        extraction = Path(raw_temp) / package_skill.ROOT_NAME
+        with zipfile.ZipFile(path, "r") as archive:
+            for info in archive.infolist():
+                if info.filename.endswith("/") or not info.filename.startswith(prefix):
+                    continue
+                target = extraction / info.filename[len(prefix):]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(info))
+        result = check_identity(extraction)
+    if result.get("status") == "PASSED":
+        return []
+    codes = sorted({str(finding.get("code")) for finding in result.get("findings", [])})
+    problems = [f"package_skill_identity_failed:{code}" for code in codes]
+    return problems or ["package_skill_identity_failed"]
+
+
 def validate_package(path: Path) -> dict[str, object]:
     if not path.exists():
         return {
@@ -1170,6 +1199,7 @@ def validate_package(path: Path) -> dict[str, object]:
             manifest_member = f"{package_skill.ROOT_NAME}/release-manifest.json"
             manifest_bytes = archive.read(manifest_member)
         embedded_manifest = json.loads(manifest_bytes.decode("utf-8"))
+        problems.extend(_package_skill_identity_problems(path, package_skill))
     except Exception as exc:  # pragma: no cover - defensive CLI reporting
         return {
             "name": "package_validation",

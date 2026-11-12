@@ -38,6 +38,10 @@
     "excluded_cli_groups": [
       "check",
       "release"
+    ],
+    "exclude_path_exceptions": [
+      "scripts/check_court_agent_lifecycle.py",
+      "scripts/check_court_office_assignment_binding.py"
     ]
   },
   "projections": {
@@ -300,6 +304,7 @@
       "scripts/commands/memory_decision.py",
       "scripts/commands/memory_pipeline_fixture.py",
       "scripts/commands/migrate_current_tool_replica.py",
+      "scripts/commands/migrate_legacy_skill_locator.py",
       "scripts/commands/migrate_shared_shiguan.py",
       "scripts/commands/package_skill.py",
       "scripts/commands/plan_shiguan_pending_quarantine.py",
@@ -716,6 +721,7 @@
       "scripts/commands/memory_decision.py",
       "scripts/commands/memory_pipeline_fixture.py",
       "scripts/commands/migrate_current_tool_replica.py",
+      "scripts/commands/migrate_legacy_skill_locator.py",
       "scripts/commands/migrate_shared_shiguan.py",
       "scripts/commands/package_skill.py",
       "scripts/commands/plan_shiguan_pending_quarantine.py",
@@ -888,7 +894,6 @@
       "references/shiguan-imports",
       "references/shiguan-tree",
       "scripts/commands/fix_decretum_matrix.py",
-      "scripts/commands/migrate_legacy_skill_locator.py",
       "scripts/commands/sync_active_copies.py",
       "scripts/install_codex_plugin_projection.py",
       "scripts/install_current_agent_copy.py",

@@ -42,8 +42,13 @@ EXTERNAL_INSTALLER_PATHS = (
     "scripts/commands/sync_active_copies.py",
     "scripts/sync_active_copies.py",
     "scripts/commands/fix_decretum_matrix.py",
-    "scripts/commands/migrate_legacy_skill_locator.py",
+    # scripts/commands/migrate_legacy_skill_locator.py left this tuple in
+    # beta1.2.3-hotfix-v3: the identity contract requires it inside install
+    # roots, so it is projected (shared_agents + portable_current_tool).
 )
+IDENTITY_MIGRATION_IMPORT_EXEMPTIONS = {
+    ("scripts/commands/migrate_legacy_skill_locator.py", "scripts/sync_active_copies.py"),
+}
 MANDATORY_RUNTIME_GUIDES = ("references/court-normal-startup.md",)
 RUNTIME_DOCUMENT_ROOTS = (
     "SKILL.md",
@@ -915,6 +920,11 @@ def evaluate() -> dict[str, Any]:
         for value in projection.get("active_render", {}).get("exclude_path_globs", [])
         if isinstance(value, str)
     )
+    exclude_path_exceptions = tuple(
+        value
+        for value in projection.get("active_render", {}).get("exclude_path_exceptions", [])
+        if isinstance(value, str)
+    )
     for target in ("shared_agents", "portable_current_tool"):
         raw_paths = projections.get(target)
         if not isinstance(raw_paths, list) or any(not isinstance(item, str) for item in raw_paths):
@@ -965,7 +975,7 @@ def evaluate() -> dict[str, Any]:
         missing_imports: list[str] = []
         checker_couplings: list[str] = []
         for relative in sorted(projected_files):
-            if active_path_is_excluded(relative, excluded_globs):
+            if active_path_is_excluded(relative, excluded_globs, exclude_path_exceptions):
                 continue
             path = ROOT / relative
             suffix = path.suffix.casefold()
@@ -974,6 +984,14 @@ def evaluate() -> dict[str, Any]:
             if suffix == ".py":
                 for dependency in sorted(_local_imports(path, local_modules)):
                     if dependency not in projected_coverage:
+                        if (relative, dependency) in IDENTITY_MIGRATION_IMPORT_EXEMPTIONS:
+                            # beta1.2.3-hotfix-v3: the identity contract requires
+                            # the canonical legacy-locator migration entrypoint
+                            # inside install roots. It executes from repository
+                            # or install-source contexts because it reuses the
+                            # installer primitives that EXTERNAL_INSTALLER_PATHS
+                            # pins outside every projection.
+                            continue
                         missing_imports.append(f"{relative}->{dependency}")
             if suffix == ".py" or suffix in SCRIPT_COUPLING_SUFFIXES:
                 for coupling in _checker_couplings(path):
@@ -1034,6 +1052,9 @@ def native_import_smoke() -> dict[str, Any]:
     manifest = _load_json(PROJECTION_MANIFEST)
     projection = manifest["projections"]
     excluded_globs = tuple(manifest.get("active_render", {}).get("exclude_path_globs", []))
+    exclude_path_exceptions = tuple(
+        manifest.get("active_render", {}).get("exclude_path_exceptions", [])
+    )
     required = {
         "scripts/court_native_identity.py",
         "scripts/court_native_trace.py",
@@ -1070,7 +1091,7 @@ def native_import_smoke() -> dict[str, Any]:
             # Copy the declared Python payload verbatim; no pin production,
             # file hashing, installer transaction, or source import fallback.
             for relative in sorted(files):
-                if not relative.endswith(".py") or active_path_is_excluded(relative, excluded_globs):
+                if not relative.endswith(".py") or active_path_is_excluded(relative, excluded_globs, exclude_path_exceptions):
                     continue
                 output = destination / relative
                 output.parent.mkdir(parents=True, exist_ok=True)

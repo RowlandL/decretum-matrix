@@ -1223,6 +1223,7 @@ def _installed_projection_files(
     inspection_root: Path,
     projection_name: str,
     excluded_path_globs: tuple[str, ...],
+    exclude_path_exceptions: tuple[str, ...] = (),
     source_repository_only: tuple[PurePosixPath, ...],
 ) -> set[PurePosixPath]:
     """Return only source-only files declared by the prior installed manifest.
@@ -1283,7 +1284,7 @@ def _installed_projection_files(
     candidates: set[PurePosixPath] = set()
 
     def consider(relative: PurePosixPath) -> None:
-        if active_path_is_excluded(relative.as_posix(), excluded_path_globs):
+        if active_path_is_excluded(relative.as_posix(), excluded_path_globs, exclude_path_exceptions):
             candidates.add(relative)
 
     def consider_exact_source_only(relative: PurePosixPath) -> None:
@@ -1308,6 +1309,7 @@ def _installed_projection_files(
                         if active_path_is_excluded(
                             child_relative.as_posix(),
                             excluded_path_globs,
+                            exclude_path_exceptions,
                         ):
                             candidates.add(child_relative)
                         continue
@@ -1495,6 +1497,7 @@ def _plan_projection_writes(
                 inspection_root=inspection_root,
                 projection_name=projection_name,
                 excluded_path_globs=rendered_target.excluded_path_globs,
+                exclude_path_exceptions=rendered_target.exclude_path_exceptions,
                 source_repository_only=source_repository_only,
             ),
             key=lambda item: item.as_posix(),

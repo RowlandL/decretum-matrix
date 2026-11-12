@@ -1,5 +1,13 @@
 # Changelog
 
+## beta1.2.3-hotfix-v3 - 2026-11-12
+
+- Linux 兼容性修复：召回链空实时索引不再静默生效，无效索引显式告警并回退本地语料；实时索引与语料均不可用时保持 fail-closed。
+- 安装事务收尾自检活动 npm prefix（npm root --global / npm_config_prefix / ~/.npmrc）与 PATH 入口绑定，未命中的收据标 `partial_install` 并附修复指引。
+- 发布完整性修复：skill-identity 清单支持从当版 SKILL.md 重算摘要（--regenerate-skill-digest）；payload 清单检查对失准绑定 fail-closed；发布门对打包产物强制运行 skill identity 检查器。
+- 身份契约要求的 3 个脚本（check_court_agent_lifecycle、check_court_office_assignment_binding、commands/migrate_legacy_skill_locator）重新随包分发并进入安装投影。
+- npm 打包器兼容本机工具链：仓库源探测固定 git locale（LC_ALL=C）；`npm pack --json` 同时接受 npm≥11 的对象输出与旧版数组输出。
+- GitHub Packages 安装包版本为 `1.2.3-beta.0.hotfix.3`。doctor 的用户级 npm prefix 探测属根仓库 repo-control 改动，不随本子版本发布。
 ## beta1.2.3-hotfix-v2 - 2026-11-09
 
 - 修复 Issue 01 根因：CLI 未列出合法 `--trigger` 值。checkpoint、verify、quarantine 的帮助与错误提示直接复用现有枚举。

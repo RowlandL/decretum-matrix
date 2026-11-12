@@ -2860,6 +2860,421 @@ def _check_candidate_public_shim_mismatch(
     return 1
 
 
+def _check_npm_prefix_visibility_closeout(
+    temp_root: Path,
+    errors: list[str],
+) -> int:
+    """Committed npm registrations must self-check active-prefix visibility.
+
+    Ticket ``.scratch/linux-bringup-20261111/issues/01``#1: the transaction may
+    register npm under a prefix the active probe point cannot see, so the
+    closeout must resolve the active prefix, require the package plus a PATH
+    command bound to the package entrypoint, and mark ``partial_install`` with
+    actionable remediation instead of silently reporting COMMITTED-only
+    success. All fixtures stay synthetic: prefixes, PATH commands, and the
+    ``npm root --global`` runner are injected, never executed for real.
+    """
+
+    passed = 0
+    name = "npm_prefix_visibility_closeout_contract"
+    try:
+        from commands import fix_decretum_matrix as fix
+    except Exception as exc:
+        errors.append(f"{name}:import:{type(exc).__name__}:{exc}")
+        return 0
+    probe_function = getattr(fix, "_run_npm_prefix_visibility_probe", None)
+    closeout_function = getattr(fix, "_apply_npm_prefix_closeout", None)
+    if not callable(probe_function) or not callable(closeout_function):
+        errors.append(
+            f"{name}:missing_callable:probe={callable(probe_function)}:"
+            f"closeout={callable(closeout_function)}"
+        )
+        return passed
+
+    root = temp_root / _fixture_slug(name)
+    home = root / "home"
+    prefix = root / "npm-prefix"
+    modules = prefix / "node_modules"
+    package_root = modules / "@rowlandl" / "decretum-matrix"
+    entrypoint = package_root / "bin" / "decretum-matrix.py"
+    bindir = root / "path-bin"
+    entrypoint.parent.mkdir(parents=True, exist_ok=True)
+    bindir.mkdir(parents=True, exist_ok=True)
+    (package_root / "package.json").write_text(
+        json.dumps({"name": "@rowlandl/decretum-matrix"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    entrypoint.write_text("print('entrypoint')\n", encoding="utf-8")
+    entrypoint.chmod(entrypoint.stat().st_mode | stat.S_IXUSR)
+
+    def write_path_command(command_name: str, body: str) -> Path:
+        command = bindir / command_name
+        command.write_text(body, encoding="utf-8")
+        command.chmod(command.stat().st_mode | stat.S_IXUSR)
+        return command
+
+    def probe(**overrides: object) -> Payload:
+        environment = {
+            "npm_config_prefix": str(prefix),
+            "PATH": str(bindir),
+            "npm_config_userconfig": str(root / "absent-userconfig"),
+        }
+        arguments: Payload = {"home": home, "environment": environment}
+        arguments.update(overrides)
+        return probe_function(**arguments)
+
+    # Positive forms: PATH command bound via text reference and via resolve
+    # equality (repo-control doctor's command_binds_entrypoint semantics).
+    reference_command = write_path_command(
+        "decretum-matrix",
+        "#!/bin/sh\n" + f"exec '{entrypoint}' \"$@\"\n",
+    )
+    visible = probe()
+    if not (
+        visible.get("ok") is True
+        and visible.get("status") == "PASS"
+        and visible.get("package_exists") is True
+        and visible.get("command_binds_entrypoint") is True
+        and visible.get("reasons") == []
+        and visible.get("remediation") == []
+    ):
+        errors.append(f"{name}:visible_prefix_failed:{visible}")
+    else:
+        passed += 1
+    reference_command.unlink()
+    entrypoint_link = bindir / "decretum-matrix"
+    entrypoint_link.symlink_to(entrypoint)
+    resolved_equal = probe()
+    if not (
+        resolved_equal.get("ok") is True
+        and resolved_equal.get("command_binds_entrypoint") is True
+    ):
+        errors.append(f"{name}:resolved_binding_failed:{resolved_equal}")
+    else:
+        passed += 1
+    entrypoint_link.unlink()
+
+    # Failure form: prefix misses the package and the PATH command does not
+    # bind the entrypoint -> PARTIAL_INSTALL with machine reasons.
+    other_prefix = root / "other-prefix"
+    other_prefix.mkdir(parents=True, exist_ok=True)
+    decoy = write_path_command(
+        "decretum-matrix",
+        "#!/bin/sh\nexec /decoy-location/decretum-matrix.py \"$@\"\n",
+    )
+    hidden_environment = {
+        "npm_config_prefix": str(other_prefix),
+        "PATH": str(bindir),
+        "npm_config_userconfig": str(root / "absent-userconfig"),
+    }
+    hidden = probe_function(
+        home=home,
+        environment=hidden_environment,
+        registered_prefix=str(prefix),
+    )
+    if not (
+        hidden.get("ok") is False
+        and hidden.get("status") == "PARTIAL_INSTALL"
+        and hidden.get("package_exists") is False
+        and hidden.get("command_binds_entrypoint") is False
+        and "npm_package_missing_in_active_prefix" in (hidden.get("reasons") or [])
+        and "command_does_not_bind_entrypoint" in (hidden.get("reasons") or [])
+        and any("npmrc" in str(item) or "npm_config_prefix" in str(item) for item in hidden.get("remediation") or [])
+        and str(prefix) in " ".join(str(item) for item in hidden.get("remediation") or [])
+    ):
+        errors.append(f"{name}:hidden_prefix_failed:{hidden}")
+    else:
+        passed += 1
+    decoy.unlink()
+
+    # Prefix resolution order: env -> user npmrc -> injected npm root runner.
+    userconfig = root / "user-npmrc"
+    userconfig.write_text(
+        "# comment\n"
+        f"prefix={prefix}\n",
+        encoding="utf-8",
+    )
+    from_npmrc = probe_function(
+        home=home,
+        environment={
+            "PATH": str(bindir),
+            "npm_config_userconfig": str(userconfig),
+        },
+    )
+    if not (
+        from_npmrc.get("prefix_source") == "userconfig:npmrc"
+        and str(modules) in str(from_npmrc.get("prefix"))
+    ):
+        errors.append(f"{name}:npmrc_resolution_failed:{from_npmrc}")
+    else:
+        passed += 1
+
+    def fake_runner(command: list[str], _environment: dict[str, str]) -> object:
+        return subprocess.CompletedProcess(command, 0, f"{modules}\n", "")
+
+    from_runner = probe_function(
+        home=home,
+        environment={"PATH": str(bindir)},
+        npm_root_runner=fake_runner,
+    )
+    if not (
+        from_runner.get("prefix_source") == "npm_root_global"
+        and str(modules) in str(from_runner.get("prefix"))
+    ):
+        errors.append(f"{name}:runner_resolution_failed:{from_runner}")
+    else:
+        passed += 1
+
+    def failing_runner(command: list[str], _environment: dict[str, str]) -> object:
+        return subprocess.CompletedProcess(command, 1, "", "npm unavailable")
+
+    unavailable = probe_function(
+        home=home,
+        environment={"PATH": str(bindir)},
+        npm_root_runner=failing_runner,
+    )
+    if not (
+        unavailable.get("prefix_source") == "unavailable"
+        and unavailable.get("npm_prefix_error")
+        and unavailable.get("ok") is False
+    ):
+        errors.append(f"{name}:unavailable_prefix_failed:{unavailable}")
+    else:
+        passed += 1
+
+    # Self-check exceptions must degrade to PARTIAL_INSTALL, never raise.
+    def raising_lookup(_name: str) -> str:
+        raise RuntimeError("fixture lookup failure")
+
+    degraded = probe(path_lookup=raising_lookup)
+    if not (
+        degraded.get("ok") is False
+        and degraded.get("status") == "PARTIAL_INSTALL"
+        and degraded.get("probe_error")
+    ):
+        errors.append(f"{name}:probe_exception_failed:{degraded}")
+    else:
+        passed += 1
+
+    # Closeout marker: a failing probe stamps partial_install plus a durable
+    # receipt without touching the COMMITTED result itself.
+    closeout_home = root / "closeout-home"
+    receipt_dir = closeout_home / ".agents" / "install-receipts" / "decretum-matrix"
+    receipt_dir.mkdir(parents=True, exist_ok=True)
+    committed_result: Payload = {"ok": True, "status": "COMMITTED", "schema": "decretum.fix.v1"}
+    marked = closeout_function(
+        dict(committed_result),
+        home=closeout_home,
+        installer_module=_load_production([]),
+        transaction_id="transaction-a",
+        environment=hidden_environment,
+    )
+    receipt_path = receipt_dir / "npm-prefix-probe-transaction-a.json"
+    persisted: object = None
+    try:
+        persisted = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        errors.append(f"{name}:receipt_unreadable:{type(exc).__name__}:{exc}")
+    if not (
+        marked.get("ok") is True
+        and marked.get("status") == "COMMITTED"
+        and marked.get("partial_install") is True
+        and marked.get("partial_install_reason") == "npm_prefix_visibility_failed"
+        and (marked.get("npm_prefix_visibility") or {}).get("ok") is False
+        and isinstance(persisted, dict)
+        and persisted.get("partial_install") is True
+        and (persisted.get("probe") or {}).get("remediation")
+    ):
+        errors.append(f"{name}:closeout_marker_failed:{marked}:{persisted}")
+    else:
+        passed += 1
+    passing_environment = {
+        "npm_config_prefix": str(prefix),
+        "PATH": str(bindir),
+        "npm_config_userconfig": str(root / "absent-userconfig"),
+    }
+    write_path_command(
+        "decretum-matrix",
+        "#!/bin/sh\n" + f"exec '{entrypoint}' \"$@\"\n",
+    )
+    unmarked = closeout_function(
+        dict(committed_result),
+        home=closeout_home,
+        installer_module=_load_production([]),
+        transaction_id="transaction-b",
+        environment=passing_environment,
+    )
+    if not (
+        unmarked.get("ok") is True
+        and unmarked.get("status") == "COMMITTED"
+        and unmarked.get("partial_install") is not True
+        and (unmarked.get("npm_prefix_visibility") or {}).get("ok") is True
+    ):
+        errors.append(f"{name}:closeout_pass_through_failed:{unmarked}")
+    else:
+        passed += 1
+
+    # Wiring: the COMMITTED closeout of an npm transaction must invoke the
+    # probe, stamp partial_install on failure, and stay clean on success.
+    source, wiring_home, _manifest, wiring_roots = _case_fixture(temp_root, name)
+    _prime_roots(wiring_home, wiring_roots)
+    caller = root / "caller"
+    tgz = root / "candidate.tgz"
+    caller.mkdir(parents=True, exist_ok=True)
+    tgz.write_bytes(b"candidate fixture bytes")
+    metadata: Payload = {
+        "source_commit": "commit-a",
+        "source_tree": "tree-a",
+        "release_label": "beta1.0.1",
+        "artifact_ref": "candidate/beta1.0.1/commit-a.zip",
+        "build_id": "beta1.0.1:commit-a:tree-a",
+        "installation_id": "installation-a",
+        "transaction_id": "transaction-a",
+        "provenance_receipt_ref": "candidate-receipt-a",
+        "candidate_package_root": str(package_root),
+        "candidate_receipt_ref": "candidate-receipt-a",
+    }
+
+    def run_wiring(probe_result: Payload) -> Payload:
+        recorded: list[Path] = []
+
+        def sentinel_probe(**_kwargs: object) -> Payload:
+            recorded.append(Path(str(_kwargs.get("home"))))
+            return dict(probe_result)
+
+        with mock.patch.object(
+            fix,
+            "_installation_binding_metadata",
+            side_effect=lambda *_args, **_kwargs: dict(metadata),
+        ), mock.patch.object(
+            fix,
+            "_install_candidate_npm",
+            side_effect=lambda *_args, **_kwargs: {
+                "schema": "decretum.npm_local_install_candidate.v1",
+                "ok": True,
+                "package_root": str(package_root),
+                "mutation_attempted": True,
+            },
+        ), mock.patch.object(
+            fix,
+            "_sync_codex_agent_roles",
+            side_effect=lambda *_args, **_kwargs: {"ok": True, "status": "PASS"},
+        ), mock.patch.object(
+            fix,
+            "_run_post_projection_acceptance",
+            side_effect=lambda **_kwargs: {
+                "ok": True,
+                "status": "COMMITTED",
+                "producer_receipt": {},
+            },
+        ), mock.patch.object(
+            fix,
+            "_run_public_shim_probe",
+            side_effect=lambda **_kwargs: {"ok": True, "status": "PASS"},
+        ), mock.patch.object(
+            fix,
+            "_run_npm_prefix_visibility_probe",
+            side_effect=sentinel_probe,
+        ):
+            result = fix._install_update(
+                {"selected_root": str(source)},
+                wiring_home,
+                write=True,
+                candidate_package_root=package_root,
+                candidate_tgz=tgz,
+                npm_prefix=prefix,
+                transaction_id="transaction-a",
+                installation_id="installation-a",
+                caller_cwd=caller,
+            )
+        return {"result": result, "recorded": recorded}
+
+    partial_wiring = run_wiring(
+        {
+            "ok": False,
+            "status": "PARTIAL_INSTALL",
+            "reasons": ["fixture_probe"],
+            "remediation": ["fixture guidance"],
+        }
+    )
+    partial_result = partial_wiring["result"]
+    if not (
+        partial_wiring["recorded"] == [wiring_home]
+        and partial_result.get("ok") is True
+        and partial_result.get("status") == "COMMITTED"
+        and partial_result.get("partial_install") is True
+        and (partial_result.get("npm_prefix_visibility") or {}).get("ok") is False
+    ):
+        errors.append(f"{name}:wiring_partial_failed:{partial_result}")
+    else:
+        passed += 1
+    clean_wiring = run_wiring({"ok": True, "status": "PASS", "reasons": []})
+    clean_result = clean_wiring["result"]
+    if not (
+        clean_result.get("ok") is True
+        and clean_result.get("status") == "COMMITTED"
+        and clean_result.get("partial_install") is not True
+        and (clean_result.get("npm_prefix_visibility") or {}).get("ok") is True
+    ):
+        errors.append(f"{name}:wiring_clean_failed:{clean_result}")
+    else:
+        passed += 1
+
+    # Gate: a transaction that never touched the npm layer stays unmarked.
+    def forbidden_probe(**_kwargs: object) -> Payload:
+        raise AssertionError("probe must not run without an npm mutation")
+
+    source_selection = {"selected_root": str(source)}
+    try:
+        with mock.patch.object(
+            fix,
+            "_installation_binding_metadata",
+            side_effect=lambda *_args, **_kwargs: dict(metadata),
+        ), mock.patch.object(
+            fix,
+            "_sync_codex_agent_roles",
+            side_effect=lambda *_args, **_kwargs: {"ok": True, "status": "PASS"},
+        ), mock.patch.object(
+            fix,
+            "_run_post_projection_acceptance",
+            side_effect=lambda **_kwargs: {
+                "ok": True,
+                "status": "COMMITTED",
+                "producer_receipt": {},
+            },
+        ), mock.patch.object(
+            fix,
+            "_run_public_shim_probe",
+            side_effect=lambda **_kwargs: {"ok": True, "status": "PASS"},
+        ), mock.patch.object(
+            fix,
+            "_run_npm_prefix_visibility_probe",
+            side_effect=forbidden_probe,
+        ):
+            gated = fix._install_update(
+                source_selection,
+                wiring_home,
+                write=True,
+                candidate_package_root=package_root,
+                transaction_id="transaction-a",
+                installation_id="installation-a",
+                caller_cwd=caller,
+            )
+    except Exception as exc:
+        errors.append(f"{name}:gating_unexpected:{type(exc).__name__}:{exc}")
+        return passed
+    if not (
+        gated.get("ok") is True
+        and gated.get("status") == "COMMITTED"
+        and gated.get("partial_install") is not True
+        and "npm_prefix_visibility" not in gated
+    ):
+        errors.append(f"{name}:gating_failed:{gated}")
+    else:
+        passed += 1
+    return passed
+
+
 def _check_prune_and_binding_cases(
     install: Installer,
     temp_root: Path,
@@ -5874,6 +6289,13 @@ def evaluate() -> Payload:
                 prefix="cps-"
             ) as temp_dir:
                 passed += _check_candidate_public_shim_mismatch(
+                    Path(temp_dir),
+                    errors,
+                )
+            with tempfile.TemporaryDirectory(
+                prefix="cnv-"
+            ) as temp_dir:
+                passed += _check_npm_prefix_visibility_closeout(
                     Path(temp_dir),
                     errors,
                 )

@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -593,6 +594,74 @@ def _skill_lf_digest(root: Path) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest().upper()
 
 
+def regenerate_skill_digest(root: Path) -> dict[str, Any]:
+    """Rewrite the identity manifest ``skill_sha256`` from the current SKILL.md.
+
+    beta1.2.3-hotfix-v2 shipped a manifest that still carried the previous
+    release's digest because the SKILL.md changed without regenerating the
+    binding. Releases must run this before packaging whenever SKILL.md moves;
+    the authoritative digest logic stays in this checker (no second hasher).
+    """
+
+    manifest_path = root / MANIFEST_RELATIVE_PATH
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return {
+            "schema": "court.skill_identity.regeneration.v1",
+            "status": "FAILED",
+            "manifest": MANIFEST_RELATIVE_PATH.as_posix(),
+            "problems": [f"{type(exc).__name__}: {exc}"],
+        }
+    if not isinstance(manifest, dict):
+        return {
+            "schema": "court.skill_identity.regeneration.v1",
+            "status": "FAILED",
+            "manifest": MANIFEST_RELATIVE_PATH.as_posix(),
+            "problems": ["manifest root must be a JSON object"],
+        }
+    try:
+        digest = _skill_lf_digest(root)
+    except (OSError, UnicodeError) as exc:
+        return {
+            "schema": "court.skill_identity.regeneration.v1",
+            "status": "FAILED",
+            "manifest": MANIFEST_RELATIVE_PATH.as_posix(),
+            "problems": [f"SKILL.md unreadable: {type(exc).__name__}: {exc}"],
+        }
+    previous = str(manifest.get("skill_sha256") or "")
+    manifest["skill_sha256"] = digest
+    data = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=manifest_path.parent,
+            delete=False,
+        ) as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary = Path(handle.name)
+        os.replace(temporary, manifest_path)
+    except OSError as exc:
+        return {
+            "schema": "court.skill_identity.regeneration.v1",
+            "status": "FAILED",
+            "manifest": MANIFEST_RELATIVE_PATH.as_posix(),
+            "problems": [f"{type(exc).__name__}: {exc}"],
+        }
+    return {
+        "schema": "court.skill_identity.regeneration.v1",
+        "status": "PASSED",
+        "manifest": MANIFEST_RELATIVE_PATH.as_posix(),
+        "previous_skill_sha256": previous,
+        "skill_sha256": digest,
+        "changed": previous.strip().upper() != digest,
+    }
+
+
 def _check_skill_digest_binding(
     root: Path,
     findings: list[dict[str, str]],
@@ -867,7 +936,19 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(__file__).resolve().parents[2],
         help="Skill root to validate; defaults to the checker parent skill.",
     )
+    parser.add_argument(
+        "--regenerate-skill-digest",
+        action="store_true",
+        help=(
+            "Rewrite references/manifests/skill-identity.v1.json skill_sha256 "
+            "from the current SKILL.md instead of only validating."
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.regenerate_skill_digest:
+        result = regenerate_skill_digest(args.root.resolve())
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0 if result["status"] == "PASSED" else 1
     if args.self_test:
         result = run_self_test()
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))

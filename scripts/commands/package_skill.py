@@ -44,7 +44,7 @@ from stdio_encoding import configure_stdio
 
 PRODUCT_NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
-RELEASE_LABEL = "beta1.2.3-hotfix-v2"
+RELEASE_LABEL = "beta1.2.3-hotfix-v3"
 LICENSE_ID = "AGPL-3.0-only"
 # Canonical package and physical install root. Legacy locators may only resolve
 # to this same authority through an explicitly validated compatibility link.
@@ -483,7 +483,10 @@ RUNTIME_REPOSITORY_ONLY_MEMBERS = frozenset(
         "scripts/install_current_agent_copy.py",
         "scripts/install_projection_renderer.py",
         "scripts/commands/fix_decretum_matrix.py",
-        "scripts/commands/migrate_legacy_skill_locator.py",
+        # scripts/commands/migrate_legacy_skill_locator.py left this set in
+        # beta1.2.3-hotfix-v3: the identity contract requires the canonical
+        # migration entrypoint inside install roots (IDENTITY_LEGACY_MIGRATION
+        # _SCRIPT_UNREADABLE), so it now travels with the active projection.
         "scripts/commands/sync_active_copies.py",
         "scripts/sync_active_copies.py",
         "scripts/check_active_copy_hashes.py",
@@ -509,6 +512,15 @@ def is_source_only_checker_path(relative: str | Path) -> bool:
     value = (
         relative.as_posix() if isinstance(relative, Path) else str(relative)
     ).replace("\\", "/").casefold()
+    # beta1.2.3-hotfix-v3: the identity contract (check_skill_identity
+    # HOST_METHODOLOGY_PORTABLE_SURFACES) mandates these two compatibility
+    # shells inside every install root, so they are portable identity surfaces
+    # rather than repository-only checkers.
+    if value in {
+        "scripts/check_court_agent_lifecycle.py",
+        "scripts/check_court_office_assignment_binding.py",
+    }:
+        return False
     return value == "scripts/check_active_copy_hashes.py" or value.startswith(
         "scripts/check_"
     ) or value.startswith("scripts/checks/")

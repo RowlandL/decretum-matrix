@@ -6,8 +6,20 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.3-hotfix-v2",
+  "latest_tag": "beta1.2.3-hotfix-v3",
   "releases": [
+    {
+      "tag": "beta1.2.3-hotfix-v3",
+      "title": "Decretum Matrix beta1.2.3-hotfix-v3",
+      "summary": "修复 Linux 三类兼容性缺陷与 hotfix-v2 发布完整性缺陷：空索引静默、安装 prefix 盲区、身份清单沿用旧摘要。",
+      "highlights": [
+        "召回链空实时索引显式告警并回退本地语料；实时索引与语料均不可用保持 fail-closed。",
+        "安装事务收尾自检活动 npm prefix 与 PATH 入口绑定，未命中收据标 partial_install 并附指引。",
+        "skill_sha256 可从当版 SKILL.md 重算；payload 清单与发布门对失准绑定 fail-closed。",
+        "身份契约要求的 3 个脚本重新随包分发并进入安装投影。"
+      ],
+      "asset_note": "安装包为 @rowlandl/decretum-matrix@1.2.3-beta.0.hotfix.3，registry 为 GitHub Packages；同提交 CI、候选安装、发布与本机安装按实际回执分别核验。"
+    },
     {
       "tag": "beta1.2.3-hotfix-v2",
       "title": "Decretum Matrix beta1.2.3-hotfix-v2",

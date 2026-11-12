@@ -1536,6 +1536,348 @@ def _run_public_shim_probe(
     }
 
 
+def _active_npm_global_prefix(
+    home: Path,
+    environment: dict[str, str],
+    npm_root_runner: object | None = None,
+) -> tuple[Path | None, str, str | None]:
+    """Resolve the npm global prefix the active probe point would see.
+
+    票据 01-linux-bringup-20261111#1 的解析顺序：npm_config_prefix 环境变量 →
+    用户 npmrc 的 prefix= → `npm root --global` 子进程输出。
+    """
+
+    env_value = str(environment.get("npm_config_prefix") or "").strip()
+    if env_value:
+        return Path(env_value), "env:npm_config_prefix", None
+    userconfig = str(environment.get("npm_config_userconfig") or "").strip()
+    npmrc_path = Path(userconfig) if userconfig else home / ".npmrc"
+    try:
+        npmrc_text = npmrc_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        npmrc_text = ""
+    for line in npmrc_text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", ";")) or "=" not in stripped:
+            continue
+        if stripped.split("=", 1)[0].strip() != "prefix":
+            continue
+        value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+        if value:
+            return Path(value), "userconfig:npmrc", None
+    command = [_npm_executable(), "root", "--global"]
+    try:
+        if callable(npm_root_runner):
+            completed = npm_root_runner(command, environment)
+            returncode = completed.returncode
+            stdout = completed.stdout or ""
+            stderr = completed.stderr or ""
+        else:
+            process = subprocess.run(
+                command,
+                env=environment,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                shell=False,
+                timeout=10,
+            )
+            returncode = process.returncode
+            stdout = process.stdout
+            stderr = process.stderr
+    except (OSError, subprocess.SubprocessError, AttributeError) as exc:
+        return None, "unavailable", f"npm_root_global_failed:{type(exc).__name__}"
+    if returncode != 0 or not str(stdout).strip():
+        detail = str(stderr).strip() or str(stdout).strip()
+        return (
+            None,
+            "unavailable",
+            f"npm_root_global_exit_{returncode}:{detail[:200]}",
+        )
+    return (
+        Path(str(stdout).strip().splitlines()[-1].strip()),
+        "npm_root_global",
+        None,
+    )
+
+
+def _npm_global_module_roots(prefix: Path, *, from_root_command: bool) -> tuple[Path, ...]:
+    """``npm root --global`` already is the modules root; prefixes need layout probing."""
+
+    if from_root_command:
+        return (prefix,)
+    return (
+        prefix / "node_modules",
+        prefix / "lib" / "node_modules",
+        prefix,
+    )
+
+
+def _command_binds_entrypoint(command: Path, entrypoint: Path) -> bool:
+    """语义参照 repo-control doctor：resolve 相等或命令文本引用包入口。"""
+
+    if not command.is_file() or not entrypoint.is_file():
+        return False
+    try:
+        if command.resolve() == entrypoint.resolve():
+            return True
+    except OSError:
+        return False
+    try:
+        content = command.read_bytes()[: 128 * 1024].decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    normalized = content.replace("\\", "/").casefold()
+    candidates = {
+        str(entrypoint.resolve()).replace("\\", "/").casefold(),
+    }
+    try:
+        candidates.add(
+            os.path.relpath(entrypoint, command.parent).replace("\\", "/").casefold()
+        )
+    except ValueError:
+        pass
+    parts = [part.casefold() for part in entrypoint.parts]
+    if "@rowlandl" in parts:
+        index = parts.index("@rowlandl")
+        candidates.add("/".join(parts[index:]))
+    return any(candidate and candidate in normalized for candidate in candidates)
+
+
+def _run_npm_prefix_visibility_probe(
+    *,
+    home: Path,
+    registered_prefix: str | None = None,
+    environment: dict[str, str] | None = None,
+    path_lookup: object | None = None,
+    npm_root_runner: object | None = None,
+) -> dict[str, object]:
+    """有界自检：活动 prefix 可见包体 + PATH 命中且绑定包入口。
+
+    票据 01-linux-bringup-20261111#1：npm 登记层落在活动探测点不可见的
+    prefix 时，收据不得静默保持纯 COMMITTED；此处只读探测，任何异常都按
+    PARTIAL_INSTALL 折返，不改变既有成功路径。
+    """
+
+    environment_map = dict(os.environ) if environment is None else dict(environment)
+    lookup = (
+        path_lookup
+        if callable(path_lookup)
+        else (lambda name: shutil.which(name, path=environment_map.get("PATH")))
+    )
+    runner = npm_root_runner if callable(npm_root_runner) else None
+    try:
+        prefix, prefix_source, prefix_error = _active_npm_global_prefix(
+            home,
+            environment_map,
+            runner,
+        )
+        windows_host = os.name == "nt"
+        reasons: list[str] = []
+        remediation: list[str] = []
+        selected_root: Path | None = None
+        package_json: Path | None = None
+        entrypoint: Path | None = None
+        from_root_command = prefix_source == "npm_root_global"
+        if prefix is None:
+            reasons.append("npm_prefix_unavailable")
+            remediation.append(
+                "remediate: make the active npm global prefix resolvable - set "
+                "npm_config_prefix, write ~/.npmrc prefix=, or ensure "
+                "'npm root --global' responds"
+            )
+        else:
+            for root_directory in _npm_global_module_roots(
+                prefix,
+                from_root_command=from_root_command,
+            ):
+                candidate = root_directory.joinpath(
+                    "@rowlandl", "decretum-matrix", "package.json"
+                )
+                if candidate.is_file():
+                    selected_root = root_directory
+                    package_json = candidate
+                    break
+            if selected_root is None:
+                selected_root = _npm_global_module_roots(
+                    prefix,
+                    from_root_command=from_root_command,
+                )[0]
+            entrypoint = selected_root.joinpath(
+                "@rowlandl", "decretum-matrix", "bin", "decretum-matrix.py"
+            )
+        if package_json is None:
+            reasons.append("npm_package_missing_in_active_prefix")
+            registered_hint = registered_prefix or "<registered-prefix>"
+            if windows_host:
+                remediation.append(
+                    "remediate: align the npm.cmd prefix with the registered "
+                    f"layer - set npm_config_prefix={registered_hint} (or "
+                    "'npm config set prefix'), then re-check 'npm root --global'"
+                )
+            else:
+                remediation.append(
+                    "remediate: point the active npm prefix at the registered "
+                    f"layer - set npm_config_prefix={registered_hint} or write "
+                    "'prefix=' into ~/.npmrc, then re-check 'npm root --global'"
+                )
+        command_value = lookup("decretum-matrix")
+        command_path = (
+            Path(str(command_value))
+            if isinstance(command_value, str) and command_value.strip()
+            else None
+        )
+        bound = False
+        if command_path is not None and entrypoint is not None:
+            bound = _command_binds_entrypoint(command_path, entrypoint)
+        if command_path is None:
+            reasons.append("command_not_on_path")
+            if windows_host:
+                remediation.append(
+                    "remediate: restore the npm.cmd shim on PATH (re-run the "
+                    "global install under the active prefix) so "
+                    f"{NAME} resolves through npm"
+                )
+            elif entrypoint is not None:
+                remediation.append(
+                    f"remediate: expose the package entrypoint on PATH - "
+                    f"ln -sf {entrypoint} <a PATH directory>/{NAME}"
+                )
+            else:
+                remediation.append(
+                    f"remediate: expose a {NAME} command on PATH once the "
+                    "active prefix resolves"
+                )
+        elif not bound:
+            reasons.append("command_does_not_bind_entrypoint")
+            if windows_host:
+                remediation.append(
+                    "remediate: regenerate the npm.cmd shim (npm rebuild -g "
+                    f"{NPM_PACKAGE_NAME}) so the PATH shim references the "
+                    "package entrypoint"
+                )
+            elif entrypoint is not None:
+                remediation.append(
+                    f"remediate: rebind the PATH entry for {NAME} to the "
+                    f"package entrypoint {entrypoint}"
+                )
+            else:
+                remediation.append(
+                    f"remediate: rebind the PATH entry for {NAME} once the "
+                    "active prefix resolves"
+                )
+        ok = not reasons
+        return {
+            "ok": ok,
+            "status": "PASS" if ok else "PARTIAL_INSTALL",
+            "prefix": str(selected_root) if selected_root else None,
+            "prefix_source": prefix_source,
+            "npm_prefix_error": prefix_error,
+            "registered_prefix": registered_prefix,
+            "package_json": str(package_json) if package_json else None,
+            "package_exists": package_json is not None,
+            "entrypoint": str(entrypoint) if entrypoint else None,
+            "command_path": str(command_path) if command_path else None,
+            "command_binds_entrypoint": bound,
+            "reasons": reasons,
+            "remediation": remediation,
+        }
+    except Exception as exc:  # 有界自检：异常折返 partial，不得中断既有成功路径
+        return {
+            "ok": False,
+            "status": "PARTIAL_INSTALL",
+            "probe_error": type(exc).__name__,
+            "reasons": ["npm_prefix_probe_error"],
+            "remediation": [],
+        }
+
+
+def _registered_npm_prefix_from_install_result(
+    npm_install_result: dict[str, object] | None,
+) -> str | None:
+    """Derive the prefix this transaction actually registered into."""
+
+    if not isinstance(npm_install_result, dict):
+        return None
+    package_root = npm_install_result.get("package_root")
+    if not isinstance(package_root, str) or not package_root.strip():
+        return None
+    path = Path(package_root)
+    if (
+        path.parent.name.casefold() == "@rowlandl"
+        and path.parent.parent.name.casefold() == "node_modules"
+    ):
+        return str(path.parent.parent.parent)
+    return None
+
+
+def _apply_npm_prefix_closeout(
+    result: dict[str, object],
+    *,
+    home: Path,
+    installer_module: object,
+    transaction_id: str,
+    registered_prefix: str | None = None,
+    environment: dict[str, str] | None = None,
+    path_lookup: object | None = None,
+    npm_root_runner: object | None = None,
+) -> dict[str, object]:
+    """COMMITTED 收尾自检：可见性失败仅标 partial_install，不回滚安装。
+
+    票据 01-linux-bringup-20261111#1：不回滚已提交安装，但收据/结果对象必须
+    带 partial_install 标记与可操作修复指引。
+    """
+
+    probe_arguments: dict[str, object] = {
+        "home": home,
+        "registered_prefix": registered_prefix,
+    }
+    if environment is not None:
+        probe_arguments["environment"] = environment
+    if path_lookup is not None:
+        probe_arguments["path_lookup"] = path_lookup
+    if npm_root_runner is not None:
+        probe_arguments["npm_root_runner"] = npm_root_runner
+    try:
+        probe = _run_npm_prefix_visibility_probe(**probe_arguments)
+    except Exception as exc:  # 双重防御：探测异常同样按 partial_install 记录
+        probe = {
+            "ok": False,
+            "status": "PARTIAL_INSTALL",
+            "probe_error": type(exc).__name__,
+            "reasons": ["npm_prefix_probe_error"],
+            "remediation": [],
+        }
+    result["npm_prefix_visibility"] = probe
+    if probe.get("ok") is True:
+        return result
+    result["partial_install"] = True
+    result["partial_install_reason"] = "npm_prefix_visibility_failed"
+    receipt_path = (
+        home
+        / ".agents"
+        / "install-receipts"
+        / NAME
+        / f"npm-prefix-probe-{transaction_id}.json"
+    )
+    receipt_payload = {
+        "partial_install": True,
+        "reason": "npm_prefix_visibility_failed",
+        "transaction_id": transaction_id,
+        "probe": probe,
+    }
+    try:
+        writer = getattr(installer_module, "_write_json_atomic")
+        writer(receipt_path, receipt_payload)
+    except (AttributeError, OSError, ValueError, TypeError) as exc:
+        result["partial_install_receipt_error"] = f"{type(exc).__name__}"
+    else:
+        probe["receipt_ref"] = str(receipt_path)
+    return result
+
+
 def _published_package_source_root(package_root: Path) -> Path | None:
     """Materialize the install source a published package embeds.
 
@@ -1914,6 +2256,22 @@ def _install_update_unlocked(
             result["install_receipt_path"] = finalized_receipt.get(
                 "install_receipt_path"
             )
+    if npm_mutation_attempted:
+        # 票据 01-linux-bringup-20261111#1：npm 登记层事务收尾自检活动 prefix
+        # 可见性；失败仅标 partial_install，不回滚已提交安装。
+        binding_for_receipt = result.get("installation_binding")
+        transaction_label = transaction_id
+        if not transaction_label and isinstance(binding_for_receipt, dict):
+            transaction_label = binding_for_receipt.get("transaction_id")
+        result = _apply_npm_prefix_closeout(
+            result,
+            home=home,
+            installer_module=module,
+            transaction_id=str(transaction_label or "unknown"),
+            registered_prefix=(
+                _registered_npm_prefix_from_install_result(npm_install_result)
+            ),
+        )
     if npm_install_result is not None:
         result["npm_candidate_install"] = npm_install_result
     return result

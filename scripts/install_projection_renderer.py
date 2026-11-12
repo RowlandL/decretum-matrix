@@ -58,6 +58,7 @@ class RenderedActiveProjection:
     cli_surface: dict[str, Any]
     files: dict[PurePosixPath, bytes]
     excluded_path_globs: tuple[str, ...]
+    exclude_path_exceptions: tuple[str, ...]
     source_projection_sha256: str
     source_cli_surface_sha256: str
 
@@ -155,7 +156,9 @@ def _projection_lists(source_manifest: dict[str, Any]) -> dict[str, list[str]]:
     return output
 
 
-def _active_policy(source_manifest: dict[str, Any]) -> tuple[list[str], set[str]]:
+def _active_policy(
+    source_manifest: dict[str, Any],
+) -> tuple[list[str], set[str], tuple[str, ...]]:
     policy = source_manifest.get("active_render")
     if not isinstance(policy, dict):
         raise ActiveProjectionRenderError("active_render_policy_missing")
@@ -165,6 +168,7 @@ def _active_policy(source_manifest: dict[str, Any]) -> tuple[list[str], set[str]
         raise ActiveProjectionRenderError("active_render_policy_matcher_mismatch")
     globs = policy.get("exclude_path_globs")
     groups = policy.get("excluded_cli_groups")
+    exceptions = policy.get("exclude_path_exceptions", [])
     if (
         not isinstance(globs, list)
         or not globs
@@ -176,33 +180,49 @@ def _active_policy(source_manifest: dict[str, Any]) -> tuple[list[str], set[str]
         raise ActiveProjectionRenderError("active_render_policy_invalid")
     if len(set(globs)) != len(globs) or len(set(groups)) != len(groups):
         raise ActiveProjectionRenderError("active_render_policy_duplicates")
-    return [str(value) for value in globs], set(groups)
+    if not isinstance(exceptions, list) or any(
+        not _safe_relative(value) for value in exceptions
+    ):
+        raise ActiveProjectionRenderError("active_render_policy_invalid")
+    if len(set(exceptions)) != len(exceptions):
+        raise ActiveProjectionRenderError("active_render_policy_duplicates")
+    return [str(value) for value in globs], set(groups), tuple(str(value) for value in exceptions)
 
 
-def _excluded(relative: str, globs: list[str]) -> bool:
+def _excluded(
+    relative: str,
+    globs: list[str],
+    exceptions: tuple[str, ...] = (),
+) -> bool:
+    if relative in exceptions:
+        return False
     return relative == PRELOAD_IDENTITY_RELATIVE.as_posix() or any(
         fnmatchcase(relative, pattern) for pattern in globs
     )
 
 
-def active_path_is_excluded(relative: str, globs: tuple[str, ...]) -> bool:
+def active_path_is_excluded(
+    relative: str,
+    globs: tuple[str, ...],
+    exceptions: tuple[str, ...] = (),
+) -> bool:
     """Return whether the source authority explicitly classifies a path as source-only."""
 
-    return _excluded(relative, list(globs))
+    return _excluded(relative, list(globs), exceptions)
 
 
 def render_active_projection_manifest(
     source_manifest: dict[str, Any],
-) -> tuple[dict[str, Any], list[str], set[str]]:
+) -> tuple[dict[str, Any], list[str], set[str], tuple[str, ...]]:
     """Render an active-only installation manifest from the source authority."""
 
     projection_lists = _projection_lists(source_manifest)
-    globs, excluded_groups = _active_policy(source_manifest)
+    globs, excluded_groups, exceptions = _active_policy(source_manifest)
     projections = {
         name: [
             relative
             for relative in projection_lists[name]
-            if not _excluded(relative, globs)
+            if not _excluded(relative, globs, exceptions)
         ]
         for name in RUNTIME_PROJECTION_NAMES
     }
@@ -226,13 +246,14 @@ def render_active_projection_manifest(
         for field in required_fields
     }
     active["projections"] = projections
-    _validate_active_projection_manifest(active, globs)
-    return active, globs, excluded_groups
+    _validate_active_projection_manifest(active, globs, exceptions)
+    return active, globs, excluded_groups, exceptions
 
 
 def _validate_active_projection_manifest(
     active_manifest: dict[str, Any],
     globs: list[str],
+    exceptions: tuple[str, ...] = (),
 ) -> None:
     if "active_render" in active_manifest:
         raise ActiveProjectionRenderError("active_render_policy_leaked")
@@ -244,7 +265,7 @@ def _validate_active_projection_manifest(
     for name in RUNTIME_PROJECTION_NAMES:
         values = projections.get(name)
         if not isinstance(values, list) or any(
-            not isinstance(value, str) or _excluded(value, globs)
+            not isinstance(value, str) or _excluded(value, globs, exceptions)
             for value in values
         ):
             raise ActiveProjectionRenderError(
@@ -311,12 +332,13 @@ def _source_only_json_paths(
     source_cli_surface: dict[str, Any],
     globs: list[str],
     excluded_groups: set[str],
+    exceptions: tuple[str, ...] = (),
 ) -> set[str]:
     paths = {
         relative
         for values in projection_lists.values()
         for relative in values
-        if _excluded(relative, globs)
+        if _excluded(relative, globs, exceptions)
     }
     entries = source_cli_surface.get("entries")
     if isinstance(entries, list):
@@ -338,13 +360,14 @@ def _validate_active_manifest_strings(
     source_only_paths: set[str],
     excluded_groups: set[str],
     globs: list[str],
+    exceptions: tuple[str, ...] = (),
 ) -> None:
     leaks: set[str] = set()
     for text in _json_strings(value):
         normalized = text.replace("\\", "/")
         if text in excluded_groups:
             leaks.add(text)
-        if _excluded(normalized, globs):
+        if _excluded(normalized, globs, exceptions):
             leaks.add(normalized)
         for path in source_only_paths:
             if path in normalized:
@@ -359,6 +382,7 @@ def _expand_projected_files(
     source_root: Path,
     entries: list[str],
     globs: list[str],
+    exceptions: tuple[str, ...] = (),
 ) -> dict[PurePosixPath, bytes]:
     files: dict[PurePosixPath, bytes] = {}
     for value in entries:
@@ -405,7 +429,7 @@ def _expand_projected_files(
     leaked = [
         relative.as_posix()
         for relative in files
-        if _excluded(relative.as_posix(), globs)
+        if _excluded(relative.as_posix(), globs, exceptions)
     ]
     if leaked:
         raise ActiveProjectionRenderError(
@@ -434,7 +458,7 @@ def render_active_projection(
         cli_path,
         label="cli_surface",
     )
-    active_manifest, globs, excluded_groups = render_active_projection_manifest(
+    active_manifest, globs, excluded_groups, exceptions = render_active_projection_manifest(
         source_manifest
     )
     active_cli = render_active_cli_surface(source_cli, excluded_groups)
@@ -444,6 +468,7 @@ def render_active_projection(
         source_cli,
         globs,
         excluded_groups,
+        exceptions,
     )
     identity_relative_value = active_manifest.get("identity_manifest")
     if not _safe_relative(identity_relative_value):
@@ -462,6 +487,7 @@ def render_active_projection(
         source_only_paths=source_only_paths,
         excluded_groups=excluded_groups,
         globs=globs,
+        exceptions=exceptions,
     )
     _validate_active_manifest_strings(
         label="active_cli_surface",
@@ -469,6 +495,7 @@ def render_active_projection(
         source_only_paths=source_only_paths,
         excluded_groups=excluded_groups,
         globs=globs,
+        exceptions=exceptions,
     )
     _validate_active_manifest_strings(
         label="active_identity_manifest",
@@ -476,6 +503,7 @@ def render_active_projection(
         source_only_paths=source_only_paths,
         excluded_groups=excluded_groups,
         globs=globs,
+        exceptions=exceptions,
     )
     projections = active_manifest["projections"]
     assert isinstance(projections, dict)
@@ -484,7 +512,7 @@ def render_active_projection(
         *list(projections["cli_public"]),
     ]
     entries = [entry for entry in entries if entry != PRELOAD_IDENTITY_RELATIVE.as_posix()]
-    files = _expand_projected_files(root, entries, globs)
+    files = _expand_projected_files(root, entries, globs, exceptions)
     if (
         PROJECTION_MANIFEST_RELATIVE not in files
         or CLI_SURFACE_RELATIVE not in files
@@ -501,6 +529,7 @@ def render_active_projection(
         cli_surface=active_cli,
         files=dict(sorted(files.items(), key=lambda item: item[0].as_posix())),
         excluded_path_globs=tuple(globs),
+        exclude_path_exceptions=exceptions,
         source_projection_sha256=hashlib.sha256(source_manifest_bytes).hexdigest(),
         source_cli_surface_sha256=hashlib.sha256(source_cli_bytes).hexdigest(),
     )

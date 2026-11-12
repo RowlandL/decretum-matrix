@@ -1,10 +1,11 @@
 # Court Host And Platform Pitfalls
 
-This reference owns host-specific pitfalls that are too detailed for the entrypoint. Load it only when a decree touches Windows terminal setup, Hermes configuration, local GUI/HTTP supervision boundaries, rate-limit recovery, or platform-specific command quirks.
+This reference owns host-specific pitfalls that are too detailed for the entrypoint. Load it only when a decree touches Windows terminal setup, Hermes configuration, local GUI/HTTP supervision boundaries, rate-limit recovery, Linux recall-chain bootstrap, or platform-specific command quirks.
 
 ## Installation And Source Provenance
 
 - Windows GUI terminal/emulator installs under `super`/`superCC` are software-install decrees with source/provenance gates. Prefer trusted package managers. For Alacritty, verify `winget show Alacritty.Alacritty` before `winget install --id Alacritty.Alacritty --exact --source winget`; verify both the package-manager record and `alacritty --version`. If the user or host blocks a source query/download, stop and memorialize `BLOCKED`/`NEEDS_CONTEXT` instead of retrying the same outcome through another command or tool. If an async court probe returns after a blocked closeout, append it as supplemental Shiguan evidence rather than silently reopening or changing the decree.
+- Half-install CLI trap (measured on Linux, 2026-11-11): an install transaction can COMMIT while the CLI stays undiscoverable. The npm registration prefix (for example `~/.local`) may be invisible to the doctor probe point (`npm root --global`), and a stale PATH hit (for example `~/.local/bin/decretum-matrix`) may resolve to a copy that does not bind the npm package entrypoint. If `decretum-matrix` is unreachable, doctor reports `global Decretum Matrix CLI runtime is unavailable`, or the launcher raises `installation_binding_missing_or_invalid`, check that the `~/.npmrc` prefix points at the prefix that actually holds the package and that the PATH symlink resolves to the npm package entrypoint. Since hotfix-v3 the install transaction runs a closing self-check and marks the receipt `partial_install` when it fails.
 
 ## Windows Terminal And Hermes Config
 
@@ -35,6 +36,44 @@ This reference owns host-specific pitfalls that are too detailed for the entrypo
 - Claude Code Bash on Windows may be a POSIX shell even when the task workspace is a native Windows directory. The generated Shell Contract must therefore point to the wrapper scripts, not to shell-specific absolute workspace paths. On Linux/macOS the same wrapper should resolve the normal `squad` binary from PATH.
 - If Claude Code or another CLI transcript shows a command copied from an older prompt, for example a bare office inbox command, `cd` into a Windows home path, or manual `/mnt/c`/`/c`/`C:\...` conversion, treat that transcript as stale drift evidence. Repair the generated dossier or shell contract instead of adding another host-specific path pattern. The durable command surface is the wrapper path relative to the role dossier plus the task workspace exposed separately through environment/add-dir mechanisms.
 - When recovering from SuperCC rate-limits or full-freeze, use bounded request-rate mode. The old fixed 5-agent gate is removed: multiple offices may be open, including 六部, but model-triggering launches/dispatches must stay at `<=20 requests/minute`, and bounded stress tests must also set an explicit total request budget such as `total<=20`. Keep `office_show_delay` independent: it is presentation-only, 0-5 seconds, with no first-office cooldown and no effect on ordinary spawned agents. Provider waits longer than five seconds must surface as `queued_rate_limit`/Retry-After backoff so the launcher never appears silently frozen. Do not let 太子代工 replace a reachable 六部 agente.
+
+## Linux Recall-Chain Bootstrap Checklist
+
+The install projection intentionally excludes the heavy recall-chain assets. On a fresh Linux host the recall service starts, but it serves nothing useful until all four pieces below are in place; the 2026-11-11 bring-up measured each piece, and the versions below are measured references, not pins.
+
+- **venv** — Python >= 3.14 (measured 3.14.9), suggested at `training/laya-shiguan/.venv` inside the installed skill root; install `torch`, `transformers` (measured 5.22.2), and `laya` (measured 0.3.21) into it.
+- **Corpus** — `corpus-v2.jsonl` (measured 1291 rows) at the expected layout path `training/laya-shiguan/corpus/corpus-v2.jsonl`; it feeds the dev-only local-corpus fallback.
+- **Live Shiguan index** — `~/.agents/court-shiguan/decretum-matrix/references/shiguan-index.jsonl` (override with `SHIGUAN_REFERENCES_ROOT` or `COURT_SHARED_SHIGUAN_ROOT`) must exist and be non-empty. A 0-byte placeholder passes the file-existence check in `_source()`, silently yields 0 indexed records, and blocks the corpus fallback; hotfix-v3 adds empty-index fallback protection, but the correct state is still a populated index (measured 1145 records). Verify row count, not file presence.
+- **GPU index build and cache** — build the embedding index once; the measured 1145-record GPU build took 9.7 s on an RTX 3070 Laptop (driver 615.78, 8 GB VRAM) while 8 CPU threads did not finish in 4 minutes. Persist `XDG_CACHE_HOME`: on POSIX the cache root falls back to the temp directory when it is unset, so a cache under the default is lost on reboot (`SHIGUAN_RECALL_CACHE` overrides).
+
+### systemd --user unit (reversible deployment fact)
+
+The skill is designed for on-demand start with fail-closed behavior; the unit below only affects the local Linux host and is a reversible deployment fact, not a defect. Replace `<name>` with the local username (systemd does not expand `~` inside `ExecStart=`); the example matches the reference host layout:
+
+```ini
+[Service]
+ExecStart=/home/<name>/.agents/skills/decretum-matrix/training/laya-shiguan/.venv/bin/python -B \
+  /home/<name>/.agents/skills/decretum-matrix/training/laya-shiguan/service/serve_http.py \
+  --host 127.0.0.1 --port 8767
+Environment=XDG_CACHE_HOME=/home/<name>/.cache
+Restart=on-failure
+```
+
+Enable with `systemctl --user enable --now shiguan-recall`; roll back with `systemctl --user disable --now shiguan-recall && rm ~/.config/systemd/user/shiguan-recall.service`. Bring-up self-check: `/stats` reports `indexed_records=1145, device=cuda`, and the HTTP/CLI/MCP surfaces return real Shiguan records.
+
+## Torch Wheel Version Matrix (cp314)
+
+Measured against the cu130 wheel index during the 2026-11-11 bring-up:
+
+| Wheel line | Newest cp314 artifact | Note |
+| --- | --- | --- |
+| CUDA (`https://download.pytorch.org/whl/cu130`) | `torch==2.14.1+cu130` | cp314 CUDA line stops here |
+| CPU | `torch==2.15.0+cpu` | CPU line already has 2.15.0 |
+| CUDA `2.15.0+cu130` | none | no cp314 wheel yet |
+
+- Pin exactly: a bare `pip install torch --index-url https://download.pytorch.org/whl/cu130` falsely reports "already satisfied" without installing anything, because local version labels such as `+cu130` do not participate in requirement matching. Use an exact pin, for example `pip install --resume-retries 20 "torch==2.14.1+cu130" --index-url https://download.pytorch.org/whl/cu130`; `--resume-retries` absorbs pytorch download stream breaks.
+- Installing the CUDA wheel switches the recall service to GPU automatically through the `torch.cuda.is_available()` device selection in `shiguan_recall.py`; no code change is required.
+- Revisit this matrix when the cp314 CUDA line reaches 2.15.x.
 
 ## Local GUI And HTTP Exclusion
 

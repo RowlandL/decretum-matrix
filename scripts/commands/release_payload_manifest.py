@@ -34,7 +34,7 @@ NAME = "decretum-matrix"
 DISPLAY_NAME = "Decretum Matrix（诏令矩阵）"
 PACKAGE_NAME = NAME
 LICENSE_ID = "AGPL-3.0-only"
-RELEASE_LABEL = "beta1.2.3-hotfix-v2"
+RELEASE_LABEL = "beta1.2.3-hotfix-v3"
 VERSION_CORE = "1.2.3"
 ARTIFACT_NAME = f"decretum-matrix-{RELEASE_LABEL}.zip"
 SIDECAR_NAME = f"{ARTIFACT_NAME}.sha256"
@@ -390,6 +390,37 @@ def compare_staged_payload(actual: object, expected_files: list[dict[str, object
     return sorted(set(problems))
 
 
+def skill_identity_binding_problems(root: Path) -> list[str]:
+    """Reject payloads whose identity manifest no longer binds the current SKILL.md.
+
+    beta1.2.3-hotfix-v2 shipped a stale skill_sha256 because the SKILL.md changed
+    without regenerating ``references/manifests/skill-identity.v1.json``. The
+    digest logic stays in the authoritative identity checker; this gate only
+    fails the build until the manifest is regenerated.
+    """
+
+    skill_path = root / "SKILL.md"
+    manifest_path = root / "references" / "manifests" / "skill-identity.v1.json"
+    if not skill_path.is_file() or not manifest_path.is_file():
+        return []
+    from checks.check_skill_identity import _skill_lf_digest
+
+    try:
+        declared = str(
+            json.loads(manifest_path.read_text(encoding="utf-8")).get("skill_sha256") or ""
+        )
+        actual = _skill_lf_digest(root)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return [f"skill-identity-binding-unreadable:{type(exc).__name__}"]
+    if declared.strip().upper() != actual:
+        return [
+            "skill_identity_digest_stale:"
+            "run `python -B scripts/checks/check_skill_identity.py "
+            "--regenerate-skill-digest` before packaging"
+        ]
+    return []
+
+
 def check_current(root: Path) -> dict[str, object]:
     root = root.resolve()
     path = root / MANIFEST_NAME
@@ -400,6 +431,7 @@ def check_current(root: Path) -> dict[str, object]:
     if os.environ.get("COURT_PACKAGE_STAGE_VALIDATION") == "1":
         expected_files = payload_tree_inventory(root)
         problems = compare_staged_payload(actual, expected_files)
+        problems.extend(skill_identity_binding_problems(root))
         return {
             "ok": not problems,
             "problems": problems,
@@ -408,6 +440,7 @@ def check_current(root: Path) -> dict[str, object]:
         }
     expected = build_manifest(root)
     problems = compare_manifest(actual, expected)
+    problems.extend(skill_identity_binding_problems(root))
     return {"ok": not problems, "problems": problems, "manifest": actual, "expected": expected}
 
 
@@ -530,9 +563,9 @@ def self_tests() -> dict[str, bool]:
             and globals().get("DISPLAY_NAME") == "Decretum Matrix（诏令矩阵）"
         ),
         "current_artifact_identity_required": (
-            RELEASE_LABEL == "beta1.2.3-hotfix-v2"
+            RELEASE_LABEL == "beta1.2.3-hotfix-v3"
             and VERSION_CORE == "1.2.3"
-            and ARTIFACT_NAME == "decretum-matrix-beta1.2.3-hotfix-v2.zip"
+            and ARTIFACT_NAME == "decretum-matrix-beta1.2.3-hotfix-v3.zip"
         ),
         "agpl_only_license_required": base.get("license")
         == {"declared": "AGPL-3.0-only", "file": "LICENSE"},

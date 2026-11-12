@@ -122,7 +122,14 @@ function readRepositoryRemote(root) {
       {
         cwd: root,
         encoding: "utf8",
-        env: withoutInheritedGitIndex(),
+        env: {
+          ...withoutInheritedGitIndex(),
+          // The missing-remote branch below matches git's English wording;
+          // pin the locale so localized git (e.g. zh_CN "没有此远程") on
+          // Linux hosts cannot break the repository oracle.
+          LC_ALL: "C",
+          LANG: "C",
+        },
         maxBuffer: 1024 * 1024,
         shell: false,
         timeout: 30_000,
@@ -3559,16 +3566,23 @@ try:
             fail("embedded_manifest_files_missing")
         if embedded_manifest.get("payload_kind") not in ("runtime", "install_source"):
             fail("embedded_manifest_runtime_payload_kind_required")
+        identity_portable_surfaces = {
+            "scripts/check_court_agent_lifecycle.py",
+            "scripts/check_court_office_assignment_binding.py",
+        }
         source_only_checker_entries = []
         for entry in entries:
             relative = entry.get("path") if isinstance(entry, dict) else None
-            if isinstance(relative, str) and (
-                relative.replace("\\", "/").casefold()
-                == "scripts/check_active_copy_hashes.py"
-                or relative.replace("\\", "/").casefold().startswith("scripts/check_")
-                or relative.replace("\\", "/").casefold().startswith("scripts/checks/")
-            ):
-                source_only_checker_entries.append(relative)
+            if isinstance(relative, str):
+                normalized = relative.replace("\\", "/").casefold()
+                if normalized in identity_portable_surfaces:
+                    continue
+                if (
+                    normalized == "scripts/check_active_copy_hashes.py"
+                    or normalized.startswith("scripts/check_")
+                    or normalized.startswith("scripts/checks/")
+                ):
+                    source_only_checker_entries.append(relative)
         if source_only_checker_entries:
             fail(
                 "embedded_manifest_source_only_checker_entries:"
@@ -4286,7 +4300,39 @@ export function parseLocalInstallCandidateArguments(argv = process.argv) {
   return candidateDirectory;
 }
 
+// beta1.2.3-hotfix-v2 shipped a stale skill-identity digest because packaging
+// never rechecked the identity manifest against the current SKILL.md. The
+// authoritative check lives in scripts/release_payload_manifest.py --check
+// (which fails on skill_identity_digest_stale); every real build path must run
+// it before touching artifacts. Synthetic self-tests build fixture trees and
+// stay exempt.
+function assertPackagingInputsBound() {
+  if (SYNTHETIC_SELF_TEST) {
+    return;
+  }
+  const result = runPythonFixtureCommand([
+    "scripts/release_payload_manifest.py",
+    "--check",
+    "--json",
+  ]);
+  let report;
+  try {
+    report = JSON.parse(result.stdout.trim());
+  } catch {
+    fail(`release payload manifest check produced unreadable output: ${result.stderr?.trim()}`);
+  }
+  if (result.status !== 0 || report.ok !== true) {
+    const problems = report?.check?.problems;
+    fail(
+      `release payload manifest check failed: ${
+        Array.isArray(problems) ? problems.join("; ") : result.stderr?.trim() || "unknown"
+      }`,
+    );
+  }
+}
+
 async function buildLocalInstallCandidateArtifacts(candidateDirectory) {
+  assertPackagingInputsBound();
   const result = await buildLocalInstallCandidate({
     candidateDirectory,
     candidateRoot: path.join(
@@ -4639,6 +4685,11 @@ function parsePackJson(stdout, label) {
     payload = JSON.parse(stdout.trim());
   } catch (error) {
     fail(`${label} did not return valid JSON: ${error.message}`);
+  }
+  // npm >= 11 emits `{ "<name>": {…} }` for `pack --json`; older npm emitted a
+  // one-element array. Accept both so hosts on either npm generation build.
+  if (payload && !Array.isArray(payload) && typeof payload === "object") {
+    payload = Object.values(payload);
   }
   assert(
     Array.isArray(payload) && payload.length === 1,
@@ -5233,6 +5284,7 @@ export function buildReceipt(verified, contract = LIVE_PACKAGE_CONTRACT) {
 }
 
 export async function buildPackageArtifacts() {
+  assertPackagingInputsBound();
   assertSafePaths();
   const verified = await createVerifiedPackage({ installedSmoke: true });
   try {
