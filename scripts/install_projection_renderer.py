@@ -608,6 +608,7 @@ def materialize_rendered_projection(
         files=dict(sorted(files.items(), key=lambda item: item[0].as_posix())),
         # 清单已是渲染产物，没有需要再排除的条目。
         excluded_path_globs=(),
+        exclude_path_exceptions=(),
         source_projection_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
         source_cli_surface_sha256=hashlib.sha256(cli_bytes).hexdigest(),
     )

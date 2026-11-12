@@ -2571,8 +2571,8 @@
     {
       "mode": "100644",
       "path": "scripts/install_projection_renderer.py",
-      "sha256": "f7923f8908c768dd21335964cb73c6c18b5651304de582a7b13784b067d43e2c",
-      "size": 23217
+      "sha256": "06932188297829b769ff9495d4a85fbcb3b761b7fccb94e8a8785441bd7f4d30",
+      "size": 23253
     },
     {
       "mode": "100644",
@@ -3100,10 +3100,10 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9715223,
+    "payload_bytes": 9715259,
     "payload_file_count": 511,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "5d132f9467660555d353f1b4e8cde53dddf96de32f93d33e0c8cfd43063c567f",
+    "payload_index_sha256": "05511d2af3e689829d7ca0e534e1b8406ad5cf64a357fd7ab7fb185ca03a9f10",
     "source_packaged_tracked_file_count": 503,
     "source_tracked_file_count": 698
   },
