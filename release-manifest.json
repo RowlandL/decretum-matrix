@@ -549,8 +549,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/cli-command-surface.v1.json",
-      "sha256": "b36f4709ac3d8db104ed56d90b23359b40e514fde5894786c1be4b1ae08c1ca9",
-      "size": 113888
+      "sha256": "18cca9e7b27f0578f10cefdda0158f54197dd88141d8e65a449eabc70bf8c9e3",
+      "size": 114081
     },
     {
       "mode": "100644",
@@ -579,8 +579,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "e4c60ea32b2f28e862f1503236d43c7781c2cf8da1335a710c2bcfa842eaaddb",
-      "size": 55239
+      "sha256": "5abc46e6670de3223a4d9e2e46f79f972555ebffcae8da53789b9a503486e7cb",
+      "size": 55431
     },
     {
       "mode": "100644",
@@ -1769,6 +1769,12 @@
       "path": "scripts/checks/check_shiguan_recall_precision.py",
       "sha256": "622c461b740c4c1b68a2a6647e46f53ba5855287cae00f9b0bce7520c25d440e",
       "size": 15147
+    },
+    {
+      "mode": "100644",
+      "path": "scripts/checks/check_shiguan_recall_source_fallback.py",
+      "sha256": "b9fd7d31bae556b44ae58be106d3b87cc521eb6fea875d0431bed4d924722c12",
+      "size": 10698
     },
     {
       "mode": "100644",
@@ -3100,11 +3106,11 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9715259,
-    "payload_file_count": 511,
+    "payload_bytes": 9726342,
+    "payload_file_count": 512,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "05511d2af3e689829d7ca0e534e1b8406ad5cf64a357fd7ab7fb185ca03a9f10",
-    "source_packaged_tracked_file_count": 503,
+    "payload_index_sha256": "fd77aedc78c4cce083eaebf3da5ddbbb4c1bec99100201a5ee91a31bab39693b",
+    "source_packaged_tracked_file_count": 504,
     "source_tracked_file_count": 698
   },
   "license": {
@@ -3305,7 +3311,6 @@
     "scripts/build_npm_package.mjs",
     "scripts/check_npm_package.mjs",
     "scripts/checks/check_active_copy_hashes.py",
-    "scripts/checks/check_shiguan_recall_source_fallback.py",
     "scripts/checks/installed_identity_fixture.py",
     "training/laya-shiguan/.gitignore",
     "training/laya-shiguan/docs/model-provenance.md",
