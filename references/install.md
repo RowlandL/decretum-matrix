@@ -5,7 +5,7 @@ agent skill roots. It is runtime-focused; release packaging and publication
 checks stay in the source tree and are not startup prerequisites.
 
 Until external publication readback exists, the current
-beta1.2.4 source checkout is treated as an unreleased candidate. Repository text does not
+beta1.2.4-hotfix-v1 source checkout is treated as an unreleased candidate. Repository text does not
 authorize or prove an active installation; installation requires an explicit
 external transaction and a matching receipt.
 

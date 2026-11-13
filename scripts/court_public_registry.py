@@ -42,9 +42,9 @@ def _schema(value: object) -> dict[str, object]:
     return schema
 
 
-def _load_manifest() -> dict[str, object]:
+def _load_manifest(path: Path) -> dict[str, object]:
     try:
-        value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"CLI command manifest unavailable: {exc}") from exc
     if not isinstance(value, dict) or value.get("schema") != "decretum.cli_command_surface.v1":
@@ -52,8 +52,8 @@ def _load_manifest() -> dict[str, object]:
     return value
 
 
-def load_public_tools() -> dict[str, PublicTool]:
-    manifest = _load_manifest()
+def load_public_tools(*, manifest_path: Path | None = None) -> dict[str, PublicTool]:
+    manifest = _load_manifest(manifest_path if manifest_path is not None else MANIFEST_PATH)
     entries = manifest.get("entries")
     if not isinstance(entries, list):
         raise ValueError("CLI command manifest entries must contain an array")

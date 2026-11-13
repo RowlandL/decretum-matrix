@@ -16,6 +16,8 @@ import tomllib
 import uuid
 from datetime import datetime, timezone
 
+from court_public_registry import load_public_tools
+
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "decretum-matrix"
@@ -392,13 +394,19 @@ def _mcp_config(home: Path) -> dict[str, object]:
         python_scripts = [value for value in arguments if isinstance(value, str) and value.endswith(".py")]
         if python_scripts:
             server_script = Path(python_scripts[-1]).name
-    configured = isinstance(command, str) and isinstance(arguments, list)
+    configured = (
+        isinstance(command, str)
+        and bool(command.strip())
+        and isinstance(arguments, list)
+        and all(isinstance(value, str) for value in arguments)
+    )
     runtime_probe: dict[str, object] = {"status": "NOT_RUN", "ok": False}
     if configured and server_script == "court_mcp_server.py":
         runtime_probe = _probe_mcp_server(
             Path(command),
-            [str(value) for value in arguments],
+            list(arguments),
             base_dir=config.parent,
+            home=home,
         )
     return {
         "status": "CONFIGURED" if configured else "INVALID",
@@ -417,14 +425,28 @@ def _probe_mcp_server(
     arguments: list[str],
     *,
     base_dir: Path,
+    home: Path,
 ) -> dict[str, object]:
     command_path = command if command.is_absolute() else Path(shutil.which(str(command)) or command)
-    script_values = [value for value in arguments if value.endswith(".py")]
-    script = Path(script_values[-1]) if script_values else None
-    if script is not None and not script.is_absolute():
-        script = base_dir / script
-    if not command_path.is_file() or script is None or not script.is_file():
+    script_indexes = [index for index, value in enumerate(arguments) if value.endswith(".py")]
+    if not command_path.is_file() or not script_indexes:
         return {"status": "MISSING", "ok": False}
+    script_index = script_indexes[-1]
+    script = Path(arguments[script_index])
+    if not script.is_absolute():
+        script = base_dir / script
+    if not script.is_file():
+        return {"status": "MISSING", "ok": False}
+    try:
+        # Compare with the configured installation's contract, which can be
+        # older than the checkout running doctor.
+        install_root = script.resolve(strict=True).parent.parent
+        expected = sorted(load_public_tools(manifest_path=install_root / CLI_MANIFEST_PATH))
+    except (OSError, RuntimeError, ValueError):
+        return {"status": "FAIL", "ok": False, "reason": "mcp_tool_manifest_invalid"}
+    argv = [str(command_path), *arguments]
+    argv[script_index + 1] = str(script)
+    env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
     modern_meta = {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientCapabilities": {},
@@ -476,9 +498,10 @@ def _probe_mcp_server(
 
     def run_messages(messages: tuple[dict[str, object], ...]) -> tuple[int, str, list[dict[str, object]]]:
         completed = subprocess.run(
-            [str(command_path), *arguments],
+            argv,
             input="\n".join(json.dumps(message) for message in messages) + "\n",
             cwd=script.parent,
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -492,12 +515,14 @@ def _probe_mcp_server(
             for line in completed.stdout.splitlines()
             if line.strip()
         ]
+        if any(not isinstance(response, dict) for response in responses):
+            raise ValueError("mcp_response_not_object")
         return completed.returncode, completed.stderr, responses
 
     try:
         modern_exit, modern_stderr, modern_responses = run_messages(modern_messages)
         legacy_exit, legacy_stderr, legacy_responses = run_messages(legacy_messages)
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+    except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
         return {"status": "FAIL", "ok": False, "reason": type(exc).__name__}
 
     discover = next((item for item in modern_responses if item.get("id") == "modern-discover"), {})
@@ -508,22 +533,16 @@ def _probe_mcp_server(
 
     def names_from(response: dict[str, object]) -> list[str]:
         result = response.get("result")
-        tools = result.get("tools", []) if isinstance(result, dict) else []
-        return sorted(
-            str(item.get("name"))
-            for item in tools
-            if isinstance(item, dict) and isinstance(item.get("name"), str)
-        )
+        tools = result.get("tools") if isinstance(result, dict) else None
+        if not isinstance(tools, list) or any(
+            not isinstance(tool, dict) or not isinstance(tool.get("name"), str)
+            for tool in tools
+        ):
+            return []
+        return sorted(tool["name"] for tool in tools)
 
     modern_names = names_from(modern_tools_response)
     legacy_names = names_from(legacy_tools_response)
-    expected = {
-        "court.command_help",
-        "court.status",
-        "memory.scan",
-        "shiguan.archive_dry_run",
-        "shiguan.query",
-    }
     discover_result = discover.get("result") if isinstance(discover, dict) else None
     modern_tools_result = modern_tools_response.get("result") if isinstance(modern_tools_response, dict) else None
     modern_status_result = modern_status.get("result") if isinstance(modern_status, dict) else None
@@ -532,10 +551,11 @@ def _probe_mcp_server(
         modern_exit == 0
         and isinstance(discover_result, dict)
         and discover_result.get("resultType") == "complete"
-        and "2026-07-28" in discover_result.get("supportedVersions", [])
+        and isinstance(discover_result.get("supportedVersions"), list)
+        and "2026-07-28" in discover_result["supportedVersions"]
         and isinstance(modern_tools_result, dict)
         and modern_tools_result.get("resultType") == "complete"
-        and set(modern_names) == expected
+        and modern_names == expected
         and isinstance(modern_status_result, dict)
         and modern_status_result.get("isError") is not True
     )
@@ -543,7 +563,7 @@ def _probe_mcp_server(
         legacy_exit == 0
         and isinstance(legacy_initialize_result, dict)
         and legacy_initialize_result.get("protocolVersion") == "2025-11-25"
-        and set(legacy_names) == expected
+        and legacy_names == expected
         and not any("error" in response for response in legacy_responses)
     )
     return {

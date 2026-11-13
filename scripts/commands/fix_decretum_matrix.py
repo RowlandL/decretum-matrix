@@ -2068,24 +2068,28 @@ def _install_update_unlocked(
     if npm_install_failed:
         assert npm_install_result is not None
         return attach_npm_compensation({"schema": SCHEMA, **npm_install_result})
-    try:
-        binding_metadata = _installation_binding_metadata(
-            Path(selected),
-            candidate_package_root=candidate_package_root,
-            candidate_receipt=candidate_receipt,
-            npm_prefix=npm_prefix,
-            transaction_id=transaction_id,
-            installation_id=installation_id,
-        )
-    except RuntimeError as exc:
-        return attach_npm_compensation({
-            "schema": SCHEMA,
-            "ok": False,
-            "status": "BLOCKED",
-            "reason": str(exc),
-        })
-    candidate_source_package_sha256 = binding_metadata.get(
-        "source_package_sha256"
+    binding_metadata = None
+    # Source-only planning does not create or claim an installation identity.
+    # A write, or an explicit candidate, still goes through candidate verification.
+    if write or candidate_package_root is not None or candidate_receipt is not None:
+        try:
+            binding_metadata = _installation_binding_metadata(
+                Path(selected),
+                candidate_package_root=candidate_package_root,
+                candidate_receipt=candidate_receipt,
+                npm_prefix=npm_prefix,
+                transaction_id=transaction_id,
+                installation_id=installation_id,
+            )
+        except RuntimeError as exc:
+            return attach_npm_compensation({
+                "schema": SCHEMA,
+                "ok": False,
+                "status": "BLOCKED",
+                "reason": str(exc),
+            })
+    candidate_source_package_sha256 = (
+        binding_metadata.get("source_package_sha256") if binding_metadata else None
     )
     module = importlib.import_module("install_current_agent_copy")
     result = module.install_current_agent_copy(
@@ -2154,6 +2158,7 @@ def _install_update_unlocked(
         )
         return attach_npm_compensation(result)
     if write:
+        assert binding_metadata is not None  # verified before any projection write
         binding = result.get("installation_binding")
         if not isinstance(binding, dict):
             return attach_npm_compensation({

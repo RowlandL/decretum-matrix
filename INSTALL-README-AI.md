@@ -74,10 +74,9 @@ assume CC Switch owns the Codex configuration path.
 6. Restart CC Switch/Codex after configuration sync. A stale running process is
    not configuration evidence.
 
-The installed MCP facade must expose these read-only tools only:
-
-`court.status`, `court.command_help`, `shiguan.query`,
-`shiguan.archive_dry_run`, `memory.scan`.
+The installed MCP facade exposes only the read-only tools declared in the
+installed `references/manifests/cli-command-surface.v1.json`. Both supported
+protocols must return that same tool set.
 
 ## Doctor, Debug, And Fix
 

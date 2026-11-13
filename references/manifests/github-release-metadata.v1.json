@@ -6,8 +6,18 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.4",
+  "latest_tag": "beta1.2.4-hotfix-v1",
   "releases": [
+    {
+      "tag": "beta1.2.4-hotfix-v1",
+      "title": "Decretum Matrix beta1.2.4-hotfix-v1",
+      "summary": "修正 MCP 诊断误报并恢复源码只读更新预演。",
+      "highlights": [
+        "doctor 按安装副本的公共命令清单核对现代及旧版 MCP 响应，不改变协议或工具接口。",
+        "fix update 可从源码生成只读计划；实际写入仍需候选包和事务绑定。"
+      ],
+      "asset_note": "npm 版本为 1.2.4-beta.0.hotfix.1；远端发布、CI 和宿主安装以各自回执为准。"
+    },
     {
       "tag": "beta1.2.4",
       "title": "Decretum Matrix beta1.2.4",

@@ -14,6 +14,7 @@ if _SCRIPTS_ROOT not in sys.path:
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -25,10 +26,13 @@ CLI = ROOT / "scripts" / "court_cli.py"
 SCHEMA = "decretum.doctor_debug_fix_check.v1"
 
 
-def _run(*arguments: str) -> tuple[int, dict[str, object], str]:
+def _run(
+    *arguments: str, env: dict[str, str] | None = None,
+) -> tuple[int, dict[str, object], str]:
     completed = subprocess.run(
         [sys.executable, "-B", str(CLI), "--format", "json", *arguments],
         cwd=ROOT,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -57,14 +61,71 @@ def evaluate() -> dict[str, object]:
     checks: dict[str, bool] = {}
     missing_source = ROOT / "__doctor_missing_source__"
 
-    doctor_code, doctor_envelope, doctor_stderr = _run(
-        "doctor",
-        "--source-root",
-        str(missing_source),
-        "--mapped-root",
-        str(ROOT),
-    )
-    doctor = _nested(doctor_envelope)
+    from checks.check_court_mcp_server import EXPECTED_TOOLS, _source_runtime_fixture
+
+    fixture, home, server, env = _source_runtime_fixture()
+    with fixture:
+        home = home.resolve()
+        codex_home = home / ".codex"
+        env.update({
+            "CODEX_HOME": str(codex_home),
+            "COURT_SHARED_SHIGUAN_ROOT": str(home / "isolated shiguan"),
+            "COURT_RUNTIME_ROOT": str(home / "isolated court runtime"),
+        })
+        # Relative entry exercises config-relative argv resolution.
+        config = codex_home / "config.toml"
+        config.parent.mkdir(parents=True)
+        base_config = "[agents]\nmax_depth = 4\nmax_concurrent_threads_per_session = 16\n"
+        config.write_text(base_config, encoding="utf-8")
+        subprocess.run(
+            [sys.executable, "-B", str(ROOT / "scripts" / "sync_codex_agents_from_profiles.py"), "--write"],
+            cwd=ROOT, env=env, check=True, capture_output=True,
+        )
+        source_args = (
+            "--source-root", str(missing_source), "--mapped-root", str(ROOT),
+            "--home-root", str(home),
+        )
+        _, unconfigured, _ = _run("doctor", *source_args, env=env)
+        checks["doctor_reports_unconfigured_mcp"] = (
+            _nested(unconfigured)["mcp_configuration"]["status"] == "MISSING"
+        )
+        config.write_text(
+            base_config + "\n[mcp_servers.decretum_matrix]\n"
+            + f"command = {json.dumps(sys.executable, ensure_ascii=False)}\n"
+            + f"args = {json.dumps(['-B', Path(os.path.relpath(server, codex_home)).as_posix()], ensure_ascii=False)}\n",
+            encoding="utf-8",
+        )
+        # Parent HOME differs from --home-root, so the child must use the
+        # requested host's binding rather than the invoking user's binding.
+        invoker = str(home.parent / "invoker")
+        _, selected_home_probe, _ = _run(
+            "doctor", *source_args, env={**env, "HOME": invoker, "USERPROFILE": invoker},
+        )
+        checks["doctor_probes_selected_home_binding"] = (
+            _nested(selected_home_probe)["mcp_configuration"]["runtime_probe"]["ok"] is True
+        )
+        doctor_code, doctor_envelope, doctor_stderr = _run("doctor", *source_args, env=env)
+        doctor = _nested(doctor_envelope)
+        # File symlinks may be disabled by host policy on Windows. Exercise
+        # the same entry through a link wherever the OS allows creating one.
+        link = codex_home / "linked MCP" / server.name
+        link.parent.mkdir()
+        try:
+            link.symlink_to(server)
+        except (NotImplementedError, OSError):
+            pass
+        else:
+            config.write_text(
+                base_config + "\n[mcp_servers.decretum_matrix]\n"
+                + f"command = {json.dumps(sys.executable, ensure_ascii=False)}\n"
+                + f"args = {json.dumps(['-B', Path(os.path.relpath(link, codex_home)).as_posix()], ensure_ascii=False)}\n",
+                encoding="utf-8",
+            )
+            _, through_link, _ = _run("doctor", *source_args, env=env)
+            checks["doctor_accepts_linked_bound_mcp_entry"] = (
+                _nested(through_link)["mcp_configuration"]["runtime_probe"]["ok"] is True
+            )
+
     source = doctor.get("source_selection")
     path_policy = doctor.get("path_policy")
     mcp = doctor.get("mcp_configuration")
@@ -91,7 +152,9 @@ def evaluate() -> dict[str, object]:
         and mcp_probe["modern"].get("ok") is True
         and isinstance(mcp_probe.get("legacy"), dict)
         and mcp_probe["legacy"].get("ok") is True
-        and mcp_probe.get("tool_count") == 5
+        and mcp_probe.get("tool_count") == len(EXPECTED_TOOLS)
+        and mcp_probe["modern"].get("tool_names") == sorted(EXPECTED_TOOLS)
+        and mcp_probe["legacy"].get("tool_names") == sorted(EXPECTED_TOOLS)
     )
     checks["doctor_includes_codex_role_consistency"] = (
         isinstance(roles, dict)
@@ -110,25 +173,54 @@ def evaluate() -> dict[str, object]:
     )
 
     with tempfile.TemporaryDirectory(prefix="decretum-fix-plan-") as raw:
-        home = Path(raw) / "home"
-        fix_code, fix_envelope, fix_stderr = _run(
-            "fix",
-            "update",
-            "--source-root",
-            str(ROOT),
-            "--home-root",
-            str(home),
+        sandbox = Path(raw).resolve()
+        home = sandbox / "isolated home"
+        npm_prefix = sandbox / "isolated npm"
+        plan_args = (
+            "--source-root", str(ROOT), "--home-root", str(home),
+            "--npm-prefix", str(npm_prefix),
         )
-        fix = _nested(fix_envelope)
-        checks["fix_update_defaults_to_read_only_projection_plan"] = (
-            fix_code == 0
-            and fix_envelope.get("ok") is True
-            and fix.get("operation") == "update"
-            and fix.get("write") is False
-            and isinstance(fix.get("result"), dict)
-            and fix["result"].get("status") == "PLANNED"
+        plans = []
+        for entry in (("fix", "update"), ("install", "fix", "update")):
+            fix_code, fix_envelope, fix_stderr = _run(*entry, *plan_args)
+            fix = _nested(fix_envelope)
+            result = fix.get("result")
+            plans.append(
+                fix_code == 0
+                and fix_envelope.get("ok") is True
+                and fix.get("operation") == "update"
+                and fix.get("write") is False
+                and isinstance(result, dict)
+                and result.get("status") == "PLANNED"
+                and result.get("target_classes") == ["shared_agents", "codex"]
+                and result.get("codex_agent_roles", {}).get("mode") == "dry-run"
+                and "installation_binding" not in result
+                and "install_receipt" not in result
+                and not home.exists()
+                and not npm_prefix.exists()
+                and not fix_stderr
+            )
+        checks["fix_update_defaults_to_read_only_projection_plan"] = all(plans)
+        receipt_code, receipt_envelope, _ = _run(
+            "fix", "update", *plan_args, "--candidate-receipt", str(sandbox / "missing.json"),
+        )
+        checks["fix_update_does_not_ignore_incomplete_candidate"] = (
+            receipt_code == 2
+            and _nested(receipt_envelope).get("result", {}).get("reason") == "candidate_package_required"
             and not home.exists()
-            and not fix_stderr
+            and not npm_prefix.exists()
+        )
+        apply_code, apply_envelope, apply_stderr = _run(
+            "fix", "update", *plan_args, "--caller-cwd", str(sandbox), "--apply",
+        )
+        checks["fix_update_apply_still_requires_candidate"] = (
+            apply_code == 2
+            and apply_envelope.get("ok") is False
+            and _nested(apply_envelope).get("result", {}).get("reason") == "candidate_package_required"
+            and not (home / ".agents" / "skills").exists()
+            and not (home / ".codex").exists()
+            and not npm_prefix.exists()
+            and not apply_stderr
         )
 
     rollback_code, rollback_envelope, rollback_stderr = _run("fix", "rollback")
