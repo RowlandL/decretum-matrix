@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 import tomllib
+
+sys.dont_write_bytecode = True
 
 from court_multi_agent_protocol import validate_protocol_config
 from sync_codex_agents_from_profiles import (

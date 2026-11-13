@@ -16,6 +16,8 @@ import tomllib
 import uuid
 from datetime import datetime, timezone
 
+sys.dont_write_bytecode = True
+
 from court_public_registry import load_public_tools
 
 

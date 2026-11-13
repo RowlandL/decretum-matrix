@@ -57,7 +57,6 @@ def main() -> int:
         else:
             raise AssertionError("hash monitor failed to catch existing preload identity call")
         stack.enter_context(patch.object(roles, "agent_template_skill_root", return_value=root))
-        stack.enter_context(patch.object(role_check, "validate_codex_multi_agent_config", return_value={"ok": True}))
         cards = root / "native-roles"
         cards.mkdir()
         for name in roles.REQUIRED_PROFILE_FILES:
@@ -82,7 +81,14 @@ def main() -> int:
             rejected(lambda: bootstrap.validate_preload_ack(manifest, {**ack, "court_code": "wrong-case"}), "court_code")
             rejected(lambda: bootstrap.validate_preload_ack(manifest, {**ack, "agent_dossier_loaded": "NO"}), "agent_dossier_loaded")
             rejected(lambda: bootstrap.validate_preload_ack(bootstrap.build_preload_manifest(role, skill_root=root), ack), "preload_court_code_required")
-        check = role_check.validate_installed_agents(cards, root / "agents" / "standing-officials")
+        config = root / "config.toml"
+        config.write_text(
+            "[agents]\nmax_depth=4\nmax_concurrent_threads_per_session=16\n",
+            encoding="utf-8",
+        )
+        check = role_check.validate_installed_agents(
+            cards, root / "agents" / "standing-officials", config_path=config
+        )
         assert check["ok"] and check["required_count"] == 14, check
     print("RUNTIME_NO_FILE_REHASH_OK ordinary_anchors=14 schema_preserved=true wrong_case_rejected=true reads_required=true")
     return 0
