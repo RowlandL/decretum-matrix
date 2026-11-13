@@ -6,8 +6,18 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.3-hotfix-v3",
+  "latest_tag": "beta1.2.4",
   "releases": [
+    {
+      "tag": "beta1.2.4",
+      "title": "Decretum Matrix beta1.2.4",
+      "summary": "修正可选配置的恢复状态，并补齐 Codex 首装步骤。",
+      "highlights": [
+        "可选配置只有在回滚回执和文件读回通过后才报告 ROLLED_BACK；未能证实恢复时保留材料并报告 RECOVERY_REQUIRED。",
+        "README 和安装 Wiki 增加显式投影命令、宿主配置前提和安装回执核对步骤。"
+      ],
+      "asset_note": "npm 版本为 1.2.4-beta.0；远端发布、CI 和宿主安装以各自回执为准。"
+    },
     {
       "tag": "beta1.2.3-hotfix-v3",
       "title": "Decretum Matrix beta1.2.3-hotfix-v3",

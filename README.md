@@ -22,18 +22,29 @@ skill 环境中运行。内置的分层治理实现是完整默认治理；GBrai
 
 ## 1. 安装
 
-### 1.1 最快路径
+### 1.1 最快路径（Codex）
+
+先启动一次 Codex，并确认其默认目录下的配置符合安装验收要求。使用专用 npm 目录下载包，再用同一目录的命令
+显式投影技能。以下为 macOS/Linux 示例；[安装 Wiki](docs/wiki/Installation.md#1-最快路径三步)
+包含 Windows 命令、Codex 配置前提与回执核对方法。
 
 ```sh
-npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
-decretum-matrix --version
+prefix="$HOME/.local/share/decretum-matrix-npm"
+npm install --ignore-scripts --no-save --package-lock=false --prefix "$prefix" \
+  @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
+shim="$prefix/node_modules/.bin/decretum-matrix"
+"$shim" install update --apply --home-root "$HOME" --npm-prefix "$prefix"
+"$shim" --runtime-identity
+"$shim" --version
 ```
 
-GitHub Packages 要求认证时只授予最小 `read:packages`；使用进程级
-`NODE_AUTH_TOKEN` 与临时 npmrc，不要把 token 写入仓库、命令历史或长期配置。
+如使用已核验的本地 `.tgz`，将包名及 `--registry` 换成该包的绝对路径；离线可加
+`--offline`。GitHub Packages 认证用最小 `read:packages` 权限和临时 npm 配置；
+`beta` 实际指向以远端回读为准。
 
-`npm install` 返回 0 只证明命令完成。安装成功、远端包状态与活动运行身份分别以
-发布后回读和安装回执为准。
+`npm install` 只下载命令包。显式投影返回 `COMMITTED` 且 `result.public_shim.status`
+为 `PASS` 后，按 `result.install_receipt_path` 读回 `INSTALLED` 回执，并与
+`--runtime-identity` 核对版本、来源和安装事务。然后在新会话中调用 `$decretum-matrix`。
 
 ### 1.2 安装到哪些目录
 
@@ -73,11 +84,11 @@ skill 根不保留 release manifest、release gate、hash checker 或其他发�
 
 ### 1.4 安装后验证
 
-从任意工作目录读取运行身份：
+从任意工作目录，用第 1 节所选 npm 目录的 shim 读取运行身份（PowerShell 使用 `& $shim`）：
 
 ```sh
-decretum-matrix --runtime-identity
-decretum-matrix --help
+"$shim" --runtime-identity
+"$shim" --help
 ```
 
 外置安装事务须在所有投影完成后，由活动运行目录之外的既有工具执行一次验收并持久化
@@ -212,12 +223,12 @@ receipt-bound CLI，真实派遣走宿主。
 
 ## 6. 版本
 
-当前源码活动版本为 `beta1.2.3-hotfix-v3`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
+当前源码活动版本为 `beta1.2.4`，并以 [`VERSION`](VERSION)、技能元数据、发布清单和
 安装/发布回执为准；分支名只是当前工作载体，tag、GitHub Release、npm 以及线上 Wiki
 的成功状态只由对应发布回读证明。
 
-本版为 `beta1.2.3-hotfix-v2` 热修包装，承载 `f4852e6` 已接受的维护修复，业务行为未变。
-同提交 CI、外部 hotfix 发布、GitHub Packages 版本与真实安装仍须各自回读证据；已发布 `beta1.2.3` 的 tag、资产与 npm `1.2.3-beta.0` 保持保留、不被覆盖。
+`beta1.2.4` 从 `beta1.2.3-hotfix-v3` 接续，范围为安装恢复语义与首装说明。
+本地候选与外部发布分别验收；旧版本的标签与制品保留。
 
 以下保留 beta1.2.0 的历史源码说明：
 本版 SOURCE 候选改进官署职责名、简明差遣与业务回奏，保留请求和 P00 证据绑定。

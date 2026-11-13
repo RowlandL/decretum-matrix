@@ -2463,6 +2463,8 @@ def _read_configuration_state(
     tool_class: str,
     paths: list[Path],
     delta: dict[str, object],
+    *,
+    recovery_readback: bool = False,
 ) -> tuple[list[str], list[str], list[dict[str, object]], dict[str, object]]:
     gaps: list[str] = []
     evidence: list[str] = []
@@ -2479,7 +2481,16 @@ def _read_configuration_state(
             gaps.extend(_delta_gaps(path, parsed, delta))
         else:
             gaps.append(f"{path.name}:parse_failed")
-    runtime_raw = adapter.runtime_probe(tool_class)
+    try:
+        runtime_raw = adapter.runtime_probe(tool_class)
+    except Exception as exc:
+        if not recovery_readback:
+            raise
+        runtime_raw = {
+            "available": False,
+            "standard_requirements_met": False,
+            "error": f"{type(exc).__name__}:{exc}",
+        }
     runtime_probe = runtime_raw if isinstance(runtime_raw, dict) else {
         "available": False,
         "standard_requirements_met": False,
@@ -2494,9 +2505,10 @@ def _refresh_configuration_result(
     tool_class: str,
     paths: list[Path],
     delta: dict[str, object],
-) -> None:
+    recovery_readback: bool = False,
+) -> list[dict[str, object]]:
     gaps, evidence, records, runtime_probe = _read_configuration_state(
-        adapter, tool_class, paths, delta
+        adapter, tool_class, paths, delta, recovery_readback=recovery_readback
     )
     parsed_ok = all(record.get("parse_ok") is True for record in records)
     verified = parsed_ok and not gaps
@@ -2515,6 +2527,7 @@ def _refresh_configuration_result(
             "standard_requirements_met": standard_met,
         }
     )
+    return records
 
 
 def _direct_effective_files_apply(
@@ -2523,60 +2536,61 @@ def _direct_effective_files_apply(
     tool_class: str,
     paths: list[Path],
     delta: dict[str, object],
-) -> tuple[bool, dict[str, object], str | None]:
+) -> tuple[dict[str, object], str | None]:
     backups: list[object] = []
-    transaction: dict[str, object] | None = None
-    receipt: object | None = None
+    state: dict[str, object] = {
+        "backup": backups,
+        "transaction": False,
+        "receipt": False,
+        "rollback": "available_via_adapter",
+    }
     try:
         for path in paths:
             backups.append(adapter.backup_effective_file(tool_class, path))
-        transaction_raw = adapter.begin_effective_files_transaction(tool_class, paths)
-        if not isinstance(transaction_raw, dict):
+        transaction = adapter.begin_effective_files_transaction(tool_class, paths)
+        if not isinstance(transaction, dict):
             raise RuntimeError("effective_transaction_not_object")
-        transaction = transaction_raw
+        state["transaction"] = transaction
         for path in paths:
             adapter.write_effective_config(transaction, tool_class, path, delta)
-        receipt = adapter.commit_effective_files_transaction(transaction, tool_class)
+        state["receipt"] = adapter.commit_effective_files_transaction(transaction, tool_class)
     except Exception as exc:
-        if transaction is not None:
-            try:
-                adapter.rollback_effective_files_transaction(
-                    transaction,
-                    tool_class,
-                    f"{type(exc).__name__}:{exc}",
-                )
-            except Exception as rollback_exc:
-                return (
-                    False,
-                    {
-                        "backup": backups or False,
-                        "transaction": transaction,
-                        "receipt": False,
-                        "rollback": False,
-                    },
-                    f"{type(exc).__name__}:{exc};rollback:"
-                    f"{type(rollback_exc).__name__}:{rollback_exc}",
-                )
-        return (
-            False,
-            {
-                "backup": backups or False,
-                "transaction": transaction or False,
-                "receipt": False,
-                "rollback": "restored" if transaction is not None else "not_needed",
-            },
-            f"{type(exc).__name__}:{exc}",
-        )
+        return state, f"{type(exc).__name__}:{exc}"
+    return state, None
+
+
+def _rollback_configuration_step(
+    state: dict[str, object], rollback: Any, tool_class: str, reason: str
+) -> bool | None:
+    transaction = state["transaction"]
+    if not isinstance(transaction, dict):
+        state["rollback"] = "not_started"
+        return None
+    try:
+        receipt = rollback(transaction, tool_class, reason)
+    except Exception as exc:
+        state["rollback"] = {"restored": False, "error": f"{type(exc).__name__}:{exc}"}
+        return False
+    state["rollback"] = receipt
+    transaction_id = transaction.get("transaction_id")
     return (
-        True,
-        {
-            "backup": backups,
-            "transaction": transaction,
-            "receipt": receipt,
-            "rollback": "available_via_adapter",
-        },
-        None,
+        isinstance(transaction_id, str)
+        and bool(transaction_id)
+        and isinstance(receipt, dict)
+        and receipt.get("transaction_id") == transaction_id
+        and receipt.get("restored") is True
     )
+
+
+def _configuration_preimage(
+    records: list[dict[str, object]],
+) -> list[tuple[object, object]] | None:
+    if not records or any(
+        record.get("parse_ok") is not True or not isinstance(record.get("parsed"), dict)
+        for record in records
+    ):
+        return None
+    return [(deepcopy(record["parsed"]), record.get("sha256")) for record in records]
 
 
 def _configuration_base(
@@ -2644,7 +2658,7 @@ def _remediate_blank_host_configuration(
         explicit_permission=explicit_permission,
         controller_probe=probe_raw,
     )
-    _refresh_configuration_result(
+    initial_records = _refresh_configuration_result(
         config,
         adapter=adapter,
         tool_class=tool_class,
@@ -2711,224 +2725,148 @@ def _remediate_blank_host_configuration(
         return config
 
     config["mutation_authorized"] = True
-    if probe_raw.get("present") is not True:
-        success, reversibility, error = _direct_effective_files_apply(
-            adapter=adapter,
-            tool_class=tool_class,
-            paths=paths,
-            delta=delta,
-        )
-        config["reversibility"] = reversibility
-        config["mutation_path"] = "direct_reversible_effective_files"
-        if success:
-            _refresh_configuration_result(
-                config,
-                adapter=adapter,
-                tool_class=tool_class,
-                paths=paths,
-                delta=delta,
-            )
-        if success and config.get("standard_requirements_met") is True:
-            config.update(
-                {
-                    "status": "PASSED",
-                    "compliance_claimed": True,
-                    "explanation": "direct transaction verified through actual-file reread and runtime probe",
-                }
-            )
-        else:
-            config.update(
-                {
-                    "status": "ROLLED_BACK",
-                    "compliance_claimed": False,
-                    "explanation": error or "direct transaction did not verify",
-                }
-            )
-            _refresh_configuration_result(
-                config,
-                adapter=adapter,
-                tool_class=tool_class,
-                paths=paths,
-                delta=delta,
-            )
-        return config
+    preimage = _configuration_preimage(initial_records)
 
-    controller_backup: object | None = None
-    controller_transaction: dict[str, object] | None = None
-    controller_receipt: object | None = None
-    try:
-        controller_backup = adapter.backup_controller_database(tool_class)
-        transaction_raw = adapter.begin_controller_transaction(tool_class)
-        if not isinstance(transaction_raw, dict):
-            raise RuntimeError("controller_transaction_not_object")
-        controller_transaction = transaction_raw
-        adapter.update_controller_tool_block(
-            controller_transaction,
-            tool_class,
-            delta,
-        )
-        controller_receipt = adapter.commit_controller_transaction(
-            controller_transaction,
-            tool_class,
-        )
-    except Exception as exc:
-        if controller_transaction is not None and controller_backup is not None:
-            try:
-                adapter.rollback_controller_transaction(
-                    controller_transaction,
-                    tool_class,
-                    f"{type(exc).__name__}:{exc}",
-                )
-            except Exception:
-                pass
-        config.update(
-            {
-                "status": "ROLLED_BACK",
-                "compliance_claimed": False,
-                "mutation_path": "cc_switch_upstream_then_effective_files",
-                "explanation": f"controller transaction failed: {type(exc).__name__}:{exc}",
-                "reversibility": {
-                    "backup": controller_backup or False,
-                    "transaction": controller_transaction or False,
-                    "receipt": False,
-                    "rollback": "attempted",
-                },
+    def verify_change() -> tuple[str | None, bool]:
+        try:
+            _refresh_configuration_result(
+                config, adapter=adapter, tool_class=tool_class, paths=paths, delta=delta
+            )
+        except Exception as exc:
+            return f"configuration readback failed: {type(exc).__name__}:{exc}", False
+        if config.get("standard_requirements_met") is not True:
+            return "configuration change did not verify", True
+        return None, True
+
+    def recover(
+        reason: str,
+        *,
+        direct: dict[str, object] | None = None,
+        controller: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        outcomes = []
+        # Undo writes in reverse order; attempt both even if one rollback fails.
+        if direct is not None:
+            outcomes.append(_rollback_configuration_step(
+                direct, adapter.rollback_effective_files_transaction, tool_class, reason
+            ))
+        if controller is not None:
+            outcomes.append(_rollback_configuration_step(
+                controller, adapter.rollback_controller_transaction, tool_class, reason
+            ))
+        if direct is not None and controller is not None:
+            config["reversibility"] = {
+                "backup": [controller["backup"], direct["backup"]],
+                "transaction": [controller["transaction"], direct["transaction"]],
+                "receipt": [controller["receipt"], direct["receipt"]],
+                "rollback": {"controller": controller["rollback"], "effective_files": direct["rollback"]},
             }
-        )
-        _refresh_configuration_result(
-            config,
-            adapter=adapter,
-            tool_class=tool_class,
-            paths=paths,
-            delta=delta,
-        )
+        else:
+            config["reversibility"] = direct if direct is not None else controller
+
+        try:
+            readback = _refresh_configuration_result(
+                config, adapter=adapter, tool_class=tool_class, paths=paths, delta=delta,
+                recovery_readback=True,
+            )
+            effective_files_restored = preimage is not None and _configuration_preimage(readback) == preimage
+        except Exception as exc:
+            effective_files_restored = False
+            config.update({
+                "evidence": [],
+                "gaps": [f"recovery readback failed: {type(exc).__name__}:{exc}"],
+                "semantic_delta_verified": False,
+                "runtime_probe": {"available": False, "standard_requirements_met": False},
+                "standard_requirements_met": False,
+            })
+        if effective_files_restored and True in outcomes and False not in outcomes:
+            status, explanation = "ROLLED_BACK", "rollback and effective-file readback verified"
+        elif effective_files_restored and controller is None and outcomes == [None]:
+            status, explanation = "NO_CHANGE_UNCERTAIN", "no configuration write started; effective files unchanged"
+        else:
+            status, explanation = "RECOVERY_REQUIRED", "restoration not verified"
+        config.update({
+            "status": status,
+            "compliance_claimed": False,
+            "recovery_required": status == "RECOVERY_REQUIRED",
+            "explanation": f"{reason}; {explanation}",
+        })
         return config
 
-    controller_reversibility = {
-        "backup": controller_backup,
-        "transaction": controller_transaction,
-        "receipt": controller_receipt,
+    if probe_raw.get("present") is not True:
+        config["mutation_path"] = "direct_reversible_effective_files"
+        direct, error = _direct_effective_files_apply(
+            adapter=adapter, tool_class=tool_class, paths=paths, delta=delta
+        )
+        if error is None:
+            error, _ = verify_change()
+        if error is not None:
+            return recover(error, direct=direct)
+        config.update({
+            "status": "PASSED",
+            "compliance_claimed": True,
+            "reversibility": direct,
+            "explanation": "direct transaction verified through actual-file reread and runtime probe",
+        })
+        return config
+
+    config["mutation_path"] = "cc_switch_upstream_then_effective_files"
+    controller: dict[str, object] = {
+        "backup": False,
+        "transaction": False,
+        "receipt": False,
         "rollback": "available_via_adapter",
     }
-    config.update(
-        {
-            "mutation_path": "cc_switch_upstream_then_effective_files",
-            "upstream_attempt": "controller_transaction",
-            "upstream_result": controller_receipt,
-            "reversibility": controller_reversibility,
-        }
-    )
-    _refresh_configuration_result(
-        config,
-        adapter=adapter,
-        tool_class=tool_class,
-        paths=paths,
-        delta=delta,
-    )
-    if config.get("standard_requirements_met") is True:
-        config.update(
-            {
-                "status": "PASSED",
-                "compliance_claimed": True,
-                "explanation": "controller-first mutation verified in actual effective files",
-            }
-        )
-        return config
-
-    if tool_class == "hermes" and direct_authority:
-        direct_success, direct_reversibility, direct_error = (
-            _direct_effective_files_apply(
-                adapter=adapter,
-                tool_class=tool_class,
-                paths=paths,
-                delta=delta,
-            )
-        )
-        config["mutation_path"] = (
-            "cc_switch_upstream_then_authorized_direct_effective_files"
-        )
-        config["reversibility"] = {
-            "backup": [controller_backup, direct_reversibility.get("backup")],
-            "transaction": [
-                controller_transaction,
-                direct_reversibility.get("transaction"),
-            ],
-            "receipt": [controller_receipt, direct_reversibility.get("receipt")],
-            "rollback": "available_via_adapter",
-        }
-        if direct_success:
-            _refresh_configuration_result(
-                config,
-                adapter=adapter,
-                tool_class=tool_class,
-                paths=paths,
-                delta=delta,
-            )
-        if direct_success and config.get("standard_requirements_met") is True:
-            config.update(
-                {
-                    "status": "PASSED",
-                    "compliance_claimed": True,
-                    "explanation": "controller-first attempt required an authorized reversible actual-file fallback",
-                }
-            )
-            return config
-        try:
-            adapter.rollback_controller_transaction(
-                controller_transaction,
-                tool_class,
-                direct_error or "authorized fallback did not verify",
-            )
-        except Exception as rollback_exc:
-            direct_error = (
-                (direct_error + ";") if direct_error else ""
-            ) + f"controller_rollback:{type(rollback_exc).__name__}:{rollback_exc}"
-        config.update(
-            {
-                "status": "ROLLED_BACK",
-                "compliance_claimed": False,
-                "explanation": direct_error or "authorized fallback did not verify",
-            }
-        )
-        _refresh_configuration_result(
-            config,
-            adapter=adapter,
-            tool_class=tool_class,
-            paths=paths,
-            delta=delta,
-        )
-        return config
-
     try:
-        rollback = adapter.rollback_controller_transaction(
-            controller_transaction,
-            tool_class,
-            "controller receipt did not materialize in actual effective files",
-        )
+        controller["backup"] = adapter.backup_controller_database(tool_class)
+        transaction = adapter.begin_controller_transaction(tool_class)
+        if not isinstance(transaction, dict):
+            raise RuntimeError("controller_transaction_not_object")
+        controller["transaction"] = transaction
+        adapter.update_controller_tool_block(transaction, tool_class, delta)
+        controller["receipt"] = adapter.commit_controller_transaction(transaction, tool_class)
     except Exception as exc:
-        rollback = False
-        explanation = f"controller rollback failed: {type(exc).__name__}:{exc}"
-    else:
-        explanation = "controller receipt was not effective; verified backup restored"
-    config.update(
-        {
-            "status": "ROLLED_BACK",
-            "compliance_claimed": False,
-            "explanation": explanation,
+        return recover(
+            f"controller transaction failed: {type(exc).__name__}:{exc}", controller=controller
+        )
+
+    config.update({
+        "upstream_attempt": "controller_transaction",
+        "upstream_result": controller["receipt"],
+        "reversibility": controller,
+    })
+    error, readback_completed = verify_change()
+    if error is None:
+        config.update({
+            "status": "PASSED",
+            "compliance_claimed": True,
+            "explanation": "controller-first mutation verified in actual effective files",
+        })
+        return config
+
+    if tool_class == "hermes" and direct_authority and readback_completed:
+        config["mutation_path"] = "cc_switch_upstream_then_authorized_direct_effective_files"
+        direct, direct_error = _direct_effective_files_apply(
+            adapter=adapter, tool_class=tool_class, paths=paths, delta=delta
+        )
+        if direct_error is None:
+            direct_error, _ = verify_change()
+        if direct_error is not None:
+            return recover(direct_error, direct=direct, controller=controller)
+        config.update({
+            "status": "PASSED",
+            "compliance_claimed": True,
+            "explanation": "controller-first attempt required an authorized reversible actual-file fallback",
             "reversibility": {
-                **controller_reversibility,
-                "rollback": rollback or "attempted",
+                "backup": [controller["backup"], direct["backup"]],
+                "transaction": [controller["transaction"], direct["transaction"]],
+                "receipt": [controller["receipt"], direct["receipt"]],
+                "rollback": "available_via_adapter",
             },
-        }
-    )
-    _refresh_configuration_result(
-        config,
-        adapter=adapter,
-        tool_class=tool_class,
-        paths=paths,
-        delta=delta,
-    )
-    return config
+        })
+        return config
+
+    return recover(error, controller=controller)
 
 
 def _portability_evidence(

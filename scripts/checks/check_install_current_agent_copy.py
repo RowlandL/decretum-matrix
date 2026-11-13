@@ -832,6 +832,10 @@ class _ConfigFixture:
             "uncertainty": None,
             "fail_direct_write_number": None,
             "fail_direct_step": None,
+            "fail_controller_commit": False,
+            "rollback_failure": None,
+            "reject_runtime_probe": False,
+            "runtime_probe_fails_after_commit": False,
             "hermes_platform_system": "Linux",
             "hermes_environment": None,
             "hermes_config_dir_override": None,
@@ -1201,11 +1205,13 @@ class _ConfigFixture:
 
     def runtime_probe(self, tool_class: str) -> Payload:
         self._record(tool_class, "runtime_probe")
+        if self.runtime_probe_fails_after_commit and f"commit_controller_transaction:{tool_class}" in self.events:
+            raise RuntimeError("fixture runtime probe unavailable after commit")
         gaps = self.expected_gaps()
         return {
             "available": True,
             "tool_class": tool_class,
-            "standard_requirements_met": not gaps,
+            "standard_requirements_met": not gaps and not self.reject_runtime_probe,
             "evidence": f"fixture://runtime/{tool_class}",
         }
 
@@ -1264,6 +1270,8 @@ class _ConfigFixture:
         tool_class: str,
     ) -> Payload:
         self._record(tool_class, "commit_controller_transaction", mutation=True)
+        if self.fail_controller_commit:
+            raise RuntimeError("fixture controller commit failed after update")
         return {
             **self._commit_receipt(transaction, "controller", tool_class),
             "controller_store_sha256": _sha256_bytes(self.controller_path.read_bytes()),
@@ -1278,10 +1286,13 @@ class _ConfigFixture:
         self._record(tool_class, "rollback_controller_transaction", mutation=True)
         if self._controller_original is None:
             raise AssertionError("controller rollback missing verified backup")
+        receipt = self._rollback_receipt(transaction, "controller", tool_class, reason)
+        if self.rollback_failure == "controller_refused":
+            return {**receipt, "restored": False}
         self.controller_path.write_bytes(self._controller_original)
         for path, payload in self._controller_effective_originals.items():
             path.write_bytes(payload)
-        return self._rollback_receipt(transaction, "controller", tool_class, reason)
+        return receipt
 
     def backup_effective_file(
         self,
@@ -1361,9 +1372,16 @@ class _ConfigFixture:
         self._record(tool_class, "rollback_effective_files_transaction", mutation=True)
         if not self._direct_originals:
             raise AssertionError("effective rollback missing transaction snapshot")
+        receipt = self._rollback_receipt(transaction, "effective", tool_class, reason)
+        if self.rollback_failure == "effective_exception":
+            raise RuntimeError("fixture effective rollback failed")
+        if self.rollback_failure == "effective_false_receipt":
+            return receipt
         for path, payload in self._direct_originals.items():
             path.write_bytes(payload)
-        return self._rollback_receipt(transaction, "effective", tool_class, reason)
+        if self.rollback_failure == "effective_wrong_transaction":
+            return {**receipt, "transaction_id": "unrelated-transaction"}
+        return receipt
 
     def expected_gaps(self) -> list[str]:
         gaps: list[str] = []
@@ -5663,6 +5681,7 @@ def _check_blank_host_configuration_cases(
     name = "codex_db_receipt_without_materialization_rolls_back"
     with run_case(
         name,
+        status="ROLLED_BACK",
         probe=True,
         controller_materializes=False,
     ) as (_result, config, adapter):
@@ -5691,6 +5710,7 @@ def _check_blank_host_configuration_cases(
     name = "codex_dual_file_failure_rolls_back_atomically"
     with run_case(
         name,
+        status="ROLLED_BACK",
         check_migration=False,
         has_controller=False,
         fail_direct_write_number=2,
@@ -5705,7 +5725,7 @@ def _check_blank_host_configuration_cases(
         with run_case(
             name,
             "hermes",
-            status="PASSED" if direct_authority else None,
+            status="PASSED" if direct_authority else "ROLLED_BACK",
             controller_materializes=False,
             direct_authority=direct_authority,
         ) as (_result, config, adapter):
@@ -5787,6 +5807,7 @@ def _check_blank_host_configuration_cases(
         with run_case(
             name,
             "hermes",
+            status="ROLLED_BACK",
             controller_materializes=False,
             direct_authority=True,
             fail_direct_step=failure_step,
@@ -5806,6 +5827,57 @@ def _check_blank_host_configuration_cases(
                 "effective_rollback_missing",
             )
             fail(adapter.surface_snapshot() != adapter.initial_snapshot, "failure_did_not_restore_all_surfaces")
+
+    recovery_cases = (
+        ("direct_backup_failed_before_write", "codex", "NO_CHANGE_UNCERTAIN", True,
+         {"has_controller": False, "fail_direct_step": "backup_effective_file"}),
+        ("hermes_controller_probe_error_skips_direct_write", "hermes", "ROLLED_BACK", True,
+         {"direct_authority": True, "runtime_probe_fails_after_commit": True}),
+        ("direct_commit_not_verified", "codex", "ROLLED_BACK", True,
+         {"has_controller": False, "reject_runtime_probe": True}),
+        ("controller_commit_failed", "codex", "ROLLED_BACK", True,
+         {"fail_controller_commit": True}),
+        ("controller_commit_failed_rollback_refused", "codex", "RECOVERY_REQUIRED", False,
+         {"fail_controller_commit": True, "rollback_failure": "controller_refused"}),
+        ("direct_partial_write_rollback_exception", "codex", "RECOVERY_REQUIRED", False,
+         {"has_controller": False, "fail_direct_write_number": 2, "rollback_failure": "effective_exception"}),
+        ("direct_partial_write_false_rollback_receipt", "codex", "RECOVERY_REQUIRED", False,
+         {"has_controller": False, "fail_direct_write_number": 2, "rollback_failure": "effective_false_receipt"}),
+        ("direct_rollback_receipt_for_wrong_transaction", "codex", "RECOVERY_REQUIRED", True,
+         {"has_controller": False, "fail_direct_write_number": 2, "rollback_failure": "effective_wrong_transaction"}),
+        ("hermes_fallback_commit_not_verified", "hermes", "ROLLED_BACK", True,
+         {"controller_materializes": False, "direct_authority": True, "reject_runtime_probe": True}),
+        ("hermes_fallback_rollback_failure_still_recovers_controller", "hermes", "RECOVERY_REQUIRED", True,
+         {"controller_materializes": False, "direct_authority": True, "reject_runtime_probe": True,
+          "rollback_failure": "effective_exception"}),
+    )
+    for name, tool_class, status, expect_preimage, options in recovery_cases:
+        with run_case(name, tool_class, status=status, **options) as (result, config, adapter):
+            fail((adapter.surface_snapshot() == adapter.initial_snapshot) != expect_preimage,
+                 "configuration_state_does_not_match_expected_preimage")
+            fail(result is None or result.get("ok") is not True or result.get("status") != "INSTALLED",
+                 "optional_configuration_recovery_changed_install_status")
+            receipt_path = result.get("install_receipt_path") if result else None
+            fail(not isinstance(receipt_path, str) or not Path(receipt_path).is_file(),
+                 "install_receipt_missing")
+            if config is not None:
+                fail(config.get("compliance_claimed") is not False, "failed_change_claimed_compliance")
+                fail(config.get("recovery_required") is not (status == "RECOVERY_REQUIRED"),
+                     "recovery_required_flag_disagrees_with_status")
+                if status == "RECOVERY_REQUIRED":
+                    evidence = config.get("reversibility")
+                    fail(not isinstance(evidence, dict) or not evidence.get("backup"),
+                         "recovery_material_not_reported")
+                    fail(not list((adapter.root / "backups").glob("*.before")),
+                         "recovery_material_not_preserved")
+            if tool_class == "hermes":
+                rollbacks = [event for event in adapter.events if event.startswith("rollback_")]
+                expected_rollbacks = ["rollback_controller_transaction:hermes"]
+                if adapter.runtime_probe_fails_after_commit:
+                    fail(adapter.direct_deltas, "direct_write_after_failed_readback")
+                else:
+                    expected_rollbacks.insert(0, "rollback_effective_files_transaction:hermes")
+                fail(rollbacks != expected_rollbacks, "rollback_order_or_controller_recovery_missing")
 
     return passed
 

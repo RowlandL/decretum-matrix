@@ -6,48 +6,90 @@
 当前 GitHub 发布线为 `beta1.1.6-hotfix-v1`；GitHub Packages 的 `beta` dist-tag 是独立通道，
 以远端实时回读为准。安装成功、远端包状态和活动运行身份仍以发布后回读与安装回执为准。
 
-> 口径说明：外部发布回读存在前，当前源码 `beta1.2.3-hotfix-v3` 按未发行候选处理；本页命令与
+> 口径说明：外部发布回读存在前，当前源码 `beta1.2.4` 按未发行候选处理；本页命令与
 > 目标不自动构成安装授权，安装仍需显式授权的外置安装事务与匹配回执。
 
 ---
 
 ## 1. 最快路径（三步）
 
-### 第 1 步：安装
+下面以 Codex 首装为例。需要 Node.js 18+、npm 和 Python 3.11+，以及已经初始化并符合宿主要求的
+Codex 配置。以下流程使用 `--home-root/.codex`；如果设置了 `CODEX_HOME`，它必须指向同一目录。
+配置缺失时安装验收会回滚。示例所用的兼容配置如下，仅供新建的隔离测试 HOME；
+现有宿主沿用已通过校验的配置，不要覆盖已有配置。
 
-```sh
-npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
+```toml
+[agents]
+max_depth = 4
+
+[features.multi_agent_v2]
+enabled = true
+max_concurrent_threads_per_session = 16
+hide_spawn_agent_metadata = true
 ```
 
-### 第 2 步：确认命令可用
+### 第 1 步：下载命令包
+
+macOS/Linux：
 
 ```sh
-decretum-matrix --version
+prefix="$HOME/.local/share/decretum-matrix-npm"
+npm install --ignore-scripts --no-save --package-lock=false --prefix "$prefix" \
+  @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
+shim="$prefix/node_modules/.bin/decretum-matrix"
 ```
 
-### 第 3 步：在会话中调用
+Windows PowerShell：
+
+```powershell
+$prefix = Join-Path $env:USERPROFILE '.local/share/decretum-matrix-npm'
+npm.cmd install --ignore-scripts --no-save --package-lock=false --prefix $prefix `
+  '@rowlandl/decretum-matrix@beta' --registry=https://npm.pkg.github.com
+$shim = Join-Path $prefix 'node_modules/.bin/decretum-matrix.cmd'
+```
+
+用已核验的本地 `.tgz` 时，保留相同的 `--prefix`，把包名和 `--registry` 换为
+包的绝对路径；离线可加 `--offline`。下载后可用该目录内的 shim 运行
+`install --self-check` 确认包带有安装入口；较早的 `beta` 通道包可能不支持本流程。
+
+### 第 2 步：显式投影并验收
+
+macOS/Linux：
+
+```sh
+"$shim" install update --apply --home-root "$HOME" --npm-prefix "$prefix"
+"$shim" --runtime-identity
+"$shim" --version
+```
+
+Windows PowerShell：
+
+```powershell
+& $shim install update --apply --home-root $env:USERPROFILE --npm-prefix $prefix
+& $shim --runtime-identity
+& $shim --version
+```
+
+`npm install` 只安装命令包，不投影技能。确认投影命令返回 `COMMITTED` 且
+`result.public_shim.status` 为 `PASS`。读回 `result.install_receipt_path` 指向的
+`INSTALLED` 回执，核对它与 `--runtime-identity` 的 `release_label`、`source_commit`、
+`installation_id` 和 `transaction_id` 一致。若验收失败，先按事务输出定位原因。
+安装位置与回执用途见第 3、4 节。
+
+### 第 3 步：在新会话中调用
 
 ```text
 $decretum-matrix
 ```
 
-`npm install` 返回 0 只说明命令执行完成，不等于安装已被验证——真正的验收见第 4 节。
-
 ---
 
 ## 2. 认证
 
-GitHub Packages 如要求认证，只授予最小 `read:packages`。使用进程级
-`NODE_AUTH_TOKEN` 与临时 npmrc：
-
-```sh
-# 只在当前进程生效，不落盘
-export NODE_AUTH_TOKEN=<你的 read:packages token>
-npm install @rowlandl/decretum-matrix@beta --registry=https://npm.pkg.github.com
-unset NODE_AUTH_TOKEN
-```
-
-不要把 token 写入仓库、命令历史或长期配置。
+GitHub Packages 如要求认证，只授予最小 `read:packages`。在临时 npmrc 中按
+registry 配置 `//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}`（保留变量占位符），
+用进程环境传入令牌，并给第 1 步的 npm 命令加 `--userconfig` 指向该临时文件。
+完成后移除该进程的令牌变量和临时文件。不要把令牌写入仓库、命令历史或长期配置。
 
 ---
 
@@ -102,10 +144,10 @@ Windows 可创建受控 junction 作为旧 locator；macOS/Linux 直接使用 ca
 
 ## 4. 安装后验证
 
-从任意工作目录读取运行身份：
+从任意工作目录，用第 1 节所选 npm 目录的 shim 读取运行身份（PowerShell 使用 `& $shim`）：
 
 ```sh
-decretum-matrix --runtime-identity
+"$shim" --runtime-identity
 ```
 
 外置安装事务须在所有投影完成后，由活动运行目录之外的既有工具执行一次验收并持久化
