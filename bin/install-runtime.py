@@ -165,7 +165,15 @@ def main(argv: list[str] | None = None) -> int:
         sys.path.insert(0, str(install_scripts))
     from commands import fix_decretum_matrix as driver
 
-    return driver.main(_driver_argv(forwarded, source_root))
+    # An explicitly selected checkout can be previewed without claiming the
+    # bundled candidate's identity or treating that checkout as rendered.
+    options = {argument.split("=", 1)[0] for argument in forwarded[1:] if argument.startswith("--")}
+    source_only_preview = (
+        forwarded[0] == "update"
+        and "--source-root" in options
+        and not options.intersection({"--apply", "--candidate-package-root", "--candidate-tgz", "--candidate-receipt"})
+    )
+    return driver.main(forwarded if source_only_preview else _driver_argv(forwarded, source_root))
 
 
 if __name__ == "__main__":

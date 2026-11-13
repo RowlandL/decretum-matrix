@@ -643,9 +643,12 @@ def _codex_agent_roles(home: Path) -> dict[str, object]:
     """Reuse the existing native-role checker for the selected home."""
 
     try:
-        module = importlib.import_module("check_codex_agent_roles")
+        module = importlib.import_module("codex_role_diagnostics")
+        templates = home / ".agents" / "skills" / NAME / "agents" / "standing-officials"
         result = module.validate_installed_agents(
             agents_dir=home / ".codex" / "agents",
+            templates_dir=templates if templates.is_dir() else ROOT / "agents" / "standing-officials",
+            config_path=home / ".codex" / "config.toml",
         )
         return result if isinstance(result, dict) else {"ok": False, "status": "INVALID"}
     except (ImportError, OSError, RuntimeError, ValueError) as exc:

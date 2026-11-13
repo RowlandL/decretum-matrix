@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
+from functools import partial
 import importlib
 import io
 import re
@@ -13,7 +14,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Sequence
+from typing import Callable, Sequence
 
 sys.dont_write_bytecode = True
 
@@ -265,11 +266,13 @@ def _capture_diagnostic(
         module_name, legacy_path = DIAGNOSTIC_MODULES[command]
     except KeyError as exc:
         raise CliUsageError(f"unknown diagnostic command: {command}") from exc
-    return _capture_python_module(
-        module_name,
-        arguments,
-        output_format=output_format,
-        legacy_path=legacy_path,
+    # The public diagnostic handler ships in the runtime; the check_* wrappers
+    # are source-only compatibility entrypoints.
+    from court_diagnostics import command_main
+
+    return _capture_python_main(
+        partial(command_main, command), arguments, output_format=output_format,
+        legacy_path=legacy_path, module_name=module_name,
     )
 
 
@@ -724,15 +727,28 @@ def _capture_python_module(
     output_format: str,
     legacy_path: str,
 ) -> InvocationResult:
+    return _capture_python_main(
+        importlib.import_module(module_name).main, arguments, output_format=output_format,
+        legacy_path=legacy_path, module_name=module_name,
+    )
+
+
+def _capture_python_main(
+    main: Callable[[list[str]], int],
+    arguments: Sequence[str],
+    *,
+    output_format: str,
+    legacy_path: str,
+    module_name: str,
+) -> InvocationResult:
     module_arguments = list(arguments)
     if output_format == "json":
         module_arguments.extend(("--format", "json"))
     stdout = io.StringIO()
     stderr = io.StringIO()
-    module = importlib.import_module(module_name)
     with redirect_stdout(stdout), redirect_stderr(stderr):
         try:
-            returncode = int(module.main(module_arguments))
+            returncode = int(main(module_arguments))
         except SystemExit as exc:
             returncode = int(exc.code or 0)
     return InvocationResult(

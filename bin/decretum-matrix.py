@@ -431,6 +431,11 @@ def main(argv: list[str] | None = None) -> int:
     forwarded = _strip_global_format(effective_argv)
     group = _group_index(forwarded)
     if group >= 0 and forwarded[group] == INSTALL_COMMAND:
+        install_args = forwarded[group + 1:]
+        if install_args[:2] == ["fix", "update"]:
+            install_args = install_args[1:]
+        return _dispatch_install(package_root, forwarded[:group] + install_args)
+    if group >= 0 and forwarded[group:group + 2] == ["fix", "update"]:
         return _dispatch_install(package_root, forwarded[:group] + forwarded[group + 1:])
     runtime_root, runtime_binding = _select_runtime(package_root)
     if effective_argv == ["--runtime-identity"]:

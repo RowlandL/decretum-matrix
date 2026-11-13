@@ -417,14 +417,14 @@
     {
       "mode": "100644",
       "path": "bin/decretum-matrix.py",
-      "sha256": "3da37c3e4367cb99b4e5860ad09f2bb0cfdedaab03620a6c20554455daa36fb4",
-      "size": 15167
+      "sha256": "a15fed6d7bbb374e7db93bfe32be1310fca45a8b8a02a7325daa5f693362f2b0",
+      "size": 15458
     },
     {
       "mode": "100644",
       "path": "bin/install-runtime.py",
-      "sha256": "fe28297d9aca199a8b2704b9e8fe05c78c0c710af1cbf8c1149224facd691318",
-      "size": 6323
+      "sha256": "beeae781c1c5ba25bdfeef7b44402f67660a8e13a41975c9827473d39e3c0b0e",
+      "size": 6838
     },
     {
       "mode": "100644",
@@ -579,8 +579,8 @@
     {
       "mode": "100644",
       "path": "references/manifests/install-projection.v1.json",
-      "sha256": "5abc46e6670de3223a4d9e2e46f79f972555ebffcae8da53789b9a503486e7cb",
-      "size": 55431
+      "sha256": "d9800722632b8e025dc2c344c71fd6aac06d3229eaa97ffa860acfcba9cebddb",
+      "size": 55560
     },
     {
       "mode": "100644",
@@ -1341,8 +1341,8 @@
     {
       "mode": "100644",
       "path": "scripts/checks/check_codex_agent_roles.py",
-      "sha256": "e5296eaa1c923987998860e51c025c2d28ccc89405dd215786c878c4bbfcb193",
-      "size": 18466
+      "sha256": "27f8285632a58b65a5a84d45f69c71f5762ae5031519e4c6c80ed5ddcd6f3d8f",
+      "size": 10245
     },
     {
       "mode": "100644",
@@ -1904,6 +1904,12 @@
     },
     {
       "mode": "100644",
+      "path": "scripts/codex_role_diagnostics.py",
+      "sha256": "a7b1e917c29ed98979dda1f92a20d923dd9d19fbcb311378a6bd6b3721bc3171",
+      "size": 8779
+    },
+    {
+      "mode": "100644",
       "path": "scripts/codex_runtime_probe_support.py",
       "sha256": "ff30a55daf84b45c8440be4a04168c81be16768ab169ee097c1247524ad595f0",
       "size": 10034
@@ -2247,8 +2253,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_cli_registry.py",
-      "sha256": "5d4a8684bc305e1ad3ff1795a7a51c9b915b673705f8d5b976faabe00aeac9af",
-      "size": 42459
+      "sha256": "e5d7e082666fdebdbebfc0e7ba6f421ffb8f77bdeba327c6f70d35fa8730b2aa",
+      "size": 43026
     },
     {
       "mode": "100644",
@@ -2277,8 +2283,8 @@
     {
       "mode": "100644",
       "path": "scripts/court_diagnostics.py",
-      "sha256": "85f38a6df4828b8dbe8b1b7f0a8b58a2e9fc3c71162db822a0a025681cf6e919",
-      "size": 31622
+      "sha256": "9c03d467eb5395f7b16329340e4b7ed144eb74b4f80adb430280d2524d7365d1",
+      "size": 31870
     },
     {
       "mode": "100644",
@@ -3106,12 +3112,12 @@
     "generated_portable_seed_count": 8,
     "manifest_in_file_inventory": false,
     "manifest_path": "release-manifest.json",
-    "payload_bytes": 9752849,
-    "payload_file_count": 512,
+    "payload_bytes": 9755157,
+    "payload_file_count": 513,
     "payload_index_format": "mode SP sha256 SP size SP path LF; UTF-8; sorted by UTF-8 path bytes",
-    "payload_index_sha256": "32f4334bc51463747858261fad282d532214a92766e882a66cdd6d07c01110b6",
-    "source_packaged_tracked_file_count": 504,
-    "source_tracked_file_count": 698
+    "payload_index_sha256": "a0d5a1b2e8b96a877e98ef13dbf94b93e2e9ac12105a36c6d3b8931feca1de5e",
+    "source_packaged_tracked_file_count": 505,
+    "source_tracked_file_count": 699
   },
   "license": {
     "declared": "AGPL-3.0-only",
