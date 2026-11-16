@@ -83,7 +83,6 @@ from court_file_lock import atomic_write_text, file_lock
 from court_multi_agent_protocol import (
     ProtocolRequirements,
     canonical_repo_relative_paths,
-    repository_paths_overlap,
     select_protocol,
 )
 from court_codex_office_worker import validate_host_proof
@@ -1939,69 +1938,11 @@ def _existing_office_instance_ids(task: dict[str, Any]) -> set[str]:
     return instance_ids
 
 
-def _active_office_write_claims(task: dict[str, Any]) -> set[str]:
-    claims: set[str] = set()
-    agents = task.get("agents")
-    agent_records = agents if isinstance(agents, dict) else {}
-    for record in agent_records.values():
-        if not isinstance(record, dict):
-            continue
-        if str(record.get("status") or "") in TERMINAL_AGENT_STATUSES:
-            continue
-        if str(record.get("result_state") or "") == "QUARANTINED":
-            continue
-        write_set = record.get("write_set")
-        if isinstance(write_set, list):
-            normalized = canonical_repo_relative_paths(write_set, allow_empty=True)
-            if normalized is None:
-                raise ValueError("office_active_write_scope_invalid")
-            claims.update(normalized)
-    admissions = task.get("agent_admissions")
-    if not isinstance(admissions, dict):
-        return claims
-    receipt = task.get("semantic_receipt")
-    checkpoint_id = receipt.get("checkpoint_id") if isinstance(receipt, dict) else None
-    for admission in admissions.values():
-        if not isinstance(admission, dict) or admission.get("allowed") is not True:
-            continue
-        if str(admission.get("status") or "").upper().startswith("INVALIDATED"):
-            continue
-        if (checkpoint_id and admission.get("checkpoint_id")
-                and admission["checkpoint_id"] != checkpoint_id):
-            # Stale reservations cannot start; live writers were counted above.
-            continue
-        consumed = admission.get("consumed_instances")
-        consumed_map = consumed if isinstance(consumed, dict) else {}
-        failed = admission.get("failed_instances")
-        for binding in admission.get("selected_bindings") or ():
-            if not isinstance(binding, dict):
-                continue
-            instance_id = str(binding.get("instance_id") or "")
-            if isinstance(failed, dict) and instance_id in failed:
-                continue
-            agent_id = consumed_map.get(instance_id)
-            if agent_id:
-                record = agent_records.get(str(agent_id))
-                if isinstance(record, dict) and (
-                    str(record.get("status") or "") in TERMINAL_AGENT_STATUSES
-                    or str(record.get("result_state") or "") == "QUARANTINED"
-                ):
-                    continue
-            write_set = binding.get("write_set")
-            if isinstance(write_set, list):
-                normalized = canonical_repo_relative_paths(write_set, allow_empty=True)
-                if normalized is None:
-                    raise ValueError("office_active_write_scope_invalid")
-                claims.update(normalized)
-    return claims
-
-
 def _allocate_office_binding(
     task: dict[str, Any],
     binding: dict[str, object],
     *,
     require_lineage: bool,
-    reserved_write_claims: set[str] | None = None,
 ) -> dict[str, object]:
     enriched = dict(binding)
     access_mode = str(enriched.get("access_mode") or "read_write").strip().lower()
@@ -2027,18 +1968,6 @@ def _allocate_office_binding(
         enriched.get("office_instance_id") or enriched.get("instance_id") or ""
     ).strip().lower()
     enriched["office_instance_id"] = instance_id
-    requested_claims = set(write_set)
-    active_claims = _active_office_write_claims(task)
-    if reserved_write_claims:
-        active_claims.update(reserved_write_claims)
-    if any(
-        repository_paths_overlap(requested, active)
-        for requested in requested_claims
-        for active in active_claims
-    ):
-        raise ValueError("office_writer_conflict")
-    if reserved_write_claims is not None:
-        reserved_write_claims.update(requested_claims)
     if require_lineage:
         if instance_id in _existing_office_instance_ids(task):
             raise ValueError("office_instance_already_admitted")
@@ -7400,6 +7329,95 @@ def semantic_resume_task(args: argparse.Namespace) -> TransitionResult:
     return TransitionResult(task, event)
 
 
+def _execution_root_events(task: Mapping[str, object]) -> list[dict[str, Any]]:
+    case = task.get("case_binding")
+    court_code = ""
+    if isinstance(case, Mapping):
+        court_code = str(case.get("court_code") or "").strip().upper()
+    if not court_code:
+        return []
+    selected: list[dict[str, Any]] = []
+    for event in events_for_task(task.get("task_id"), limit=None):
+        if event.get("action") != "execution_root_transferred":
+            continue
+        ref = event.get("case_ref")
+        if not isinstance(ref, Mapping):
+            continue
+        if str(ref.get("court_code") or "").strip().upper() != court_code:
+            continue
+        selected.append(event)
+    return selected
+
+
+def _validated_execution_root(task: Mapping[str, object]) -> str:
+    case = task.get("case_binding")
+    if not isinstance(case, Mapping):
+        raise ValueError("execution_root_case_binding_missing")
+    cursor = str(case.get("session_id") or "").strip().lower()
+    if not cursor:
+        raise ValueError("execution_root_case_binding_missing")
+    if not str(case.get("court_code") or "").strip():
+        return cursor
+    for event in _execution_root_events(task):
+        source = str(event.get("from_session_id") or "").strip().lower()
+        target = str(event.get("to_session_id") or "").strip().lower()
+        if (
+            event.get("authorization") != "current_user_explicit"
+            or source != cursor
+            or not target
+        ):
+            raise ValueError("execution_root_transfer_invalid")
+        cursor = target
+    return cursor
+
+
+def semantic_transfer_root_task(args: argparse.Namespace) -> TransitionResult:
+    task_id = require_text(args.task_id, "task-id")
+    source = require_text(args.from_session_id, "from-session-id").strip().lower()
+    target = require_text(args.to_session_id, "to-session-id").strip().lower()
+    evidence = require_text(args.evidence, "evidence")
+    with runtime_lock():
+        tasks = load_tasks()
+        task = tasks.get(task_id)
+        if not isinstance(task, dict):
+            raise ValueError(f"task not found: {task_id}")
+        validate_task_case_binding(task, require_decree=True)
+        require_semantic_mutation_binding(task)
+        current = _validated_execution_root(task)
+        events = _execution_root_events(task)
+        if events:
+            latest = events[-1]
+            if (
+                str(latest.get("from_session_id") or "").strip().lower() == source
+                and str(latest.get("to_session_id") or "").strip().lower() == target
+            ):
+                return TransitionResult(task, latest)
+        if source != current:
+            raise ValueError("execution_root_source_mismatch")
+        if target == current:
+            raise ValueError("execution_root_target_unchanged")
+        state = str(task.get("state") or "")
+        task["updated_at"] = now_text()
+        task["last_evidence"] = evidence
+        tasks[task_id] = task
+        event = make_event(
+            task,
+            "execution_root_transferred",
+            state,
+            state,
+            "taizi",
+            evidence,
+            "",
+        )
+        event.update(
+            from_session_id=source,
+            to_session_id=target,
+            authorization="current_user_explicit",
+        )
+        _commit_task_event(tasks, event)
+    return TransitionResult(task, event)
+
+
 def semantic_quarantine_task(args: argparse.Namespace) -> TransitionResult:
     evidence = require_text(args.evidence, "evidence")
     if args.actor not in OFFICES:
@@ -8023,7 +8041,6 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
             if attempt is None or dispatch_uid is None:
                 raise ValueError("semantic_dispatch_identity_missing")
             enriched_bindings: list[dict[str, object]] = []
-            reserved_write_claims: set[str] = set()
             for raw_binding in result.get("selected_bindings", ()):
                 if not isinstance(raw_binding, dict):
                     raise ValueError("agent admission binding is invalid")
@@ -8033,7 +8050,6 @@ def agent_admit(args: argparse.Namespace) -> dict[str, Any]:
                     require_lineage=bool(
                         getattr(args, "_office_lifecycle_explicit", False)
                     ),
-                    reserved_write_claims=reserved_write_claims,
                 )
                 role_key = str(binding.get("role") or "")
                 binding.update(
@@ -9466,67 +9482,6 @@ def _context_handoff_checkpoint(task: Mapping[str, object], binding: Mapping[str
     policy = binding.get("context_policy")
     handoff = policy.get("handoff") if isinstance(policy, Mapping) else None
     if handoff is None:
-        for record in (task.get("agents") or {}).values():
-            if not isinstance(record, Mapping) or record.get("role") != binding.get("role"):
-                continue
-            overlaps = any(repository_paths_overlap(path, previous)
-                           for path in binding.get("write_set", [])
-                           for previous in record.get("write_set", []))
-            if not overlaps:
-                continue
-            if record.get("release_status") != "closed":
-                raise ValueError("context_handoff_required_before_writer_start")
-            if not (record.get("context_policy") or record.get("native_host_action_receipt_id")):
-                continue  # Preserve compatibility for already closed legacy records.
-            # A completed historical unit is not an unfinished owner transfer.
-            # Prove its original finish/close and host stop; do not require a
-            # closed office to retroactively issue a new checkpoint or case ref.
-            events = [event for event in events_for_task(str(task["task_id"]), limit=None)
-                      if event.get("agent_id") == record.get("agent_id")
-                      and event.get("case_ref") == record.get("case_ref")
-                      and event.get("semantic_epoch") == record.get("semantic_epoch")]
-            checkpoints = [(i, event) for i, event in enumerate(events)
-                           if isinstance(event.get("context_checkpoint"), Mapping)]
-            pending_index = checkpoints[-1][0] if checkpoints else -1
-            pending = checkpoints[-1][1]["context_checkpoint"] if checkpoints else {}
-            finishes = [i for i, event in enumerate(events) if event.get("action") == "agent_finish"]
-            closed_after_finish = any(i > max(finishes) and event.get("action") == "agent_close"
-                                      for i, event in enumerate(events)) if finishes else False
-            completed_after_checkpoint = False
-            for i, event in enumerate(events):
-                result = event.get("work_unit_result")
-                if (not finishes or not pending_index < i < max(finishes)
-                        or event.get("action") != "agent_report" or event.get("actor") != record.get("role")
-                        or not isinstance(result, Mapping) or not result.get("result_ref")
-                        or not pending.get("issue_ref") or result.get("issue_ref") != pending["issue_ref"]):
-                    continue
-                completed_after_checkpoint = any(
-                    i < j < max(finishes) and accepted.get("action") == "agent_report"
-                    and accepted.get("actor") == record.get("direct_superior")
-                    and isinstance(accepted.get("work_unit_acceptance"), Mapping)
-                    and accepted["work_unit_acceptance"].get("result_event_id") == event.get("event_id")
-                    and accepted["work_unit_acceptance"].get("issue_ref") == result.get("issue_ref")
-                    and accepted["work_unit_acceptance"].get("work_unit_id") == result.get("work_unit_id")
-                    and bool(accepted["work_unit_acceptance"].get("acceptance_ref"))
-                    for j, accepted in enumerate(events))
-                if completed_after_checkpoint:
-                    break
-            if (record.get("final_status", record.get("status")) != "completed"
-                    or (pending.get("unfinished") or pending.get("inflight_action_refs"))
-                    and not completed_after_checkpoint
-                    or not closed_after_finish):
-                raise ValueError("context_handoff_required_before_writer_start")
-            from commands.court_native_bridge import child_handoff_observation
-            stop = child_handoff_observation(
-                Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")),
-                str(record.get("native_child_thread_id") or ""),
-                session_id=str(record.get("native_trace_session_id") or ""))
-            complete = stop.get("complete_at")
-            reports = [event for event in events if event.get("action") == "agent_report"]
-            if (not complete or reports and datetime.fromisoformat(
-                    _aware_timestamp(complete, "context_handoff_completion_invalid")) < datetime.fromisoformat(
-                    _aware_timestamp(reports[-1].get("time"), "context_handoff_checkpoint_time_invalid"))):
-                raise ValueError("context_handoff_host_stop_not_observed")
         return None
     if not isinstance(handoff, Mapping) or set(handoff) != {"source_agent_id", "checkpoint_event_id"}:
         raise ValueError("context_handoff_invalid")
@@ -9590,14 +9545,6 @@ def _context_handoff_start(task: Mapping[str, object], binding: Mapping[str, obj
         readback_text=handoff_readback_text(checkpoint), checkpoint=checkpoint)
     if readback.get("readback_line") is None:
         raise ValueError("context_handoff_actual_readback_required")
-    # Recheck claims under the same runtime lock immediately before start.
-    other_records = [record for record in (task.get("agents") or {}).values()
-                     if isinstance(record, Mapping)
-                     and record.get("status") not in TERMINAL_AGENT_STATUSES
-                     and record.get("release_status") != "closed"]
-    if any(repository_paths_overlap(path, active) for path in binding.get("write_set", [])
-           for record in other_records for active in record.get("write_set", [])):
-        raise ValueError("context_handoff_writer_conflict")
     return {**proof, "readback": readback}
 
 
@@ -10925,7 +10872,7 @@ def _native_bridge_identity_context(
     if not isinstance(case, Mapping):
         return None
     validate_case_binding(case, task)
-    if str(case.get("session_id") or "").lower() != identity["session_id"]:
+    if _validated_execution_root(task) != identity["session_id"]:
         raise ValueError("native_bridge:case_root_binding_invalid")
     superior = binding.get("direct_superior")
     parents = []
@@ -10979,8 +10926,7 @@ def _native_bridge_caller_guard(
         except (ImportError, TypeError, ValueError) as exc:
             raise ValueError("native_bridge:case_root_binding_invalid") from exc
         if (
-            str(case_binding.get("session_id") or "").strip().lower()
-            == current_session
+            _validated_execution_root(task) == current_session
             and str(binding.get("direct_superior") or "").strip().lower()
             == "taizi"
         ):
@@ -13672,6 +13618,15 @@ def build_parser() -> argparse.ArgumentParser:
     semantic_resume.add_argument("--note", default="")
     semantic_resume.set_defaults(to_state="ThreeDepartments", trigger="resume")
 
+    semantic_transfer_root = semantic_sub.add_parser(
+        "transfer-root",
+        help="move the current execution root to another host session",
+    )
+    semantic_transfer_root.add_argument("--task-id", required=True)
+    semantic_transfer_root.add_argument("--from-session-id", required=True)
+    semantic_transfer_root.add_argument("--to-session-id", required=True)
+    semantic_transfer_root.add_argument("--evidence", required=True)
+
     semantic_quarantine = semantic_sub.add_parser(
         "quarantine",
         help="explicitly quarantine a current semantic binding before mutation",
@@ -14144,6 +14099,13 @@ def main(argv: list[str] | None = None) -> int:
             elif args.semantic_command == "resume":
                 output(
                     semantic_cli_payload("resume", semantic_resume_task(args)),
+                    "json",
+                )
+            elif args.semantic_command == "transfer-root":
+                output(
+                    semantic_cli_payload(
+                        "transfer-root", semantic_transfer_root_task(args)
+                    ),
                     "json",
                 )
             elif args.semantic_command == "quarantine":

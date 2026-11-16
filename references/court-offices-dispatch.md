@@ -679,7 +679,7 @@ clarification request and the user's answers as 实录 checkpoints.
   scope lists accept repository-relative paths only and persist a portable key
   using `/` separators and case-folded components; absolute, drive, UNC,
   empty-component, `.`, or `..` paths are rejected. Equal paths and either
-  ancestor/descendant direction are one writer conflict.
+  ancestor/descendant direction may be held by more than one authorized writer.
 - Task plan/budget coordination authority is distinct from exclusive writes.
   Under the task output root, keep `shangshu/` and `ministries/<role>/` as
   siblings. The parent stays live and owns its own outputs; children return
@@ -692,8 +692,8 @@ clarification request and the user's answers as 实录 checkpoints.
   consumption are keyed by `instance_id`; `agent-start --instance-id` is
   required when more than one admitted instance shares a role. One canonical
   Gongbu office and multiple Gongbu workers may therefore start concurrently
-  when instance ids, shards, hierarchy, and write sets are independent, while
-  duplicate instance/shard identities or overlapping writes remain invalid.
+  when instance ids, shards, and hierarchy are independent. Duplicate
+  instance/shard identities remain invalid. Overlapping writes do not.
 - Public startup uses unified `court open` / `court open --fast`; the
   runtime-internal `decree-open` operation only freezes `main_court_code`,
   `lineage_parts`, `lineage_key`, and `lineage_version=1`. Every admitted
@@ -820,8 +820,9 @@ clarification request and the user's answers as 实录 checkpoints.
   lower, and 尚书省 scale-out is exceptional for super-giant work with multiple
   independent integration domains. All remain budget decisions. Duplicate
   canonical panes are `runtime_degraded`, while background dispatch is blocked
-  only by duplicate instance/shard, overlapping write set, wrong superior,
-  duplicate integration authority, or missing preload/lease/evidence. A visible
+  only by duplicate instance/shard, wrong superior, duplicate integration
+  authority, or missing preload/lease/evidence. Overlapping write sets do not
+  block it. A visible
   entrance repair must not reject otherwise valid same-role workers or let 太子
   perform their ministry work.
 - Claim validity checklist: a named 三省、尚书、六部, or 史馆 result requires
@@ -1058,12 +1059,12 @@ clarification request and the user's answers as 实录 checkpoints.
   太子 -> 三省, 尚书省 -> 六部, 六部 -> 工坊/工匠. No other office may expand the
   tree, and no branch may exceed the configured depth/thread budget.
 - Parallelize official deliberation, execution, research, risk review, or
-  verification whenever a formal decree opens. Serialize only shared-file edits,
-  MCP writes, installs, config changes, destructive operations, and external
-  application state.
+  verification whenever a formal decree opens. Overlapping authorized writes
+  stay concurrent. Installs, config changes, destructive operations, and
+  external application state stay serialized.
 - After 三省上奏/太子回奏 approves execution, 尚书省从最终结果倒推必要且相关的
   六部职责，只选择有具体 duty、证据契约和依赖关系的部。可并行的独立职责并行，
-  共享写入与依赖链串行；不得把六部枚举当作默认全选。确无六部专责的简单任务可由
+  已授权的重叠写入也并行；依赖链仍按真实前置排列。不得把六部枚举当作默认全选。确无六部专责的简单任务可由
   尚书串行承办，但须记录结构化理由。
 - Network/web research is an evidence dispatch decision. 中书省/户部 must choose
   it automatically when current or external facts matter, and must mark

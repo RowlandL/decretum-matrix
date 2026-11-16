@@ -2838,34 +2838,34 @@ def check_office_instance_proof_writer_and_attempt_guards() -> None:
     persisted_first = court_runtime.load_tasks()[writer_task]["agents"]["gongbu-writer-01"]
     assert persisted_first["write_set"] == ["fixture-writes/writer/shared"]
     assert persisted_first["read_scope"] == ["fixture-writes/writer/shared"]
-    reject_runtime_bytes_unchanged(
-        lambda: admit(
-            writer_task,
-            "writer-wave-02",
-            office_api=True,
-            office_instance_kind="child_agent",
-            office_instance_id="gongbu-writer-02",
-            collaboration_task_name="gongbu_writer_02",
-            carrier_proof={"agent_id": "gongbu-writer-02"},
-            office_write_set=["fixture-writes/writer/shared/child.py"],
-        ),
-        "descendant active writer was admitted",
-        "office_writer_conflict",
+    child = admit(
+        writer_task,
+        "writer-wave-02",
+        office_api=True,
+        office_instance_kind="child_agent",
+        office_instance_id="gongbu-writer-02",
+        collaboration_task_name="gongbu_writer_02",
+        carrier_proof={"agent_id": "gongbu-writer-02"},
+        office_write_set=["fixture-writes/writer/shared/child.py"],
     )
-    reject_runtime_bytes_unchanged(
-        lambda: admit(
-            writer_task,
-            "writer-wave-ancestor",
-            office_api=True,
-            office_instance_kind="child_agent",
-            office_instance_id="gongbu-writer-04",
-            collaboration_task_name="gongbu_writer_04",
-            carrier_proof={"agent_id": "gongbu-writer-04"},
-            office_write_set=["FIXTURE-WRITES\\WRITER"],
-        ),
-        "ancestor active writer was admitted",
-        "office_writer_conflict",
+    ancestor = admit(
+        writer_task,
+        "writer-wave-ancestor",
+        office_api=True,
+        office_instance_kind="child_agent",
+        office_instance_id="gongbu-writer-04",
+        collaboration_task_name="gongbu_writer_04",
+        carrier_proof={"agent_id": "gongbu-writer-04"},
+        office_write_set=["FIXTURE-WRITES\\WRITER"],
     )
+    assert child.get("allowed") is True
+    assert ancestor.get("allowed") is True
+    admitted_ids = {
+        str(binding.get("office_instance_id") or binding.get("instance_id") or "")
+        for admission in court_runtime.load_tasks()[writer_task]["agent_admissions"].values()
+        for binding in admission.get("selected_bindings") or ()
+    }
+    assert {"gongbu-writer-02", "gongbu-writer-04"} <= admitted_ids
     reject_runtime_bytes_unchanged(
         lambda: admit(
             writer_task,
@@ -4800,32 +4800,6 @@ def check_native_host_context_utilization_backfill_diagnostics() -> None:
     assert "native_host_context_utilization_warning" not in success
 
 
-def check_admission_write_claims() -> None:
-    binding = {"instance_id": "gongbu#pending", "write_set": ["result.json"]}
-    admission = {"allowed": True, "selected_bindings": [binding]}
-    task = {"agents": {}, "agent_admissions": {"wave": admission}}
-    assert court_runtime._active_office_write_claims(task) == {"result.json"}
-    admission["status"] = "INVALIDATED_BY_SEMANTIC_RESUME"
-    assert court_runtime._active_office_write_claims(task) == set()
-    # Invalidating an admission must not release a physically active writer.
-    task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
-    assert court_runtime._active_office_write_claims(task) == {"result.json"}
-
-    task["agents"] = {}
-    admission.pop("status")
-    admission["failed_instances"] = {"gongbu#pending": {"reason": "host refusal"}}
-    assert court_runtime._active_office_write_claims(task) == set()
-    task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
-    assert court_runtime._active_office_write_claims(task) == {"result.json"}
-    admission.pop("failed_instances")
-    admission["checkpoint_id"] = "SC-previous"
-    task["semantic_receipt"] = {"checkpoint_id": "SC-current"}
-    task["agents"] = {}
-    assert court_runtime._active_office_write_claims(task) == set()
-    task["agents"]["live"] = {"status": "running", "write_set": ["result.json"]}
-    assert court_runtime._active_office_write_claims(task) == {"result.json"}
-
-
 LIFECYCLE_CASES = (
     check_create_model_selection_contract,
     check_office_name_identity_binding,
@@ -4857,7 +4831,6 @@ LIFECYCLE_CASES = (
 
 def run_agent_lifecycle_checks() -> None:
     check_native_host_context_utilization_backfill_diagnostics()
-    check_admission_write_claims()
     global TASK_SPECIFIC_SKILL_PATH
     check_import_root_isolation()
     # The pure binding gate must pass before lifecycle persistence checks can run.

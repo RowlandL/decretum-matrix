@@ -15,7 +15,7 @@ metadata:
 
 - Carry exact ids, bounded scope/write set, receipt pointers, role/direct_superior and `fork_turns=none`; no full transcript/file/diff/agent list by default.
 - `child_agent` and `worktree_thread` share capsule, receipt, hierarchy, role context and bounded trace; neither creates another authority.
-- Reuse the same problem only within finite work and projected context budgets; 80% remains an engineering ceiling. New problems use fresh instances; protect in-flight work and verify stop/readback before writer handoff. Full-context override preserves authority, safety and hierarchy. Details: [dispatch](references/court-offices-dispatch.md), [lifecycle](references/court-state-runtime-agents.md).
+- Reuse the same problem only within finite work and projected context budgets; 80% remains an engineering ceiling. New problems use fresh instances; protect in-flight work. An active writer does not block another authorized writer. Explicit handoff still checks its own checkpoint and readback. Full-context override preserves authority, safety and hierarchy. Details: [dispatch](references/court-offices-dispatch.md), [lifecycle](references/court-state-runtime-agents.md).
 - `task_point_projection=POST_MIGRATION_DURABLE_PROJECTION_ONLY`: durable Shiguan projections after migration are not inline runtime authority.
 
 ## Codex/Claude Hierarchical Relay Evidence
@@ -31,7 +31,7 @@ Absent a newest explicit user ban, lawful horizontal messages default to direct 
 3. `execution_authority=approval|autonomous|super` 与 `behavior=serial|parallel` 独立。缺哪项分别询问；不得从记忆、旧会话、sandbox、安装意图或运行权限推定。
 4. `super并行` = super + parallel + native。superCC 是独立 runtime/入口，不是第四权；native/superCC 互斥，不探测候选、不切换、不回退。
 5. 普通生产路由优先使用宿主已证实兼容的层级子官署协议；`subagent`/`Multi-Agent V2` 只作兼容选项。宿主无工具/证据链则 serial/降级转发；model/effort 均缺席才继承，仅当前用户显式、case-bound 选择可经 visible capability 覆盖。model-only 省略 effort 并记录宿主默认值；effort-only 证明 model 继承。
-6. serial 禁止物理 child 并发，保留 `serial_inline` 官署责任与证据；parallel 使用真实宿主派遣。共享/外部写串行；拒绝、限流或语义漂移即停当前 wave。
+6. serial 禁止物理 child 并发，保留 `serial_inline` 官署责任与证据；parallel 使用真实宿主派遣。已授权的重叠写集可以同时写入；拒绝、限流或语义漂移即停当前 wave。
 
 ## Normal Startup Entry / Loading Procedure
 

@@ -892,12 +892,8 @@ def _preload_payload(value: RolePreload) -> dict[str, object]:
 
 
 def _validate_write_sets(write_sets: Mapping[str, Sequence[str]]) -> None:
-    owners: dict[str, str] = {}
-    for role, paths in write_sets.items():
-        for path in paths:
-            previous = owners.setdefault(path.casefold(), role)
-            if previous != role:
-                raise FastPathMiss("write_set_overlap", f"{path}:{previous}:{role}")
+    if not isinstance(write_sets, Mapping):
+        raise FastPathMiss("write_sets_invalid", "write_sets")
 
 
 def _hierarchy_decision(caller: str, role: str) -> dict[str, object]:

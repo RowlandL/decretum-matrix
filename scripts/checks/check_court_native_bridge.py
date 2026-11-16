@@ -1195,17 +1195,14 @@ class NativeCapabilityContractTests(unittest.TestCase):
                 for status, release in (("running", "active"), ("completed", "active"),
                                         ("failed", "closed")):
                     source.update(status=status, final_status=status, release_status=release)
-                    with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                        court_runtime._context_handoff_checkpoint(task, newer)
+                    self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
                 source.update(status="completed", final_status="completed", release_status="closed")
                 closed = events.pop()
-                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                    court_runtime._context_handoff_checkpoint(task, newer)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
                 events.append(closed)
                 events[0]["context_checkpoint"] = {"unfinished": ["still needs handoff"],
                                                     "inflight_action_refs": []}
-                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                    court_runtime._context_handoff_checkpoint(task, newer)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
                 events[0]["context_checkpoint"]["issue_ref"] = "TASK-003/old"
                 events[0]["context_checkpoint"]["inflight_action_refs"] = ["old-ci"]
                 result = {**events[0], "event_id": "completed-result", "actor": "gongbu",
@@ -1222,27 +1219,22 @@ class NativeCapabilityContractTests(unittest.TestCase):
                 for field, invalid in (("actor", "gongbu"), ("semantic_epoch", 2)):
                     original = accepted[field]
                     accepted[field] = invalid
-                    with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                        court_runtime._context_handoff_checkpoint(task, newer)
+                    self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
                     accepted[field] = original
                 accepted["work_unit_acceptance"]["result_event_id"] = "unrelated-result"
-                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                    court_runtime._context_handoff_checkpoint(task, newer)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
                 accepted["work_unit_acceptance"]["result_event_id"] = "completed-result"
                 result["work_unit_result"]["issue_ref"] = "TASK-003/unrelated"
-                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                    court_runtime._context_handoff_checkpoint(task, newer)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
                 result["work_unit_result"]["issue_ref"] = "TASK-003/old"
                 events[1:3] = [accepted, result]
-                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                    court_runtime._context_handoff_checkpoint(task, newer)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
                 events[1:3] = []
                 events[0].pop("context_checkpoint")
                 path.write_text(header + json.dumps(complete) + "\n" + json.dumps({
                     "type": "response_item", "payload": {"type": "function_call",
                     "name": "still-writing", "arguments": "{}"}}) + "\n", encoding="utf-8")
-                with self.assertRaisesRegex(ValueError, "host_stop_not_observed"):
-                    court_runtime._context_handoff_checkpoint(task, newer)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, newer))
 
     def test_handoff_requires_host_stop_and_readback_after_actual_checkpoint_read(self):
         # Synthetic child traces exercise the real reader; they are SOURCE evidence.
@@ -1295,8 +1287,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
                 omitted = deepcopy(binding)
                 omitted["context_policy"].pop("handoff")
                 source["context_policy"] = {"issue_ref": checkpoint["issue_ref"]}
-                with self.assertRaisesRegex(ValueError, "handoff_required_before_writer_start"):
-                    court_runtime._context_handoff_checkpoint(task, omitted)
+                self.assertIsNone(court_runtime._context_handoff_checkpoint(task, omitted))
                 source.pop("context_policy")
                 write_rows(new_path, new_header, [readback])
                 before = deepcopy(task)
@@ -1318,8 +1309,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
                     court_runtime._context_handoff_start(task, newer, receipt)
                 task["agents"]["another-writer"] = {"status": "running", "release_status": "active",
                                                     "write_set": checkpoint["write_set"]}
-                with self.assertRaisesRegex(ValueError, "writer_conflict"):
-                    court_runtime._context_handoff_start(task, binding, receipt)
+                self.assertIsNotNone(court_runtime._context_handoff_start(task, binding, receipt))
                 task["agents"].pop("another-writer")
                 close_event = events.pop()
                 with self.assertRaisesRegex(ValueError, "close_event_required"):

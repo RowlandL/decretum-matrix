@@ -1189,15 +1189,14 @@ immutable admission；下一 native-request 消费它，真实 followup 后才�
 到限后原上级先停止追加。旧实例可完成在途步骤，或通过原报告保存
 `context_checkpoint={issue_ref,resume_point,unfinished,evidence_refs,write_set,inflight_action_refs}`。
 换新 binding 的 `context_policy.handoff` 只引用原 `source_agent_id` 和
-`checkpoint_event_id`。新写权须等旧实例具名 checkpoint、finish/close 和
-`release_status=closed`，且原宿主 child trace 在 checkpoint 后存在实际
-`task_complete`，之后无 `task_started` 或工具调用。非空在途动作继续等待，
-超时、无响应或自填布尔值不证明停写。`result_handoff` 仍是失败结果恢复。
+`checkpoint_event_id`。没有这份显式交接时，活动写者不阻止另一名已授权写者。
+显式交接仍核对该来源的 checkpoint、finish/close、`release_status=closed`
+和宿主 `task_complete`。`result_handoff` 仍是失败结果恢复。
 
 新实例可先预读交接，以业务回奏 `接手事实：` 载明问题、接手点、未完成事项、
-证据和写集。原 start consumer 从真实 child trace 核对这些关键事实，随后才
-授予同一写权。缺停写、缺读回、失败或未知状态保持未接手/PARTIAL；旧结果和
-证据继续保留，不同时授予两个写者，不重发已完成的外部动作。不能复用的已消费
+证据和写集。显式交接的 start consumer 从真实 child trace 核对这些关键事实。
+缺读回、失败或未知状态保持未接手/PARTIAL；旧结果和
+证据继续保留，不重发已完成的外部动作。不能复用的已消费
 实例由 `native-request` 返回 `renewal_required` 及原因，再由原上级走新 admission；
 不在同一个 instance 静默 spawn。独立门下以实际宿主新开、续办、接手和展示证据
 接受；隔离检查及源码规则不替代这一证据。

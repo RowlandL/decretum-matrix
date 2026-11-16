@@ -614,14 +614,6 @@ def validate_dispatch_plan(
             raise ValueError(
                 "assignment_ownership_and_write_set_gate: duplicate task or shard"
             )
-        claimed_paths: set[str] = set()
-        for item in workers:
-            claims = set(item.write_set)
-            if claimed_paths.intersection(claims):
-                raise ValueError(
-                    "assignment_ownership_and_write_set_gate: overlapping write_set"
-                )
-            claimed_paths.update(claims)
         if any(item.system_memory_percent >= 99.0 for item in instances):
             raise ValueError(
                 "system_memory_pressure_downgrade_gate: scale-out disabled at 99 percent memory"

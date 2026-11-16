@@ -909,14 +909,15 @@ def check_budget_input_identity_contract() -> None:
         ),
         "duplicate_shard",
     )
-    require_rejected(
-        lambda: add_worker(
-            pool,
-            "gongbu#worker-write-conflict",
-            shard_id="write-conflict-shard",
-            write_set=("synthetic/gongbu#worker-1",),
-        ),
-        "write_set_overlap",
+    overlapped = add_worker(
+        pool,
+        "gongbu#worker-write-conflict",
+        shard_id="write-conflict-shard",
+        write_set=("synthetic/gongbu#worker-1",),
+    )
+    require(
+        "gongbu#worker-write-conflict" in overlapped.get("leases", {}),
+        "overlapping writer was rejected",
     )
     require_rejected(
         lambda: add_worker(
@@ -1264,15 +1265,16 @@ def check_windows_write_set_aliases_conflict() -> None:
         write_set=(mixed_case_alias,),
         share=3.0,
     )
-    require_rejected(
-        lambda: add_worker(
-            pool,
-            "gongbu#worker-windows-path-2",
-            shard_id="windows-path-2",
-            write_set=(normalized_alias,),
-            share=3.0,
-        ),
-        "write_set_overlap",
+    aliased = add_worker(
+        pool,
+        "gongbu#worker-windows-path-2",
+        shard_id="windows-path-2",
+        write_set=(normalized_alias,),
+        share=3.0,
+    )
+    require(
+        "gongbu#worker-windows-path-2" in aliased.get("leases", {}),
+        "normalized alias writer was rejected",
     )
 
 
@@ -1516,15 +1518,16 @@ def check_windows_extended_aliases_conflict() -> None:
         write_set=(extended_alias,),
         share=3.0,
     )
-    require_rejected(
-        lambda: add_worker(
-            pool,
-            "gongbu#windows-extended-b",
-            shard_id="windows-extended-b",
-            write_set=(ordinary_alias,),
-            share=3.0,
-        ),
-        "write_set_overlap",
+    aliased = add_worker(
+        pool,
+        "gongbu#windows-extended-b",
+        shard_id="windows-extended-b",
+        write_set=(ordinary_alias,),
+        share=3.0,
+    )
+    require(
+        "gongbu#windows-extended-b" in aliased.get("leases", {}),
+        "extended alias writer was rejected",
     )
 
 
@@ -3007,14 +3010,14 @@ def check_shared_write_set_serializes_without_identity_replacement() -> None:
     )
     case_require(
         "J-R2-SERIALIZED-001",
-        result.get("approval_status") == "SERIALIZED",
-        "shared write set did not return exact SERIALIZED status",
+        result.get("approval_status") == "APPROVED",
+        "shared write set was not approved",
     )
     case_require(
         "J-R2-SERIALIZED-002",
-        tuple(result.get("launch_ids", ())) == ()
-        and tuple(result.get("serial_queue", ())) == approved_order,
-        "serialization sorted or replaced approved identities",
+        tuple(result.get("launch_ids", ())) == approved_order
+        and tuple(result.get("serial_queue", ())) == (),
+        "shared write set serialized or replaced approved identities",
     )
 
 
@@ -3247,11 +3250,22 @@ def check_w3_pool_global_antiforgery() -> None:
     for case_id, field, value in (
         ("W3-GLOBAL-INSTANCE", "instance_key", first.get("instance_key")),
         ("W3-GLOBAL-SHARD", "shard_id", first.get("shard_id")),
-        ("W3-GLOBAL-WRITESET", "write_set", first.get("write_set")),
     ):
         forged = deepcopy(pool)
         forged["leases"][second_id][field] = deepcopy(value)  # type: ignore[index]
         expect_pool_rejected(case_id, forged)
+    overlap = deepcopy(pool)
+    overlap["leases"][second_id]["write_set"] = deepcopy(first.get("write_set"))  # type: ignore[index]
+    try:
+        add_worker(
+            overlap,
+            "gongbu#w3-global-writeset",
+            shard_id="w3-global-writeset-probe",
+            write_set=("synthetic/w3-global-writeset-probe",),
+            share=1.0,
+        )
+    except ValueError as exc:
+        failures.append(f"W3-GLOBAL-WRITESET:rejected={exc.args!r}")
 
     released = release(
         pool,
@@ -3326,11 +3340,11 @@ def check_w3_prospective_serialization_contract() -> None:
         previous_sample_id=None,
         taizi_approved_bindings=tuple(approval_binding(pool, child_id) for child_id in approved_order),
     )
-    require(result.get("approval_status") == "SERIALIZED", "prospective overlap did not serialize")
-    require(tuple(result.get("launch_ids", ())) == (), "serialized proposal launched a child")
-    require(tuple(result.get("serial_queue", ())) == approved_order, "serialized queue replaced identities")
+    require(result.get("approval_status") == "APPROVED", "prospective overlap was not approved")
+    require(tuple(result.get("launch_ids", ())) == approved_order, "overlapping proposal did not launch")
+    require(tuple(result.get("serial_queue", ())) == (), "shared writes were serialized")
     require(pool == before, "public planner mutated its input pool")
-    require(result.get("budget_pool") == before, "serialized plan forged or replaced the pool")
+    require(result.get("budget_pool") != before, "approved launch left the pool unchanged")
 
     safety_stop = call_plan(
         pool,

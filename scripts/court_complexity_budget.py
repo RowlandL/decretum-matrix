@@ -339,12 +339,6 @@ def _validated_access_contract(
     return normalized_writes, normalized_reads, mutation
 
 
-def _paths_overlap(left: str, right: str) -> bool:
-    a = _normalized_path(left)
-    b = _normalized_path(right)
-    return a == b or a.startswith(f"{b}\\") or b.startswith(f"{a}\\")
-
-
 def _authority_chain_allows(
     parent: Mapping[str, object],
     *,
@@ -520,7 +514,6 @@ def _validate_budget_pool(pool: Mapping[str, object]) -> None:
     expected_release_ledger: list[dict[str, object]] = []
     active_instances: set[str] = set()
     active_shards: set[tuple[str, str]] = set()
-    active_writes: list[str] = []
     numeric_fields = (
         "normalized_share",
         "envelope_share",
@@ -728,15 +721,8 @@ def _validate_budget_pool(pool: Mapping[str, object]) -> None:
             shard_key = (str(value.get("role_key")), str(value.get("shard_id")))
             if instance_key in active_instances or shard_key in active_shards:
                 _reject("budget_pool_invariant_violation")
-            if any(
-                _paths_overlap(path, existing)
-                for path in normalized_writes
-                for existing in active_writes
-            ):
-                _reject("budget_pool_invariant_violation")
             active_instances.add(instance_key)
             active_shards.add(shard_key)
-            active_writes.extend(normalized_writes)
         if value.get("integration_authority") is True:
             integration_owners.append((str(child_id), value))
         if value.get("level") != "root" and value.get("integration_domain") != value.get("role_key"):
@@ -1326,10 +1312,6 @@ def allocate_budget_lease(
             _reject("duplicate_shard")
         if integration_authority and current.get("integration_authority") is True:
             _reject("duplicate_integration_authority")
-        current_writes = current.get("write_set")
-        if isinstance(current_writes, (tuple, list)):
-            if any(_paths_overlap(path, existing) for path in normalized_writes for existing in current_writes):
-                _reject("write_set_overlap")
 
     available = float(parent.get("available_share", -1.0))
     if available < float(share):
@@ -1723,7 +1705,6 @@ def plan_budgeted_launch(
     deferred: dict[str, str] = {}
     eligible: dict[str, Mapping[str, object]] = {}
     candidate_leases: dict[str, Mapping[str, object]] = {}
-    prospective_write_sets: dict[str, tuple[str, ...]] = {}
     seen_children: set[str] = set()
     for index, candidate in enumerate(candidates):
         if not isinstance(candidate, Mapping):
@@ -1751,7 +1732,7 @@ def plan_budgeted_launch(
         if value.get("launch_state") != "READY":
             _reject("child_lease_not_launchable")
         candidate_leases[child_id] = value
-        prospective_write_sets[child_id] = _validated_write_set(
+        _validated_write_set(
             candidate.get("prospective_write_set", value.get("write_set"))
         )
         measured = value.get("measured_cost")
@@ -1809,27 +1790,15 @@ def plan_budgeted_launch(
         if child_id not in approved_seen:
             deferred[child_id] = "not_approved_this_wave"
 
-    serialization_conflicts: list[tuple[str, str]] = []
-    for left_index, (left_id, _) in enumerate(approved_eligible):
-        left_writes = prospective_write_sets[left_id]
-        for right_id, _ in approved_eligible[left_index + 1 :]:
-            right_writes = prospective_write_sets[right_id]
-            if any(_paths_overlap(left, right) for left in left_writes for right in right_writes):
-                serialization_conflicts.append((left_id, right_id))
-
     hard_limits = pool.get("hard_limits")
     if not isinstance(hard_limits, Mapping):
         _reject("invalid_budget_pool")
     hard_reason = _hard_limit_reason(hard_limits, sample, [value for _, value in approved_eligible])
     launch_ids: list[str] = []
 
-    serialization_applied = bool(serialization_conflicts) and hard_reason is None
     if hard_reason is not None:
         for child_id, _ in approved_eligible:
             deferred[child_id] = f"hard_limit:{hard_reason}"
-    elif serialization_applied:
-        for child_id, _ in approved_eligible:
-            deferred[child_id] = "shared_write_set_serialized"
     else:
         physical_occupancy = int(sample["active_agents"])
         if sample.get("reclamation_verified") is False:
@@ -1918,14 +1887,11 @@ def plan_budgeted_launch(
         consumed["launch_history"] = tuple(current.get("launch_history", ())) + (launch_record,)
         consumed_leases[child_id] = consumed
     consumed_pool["leases"] = consumed_leases
-    if not serialization_applied:
-        _append_resource_sample(consumed_pool, sample)
+    _append_resource_sample(consumed_pool, sample)
     _validate_budget_pool(consumed_pool)
 
     approved_count = len(launch_ids)
-    if serialization_applied:
-        approval_status = "SERIALIZED"
-    elif approved_count == requested_count:
+    if approved_count == requested_count:
         approval_status = "APPROVED"
     elif approved_count:
         approval_status = "DOWNSIZED"
@@ -1947,8 +1913,8 @@ def plan_budgeted_launch(
         "approved_count": approved_count,
         "approval_status": approval_status,
         "launch_ids": tuple(launch_ids),
-        "serial_queue": tuple(approved_order) if serialization_applied else (),
-        "serialization_conflicts": tuple(serialization_conflicts),
+        "serial_queue": (),
+        "serialization_conflicts": (),
         "deferred": deferred,
         "interrupt_ids": (),
         "resample_required_before_next_wave": True,

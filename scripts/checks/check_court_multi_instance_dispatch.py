@@ -427,16 +427,6 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
             "super并行",
         ),
         (
-            "reject_overlapping_write_set",
-            "assignment_ownership_and_write_set_gate",
-            [
-                canonical("gongbu"),
-                worker("gongbu", 2, "module-a", write_set=("src/shared.py",)),
-                worker("gongbu", 3, "module-b", write_set=("src/shared.py",)),
-            ],
-            "super并行",
-        ),
-        (
             "reject_missing_integration_owner",
             "single_integration_owner_gate",
             [
@@ -558,6 +548,15 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
             entry["case_ref"] = reference
         cases += (("reject_" + name, "exact_preload_contract_gate",
                    [canonical("gongbu"), entry], "super并行"),)
+    def accept_overlapping_write_set() -> None:
+        validate(
+            [
+                canonical("gongbu"),
+                worker("gongbu", 2, "module-a", write_set=("src/shared.py",)),
+                worker("gongbu", 3, "module-b", write_set=("src/shared.py",)),
+            ]
+        )
+
     def accept_missing_preload_ack() -> None:
         # 2026-10-06 ACK-lightweight (P3): exact_preload_contract_gate keeps the
         # path/case_ref/profile/dossier/skill identity checks but must no longer
@@ -565,6 +564,7 @@ def rejection_checks() -> tuple[tuple[str, Callable[[], None]], ...]:
         validate([canonical("gongbu"), missing_preload_ack])
 
     checks = [(name, rejection_check(gate, entries)) for name, gate, entries, _mode in cases]
+    checks.append(("accept_overlapping_write_set", accept_overlapping_write_set))
     checks.append(("accept_missing_preload_ack", accept_missing_preload_ack))
     return tuple(checks)
 

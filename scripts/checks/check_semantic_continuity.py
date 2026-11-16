@@ -2354,6 +2354,139 @@ def check_semantic_resume_cli_returns_to_review_without_epoch_change() -> None:
             court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
 
 
+def check_semantic_transfer_root_keeps_case_identity() -> None:
+    task_id = "semantic-transfer-root"
+    source = task_id + "-session"
+    target = "11111111-1111-4111-8111-111111111111"
+    other = "22222222-2222-4222-8222-222222222222"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_runtime_root = court_runtime.runtime_root
+        court_runtime.runtime_root = lambda: Path(temp_dir)  # type: ignore[assignment]
+        try:
+            created = court_runtime.create_task(
+                _create_args(task_id, "transfer root charter")
+            )
+            original_binding = deepcopy(created.task["case_binding"])
+            original_session = created.task["session_id"]
+            original_state = created.task.get("state")
+            argv = [
+                "semantic",
+                "transfer-root",
+                "--task-id",
+                task_id,
+                "--from-session-id",
+                source,
+                "--to-session-id",
+                target,
+                "--evidence",
+                "user moved the execution root",
+            ]
+            exit_code, payload, stderr = _run_runtime_cli(argv)
+            if exit_code != 0 or payload.get("ok") is not True:
+                raise AssertionError(
+                    f"TRANSFER_ROOT_EXIT:{exit_code}:{payload}:{stderr}"
+                )
+            if payload.get("command") != "transfer-root":
+                raise AssertionError("TRANSFER_ROOT_COMMAND_MISMATCH")
+            result = payload.get("result")
+            if not isinstance(result, dict):
+                raise AssertionError("TRANSFER_ROOT_RESULT_MISSING")
+            event = result.get("event")
+            if not isinstance(event, dict) or event.get("action") != "execution_root_transferred":
+                raise AssertionError("TRANSFER_ROOT_EVENT_MISSING")
+            if event.get("from_session_id") != source or event.get("to_session_id") != target:
+                raise AssertionError("TRANSFER_ROOT_ENDPOINTS")
+            if event.get("authorization") != "current_user_explicit":
+                raise AssertionError("TRANSFER_ROOT_AUTHORIZATION")
+            task = court_runtime.load_tasks()[task_id]
+            if (
+                task.get("case_binding") != original_binding
+                or task.get("session_id") != original_session
+                or task.get("state") != original_state
+            ):
+                raise AssertionError("TRANSFER_ROOT_REWROTE_CASE_IDENTITY")
+            again_code, again, again_err = _run_runtime_cli(argv)
+            again_result = again.get("result") if isinstance(again, dict) else None
+            again_event = again_result.get("event") if isinstance(again_result, dict) else None
+            if (
+                again_code != 0
+                or not isinstance(again_event, dict)
+                or again_event.get("event_id") != event.get("event_id")
+            ):
+                raise AssertionError(
+                    f"TRANSFER_ROOT_REPEAT:{again_code}:{again}:{again_err}"
+                )
+            moved = [
+                item
+                for item in court_runtime.events_for_task(task_id, limit=None)
+                if item.get("action") == "execution_root_transferred"
+            ]
+            if len(moved) != 1:
+                raise AssertionError(f"TRANSFER_ROOT_EVENT_COUNT:{len(moved)}")
+            court_runtime.revise_charter_task(
+                _revise_args(
+                    task_id,
+                    old_charter="transfer root charter",
+                    new_charter="transfer root charter revised",
+                )
+            )
+            task = court_runtime.load_tasks()[task_id]
+            if court_runtime._validated_execution_root(task) != target:
+                raise AssertionError("TRANSFER_ROOT_DROPPED_AFTER_CHARTER_REVISION")
+            again_code, again, again_err = _run_runtime_cli(argv)
+            again_result = again.get("result") if isinstance(again, dict) else None
+            again_event = again_result.get("event") if isinstance(again_result, dict) else None
+            if (
+                again_code != 0
+                or not isinstance(again_event, dict)
+                or again_event.get("event_id") != event.get("event_id")
+            ):
+                raise AssertionError(
+                    f"TRANSFER_ROOT_REPEAT_AFTER_REVISION:{again_code}:{again}:{again_err}"
+                )
+            moved = [
+                item
+                for item in court_runtime.events_for_task(task_id, limit=None)
+                if item.get("action") == "execution_root_transferred"
+            ]
+            if len(moved) != 1:
+                raise AssertionError(f"TRANSFER_ROOT_EVENT_COUNT_AFTER_REVISION:{len(moved)}")
+            stale = list(argv)
+            stale[stale.index(target)] = other
+            stale_code, stale_payload, _stale_err = _run_runtime_cli(stale)
+            if stale_code == 0 or stale_payload.get("ok") is not False:
+                raise AssertionError("TRANSFER_ROOT_STALE_SOURCE_ACCEPTED")
+            if "execution_root_source_mismatch" not in str(stale_payload.get("error")):
+                raise AssertionError(f"TRANSFER_ROOT_STALE_ERROR:{stale_payload}")
+            from unittest.mock import patch
+
+            binding = {"role": "zhongshu", "direct_superior": "taizi"}
+
+            def identity(session: str) -> dict[str, str]:
+                return {"session_id": session, "thread_id": "thread-fixture"}
+
+            with patch(
+                "commands.court_native_bridge.current_host_identity",
+                return_value=identity(target),
+            ):
+                context = court_runtime._native_bridge_identity_context(task, binding)
+            if not isinstance(context, dict) or context.get("case_session_id") != target:
+                raise AssertionError("TRANSFER_ROOT_TARGET_NATIVE_REJECTED")
+            with patch(
+                "commands.court_native_bridge.current_host_identity",
+                return_value=identity(source),
+            ):
+                try:
+                    court_runtime._native_bridge_identity_context(task, binding)
+                except ValueError as exc:
+                    if "native_bridge:case_root_binding_invalid" not in str(exc):
+                        raise AssertionError(f"TRANSFER_ROOT_SOURCE_ERROR:{exc}") from exc
+                else:
+                    raise AssertionError("TRANSFER_ROOT_SOURCE_STILL_DISPATCHES")
+        finally:
+            court_runtime.runtime_root = original_runtime_root  # type: ignore[assignment]
+
+
 def check_semantic_quarantine_cli_is_bound_and_append_only() -> None:
     task_id = "semantic-cli-quarantine"
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -4786,6 +4919,10 @@ def evaluate() -> dict[str, object]:
         (
             "SEMANTIC_CLI_RESUME",
             check_semantic_resume_cli_returns_to_review_without_epoch_change,
+        ),
+        (
+            "SEMANTIC_TRANSFER_ROOT",
+            check_semantic_transfer_root_keeps_case_identity,
         ),
         (
             "SEMANTIC_CLI_QUARANTINE",

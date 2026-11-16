@@ -813,7 +813,10 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             identity_loader=_identity,
             concurrent_preload=False,
         )
-        checks["overlap_miss"] = overlap_miss.get("status") == "FAST_PATH_MISS:write_set_overlap"
+        checks["overlap_admitted"] = (
+            overlap_miss.get("ok") is True
+            and "write_set_overlap" not in str(overlap_miss.get("status"))
+        )
 
         stale = dict(request)
         stale["semantic_receipt_id"] = "SR-OTHER-RECEIPT"
@@ -940,7 +943,7 @@ def run_checks(*, shangshu_only: bool = False, concurrent_probes: bool = True) -
             "single_process",
             "no_partial_mutation",
             "capacity_miss",
-            "overlap_miss",
+            "overlap_admitted",
             "semantic_miss",
             "authority_source_required",
             "default_zero_ministries",
