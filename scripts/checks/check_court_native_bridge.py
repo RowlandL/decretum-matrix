@@ -288,6 +288,7 @@ def _runtime_request_builder_fixture() -> None:
         def request_result_stub(
             _task, _admission, admitted_binding, request, *,
             spawn_agent_type_field=None,
+            history=None,
         ):
             return bridge.native_request_result(
                 request,
@@ -752,7 +753,7 @@ class NativeRepeatCaptureTests(unittest.TestCase):
                         'trusted_parent_paths': [{'path': '/root/shangshu_repeat',
                             'kind': 'same_case_ready_shangshu', 'thread_id': self.parent}]}
             with patch.object(court_runtime, '_native_bridge_task_binding',
-                              return_value=(self.task, admission, self.binding)), \
+                              return_value=(self.task, admission, self.binding, self.events)), \
                     patch.object(court_runtime, '_native_bridge_caller_guard'), \
                     patch.object(court_runtime, '_native_bridge_request_result', return_value=native), \
                     patch.object(court_runtime, '_native_bridge_host_message_inputs',
@@ -981,7 +982,7 @@ class NativeCapabilityContractTests(unittest.TestCase):
         # Model/capability tests isolate the already-bound renderer from disk
         # history. Dedicated evidence tests below exercise its real producer.
         producer = patch.object(court_runtime, '_native_bridge_message_evidence',
-            side_effect=lambda task, admission, binding, request, context: _message_evidence(request, context))
+            side_effect=lambda task, admission, binding, request, context, history=None: _message_evidence(request, context))
         self.evidence_producer = producer
         producer.start()
         self.addCleanup(producer.stop)
@@ -2489,7 +2490,7 @@ def main() -> int:
                           side_effect=lambda *a, **k: original_builder(*a, **{**k, 'skill_root': fixture_root})), \
                 patch.object(court_runtime, 'skill_root', return_value=fixture_root), \
                 patch.object(court_runtime, '_native_bridge_message_evidence',
-                    side_effect=lambda task, admission, binding, request, context: _message_evidence(request, context)):
+                    side_effect=lambda task, admission, binding, request, context, history=None: _message_evidence(request, context)):
             _runtime_host_message_fixture()
     _caller_guard_fixture()
 

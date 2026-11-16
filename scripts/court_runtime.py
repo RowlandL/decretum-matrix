@@ -11503,6 +11503,7 @@ def _native_bridge_message_evidence(
     history: list | None = None,
 ) -> dict[str, object]:
     """Use existing immutable history positions for the human evidence pointers."""
+    event_history = history
     from commands.court_native_bridge import _message_context
     from court_native_host_dispatch import normalize_native_host_dispatch_request
     from urllib.parse import quote
@@ -11553,7 +11554,7 @@ def _native_bridge_message_evidence(
         ],
     }
     boundary = _native_bridge_delivery_boundary(
-        task, binding, normalized, anchor, history,
+        task, binding, normalized, anchor, event_history,
     )
     if boundary is not None:
         evidence['delivery_boundary'] = boundary

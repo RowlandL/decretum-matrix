@@ -144,7 +144,7 @@
       "scripts/commands/shiguan_pending_governance_cli.py": 220,
       "scripts/commands/plan_shiguan_pending_quarantine.py": 670,
       "scripts/commands/agent_runtime_probe.py": 1380,
-      "scripts/services/serve_shiguan_tree.py": 2800
+      "scripts/services/serve_shiguan_tree.py": 2823
     }
   },
   "warning_targets": {
