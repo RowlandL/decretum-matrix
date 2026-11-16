@@ -19,6 +19,7 @@ import json
 import re
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -167,6 +168,92 @@ def _check_call_sites(failures: list[str], evidence: dict[str, Any]) -> None:
             "bare_append_open": bare_append,
         }
     evidence["call_sites"] = observed
+
+
+def _check_web_exception_idle_hook(failures: list[str], evidence: dict[str, Any]) -> None:
+    """F13: the web server idle hook bounds the exception log it inherits."""
+
+    source_path = ROOT / "scripts/services/serve_shiguan_tree.py"
+    source = source_path.read_text(encoding="utf-8")
+    access_start = source.find("    def log_message(")
+    access_end = source.find("    def client_is_local(", access_start)
+    access_body = source[access_start:access_end] if access_start >= 0 and access_end > access_start else ""
+    idle_start = source.find("    def service_actions(")
+    idle_end = source.find("\ndef main(", idle_start)
+    idle_body = source[idle_start:idle_end] if idle_start >= 0 and idle_end > idle_start else ""
+    if "print(" in access_body or "maintain_service_log(" in access_body:
+        failures.append("web_access_log_no_longer_silent")
+    if "maintain_web_exception_log(" not in idle_body:
+        failures.append("web_idle_hook_missing_log_maintenance")
+    if "threading.Thread(" in idle_body or "Thread(" in idle_body:
+        failures.append("web_idle_hook_starts_thread")
+
+    web = importlib.import_module("services.serve_shiguan_tree")
+    observed: dict[str, Any] = {
+        "access_log_silent": "print(" not in access_body,
+        "idle_hook": "maintain_web_exception_log(" in idle_body,
+    }
+    sink = io.StringIO()
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    try:
+        sys.stdout = sink
+        sys.stderr = sink
+        web.Handler.log_message(object(), "GET %s", "/health")
+        if sink.getvalue():
+            failures.append("web_access_log_wrote_output")
+    finally:
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
+
+    server = web.SingleBindThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    observed["production_port_bound"] = False
+    observed["isolated_port"] = server.server_address[1]
+    try:
+        before_threads = threading.active_count()
+        server.service_actions()
+        if threading.active_count() != before_threads:
+            failures.append("web_idle_hook_changed_thread_count")
+    finally:
+        server.server_close()
+
+    cap = 64 * 1024
+    with tempfile.TemporaryDirectory(prefix="fixture-web-log-") as temp_dir:
+        log_path = Path(temp_dir) / "court-shiguan-tree-8765.log"
+        original_path = web.service_log_path
+        original_maintain = web.maintain_service_log
+        original_port = web.SERVER_PORT
+        original_stdout = sys.stdout
+        handle = log_path.open("a", encoding="utf-8")
+        try:
+            web.service_log_path = lambda _name: log_path
+            web.SERVER_PORT = 8765
+            web.maintain_service_log = lambda path, live_stream=None, max_bytes=cap: original_maintain(
+                path, live_stream=live_stream, max_bytes=max_bytes
+            )
+            sys.stdout = handle
+            handle.write("e" * (cap + 64))
+            handle.flush()
+            web.maintain_web_exception_log()
+            handle.flush()
+            size = log_path.stat().st_size if log_path.exists() else 0
+            journal = log_path.with_name(log_path.name + ".rotation.json")
+            payload = json.loads(journal.read_text(encoding="utf-8")) if journal.is_file() else {}
+            observed["log_bytes_after_maintenance"] = size
+            observed["rotation_action"] = payload.get("action")
+            if size > cap:
+                failures.append(f"web_exception_log_exceeded_cap:{size}")
+            if payload.get("action") != "ROTATED_INPLACE":
+                failures.append(f"web_exception_log_journal:{payload.get('action')}")
+            if payload.get("schema") != "court.shiguan_service_log_rotation.v1":
+                failures.append("web_exception_log_journal_schema")
+        finally:
+            sys.stdout = original_stdout
+            handle.close()
+            web.service_log_path = original_path
+            web.maintain_service_log = original_maintain
+            web.SERVER_PORT = original_port
+    evidence["web_exception_idle_hook"] = observed
 
 
 def evaluate() -> dict[str, Any]:
@@ -692,6 +779,7 @@ def evaluate() -> dict[str, Any]:
     #    opener, and both long-lived daemon loops keep bounding the live log.
     _check_call_sites(failures, evidence)
     _check_daemon_loops(failures, evidence)
+    _check_web_exception_idle_hook(failures, evidence)
 
     failures = list(dict.fromkeys(failures))
     return {

@@ -2815,6 +2815,7 @@ def _admission_bound_record(admission: Mapping[str, object]) -> dict[str, object
 def _validate_admission_immutable_event_anchor(
     task: Mapping[str, object],
     admission: Mapping[str, object],
+    history: list | None = None,
 ) -> dict[str, object]:
     if isinstance(task.get("case_binding"), dict):
         from court_case_binding import refresh_case_binding
@@ -2829,8 +2830,9 @@ def _validate_admission_immutable_event_anchor(
         if previous != refresh_case_binding(expected_task):
             raise ValueError("case_admission_binding_stale_or_foreign")
     event_id = admission.get("admission_event_id")
+    events = history if history is not None else events_for_task(task.get("task_id"), limit=None)
     matches = [
-        (index, event) for index, event in enumerate(events_for_task(task.get("task_id"), limit=None))
+        (index, event) for index, event in enumerate(events)
         if event.get("action") == "agent_admit"
         and event.get("event_id") == event_id
         and event.get("wave_id") == admission.get("wave_id")
@@ -7329,7 +7331,10 @@ def semantic_resume_task(args: argparse.Namespace) -> TransitionResult:
     return TransitionResult(task, event)
 
 
-def _execution_root_events(task: Mapping[str, object]) -> list[dict[str, Any]]:
+def _execution_root_events(
+    task: Mapping[str, object],
+    history: list | None = None,
+) -> list[dict[str, Any]]:
     case = task.get("case_binding")
     court_code = ""
     if isinstance(case, Mapping):
@@ -7337,7 +7342,8 @@ def _execution_root_events(task: Mapping[str, object]) -> list[dict[str, Any]]:
     if not court_code:
         return []
     selected: list[dict[str, Any]] = []
-    for event in events_for_task(task.get("task_id"), limit=None):
+    events = history if history is not None else events_for_task(task.get("task_id"), limit=None)
+    for event in events:
         if event.get("action") != "execution_root_transferred":
             continue
         ref = event.get("case_ref")
@@ -7349,7 +7355,10 @@ def _execution_root_events(task: Mapping[str, object]) -> list[dict[str, Any]]:
     return selected
 
 
-def _validated_execution_root(task: Mapping[str, object]) -> str:
+def _validated_execution_root(
+    task: Mapping[str, object],
+    history: list | None = None,
+) -> str:
     case = task.get("case_binding")
     if not isinstance(case, Mapping):
         raise ValueError("execution_root_case_binding_missing")
@@ -7358,7 +7367,7 @@ def _validated_execution_root(task: Mapping[str, object]) -> str:
         raise ValueError("execution_root_case_binding_missing")
     if not str(case.get("court_code") or "").strip():
         return cursor
-    for event in _execution_root_events(task):
+    for event in _execution_root_events(task, history):
         source = str(event.get("from_session_id") or "").strip().lower()
         target = str(event.get("to_session_id") or "").strip().lower()
         if (
@@ -10821,7 +10830,7 @@ def _native_bridge_selector(
 
 def _native_bridge_task_binding(
     selector: Mapping[str, str],
-) -> tuple[dict[str, Any], dict[str, object], dict[str, object]]:
+) -> tuple[dict[str, Any], dict[str, object], dict[str, object], list]:
     task_id = selector["task_id"]
     wave_id = selector["wave_id"]
     instance_id = selector["instance_id"]
@@ -10834,7 +10843,8 @@ def _native_bridge_task_binding(
     admission = admissions.get(wave_id) if isinstance(admissions, Mapping) else None
     if not isinstance(admission, dict) or admission.get("allowed") is not True:
         raise ValueError("native_bridge:allowed_admission_required")
-    validated_anchor = _validate_admission_immutable_event_anchor(task, admission)
+    history = events_for_task(task.get("task_id"), limit=None)
+    validated_anchor = _validate_admission_immutable_event_anchor(task, admission, history)
     selected = admission.get("selected_bindings")
     if not isinstance(selected, (list, tuple)):
         raise ValueError("native_bridge:admission_bindings_invalid")
@@ -10852,11 +10862,13 @@ def _native_bridge_task_binding(
         raise ValueError("native_bridge:binding_role_invalid")
     if not str(binding.get("direct_superior") or "").strip():
         raise ValueError("native_bridge:binding_superior_missing")
-    return task, admission, binding
+    return task, admission, binding, history
 
 
 def _native_bridge_identity_context(
-    task: Mapping[str, object], binding: Mapping[str, object],
+    task: Mapping[str, object],
+    binding: Mapping[str, object],
+    history: list | None = None,
 ) -> dict[str, object] | None:
     """Trusted ancestry for capture, not a claim about the CLI caller's role.
 
@@ -10872,7 +10884,7 @@ def _native_bridge_identity_context(
     if not isinstance(case, Mapping):
         return None
     validate_case_binding(case, task)
-    if _validated_execution_root(task) != identity["session_id"]:
+    if _validated_execution_root(task, history) != identity["session_id"]:
         raise ValueError("native_bridge:case_root_binding_invalid")
     superior = binding.get("direct_superior")
     parents = []
@@ -10907,13 +10919,14 @@ def _native_bridge_identity_context(
 def _native_bridge_caller_guard(
     task: Mapping[str, object],
     binding: Mapping[str, object],
+    history: list | None = None,
 ) -> None:
     from commands.court_native_bridge import current_host_identity
 
     identity = current_host_identity()
     current_thread = identity["thread_id"]
     current_session = identity["session_id"]
-    context = _native_bridge_identity_context(task, binding)
+    context = _native_bridge_identity_context(task, binding, history)
     if context and context["trusted_parent_paths"]:
         # No mutation is admitted here. Capture must verify exact host ancestry.
         return
@@ -10926,7 +10939,7 @@ def _native_bridge_caller_guard(
         except (ImportError, TypeError, ValueError) as exc:
             raise ValueError("native_bridge:case_root_binding_invalid") from exc
         if (
-            _validated_execution_root(task) == current_session
+            _validated_execution_root(task, history) == current_session
             and str(binding.get("direct_superior") or "").strip().lower()
             == "taizi"
         ):
@@ -11311,6 +11324,7 @@ def _native_bridge_request_result(
     spawn_agent_type_field: str | None = None,
     spawn_model_field: str | None = None,
     spawn_reasoning_effort_field: str | None = None,
+    history: list | None = None,
 ) -> dict[str, object]:
     from commands.court_native_bridge import native_request_result
 
@@ -11394,7 +11408,9 @@ def _native_bridge_request_result(
         model=model,
         reasoning_effort=reasoning_effort,
         collaboration_task_name=binding.get("collaboration_task_name") or binding.get("task_name"),
-        evidence_binding=_native_bridge_message_evidence(task, admission, binding, request, p00_context),
+        evidence_binding=_native_bridge_message_evidence(
+            task, admission, binding, request, p00_context, history=history,
+        ),
     )
     message = result.get("host_message")
     if not isinstance(message, str):
@@ -11421,6 +11437,7 @@ def _native_bridge_request_result(
 def _native_bridge_delivery_boundary(
     task: Mapping[str, object], binding: Mapping[str, object],
     request: Mapping[str, object], anchor: Mapping[str, object],
+    history: list | None = None,
 ) -> dict[str, object] | None:
     """Bound reuse to the existing admission or current superior work report.
 
@@ -11432,7 +11449,8 @@ def _native_bridge_delivery_boundary(
     if record is None:
         return None
     error = 'native_bridge:delivery_boundary_binding_mismatch'
-    history = events_for_task(task.get('task_id'), limit=None)
+    if history is None:
+        history = events_for_task(task.get('task_id'), limit=None)
     index, event = anchor['index'], anchor['event']
     if (type(index) is not int or not 0 <= index < len(history)
             or history[index] != event
@@ -11482,6 +11500,7 @@ def _native_bridge_delivery_boundary(
 def _native_bridge_message_evidence(
     task: Mapping[str, object], admission: Mapping[str, object],
     binding: Mapping[str, object], request: Mapping[str, object], context: Mapping[str, object],
+    history: list | None = None,
 ) -> dict[str, object]:
     """Use existing immutable history positions for the human evidence pointers."""
     from commands.court_native_bridge import _message_context
@@ -11533,7 +11552,9 @@ def _native_bridge_message_evidence(
             f'court-runtime:tasks/{escaped}/events[{anchor["index"]}]',
         ],
     }
-    boundary = _native_bridge_delivery_boundary(task, binding, normalized, anchor)
+    boundary = _native_bridge_delivery_boundary(
+        task, binding, normalized, anchor, history,
+    )
     if boundary is not None:
         evidence['delivery_boundary'] = boundary
     return evidence
@@ -11699,8 +11720,8 @@ def office_native_request(args: argparse.Namespace) -> dict[str, object]:
     """Build a host-native request from admitted runtime facts without mutation."""
 
     selector = _native_bridge_selector(args, capture=False)
-    task, admission, binding = _native_bridge_task_binding(selector)
-    _native_bridge_caller_guard(task, binding)
+    task, admission, binding, history = _native_bridge_task_binding(selector)
+    _native_bridge_caller_guard(task, binding, history)
     request = _native_bridge_request(task, admission, binding)
     model_capabilities = {
         field: selector[field]
@@ -11713,6 +11734,7 @@ def office_native_request(args: argparse.Namespace) -> dict[str, object]:
         binding,
         request,
         spawn_agent_type_field=selector.get("spawn_agent_type_field"),
+        history=history,
         **model_capabilities,
     )
 
@@ -11723,8 +11745,8 @@ def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
     from commands.court_native_bridge import capture_current_native_delivery
 
     selector = _native_bridge_selector(args, capture=True)
-    task, admission, binding = _native_bridge_task_binding(selector)
-    _native_bridge_caller_guard(task, binding)
+    task, admission, binding, history = _native_bridge_task_binding(selector)
+    _native_bridge_caller_guard(task, binding, history)
     request = _native_bridge_request(task, admission, binding)
     model_capabilities = {
         field: selector[field]
@@ -11737,6 +11759,7 @@ def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
         binding,
         request,
         spawn_agent_type_field=selector.get("spawn_agent_type_field"),
+        history=history,
         **model_capabilities,
     )
     execution, p00_context = _native_bridge_host_message_inputs(task, admission)
@@ -11754,7 +11777,7 @@ def office_native_capture(args: argparse.Namespace) -> dict[str, object]:
         spawn_reasoning_effort_field=native_request.get(
             "spawn_reasoning_effort_field"
         ),
-        identity_context=_native_bridge_identity_context(task, binding),
+        identity_context=_native_bridge_identity_context(task, binding, history),
         collaboration_task_name=binding.get("collaboration_task_name") or binding.get("task_name"),
         evidence_binding=native_request['message_evidence_binding'],
     )

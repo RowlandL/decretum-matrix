@@ -1,5 +1,11 @@
 # Changelog
 
+## beta1.2.5 - 2026-11-17
+
+- F13：史馆 Web 服务在现有 `service_actions` 空闲钩子上复用 `maintain_service_log`。异常日志沿用 8 MiB 上限和既有轮转记录。正常访问日志仍然静默。没有新增线程。运行期封顶新机制仍归 beta1.3.0。
+- 发布基线接在已发布的 `beta1.2.4-hotfix-v1`（`c38eafd`）之后，并包含此前只在本地提交、尚未单独发布的 `fc87b83`：已授权写者可以重叠，执行根可以转移。原生请求构造复用同一次任务历史读取。
+- npm 派生版本为 `1.2.5-beta.0`。GitHub Release、CI 与 GitHub Packages 以各自回执为准。
+
 ## beta1.2.4-hotfix-v1 - 2026-11-13
 
 - `doctor` 按所选安装副本的公共命令清单核对 MCP 工具，分别验证现代与旧版协议；未配置或探测失败仍如实报告。

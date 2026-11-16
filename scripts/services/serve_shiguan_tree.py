@@ -44,6 +44,7 @@ if _SCRIPTS_ROOT not in sys.path:
     sys.path.insert(0, _SCRIPTS_ROOT)
 
 from court_file_lock import atomic_write_text, file_lock, shiguan_write_lock_path
+from shiguan_service_log import maintain_service_log, service_log_path
 from ensure_shiguan_autosync import autosync_public_status as _autosync_public_status
 from obsidian_config_state import (
     patch_config as patch_obsidian_sync_config,
@@ -2752,9 +2753,35 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_safe_error(403, "跨源预检未获授权", "CORS_PREFLIGHT_REJECTED")
 
 
+def maintain_web_exception_log() -> None:
+    """Bound the inherited web log on the server idle hook.
+
+    The launcher opens ``court-shiguan-tree-<port>.log`` once and merges stderr
+    into that stdout handle, so exception traces stay on this stream. This reuses
+    ``maintain_service_log`` and its rotation journal. It does not add a thread,
+    and it does not add the beta1.3.0 runtime-cap mechanism.
+    """
+
+    try:
+        try:
+            sys.stderr.flush()
+        except (OSError, ValueError):
+            pass
+        maintain_service_log(
+            service_log_path(f"court-shiguan-tree-{SERVER_PORT}.log"),
+            live_stream=sys.stdout,
+        )
+    except Exception:
+        return
+
+
 class SingleBindThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = False
     allow_reuse_port = False
+
+    def service_actions(self) -> None:
+        super().service_actions()
+        maintain_web_exception_log()
 
 
 def main() -> int:

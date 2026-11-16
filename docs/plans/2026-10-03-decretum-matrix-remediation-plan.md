@@ -42,7 +42,7 @@
 | beta1.2.2 | 公共接口与审计 | F09、F16、F18 | 修复 | 计划内 | [beta1.2.2.md](2026-10-03-remediation/beta1.2.2.md) | 统一决策契约与宿主回退；职责与统一任务结构契约 |
 | beta1.2.3 | 安装入口与锁生命周期 | F10、F12 | 修复 | **开发已完成**（本地提交 `adf50f9356feb613be135b74d04f3f422700e6fb`，29 文件；未发布） | [beta1.2.3.md](2026-10-03-remediation/beta1.2.3.md) | — |
 | beta1.2.4 | 安装恢复语义与首装说明 | F11、F21 | 修复 | 计划内 | [beta1.2.4.md](2026-10-03-remediation/beta1.2.4.md) | — |
-| beta1.2.5 | 常驻日志维护 | F13 | 修复 | 计划内 | [beta1.2.5.md](2026-10-03-remediation/beta1.2.5.md) | — |
+| beta1.2.5 | 常驻日志维护 | F13 | 修复 | 源码检查通过；外部发布以回执为准 | [beta1.2.5.md](2026-10-03-remediation/beta1.2.5.md) | — |
 | beta1.2.6 | 召回刷新与 LAN 下载 | F14、F15 | 修复 | 计划内 | [beta1.2.6.md](2026-10-03-remediation/beta1.2.6.md) | 条件召回与追加式记忆 |
 | beta1.2.7 | 前言解析一致性 | F17 | 修复 | 计划内 | [beta1.2.7.md](2026-10-03-remediation/beta1.2.7.md) | — |
 | beta1.2.8 | 门禁与夹具隔离 | F19、F20 | 修复 | 计划内 | [beta1.2.8.md](2026-10-03-remediation/beta1.2.8.md) | 决策、回退与缓存契约门禁；职责和名称置换门禁 |
@@ -277,7 +277,7 @@
 
 | ID | 问题 | 位置 | 修复 |
 | --- | --- | --- | --- |
-| F13 | 异常日志长驻期间无维护（超 8 MiB 无 rotation journal） | `scripts/services/serve_shiguan_tree.py:1486`、`2755` | 在现有 server idle hook 接既有日志锚点维护；不增线程/daemon |
+| F13 | 异常日志长驻期间无维护（超 8 MiB 无 rotation journal） | `maintain_web_exception_log` 与 `SingleBindThreadingHTTPServer.service_actions` | 在现有 server idle hook 接既有日志锚点维护；不增线程/daemon |
 
 **版本出口**：异常路径长驻（加速压力）触发既有维护；正常访问日志行为不变。
 

@@ -6,8 +6,18 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.4-hotfix-v1",
+  "latest_tag": "beta1.2.5",
   "releases": [
+    {
+      "tag": "beta1.2.5",
+      "title": "Decretum Matrix beta1.2.5",
+      "summary": "史馆 Web 异常日志接入既有轮转，并带上此前未单独发布的写者重叠修复。",
+      "highlights": [
+        "异常日志沿用 8 MiB 上限和既有轮转记录；正常访问日志仍然静默，没有新增线程。",
+        "已授权写者可以重叠，执行根可以转移。该改动此前只在本地提交，随本版发布。"
+      ],
+      "asset_note": "npm 版本为 1.2.5-beta.0；远端发布、CI 和宿主安装以各自回执为准。"
+    },
     {
       "tag": "beta1.2.4-hotfix-v1",
       "title": "Decretum Matrix beta1.2.4-hotfix-v1",
