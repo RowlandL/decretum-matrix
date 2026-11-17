@@ -4740,6 +4740,43 @@ function triggerDownload(url, filename = "") {
   window.setTimeout(() => anchor.remove(), 1000);
 }
 
+async function downloadAuthorizedKey(url, filename = "") {
+  const headers = { Accept: "application/x-shiguan-key, application/json" };
+  const adminToken = typeof shiguanAdminToken === "function" ? shiguanAdminToken() : "";
+  if (adminToken) {
+    headers["X-Shiguan-Admin-Token"] = adminToken;
+  }
+  const response = await fetch(url, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+    credentials: "same-origin",
+    referrerPolicy: "no-referrer",
+  });
+  if (!response.ok) {
+    let message = response.statusText || `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body && typeof body.error === "string" && body.error) {
+        message = body.error;
+      }
+    } catch (_error) {
+      // A non-JSON rejection still names the status instead of "正在下载".
+    }
+    if (response.status === 403) {
+      throw new Error(`无权限：${message}`);
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    triggerDownload(objectUrl, filename);
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+  }
+}
+
 async function exportPendingKey() {
   try {
     const data = await api("/api/keys");
@@ -4752,8 +4789,9 @@ async function exportPendingKey() {
       key_id: pending.key_id,
       download_nonce: pending.download_nonce,
     });
-    triggerDownload(`/api/key/export-file?${params.toString()}`, pending.filename || "shiguan-peer.shiguan-key");
-    setStatus(`正在下载${keyShortRoleLabel(pending.role)}密钥文件：${pending.filename || pending.key_id}`);
+    const filename = pending.filename || "shiguan-peer.shiguan-key";
+    await downloadAuthorizedKey(`/api/key/export-file?${params.toString()}`, filename);
+    setStatus(`正在下载${keyShortRoleLabel(pending.role)}密钥文件：${filename}`);
   } catch (error) {
     setStatus(`密钥导出失败：${error.message}`, true);
   }

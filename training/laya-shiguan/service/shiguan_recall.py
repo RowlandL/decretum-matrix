@@ -292,6 +292,40 @@ class ShiguanRecall:
         stat = path.stat()
         return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
+    def _same_source(self, left: Path, right: Path) -> bool:
+        try:
+            return left.samefile(right)
+        except OSError:
+            return str(left) == str(right)
+
+    def _index_is_current(self) -> bool:
+        """Published rows still match the selected source size and mtime.
+
+        A warm query reuses this stamp. It does not hash the file. An appended
+        live index, or a live index that becomes valid after a corpus fallback,
+        must be rebuilt before the query reads the old snapshot.
+        """
+
+        snapshot = self._snapshot
+        if snapshot.vecs is None or not snapshot.source_path:
+            return False
+        remembered = Path(snapshot.source_path)
+        try:
+            if self._stamp(remembered) != snapshot.stamp:
+                return False
+        except OSError:
+            return False
+        live = live_index_path()
+        if (
+            live is not None
+            and live.is_file()
+            and snapshot.source_kind != "live_shiguan_index"
+            and not self._same_source(live, remembered)
+            and _live_index_has_rows(live)
+        ):
+            return False
+        return True
+
     def build(self, force: bool = False) -> None:
         # Per-engine single-flight; force rebuilds wait for one another. Failed
         # builds leave the last published generation intact and may be retried.
@@ -354,10 +388,9 @@ class ShiguanRecall:
         }
 
     def recall(self, state: str, k: int = 5, same_top: bool = False) -> dict:
-        snapshot = self._snapshot
-        if snapshot.vecs is None:
+        if not self._index_is_current():
             self.build()
-            snapshot = self._snapshot
+        snapshot = self._snapshot
         assert snapshot.vecs is not None
         q = self._embed([state])
         sim = (q @ snapshot.vecs.T)[0]

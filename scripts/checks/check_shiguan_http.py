@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from http.server import ThreadingHTTPServer
 import importlib
 import io
 import json
@@ -693,6 +694,26 @@ def run_static_regressions() -> dict[str, object]:
                 raise AssertionError("Obsidian dialog resolves before it is actually closed")
             if '共享机器 ${peerTotal} 台' in app_source:
                 raise AssertionError("top status duplicates the peer summary already shown in status chips")
+            export_start = app_source.index("async function downloadAuthorizedKey")
+            export_end = app_source.index("function renderKeyManageList")
+            export_source = app_source[export_start:export_end]
+            pending_source = export_source[export_source.index("async function exportPendingKey"):]
+            for marker in (
+                'headers["X-Shiguan-Admin-Token"] = adminToken',
+                "response.blob()",
+                "URL.createObjectURL(blob)",
+                "无权限：",
+                "await downloadAuthorizedKey(",
+            ):
+                if marker not in export_source:
+                    raise AssertionError(f"authorized key download contract missing: {marker}")
+            if "triggerDownload(`/api/key/export-file" in app_source:
+                raise AssertionError("key export still navigates without the admin header")
+            if pending_source.index("正在下载") < pending_source.index("await downloadAuthorizedKey("):
+                raise AssertionError("key export announces a download before the authorized fetch succeeds")
+            backend_source = (root / "scripts" / "services" / "serve_shiguan_tree.py").read_text(encoding="utf-8")
+            if 'self.headers.get("X-Shiguan-Admin-Token"' not in backend_source:
+                raise AssertionError("key export backend no longer requires the admin token header")
 
             if server.DEFAULT_BIND_HOST != "127.0.0.1":
                 raise AssertionError("serve_shiguan_tree default bind is not loopback")
@@ -1431,6 +1452,74 @@ def run_static_regressions() -> dict[str, object]:
                 if metadata.exists():
                     metadata.unlink()
 
+            class RemoteLanHandler(server.Handler):
+                def client_is_local(self) -> bool:
+                    return False
+
+            server.save_issued_keys(
+                [{"key_id": "lan-export", "revoked_at": "", "permanent": True, "expires_at": ""}]
+            )
+            server.remember_pending_key_download(
+                {
+                    "key_id": "lan-export",
+                    "role": "read",
+                    "filename": "lan-export.shiguan-key",
+                    "key_text": "fixture-key-body",
+                }
+            )
+            issued = server.issued_keys()
+            nonce = str(server.pending_downloads(issued)[0].get("download_nonce") or "")
+            if not nonce:
+                raise AssertionError("isolated key download fixture did not publish a nonce")
+            previous_admin_token = os.environ.get("SHIGUAN_ADMIN_TOKEN")
+            os.environ["SHIGUAN_ADMIN_TOKEN"] = "fixture-admin-token"
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), RemoteLanHandler)
+            httpd.daemon_threads = True
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            try:
+                export_url = (
+                    f"http://127.0.0.1:{httpd.server_address[1]}/api/key/export-file"
+                    f"?key_id=lan-export&download_nonce={nonce}"
+                )
+
+                def export_status(token: str | None) -> tuple[int, dict[str, object] | bytes, str]:
+                    headers = {"Accept": "application/x-shiguan-key, application/json"}
+                    if token is not None:
+                        headers["X-Shiguan-Admin-Token"] = token
+                    request = Request(export_url, headers=headers, method="GET")
+                    try:
+                        with urlopen(request, timeout=5) as response:
+                            return int(response.status), response.read(), str(response.headers.get("Content-Type", ""))
+                    except HTTPError as exc:
+                        raw = exc.read()
+                        try:
+                            body = json.loads(raw.decode("utf-8"))
+                        except json.JSONDecodeError:
+                            body = {"error": raw.decode("utf-8", errors="replace")}
+                        return int(exc.code), body, str(exc.headers.get("Content-Type", ""))
+
+                missing_status, missing_body, _missing_type = export_status(None)
+                if missing_status != 403 or missing_body.get("code") != "ADMIN_AUTH_REQUIRED":
+                    raise AssertionError("LAN key download without a token was not rejected")
+                wrong_status, wrong_body, _wrong_type = export_status("wrong-token")
+                if wrong_status != 403 or wrong_body.get("code") != "ADMIN_AUTH_REQUIRED":
+                    raise AssertionError("LAN key download with the wrong token was not rejected")
+                ok_status, ok_body, ok_type = export_status("fixture-admin-token")
+                if ok_status != 200 or ok_body != b"fixture-key-body" or "application/x-shiguan-key" not in ok_type:
+                    raise AssertionError("authorized LAN key download did not return the fixture file")
+                reused_status, reused_body, _reused_type = export_status("fixture-admin-token")
+                if reused_status != 404:
+                    raise AssertionError("authorized key download left the nonce reusable")
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=5)
+                if previous_admin_token is None:
+                    os.environ.pop("SHIGUAN_ADMIN_TOKEN", None)
+                else:
+                    os.environ["SHIGUAN_ADMIN_TOKEN"] = previous_admin_token
+
             api_text = (root / "web" / "shiguan-tree" / "api.js").read_text(encoding="utf-8")
             if "localStorage" in api_text or "sessionStorage" not in api_text or "history.replaceState" not in api_text:
                 raise AssertionError("admin token browser storage migration is incomplete")
@@ -1483,6 +1572,7 @@ def run_static_regressions() -> dict[str, object]:
         "autosync_daemon_status_atomicity": True,
         "autosync_once_receipt_not_daemon_health": True,
         "obsidian_in_progress_ui_contract": True,
+        "lan_key_export_keeps_admin_header": True,
     }
 
 

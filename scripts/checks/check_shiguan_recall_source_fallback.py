@@ -173,6 +173,87 @@ def _check_valid_live_row(recall, root: Path) -> dict[str, Any]:
     return {"source": "live_shiguan_index", "indexed_records": stats["indexed_records"]}
 
 
+class _ScoreRow:
+    def __getitem__(self, _index: int) -> float:
+        return 0.2
+
+
+class _ScoreBatch:
+    def __getitem__(self, index: int) -> _ScoreRow:
+        if index != 0:
+            raise IndexError(index)
+        return _ScoreRow()
+
+
+class _WarmTensor:
+    """Just enough of a tensor for stamp refresh; this is not an embedding."""
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (self.count, 2)
+
+    @property
+    def T(self) -> "_WarmTensor":
+        return self
+
+    def __matmul__(self, _other: object) -> _ScoreBatch:
+        return _ScoreBatch()
+
+
+def _live_row(code: str, topic: str) -> str:
+    return json.dumps(
+        {"court_code": code, "topic": topic, "summary": topic, "memory_decision": "SKIP"}
+    ) + "\n"
+
+
+def _check_warm_recall_refreshes_stamp(recall, root: Path) -> dict[str, Any]:
+    """A warm query must see a live index that grew from one row to two.
+
+    The stub records how many times encoding runs. An unchanged stamp encodes
+    only the query. A size change encodes the index again. No digest is used.
+    """
+
+    root.mkdir()
+    references = root / "references"
+    references.mkdir()
+    live = references / "shiguan-index.jsonl"
+    live.write_text(_live_row("live-1", "one"), encoding="utf-8")
+    corpus = root / "corpus-v2.jsonl"
+    corpus.write_text(_corpus_row(), encoding="utf-8")
+    calls = {"n": 0}
+
+    def embed(texts: list[str]) -> _WarmTensor:
+        calls["n"] += 1
+        return _WarmTensor(len(texts))
+
+    engine = recall.ShiguanRecall(device="cpu")
+    engine._embed = embed
+    with patch.dict(os.environ, _scenario_env(root)), patch.object(recall, "CORPUS", corpus):
+        first = engine.recall("主题：one")
+        after_first = calls["n"]
+        second = engine.recall("主题：one-again")
+        after_second = calls["n"]
+        live.write_text(_live_row("live-1", "one") + _live_row("live-2", "two"), encoding="utf-8")
+        third = engine.recall("主题：two")
+    if first["stats"]["indexed_records"] != 1 or second["stats"]["indexed_records"] != 1:
+        raise AssertionError(f"warm snapshot did not start at one row: {first} {second}")
+    if after_second != after_first + 1:
+        raise AssertionError(f"unchanged stamp rebuilt the index: {after_first} -> {after_second}")
+    if third["stats"]["indexed_records"] != 2:
+        raise AssertionError(f"warm query ignored the grown index: {third}")
+    found = {item["court_code"] for item in third["matches"]}
+    if found != {"live-1", "live-2"}:
+        raise AssertionError(f"warm query did not return both rows: {found}")
+    return {
+        "before_rows": 1,
+        "unchanged_query_embed_delta": after_second - after_first,
+        "after_rows": 2,
+    }
+
+
 def _check_missing_corpus_fails_closed(recall, root: Path) -> dict[str, Any]:
     """(d) live 与语料都不可用时保持 fail-closed，错误注明两条路径。"""
     root.mkdir()
@@ -208,6 +289,7 @@ def evaluate() -> dict[str, Any]:
                 ("empty_live_file_falls_back", _check_empty_live_file),
                 ("invalid_live_lines_fall_back", _check_invalid_live_lines),
                 ("valid_live_row_stays_live", _check_valid_live_row),
+                ("warm_recall_refreshes_stamp", _check_warm_recall_refreshes_stamp),
                 ("missing_corpus_fails_closed", _check_missing_corpus_fails_closed),
             )
             for name, probe in scenarios:

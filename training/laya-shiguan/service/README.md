@@ -75,7 +75,8 @@ print(eng.recall("主题：...\n阶段：...\n摘要：...", k=5))
 1. **相似度绝对值不能当阈值**。mmBERT 句向量存在各向异性——不相关文本的余弦也有 0.93+。
    **只用相对排序（Top-k）**，不要写 `if sim > 0.9` 这类判断。
 2. **启动约 15–25 秒**（torch/transformers 导入 + 模型加载）；首次建索引再加约 30 秒，
-   之后走 `runs/recall-index.pt` 缓存（按语料 size+mtime 自动失效）。
+   之后走用户缓存目录中的 `recall-index.pt`（可用 `SHIGUAN_RECALL_CACHE` 覆盖）。
+   **warm 查询会重新检查当前数据源的 size 与 mtime**：文件变长、mtime 变化，或原先无效的实时索引出现有效行时，下一次 `recall()` 先重建再返回。未变化则复用已载入的向量，不重新编码。失效依据只有 size 与 mtime，没有内容摘要。同大小且 mtime 未变的原地改写不会被发现。
 3. 依赖 venv：`training/laya-shiguan/.venv`（Python 3.12 + torch 2.14.0+cu130 + laya 0.3.21）。
    **必须用该 venv 的 python**，系统 Python 无这些依赖。
 4. 语料里 162 条合成/负例样本**不入索引**（只索引 `source == index` 的真实记录）。

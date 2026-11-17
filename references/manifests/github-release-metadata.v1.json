@@ -6,8 +6,18 @@
     "max_body_chars": 1200,
     "required": true
   },
-  "latest_tag": "beta1.2.5",
+  "latest_tag": "beta1.2.6",
   "releases": [
+    {
+      "tag": "beta1.2.6",
+      "title": "Decretum Matrix beta1.2.6",
+      "summary": "warm 召回跟随索引 size/mtime 更新，局域网密钥下载改为带令牌的文件获取。",
+      "highlights": [
+        "索引变长后，下一次 warm 查询返回新行；size 与 mtime 未变时不重新编码，也不新增摘要。",
+        "密钥下载先带管理令牌取回文件再保存。无权限时显示真实原因，失败时不显示正在下载。"
+      ],
+      "asset_note": "npm 版本为 1.2.6-beta.0；远端发布、CI 和宿主安装以各自回执为准。"
+    },
     {
       "tag": "beta1.2.5",
       "title": "Decretum Matrix beta1.2.5",
